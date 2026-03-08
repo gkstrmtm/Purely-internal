@@ -6,6 +6,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { PORTAL_SERVICES } from "@/app/portal/services/catalog";
 import { AppModal } from "@/components/AppModal";
 import { PortalListboxDropdown } from "@/components/PortalListboxDropdown";
+import { PortalMediaPickerModal, type PortalMediaPickItem } from "@/components/PortalMediaPickerModal";
 import { PortalSettingsSection } from "@/components/PortalSettingsSection";
 import { PortalVariablePickerModal } from "@/components/PortalVariablePickerModal";
 import { useToast } from "@/components/ToastProvider";
@@ -237,6 +238,9 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
   const [createTagBusy, setCreateTagBusy] = useState(false);
   const [createTagStepId, setCreateTagStepId] = useState<string | null>(null);
 
+  const [uploadBusyStepId, setUploadBusyStepId] = useState<string | null>(null);
+  const [mediaPicker, setMediaPicker] = useState<null | { title: string; onPick: (item: PortalMediaPickItem) => void }>(null);
+
   const [varPickerOpen, setVarPickerOpen] = useState(false);
   const [varPickerTarget, setVarPickerTarget] = useState<
     null | { kind: "step"; stepId: string; field: "emailSubject" | "emailBody" | "smsBody" }
@@ -251,6 +255,17 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
     }
   >(null);
   const [chainTemplateDraftName, setChainTemplateDraftName] = useState("");
+
+  async function uploadFileAndGetLink(file: File): Promise<string> {
+    const fd = new FormData();
+    fd.set("file", file);
+    const res = await fetch("/api/uploads", { method: "POST", body: fd });
+    const body = (await res.json().catch(() => ({}))) as any;
+    if (!res.ok) throw new Error((typeof body?.error === "string" ? body.error : null) ?? "Upload failed");
+    const rawUrl = typeof body?.url === "string" ? body.url : "";
+    if (!rawUrl) throw new Error("Upload did not return a URL");
+    return rawUrl.startsWith("/") ? window.location.origin + rawUrl : rawUrl;
+  }
 
   async function generateDraft(opts: {
     kind: "EMAIL" | "SMS";
@@ -995,20 +1010,20 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
                 const renderChain = (opts: {
                   title: string;
                   steps: FollowUpStep[];
-                  setSteps: (next: FollowUpStep[]) => void;
+                  setSteps: (next: FollowUpStep[] | ((prev: FollowUpStep[]) => FollowUpStep[])) => void;
                 }) => {
                   const steps = Array.isArray(opts.steps) ? opts.steps : [];
 
                   const updateStep = (stepId: string, patch: Partial<FollowUpStep>) => {
-                    opts.setSteps(steps.map((s) => (s.id === stepId ? { ...s, ...patch } : s)));
+                    opts.setSteps((prev) => (Array.isArray(prev) ? prev : []).map((s) => (s.id === stepId ? { ...s, ...patch } : s)));
                   };
 
                   const addStep = (step: FollowUpStep) => {
-                    opts.setSteps([...steps, step].slice(0, 30));
+                    opts.setSteps((prev) => [...(Array.isArray(prev) ? prev : []), step].slice(0, 30));
                   };
 
                   const removeStep = (stepId: string) => {
-                    opts.setSteps(steps.filter((s) => s.id !== stepId));
+                    opts.setSteps((prev) => (Array.isArray(prev) ? prev : []).filter((s) => s.id !== stepId));
                   };
 
                   const addInternalEmailToStep = (stepId: string) => {
@@ -1434,6 +1449,60 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
                                               >
                                                 Insert variable
                                               </button>
+                                              <label className="rounded-xl border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-700 hover:bg-zinc-50 disabled:opacity-60">
+                                                {uploadBusyStepId === s.id ? "Uploading…" : "Upload file"}
+                                                <input
+                                                  type="file"
+                                                  className="hidden"
+                                                  disabled={busy || uploadBusyStepId === s.id}
+                                                  onChange={async (e) => {
+                                                    const f = e.target.files?.[0];
+                                                    e.currentTarget.value = "";
+                                                    if (!f) return;
+                                                    try {
+                                                      setUploadBusyStepId(s.id);
+                                                      const link = await uploadFileAndGetLink(f);
+                                                      updateStep(s.id, {
+                                                        email: {
+                                                          ...(s.email ?? { subjectTemplate: "", bodyTemplate: "" }),
+                                                          bodyTemplate: (() => {
+                                                            const base = String(s.email?.bodyTemplate ?? "");
+                                                            const sep = base.trim().length ? "\n\n" : "";
+                                                            return (base + sep + link).slice(0, 8000);
+                                                          })(),
+                                                        },
+                                                      });
+                                                    } catch (err: any) {
+                                                      toast.error(String(err?.message || "Upload failed"));
+                                                    } finally {
+                                                      setUploadBusyStepId((prev) => (prev === s.id ? null : prev));
+                                                    }
+                                                  }}
+                                                />
+                                              </label>
+                                              <button
+                                                type="button"
+                                                disabled={busy}
+                                                className="rounded-xl border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-700 hover:bg-zinc-50 disabled:opacity-60"
+                                                onClick={() => {
+                                                  setMediaPicker({
+                                                    title: "Attach from media library",
+                                                    onPick: (item) => {
+                                                      const link = window.location.origin + item.shareUrl;
+                                                      const base = String(s.email?.bodyTemplate ?? "");
+                                                      const sep = base.trim().length ? "\n\n" : "";
+                                                      updateStep(s.id, {
+                                                        email: {
+                                                          ...(s.email ?? { subjectTemplate: "", bodyTemplate: "" }),
+                                                          bodyTemplate: (base + sep + link).slice(0, 8000),
+                                                        },
+                                                      });
+                                                    },
+                                                  });
+                                                }}
+                                              >
+                                                Attach files
+                                              </button>
                                             </div>
                                           </div>
                                           <textarea
@@ -1498,6 +1567,60 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
                                             >
                                               Insert variable
                                             </button>
+                                            <label className="rounded-xl border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-700 hover:bg-zinc-50 disabled:opacity-60">
+                                              {uploadBusyStepId === s.id ? "Uploading…" : "Upload file"}
+                                              <input
+                                                type="file"
+                                                className="hidden"
+                                                disabled={busy || uploadBusyStepId === s.id}
+                                                onChange={async (e) => {
+                                                  const f = e.target.files?.[0];
+                                                  e.currentTarget.value = "";
+                                                  if (!f) return;
+                                                  try {
+                                                    setUploadBusyStepId(s.id);
+                                                    const link = await uploadFileAndGetLink(f);
+                                                    updateStep(s.id, {
+                                                      sms: {
+                                                        ...(s.sms ?? { bodyTemplate: "" }),
+                                                        bodyTemplate: (() => {
+                                                          const base = String(s.sms?.bodyTemplate ?? "");
+                                                          const sep = base.trim().length ? "\n\n" : "";
+                                                          return (base + sep + link).slice(0, 2000);
+                                                        })(),
+                                                      },
+                                                    });
+                                                  } catch (err: any) {
+                                                    toast.error(String(err?.message || "Upload failed"));
+                                                  } finally {
+                                                    setUploadBusyStepId((prev) => (prev === s.id ? null : prev));
+                                                  }
+                                                }}
+                                              />
+                                            </label>
+                                            <button
+                                              type="button"
+                                              disabled={busy}
+                                              className="rounded-xl border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-700 hover:bg-zinc-50 disabled:opacity-60"
+                                              onClick={() => {
+                                                setMediaPicker({
+                                                  title: "Attach from media library",
+                                                  onPick: (item) => {
+                                                    const link = window.location.origin + item.shareUrl;
+                                                    const base = String(s.sms?.bodyTemplate ?? "");
+                                                    const sep = base.trim().length ? "\n\n" : "";
+                                                    updateStep(s.id, {
+                                                      sms: {
+                                                        ...(s.sms ?? { bodyTemplate: "" }),
+                                                        bodyTemplate: (base + sep + link).slice(0, 2000),
+                                                      },
+                                                    });
+                                                  },
+                                                });
+                                              }}
+                                            >
+                                              Attach files
+                                            </button>
                                           </div>
                                         </div>
                                         <textarea
@@ -1557,15 +1680,28 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
                   );
                 };
 
-                const setDefaultSteps = (next: FollowUpStep[]) =>
-                  setSettings({ ...settings, assignments: { ...settings.assignments, defaultSteps: next } });
-                const setCalendarSteps = (calendarId: string, next: FollowUpStep[]) =>
-                  setSettings({
-                    ...settings,
-                    assignments: {
-                      ...settings.assignments,
-                      calendarSteps: { ...(settings.assignments.calendarSteps ?? {}), [calendarId]: next },
-                    },
+                const setDefaultSteps = (next: FollowUpStep[] | ((prev: FollowUpStep[]) => FollowUpStep[])) =>
+                  setSettings((prev) => {
+                    if (!prev) return prev;
+                    const prevSteps = prev.assignments.defaultSteps ?? [];
+                    const resolved = typeof next === "function" ? next(prevSteps) : next;
+                    return { ...prev, assignments: { ...prev.assignments, defaultSteps: resolved } };
+                  });
+                const setCalendarSteps = (
+                  calendarId: string,
+                  next: FollowUpStep[] | ((prev: FollowUpStep[]) => FollowUpStep[]),
+                ) =>
+                  setSettings((prev) => {
+                    if (!prev) return prev;
+                    const prevSteps = prev.assignments.calendarSteps?.[calendarId] ?? [];
+                    const resolved = typeof next === "function" ? next(prevSteps) : next;
+                    return {
+                      ...prev,
+                      assignments: {
+                        ...prev.assignments,
+                        calendarSteps: { ...(prev.assignments.calendarSteps ?? {}), [calendarId]: resolved },
+                      },
+                    };
                   });
 
                 return (
@@ -1839,6 +1975,19 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
             el.setSelectionRange(cursor, cursor);
           });
         }}
+      />
+
+      <PortalMediaPickerModal
+        open={Boolean(mediaPicker)}
+        onClose={() => setMediaPicker(null)}
+        onPick={(item) => {
+          const pick = mediaPicker;
+          setMediaPicker(null);
+          if (!pick) return;
+          pick.onPick(item);
+        }}
+        confirmLabel="Attach"
+        title={mediaPicker?.title ?? "Attach"}
       />
 
       <AppModal

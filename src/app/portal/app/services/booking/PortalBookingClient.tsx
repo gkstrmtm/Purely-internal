@@ -1869,17 +1869,6 @@ export function PortalBookingClient() {
                                     </svg>
                                     <span>{reminderGeneratingStepId === s.id ? "Drafting…" : "AI draft"}</span>
                                   </button>
-                                  <button
-                                    type="button"
-                                    disabled={reminderSaving}
-                                    className="rounded-xl border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-brand-ink hover:bg-zinc-50 disabled:opacity-60"
-                                    onClick={() => {
-                                      setReminderVarPickerTarget({ stepId: s.id, field: "body" });
-                                      setReminderVarPickerOpen(true);
-                                    }}
-                                  >
-                                    Insert variable
-                                  </button>
                                   <label className="rounded-xl border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-700 hover:bg-zinc-50 disabled:opacity-60">
                                     {reminderUploadBusyStepId === s.id ? "Uploading…" : "Upload file"}
                                     <input

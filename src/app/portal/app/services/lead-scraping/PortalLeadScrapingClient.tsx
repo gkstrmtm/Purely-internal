@@ -164,42 +164,6 @@ function clampInt(n: number, min: number, max: number) {
   return Math.min(max, Math.max(min, Math.floor(n)));
 }
 
-function normalizeTagPresetsClient(value: unknown): Array<{ label: string; color: string }> {
-  const raw = Array.isArray(value) ? value : [];
-  const presets = raw
-    .map((p) => (p && typeof p === "object" ? (p as Record<string, unknown>) : {}))
-    .map((p) => {
-      const label = (typeof p.label === "string" ? p.label.trim() : "").slice(0, 40);
-      const colorRaw = typeof p.color === "string" ? p.color.trim() : "";
-      const color = (TAG_COLORS as readonly string[]).includes(colorRaw) ? colorRaw : "#111827";
-      return { label, color };
-    })
-    .filter((p) => Boolean(p.label))
-    .slice(0, 10);
-
-  if (presets.length) return presets;
-  return [
-    { label: "New", color: "#2563EB" },
-    { label: "Follow-up", color: "#F59E0B" },
-    { label: "Outbound sent", color: "#10B981" },
-    { label: "Interested", color: "#7C3AED" },
-    { label: "Not interested", color: "#64748B" },
-  ];
-}
-
-function coerceTagPresetsForEditing(value: unknown): Array<{ label: string; color: string }> {
-  if (!Array.isArray(value)) return normalizeTagPresetsClient(undefined);
-  return value
-    .map((p) => (p && typeof p === "object" ? (p as Record<string, unknown>) : {}))
-    .map((p) => {
-      const label = (typeof p.label === "string" ? p.label : "").slice(0, 40);
-      const colorRaw = typeof p.color === "string" ? p.color.trim() : "";
-      const color = (TAG_COLORS as readonly string[]).includes(colorRaw) ? colorRaw : "#111827";
-      return { label, color };
-    })
-    .slice(0, 10);
-}
-
 function csvEscape(v: string) {
   if (v.includes("\"")) v = v.replaceAll("\"", "\"\"");
   if (/[\n\r,\"]/g.test(v)) return `"${v}"`;
@@ -302,13 +266,11 @@ function SettingsSection({
   title,
   description,
   accent,
-  defaultOpen,
   children,
 }: {
   title: string;
   description?: string;
   accent: "blue" | "pink" | "amber" | "emerald" | "slate";
-  defaultOpen?: boolean;
   children: React.ReactNode;
 }) {
   const accentDotClass =
@@ -323,11 +285,8 @@ function SettingsSection({
             : "bg-slate-500";
 
   return (
-    <details
-      className="group rounded-3xl border border-zinc-200 bg-zinc-50"
-      open={defaultOpen ? true : undefined}
-    >
-      <summary className="flex cursor-pointer list-none items-start justify-between gap-4 rounded-3xl px-5 py-4 select-none hover:bg-zinc-100 [&::-webkit-details-marker]:hidden [&::marker]:content-none">
+    <div className="rounded-3xl border border-zinc-200 bg-white p-5">
+      <div className="flex items-start justify-between gap-4">
         <div className="min-w-0">
           <div className="flex items-center gap-3">
             <span className={"h-2.5 w-2.5 shrink-0 rounded-full " + accentDotClass} />
@@ -335,16 +294,53 @@ function SettingsSection({
           </div>
           {description ? <div className="mt-1 text-sm text-zinc-600">{description}</div> : null}
         </div>
-        <div className="shrink-0 rounded-full border border-zinc-200 bg-white px-3 py-1 text-xs font-semibold text-zinc-700">
-          <span className="hidden group-open:inline">Hide</span>
-          <span className="group-open:hidden">Show</span>
-        </div>
-      </summary>
-
-      <div className="px-5 pb-5">
-        <div className="rounded-2xl border border-zinc-200 bg-white p-4">{children}</div>
       </div>
-    </details>
+
+      <div className="mt-4">{children}</div>
+    </div>
+  );
+}
+
+function ToggleSwitch({
+  checked,
+  onChange,
+  disabled,
+  accent = "blue",
+}: {
+  checked: boolean;
+  onChange: (checked: boolean) => void;
+  disabled?: boolean;
+  accent?: "blue" | "pink" | "ink";
+}) {
+  const checkedBgClass =
+    accent === "pink"
+      ? "peer-checked:bg-(--color-brand-pink)"
+      : accent === "ink"
+        ? "peer-checked:bg-brand-ink"
+        : "peer-checked:bg-(--color-brand-blue)";
+
+  return (
+    <span className="relative inline-flex h-6 w-11 shrink-0 items-center">
+      <input
+        type="checkbox"
+        className="peer absolute inset-0 z-10 h-full w-full cursor-pointer opacity-0"
+        checked={checked}
+        disabled={disabled}
+        onChange={(e) => onChange(e.target.checked)}
+      />
+      <span
+        aria-hidden="true"
+        className={
+          "pointer-events-none absolute inset-0 rounded-full bg-zinc-200 transition " +
+          checkedBgClass +
+          " peer-disabled:opacity-60"
+        }
+      />
+      <span
+        aria-hidden="true"
+        className="pointer-events-none absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow-sm transition peer-checked:translate-x-5 peer-disabled:opacity-60"
+      />
+    </span>
   );
 }
 
@@ -382,21 +378,9 @@ export function PortalLeadScrapingClient() {
     setLeads((prev) => prev.map((l) => (l.id === leadId ? { ...l, contactTags: next } : l)));
   }
 
-  const tagPresets = useMemo(() => {
-    if (tab === "b2b") return normalizeTagPresetsClient(settings?.b2b?.tagPresets ?? settings?.tagPresets);
-    return normalizeTagPresetsClient(settings?.b2c?.tagPresets ?? settings?.tagPresets);
-  }, [tab, settings?.b2b?.tagPresets, settings?.b2c?.tagPresets, settings?.tagPresets]);
-
   const tagOptions = useMemo(() => {
     const opts: Array<{ label: string; color: string }> = [];
     const seen = new Set<string>();
-
-    for (const p of tagPresets) {
-      const key = p.label.trim().toLowerCase();
-      if (!key || seen.has(key)) continue;
-      seen.add(key);
-      opts.push({ label: p.label, color: p.color });
-    }
 
     for (const l of leads) {
       const label = (l.tag ?? "").trim();
@@ -409,7 +393,7 @@ export function PortalLeadScrapingClient() {
     }
 
     return opts;
-  }, [leads, tagPresets]);
+  }, [leads]);
 
   const [composeOpen, setComposeOpen] = useState(false);
   const [composeSubject, setComposeSubject] = useState("");
@@ -923,7 +907,7 @@ export function PortalLeadScrapingClient() {
       return;
     }
     if (!composeSendEmail && !composeSendSms) {
-      setError("Choose Email and/or Text.");
+      setError("Choose Email and/or SMS.");
       return;
     }
 
@@ -978,9 +962,9 @@ export function PortalLeadScrapingClient() {
     if (!activeLead) return;
     setLeadEmailDraft(activeLead.email ?? "");
     setLeadTagDraft(activeLead.tag ?? "");
-    const defaultColor = tagPresets[0]?.color ?? "#111827";
+    const defaultColor = "#111827";
     setLeadTagColorDraft(isHexColor(activeLead.tagColor || "") ? (activeLead.tagColor as string) : defaultColor);
-  }, [activeLead, tagPresets]);
+  }, [activeLead]);
 
   async function patchLead(
     leadId: string,
@@ -1054,8 +1038,10 @@ export function PortalLeadScrapingClient() {
     window.setTimeout(() => setStatus(null), 1500);
   }
 
-  function renderOutboundEditor(opts?: { outerClassName?: string }) {
+  function renderOutboundEditor(opts?: { outerClassName?: string; accent?: "blue" | "pink" | "ink" }) {
     if (!settings) return null;
+
+    const toggleAccent = opts?.accent ?? "blue";
 
     const outerClassName = opts?.outerClassName ?? "mt-6";
 
@@ -1079,52 +1065,58 @@ export function PortalLeadScrapingClient() {
               Templates support {"{businessName}"}, {"{phone}"}, {"{website}"}, {"{address}"}, {"{niche}"}.
             </div>
           </div>
-          <label className="inline-flex items-center gap-2 text-sm font-semibold text-zinc-700">
-            <input
-              type="checkbox"
+          <div className="flex items-center gap-2">
+            <div className="text-sm font-semibold text-zinc-700">On</div>
+            <ToggleSwitch
               checked={settings.outbound.enabled}
-              onChange={(e) =>
-                setSettings((prev) =>
-                  prev ? { ...prev, outbound: { ...prev.outbound, enabled: e.target.checked } } : prev,
-                )
+              accent={toggleAccent}
+              onChange={(checked) =>
+                setSettings((prev) => (prev ? { ...prev, outbound: { ...prev.outbound, enabled: checked } } : prev))
               }
-              className="h-4 w-4 rounded border-zinc-300"
             />
-            On
-          </label>
+          </div>
         </div>
 
         <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4 sm:col-span-2">
+          <div className="rounded-2xl border border-zinc-200 bg-[linear-gradient(90deg,rgba(29,78,216,0.10),rgba(236,72,153,0.10),rgba(255,255,255,0.85))] p-4 sm:col-span-2">
             <div className="flex items-center justify-between gap-3">
               <div>
-                <div className="text-sm font-semibold text-zinc-900">AI draft + send</div>
+                <div className="flex items-center gap-2 text-sm font-semibold text-zinc-900">
+                  <svg
+                    aria-hidden="true"
+                    viewBox="0 0 24 24"
+                    className="h-4 w-4 text-[color:var(--color-brand-pink)]"
+                    fill="currentColor"
+                  >
+                    <path d="M12 2l1.2 4.2L17 7.4l-3.8 1.2L12 13l-1.2-4.4L7 7.4l3.8-1.2L12 2zm7 7l.8 2.8 2.2.7-2.2.7L19 16l-.8-2.8-2.2-.7 2.2-.7L19 9zm-14 3l.8 2.8 2.2.7-2.2.7L5 19l-.8-2.8-2.2-.7 2.2-.7L5 12z" />
+                  </svg>
+                  AI draft + send
+                </div>
                 <div className="mt-1 text-xs text-zinc-500">
                   When enabled, outbound messages are drafted by AI (uses your existing AI env vars) instead of the templates below.
                 </div>
               </div>
-              <label className="inline-flex items-center gap-2 text-sm text-zinc-700">
-                <input
-                  type="checkbox"
+              <div className="flex items-center gap-2">
+                <div className="text-sm font-semibold text-zinc-700">On</div>
+                <ToggleSwitch
                   checked={Boolean((settings.outbound as any).aiDraftAndSend)}
-                  onChange={(e) =>
+                  accent={toggleAccent}
+                  onChange={(checked) =>
                     setSettings((prev) =>
                       prev
                         ? {
                             ...prev,
                             outbound: {
                               ...prev.outbound,
-                              enabled: e.target.checked ? true : prev.outbound.enabled,
-                              aiDraftAndSend: e.target.checked,
+                              enabled: checked ? true : prev.outbound.enabled,
+                              aiDraftAndSend: checked,
                             },
                           }
                         : prev,
                     )
                   }
-                  className="h-4 w-4 rounded border-zinc-300"
                 />
-                On
-              </label>
+              </div>
             </div>
 
             {Boolean((settings.outbound as any).aiDraftAndSend) ? (
@@ -1157,28 +1149,27 @@ export function PortalLeadScrapingClient() {
           <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
             <div className="flex items-center justify-between gap-3">
               <div className="text-sm font-semibold text-zinc-900">Email</div>
-              <label className="inline-flex items-center gap-2 text-sm text-zinc-700">
-                <input
-                  type="checkbox"
+              <div className="flex items-center gap-2">
+                <div className="text-sm font-semibold text-zinc-700">On</div>
+                <ToggleSwitch
                   checked={settings.outbound.email.enabled}
-                  onChange={(e) =>
+                  accent={toggleAccent}
+                  onChange={(checked) =>
                     setSettings((prev) =>
                       prev
                         ? {
                             ...prev,
                             outbound: {
                               ...prev.outbound,
-                              enabled: e.target.checked ? true : prev.outbound.enabled,
-                              email: { ...prev.outbound.email, enabled: e.target.checked },
+                              enabled: checked ? true : prev.outbound.enabled,
+                              email: { ...prev.outbound.email, enabled: checked },
                             },
                           }
                         : prev,
                     )
                   }
-                  className="h-4 w-4 rounded border-zinc-300"
                 />
-                On
-              </label>
+              </div>
             </div>
 
             <div className="mt-3 grid grid-cols-1 gap-3">
@@ -1260,29 +1251,28 @@ export function PortalLeadScrapingClient() {
 
           <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
             <div className="flex items-center justify-between gap-3">
-              <div className="text-sm font-semibold text-zinc-900">Text message</div>
-              <label className="inline-flex items-center gap-2 text-sm text-zinc-700">
-                <input
-                  type="checkbox"
+              <div className="text-sm font-semibold text-zinc-900">SMS</div>
+              <div className="flex items-center gap-2">
+                <div className="text-sm font-semibold text-zinc-700">On</div>
+                <ToggleSwitch
                   checked={settings.outbound.sms.enabled}
-                  onChange={(e) =>
+                  accent={toggleAccent}
+                  onChange={(checked) =>
                     setSettings((prev) =>
                       prev
                         ? {
                             ...prev,
                             outbound: {
                               ...prev.outbound,
-                              enabled: e.target.checked ? true : prev.outbound.enabled,
-                              sms: { ...prev.outbound.sms, enabled: e.target.checked },
+                              enabled: checked ? true : prev.outbound.enabled,
+                              sms: { ...prev.outbound.sms, enabled: checked },
                             },
                           }
                         : prev,
                     )
                   }
-                  className="h-4 w-4 rounded border-zinc-300"
                 />
-                On
-              </label>
+              </div>
             </div>
 
             <div className="mt-3 grid grid-cols-1 gap-3">
@@ -1345,10 +1335,11 @@ export function PortalLeadScrapingClient() {
                   <div className="mt-1 text-xs text-zinc-500">Calls are queued into your active AI outbound campaign.</div>
                 </div>
                 <label className="inline-flex items-center gap-2 text-sm text-zinc-700">
-                  <input
-                    type="checkbox"
+                  <div className="text-sm font-semibold text-zinc-700">On</div>
+                  <ToggleSwitch
                     checked={Boolean(settings.outbound.calls?.enabled)}
-                    onChange={(e) =>
+                    accent={toggleAccent}
+                    onChange={(checked) =>
                       setSettings((prev) => {
                         if (!prev) return prev;
                         const calls = prev.outbound.calls ?? {
@@ -1359,15 +1350,13 @@ export function PortalLeadScrapingClient() {
                           ...prev,
                           outbound: {
                             ...prev.outbound,
-                            enabled: e.target.checked ? true : prev.outbound.enabled,
-                            calls: { ...calls, enabled: e.target.checked },
+                            enabled: checked ? true : prev.outbound.enabled,
+                            calls: { ...calls, enabled: checked },
                           },
                         };
                       })
                     }
-                    className="h-4 w-4 rounded border-zinc-300"
                   />
-                  On
                 </label>
               </div>
 
@@ -1553,14 +1542,8 @@ export function PortalLeadScrapingClient() {
         <div>
           <h1 className="text-2xl font-bold text-brand-ink sm:text-3xl">Lead Scraping</h1>
           <p className="mt-2 max-w-2xl text-sm text-zinc-600">
-            Pull business listings by niche + location. Optionally auto-send a plain-text email and/or text message.
+            Pull hundreds of leads in any niche or area — and reach out instantly.
           </p>
-        </div>
-        <div className="flex flex-col items-stretch gap-2 sm:items-end">
-          <div className="rounded-2xl border border-[color:rgba(29,78,216,0.18)] bg-[color:rgba(29,78,216,0.06)] px-4 py-3 text-sm">
-            <div className="text-xs font-semibold text-[color:var(--color-brand-blue)]">Credits</div>
-            <div className="mt-0.5 font-semibold text-zinc-900">{credits ?? "N/A"}</div>
-          </div>
         </div>
       </div>
 
@@ -1572,7 +1555,7 @@ export function PortalLeadScrapingClient() {
           className={
             "flex-1 min-w-[220px] rounded-2xl border px-4 py-2.5 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
             (tab === "b2b"
-              ? "border-zinc-900 bg-zinc-900 text-white shadow-sm"
+              ? "border-(--color-brand-blue) bg-(--color-brand-blue) text-white shadow-sm"
               : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
           }
         >
@@ -1585,7 +1568,7 @@ export function PortalLeadScrapingClient() {
           className={
             "flex-1 min-w-[220px] rounded-2xl border px-4 py-2.5 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
             (tab === "b2c"
-              ? "border-zinc-900 bg-zinc-900 text-white shadow-sm"
+              ? "border-(--color-brand-pink) bg-(--color-brand-pink) text-white shadow-sm"
               : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
           }
         >
@@ -1717,26 +1700,26 @@ export function PortalLeadScrapingClient() {
                       placeholder="e.g. Austin TX"
                     />
 
-                    <label className="mt-3 flex items-center justify-between gap-3 rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm">
+                    <div className="mt-3 flex items-center justify-between gap-3 rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm">
                       <span className="text-zinc-800">Use fallbacks to reach count</span>
-                      <input
-                        type="checkbox"
+                      <ToggleSwitch
                         checked={Boolean((settings.b2b as any).fallbackEnabled)}
-                        onChange={(e) =>
+                        accent="blue"
+                        onChange={(checked) =>
                           setSettings((prev) =>
                             prev
                               ? {
                                   ...prev,
                                   b2b: {
                                     ...prev.b2b,
-                                    fallbackEnabled: e.target.checked,
+                                    fallbackEnabled: checked,
                                   } as any,
                                 }
                               : prev,
                           )
                         }
                       />
-                    </label>
+                    </div>
 
                     <div className="mt-3">
                       <div className="text-xs font-semibold text-zinc-600">Fallback locations (one per line)</div>
@@ -1792,42 +1775,36 @@ export function PortalLeadScrapingClient() {
 
                   <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
                     <div className="text-sm font-medium text-zinc-800">Filters</div>
-                    <label className="mt-3 flex items-center justify-between gap-3 text-sm">
+                    <div className="mt-3 flex items-center justify-between gap-3 text-sm">
                       <span className="text-zinc-700">Require email</span>
-                      <input
-                        type="checkbox"
+                      <ToggleSwitch
                         checked={settings.b2b.requireEmail}
-                        onChange={(e) =>
-                          setSettings((prev) =>
-                            prev ? { ...prev, b2b: { ...prev.b2b, requireEmail: e.target.checked } } : prev,
-                          )
+                        accent="blue"
+                        onChange={(checked) =>
+                          setSettings((prev) => (prev ? { ...prev, b2b: { ...prev.b2b, requireEmail: checked } } : prev))
                         }
                       />
-                    </label>
-                    <label className="mt-3 flex items-center justify-between gap-3 text-sm">
+                    </div>
+                    <div className="mt-3 flex items-center justify-between gap-3 text-sm">
                       <span className="text-zinc-700">Require phone</span>
-                      <input
-                        type="checkbox"
+                      <ToggleSwitch
                         checked={settings.b2b.requirePhone}
-                        onChange={(e) =>
-                          setSettings((prev) =>
-                            prev ? { ...prev, b2b: { ...prev.b2b, requirePhone: e.target.checked } } : prev,
-                          )
+                        accent="blue"
+                        onChange={(checked) =>
+                          setSettings((prev) => (prev ? { ...prev, b2b: { ...prev.b2b, requirePhone: checked } } : prev))
                         }
                       />
-                    </label>
-                    <label className="mt-2 flex items-center justify-between gap-3 text-sm">
+                    </div>
+                    <div className="mt-2 flex items-center justify-between gap-3 text-sm">
                       <span className="text-zinc-700">Require website</span>
-                      <input
-                        type="checkbox"
+                      <ToggleSwitch
                         checked={settings.b2b.requireWebsite}
-                        onChange={(e) =>
-                          setSettings((prev) =>
-                            prev ? { ...prev, b2b: { ...prev.b2b, requireWebsite: e.target.checked } } : prev,
-                          )
+                        accent="blue"
+                        onChange={(checked) =>
+                          setSettings((prev) => (prev ? { ...prev, b2b: { ...prev.b2b, requireWebsite: checked } } : prev))
                         }
                       />
-                    </label>
+                    </div>
                   </div>
                 </div>
 
@@ -2066,18 +2043,18 @@ export function PortalLeadScrapingClient() {
                     accent="amber"
                   >
                     <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-                      <label className="flex items-center justify-between gap-3 rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm">
+                      <div className="flex items-center justify-between gap-3 rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm">
                         <span className="text-zinc-800">On</span>
-                        <input
-                          type="checkbox"
+                        <ToggleSwitch
                           checked={settings.b2b.scheduleEnabled}
-                          onChange={(e) =>
+                          accent="blue"
+                          onChange={(checked) =>
                             setSettings((prev) =>
-                              prev ? { ...prev, b2b: { ...prev.b2b, scheduleEnabled: e.target.checked } } : prev,
+                              prev ? { ...prev, b2b: { ...prev.b2b, scheduleEnabled: checked } } : prev,
                             )
                           }
                         />
-                      </label>
+                      </div>
 
                       <label className="block sm:col-span-2">
                         <div className="text-sm font-medium text-zinc-800">Frequency (days)</div>
@@ -2113,91 +2090,7 @@ export function PortalLeadScrapingClient() {
                     description="Optional email/text templates that can send automatically."
                     accent="emerald"
                   >
-                    {renderOutboundEditor({ outerClassName: "" })}
-                  </SettingsSection>
-
-                  <SettingsSection
-                    title="Tag presets"
-                    description="Quick-pick tags when you open a lead."
-                    accent="pink"
-                  >
-                    <div className="flex items-start justify-between gap-4">
-                      <div className="text-sm text-zinc-600">Up to 10 presets.</div>
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setSettings((prev) => {
-                            if (!prev) return prev;
-                            const next = coerceTagPresetsForEditing(prev.b2b.tagPresets);
-                            if (next.length >= 10) return prev;
-                            return {
-                              ...prev,
-                              b2b: { ...prev.b2b, tagPresets: [...next, { label: "", color: "#111827" }].slice(0, 10) },
-                            };
-                          })
-                        }
-                        className="shrink-0 rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
-                      >
-                        + Add
-                      </button>
-                    </div>
-
-                    <div className="mt-4 space-y-3">
-                      {coerceTagPresetsForEditing(settings.b2b.tagPresets).map((p, idx) => (
-                        <div key={`${p.label}-${idx}`} className="rounded-2xl border border-zinc-200 bg-white p-4">
-                          <div className="grid grid-cols-1 gap-3 sm:grid-cols-6 sm:items-center">
-                            <label className="block sm:col-span-3">
-                              <div className="text-xs font-semibold text-zinc-600">Label</div>
-                              <input
-                                className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                                value={p.label}
-                                onChange={(e) =>
-                                  setSettings((prev) => {
-                                    if (!prev) return prev;
-                                    const base = coerceTagPresetsForEditing(prev.b2b.tagPresets);
-                                    const next = base.map((x, i) => (i === idx ? { ...x, label: e.target.value } : x));
-                                    return { ...prev, b2b: { ...prev.b2b, tagPresets: next } };
-                                  })
-                                }
-                                placeholder="e.g. New"
-                              />
-                            </label>
-
-                            <div className="sm:col-span-2">
-                              <div className="text-xs font-semibold text-zinc-600">Color</div>
-                              <div className="mt-2">
-                                <ColorSwatches
-                                  value={p.color}
-                                  onChange={(hex) =>
-                                    setSettings((prev) => {
-                                      if (!prev) return prev;
-                                      const base = coerceTagPresetsForEditing(prev.b2b.tagPresets);
-                                      const next = base.map((x, i) => (i === idx ? { ...x, color: hex } : x));
-                                      return { ...prev, b2b: { ...prev.b2b, tagPresets: next } };
-                                    })
-                                  }
-                                />
-                              </div>
-                            </div>
-
-                            <button
-                              type="button"
-                              onClick={() =>
-                                setSettings((prev) => {
-                                  if (!prev) return prev;
-                                  const base = coerceTagPresetsForEditing(prev.b2b.tagPresets);
-                                  const next = base.filter((_, i) => i !== idx);
-                                  return { ...prev, b2b: { ...prev.b2b, tagPresets: next } };
-                                })
-                              }
-                              className="sm:col-span-1 rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
-                            >
-                              Remove
-                            </button>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
+                    {renderOutboundEditor({ outerClassName: "", accent: "blue" })}
                   </SettingsSection>
                 </div>
 
@@ -2495,149 +2388,24 @@ export function PortalLeadScrapingClient() {
               </div>
 
               <div className="rounded-3xl border border-zinc-200 bg-white p-6">
-                <div className="text-base font-semibold text-brand-ink">B2C settings</div>
-                <div className="mt-1 text-sm text-zinc-600">Scheduling and auto-outbound for consumer leads.</div>
-
-                <div className="mt-6 space-y-4">
-                  <SettingsSection
-                    title="Scheduling"
-                    description="Currently off for B2C (coming soon)."
-                    accent="amber"
-                  >
-                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                      <label className="flex items-center justify-between gap-3 rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm">
-                        <span className="text-zinc-800">Scheduling (off)</span>
-                        <input type="checkbox" checked={false} disabled />
-                      </label>
-
-                      <label className="block">
-                        <div className="text-sm font-medium text-zinc-800">Frequency (days)</div>
-                        <input
-                          className="mt-2 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                          type="number"
-                          min={1}
-                          max={60}
-                          value={settings.b2c.frequencyDays}
-                          onChange={(e) =>
-                            setSettings((prev) =>
-                              prev
-                                ? {
-                                    ...prev,
-                                    b2c: { ...prev.b2c, frequencyDays: clampInt(Number(e.target.value), 1, 60) },
-                                  }
-                                : prev,
-                            )
-                          }
-                        />
-                        <div className="mt-1 text-xs text-zinc-500">
-                          Last run: {settings.b2c.lastRunAtIso ? new Date(settings.b2c.lastRunAtIso).toLocaleString() : "Never"}
-                        </div>
-                      </label>
-                    </div>
-                  </SettingsSection>
-
-                  <SettingsSection
-                    title="Auto-outbound"
-                    description="Optional email/text templates that can send automatically."
-                    accent="emerald"
-                  >
-                    {renderOutboundEditor({ outerClassName: "" })}
-                  </SettingsSection>
-
-                  <SettingsSection
-                    title="Tag presets"
-                    description="Quick-pick tags when you open a lead."
-                    accent="pink"
-                  >
-                    <div className="flex items-start justify-between gap-4">
-                      <div className="text-sm text-zinc-600">Up to 10 presets.</div>
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setSettings((prev) => {
-                            if (!prev) return prev;
-                            const next = coerceTagPresetsForEditing(prev.b2c.tagPresets);
-                            if (next.length >= 10) return prev;
-                            return {
-                              ...prev,
-                              b2c: { ...prev.b2c, tagPresets: [...next, { label: "", color: "#111827" }].slice(0, 10) },
-                            };
-                          })
-                        }
-                        className="shrink-0 rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
-                      >
-                        + Add
-                      </button>
-                    </div>
-
-                    <div className="mt-4 space-y-3">
-                      {coerceTagPresetsForEditing(settings.b2c.tagPresets).map((p, idx) => (
-                        <div key={`${p.label}-${idx}`} className="rounded-2xl border border-zinc-200 bg-white p-4">
-                          <div className="grid grid-cols-1 gap-3 sm:grid-cols-6 sm:items-center">
-                            <label className="block sm:col-span-3">
-                              <div className="text-xs font-semibold text-zinc-600">Label</div>
-                              <input
-                                className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                                value={p.label}
-                                onChange={(e) =>
-                                  setSettings((prev) => {
-                                    if (!prev) return prev;
-                                    const base = coerceTagPresetsForEditing(prev.b2c.tagPresets);
-                                    const next = base.map((x, i) => (i === idx ? { ...x, label: e.target.value } : x));
-                                    return { ...prev, b2c: { ...prev.b2c, tagPresets: next } };
-                                  })
-                                }
-                                placeholder="e.g. New"
-                              />
-                            </label>
-
-                            <div className="sm:col-span-2">
-                              <div className="text-xs font-semibold text-zinc-600">Color</div>
-                              <div className="mt-2">
-                                <ColorSwatches
-                                  value={p.color}
-                                  onChange={(hex) =>
-                                    setSettings((prev) => {
-                                      if (!prev) return prev;
-                                      const base = coerceTagPresetsForEditing(prev.b2c.tagPresets);
-                                      const next = base.map((x, i) => (i === idx ? { ...x, color: hex } : x));
-                                      return { ...prev, b2c: { ...prev.b2c, tagPresets: next } };
-                                    })
-                                  }
-                                />
-                              </div>
-                            </div>
-
-                            <button
-                              type="button"
-                              onClick={() =>
-                                setSettings((prev) => {
-                                  if (!prev) return prev;
-                                  const base = coerceTagPresetsForEditing(prev.b2c.tagPresets);
-                                  const next = base.filter((_, i) => i !== idx);
-                                  return { ...prev, b2c: { ...prev.b2c, tagPresets: next } };
-                                })
-                              }
-                              className="sm:col-span-1 rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
-                            >
-                              Remove
-                            </button>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </SettingsSection>
+                <div className="text-base font-semibold text-brand-ink">B2C settings (coming soon)</div>
+                <div className="mt-1 text-sm text-zinc-600">
+                  B2C lead scraping isn’t live in the portal yet. If you want this built for your use case, book a call.
                 </div>
 
-                <div className="mt-6 flex flex-col gap-3 sm:flex-row">
-                  <button
-                    type="button"
-                    onClick={save}
-                    disabled={saving}
-                    className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-5 py-3 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
+                <div className="mt-6 rounded-3xl border border-[color:rgba(236,72,153,0.25)] bg-[linear-gradient(90deg,rgba(236,72,153,0.12),rgba(29,78,216,0.08),rgba(255,255,255,0.92))] p-6">
+                  <div className="text-sm font-semibold text-zinc-900">Want B2C leads?</div>
+                  <div className="mt-1 text-sm text-zinc-700">
+                    We’ll tailor the sources, filters, and follow-up flow for your market — and turn it on when the backend is ready.
+                  </div>
+                  <a
+                    href="/book-a-call"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="mt-4 inline-flex items-center justify-center rounded-2xl bg-(--color-brand-pink) px-5 py-3 text-sm font-semibold text-white shadow-sm hover:opacity-95"
                   >
-                    {saving ? "Saving…" : "Save"}
-                  </button>
+                    Book a call
+                  </a>
                 </div>
               </div>
             </div>
@@ -2807,7 +2575,7 @@ export function PortalLeadScrapingClient() {
                     type="button"
                     onClick={() => {
                       setLeadTagDraft("");
-                      setLeadTagColorDraft(tagPresets[0]?.color ?? "#111827");
+                      setLeadTagColorDraft("#111827");
                       void patchLead(activeLead.id, { tag: null, tagColor: null });
                     }}
                     disabled={leadMutating}
@@ -2958,26 +2726,24 @@ export function PortalLeadScrapingClient() {
                     </label>
 
                     <div className="sm:col-span-2 flex flex-wrap items-center gap-4 pt-1">
-                      <label className="inline-flex items-center gap-2 text-sm text-zinc-700">
-                        <input
-                          type="checkbox"
+                      <div className="inline-flex items-center gap-2 text-sm text-zinc-700">
+                        <span className="font-semibold">Email</span>
+                        <ToggleSwitch
                           checked={composeSendEmail}
-                          onChange={(e) => setComposeSendEmail(e.target.checked)}
+                          onChange={setComposeSendEmail}
                           disabled={!activeLead.email}
-                          className="h-4 w-4 rounded border-zinc-300"
+                          accent="blue"
                         />
-                        Email
-                      </label>
-                      <label className="inline-flex items-center gap-2 text-sm text-zinc-700">
-                        <input
-                          type="checkbox"
+                      </div>
+                      <div className="inline-flex items-center gap-2 text-sm text-zinc-700">
+                        <span className="font-semibold">SMS</span>
+                        <ToggleSwitch
                           checked={composeSendSms}
-                          onChange={(e) => setComposeSendSms(e.target.checked)}
+                          onChange={setComposeSendSms}
                           disabled={!activeLead.phone}
-                          className="h-4 w-4 rounded border-zinc-300"
+                          accent="blue"
                         />
-                        Text
-                      </label>
+                      </div>
                       {!activeLead.phone ? (
                         <span className="text-xs text-zinc-500">No phone on this lead</span>
                       ) : null}
