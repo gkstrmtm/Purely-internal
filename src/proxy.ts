@@ -432,6 +432,13 @@ export async function proxy(req: NextRequest) {
     return NextResponse.rewrite(url);
   }
 
+  // Only the internal employee app should be gated by employee auth.
+  // Public marketing pages (including "/") and employee login must remain accessible.
+  const isEmployeeApp = path === "/app" || path.startsWith("/app/");
+  if (!isEmployeeApp) {
+    return NextResponse.next();
+  }
+
   if (!employeeToken) {
     const url = req.nextUrl.clone();
     url.pathname = "/employeelogin";
