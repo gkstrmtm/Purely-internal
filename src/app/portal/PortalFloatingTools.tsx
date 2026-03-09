@@ -241,15 +241,7 @@ export function PortalFloatingTools() {
       ) : null}
 
       {chatOpen ? (
-        <div className="fixed inset-0 z-9998">
-          <button
-            type="button"
-            className="absolute inset-0 bg-black/30"
-            aria-label="Close"
-            onClick={() => setChatOpen(false)}
-          />
-
-          <div className="absolute bottom-6 right-4 w-[min(520px,calc(100vw-2rem))] overflow-hidden rounded-3xl border border-zinc-200 bg-white p-5 shadow-2xl">
+        <div className="fixed bottom-6 right-4 z-9998 w-[min(520px,calc(100vw-2rem))] overflow-hidden rounded-3xl border border-zinc-200 bg-white p-5 shadow-2xl">
             <div className="mb-3 h-1.5 w-16 rounded-full bg-[linear-gradient(90deg,rgba(29,78,216,0.9),rgba(251,113,133,0.35))]" />
             <div className="flex items-start justify-between gap-3">
               <div>
@@ -301,7 +293,6 @@ export function PortalFloatingTools() {
             </div>
 
             <div className="mt-2 text-xs text-zinc-500">If it looks like a bug, use Report bug so we get the details.</div>
-          </div>
         </div>
       ) : null}
 

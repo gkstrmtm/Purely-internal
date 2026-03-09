@@ -18,6 +18,142 @@ type OutgoingEvent =
     }
   | { type: "user_message"; text: string };
 
+type IncomingEvent = {
+  type?: string;
+  [k: string]: unknown;
+};
+
+function toTelHref(raw: string) {
+  const digits = String(raw || "").replace(/\D/g, "");
+  if (digits.length === 11 && digits.startsWith("1")) return `tel:+${digits}`;
+  if (digits.length === 10) return `tel:+1${digits}`;
+  if (String(raw || "").startsWith("+") || String(raw || "").startsWith("tel:")) return String(raw || "");
+  return `tel:${raw}`;
+}
+
+function renderInlineMarkdownish(text: string): Array<string | { t: "code" | "strong" | "em"; v: string }> {
+  const out: Array<string | { t: "code" | "strong" | "em"; v: string }> = [];
+  let s = text;
+
+  const pushText = (v: string) => {
+    if (!v) return;
+    out.push(v);
+  };
+
+  while (s.length) {
+    const idxCode = s.indexOf("`");
+    const idxStrong = s.indexOf("**");
+    const idxEm = s.indexOf("*");
+
+    const candidates = [
+      { idx: idxCode, kind: "code" as const },
+      { idx: idxStrong, kind: "strong" as const },
+      { idx: idxEm, kind: "em" as const },
+    ].filter((c) => c.idx >= 0);
+
+    if (candidates.length === 0) {
+      pushText(s);
+      break;
+    }
+
+    candidates.sort((a, b) => a.idx - b.idx);
+    const next = candidates[0]!;
+
+    if (next.idx > 0) {
+      pushText(s.slice(0, next.idx));
+      s = s.slice(next.idx);
+      continue;
+    }
+
+    if (next.kind === "code") {
+      const end = s.indexOf("`", 1);
+      if (end > 1) {
+        out.push({ t: "code", v: s.slice(1, end) });
+        s = s.slice(end + 1);
+      } else {
+        pushText(s);
+        break;
+      }
+      continue;
+    }
+
+    if (next.kind === "strong") {
+      const end = s.indexOf("**", 2);
+      if (end > 2) {
+        out.push({ t: "strong", v: s.slice(2, end) });
+        s = s.slice(end + 2);
+      } else {
+        pushText(s);
+        break;
+      }
+      continue;
+    }
+
+    // em
+    if (s.startsWith("**")) {
+      // handled above
+      pushText(s.slice(0, 2));
+      s = s.slice(2);
+      continue;
+    }
+    const end = s.indexOf("*", 1);
+    if (end > 1) {
+      out.push({ t: "em", v: s.slice(1, end) });
+      s = s.slice(end + 1);
+    } else {
+      pushText(s);
+      break;
+    }
+  }
+
+  return out;
+}
+
+function renderMarkdownish(text: string): React.ReactNode {
+  const lines = String(text || "").split(/\r?\n/);
+  return (
+    <div className="space-y-2">
+      {lines.map((rawLine, i) => {
+        const line = rawLine.trimEnd();
+        if (!line) return <div key={i} />;
+
+        const heading = line.match(/^(#{1,6})\s+(.*)$/);
+        const bullet = line.match(/^[-*]\s+(.*)$/);
+        const body = heading ? heading[2] : bullet ? bullet[1] : line;
+        const prefix = bullet ? "• " : "";
+
+        const parts = renderInlineMarkdownish(body);
+
+        const content = (
+          <>
+            {prefix}
+            {parts.map((p, j) => {
+              if (typeof p === "string") return <span key={j}>{p}</span>;
+              if (p.t === "code") return <code key={j} className="rounded bg-zinc-100 px-1 py-0.5 font-mono text-[0.95em]">{p.v}</code>;
+              if (p.t === "strong") return <strong key={j}>{p.v}</strong>;
+              return <em key={j}>{p.v}</em>;
+            })}
+          </>
+        );
+
+        if (heading) {
+          return (
+            <div key={i} className="font-semibold text-zinc-900">
+              {content}
+            </div>
+          );
+        }
+
+        return (
+          <div key={i} className="whitespace-pre-wrap">
+            {content}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 export function AiReceptionistWidget() {
   const pathname = usePathname() || "";
 
@@ -26,13 +162,16 @@ export function AiReceptionistWidget() {
   // - never show inside /portal/app (portal app has its own Chat + Report tools)
   const hidden = pathname.startsWith("/portal/app") || pathname === "/login" || pathname === "/ads/login" || pathname.startsWith("/ads/app");
 
+  const phone = process.env.NEXT_PUBLIC_AI_RECEPTIONIST_PHONE || "980-238-3381";
+  const telHref = useMemo(() => toTelHref(phone), [phone]);
+
   const [open, setOpen] = useState(false);
   const [status, setStatus] = useState<"idle" | "connecting" | "connected" | "error">("idle");
   const [messages, setMessages] = useState<ChatMessage[]>(() => [
     {
       id: "welcome",
       role: "assistant",
-      text: "Hi — how can we help?",
+      text: "Hi! How can we help?",
     },
   ]);
   const [input, setInput] = useState("");
@@ -41,6 +180,8 @@ export function AiReceptionistWidget() {
   const readyRef = useRef(false);
   const queuedRef = useRef<OutgoingEvent[]>([]);
   const streamMessageIdByEventIdRef = useRef(new Map<string, string>());
+  const sawAnyAgentTextSinceLastSendRef = useRef(false);
+  const pendingResponseTimeoutRef = useRef<number | null>(null);
   const endRef = useRef<HTMLDivElement | null>(null);
 
   const canSend = useMemo(() => status !== "connecting", [status]);
@@ -62,6 +203,10 @@ export function AiReceptionistWidget() {
 
   useEffect(() => {
     return () => {
+      if (pendingResponseTimeoutRef.current) {
+        window.clearTimeout(pendingResponseTimeoutRef.current);
+        pendingResponseTimeoutRef.current = null;
+      }
       try {
         wsRef.current?.close(1000, "unmount");
       } catch {
@@ -81,6 +226,42 @@ export function AiReceptionistWidget() {
         text,
       },
     ]);
+  }
+
+  function appendAssistantText(text: string) {
+    const cleaned = String(text || "").trim();
+    if (!cleaned) return;
+    // Avoid rendering placeholder-y responses.
+    if (cleaned === "..." || cleaned === "…") return;
+    setMessages((prev) => [
+      ...prev,
+      {
+        id: `agent_${Date.now()}`,
+        role: "assistant",
+        text: cleaned,
+      },
+    ]);
+  }
+
+  function upsertStreamChunk(eventId: string, chunk: string) {
+    const text = String(chunk || "");
+    if (!text) return;
+    if (text === "..." || text === "…") return;
+
+    sawAnyAgentTextSinceLastSendRef.current = true;
+
+    const messageId = streamMessageIdByEventIdRef.current.get(eventId) ?? `agent_${eventId}`;
+    streamMessageIdByEventIdRef.current.set(eventId, messageId);
+
+    setMessages((prev) => {
+      const idx = prev.findIndex((m) => m.id === messageId);
+      if (idx === -1) {
+        return [...prev, { id: messageId, role: "assistant", text }];
+      }
+      const next = prev.slice();
+      next[idx] = { ...next[idx], text: (next[idx].text || "") + text };
+      return next;
+    });
   }
 
   function flushQueue(ws: WebSocket) {
@@ -147,9 +328,9 @@ export function AiReceptionistWidget() {
     );
 
     ws.addEventListener("message", (event) => {
-      let msg: any;
+      let msg: IncomingEvent;
       try {
-        msg = JSON.parse(String((event as MessageEvent).data ?? ""));
+        msg = JSON.parse(String((event as MessageEvent).data ?? "")) as IncomingEvent;
       } catch {
         return;
       }
@@ -161,43 +342,32 @@ export function AiReceptionistWidget() {
         return;
       }
 
-      if (msg?.type === "agent_chat_response_part" && msg?.text_response_part) {
-        const part = msg.text_response_part;
-        const eventId = typeof part.event_id === "string" ? part.event_id : String(part.event_id ?? "");
-        const partType = typeof part.type === "string" ? part.type : "";
-        const text = typeof part.text === "string" ? part.text : "";
+      if (msg?.type === "agent_chat_response_part" && (msg as any)?.text_response_part) {
+        const part = (msg as any).text_response_part as any;
+        const eventId = typeof part?.event_id === "string" ? part.event_id : String(part?.event_id ?? "");
+        const partType = typeof part?.type === "string" ? part.type : "";
+        const text = typeof part?.text === "string" ? part.text : "";
 
         if (!eventId) return;
 
-        if (partType === "start") {
-          const messageId = `agent_${eventId}`;
-          streamMessageIdByEventIdRef.current.set(eventId, messageId);
-          setMessages((prev) => [
-            ...prev,
-            {
-              id: messageId,
-              role: "assistant",
-              text: "",
-            },
-          ]);
-          return;
+        // Only create/display an assistant bubble once we receive real text.
+        if (partType === "delta" || partType === "end" || (partType === "start" && text)) {
+          upsertStreamChunk(eventId, text);
         }
+        return;
+      }
 
-        if (partType === "delta") {
-          const messageId = streamMessageIdByEventIdRef.current.get(eventId) ?? `agent_${eventId}`;
-          streamMessageIdByEventIdRef.current.set(eventId, messageId);
-          setMessages((prev) => {
-            const idx = prev.findIndex((m) => m.id === messageId);
-            if (idx === -1) {
-              return [...prev, { id: messageId, role: "assistant", text }];
-            }
-            const next = prev.slice();
-            next[idx] = { ...next[idx], text: (next[idx].text || "") + text };
-            return next;
-          });
-          return;
-        }
-
+      // Some convai payloads include a single full-text response event.
+      // Best-effort: capture it if present.
+      const fullText =
+        typeof (msg as any)?.text === "string"
+          ? (msg as any).text
+          : typeof (msg as any)?.agent_response_event?.text === "string"
+            ? (msg as any).agent_response_event.text
+            : null;
+      if (fullText) {
+        sawAnyAgentTextSinceLastSendRef.current = true;
+        appendAssistantText(fullText);
         return;
       }
 
@@ -212,10 +382,15 @@ export function AiReceptionistWidget() {
       }
     });
 
-    ws.addEventListener("close", () => {
+    ws.addEventListener("close", (event) => {
       readyRef.current = false;
       if (wsRef.current === ws) wsRef.current = null;
       setStatus((s) => (s === "error" ? s : "idle"));
+
+      const wasClean = typeof (event as CloseEvent)?.wasClean === "boolean" ? (event as CloseEvent).wasClean : true;
+      if (!wasClean && !sawAnyAgentTextSinceLastSendRef.current) {
+        appendAssistantError("Connection dropped. Please try again.");
+      }
     });
 
     ws.addEventListener("error", () => {
@@ -241,6 +416,23 @@ export function AiReceptionistWidget() {
     const ev: OutgoingEvent = { type: "user_message", text: trimmed };
     queuedRef.current.push(ev);
     setInput("");
+
+    sawAnyAgentTextSinceLastSendRef.current = false;
+    if (pendingResponseTimeoutRef.current) {
+      window.clearTimeout(pendingResponseTimeoutRef.current);
+      pendingResponseTimeoutRef.current = null;
+    }
+    pendingResponseTimeoutRef.current = window.setTimeout(() => {
+      // If the connection is flaky / the agent didn't answer, don't show "..." — show a clear action.
+      if (!sawAnyAgentTextSinceLastSendRef.current) {
+        appendAssistantError("Chat timed out. Please try sending that again.");
+        try {
+          wsRef.current?.close(1006, "timeout");
+        } catch {
+          // ignore
+        }
+      }
+    }, 15000);
 
     const ws = await ensureConnected();
     if (!ws) return;
@@ -281,7 +473,7 @@ export function AiReceptionistWidget() {
                         : "max-w-[85%] rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-800"
                     }
                   >
-                    {m.text || (m.role === "assistant" ? "…" : "")}
+                    {m.role === "assistant" ? renderMarkdownish(m.text) : m.text}
                   </div>
                 </div>
               ))}
@@ -317,38 +509,46 @@ export function AiReceptionistWidget() {
               >
                 Send
               </button>
+              <a
+                href={telHref}
+                className="inline-flex h-11 items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 text-sm font-bold text-zinc-900 shadow-sm hover:bg-zinc-50"
+              >
+                Call
+              </a>
             </form>
           </div>
         </div>
       ) : null}
 
-      <button
-        type="button"
-        onClick={() => setOpen(true)}
-        className="group inline-flex items-center gap-3 rounded-full border border-zinc-200 bg-white px-4 py-3 shadow-lg hover:bg-zinc-50"
-        aria-label="Open help"
-      >
-        <span className="grid h-9 w-9 place-items-center rounded-full bg-linear-to-r from-(--color-brand-blue) to-(--color-brand-pink) text-white">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-            <path
-              d="M7 18.4 4.6 20c-.4.3-1 .1-1-.4V6.4C3.6 5.1 4.7 4 6 4h12c1.3 0 2.4 1.1 2.4 2.4v7.2c0 1.3-1.1 2.4-2.4 2.4H8.8c-.2 0-.4 0-.6.2Z"
-              stroke="currentColor"
-              strokeWidth="1.8"
-              strokeLinejoin="round"
-            />
-            <path
-              d="M7.6 8.8h8.8M7.6 12h6.2"
-              stroke="currentColor"
-              strokeWidth="1.8"
-              strokeLinecap="round"
-            />
-          </svg>
-        </span>
-        <span className="text-left">
-          <div className="text-sm font-bold text-zinc-900">Need help?</div>
-          <div className="text-xs font-semibold text-zinc-600">Chat with us</div>
-        </span>
-      </button>
+      {!open ? (
+        <button
+          type="button"
+          onClick={() => setOpen(true)}
+          className="group inline-flex items-center gap-3 rounded-full border border-zinc-200 bg-white px-4 py-3 shadow-lg hover:bg-zinc-50"
+          aria-label="Open help"
+        >
+          <span className="grid h-9 w-9 place-items-center rounded-full bg-linear-to-r from-(--color-brand-blue) to-(--color-brand-pink) text-white">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <path
+                d="M7 18.4 4.6 20c-.4.3-1 .1-1-.4V6.4C3.6 5.1 4.7 4 6 4h12c1.3 0 2.4 1.1 2.4 2.4v7.2c0 1.3-1.1 2.4-2.4 2.4H8.8c-.2 0-.4 0-.6.2Z"
+                stroke="currentColor"
+                strokeWidth="1.8"
+                strokeLinejoin="round"
+              />
+              <path
+                d="M7.6 8.8h8.8M7.6 12h6.2"
+                stroke="currentColor"
+                strokeWidth="1.8"
+                strokeLinecap="round"
+              />
+            </svg>
+          </span>
+          <span className="text-left">
+            <div className="text-sm font-bold text-zinc-900">Need help?</div>
+            <div className="text-xs font-semibold text-zinc-600">Chat with us</div>
+          </span>
+        </button>
+      ) : null}
     </div>
   );
 }
