@@ -1,8 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 
-import { IconServiceGlyph } from "@/app/portal/PortalIcons";
-
 export const metadata: Metadata = {
   title: "The Sales Loop | Purely Automation",
   description:
@@ -68,9 +66,15 @@ const ADD_ONS = [
 ];
 
 function accentClasses(accent: "blue" | "coral" | "ink") {
-  if (accent === "blue") return "bg-[color:rgba(29,78,216,0.10)] text-[color:var(--color-brand-blue)]";
-  if (accent === "coral") return "bg-[color:rgba(251,113,133,0.16)] text-[color:var(--color-brand-pink)]";
-  return "bg-[color:rgba(15,23,42,0.08)] text-[color:rgba(15,23,42,0.85)]";
+  if (accent === "blue") return "bg-[color:rgba(29,78,216,0.95)]";
+  if (accent === "coral") return "bg-[color:rgba(251,113,133,0.95)]";
+  return "bg-[color:rgba(51,65,85,0.92)]";
+}
+
+function mutedTextClasses(accent: "blue" | "coral" | "ink") {
+  if (accent === "blue") return "text-[color:rgba(29,78,216,0.95)]";
+  if (accent === "coral") return "text-[color:rgba(251,113,133,0.95)]";
+  return "text-brand-ink";
 }
 
 export default function SalesLoopPackagePage() {
@@ -217,120 +221,246 @@ export default function SalesLoopPackagePage() {
         </div>
       </section>
 
-      <section className="w-full bg-brand-mist">
-        <div className="mx-auto max-w-6xl px-6 py-12">
-          <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-            <div className="rounded-3xl border border-zinc-200 bg-white p-7 shadow-sm lg:col-span-2">
-              <h2 className="text-xl font-bold text-brand-ink sm:text-2xl">What you get</h2>
-              <p className="mt-3 max-w-3xl text-sm text-zinc-600">
-                A conversion stack that moves leads from first contact to booked calls with less manual effort.
+      <section className="relative w-full overflow-hidden bg-white">
+        <div
+          className="pointer-events-none absolute inset-0"
+          aria-hidden="true"
+          style={{
+            background:
+              "radial-gradient(900px 380px at 18% 0%, rgba(29,78,216,0.12), transparent 60%), radial-gradient(700px 320px at 95% 8%, rgba(251,113,133,0.12), transparent 55%)",
+          }}
+        />
+
+        <div className="mx-auto max-w-6xl px-6 py-14 sm:py-16">
+          <div className="grid grid-cols-1 gap-10 lg:grid-cols-12 lg:items-start">
+            <div className="lg:col-span-5">
+              <h2 className="text-2xl font-bold tracking-tight text-brand-ink sm:text-3xl">
+                A sales loop your team can run
+              </h2>
+              <p className="mt-4 max-w-prose text-sm text-zinc-600 sm:text-base">
+                The Sales Loop is built for speed and consistency. New leads get handled across calls, SMS, and email.
+                Follow up runs automatically so you book more calls without chasing.
               </p>
 
-              <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <dl className="mt-8 grid grid-cols-2 gap-6">
+                {[
+                  { label: "Reply speed", value: "Fast" },
+                  { label: "Follow up", value: "Consistent" },
+                  { label: "Visibility", value: "Clear" },
+                  { label: "Setup", value: "Simple" },
+                ].map((s) => (
+                  <div key={s.label} className="border-t border-zinc-200 pt-4">
+                    <dt className="text-xs font-semibold uppercase tracking-wide text-zinc-500">{s.label}</dt>
+                    <dd className="mt-1 text-lg font-semibold text-brand-ink">{s.value}</dd>
+                  </div>
+                ))}
+              </dl>
+
+              <div className="mt-10 flex flex-col gap-3 sm:flex-row">
+                <Link
+                  href="/portal/get-started"
+                  className="inline-flex items-center justify-center rounded-2xl bg-linear-to-r from-(--color-brand-blue) via-violet-500 to-(--color-brand-pink) px-6 py-3 text-base font-semibold text-white shadow-sm hover:opacity-90"
+                >
+                  Start free
+                </Link>
+                <Link
+                  href="/book-a-call"
+                  className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-6 py-3 text-base font-semibold text-white hover:opacity-95"
+                >
+                  Book a call
+                </Link>
+              </div>
+            </div>
+
+            <div className="relative lg:col-span-7">
+              <svg
+                className="pointer-events-none absolute -right-10 -top-10 hidden h-48 w-48 text-[color:rgba(29,78,216,0.10)] sm:block"
+                viewBox="0 0 240 240"
+                fill="none"
+                aria-hidden="true"
+              >
+                <path
+                  d="M20 120 C55 55, 90 55, 120 120 C150 185, 185 185, 220 120"
+                  stroke="currentColor"
+                  strokeWidth="18"
+                  strokeLinecap="round"
+                />
+              </svg>
+
+              <div className="flex flex-wrap items-end justify-between gap-3">
+                <h3 className="text-lg font-semibold text-brand-ink">Included services</h3>
+                <Link
+                  href="/services"
+                  className="text-sm font-semibold text-[color:var(--color-brand-blue)] hover:underline hover:decoration-[color:rgba(29,78,216,0.35)] hover:underline-offset-4"
+                >
+                  Browse all services →
+                </Link>
+              </div>
+
+              <div className="mt-4 border-t border-zinc-200">
                 {INCLUDED.map((s) => (
-                  <div key={s.slug} className="rounded-3xl border border-zinc-200 bg-white p-5">
-                    <div className="flex items-start gap-3">
-                      <div className={`mt-0.5 grid h-10 w-10 place-items-center rounded-2xl ${accentClasses(s.accent)}`}>
-                        <IconServiceGlyph slug={s.slug} />
+                  <div
+                    key={s.slug}
+                    className="flex flex-col gap-2 border-b border-zinc-200 py-6 sm:flex-row sm:items-start sm:justify-between"
+                  >
+                    <div className="max-w-xl">
+                      <div className="flex items-center gap-3">
+                        <span className={`mt-0.5 inline-block h-2.5 w-2.5 rounded-full ${accentClasses(s.accent)}`} />
+                        <div className="text-base font-semibold text-brand-ink">{s.title}</div>
                       </div>
-                      <div>
-                        <div className="text-sm font-semibold text-zinc-900">{s.title}</div>
-                        <div className="mt-1 text-sm text-zinc-600">{s.description}</div>
-                      </div>
+                      <div className="mt-2 text-sm text-zinc-600">{s.description}</div>
                     </div>
+                    <Link
+                      href={`/services/${encodeURIComponent(s.slug)}`}
+                      className="text-sm font-semibold text-[color:var(--color-brand-blue)] hover:underline hover:decoration-[color:rgba(29,78,216,0.35)] hover:underline-offset-4"
+                    >
+                      View service →
+                    </Link>
                   </div>
                 ))}
               </div>
 
-              <h3 className="mt-10 text-lg font-semibold text-zinc-900">Optional add ons for more volume</h3>
-              <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
-                {ADD_ONS.map((s) => (
-                  <Link
-                    key={s.slug}
-                    href={`/services/${encodeURIComponent(s.slug)}`}
-                    className="group rounded-3xl border border-zinc-200 bg-white p-5 hover:bg-zinc-50"
-                  >
-                    <div className="flex items-start gap-3">
-                      <div className={`mt-0.5 grid h-10 w-10 place-items-center rounded-2xl ${accentClasses(s.accent)}`}>
-                        <IconServiceGlyph slug={s.slug} />
-                      </div>
-                      <div>
-                        <div className="text-sm font-semibold text-zinc-900">{s.title}</div>
-                        <div className="mt-1 text-sm text-zinc-600">{s.description}</div>
-                        <div className="mt-3 text-sm font-semibold text-[color:var(--color-brand-blue)]">View details →</div>
-                      </div>
-                    </div>
-                  </Link>
-                ))}
+              <div className="mt-10 flex flex-wrap items-end justify-between gap-3">
+                <h3 className="text-lg font-semibold text-brand-ink">Optional add ons</h3>
+                <div className="text-sm text-zinc-600">When you want more volume.</div>
               </div>
 
-              <h3 className="mt-10 text-lg font-semibold text-zinc-900">Who it is for</h3>
-              <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <div className="mt-4 border-t border-zinc-200">
+                {ADD_ONS.map((s) => (
+                  <div
+                    key={s.slug}
+                    className="flex flex-col gap-2 border-b border-zinc-200 py-6 sm:flex-row sm:items-start sm:justify-between"
+                  >
+                    <div className="max-w-xl">
+                      <div className="flex items-center gap-3">
+                        <span className={`mt-0.5 inline-block h-2.5 w-2.5 rounded-full ${accentClasses(s.accent)}`} />
+                        <div className="text-base font-semibold text-brand-ink">{s.title}</div>
+                        <span className={`text-xs font-semibold ${mutedTextClasses(s.accent)}`}>Add on</span>
+                      </div>
+                      <div className="mt-2 text-sm text-zinc-600">{s.description}</div>
+                    </div>
+                    <Link
+                      href={`/services/${encodeURIComponent(s.slug)}`}
+                      className="text-sm font-semibold text-[color:var(--color-brand-blue)] hover:underline hover:decoration-[color:rgba(29,78,216,0.35)] hover:underline-offset-4"
+                    >
+                      View details →
+                    </Link>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          <div className="mt-16 grid grid-cols-1 gap-12 lg:grid-cols-2">
+            <div>
+              <h3 className="text-lg font-semibold text-brand-ink">Who it is for</h3>
+              <ul className="mt-4 space-y-3 text-sm text-zinc-600 sm:text-base">
                 {[
                   "Lead driven teams that want faster response",
                   "Businesses that lose deals due to slow follow up",
                   "Owners who want a consistent sales process",
                   "Teams that want more booked calls without adding headcount",
                 ].map((t) => (
-                  <div key={t} className="rounded-2xl border border-zinc-200 bg-white p-4 text-sm font-semibold text-zinc-800">
-                    {t}
-                  </div>
+                  <li key={t} className="flex items-start gap-3">
+                    <span className="mt-2 inline-block h-1.5 w-1.5 rounded-full bg-[color:rgba(29,78,216,0.95)]" aria-hidden="true" />
+                    <span>{t}</span>
+                  </li>
                 ))}
-              </div>
+              </ul>
 
-              <h3 className="mt-10 text-lg font-semibold text-zinc-900">What changes after you turn it on</h3>
-              <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-3">
-                {[
-                  { title: "Speed", desc: "Leads get handled right away." },
-                  { title: "Consistency", desc: "Follow up runs without reminders." },
-                  { title: "Visibility", desc: "You can see what happened and improve it." },
-                ].map((b) => (
-                  <div key={b.title} className="rounded-3xl border border-zinc-200 bg-white p-6">
-                    <div className="text-sm font-semibold text-zinc-900">{b.title}</div>
-                    <div className="mt-2 text-sm text-zinc-600">{b.desc}</div>
-                  </div>
-                ))}
+              <div className="mt-10 border-t border-zinc-200 pt-10">
+                <h3 className="text-lg font-semibold text-brand-ink">What changes after you turn it on</h3>
+                <div className="mt-6 space-y-6">
+                  {[
+                    {
+                      title: "Speed",
+                      desc: "Leads get handled right away so they do not cool off.",
+                    },
+                    {
+                      title: "Consistency",
+                      desc: "Follow up runs automatically, even when your team is busy.",
+                    },
+                    {
+                      title: "Visibility",
+                      desc: "You can see what happened, measure it, and improve it.",
+                    },
+                  ].map((b) => (
+                    <div key={b.title} className="grid grid-cols-1 gap-2 sm:grid-cols-12 sm:items-start">
+                      <div className="sm:col-span-4">
+                        <div className="text-sm font-semibold text-brand-ink">{b.title}</div>
+                      </div>
+                      <div className="sm:col-span-8">
+                        <div className="text-sm text-zinc-600 sm:text-base">{b.desc}</div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
               </div>
             </div>
 
-            <div className="rounded-3xl border border-zinc-200 bg-white p-7 shadow-sm">
-              <div className="text-sm font-semibold text-zinc-900">Next step</div>
-              <div className="mt-2 text-sm text-zinc-600">Start free, then activate the sales loop stack.</div>
+            <div className="relative overflow-hidden rounded-3xl bg-brand-mist p-8 sm:p-10">
+              <div className="pointer-events-none absolute -right-12 -top-12 h-44 w-44 rounded-full bg-[color:rgba(251,113,133,0.22)] blur-2xl" aria-hidden="true" />
+              <div className="pointer-events-none absolute -bottom-14 -left-14 h-52 w-52 rounded-full bg-[color:rgba(29,78,216,0.18)] blur-2xl" aria-hidden="true" />
 
-              <div className="mt-5 grid grid-cols-1 gap-2">
-                <Link
-                  href="/portal/get-started"
-                  className="inline-flex w-full items-center justify-center rounded-2xl bg-linear-to-r from-(--color-brand-blue) via-violet-500 to-(--color-brand-pink) px-5 py-3 text-sm font-semibold text-white shadow-sm hover:opacity-90"
-                >
-                  Start free
-                </Link>
-                <Link
-                  href="/book-a-call"
-                  className="inline-flex w-full items-center justify-center rounded-2xl bg-brand-ink px-5 py-3 text-sm font-semibold text-white hover:opacity-95"
-                >
-                  Book a call
-                </Link>
-                <Link
-                  href="/services"
-                  className="inline-flex w-full items-center justify-center rounded-2xl border border-zinc-200 bg-white px-5 py-3 text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
-                >
-                  Browse services
-                </Link>
-              </div>
+              <div className="relative">
+                <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">A simple loop</div>
+                <div className="mt-2 text-xl font-bold tracking-tight text-brand-ink">Response to booked call</div>
+                <div className="mt-3 text-sm text-zinc-600 sm:text-base">
+                  A clean timeline that keeps leads moving without your team remembering every follow up.
+                </div>
 
-              <div className="mt-8 rounded-2xl border border-zinc-200 bg-[color:rgba(29,78,216,0.04)] p-5">
-                <div className="text-xs font-semibold tracking-wide text-[color:rgba(29,78,216,0.78)]">BEST FOR</div>
-                <div className="mt-2 text-sm font-semibold text-zinc-900">Lead driven teams</div>
-                <div className="mt-2 text-sm text-zinc-600">
-                  If you want more booked calls without the manual chase, this package is the most direct path.
+                <div className="mt-8 grid gap-5">
+                  {[
+                    {
+                      title: "Respond",
+                      desc: "Calls and messages get captured and routed immediately.",
+                      accent: "blue" as const,
+                    },
+                    {
+                      title: "Follow up",
+                      desc: "SMS and email sequences run until the lead converts or opts out.",
+                      accent: "coral" as const,
+                    },
+                    {
+                      title: "Book",
+                      desc: "Scheduling links and reminders reduce friction and no shows.",
+                      accent: "ink" as const,
+                    },
+                  ].map((s, idx) => (
+                    <div key={s.title} className="relative pl-8">
+                      {idx !== 2 ? (
+                        <div className="absolute left-[10px] top-[22px] h-[calc(100%-10px)] w-px bg-[color:rgba(51,65,85,0.20)]" aria-hidden="true" />
+                      ) : null}
+                      <div className="absolute left-0 top-1.5 h-5 w-5 rounded-full bg-white shadow-sm ring-1 ring-[color:rgba(51,65,85,0.15)]" aria-hidden="true">
+                        <div className={`mx-auto mt-[7px] h-2.5 w-2.5 rounded-full ${accentClasses(s.accent)}`} />
+                      </div>
+                      <div className="text-sm font-semibold text-brand-ink">{s.title}</div>
+                      <div className="mt-1 text-sm text-zinc-600">{s.desc}</div>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="mt-10 flex flex-col gap-3 sm:flex-row">
+                  <Link
+                    href="/portal/get-started"
+                    className="inline-flex w-full items-center justify-center rounded-2xl bg-linear-to-r from-(--color-brand-blue) via-violet-500 to-(--color-brand-pink) px-6 py-3 text-sm font-semibold text-white shadow-sm hover:opacity-90 sm:w-auto"
+                  >
+                    Get started
+                  </Link>
+                  <Link
+                    href="/services"
+                    className="inline-flex w-full items-center justify-center rounded-2xl border border-[color:rgba(51,65,85,0.35)] bg-white px-6 py-3 text-sm font-semibold text-brand-ink hover:bg-white/80 sm:w-auto"
+                  >
+                    Browse services
+                  </Link>
                 </div>
               </div>
             </div>
           </div>
 
-          <div className="mt-10 rounded-3xl border border-zinc-200 bg-white p-7 shadow-sm">
-            <h2 className="text-xl font-bold text-brand-ink sm:text-2xl">FAQ</h2>
-            <div className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-2">
+          <div className="mt-16 border-t border-zinc-200 pt-12">
+            <h2 className="text-2xl font-bold tracking-tight text-brand-ink sm:text-3xl">FAQ</h2>
+            <div className="mt-6 border-t border-zinc-200">
               {[
                 {
                   q: "Does this replace my team?",
@@ -349,15 +479,20 @@ export default function SalesLoopPackagePage() {
                   a: "Add The Brand Builder if you want stronger visibility and proof over time.",
                 },
               ].map((f) => (
-                <div key={f.q} className="rounded-2xl border border-zinc-200 bg-white p-5">
-                  <div className="text-sm font-semibold text-zinc-900">{f.q}</div>
-                  <div className="mt-2 text-sm text-zinc-600">{f.a}</div>
-                </div>
+                <details key={f.q} className="group border-b border-zinc-200 py-5">
+                  <summary className="cursor-pointer list-none text-base font-semibold text-brand-ink">
+                    <span>{f.q}</span>
+                    <span className="float-right text-zinc-500 transition group-open:rotate-45" aria-hidden="true">
+                      +
+                    </span>
+                  </summary>
+                  <div className="mt-3 max-w-3xl text-sm text-zinc-600 sm:text-base">{f.a}</div>
+                </details>
               ))}
             </div>
           </div>
 
-          <section className="mt-10 w-full rounded-3xl bg-linear-to-r from-(--color-brand-blue) to-(--color-brand-pink) text-white">
+          <section className="mt-14 w-full rounded-3xl bg-linear-to-r from-(--color-brand-blue) to-(--color-brand-pink) text-white">
             <div className="px-7 py-10">
               <div className="flex flex-col items-start justify-between gap-4 sm:flex-row sm:items-center">
                 <div>

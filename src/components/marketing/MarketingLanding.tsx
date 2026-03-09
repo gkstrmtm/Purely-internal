@@ -214,7 +214,7 @@ function AutomationHighlights() {
                   <FeatureIcon name={item.icon} />
                 </div>
                 <div>
-                  <div className="text-base font-semibold text-zinc-900">{item.title}</div>
+                  <div className="text-base font-semibold text-brand-ink">{item.title}</div>
                   <div className="mt-1 text-sm text-zinc-700">{item.desc}</div>
                   {item.ctaHref && item.ctaLabel ? (
                     <div className="mt-3">
@@ -265,7 +265,7 @@ function FAQSection() {
         <div className="mt-8 grid gap-3">
           {faqs.map((f) => (
             <details key={f.q} className="rounded-2xl bg-[#f7f5ef] px-5 py-4">
-              <summary className="cursor-pointer select-none text-base font-semibold text-zinc-900">
+              <summary className="cursor-pointer select-none text-base font-semibold text-brand-ink">
                 {f.q}
               </summary>
               <div className="mt-2 text-sm text-zinc-700">{f.a}</div>
@@ -317,7 +317,7 @@ function WhyChoosePurely() {
                   <FeatureIcon name={item.icon} />
                 </div>
                 <div>
-                  <div className="text-base font-semibold text-zinc-900">{item.title}</div>
+                  <div className="text-base font-semibold text-brand-ink">{item.title}</div>
                   <div className="mt-1 text-sm text-zinc-700">{item.desc}</div>
                 </div>
               </div>
@@ -362,7 +362,7 @@ function WhatToExpect() {
               <div className="grid h-11 w-11 place-items-center rounded-2xl bg-brand-blue/10">
                 <FeatureIcon name={s.icon} />
               </div>
-              <div className="mt-4 text-base font-semibold text-zinc-900">{s.title}</div>
+              <div className="mt-4 text-base font-semibold text-brand-ink">{s.title}</div>
               <div className="mt-2 text-sm text-zinc-700">{s.desc}</div>
             </div>
           ))}
@@ -853,7 +853,7 @@ function BookingWidget({
                 setBusy(false);
                 setStep("time");
               }}
-              className="h-10 rounded-xl bg-zinc-800 px-5 text-sm font-semibold text-white hover:bg-zinc-900"
+              className="h-10 rounded-xl bg-brand-ink px-5 text-sm font-semibold text-white hover:bg-[color:rgba(51,65,85,0.92)]"
             >
               book another time
             </button>
@@ -881,7 +881,7 @@ function BookingWidget({
                   required
                   autoComplete="name"
                   disabled={busy}
-                  className="h-11 rounded-xl border-2 border-zinc-800 bg-white px-3 text-sm font-semibold text-zinc-900"
+                  className="h-11 rounded-xl border-2 border-[color:rgba(51,65,85,0.55)] bg-white px-3 text-sm font-semibold text-brand-ink"
                 />
               </label>
 
@@ -895,7 +895,7 @@ function BookingWidget({
                   required
                   autoComplete="organization"
                   disabled={busy}
-                  className="h-11 rounded-xl border-2 border-zinc-800 bg-white px-3 text-sm font-semibold text-zinc-900"
+                  className="h-11 rounded-xl border-2 border-[color:rgba(51,65,85,0.55)] bg-white px-3 text-sm font-semibold text-brand-ink"
                 />
               </label>
             </div>
@@ -913,7 +913,7 @@ function BookingWidget({
                   inputMode="email"
                   spellCheck={false}
                   disabled={busy}
-                  className="h-11 rounded-xl border-2 border-zinc-800 bg-white px-3 text-sm font-semibold text-zinc-900"
+                  className="h-11 rounded-xl border-2 border-[color:rgba(51,65,85,0.55)] bg-white px-3 text-sm font-semibold text-brand-ink"
                 />
               </label>
 
@@ -945,7 +945,7 @@ function BookingWidget({
                   }}
                   onInvalid={(e) => e.currentTarget.setCustomValidity("Please enter a valid phone number.")}
                   onInput={(e) => e.currentTarget.setCustomValidity("")}
-                  className="h-11 rounded-xl border-2 border-zinc-800 bg-white px-3 text-sm font-semibold text-zinc-900"
+                  className="h-11 rounded-xl border-2 border-[color:rgba(51,65,85,0.55)] bg-white px-3 text-sm font-semibold text-brand-ink"
                 />
               </label>
             </div>
@@ -958,7 +958,7 @@ function BookingWidget({
                 value={goals}
                 onChange={(e) => setGoals(e.target.value)}
                 disabled={busy}
-                className="h-11 rounded-xl border-2 border-zinc-800 bg-white px-3 text-sm font-semibold text-zinc-900"
+                className="h-11 rounded-xl border-2 border-[color:rgba(51,65,85,0.55)] bg-white px-3 text-sm font-semibold text-brand-ink"
                 placeholder="Choose one or type your own"
               />
               <datalist id="automation-goals">
@@ -978,7 +978,7 @@ function BookingWidget({
                 type="button"
                 onClick={() => setStep("time")}
                 disabled={busy}
-                className="h-11 rounded-xl bg-zinc-800 px-5 text-sm font-semibold text-white hover:bg-zinc-900"
+                className="h-11 rounded-xl bg-brand-ink px-5 text-sm font-semibold text-white hover:bg-[color:rgba(51,65,85,0.92)]"
               >
                 back
               </button>
@@ -1010,7 +1010,7 @@ function BookingWidget({
             setBooked(null);
             setStep("time");
           }}
-          className="rounded-xl bg-zinc-800 px-4 py-2 text-sm font-semibold text-white hover:bg-zinc-900"
+          className="rounded-xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:bg-[color:rgba(51,65,85,0.92)]"
         >
           last week
         </button>
@@ -1027,7 +1027,7 @@ function BookingWidget({
             setBooked(null);
             setStep("time");
           }}
-          className="rounded-xl bg-zinc-800 px-4 py-2 text-sm font-semibold text-white hover:bg-zinc-900"
+          className="rounded-xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:bg-[color:rgba(51,65,85,0.92)]"
         >
           next week
         </button>
@@ -1059,7 +1059,7 @@ function BookingWidget({
                 (available
                   ? active
                     ? "bg-brand-blue text-white"
-                    : "bg-white text-zinc-900 hover:bg-zinc-50"
+                    : "bg-white text-brand-ink hover:bg-zinc-50"
                   : "cursor-not-allowed bg-white/50 text-zinc-400")
               }
             >
@@ -1095,7 +1095,7 @@ function BookingWidget({
                     ? "cursor-not-allowed bg-white/50 text-zinc-400"
                     : selectedTime === t
                       ? "bg-brand-blue text-white"
-                      : "bg-white text-zinc-900 hover:bg-zinc-50")
+                      : "bg-white text-brand-ink hover:bg-zinc-50")
                 }
               >
                 {formatLocalDateTime(t)}
@@ -1193,7 +1193,7 @@ export function MarketingLanding() {
   }
 
   return (
-    <div className="min-h-screen bg-white text-zinc-900" style={{ fontFamily: "Arial, Helvetica, sans-serif" }}>
+    <div className="min-h-screen bg-white text-brand-ink" style={{ fontFamily: "Arial, Helvetica, sans-serif" }}>
       <header className="fixed left-0 right-0 top-0 z-50 bg-brand-blue/55 shadow-md backdrop-blur-md">
         <div className="mx-auto flex h-14 max-w-6xl items-center justify-between px-6">
           <Link href="/" className="flex items-center gap-3">
@@ -1410,7 +1410,7 @@ export function MarketingLanding() {
           <div className="mx-auto max-w-6xl px-6 pt-10">
             <div className="flex flex-col items-center justify-between gap-3 border-t border-zinc-200 pt-8 text-base font-semibold text-zinc-700 sm:flex-row">
               <div>© {new Date().getFullYear()} Purely Automation. All rights reserved.</div>
-              <Link className="underline underline-offset-4 hover:text-zinc-900" href="/employeelogin">
+              <Link className="underline underline-offset-4 hover:text-brand-ink" href="/employeelogin">
                 employee? log in here
               </Link>
             </div>
@@ -1494,7 +1494,7 @@ function DemoRequestForm({
             value={name}
             onChange={(e) => setName(e.target.value)}
             disabled={disabled}
-            className="h-12 rounded-lg border-2 border-zinc-800 bg-[#a9bdf0] px-4 text-base font-semibold text-zinc-900 placeholder:text-zinc-700"
+            className="h-12 rounded-lg border-2 border-[color:rgba(51,65,85,0.65)] bg-[#a9bdf0] px-4 text-base font-semibold text-brand-ink placeholder:text-[color:rgba(51,65,85,0.70)]"
             placeholder=""
             autoComplete="name"
             required
@@ -1511,7 +1511,7 @@ function DemoRequestForm({
             value={company}
             onChange={(e) => setCompany(e.target.value)}
             disabled={disabled}
-            className="h-12 rounded-lg border-2 border-zinc-800 bg-[#a9bdf0] px-4 text-base font-semibold text-zinc-900 placeholder:text-zinc-700"
+            className="h-12 rounded-lg border-2 border-[color:rgba(51,65,85,0.65)] bg-[#a9bdf0] px-4 text-base font-semibold text-brand-ink placeholder:text-[color:rgba(51,65,85,0.70)]"
             placeholder=""
             autoComplete="organization"
             required
@@ -1527,7 +1527,7 @@ function DemoRequestForm({
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             disabled={disabled}
-            className="h-12 rounded-lg border-2 border-zinc-800 bg-[#a9bdf0] px-4 text-base font-semibold text-zinc-900 placeholder:text-zinc-700"
+            className="h-12 rounded-lg border-2 border-[color:rgba(51,65,85,0.65)] bg-[#a9bdf0] px-4 text-base font-semibold text-brand-ink placeholder:text-[color:rgba(51,65,85,0.70)]"
             placeholder=""
             type="email"
             autoComplete="email"
@@ -1548,7 +1548,7 @@ function DemoRequestForm({
               setPhone(e.target.value);
             }}
             disabled={disabled}
-            className="h-12 rounded-lg border-2 border-zinc-800 bg-[#a9bdf0] px-4 text-base font-semibold text-zinc-900 placeholder:text-zinc-700"
+            className="h-12 rounded-lg border-2 border-[color:rgba(51,65,85,0.65)] bg-[#a9bdf0] px-4 text-base font-semibold text-brand-ink placeholder:text-[color:rgba(51,65,85,0.70)]"
             placeholder=""
             type="tel"
             inputMode="tel"
@@ -1588,7 +1588,7 @@ function DemoRequestForm({
               setOptedIn(false);
               onCancel();
             }}
-            className="h-11 rounded-xl bg-zinc-800 px-6 text-sm font-semibold text-white hover:bg-zinc-900"
+            className="h-11 rounded-xl bg-brand-ink px-6 text-sm font-semibold text-white hover:bg-[color:rgba(51,65,85,0.92)]"
           >
             no, cancel demo
           </button>

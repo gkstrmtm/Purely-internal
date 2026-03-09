@@ -274,7 +274,7 @@ export default async function PortalDashboardPage() {
           <div className="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-3">
             <div className="group flex min-h-[360px] flex-col rounded-3xl border border-zinc-200 bg-white p-6 transition hover:-translate-y-0.5 hover:border-zinc-300 hover:shadow-lg">
               <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Build a real brand</div>
-              <div className="mt-2 text-lg font-semibold text-zinc-900">The Brand Builder</div>
+              <div className="mt-2 text-lg font-semibold text-brand-ink">The Brand Builder</div>
               <div className="mt-2 text-sm text-zinc-600">Look established, stay visible, and build trust without posting every day.</div>
               <div className="mt-3 text-xs text-zinc-500">Recommended for: service businesses that want consistent inbound and stronger credibility.</div>
               <div className="mt-4 space-y-2 text-sm text-zinc-700">
@@ -282,6 +282,12 @@ export default async function PortalDashboardPage() {
                 <div>• Newsletter and reviews that build proof</div>
                 <div>• Nurture campaigns that turn interest into booked calls</div>
               </div>
+              <Link
+                href="/services/the-brand-builder"
+                className="mt-4 inline-flex items-center gap-2 text-sm font-semibold text-[color:var(--color-brand-blue)] hover:underline hover:decoration-[color:rgba(29,78,216,0.35)] hover:underline-offset-4"
+              >
+                Learn more <span aria-hidden="true">→</span>
+              </Link>
               <div className="mt-auto pt-6">
                 <Link
                   href="/portal/get-started"
@@ -297,7 +303,7 @@ export default async function PortalDashboardPage() {
                 Most popular
               </div>
               <div className="text-xs font-semibold uppercase tracking-wide text-[color:rgba(29,78,216,0.78)]">Most popular</div>
-              <div className="mt-2 text-lg font-semibold text-zinc-900">The Sales Loop</div>
+              <div className="mt-2 text-lg font-semibold text-brand-ink">The Sales Loop</div>
               <div className="mt-2 text-sm text-zinc-600">Make more money faster with less work. Respond faster, follow up automatically, and book more calls.</div>
               <div className="mt-3 text-xs text-zinc-500">Recommended for: teams that want faster response, higher conversion, and less manual chasing.</div>
               <div className="mt-4 space-y-2 text-sm text-zinc-700">
@@ -306,10 +312,16 @@ export default async function PortalDashboardPage() {
                 <div>• Lead scraping that fills your pipeline</div>
                 <div>• AI outbound that follows up consistently</div>
               </div>
+              <Link
+                href="/services/the-sales-loop"
+                className="mt-4 inline-flex items-center gap-2 text-sm font-semibold text-[color:var(--color-brand-blue)] hover:underline hover:decoration-[color:rgba(29,78,216,0.35)] hover:underline-offset-4"
+              >
+                Learn more <span aria-hidden="true">→</span>
+              </Link>
               <div className="mt-auto pt-6">
                 <Link
                   href="/portal/get-started"
-                  className="inline-flex w-full items-center justify-center rounded-2xl border border-[color:rgba(15,23,42,0.75)] bg-white px-4 py-3 text-sm font-semibold text-[color:rgba(15,23,42,0.96)] transition hover:-translate-y-px hover:border-[color:rgba(15,23,42,0.95)] hover:bg-[color:rgba(15,23,42,0.04)] hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:rgba(29,78,216,0.55)] focus-visible:ring-offset-2 focus-visible:ring-offset-white"
+                  className="inline-flex w-full items-center justify-center rounded-2xl border border-[color:rgba(51,65,85,0.55)] bg-white px-4 py-3 text-sm font-semibold text-brand-ink transition hover:-translate-y-px hover:border-[color:rgba(51,65,85,0.85)] hover:bg-[color:rgba(51,65,85,0.04)] hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:rgba(29,78,216,0.55)] focus-visible:ring-offset-2 focus-visible:ring-offset-white"
                 >
                   Get Started
                 </Link>
@@ -318,7 +330,7 @@ export default async function PortalDashboardPage() {
 
             <div className="group flex min-h-[360px] flex-col rounded-3xl border border-zinc-200 bg-white p-6 transition hover:-translate-y-0.5 hover:border-zinc-300 hover:shadow-lg">
               <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Get established fast</div>
-              <div className="mt-2 text-lg font-semibold text-zinc-900">The Launch Kit</div>
+              <div className="mt-2 text-lg font-semibold text-brand-ink">The Launch Kit</div>
               <div className="mt-2 text-sm text-zinc-600">Get out there fast with a clean funnel, a strong foundation, and a simple path to bookings.</div>
               <div className="mt-3 text-xs text-zinc-500">Recommended for: new offers, new markets, or businesses that want to look legit and start converting quickly.</div>
               <div className="mt-4 space-y-2 text-sm text-zinc-700">
@@ -327,6 +339,12 @@ export default async function PortalDashboardPage() {
                 <div>• AI receptionist that captures and books leads</div>
                 <div>• Automated blogs that keep you visible</div>
               </div>
+              <Link
+                href="/services/the-launch-kit"
+                className="mt-4 inline-flex items-center gap-2 text-sm font-semibold text-[color:var(--color-brand-blue)] hover:underline hover:decoration-[color:rgba(29,78,216,0.35)] hover:underline-offset-4"
+              >
+                Learn more <span aria-hidden="true">→</span>
+              </Link>
               <div className="mt-auto pt-6">
                 <Link
                   href="/portal/get-started"

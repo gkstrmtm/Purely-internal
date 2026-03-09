@@ -1,8 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 
-import { IconServiceGlyph } from "@/app/portal/PortalIcons";
-
 export const metadata: Metadata = {
   title: "The Launch Kit | Purely Automation",
   description:
@@ -53,9 +51,9 @@ const INCLUDED = [
 ];
 
 function accentClasses(accent: "blue" | "coral" | "ink") {
-  if (accent === "blue") return "bg-[color:rgba(29,78,216,0.10)] text-[color:var(--color-brand-blue)]";
-  if (accent === "coral") return "bg-[color:rgba(251,113,133,0.16)] text-[color:var(--color-brand-pink)]";
-  return "bg-[color:rgba(15,23,42,0.08)] text-[color:rgba(15,23,42,0.85)]";
+  if (accent === "blue") return "bg-[color:rgba(29,78,216,0.95)]";
+  if (accent === "coral") return "bg-[color:rgba(251,113,133,0.95)]";
+  return "bg-[color:rgba(51,65,85,0.92)]";
 }
 
 export default function LaunchKitPackagePage() {
@@ -200,113 +198,126 @@ export default function LaunchKitPackagePage() {
         </div>
       </section>
 
-      <section className="w-full bg-brand-mist">
-        <div className="mx-auto max-w-6xl px-6 py-12">
-          <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-            <div className="rounded-3xl border border-zinc-200 bg-white p-7 shadow-sm lg:col-span-2">
-              <h2 className="text-xl font-bold text-brand-ink sm:text-2xl">What you get</h2>
-              <p className="mt-3 max-w-3xl text-sm text-zinc-600">
+      <section className="relative w-full overflow-hidden bg-white">
+        <div
+          className="pointer-events-none absolute inset-0"
+          aria-hidden="true"
+          style={{
+            background:
+              "radial-gradient(900px 380px at 18% 0%, rgba(29,78,216,0.10), transparent 60%), radial-gradient(700px 320px at 95% 8%, rgba(251,113,133,0.10), transparent 55%)",
+          }}
+        />
+
+        <div className="mx-auto max-w-6xl px-6 py-14 sm:py-16">
+          <div className="grid grid-cols-1 gap-10 lg:grid-cols-12 lg:items-start">
+            <div className="lg:col-span-5">
+              <h2 className="text-2xl font-bold tracking-tight text-brand-ink sm:text-3xl">What you get</h2>
+              <p className="mt-4 max-w-prose text-sm text-zinc-600 sm:text-base">
                 A practical starter stack that takes you from lead intake to booked appointments, with visibility into
                 what ran and what happened.
               </p>
 
-              <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2">
-                {INCLUDED.map((s) => (
-                  <div key={s.slug} className="rounded-3xl border border-zinc-200 bg-white p-5">
-                    <div className="flex items-start gap-3">
-                      <div className={`mt-0.5 grid h-10 w-10 place-items-center rounded-2xl ${accentClasses(s.accent)}`}>
-                        <IconServiceGlyph slug={s.slug} />
-                      </div>
-                      <div>
-                        <div className="text-sm font-semibold text-zinc-900">{s.title}</div>
-                        <div className="mt-1 text-sm text-zinc-600">{s.description}</div>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-
-              <h3 className="mt-10 text-lg font-semibold text-zinc-900">Who it is for</h3>
-              <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
-                {[
-                  "Businesses that want a clean setup fast",
-                  "Teams that are missing leads due to slow response",
-                  "Owners who want consistent follow-up without micromanaging",
-                  "Anyone tired of scattered tools and unclear next steps",
-                ].map((t) => (
-                  <div key={t} className="rounded-2xl border border-zinc-200 bg-white p-4 text-sm font-semibold text-zinc-800">
-                    {t}
-                  </div>
-                ))}
-              </div>
-
-              <h3 className="mt-10 text-lg font-semibold text-zinc-900">What changes after you launch</h3>
-              <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-3">
-                {[
-                  { title: "Faster replies", desc: "You see new leads and respond with context." },
-                  { title: "More bookings", desc: "Confirmations and reminders keep schedules full." },
-                  { title: "Clear visibility", desc: "Reporting makes activity easy to track." },
-                ].map((b) => (
-                  <div key={b.title} className="rounded-3xl border border-zinc-200 bg-white p-6">
-                    <div className="text-sm font-semibold text-zinc-900">{b.title}</div>
-                    <div className="mt-2 text-sm text-zinc-600">{b.desc}</div>
-                  </div>
-                ))}
+              <div className="mt-10 border-t border-zinc-200 pt-10">
+                <h3 className="text-lg font-semibold text-brand-ink">Who it is for</h3>
+                <ul className="mt-4 space-y-3 text-sm text-zinc-600 sm:text-base">
+                  {[
+                    "Businesses that want a clean setup fast",
+                    "Teams that are missing leads due to slow response",
+                    "Owners who want consistent follow-up without micromanaging",
+                    "Anyone tired of scattered tools and unclear next steps",
+                  ].map((t) => (
+                    <li key={t} className="flex items-start gap-3">
+                      <span className="mt-2 inline-block h-1.5 w-1.5 rounded-full bg-[color:rgba(251,113,133,0.95)]" aria-hidden="true" />
+                      <span>{t}</span>
+                    </li>
+                  ))}
+                </ul>
               </div>
             </div>
 
-            <div className="rounded-3xl border border-zinc-200 bg-white p-7 shadow-sm">
-              <div className="text-sm font-semibold text-zinc-900">Next step</div>
-              <div className="mt-2 text-sm text-zinc-600">Start free, then activate the services you want.</div>
-
-              <div className="mt-5 grid grid-cols-1 gap-2">
-                <Link
-                  href="/portal/get-started"
-                  className="inline-flex w-full items-center justify-center rounded-2xl bg-linear-to-r from-(--color-brand-blue) via-violet-500 to-(--color-brand-pink) px-5 py-3 text-sm font-semibold text-white shadow-sm hover:opacity-90"
-                >
-                  Start free
-                </Link>
-                <Link
-                  href="/book-a-call"
-                  className="inline-flex w-full items-center justify-center rounded-2xl bg-brand-ink px-5 py-3 text-sm font-semibold text-white hover:opacity-95"
-                >
-                  Book a call
-                </Link>
+            <div className="relative lg:col-span-7">
+              <div className="flex flex-wrap items-end justify-between gap-3">
+                <h3 className="text-lg font-semibold text-brand-ink">Included services</h3>
                 <Link
                   href="/services"
-                  className="inline-flex w-full items-center justify-center rounded-2xl border border-zinc-200 bg-white px-5 py-3 text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
+                  className="text-sm font-semibold text-[color:var(--color-brand-blue)] hover:underline hover:decoration-[color:rgba(29,78,216,0.35)] hover:underline-offset-4"
                 >
-                  Browse services
+                  Browse all services →
                 </Link>
               </div>
 
-              <div className="mt-8 rounded-2xl border border-zinc-200 bg-zinc-50 p-5">
-                <div className="text-xs font-semibold tracking-wide text-zinc-600">GOOD DEFAULT</div>
-                <div className="mt-2 text-sm font-semibold text-zinc-900">Launch Kit first, then stack</div>
-                <div className="mt-2 text-sm text-zinc-600">
-                  Add The Sales Loop if you want faster conversions, or add The Brand Builder if you want more inbound.
+              <div className="mt-4 border-t border-zinc-200">
+                {INCLUDED.map((s) => (
+                  <div
+                    key={s.slug}
+                    className="flex flex-col gap-2 border-b border-zinc-200 py-6 sm:flex-row sm:items-start sm:justify-between"
+                  >
+                    <div className="max-w-xl">
+                      <div className="flex items-center gap-3">
+                        <span className={`mt-0.5 inline-block h-2.5 w-2.5 rounded-full ${accentClasses(s.accent)}`} />
+                        <div className="text-base font-semibold text-brand-ink">{s.title}</div>
+                      </div>
+                      <div className="mt-2 text-sm text-zinc-600">{s.description}</div>
+                    </div>
+                    <Link
+                      href={`/services/${encodeURIComponent(s.slug)}`}
+                      className="text-sm font-semibold text-[color:var(--color-brand-blue)] hover:underline hover:decoration-[color:rgba(29,78,216,0.35)] hover:underline-offset-4"
+                    >
+                      View service →
+                    </Link>
+                  </div>
+                ))}
+              </div>
+
+              <div className="mt-12 rounded-3xl bg-brand-mist p-8 sm:p-10">
+                <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Launch path</div>
+                <div className="mt-2 text-xl font-bold tracking-tight text-brand-ink">Intake to booking</div>
+                <div className="mt-3 text-sm text-zinc-600 sm:text-base">
+                  A clean first version that your team can actually run, then you stack into Sales Loop or Brand Builder.
                 </div>
-                <div className="mt-4 grid grid-cols-1 gap-2">
+
+                <div className="mt-8 grid gap-5">
+                  {[
+                    { title: "Capture", desc: "A simple funnel and intake that collects the right details.", accent: "coral" as const },
+                    { title: "Route", desc: "Inbox and basic routing so every lead lands in the right place.", accent: "blue" as const },
+                    { title: "Book", desc: "Booking links, confirmations, and reminders to reduce no shows.", accent: "ink" as const },
+                  ].map((s, idx) => (
+                    <div key={s.title} className="relative pl-8">
+                      {idx !== 2 ? (
+                        <div className="absolute left-[10px] top-[22px] h-[calc(100%-10px)] w-px bg-[color:rgba(51,65,85,0.20)]" aria-hidden="true" />
+                      ) : null}
+                      <div className="absolute left-0 top-1.5 h-5 w-5 rounded-full bg-white shadow-sm ring-1 ring-[color:rgba(51,65,85,0.15)]" aria-hidden="true">
+                        <div className={`mx-auto mt-[7px] h-2.5 w-2.5 rounded-full ${accentClasses(s.accent)}`} />
+                      </div>
+                      <div className="text-sm font-semibold text-brand-ink">{s.title}</div>
+                      <div className="mt-1 text-sm text-zinc-600">{s.desc}</div>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="mt-10 grid grid-cols-1 gap-3 sm:grid-cols-2">
                   <Link
                     href="/services/the-sales-loop"
-                    className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
+                    className="inline-flex items-center justify-between rounded-2xl border border-[color:rgba(51,65,85,0.20)] bg-white px-4 py-3 text-sm font-semibold text-brand-ink hover:bg-white/80"
                   >
-                    The Sales Loop →
+                    The Sales Loop
+                    <span aria-hidden="true">→</span>
                   </Link>
                   <Link
                     href="/services/the-brand-builder"
-                    className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
+                    className="inline-flex items-center justify-between rounded-2xl border border-[color:rgba(51,65,85,0.20)] bg-white px-4 py-3 text-sm font-semibold text-brand-ink hover:bg-white/80"
                   >
-                    The Brand Builder →
+                    The Brand Builder
+                    <span aria-hidden="true">→</span>
                   </Link>
                 </div>
               </div>
             </div>
           </div>
 
-          <div className="mt-10 rounded-3xl border border-zinc-200 bg-white p-7 shadow-sm">
-            <h2 className="text-xl font-bold text-brand-ink sm:text-2xl">FAQ</h2>
-            <div className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-2">
+          <div className="mt-16 border-t border-zinc-200 pt-12">
+            <h2 className="text-2xl font-bold tracking-tight text-brand-ink sm:text-3xl">FAQ</h2>
+            <div className="mt-6 border-t border-zinc-200">
               {[
                 {
                   q: "How fast can we launch?",
@@ -325,15 +336,20 @@ export default function LaunchKitPackagePage() {
                   a: "Add The Brand Builder to build trust and visibility through reviews, newsletters, and SEO content.",
                 },
               ].map((f) => (
-                <div key={f.q} className="rounded-2xl border border-zinc-200 bg-white p-5">
-                  <div className="text-sm font-semibold text-zinc-900">{f.q}</div>
-                  <div className="mt-2 text-sm text-zinc-600">{f.a}</div>
-                </div>
+                <details key={f.q} className="group border-b border-zinc-200 py-5">
+                  <summary className="cursor-pointer list-none text-base font-semibold text-brand-ink">
+                    <span>{f.q}</span>
+                    <span className="float-right text-zinc-500 transition group-open:rotate-45" aria-hidden="true">
+                      +
+                    </span>
+                  </summary>
+                  <div className="mt-3 max-w-3xl text-sm text-zinc-600 sm:text-base">{f.a}</div>
+                </details>
               ))}
             </div>
           </div>
 
-          <section className="mt-10 w-full rounded-3xl bg-linear-to-r from-(--color-brand-blue) to-(--color-brand-pink) text-white">
+          <section className="mt-14 w-full rounded-3xl bg-linear-to-r from-(--color-brand-blue) to-(--color-brand-pink) text-white">
             <div className="px-7 py-10">
               <div className="flex flex-col items-start justify-between gap-4 sm:flex-row sm:items-center">
                 <div>

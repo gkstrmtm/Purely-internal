@@ -1,8 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 
-import { IconServiceGlyph } from "@/app/portal/PortalIcons";
-
 export const metadata: Metadata = {
   title: "The Brand Builder | Purely Automation",
   description:
@@ -53,9 +51,9 @@ const INCLUDED = [
 ];
 
 function accentClasses(accent: "blue" | "coral" | "ink") {
-  if (accent === "blue") return "bg-[color:rgba(29,78,216,0.10)] text-[color:var(--color-brand-blue)]";
-  if (accent === "coral") return "bg-[color:rgba(251,113,133,0.16)] text-[color:var(--color-brand-pink)]";
-  return "bg-[color:rgba(15,23,42,0.08)] text-[color:rgba(15,23,42,0.85)]";
+  if (accent === "blue") return "bg-[color:rgba(29,78,216,0.95)]";
+  if (accent === "coral") return "bg-[color:rgba(251,113,133,0.95)]";
+  return "bg-[color:rgba(51,65,85,0.92)]";
 }
 
 export default function BrandBuilderPackagePage() {
@@ -109,12 +107,10 @@ export default function BrandBuilderPackagePage() {
             <div className="max-w-2xl">
               <div className="text-xs font-semibold tracking-wide text-white/70">PACKAGE</div>
               <h1 className="mt-4 text-3xl font-bold tracking-tight sm:text-5xl">The Brand Builder</h1>
-              <p className="mt-4 text-base text-white/85 sm:text-lg">
-                Stay visible, look established, and build trust that converts.
-              </p>
+              <p className="mt-4 text-base text-white/85 sm:text-lg">Build trust and inbound demand without posting every day.</p>
               <p className="mt-4 text-sm text-white/80">
-                This package is built for inbound momentum. You show up consistently with helpful content, collect more
-                reviews, and keep leads warm until they are ready to book.
+                This package gives you a compounding visibility engine: consistent SEO content, newsletters that keep you top of mind,
+                review automation that builds proof, and nurture follow-up so leads convert when they are ready.
               </p>
 
               <div className="mt-7 flex flex-col gap-3 sm:flex-row">
@@ -133,12 +129,9 @@ export default function BrandBuilderPackagePage() {
               </div>
 
               <div className="mt-4 text-sm text-white/80">
-                Prefer a faster close loop?{" "}
-                <Link
-                  href="/services/the-sales-loop"
-                  className="font-semibold underline decoration-white/40 underline-offset-4"
-                >
-                  View The Sales Loop
+                Already a client?{" "}
+                <Link href="/login" className="font-semibold underline decoration-white/40 underline-offset-4">
+                  Sign in
                 </Link>
                 .
               </div>
@@ -173,9 +166,7 @@ export default function BrandBuilderPackagePage() {
 
                   <div className="mt-6 rounded-2xl border border-white/15 bg-[color:rgba(0,0,0,0.12)] p-4">
                     <div className="text-sm font-semibold text-white/95">Result</div>
-                    <div className="mt-1 text-xs text-white/65">
-                      More inbound interest, higher trust, and warmer leads when they reach out.
-                    </div>
+                    <div className="mt-1 text-xs text-white/65">More inbound interest, higher trust, and warmer leads when they reach out.</div>
                   </div>
                 </div>
               </div>
@@ -184,138 +175,171 @@ export default function BrandBuilderPackagePage() {
         </div>
       </section>
 
-      <section className="w-full bg-brand-mist">
-        <div className="mx-auto max-w-6xl px-6 py-12">
-          <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-            <div className="rounded-3xl border border-zinc-200 bg-white p-7 shadow-sm lg:col-span-2">
-              <h2 className="text-xl font-bold text-brand-ink sm:text-2xl">What you get</h2>
-              <p className="mt-3 max-w-3xl text-sm text-zinc-600">
-                A consistent visibility engine. You publish, collect proof, and nurture leads in the background.
+      <section className="relative w-full overflow-hidden bg-white">
+        <div
+          className="pointer-events-none absolute inset-0"
+          aria-hidden="true"
+          style={{
+            background:
+              "radial-gradient(900px 380px at 18% 0%, rgba(29,78,216,0.10), transparent 60%), radial-gradient(700px 320px at 95% 8%, rgba(251,113,133,0.10), transparent 55%)",
+          }}
+        />
+
+        <div className="mx-auto max-w-6xl px-6 py-14 sm:py-16">
+          <div className="grid grid-cols-1 gap-10 lg:grid-cols-12 lg:items-start">
+            <div className="lg:col-span-5">
+              <h2 className="text-2xl font-bold tracking-tight text-brand-ink sm:text-3xl">What you get</h2>
+              <p className="mt-4 max-w-prose text-sm text-zinc-600 sm:text-base">
+                A brand visibility engine that compounds. You publish consistently, collect proof, and nurture leads automatically.
               </p>
 
-              <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2">
-                {INCLUDED.map((s) => (
-                  <div key={s.slug} className="rounded-3xl border border-zinc-200 bg-white p-5">
-                    <div className="flex items-start gap-3">
-                      <div className={`mt-0.5 grid h-10 w-10 place-items-center rounded-2xl ${accentClasses(s.accent)}`}>
-                        <IconServiceGlyph slug={s.slug} />
-                      </div>
-                      <div>
-                        <div className="text-sm font-semibold text-zinc-900">{s.title}</div>
-                        <div className="mt-1 text-sm text-zinc-600">{s.description}</div>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-
-              <h3 className="mt-10 text-lg font-semibold text-zinc-900">Who it is for</h3>
-              <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
-                {[
-                  "Service businesses that want stronger credibility",
-                  "Owners who want inbound momentum without daily posting",
-                  "Teams that want more warm leads from existing interest",
-                  "Businesses that want a long term content foundation",
-                ].map((t) => (
-                  <div key={t} className="rounded-2xl border border-zinc-200 bg-white p-4 text-sm font-semibold text-zinc-800">
-                    {t}
-                  </div>
-                ))}
-              </div>
-
-              <h3 className="mt-10 text-lg font-semibold text-zinc-900">What you can expect</h3>
-              <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-3">
-                {[
-                  { title: "More trust", desc: "Reviews and consistency reduce friction." },
-                  { title: "More inbound", desc: "SEO content compounds over time." },
-                  { title: "Higher conversion", desc: "Nurture keeps you top of mind." },
-                ].map((b) => (
-                  <div key={b.title} className="rounded-3xl border border-zinc-200 bg-white p-6">
-                    <div className="text-sm font-semibold text-zinc-900">{b.title}</div>
-                    <div className="mt-2 text-sm text-zinc-600">{b.desc}</div>
-                  </div>
-                ))}
+              <div className="mt-10 border-t border-zinc-200 pt-10">
+                <h3 className="text-lg font-semibold text-brand-ink">Who it is for</h3>
+                <ul className="mt-4 space-y-3 text-sm text-zinc-600 sm:text-base">
+                  {[
+                    "Service businesses that want more inbound demand",
+                    "Teams that need consistent touchpoints without daily posting",
+                    "Owners who want trust built before the sales conversation",
+                    "Anyone tired of looking inactive online",
+                  ].map((t) => (
+                    <li key={t} className="flex items-start gap-3">
+                      <span
+                        className="mt-2 inline-block h-1.5 w-1.5 rounded-full bg-[color:rgba(251,113,133,0.95)]"
+                        aria-hidden="true"
+                      />
+                      <span>{t}</span>
+                    </li>
+                  ))}
+                </ul>
               </div>
             </div>
 
-            <div className="rounded-3xl border border-zinc-200 bg-white p-7 shadow-sm">
-              <div className="text-sm font-semibold text-zinc-900">Next step</div>
-              <div className="mt-2 text-sm text-zinc-600">Start free, then turn on your visibility stack.</div>
-
-              <div className="mt-5 grid grid-cols-1 gap-2">
-                <Link
-                  href="/portal/get-started"
-                  className="inline-flex w-full items-center justify-center rounded-2xl bg-linear-to-r from-(--color-brand-blue) via-violet-500 to-(--color-brand-pink) px-5 py-3 text-sm font-semibold text-white shadow-sm hover:opacity-90"
-                >
-                  Start free
-                </Link>
-                <Link
-                  href="/book-a-call"
-                  className="inline-flex w-full items-center justify-center rounded-2xl bg-brand-ink px-5 py-3 text-sm font-semibold text-white hover:opacity-95"
-                >
-                  Book a call
-                </Link>
+            <div className="relative lg:col-span-7">
+              <div className="flex flex-wrap items-end justify-between gap-3">
+                <h3 className="text-lg font-semibold text-brand-ink">Included services</h3>
                 <Link
                   href="/services"
-                  className="inline-flex w-full items-center justify-center rounded-2xl border border-zinc-200 bg-white px-5 py-3 text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
+                  className="text-sm font-semibold text-[color:var(--color-brand-blue)] hover:underline hover:decoration-[color:rgba(29,78,216,0.35)] hover:underline-offset-4"
                 >
-                  Browse services
+                  Browse all services →
                 </Link>
               </div>
 
-              <div className="mt-8 rounded-2xl border border-zinc-200 bg-zinc-50 p-5">
-                <div className="text-xs font-semibold tracking-wide text-zinc-600">TIP</div>
-                <div className="mt-2 text-sm font-semibold text-zinc-900">Pair with The Launch Kit</div>
-                <div className="mt-2 text-sm text-zinc-600">
-                  If you need intake and booking first, start with The Launch Kit, then add Brand Builder for inbound.
+              <div className="mt-4 border-t border-zinc-200">
+                {INCLUDED.map((s) => (
+                  <div
+                    key={s.slug}
+                    className="flex flex-col gap-2 border-b border-zinc-200 py-6 sm:flex-row sm:items-start sm:justify-between"
+                  >
+                    <div className="max-w-xl">
+                      <div className="flex items-center gap-3">
+                        <span className={`mt-0.5 inline-block h-2.5 w-2.5 rounded-full ${accentClasses(s.accent)}`} />
+                        <div className="text-base font-semibold text-brand-ink">{s.title}</div>
+                      </div>
+                      <div className="mt-2 text-sm text-zinc-600">{s.description}</div>
+                    </div>
+                    <Link
+                      href={`/services/${encodeURIComponent(s.slug)}`}
+                      className="text-sm font-semibold text-[color:var(--color-brand-blue)] hover:underline hover:decoration-[color:rgba(29,78,216,0.35)] hover:underline-offset-4"
+                    >
+                      View service →
+                    </Link>
+                  </div>
+                ))}
+              </div>
+
+              <div className="mt-12 rounded-3xl bg-brand-mist p-8 sm:p-10">
+                <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Compounding cycle</div>
+                <div className="mt-2 text-xl font-bold tracking-tight text-brand-ink">Visibility → trust → conversions</div>
+                <div className="mt-3 text-sm text-zinc-600 sm:text-base">
+                  You do not need daily output. You need consistent signals that make prospects feel like you are established and active.
                 </div>
-                <div className="mt-4">
+
+                <div className="mt-8 grid gap-5">
+                  {[
+                    { title: "Publish", desc: "SEO posts and newsletters keep you visible.", accent: "blue" as const },
+                    { title: "Proof", desc: "Reviews and social proof remove friction.", accent: "coral" as const },
+                    { title: "Nurture", desc: "Follow up converts when the timing is right.", accent: "ink" as const },
+                  ].map((s, idx) => (
+                    <div key={s.title} className="relative pl-8">
+                      {idx !== 2 ? (
+                        <div
+                          className="absolute left-[10px] top-[22px] h-[calc(100%-10px)] w-px bg-[color:rgba(51,65,85,0.20)]"
+                          aria-hidden="true"
+                        />
+                      ) : null}
+                      <div
+                        className="absolute left-0 top-1.5 h-5 w-5 rounded-full bg-white shadow-sm ring-1 ring-[color:rgba(51,65,85,0.15)]"
+                        aria-hidden="true"
+                      >
+                        <div className={`mx-auto mt-[7px] h-2.5 w-2.5 rounded-full ${accentClasses(s.accent)}`} />
+                      </div>
+                      <div className="text-sm font-semibold text-brand-ink">{s.title}</div>
+                      <div className="mt-1 text-sm text-zinc-600">{s.desc}</div>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="mt-10 grid grid-cols-1 gap-3 sm:grid-cols-2">
                   <Link
                     href="/services/the-launch-kit"
-                    className="block rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
+                    className="inline-flex items-center justify-between rounded-2xl border border-[color:rgba(51,65,85,0.20)] bg-white px-4 py-3 text-sm font-semibold text-brand-ink hover:bg-white/80"
                   >
-                    The Launch Kit →
+                    The Launch Kit
+                    <span aria-hidden="true">→</span>
+                  </Link>
+                  <Link
+                    href="/services/the-sales-loop"
+                    className="inline-flex items-center justify-between rounded-2xl border border-[color:rgba(51,65,85,0.20)] bg-white px-4 py-3 text-sm font-semibold text-brand-ink hover:bg-white/80"
+                  >
+                    The Sales Loop
+                    <span aria-hidden="true">→</span>
                   </Link>
                 </div>
               </div>
             </div>
           </div>
 
-          <div className="mt-10 rounded-3xl border border-zinc-200 bg-white p-7 shadow-sm">
-            <h2 className="text-xl font-bold text-brand-ink sm:text-2xl">FAQ</h2>
-            <div className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-2">
+          <div className="mt-16 border-t border-zinc-200 pt-12">
+            <h2 className="text-2xl font-bold tracking-tight text-brand-ink sm:text-3xl">FAQ</h2>
+            <div className="mt-6 border-t border-zinc-200">
               {[
                 {
-                  q: "Do we control topics and tone?",
-                  a: "Yes. We tune your prompts, examples, and structure so content matches your brand and services.",
+                  q: "How long until we see results?",
+                  a: "Some improvements show quickly, but the big win is compounding. Consistency builds trust and search presence over time.",
                 },
                 {
-                  q: "How does this help sales?",
-                  a: "Visibility plus proof reduces hesitation. You stay present until leads are ready to book.",
+                  q: "Do we have to write content?",
+                  a: "No. We handle the content automation and keep it aligned to your offer and brand voice.",
                 },
                 {
-                  q: "Can we review before publishing?",
-                  a: "Yes. You can review drafts, request edits, and publish on your schedule.",
+                  q: "Will this work for my niche?",
+                  a: "Yes. We tailor the topics and nurture messaging to what your customers actually care about.",
                 },
                 {
-                  q: "What if we want faster conversion?",
-                  a: "Add The Sales Loop to respond faster and follow up consistently when leads come in.",
+                  q: "Can we add faster conversion too?",
+                  a: "Yes. Add The Sales Loop when you want more speed to lead and stronger conversion follow up.",
                 },
               ].map((f) => (
-                <div key={f.q} className="rounded-2xl border border-zinc-200 bg-white p-5">
-                  <div className="text-sm font-semibold text-zinc-900">{f.q}</div>
-                  <div className="mt-2 text-sm text-zinc-600">{f.a}</div>
-                </div>
+                <details key={f.q} className="group border-b border-zinc-200 py-5">
+                  <summary className="cursor-pointer list-none text-base font-semibold text-brand-ink">
+                    <span>{f.q}</span>
+                    <span className="float-right text-zinc-500 transition group-open:rotate-45" aria-hidden="true">
+                      +
+                    </span>
+                  </summary>
+                  <div className="mt-3 max-w-3xl text-sm text-zinc-600 sm:text-base">{f.a}</div>
+                </details>
               ))}
             </div>
           </div>
 
-          <section className="mt-10 w-full rounded-3xl bg-linear-to-r from-(--color-brand-blue) to-(--color-brand-pink) text-white">
+          <section className="mt-14 w-full rounded-3xl bg-linear-to-r from-(--color-brand-blue) to-(--color-brand-pink) text-white">
             <div className="px-7 py-10">
               <div className="flex flex-col items-start justify-between gap-4 sm:flex-row sm:items-center">
                 <div>
-                  <div className="text-lg font-semibold text-white/95">Build a brand that sells</div>
-                  <div className="mt-1 text-sm text-white/80">Create your portal account, then activate Brand Builder.</div>
+                  <div className="text-lg font-semibold text-white/95">Build your brand engine</div>
+                  <div className="mt-1 text-sm text-white/80">Create your portal account, then activate the Brand Builder stack.</div>
                 </div>
                 <div className="flex w-full flex-col gap-3 sm:w-auto sm:flex-row">
                   <Link
