@@ -258,8 +258,9 @@ function renderMarkdownish(text: string): React.ReactNode {
 
         const heading = line.match(/^(#{1,6})\s+(.*)$/);
         const bullet = line.match(/^[-*]\s+(.*)$/);
-        const body = heading ? heading[2] : bullet ? bullet[1] : line;
-        const prefix = bullet ? "• " : "";
+        const ordered = line.match(/^\d+\.\s+(.*)$/);
+        const body = heading ? heading[2] : bullet ? bullet[1] : ordered ? ordered[1] : line;
+        const prefix = bullet ? "• " : ordered ? `${line.match(/^\d+/)?.[0] ?? ""}. ` : "";
 
         const content = (
           <>
@@ -313,6 +314,7 @@ export function AiReceptionistWidget() {
   const queuedRef = useRef<OutgoingEvent[]>([]);
   const streamMessageIdByEventIdRef = useRef(new Map<string, string>());
   const sawAnyAgentTextSinceLastSendRef = useRef(false);
+  const awaitingAgentRef = useRef(false);
   const pendingResponseTimeoutRef = useRef<number | null>(null);
   const endRef = useRef<HTMLDivElement | null>(null);
   const messagesRef = useRef<ChatMessage[]>(messages);
@@ -374,6 +376,7 @@ export function AiReceptionistWidget() {
   }, []);
 
   function appendAssistantError(text: string) {
+    awaitingAgentRef.current = false;
     setMessages((prev) => [
       ...prev,
       {
@@ -390,6 +393,7 @@ export function AiReceptionistWidget() {
     if (!cleaned) return;
     // Avoid rendering placeholder-y responses.
     if (cleaned === "..." || cleaned === "…") return;
+    awaitingAgentRef.current = false;
     setMessages((prev) => [
       ...prev,
       {
@@ -407,6 +411,7 @@ export function AiReceptionistWidget() {
     if (text === "..." || text === "…") return;
 
     sawAnyAgentTextSinceLastSendRef.current = true;
+    awaitingAgentRef.current = false;
 
     const messageId = streamMessageIdByEventIdRef.current.get(eventId) ?? `agent_${eventId}`;
     streamMessageIdByEventIdRef.current.set(eventId, messageId);
@@ -587,10 +592,13 @@ export function AiReceptionistWidget() {
       setStatus((s) => (s === "error" ? s : "idle"));
 
       const wasClean = typeof (event as CloseEvent)?.wasClean === "boolean" ? (event as CloseEvent).wasClean : true;
+      const code = typeof (event as CloseEvent)?.code === "number" ? (event as CloseEvent).code : 0;
+      const reason = typeof (event as CloseEvent)?.reason === "string" ? (event as CloseEvent).reason : "";
       const recentlySent = Date.now() - lastSendAtRef.current < 12000;
+      const isIntentional = reason === "unmount" || reason === "timeout";
       const shouldRetry =
-        !wasClean &&
         recentlySent &&
+        awaitingAgentRef.current &&
         !sawAnyAgentTextSinceLastSendRef.current &&
         reconnectAttemptCountRef.current < 1 &&
         (queuedRef.current.length > 0 || !!lastUserMessageRef.current);
@@ -607,8 +615,12 @@ export function AiReceptionistWidget() {
         return;
       }
 
-      if (!wasClean && !sawAnyAgentTextSinceLastSendRef.current) {
-        appendAssistantError("Connection dropped. Please try again.");
+      if (recentlySent && !sawAnyAgentTextSinceLastSendRef.current && !isIntentional) {
+        appendAssistantError(
+          code === 1000 || wasClean
+            ? "Chat session ended. Please send that again."
+            : "Connection dropped. Please try again.",
+        );
       }
     });
 
@@ -643,6 +655,7 @@ export function AiReceptionistWidget() {
     scheduleScrollToBottom(true);
 
     sawAnyAgentTextSinceLastSendRef.current = false;
+    awaitingAgentRef.current = true;
     if (pendingResponseTimeoutRef.current) {
       window.clearTimeout(pendingResponseTimeoutRef.current);
       pendingResponseTimeoutRef.current = null;
@@ -657,7 +670,7 @@ export function AiReceptionistWidget() {
           // ignore
         }
       }
-    }, 15000);
+    }, 25000);
 
     const ws = await ensureConnected();
     if (!ws) return;

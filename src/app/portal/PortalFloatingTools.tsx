@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 type VersionPayload = {
   ok?: boolean;
@@ -15,6 +15,256 @@ type BugReportResponse = { ok?: boolean; reportId?: string; emailed?: boolean; e
 
 type SupportChatMessage = { role: "assistant" | "user"; text: string };
 type SupportChatResponse = { ok?: boolean; reply?: string; error?: string };
+
+function isSafeHref(href: string) {
+  const raw = String(href || "").trim();
+  if (!raw) return false;
+  if (raw.startsWith("/")) return true;
+  try {
+    const u = new URL(raw);
+    return ["http:", "https:", "mailto:", "tel:"].includes(u.protocol);
+  } catch {
+    return false;
+  }
+}
+
+function normalizeHref(href: string) {
+  const raw = String(href || "").trim();
+  if (!raw) return raw;
+  if (raw.startsWith("www.")) return `https://${raw}`;
+  return raw;
+}
+
+function renderInlineMarkdownish(text: string): Array<string | { t: "code" | "strong" | "em"; v: string }> {
+  const out: Array<string | { t: "code" | "strong" | "em"; v: string }> = [];
+  let s = text;
+
+  const pushText = (v: string) => {
+    if (!v) return;
+    out.push(v);
+  };
+
+  while (s.length) {
+    const idxCode = s.indexOf("`");
+    const idxStrong = s.indexOf("**");
+    const idxEm = s.indexOf("*");
+
+    const candidates = [
+      { idx: idxCode, kind: "code" as const },
+      { idx: idxStrong, kind: "strong" as const },
+      { idx: idxEm, kind: "em" as const },
+    ].filter((c) => c.idx >= 0);
+
+    if (candidates.length === 0) {
+      pushText(s);
+      break;
+    }
+
+    candidates.sort((a, b) => a.idx - b.idx);
+    const next = candidates[0]!;
+
+    if (next.idx > 0) {
+      pushText(s.slice(0, next.idx));
+      s = s.slice(next.idx);
+      continue;
+    }
+
+    if (next.kind === "code") {
+      const end = s.indexOf("`", 1);
+      if (end > 1) {
+        out.push({ t: "code", v: s.slice(1, end) });
+        s = s.slice(end + 1);
+      } else {
+        pushText(s);
+        break;
+      }
+      continue;
+    }
+
+    if (next.kind === "strong") {
+      const end = s.indexOf("**", 2);
+      if (end > 2) {
+        out.push({ t: "strong", v: s.slice(2, end) });
+        s = s.slice(end + 2);
+      } else {
+        pushText(s);
+        break;
+      }
+      continue;
+    }
+
+    if (s.startsWith("**")) {
+      pushText(s.slice(0, 2));
+      s = s.slice(2);
+      continue;
+    }
+    const end = s.indexOf("*", 1);
+    if (end > 1) {
+      out.push({ t: "em", v: s.slice(1, end) });
+      s = s.slice(end + 1);
+    } else {
+      pushText(s);
+      break;
+    }
+  }
+
+  return out;
+}
+
+function renderInlineTokens(tokens: ReturnType<typeof renderInlineMarkdownish>): React.ReactNode {
+  return (
+    <>
+      {tokens.map((p, j) => {
+        if (typeof p === "string") return <span key={j}>{p}</span>;
+        if (p.t === "code") {
+          return (
+            <code key={j} className="rounded bg-zinc-100 px-1 py-0.5 font-mono text-[0.95em]">
+              {p.v}
+            </code>
+          );
+        }
+        if (p.t === "strong") return <strong key={j}>{p.v}</strong>;
+        return <em key={j}>{p.v}</em>;
+      })}
+    </>
+  );
+}
+
+function renderInlineWithLinks(text: string): React.ReactNode {
+  const s = String(text || "");
+  const hasMarkdownLinks = /\[[^\]]+\]\([^)\s]+\)/.test(s);
+
+  const linkRe = /\[([^\]]+)\]\(([^)\s]+)\)/g;
+  const parts: React.ReactNode[] = [];
+  let lastIdx = 0;
+  let m: RegExpExecArray | null;
+
+  while ((m = linkRe.exec(s))) {
+    const start = m.index;
+    const end = start + m[0].length;
+
+    if (start > lastIdx) {
+      const chunk = s.slice(lastIdx, start);
+      parts.push(
+        <span key={`t_${lastIdx}_${start}`}>{renderInlineTokens(renderInlineMarkdownish(chunk))}</span>,
+      );
+    }
+
+    const label = m[1] ?? "";
+    const href = normalizeHref(m[2] ?? "");
+    if (isSafeHref(href)) {
+      const external = /^https?:\/\//i.test(href);
+      parts.push(
+        <a
+          key={`link_${start}_${end}`}
+          href={href}
+          target={external ? "_blank" : undefined}
+          rel={external ? "noreferrer noopener" : undefined}
+          className="font-semibold text-brand-blue underline underline-offset-2 hover:opacity-90"
+        >
+          {renderInlineTokens(renderInlineMarkdownish(label))}
+        </a>,
+      );
+    } else {
+      parts.push(
+        <span key={`bad_${start}_${end}`}>{renderInlineTokens(renderInlineMarkdownish(m[0]))}</span>,
+      );
+    }
+
+    lastIdx = end;
+  }
+
+  if (lastIdx < s.length) {
+    parts.push(
+      <span key={`t_${lastIdx}_${s.length}`}>{renderInlineTokens(renderInlineMarkdownish(s.slice(lastIdx)))}</span>,
+    );
+  }
+
+  if (!hasMarkdownLinks) {
+    const urlRe = /(https?:\/\/[^\s]+|www\.[^\s]+)/g;
+    const nodes: React.ReactNode[] = [];
+    let matchedAny = false;
+    let li = 0;
+    let um: RegExpExecArray | null;
+    while ((um = urlRe.exec(s))) {
+      matchedAny = true;
+      const start = um.index;
+      const end = start + um[0].length;
+      if (start > li) {
+        nodes.push(
+          <span key={`u_${li}_${start}`}>{renderInlineTokens(renderInlineMarkdownish(s.slice(li, start)))}</span>,
+        );
+      }
+      const href = normalizeHref(um[0]);
+      if (isSafeHref(href)) {
+        nodes.push(
+          <a
+            key={`url_${start}_${end}`}
+            href={href}
+            target="_blank"
+            rel="noreferrer noopener"
+            className="font-semibold text-brand-blue underline underline-offset-2 hover:opacity-90"
+          >
+            {um[0]}
+          </a>,
+        );
+      } else {
+        nodes.push(
+          <span key={`ubad_${start}_${end}`}>{renderInlineTokens(renderInlineMarkdownish(um[0]))}</span>,
+        );
+      }
+      li = end;
+    }
+    if (li < s.length) {
+      nodes.push(
+        <span key={`u_${li}_${s.length}`}>{renderInlineTokens(renderInlineMarkdownish(s.slice(li)))}</span>,
+      );
+    }
+    if (matchedAny) return <>{nodes}</>;
+  }
+
+  return <>{parts}</>;
+}
+
+function renderMarkdownish(text: string): React.ReactNode {
+  const lines = String(text || "").split(/\r?\n/);
+  return (
+    <div className="space-y-1.5">
+      {lines.map((rawLine, i) => {
+        const line = rawLine.trimEnd();
+        if (!line) return <div key={i} />;
+
+        const heading = line.match(/^(#{1,6})\s+(.*)$/);
+        const bullet = line.match(/^[-*]\s+(.*)$/);
+        const ordered = line.match(/^\d+\.\s+(.*)$/);
+
+        const body = heading ? heading[2] : bullet ? bullet[1] : ordered ? ordered[1] : line;
+        const prefix = bullet ? "• " : ordered ? `${line.match(/^\d+/)?.[0] ?? ""}. ` : "";
+
+        const content = (
+          <>
+            {prefix}
+            {renderInlineWithLinks(body)}
+          </>
+        );
+
+        if (heading) {
+          return (
+            <div key={i} className="font-semibold text-zinc-900">
+              {content}
+            </div>
+          );
+        }
+
+        return (
+          <div key={i} className="whitespace-pre-wrap">
+            {content}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
 
 function shortSha(sha: string | null | undefined) {
   const s = (sha ?? "").trim();
@@ -42,6 +292,45 @@ export function PortalFloatingTools() {
   const [message, setMessage] = useState("");
   const [sending, setSending] = useState(false);
   const [note, setNote] = useState<string | null>(null);
+
+  const chatMessagesRef = useRef<SupportChatMessage[]>(chatMessages);
+  const chatScrollRef = useRef<HTMLDivElement | null>(null);
+  const chatEndRef = useRef<HTMLDivElement | null>(null);
+  const shouldAutoScrollRef = useRef(true);
+  const chatScrollRafRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    chatMessagesRef.current = chatMessages;
+  }, [chatMessages]);
+
+  function scheduleChatScrollToBottom(force = false) {
+    if (typeof window === "undefined") return;
+    if (!force && !shouldAutoScrollRef.current) return;
+    if (chatScrollRafRef.current) window.cancelAnimationFrame(chatScrollRafRef.current);
+    chatScrollRafRef.current = window.requestAnimationFrame(() => {
+      chatEndRef.current?.scrollIntoView({ block: "end" });
+    });
+  }
+
+  useEffect(() => {
+    if (chatOpen) {
+      shouldAutoScrollRef.current = true;
+      scheduleChatScrollToBottom(true);
+    }
+  }, [chatOpen]);
+
+  useEffect(() => {
+    scheduleChatScrollToBottom();
+  }, [chatMessages.length]);
+
+  useEffect(() => {
+    return () => {
+      if (chatScrollRafRef.current) {
+        window.cancelAnimationFrame(chatScrollRafRef.current);
+        chatScrollRafRef.current = null;
+      }
+    };
+  }, []);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -140,7 +429,10 @@ export function PortalFloatingTools() {
 
     setChatInput("");
     setChatSending(true);
-    setChatMessages((cur) => [...cur, { role: "user", text }]);
+    const nextRecentMessages: SupportChatMessage[] = [...chatMessagesRef.current, { role: "user" as const, text }].slice(-12);
+    setChatMessages(nextRecentMessages);
+    shouldAutoScrollRef.current = true;
+    scheduleChatScrollToBottom(true);
 
     const payload = {
       message: text,
@@ -153,7 +445,7 @@ export function PortalFloatingTools() {
         clientTime: new Date().toISOString(),
       },
       context: {
-        recentMessages: chatMessages.slice(-10),
+        recentMessages: nextRecentMessages.slice(-10),
       },
     };
 
@@ -166,6 +458,7 @@ export function PortalFloatingTools() {
     if (!res?.ok) {
       setChatMessages((cur) => [...cur, { role: "assistant", text: "Chat is unavailable right now. Please use Report bug." }]);
       setChatSending(false);
+      scheduleChatScrollToBottom(true);
       return;
     }
 
@@ -173,11 +466,13 @@ export function PortalFloatingTools() {
     if (!json?.ok || !json.reply) {
       setChatMessages((cur) => [...cur, { role: "assistant", text: json?.error ?? "Chat failed. Please use Report bug." }]);
       setChatSending(false);
+      scheduleChatScrollToBottom(true);
       return;
     }
 
     setChatMessages((cur) => [...cur, { role: "assistant", text: json.reply ?? "" }]);
     setChatSending(false);
+    scheduleChatScrollToBottom(true);
   }
 
   return (
@@ -257,18 +552,30 @@ export function PortalFloatingTools() {
               </button>
             </div>
 
-            <div className="mt-4 max-h-[55vh] space-y-3 overflow-auto">
+            <div
+              ref={chatScrollRef}
+              onScroll={() => {
+                const el = chatScrollRef.current;
+                if (!el) return;
+                const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+                shouldAutoScrollRef.current = distanceFromBottom < 140;
+              }}
+              className="mt-4 max-h-[55vh] space-y-3 overflow-auto"
+            >
               {chatMessages.map((m, idx) => (
                 <div
                   key={idx}
                   className={
                     "rounded-2xl px-3 py-2 text-sm leading-relaxed " +
-                    (m.role === "user" ? "ml-10 bg-zinc-900 text-white" : "mr-10 bg-zinc-100 text-zinc-900")
+                    (m.role === "user"
+                      ? "ml-10 bg-brand-blue font-semibold text-white"
+                      : "mr-10 border border-zinc-200 bg-white text-zinc-800")
                   }
                 >
-                  {m.text}
+                  {m.role === "assistant" ? renderMarkdownish(m.text) : m.text}
                 </div>
               ))}
+              <div ref={chatEndRef} />
             </div>
 
             <div className="mt-4 flex gap-2">
