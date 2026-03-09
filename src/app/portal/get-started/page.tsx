@@ -8,6 +8,9 @@ import { useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 
 import { useToast } from "@/components/ToastProvider";
+import { PortalListboxDropdown, type PortalListboxOption } from "@/components/PortalListboxDropdown";
+import { PortalMultiSelectDropdown } from "@/components/PortalMultiSelectDropdown";
+import { AppModal } from "@/components/AppModal";
 import {
   GET_STARTED_GOALS,
   goalLabelsFromIds,
@@ -30,6 +33,20 @@ const STEPS = ["Business", "Goals", "Plan", "Services", "Account"] as const;
 
 type BillingPreference = "credits" | "subscription";
 type PackagePreset = "launch-kit" | "sales-loop" | "brand-builder";
+type CallsPerMonthRange = "NOT_SURE" | "0_10" | "11_30" | "31_60" | "61_120" | "120_PLUS";
+
+const ACQUISITION_OPTIONS: Array<{ value: string; label: string }> = [
+  { value: "Referrals", label: "Referrals" },
+  { value: "Google", label: "Google" },
+  { value: "Google Ads", label: "Google Ads" },
+  { value: "Facebook", label: "Facebook" },
+  { value: "Instagram", label: "Instagram" },
+  { value: "TikTok", label: "TikTok" },
+  { value: "Yelp", label: "Yelp" },
+  { value: "Networking", label: "Networking" },
+  { value: "Email", label: "Email" },
+  { value: "Other", label: "Other" },
+];
 
 function normalizePackagePreset(value: string | null): PackagePreset | null {
   const v = String(value || "").trim().toLowerCase();
@@ -113,8 +130,8 @@ function PortalGetStartedInner() {
   const [state, setState] = useState("");
   const [websiteUrl, setWebsiteUrl] = useState("");
   const [hasWebsite, setHasWebsite] = useState<"YES" | "NO" | "NOT_SURE">("YES");
-  const [missedCalls, setMissedCalls] = useState<"NONE" | "SOME" | "A_LOT" | "NOT_SURE">("NOT_SURE");
-  const [acquisitionMethod, setAcquisitionMethod] = useState("");
+  const [callsPerMonthRange, setCallsPerMonthRange] = useState<CallsPerMonthRange>("NOT_SURE");
+  const [acquisitionMethods, setAcquisitionMethods] = useState<string[]>([]);
   const [industry, setIndustry] = useState("");
   const [businessModel, setBusinessModel] = useState("");
   const [targetCustomer, setTargetCustomer] = useState("");
@@ -158,6 +175,9 @@ function PortalGetStartedInner() {
 
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+
+  const [successModalOpen, setSuccessModalOpen] = useState(false);
+  const [successBonusCredits, setSuccessBonusCredits] = useState(0);
 
   useEffect(() => {
     if (error) toast.error(error);
@@ -265,7 +285,7 @@ function PortalGetStartedInner() {
 
     // If they care about appointments/leads/outbound or miss calls, lean Sales Loop.
     if (s.has("appointments") || s.has("leads") || s.has("outbound") || s.has("receptionist")) return "sales-loop";
-    if (missedCalls === "A_LOT" || missedCalls === "SOME") return "sales-loop";
+    if (callsPerMonthRange === "31_60" || callsPerMonthRange === "61_120" || callsPerMonthRange === "120_PLUS") return "sales-loop";
 
     // If they don't have a website yet or are unsure, default to Launch Kit.
     if (hasWebsite === "NO" || s.has("unsure")) return "launch-kit";
@@ -318,8 +338,8 @@ function PortalGetStartedInner() {
         state,
         websiteUrl,
         hasWebsite,
-        missedCalls,
-        acquisitionMethod,
+        callsPerMonthRange,
+        acquisitionMethods,
         industry,
         businessModel,
         targetCustomer,
@@ -341,8 +361,6 @@ function PortalGetStartedInner() {
       return;
     }
 
-    toast.success("Account created");
-
     // Credits-only: skip subscription checkout and immediately activate services.
     if (billingPreference === "credits") {
       const confirmRes = await fetch("/api/portal/billing/onboarding-confirm", {
@@ -351,19 +369,16 @@ function PortalGetStartedInner() {
         body: JSON.stringify({ bypass: true }),
       });
       const confirmJson = await confirmRes.json().catch(() => null);
-      setLoading(false);
       if (!confirmRes.ok || !confirmJson?.ok) {
+        setLoading(false);
         setError(confirmJson?.error || "Unable to activate services");
         router.push(`${portalBase}/login`);
         return;
       }
 
-      if (typeof confirmJson?.bonusCredits === "number" && confirmJson.bonusCredits > 0) {
-        toast.success(`We added ${confirmJson.bonusCredits} credits to get you started.`);
-      }
-
-      toast.success("Welcome to your portal");
-      router.push(`${portalBase}/app/onboarding`);
+      setSuccessBonusCredits(typeof confirmJson?.bonusCredits === "number" ? Math.max(0, Math.trunc(confirmJson.bonusCredits)) : 0);
+      setLoading(false);
+      setSuccessModalOpen(true);
       return;
     }
 
@@ -393,12 +408,8 @@ function PortalGetStartedInner() {
         return;
       }
 
-      if (typeof confirmJson?.bonusCredits === "number" && confirmJson.bonusCredits > 0) {
-        toast.success(`We added ${confirmJson.bonusCredits} credits to get you started.`);
-      }
-
-      toast.success("Welcome to your portal");
-      router.push(`${portalBase}/app/onboarding`);
+      setSuccessBonusCredits(typeof confirmJson?.bonusCredits === "number" ? Math.max(0, Math.trunc(confirmJson.bonusCredits)) : 0);
+      setSuccessModalOpen(true);
       return;
     }
 
@@ -512,50 +523,75 @@ function PortalGetStartedInner() {
                   </div>
 
                   <div>
-                    <label className="text-base font-medium">Do you already have a website?</label>
-                    <select
-                      className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-base outline-none focus:border-zinc-400"
-                      value={hasWebsite}
-                      onChange={(e) => setHasWebsite(e.target.value as typeof hasWebsite)}
-                    >
-                      <option value="YES">Yes</option>
-                      <option value="NO">No</option>
-                      <option value="NOT_SURE">Not sure</option>
-                    </select>
+                    <label className="text-base font-medium">
+                      Do you already have a website?
+                      <RequiredMark />
+                    </label>
+                    <div className="mt-2">
+                      <PortalListboxDropdown
+                        value={hasWebsite}
+                        onChange={(v) => {
+                          setHasWebsite(v);
+                          if (v === "NO") setWebsiteUrl("");
+                        }}
+                        options={
+                          [
+                            { value: "YES", label: "Yes" },
+                            { value: "NO", label: "No" },
+                            { value: "NOT_SURE", label: "Not sure" },
+                          ] satisfies Array<PortalListboxOption<typeof hasWebsite>>
+                        }
+                        buttonClassName="flex w-full items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-base outline-none hover:bg-zinc-50 focus:border-zinc-400"
+                      />
+                    </div>
                   </div>
 
-                  <div>
-                    <label className="text-base font-medium">Website</label>
-                    <input
-                      className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-base outline-none focus:border-zinc-400"
-                      value={websiteUrl}
-                      onChange={(e) => setWebsiteUrl(e.target.value)}
-                      placeholder="https://yourbusiness.com"
-                    />
-                  </div>
+                  {hasWebsite === "NO" ? null : (
+                    <div>
+                      <label className="text-base font-medium">Website</label>
+                      <input
+                        className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-base outline-none focus:border-zinc-400"
+                        value={websiteUrl}
+                        onChange={(e) => setWebsiteUrl(e.target.value)}
+                        placeholder="https://yourbusiness.com"
+                      />
+                      <div className="mt-2 text-xs text-zinc-500">If you don’t have one yet, leave this blank.</div>
+                    </div>
+                  )}
 
                   <div>
-                    <label className="text-base font-medium">How many calls do you miss?</label>
-                    <select
-                      className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-base outline-none focus:border-zinc-400"
-                      value={missedCalls}
-                      onChange={(e) => setMissedCalls(e.target.value as typeof missedCalls)}
-                    >
-                      <option value="NOT_SURE">Not sure</option>
-                      <option value="NONE">None</option>
-                      <option value="SOME">Some</option>
-                      <option value="A_LOT">A lot</option>
-                    </select>
+                    <label className="text-base font-medium">About how many calls do you get per month?</label>
+                    <div className="mt-2">
+                      <PortalListboxDropdown
+                        value={callsPerMonthRange}
+                        onChange={(v) => setCallsPerMonthRange(v)}
+                        options={
+                          [
+                            { value: "NOT_SURE", label: "Not sure" },
+                            { value: "0_10", label: "0–10" },
+                            { value: "11_30", label: "11–30" },
+                            { value: "31_60", label: "31–60" },
+                            { value: "61_120", label: "61–120" },
+                            { value: "120_PLUS", label: "120+" },
+                          ] satisfies Array<PortalListboxOption<CallsPerMonthRange>>
+                        }
+                        buttonClassName="flex w-full items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-base outline-none hover:bg-zinc-50 focus:border-zinc-400"
+                      />
+                    </div>
                   </div>
 
                   <div>
                     <label className="text-base font-medium">How do people find you?</label>
-                    <input
-                      className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-base outline-none focus:border-zinc-400"
-                      value={acquisitionMethod}
-                      onChange={(e) => setAcquisitionMethod(e.target.value)}
-                      placeholder="Referrals, Google, Facebook"
-                    />
+                    <div className="mt-2">
+                      <PortalMultiSelectDropdown
+                        label="channels"
+                        value={acquisitionMethods}
+                        onChange={(next) => setAcquisitionMethods(next)}
+                        options={ACQUISITION_OPTIONS}
+                        allowCustom
+                        placeholder="Type to search…"
+                      />
+                    </div>
                   </div>
 
                   <div>
@@ -665,7 +701,7 @@ function PortalGetStartedInner() {
                     )}
                   >
                     <div className="text-sm font-semibold text-zinc-900">Start for free</div>
-                    <div className="mt-1 text-sm text-zinc-600">Pay for usage with credits.</div>
+                    <div className="mt-1 text-sm text-zinc-600">Only pay for what you use (usage-based credits).</div>
                     <div className="mt-2 text-xs font-semibold text-zinc-700">Best if you want to try it first.</div>
                   </button>
 
@@ -847,10 +883,16 @@ function PortalGetStartedInner() {
 
                     <button
                       type="button"
-                      className="text-sm font-semibold text-brand-ink hover:underline"
+                      className={classNames(
+                        "inline-flex w-full items-center justify-center gap-2 rounded-2xl border px-4 py-3 text-sm font-semibold transition",
+                        showAllServices
+                          ? "border-zinc-200 bg-white text-brand-ink hover:bg-zinc-50"
+                          : "border-[color:var(--color-brand-blue)] bg-[color:var(--color-brand-blue)] text-white hover:opacity-95",
+                      )}
                       onClick={() => setShowAllServices((v) => !v)}
                     >
-                      {showAllServices ? "Hide all services" : "See all services"}
+                      <span>{showAllServices ? "Hide all services" : "See all services"}</span>
+                      <span className={showAllServices ? "text-zinc-500" : "text-white/90"}>{showAllServices ? "▴" : "▾"}</span>
                     </button>
 
                     {showAllServices ? (
@@ -1039,6 +1081,35 @@ function PortalGetStartedInner() {
               Sign in
             </Link>
           </div>
+
+          <AppModal
+            open={successModalOpen}
+            title="Starter credits added"
+            description={successBonusCredits > 0 ? `We gave you ${successBonusCredits} credits to get started.` : "You're ready to go."}
+            onClose={() => {
+              setSuccessModalOpen(false);
+              router.push(`${portalBase}/app/onboarding`);
+            }}
+            widthClassName="w-[min(520px,calc(100vw-32px))]"
+            footer={
+              <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
+                <button
+                  type="button"
+                  className="rounded-2xl bg-[color:var(--color-brand-blue)] px-4 py-2 text-sm font-semibold text-white hover:opacity-95"
+                  onClick={() => {
+                    setSuccessModalOpen(false);
+                    router.push(`${portalBase}/app/onboarding`);
+                  }}
+                >
+                  Continue
+                </button>
+              </div>
+            }
+          >
+            <div className="text-sm text-zinc-600">
+              You can top up credits anytime in Billing.
+            </div>
+          </AppModal>
         </div>
       </div>
     </div>

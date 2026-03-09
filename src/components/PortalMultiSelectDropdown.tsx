@@ -156,7 +156,7 @@ export function PortalMultiSelectDropdown(props: {
           {showAddCustom ? (
             <button
               type="button"
-              className="mt-2 w-full rounded-xl bg-zinc-900 px-3 py-2 text-left text-sm font-semibold text-white hover:opacity-95"
+              className="mt-2 w-full rounded-xl bg-[color:var(--color-brand-blue)] px-3 py-2 text-left text-sm font-semibold text-white hover:opacity-95"
               onClick={() => addCustom()}
             >
               Add “{normalizeValue(q)}”
@@ -179,7 +179,7 @@ export function PortalMultiSelectDropdown(props: {
                     (isDisabled
                       ? "cursor-not-allowed text-zinc-400"
                       : isSel
-                        ? "bg-zinc-900 text-white"
+                        ? "bg-[color:var(--color-brand-blue)] text-white"
                         : "hover:bg-zinc-50 text-zinc-900")
                   }
                   onClick={() => {

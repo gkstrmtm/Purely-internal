@@ -36,8 +36,9 @@ const bodySchema = z.object({
   state: z.string().trim().min(2).max(40),
   websiteUrl: z.string().trim().max(300).optional(),
   hasWebsite: z.enum(["YES", "NO", "NOT_SURE"]).optional(),
-  missedCalls: z.enum(["NONE", "SOME", "A_LOT", "NOT_SURE"]).optional(),
   acquisitionMethod: z.string().trim().max(160).optional(),
+  acquisitionMethods: z.array(z.string().trim().max(80)).max(20).optional(),
+  callsPerMonthRange: z.enum(["NOT_SURE", "0_10", "11_30", "31_60", "61_120", "120_PLUS"]).optional(),
   industry: z.string().trim().max(120).optional(),
   businessModel: z.string().trim().max(120).optional(),
   targetCustomer: z.string().trim().max(240).optional(),
@@ -87,6 +88,18 @@ function normalizePlanQuantities(value: unknown): Record<string, number> {
   }
 
   return out;
+}
+
+function normalizeStringArray(value: unknown, opts: { max: number; maxLen: number } = { max: 20, maxLen: 80 }): string[] {
+  const arr = Array.isArray(value) ? value : [];
+  const out: string[] = [];
+  for (const raw of arr) {
+    const s = (typeof raw === "string" ? raw.trim() : "").slice(0, opts.maxLen);
+    if (!s) continue;
+    out.push(s);
+    if (out.length >= opts.max) break;
+  }
+  return Array.from(new Set(out));
 }
 
 function withLifecycle(dataJson: unknown, lifecycle: { state: string; reason?: string }) {
@@ -145,8 +158,10 @@ export async function POST(req: Request) {
   const city = parsed.data.city.trim();
   const state = parsed.data.state.trim();
   const hasWebsite = parsed.data.hasWebsite ?? null;
-  const missedCalls = parsed.data.missedCalls ?? null;
-  const acquisitionMethod = (parsed.data.acquisitionMethod || "").trim();
+  const callsPerMonthRange = parsed.data.callsPerMonthRange ?? null;
+  const acquisitionMethods = normalizeStringArray(parsed.data.acquisitionMethods);
+  const acquisitionMethodLegacy = (parsed.data.acquisitionMethod || "").trim();
+  const acquisitionMethod = acquisitionMethods.length ? acquisitionMethods.join(", ") : acquisitionMethodLegacy;
   const industry = (parsed.data.industry || "").trim();
   const businessModel = (parsed.data.businessModel || "").trim();
   const targetCustomer = (parsed.data.targetCustomer || "").trim();
@@ -252,7 +267,7 @@ export async function POST(req: Request) {
           serviceSlug: "onboarding-intake",
           status: "COMPLETE",
           dataJson: {
-            version: 2,
+            version: 3,
             goalIds,
             recommendedServiceSlugs,
             selectedServiceSlugs,
@@ -261,8 +276,9 @@ export async function POST(req: Request) {
             state,
             websiteUrl: websiteUrl ? websiteUrl : null,
             hasWebsite,
-            missedCalls,
             acquisitionMethod: acquisitionMethod ? acquisitionMethod : null,
+            acquisitionMethods: acquisitionMethods.length ? acquisitionMethods : null,
+            callsPerMonthRange,
             industry: industry ? industry : null,
             businessModel: businessModel ? businessModel : null,
             targetCustomer: targetCustomer ? targetCustomer : null,
@@ -282,7 +298,7 @@ export async function POST(req: Request) {
         update: {
           status: "COMPLETE",
           dataJson: {
-            version: 2,
+            version: 3,
             goalIds,
             recommendedServiceSlugs,
             selectedServiceSlugs,
@@ -291,8 +307,9 @@ export async function POST(req: Request) {
             state,
             websiteUrl: websiteUrl ? websiteUrl : null,
             hasWebsite,
-            missedCalls,
             acquisitionMethod: acquisitionMethod ? acquisitionMethod : null,
+            acquisitionMethods: acquisitionMethods.length ? acquisitionMethods : null,
+            callsPerMonthRange,
             industry: industry ? industry : null,
             businessModel: businessModel ? businessModel : null,
             targetCustomer: targetCustomer ? targetCustomer : null,

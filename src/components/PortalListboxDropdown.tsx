@@ -86,7 +86,7 @@ export function PortalListboxDropdown<T extends string>(props: {
                   (disabled
                     ? "cursor-not-allowed text-zinc-400"
                     : isSel
-                      ? "bg-zinc-900 text-white"
+                      ? "bg-[color:var(--color-brand-blue)] text-white"
                       : "hover:bg-zinc-50 text-zinc-900")
                 }
                 onClick={() => {

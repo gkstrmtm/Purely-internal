@@ -404,6 +404,25 @@ async function loadSettings(ownerId: string): Promise<NormalizedLeadScrapingSett
   return normalizeSettings(row?.dataJson);
 }
 
+async function loadProfileLocation(ownerId: string): Promise<string | null> {
+  const row = await prisma.portalServiceSetup
+    .findUnique({
+      where: { ownerId_serviceSlug: { ownerId, serviceSlug: "profile" } },
+      select: { dataJson: true },
+    })
+    .catch(() => null);
+
+  const rec =
+    row?.dataJson && typeof row.dataJson === "object" && !Array.isArray(row.dataJson)
+      ? (row.dataJson as Record<string, unknown>)
+      : null;
+
+  const city = typeof rec?.city === "string" ? rec.city.trim().slice(0, 120) : "";
+  const state = typeof rec?.state === "string" ? rec.state.trim().slice(0, 40) : "";
+  if (!city || !state) return null;
+  return `${city}, ${state}`;
+}
+
 export async function GET() {
   const auth = await requireClientSessionForService("leadScraping");
   if (!auth.ok) {
@@ -418,10 +437,16 @@ export async function GET() {
   const b2cUnlocked = isB2cLeadPullUnlocked({ email: auth.session.user.email, role: auth.session.user.role });
   const aiCallsUnlocked = (await requireClientSessionForService("aiOutboundCalls")).ok;
 
-  const [settings, credits] = await Promise.all([
+  const [settingsRaw, credits, profileLocation] = await Promise.all([
     loadSettings(ownerId),
     getCreditsState(ownerId),
+    loadProfileLocation(ownerId),
   ]);
+
+  const settings: NormalizedLeadScrapingSettings =
+    !settingsRaw.b2b.location.trim() && profileLocation
+      ? { ...settingsRaw, b2b: { ...settingsRaw.b2b, location: profileLocation } }
+      : settingsRaw;
 
   // Outbound is a separately gated feature. If the account isn't entitled,
   // never surface an enabled outbound config.

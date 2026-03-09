@@ -6,6 +6,14 @@ import {
   type PortalBillingModel,
 } from "@/lib/portalBillingModel";
 
+function normalizeBillingPreference(raw: unknown): PortalBillingModel | null {
+  if (typeof raw !== "string") return null;
+  const v = raw.trim().toLowerCase();
+  if (v === "credits" || v === "credit" || v === "credits_only" || v === "credits-only") return "credits";
+  if (v === "subscription" || v === "subs" || v === "stripe") return "subscription";
+  return null;
+}
+
 function parseOverride(dataJson: unknown): PortalBillingModel | null {
   if (!dataJson || typeof dataJson !== "object" || Array.isArray(dataJson)) return null;
   const rec = dataJson as Record<string, unknown>;
@@ -46,5 +54,22 @@ export async function getPortalBillingModelForOwner(opts: {
     .catch(() => null);
 
   const override = parseOverride(row?.dataJson);
-  return override ?? fromEnv;
+  if (override) return override;
+
+  // Back-compat: some older accounts recorded billingPreference in onboarding-intake but
+  // never got the explicit billing-model override row.
+  const intake = await prisma.portalServiceSetup
+    .findUnique({
+      where: { ownerId_serviceSlug: { ownerId: opts.ownerId, serviceSlug: "onboarding-intake" } },
+      select: { dataJson: true },
+    })
+    .catch(() => null);
+
+  const intakeRec =
+    intake?.dataJson && typeof intake.dataJson === "object" && !Array.isArray(intake.dataJson)
+      ? (intake.dataJson as Record<string, unknown>)
+      : null;
+
+  const fromIntake = normalizeBillingPreference(intakeRec?.billingPreference);
+  return fromIntake ?? fromEnv;
 }

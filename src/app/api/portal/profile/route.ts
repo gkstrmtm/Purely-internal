@@ -14,6 +14,58 @@ export const revalidate = 0;
 
 const PROFILE_EXTRAS_SERVICE_SLUG = "profile";
 
+function asProfileRec(dataJson: unknown): Record<string, unknown> {
+  return dataJson && typeof dataJson === "object" && !Array.isArray(dataJson)
+    ? (dataJson as Record<string, unknown>)
+    : {};
+}
+
+function normalizeCityState(input: { city?: unknown; state?: unknown }): { city: string; state: string } {
+  const city = typeof input.city === "string" ? input.city.trim().slice(0, 120) : "";
+  const state = typeof input.state === "string" ? input.state.trim().slice(0, 40) : "";
+  return { city, state };
+}
+
+async function getOwnerCityState(ownerId: string): Promise<{ city: string; state: string }> {
+  const row = await prisma.portalServiceSetup.findUnique({
+    where: { ownerId_serviceSlug: { ownerId, serviceSlug: PROFILE_EXTRAS_SERVICE_SLUG } },
+    select: { dataJson: true },
+  });
+
+  const rec = asProfileRec(row?.dataJson);
+  return normalizeCityState({ city: rec.city, state: rec.state });
+}
+
+async function setOwnerCityState(ownerId: string, input: { city?: string | null; state?: string | null }) {
+  const existing = await prisma.portalServiceSetup.findUnique({
+    where: { ownerId_serviceSlug: { ownerId, serviceSlug: PROFILE_EXTRAS_SERVICE_SLUG } },
+    select: { dataJson: true },
+  });
+
+  const base = asProfileRec(existing?.dataJson);
+  const next: any = { ...base, version: 1 };
+  const { city, state } = normalizeCityState({ city: input.city, state: input.state });
+  if (city) next.city = city;
+  else delete next.city;
+  if (state) next.state = state;
+  else delete next.state;
+
+  await prisma.portalServiceSetup.upsert({
+    where: { ownerId_serviceSlug: { ownerId, serviceSlug: PROFILE_EXTRAS_SERVICE_SLUG } },
+    create: {
+      ownerId,
+      serviceSlug: PROFILE_EXTRAS_SERVICE_SLUG,
+      status: "COMPLETE",
+      dataJson: next,
+    },
+    update: {
+      status: "COMPLETE",
+      dataJson: next,
+    },
+    select: { id: true },
+  });
+}
+
 function envFirst(keys: string[]): string {
   for (const key of keys) {
     const v = (process.env[key] ?? "").trim();
@@ -223,11 +275,13 @@ const updateSchema = z
     name: z.string().trim().min(2).max(120).optional(),
     email: z.string().trim().email().optional(),
     phone: z.string().trim().max(32).optional(),
+    city: z.string().trim().max(120).optional(),
+    state: z.string().trim().max(40).optional(),
     voiceAgentId: z.string().trim().max(120).optional(),
     voiceAgentApiKey: z.string().trim().max(400).optional(),
     currentPassword: z.string().min(6).optional(),
   })
-  .refine((v) => Boolean(v.name || v.email || v.phone || v.voiceAgentId !== undefined || v.voiceAgentApiKey !== undefined), {
+  .refine((v) => Boolean(v.name || v.email || v.phone || v.city !== undefined || v.state !== undefined || v.voiceAgentId !== undefined || v.voiceAgentApiKey !== undefined), {
     message: "Provide at least one field to update",
     path: ["name"],
   })
@@ -246,15 +300,17 @@ export async function GET() {
   }
 
   const userId = ((auth as any).access?.memberId as string | undefined) || auth.session.user.id;
+  const ownerId = ((auth as any).access?.ownerId as string | undefined) || auth.session.user.id;
   const user = await prisma.user.findUnique({
     where: { id: userId },
     select: { id: true, name: true, email: true, role: true, updatedAt: true },
   });
 
-  const [phone, voiceAgentId, voiceAgentApiKey] = await Promise.all([
+  const [phone, voiceAgentId, voiceAgentApiKey, cityState] = await Promise.all([
     getProfilePhone(userId),
     getProfileVoiceAgentId(userId),
     getProfileVoiceAgentApiKey(userId),
+    getOwnerCityState(ownerId).catch(() => ({ city: "", state: "" })),
   ]);
 
   return NextResponse.json({
@@ -265,6 +321,8 @@ export async function GET() {
           phone,
           voiceAgentId,
           voiceAgentApiKeyConfigured: Boolean(voiceAgentApiKey && voiceAgentApiKey.trim()),
+          city: cityState.city || null,
+          state: cityState.state || null,
         }
       : null,
   });
@@ -289,6 +347,18 @@ export async function PUT(req: Request) {
   }
 
   const userId = ((auth as any).access?.memberId as string | undefined) || auth.session.user.id;
+  const ownerId = ((auth as any).access?.ownerId as string | undefined) || auth.session.user.id;
+
+  const cityProvided = parsed.data.city !== undefined;
+  const stateProvided = parsed.data.state !== undefined;
+  const nextCity = typeof parsed.data.city === "string" ? parsed.data.city.trim().slice(0, 120) : null;
+  const nextState = typeof parsed.data.state === "string" ? parsed.data.state.trim().slice(0, 40) : null;
+  if (cityProvided || stateProvided) {
+    await setOwnerCityState(ownerId, {
+      city: cityProvided ? nextCity : undefined,
+      state: stateProvided ? nextState : undefined,
+    }).catch(() => null);
+  }
 
   const phoneProvided = parsed.data.phone !== undefined;
   let nextPhone: string | null = null;
@@ -306,19 +376,51 @@ export async function PUT(req: Request) {
     nextPhone = parsedPhone.e164;
   }
 
+  const touchingContact = Boolean(
+    parsed.data.name ||
+      parsed.data.email ||
+      phoneProvided ||
+      voiceAgentProvided ||
+      voiceAgentApiKeyProvided,
+  );
+
+  const shouldEnforcePhone = Boolean(phoneProvided || voiceAgentProvided || voiceAgentApiKeyProvided);
+
   const current = await prisma.user.findUnique({
     where: { id: userId },
     select: { id: true, name: true, email: true, role: true, updatedAt: true, passwordHash: true },
   });
   if (!current) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  const existingPhone = await getProfilePhone(userId).catch(() => null);
-  const effectivePhone = phoneProvided ? nextPhone : existingPhone;
-  if (!effectivePhone) {
-    return NextResponse.json(
-      { error: "Phone is required in your profile to enable default SMS notifications." },
-      { status: 400 },
-    );
+  if (!touchingContact) {
+    const cityState = await getOwnerCityState(ownerId).catch(() => ({ city: "", state: "" }));
+    return NextResponse.json({
+      ok: true,
+      user: {
+        id: current.id,
+        name: current.name,
+        email: current.email,
+        role: current.role,
+        updatedAt: current.updatedAt,
+        phone: await getProfilePhone(userId).catch(() => null),
+        voiceAgentId: await getProfileVoiceAgentId(userId).catch(() => null),
+        voiceAgentApiKeyConfigured: Boolean((await getProfileVoiceAgentApiKey(userId).catch(() => null))?.trim()),
+        city: cityState.city || null,
+        state: cityState.state || null,
+      },
+      note: "Saved.",
+    });
+  }
+
+  if (shouldEnforcePhone) {
+    const existingPhone = await getProfilePhone(userId).catch(() => null);
+    const effectivePhone = phoneProvided ? nextPhone : existingPhone;
+    if (!effectivePhone) {
+      return NextResponse.json(
+        { error: "Phone is required in your profile to enable default SMS notifications." },
+        { status: 400 },
+      );
+    }
   }
 
   const wantsToUpdateNameOrEmail = Boolean(parsed.data.name || parsed.data.email);
@@ -377,9 +479,20 @@ export async function PUT(req: Request) {
     select: { id: true, name: true, email: true, role: true, updatedAt: true },
   });
 
+  const cityState = await getOwnerCityState(ownerId).catch(() => ({ city: "", state: "" }));
+
   return NextResponse.json({
     ok: true,
-    user: user ? { ...user, phone, voiceAgentId, voiceAgentApiKeyConfigured } : null,
+    user: user
+      ? {
+          ...user,
+          phone,
+          voiceAgentId,
+          voiceAgentApiKeyConfigured,
+          city: cityState.city || null,
+          state: cityState.state || null,
+        }
+      : null,
     note: wantsToUpdateNameOrEmail ? "Sign out and back in to refresh your session." : "Saved.",
   });
 }

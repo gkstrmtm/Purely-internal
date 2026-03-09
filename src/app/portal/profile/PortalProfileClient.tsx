@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { usePathname, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { useToast } from "@/components/ToastProvider";
@@ -24,6 +25,8 @@ type Me = {
     name: string;
     role: string;
     phone?: string | null;
+    city?: string | null;
+    state?: string | null;
     voiceAgentId?: string | null;
     voiceAgentApiKeyConfigured?: boolean;
   } | null;
@@ -131,6 +134,10 @@ function CopyRow({ label, value }: { label: string; value: string | null | undef
 
 export function PortalProfileClient() {
   const toast = useToast();
+  const pathname = usePathname() || "";
+  const searchParams = useSearchParams();
+  const portalBase = pathname.startsWith("/credit") ? "/credit" : "/portal";
+  const fromOnboarding = (searchParams?.get("from") || "").trim().toLowerCase() === "onboarding";
   const [me, setMe] = useState<Me | null>(null);
   const [portalMe, setPortalMe] = useState<PortalMe | null>(null);
   const [loading, setLoading] = useState(true);
@@ -183,11 +190,15 @@ export function PortalProfileClient() {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
+  const [city, setCity] = useState("");
+  const [state, setState] = useState("");
   const [voiceAgentId, setVoiceAgentId] = useState("");
   const [voiceAgentApiKey, setVoiceAgentApiKey] = useState("");
   const [voiceAgentApiKeyConfigured, setVoiceAgentApiKeyConfigured] = useState(false);
   const [currentPassword, setCurrentPassword] = useState("");
   const [savingContact, setSavingContact] = useState(false);
+
+  const [savingLocation, setSavingLocation] = useState(false);
 
   const phoneValidation = useMemo(() => {
     const res = normalizePhoneStrict(phone);
@@ -298,6 +309,16 @@ export function PortalProfileClient() {
     );
   }, [pwCurrent, pwNext, pwConfirm]);
 
+  const canSaveLocation = useMemo(() => {
+    if (!me?.user) return false;
+    if (!canEditProfile) return false;
+    const nextCity = city.trim();
+    const nextState = state.trim();
+    const curCity = (me.user.city ?? "").trim();
+    const curState = (me.user.state ?? "").trim();
+    return nextCity !== curCity || nextState !== curState;
+  }, [me, city, state, canEditProfile]);
+
   useEffect(() => {
     let mounted = true;
     (async () => {
@@ -309,6 +330,8 @@ export function PortalProfileClient() {
         setName(json.user?.name ?? "");
         setEmail(json.user?.email ?? "");
         setPhone(formatPhoneForDisplay(json.user?.phone ?? ""));
+        setCity(json.user?.city ?? "");
+        setState(json.user?.state ?? "");
         setVoiceAgentId(json.user?.voiceAgentId ?? "");
         setVoiceAgentApiKeyConfigured(Boolean(json.user?.voiceAgentApiKeyConfigured));
       } else {
@@ -702,6 +725,8 @@ export function PortalProfileClient() {
         name?: string;
         email?: string;
         phone?: string | null;
+        city?: string | null;
+        state?: string | null;
         voiceAgentId?: string | null;
         voiceAgentApiKeyConfigured?: boolean;
         role?: string;
@@ -721,6 +746,8 @@ export function PortalProfileClient() {
         name: json.user?.name ?? nextName,
         email: json.user?.email ?? nextEmail,
         phone: json.user?.phone ?? nextPhone,
+        city: json.user?.city ?? me.user.city ?? null,
+        state: json.user?.state ?? me.user.state ?? null,
         voiceAgentId: json.user?.voiceAgentId ?? nextVoiceAgentId,
         voiceAgentApiKeyConfigured: Boolean(
           json.user?.voiceAgentApiKeyConfigured ?? (wantsVoiceAgentApiKeyChange ? true : me.user.voiceAgentApiKeyConfigured),
@@ -732,6 +759,49 @@ export function PortalProfileClient() {
     setVoiceAgentApiKey("");
     setPhone(formatPhoneForDisplay(json.user?.phone ?? nextPhone));
     setNotice(json.note ?? "Saved. You may need to sign out/in to refresh your session.");
+  }
+
+  async function saveLocation() {
+    if (!me?.user) return;
+    if (!canEditProfile) return;
+    if (!canSaveLocation) return;
+    setSavingLocation(true);
+    setError(null);
+    setNotice(null);
+
+    const res = await fetch("/api/portal/profile", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ city: city.trim(), state: state.trim() }),
+    });
+
+    const json = (await res.json().catch(() => ({}))) as {
+      ok?: boolean;
+      error?: string;
+      note?: string;
+      user?: { city?: string | null; state?: string | null } | null;
+    };
+    setSavingLocation(false);
+
+    if (!res.ok || !json.ok) {
+      setError(json.error ?? "Unable to save location");
+      return;
+    }
+
+    const nextCity = (json.user?.city ?? city.trim()) || null;
+    const nextState = (json.user?.state ?? state.trim()) || null;
+
+    setMe({
+      ok: true,
+      user: {
+        ...me.user,
+        city: nextCity,
+        state: nextState,
+      },
+    });
+    setCity(nextCity ?? "");
+    setState(nextState ?? "");
+    setNotice(json.note ?? "Saved.");
   }
 
   async function clearVoiceAgentApiKey() {
@@ -812,6 +882,16 @@ export function PortalProfileClient() {
 
   return (
     <div className="mx-auto w-full max-w-6xl">
+      {fromOnboarding ? (
+        <div>
+          <Link
+            href={`${portalBase}/app/onboarding`}
+            className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+          >
+            ← Back to onboarding
+          </Link>
+        </div>
+      ) : null}
       <h1 className="text-2xl font-bold text-brand-ink sm:text-3xl">Profile</h1>
       <p className="mt-2 text-sm text-zinc-600">
         Account details and security.
@@ -935,6 +1015,54 @@ export function PortalProfileClient() {
                     disabled={!canEditProfile}
                   >
                     Change password
+                  </button>
+                </div>
+              </PortalSettingsSection>
+
+              <PortalSettingsSection
+                title="Location"
+                description="Used as a default for things like lead scraping. Optional."
+                accent="blue"
+                collapsible={false}
+                dotClassName="hidden"
+              >
+                {!canEditProfile ? (
+                  <div className="mt-1 rounded-2xl border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">
+                    You have view-only access.
+                  </div>
+                ) : null}
+
+                <div className="mt-3 grid grid-cols-1 gap-4 sm:grid-cols-2">
+                  <div>
+                    <label className="text-xs font-semibold text-zinc-600">City (optional)</label>
+                    <input
+                      value={city}
+                      onChange={(e) => setCity(e.target.value)}
+                      disabled={!canEditProfile}
+                      className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300 disabled:opacity-60"
+                      placeholder="Dallas"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs font-semibold text-zinc-600">State (optional)</label>
+                    <input
+                      value={state}
+                      onChange={(e) => setState(e.target.value)}
+                      disabled={!canEditProfile}
+                      className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300 disabled:opacity-60"
+                      placeholder="TX"
+                    />
+                  </div>
+                </div>
+
+                <div className="mt-4 flex flex-col gap-3 sm:flex-row">
+                  <button
+                    type="button"
+                    className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-5 py-3 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
+                    onClick={saveLocation}
+                    disabled={!canSaveLocation || savingLocation}
+                  >
+                    {savingLocation ? "Saving…" : "Save location"}
                   </button>
                 </div>
               </PortalSettingsSection>

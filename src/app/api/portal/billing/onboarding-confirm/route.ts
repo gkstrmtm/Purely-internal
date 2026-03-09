@@ -5,6 +5,7 @@ import { requireClientSession } from "@/lib/apiAuth";
 import { prisma } from "@/lib/db";
 import { getOrCreateStripeCustomerId, isStripeConfigured, stripeGet } from "@/lib/stripeFetch";
 import { ensureMonthlyCreditsGiftSchedule } from "@/lib/portalMonthlyCreditsGift";
+import { PORTAL_BILLING_MODEL_OVERRIDE_SETUP_SLUG } from "@/lib/portalBillingModel";
 import {
   CORE_INCLUDED_SERVICE_SLUGS,
   monthlyTotalUsd,
@@ -357,6 +358,25 @@ export async function POST(req: Request) {
   const billingPreference = normalizeBillingPreference((intakeRec as any).billingPreference);
   const starterCreditsGifted = readNumber(intakeRec, "starterCreditsGifted") ?? 0;
   let bonusCredits = 0;
+
+  if (billingPreference) {
+    await prisma.portalServiceSetup
+      .upsert({
+        where: { ownerId_serviceSlug: { ownerId, serviceSlug: PORTAL_BILLING_MODEL_OVERRIDE_SETUP_SLUG } },
+        create: {
+          ownerId,
+          serviceSlug: PORTAL_BILLING_MODEL_OVERRIDE_SETUP_SLUG,
+          status: "COMPLETE",
+          dataJson: { billingModel: billingPreference, source: "onboarding-confirm", updatedAt: new Date().toISOString() },
+        },
+        update: {
+          status: "COMPLETE",
+          dataJson: { billingModel: billingPreference, source: "onboarding-confirm", updatedAt: new Date().toISOString() },
+        },
+        select: { id: true },
+      })
+      .catch(() => null);
+  }
 
   if (bypass || !isStripeConfigured()) {
     const activation = await activateFromIntake({ ownerId, intakeJson: intakeRec });
