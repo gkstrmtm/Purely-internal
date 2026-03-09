@@ -191,7 +191,7 @@ function AutomationHighlights() {
       title: "Stay top of mind",
       desc: "Simple marketing automations (like automated blogs) that keep your business visible, consistent, and SEO-friendly.",
       icon: "megaphone",
-      ctaHref: callHref,
+      ctaHref: "/blogs",
       ctaLabel: "See how",
     },
     { title: "Know what is working", desc: "Clear metrics so you can see volume, speed to lead, and conversion.", icon: "chart" },
