@@ -284,7 +284,7 @@ export function PortalFloatingTools() {
               />
               <button
                 type="button"
-                className="h-11 rounded-2xl bg-(--color-brand-blue) px-4 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
+                className="h-11 rounded-2xl bg-linear-to-r from-(--color-brand-blue) to-(--color-brand-pink) px-4 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
                 onClick={() => void sendSupportChat()}
                 disabled={chatSending}
               >
@@ -350,7 +350,7 @@ export function PortalFloatingTools() {
                 type="button"
                 className={classNames(
                   "rounded-2xl px-3 py-2 text-sm font-semibold",
-                  "border border-zinc-200 bg-white text-zinc-800 hover:bg-zinc-50",
+                  "bg-linear-to-r from-(--color-brand-blue) to-(--color-brand-pink) text-white hover:opacity-95",
                 )}
                 onClick={() => setChatOpen(true)}
               >

@@ -16,6 +16,7 @@ type OutgoingEvent =
         conversation?: { text_only?: boolean };
       };
     }
+  | { type: "contextual_update"; text: string }
   | { type: "user_message"; text: string };
 
 type IncomingEvent = {
@@ -109,6 +110,144 @@ function renderInlineMarkdownish(text: string): Array<string | { t: "code" | "st
   return out;
 }
 
+function isSafeHref(href: string) {
+  const raw = String(href || "").trim();
+  if (!raw) return false;
+  if (raw.startsWith("/")) return true;
+  try {
+    const u = new URL(raw);
+    return ["http:", "https:", "mailto:", "tel:"].includes(u.protocol);
+  } catch {
+    return false;
+  }
+}
+
+function normalizeHref(href: string) {
+  const raw = String(href || "").trim();
+  if (!raw) return raw;
+  if (raw.startsWith("www.")) return `https://${raw}`;
+  return raw;
+}
+
+function renderInlineTokens(tokens: ReturnType<typeof renderInlineMarkdownish>): React.ReactNode {
+  return (
+    <>
+      {tokens.map((p, j) => {
+        if (typeof p === "string") return <span key={j}>{p}</span>;
+        if (p.t === "code") {
+          return (
+            <code key={j} className="rounded bg-zinc-100 px-1 py-0.5 font-mono text-[0.95em]">
+              {p.v}
+            </code>
+          );
+        }
+        if (p.t === "strong") return <strong key={j}>{p.v}</strong>;
+        return <em key={j}>{p.v}</em>;
+      })}
+    </>
+  );
+}
+
+function renderInlineWithLinks(text: string): React.ReactNode {
+  const s = String(text || "");
+
+  const hasMarkdownLinks = /\[[^\]]+\]\([^)\s]+\)/.test(s);
+
+  // Support standard markdown links: [label](url)
+  const linkRe = /\[([^\]]+)\]\(([^)\s]+)\)/g;
+  const parts: React.ReactNode[] = [];
+  let lastIdx = 0;
+  let m: RegExpExecArray | null;
+
+  while ((m = linkRe.exec(s))) {
+    const start = m.index;
+    const end = start + m[0].length;
+
+    if (start > lastIdx) {
+      const chunk = s.slice(lastIdx, start);
+      parts.push(
+        <span key={`t_${lastIdx}_${start}`}>{renderInlineTokens(renderInlineMarkdownish(chunk))}</span>,
+      );
+    }
+
+    const label = m[1] ?? "";
+    const href = normalizeHref(m[2] ?? "");
+    if (isSafeHref(href)) {
+      const external = /^https?:\/\//i.test(href);
+      parts.push(
+        <a
+          key={`link_${start}_${end}`}
+          href={href}
+          target={external ? "_blank" : undefined}
+          rel={external ? "noreferrer noopener" : undefined}
+          className="font-semibold text-brand-blue underline underline-offset-2 hover:opacity-90"
+        >
+          {renderInlineTokens(renderInlineMarkdownish(label))}
+        </a>,
+      );
+    } else {
+      // Unsafe/invalid href, render as plain text.
+      parts.push(
+        <span key={`bad_${start}_${end}`}>{renderInlineTokens(renderInlineMarkdownish(m[0]))}</span>,
+      );
+    }
+
+    lastIdx = end;
+  }
+
+  if (lastIdx < s.length) {
+    parts.push(
+      <span key={`t_${lastIdx}_${s.length}`}>{renderInlineTokens(renderInlineMarkdownish(s.slice(lastIdx)))}</span>,
+    );
+  }
+
+  // If there were no markdown links, try a light autolink pass for plain URLs.
+  if (!hasMarkdownLinks) {
+    const urlRe = /(https?:\/\/[^\s]+|www\.[^\s]+)/g;
+    const nodes: React.ReactNode[] = [];
+    let matchedAny = false;
+    let li = 0;
+    let um: RegExpExecArray | null;
+    while ((um = urlRe.exec(s))) {
+      matchedAny = true;
+      const start = um.index;
+      const end = start + um[0].length;
+      if (start > li) {
+        nodes.push(
+          <span key={`u_${li}_${start}`}>{renderInlineTokens(renderInlineMarkdownish(s.slice(li, start)))}</span>,
+        );
+      }
+      const href = normalizeHref(um[0]);
+      if (isSafeHref(href)) {
+        nodes.push(
+          <a
+            key={`url_${start}_${end}`}
+            href={href}
+            target="_blank"
+            rel="noreferrer noopener"
+            className="font-semibold text-brand-blue underline underline-offset-2 hover:opacity-90"
+          >
+            {um[0]}
+          </a>,
+        );
+      } else {
+        nodes.push(
+          <span key={`ubad_${start}_${end}`}>{renderInlineTokens(renderInlineMarkdownish(um[0]))}</span>,
+        );
+      }
+      li = end;
+    }
+    if (li < s.length) {
+      nodes.push(
+        <span key={`u_${li}_${s.length}`}>{renderInlineTokens(renderInlineMarkdownish(s.slice(li)))}</span>,
+      );
+    }
+    if (matchedAny) return <>{nodes}</>;
+  }
+
+  return <>{parts}</>;
+}
+
 function renderMarkdownish(text: string): React.ReactNode {
   const lines = String(text || "").split(/\r?\n/);
   return (
@@ -122,17 +261,10 @@ function renderMarkdownish(text: string): React.ReactNode {
         const body = heading ? heading[2] : bullet ? bullet[1] : line;
         const prefix = bullet ? "• " : "";
 
-        const parts = renderInlineMarkdownish(body);
-
         const content = (
           <>
             {prefix}
-            {parts.map((p, j) => {
-              if (typeof p === "string") return <span key={j}>{p}</span>;
-              if (p.t === "code") return <code key={j} className="rounded bg-zinc-100 px-1 py-0.5 font-mono text-[0.95em]">{p.v}</code>;
-              if (p.t === "strong") return <strong key={j}>{p.v}</strong>;
-              return <em key={j}>{p.v}</em>;
-            })}
+            {renderInlineWithLinks(body)}
           </>
         );
 
@@ -183,6 +315,13 @@ export function AiReceptionistWidget() {
   const sawAnyAgentTextSinceLastSendRef = useRef(false);
   const pendingResponseTimeoutRef = useRef<number | null>(null);
   const endRef = useRef<HTMLDivElement | null>(null);
+  const messagesRef = useRef<ChatMessage[]>(messages);
+  const scrollContainerRef = useRef<HTMLDivElement | null>(null);
+  const shouldAutoScrollRef = useRef(true);
+  const scrollRafRef = useRef<number | null>(null);
+  const reconnectAttemptCountRef = useRef(0);
+  const lastUserMessageRef = useRef<string | null>(null);
+  const lastSendAtRef = useRef<number>(0);
 
   const canSend = useMemo(() => status !== "connecting", [status]);
 
@@ -198,14 +337,31 @@ export function AiReceptionistWidget() {
   }, [open]);
 
   useEffect(() => {
-    endRef.current?.scrollIntoView({ block: "end" });
-  }, [messages.length, open]);
+    messagesRef.current = messages;
+  }, [messages]);
+
+  useEffect(() => {
+    // When the widget opens, snap to the bottom.
+    if (open) {
+      shouldAutoScrollRef.current = true;
+      if (typeof window !== "undefined") {
+        if (scrollRafRef.current) window.cancelAnimationFrame(scrollRafRef.current);
+        scrollRafRef.current = window.requestAnimationFrame(() => {
+          endRef.current?.scrollIntoView({ block: "end" });
+        });
+      }
+    }
+  }, [open]);
 
   useEffect(() => {
     return () => {
       if (pendingResponseTimeoutRef.current) {
         window.clearTimeout(pendingResponseTimeoutRef.current);
         pendingResponseTimeoutRef.current = null;
+      }
+      if (scrollRafRef.current) {
+        window.cancelAnimationFrame(scrollRafRef.current);
+        scrollRafRef.current = null;
       }
       try {
         wsRef.current?.close(1000, "unmount");
@@ -226,6 +382,7 @@ export function AiReceptionistWidget() {
         text,
       },
     ]);
+    scheduleScrollToBottom(true);
   }
 
   function appendAssistantText(text: string) {
@@ -241,6 +398,7 @@ export function AiReceptionistWidget() {
         text: cleaned,
       },
     ]);
+    scheduleScrollToBottom();
   }
 
   function upsertStreamChunk(eventId: string, chunk: string) {
@@ -262,6 +420,47 @@ export function AiReceptionistWidget() {
       next[idx] = { ...next[idx], text: (next[idx].text || "") + text };
       return next;
     });
+
+    // Streaming updates don't change message count, so ensure we still follow.
+    scheduleScrollToBottom();
+  }
+
+  function scheduleScrollToBottom(force = false) {
+    if (typeof window === "undefined") return;
+    if (!force && !shouldAutoScrollRef.current) return;
+    if (scrollRafRef.current) window.cancelAnimationFrame(scrollRafRef.current);
+    scrollRafRef.current = window.requestAnimationFrame(() => {
+      endRef.current?.scrollIntoView({ block: "end" });
+    });
+  }
+
+  function buildReconnectContext() {
+    const recent = messagesRef.current
+      .filter((m) => m.role === "user" || m.role === "assistant")
+      .slice(-8)
+      .map((m) => {
+        const compact = String(m.text || "").replace(/\s+/g, " ").trim();
+        if (
+          /^connection dropped\./i.test(compact) ||
+          /^chat timed out\./i.test(compact) ||
+          /^chat is unavailable/i.test(compact)
+        ) {
+          return "";
+        }
+        const clipped = compact.length > 280 ? `${compact.slice(0, 277)}…` : compact;
+        return `${m.role === "user" ? "User" : "Assistant"}: ${clipped}`;
+      })
+      .filter(Boolean)
+      .join("\n");
+
+    return [
+      "Continuing an existing chat session that was interrupted.",
+      "Do not greet or introduce yourself again. Continue naturally and answer the latest user message.",
+      recent ? `Recent transcript:\n${recent}` : "",
+    ]
+      .filter(Boolean)
+      .join("\n\n")
+      .slice(0, 1800);
   }
 
   function flushQueue(ws: WebSocket) {
@@ -388,6 +587,26 @@ export function AiReceptionistWidget() {
       setStatus((s) => (s === "error" ? s : "idle"));
 
       const wasClean = typeof (event as CloseEvent)?.wasClean === "boolean" ? (event as CloseEvent).wasClean : true;
+      const recentlySent = Date.now() - lastSendAtRef.current < 12000;
+      const shouldRetry =
+        !wasClean &&
+        recentlySent &&
+        !sawAnyAgentTextSinceLastSendRef.current &&
+        reconnectAttemptCountRef.current < 1 &&
+        (queuedRef.current.length > 0 || !!lastUserMessageRef.current);
+
+      if (shouldRetry) {
+        reconnectAttemptCountRef.current += 1;
+
+        if (queuedRef.current.length === 0 && lastUserMessageRef.current) {
+          queuedRef.current.push({ type: "user_message", text: lastUserMessageRef.current });
+        }
+
+        queuedRef.current.unshift({ type: "contextual_update", text: buildReconnectContext() });
+        void ensureConnected();
+        return;
+      }
+
       if (!wasClean && !sawAnyAgentTextSinceLastSendRef.current) {
         appendAssistantError("Connection dropped. Please try again.");
       }
@@ -416,6 +635,12 @@ export function AiReceptionistWidget() {
     const ev: OutgoingEvent = { type: "user_message", text: trimmed };
     queuedRef.current.push(ev);
     setInput("");
+
+    lastUserMessageRef.current = trimmed;
+    lastSendAtRef.current = Date.now();
+    reconnectAttemptCountRef.current = 0;
+    shouldAutoScrollRef.current = true;
+    scheduleScrollToBottom(true);
 
     sawAnyAgentTextSinceLastSendRef.current = false;
     if (pendingResponseTimeoutRef.current) {
@@ -462,7 +687,16 @@ export function AiReceptionistWidget() {
             </button>
           </div>
 
-          <div className="max-h-[50vh] overflow-y-auto px-4 py-4">
+          <div
+            ref={scrollContainerRef}
+            onScroll={() => {
+              const el = scrollContainerRef.current;
+              if (!el) return;
+              const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+              shouldAutoScrollRef.current = distanceFromBottom < 120;
+            }}
+            className="max-h-[50vh] overflow-y-auto px-4 py-4"
+          >
             <div className="space-y-3">
               {messages.map((m) => (
                 <div key={m.id} className={m.role === "user" ? "flex justify-end" : "flex justify-start"}>
