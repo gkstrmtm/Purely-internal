@@ -204,7 +204,7 @@ export default function ServicesIndexPage() {
               </Link>
             </div>
 
-            <div className="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-3">
+            <div className="mt-7 grid grid-cols-1 gap-6 lg:grid-cols-3">
               <div className="rounded-3xl border border-zinc-200 bg-white p-6">
                 <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Fast launch</div>
                 <div className="mt-2 text-lg font-semibold text-zinc-900">The Launch Kit</div>
@@ -272,7 +272,7 @@ export default function ServicesIndexPage() {
               </div>
             </div>
 
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="mt-10 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <div className="text-lg font-semibold text-zinc-900">Not seeing your exact workflow?</div>
                 <div className="mt-1 text-sm text-zinc-600">
