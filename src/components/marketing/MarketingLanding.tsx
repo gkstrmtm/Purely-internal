@@ -20,8 +20,6 @@ type DemoRequestResponse = {
   leadId: string;
 };
 
-const PLAY_MARK_ICON_SRC = "/brand/play_white_removed_everywhere%20(1).png";
-
 function FeatureIcon({ name }: { name: "phone" | "message" | "calendar" | "dispatch" | "chart" | "megaphone" | "target" | "dial" | "social" }) {
   const common = "h-6 w-6 text-brand-blue";
   switch (name) {
@@ -1304,7 +1302,7 @@ export function MarketingLanding() {
                     alt="Purely Automation"
                     width={520}
                     height={180}
-                    className="h-auto w-[420px] max-w-full object-contain"
+                    className="h-auto w-105 max-w-full object-contain"
                     priority
                   />
                   <p className="mt-5 max-w-md font-brand text-xl text-brand-ink md:text-2xl">
@@ -1346,12 +1344,9 @@ export function MarketingLanding() {
                       formRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
                     }, 50);
                   }}
-                  className="inline-flex items-center gap-3 rounded-2xl bg-linear-to-r from-(--color-brand-blue) via-violet-500 to-(--color-brand-pink) px-7 py-4 font-brand text-xl font-bold text-white shadow-md hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/60 focus-visible:ring-offset-2 focus-visible:ring-offset-brand-blue"
+                  className="inline-flex items-center gap-3 rounded-2xl bg-linear-to-r from-(--color-brand-blue) via-violet-500 to-(--color-brand-pink) px-7 py-4 text-xl font-bold text-white shadow-md hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/60 focus-visible:ring-offset-2 focus-visible:ring-offset-brand-blue"
                 >
                   <span>see it in action</span>
-                  <span className="grid h-9 w-9 place-items-center rounded-xl bg-transparent">
-                    <Image src={PLAY_MARK_ICON_SRC} alt="" width={24} height={24} className="h-6 w-6" priority />
-                  </span>
                 </button>
               </div>
             </div>
@@ -1363,7 +1358,7 @@ export function MarketingLanding() {
             <div
               className={
                 "mx-auto max-w-4xl overflow-hidden rounded-[28px] bg-[#f7f5ef] shadow-sm transition-all " +
-                (expanded ? "max-h-[1200px] opacity-100" : "max-h-0 opacity-0")
+                (expanded ? "max-h-300 opacity-100" : "max-h-0 opacity-0")
               }
             >
               <div className="px-8 pb-10 pt-10">

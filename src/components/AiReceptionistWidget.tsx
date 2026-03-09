@@ -310,9 +310,15 @@ export function AiReceptionistWidget() {
   const [input, setInput] = useState("");
 
   const wsRef = useRef<WebSocket | null>(null);
+  const connectPromiseRef = useRef<Promise<WebSocket | null> | null>(null);
   const readyRef = useRef(false);
   const queuedRef = useRef<OutgoingEvent[]>([]);
   const streamMessageIdByEventIdRef = useRef(new Map<string, string>());
+  const streamSessionNonceRef = useRef<string>(
+    typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+      ? crypto.randomUUID()
+      : `s_${Date.now()}_${Math.random().toString(16).slice(2)}`,
+  );
   const sawAnyAgentTextSinceLastSendRef = useRef(false);
   const awaitingAgentRef = useRef(false);
   const pendingResponseTimeoutRef = useRef<number | null>(null);
@@ -324,6 +330,7 @@ export function AiReceptionistWidget() {
   const reconnectAttemptCountRef = useRef(0);
   const lastUserMessageRef = useRef<string | null>(null);
   const lastSendAtRef = useRef<number>(0);
+  const lastInboundAtRef = useRef<number>(Date.now());
 
   const canSend = useMemo(() => status !== "connecting", [status]);
 
@@ -413,8 +420,11 @@ export function AiReceptionistWidget() {
     sawAnyAgentTextSinceLastSendRef.current = true;
     awaitingAgentRef.current = false;
 
-    const messageId = streamMessageIdByEventIdRef.current.get(eventId) ?? `agent_${eventId}`;
-    streamMessageIdByEventIdRef.current.set(eventId, messageId);
+    // ElevenLabs event_id values can repeat across new conversations.
+    // Prefix with a per-connection nonce so we never merge new session text into an old bubble.
+    const scopedEventId = `${streamSessionNonceRef.current}:${eventId}`;
+    const messageId = streamMessageIdByEventIdRef.current.get(scopedEventId) ?? `agent_${scopedEventId}`;
+    streamMessageIdByEventIdRef.current.set(scopedEventId, messageId);
 
     setMessages((prev) => {
       const idx = prev.findIndex((m) => m.id === messageId);
@@ -479,65 +489,89 @@ export function AiReceptionistWidget() {
 
   async function ensureConnected(): Promise<WebSocket | null> {
     const existing = wsRef.current;
-    if (existing && (existing.readyState === WebSocket.OPEN || existing.readyState === WebSocket.CONNECTING)) {
-      return existing;
-    }
+    const existingIsLive =
+      existing && (existing.readyState === WebSocket.OPEN || existing.readyState === WebSocket.CONNECTING);
 
-    setStatus("connecting");
+    // If the websocket is very old/stale (common after idle), start a new backend session silently.
+    // Keep UI transcript unchanged.
+    const STALE_INBOUND_MS = 2 * 60_000;
+    const isStale = existingIsLive && Date.now() - lastInboundAtRef.current > STALE_INBOUND_MS;
+    if (existingIsLive && !isStale) return existing;
 
-    const res = await fetch("/api/public/elevenlabs/convai/help-widget-signed-url", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-    }).catch(() => null);
-
-    const data = await res?.json?.().catch(() => null);
-    const signedUrl = data && typeof data.signedUrl === "string" ? data.signedUrl : null;
-
-    if (!res || !res.ok || !signedUrl) {
-      setStatus("error");
-      const err = data && typeof data.error === "string" ? data.error : "Chat is unavailable right now.";
-      appendAssistantError(err);
-      return null;
-    }
-
-    let ws: WebSocket;
-    try {
-      ws = new WebSocket(signedUrl, ["convai"]);
-    } catch {
-      setStatus("error");
-      appendAssistantError("Failed to start chat.");
-      return null;
-    }
-
-    wsRef.current = ws;
-    readyRef.current = false;
-    streamMessageIdByEventIdRef.current.clear();
-
-    ws.addEventListener(
-      "open",
-      () => {
-        try {
-          const init: OutgoingEvent = {
-            type: "conversation_initiation_client_data",
-            conversation_config_override: {
-              conversation: { text_only: true },
-            },
-          };
-          ws.send(JSON.stringify(init));
-        } catch {
-          // ignore
-        }
-      },
-      { once: true },
-    );
-
-    ws.addEventListener("message", (event) => {
-      let msg: IncomingEvent;
+    if (isStale) {
       try {
-        msg = JSON.parse(String((event as MessageEvent).data ?? "")) as IncomingEvent;
+        existing?.close(1000, "stale");
       } catch {
-        return;
+        // ignore
       }
+      if (wsRef.current === existing) wsRef.current = null;
+      readyRef.current = false;
+    }
+
+    if (connectPromiseRef.current) return await connectPromiseRef.current;
+
+    connectPromiseRef.current = (async () => {
+      setStatus("connecting");
+
+      const res = await fetch("/api/public/elevenlabs/convai/help-widget-signed-url", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+      }).catch(() => null);
+
+      const data = await res?.json?.().catch(() => null);
+      const signedUrl = data && typeof data.signedUrl === "string" ? data.signedUrl : null;
+
+      if (!res || !res.ok || !signedUrl) {
+        setStatus("error");
+        const err = data && typeof data.error === "string" ? data.error : "Chat is unavailable right now.";
+        appendAssistantError(err);
+        return null;
+      }
+
+      let ws: WebSocket;
+      try {
+        ws = new WebSocket(signedUrl, ["convai"]);
+      } catch {
+        setStatus("error");
+        appendAssistantError("Failed to start chat.");
+        return null;
+      }
+
+      wsRef.current = ws;
+      readyRef.current = false;
+      lastInboundAtRef.current = Date.now();
+      streamMessageIdByEventIdRef.current.clear();
+      streamSessionNonceRef.current =
+        typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+          ? crypto.randomUUID()
+          : `s_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+
+      ws.addEventListener(
+        "open",
+        () => {
+          try {
+            const init: OutgoingEvent = {
+              type: "conversation_initiation_client_data",
+              conversation_config_override: {
+                conversation: { text_only: true },
+              },
+            };
+            ws.send(JSON.stringify(init));
+          } catch {
+            // ignore
+          }
+        },
+        { once: true },
+      );
+
+      ws.addEventListener("message", (event) => {
+        lastInboundAtRef.current = Date.now();
+        let msg: IncomingEvent;
+        try {
+          msg = JSON.parse(String((event as MessageEvent).data ?? "")) as IncomingEvent;
+        } catch {
+          return;
+        }
 
       if (msg?.type === "conversation_initiation_metadata") {
         readyRef.current = true;
@@ -584,51 +618,62 @@ export function AiReceptionistWidget() {
               : "Chat error";
         appendAssistantError(err);
       }
-    });
+      });
 
-    ws.addEventListener("close", (event) => {
-      readyRef.current = false;
-      if (wsRef.current === ws) wsRef.current = null;
-      setStatus((s) => (s === "error" ? s : "idle"));
+      ws.addEventListener("close", (event) => {
+        readyRef.current = false;
+        if (wsRef.current === ws) wsRef.current = null;
+        setStatus((s) => (s === "error" ? s : "idle"));
 
-      const wasClean = typeof (event as CloseEvent)?.wasClean === "boolean" ? (event as CloseEvent).wasClean : true;
-      const code = typeof (event as CloseEvent)?.code === "number" ? (event as CloseEvent).code : 0;
-      const reason = typeof (event as CloseEvent)?.reason === "string" ? (event as CloseEvent).reason : "";
-      const recentlySent = Date.now() - lastSendAtRef.current < 12000;
-      const isIntentional = reason === "unmount" || reason === "timeout";
-      const shouldRetry =
-        recentlySent &&
-        awaitingAgentRef.current &&
-        !sawAnyAgentTextSinceLastSendRef.current &&
-        reconnectAttemptCountRef.current < 1 &&
-        (queuedRef.current.length > 0 || !!lastUserMessageRef.current);
+        const wasClean = typeof (event as CloseEvent)?.wasClean === "boolean" ? (event as CloseEvent).wasClean : true;
+        const code = typeof (event as CloseEvent)?.code === "number" ? (event as CloseEvent).code : 0;
+        const reason = typeof (event as CloseEvent)?.reason === "string" ? (event as CloseEvent).reason : "";
 
-      if (shouldRetry) {
-        reconnectAttemptCountRef.current += 1;
+        // ElevenLabs sessions can end after idle; treat that as a recoverable backend event.
+        const recentlySent = Date.now() - lastSendAtRef.current < 5 * 60_000;
+        const isIntentional = reason === "unmount" || reason === "timeout" || reason === "stale";
+        const shouldRetry =
+          recentlySent &&
+          awaitingAgentRef.current &&
+          !sawAnyAgentTextSinceLastSendRef.current &&
+          reconnectAttemptCountRef.current < 2 &&
+          (queuedRef.current.length > 0 || !!lastUserMessageRef.current);
 
-        if (queuedRef.current.length === 0 && lastUserMessageRef.current) {
-          queuedRef.current.push({ type: "user_message", text: lastUserMessageRef.current });
+        if (shouldRetry) {
+          reconnectAttemptCountRef.current += 1;
+
+          // Keep the UI transcript unchanged; just re-send the latest user message on the new backend session.
+          if (queuedRef.current.length === 0 && lastUserMessageRef.current) {
+            queuedRef.current.push({ type: "user_message", text: lastUserMessageRef.current });
+          }
+
+          queuedRef.current.unshift({ type: "contextual_update", text: buildReconnectContext() });
+          void ensureConnected();
+          return;
         }
 
-        queuedRef.current.unshift({ type: "contextual_update", text: buildReconnectContext() });
-        void ensureConnected();
-        return;
-      }
+        // Only surface an error if we could not recover silently.
+        if (recentlySent && !sawAnyAgentTextSinceLastSendRef.current && !isIntentional) {
+          appendAssistantError(
+            code === 1000 || wasClean
+              ? "Chat session ended. Please send that again."
+              : "Connection dropped. Please try again.",
+          );
+        }
+      });
 
-      if (recentlySent && !sawAnyAgentTextSinceLastSendRef.current && !isIntentional) {
-        appendAssistantError(
-          code === 1000 || wasClean
-            ? "Chat session ended. Please send that again."
-            : "Connection dropped. Please try again.",
-        );
-      }
-    });
+      ws.addEventListener("error", () => {
+        setStatus("error");
+      });
 
-    ws.addEventListener("error", () => {
-      setStatus("error");
-    });
+      return ws;
+    })();
 
-    return ws;
+    try {
+      return await connectPromiseRef.current;
+    } finally {
+      connectPromiseRef.current = null;
+    }
   }
 
   async function send(text: string) {
@@ -661,16 +706,29 @@ export function AiReceptionistWidget() {
       pendingResponseTimeoutRef.current = null;
     }
     pendingResponseTimeoutRef.current = window.setTimeout(() => {
-      // If the connection is flaky / the agent didn't answer, don't show "..." — show a clear action.
-      if (!sawAnyAgentTextSinceLastSendRef.current) {
-        appendAssistantError("Chat timed out. Please try sending that again.");
+      // If the agent didn't answer, silently restart the backend session and re-send.
+      // Keep all UI messages exactly as-is.
+      if (!sawAnyAgentTextSinceLastSendRef.current && awaitingAgentRef.current) {
         try {
           wsRef.current?.close(1006, "timeout");
         } catch {
           // ignore
         }
       }
-    }, 25000);
+    }, 45000);
+
+    // If we haven't received anything recently (idle timeout likely), force a fresh backend session.
+    // Keep UI transcript unchanged; we still send the exact same user message.
+    const INBOUND_IDLE_BEFORE_SEND_MS = 2 * 60_000;
+    const existing = wsRef.current;
+    if (existing && existing.readyState === WebSocket.OPEN && Date.now() - lastInboundAtRef.current > INBOUND_IDLE_BEFORE_SEND_MS) {
+      queuedRef.current.unshift({ type: "contextual_update", text: buildReconnectContext() });
+      try {
+        existing.close(1000, "stale");
+      } catch {
+        // ignore
+      }
+    }
 
     const ws = await ensureConnected();
     if (!ws) return;
@@ -747,7 +805,7 @@ export function AiReceptionistWidget() {
                 }}
                 rows={1}
                 placeholder="Type a message…"
-                className="min-h-[44px] flex-1 resize-none rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 shadow-sm outline-none focus:border-brand-blue"
+                className="min-h-11 flex-1 resize-none rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 shadow-sm outline-none focus:border-brand-blue"
               />
               <button
                 type="submit"
