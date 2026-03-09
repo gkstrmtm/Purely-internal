@@ -26,7 +26,18 @@ import {
 } from "@/lib/portalOnboardingWizardCatalog";
 import { formatUsd } from "@/lib/pricing.shared";
 
-const STEPS = ["Business", "Goals", "Services", "Account"] as const;
+const STEPS = ["Business", "Goals", "Plan", "Services", "Account"] as const;
+
+type BillingPreference = "credits" | "subscription";
+type PackagePreset = "launch-kit" | "sales-loop" | "brand-builder";
+
+function normalizePackagePreset(value: string | null): PackagePreset | null {
+  const v = String(value || "").trim().toLowerCase();
+  if (v === "launch-kit") return "launch-kit";
+  if (v === "sales-loop") return "sales-loop";
+  if (v === "brand-builder") return "brand-builder";
+  return null;
+}
 
 function classNames(...xs: Array<string | false | null | undefined>) {
   return xs.filter(Boolean).join(" ");
@@ -35,6 +46,27 @@ function classNames(...xs: Array<string | false | null | undefined>) {
 function moneyLabel(monthlyUsd: number) {
   if (!monthlyUsd || monthlyUsd <= 0) return "$0/mo";
   return `${formatUsd(monthlyUsd, { maximumFractionDigits: 0 })}/mo`;
+}
+
+function RequiredMark() {
+  return <span className="ml-1 align-text-top text-(--color-brand-pink)">*</span>;
+}
+
+function bundleTitle(id: PackagePreset) {
+  if (id === "launch-kit") return "The Launch Kit";
+  if (id === "sales-loop") return "The Sales Loop";
+  return "The Brand Builder";
+}
+
+function bundlePlanIds(id: PackagePreset): string[] {
+  switch (id) {
+    case "launch-kit":
+      return ["core", "automations", "ai-receptionist", "blogs"];
+    case "sales-loop":
+      return ["core", "booking", "ai-receptionist", "lead-scraping-b2b", "ai-outbound"];
+    case "brand-builder":
+      return ["core", "blogs", "reviews", "newsletter", "nurture"];
+  }
 }
 
 export default function PortalGetStartedPage() {
@@ -69,17 +101,27 @@ function PortalGetStartedInner() {
 
   const [step, setStep] = useState(0);
 
+  const packagePreset = normalizePackagePreset(search?.get("package") || null);
+
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("");
 
   const [businessName, setBusinessName] = useState("");
+  const [city, setCity] = useState("");
+  const [state, setState] = useState("");
   const [websiteUrl, setWebsiteUrl] = useState("");
+  const [hasWebsite, setHasWebsite] = useState<"YES" | "NO" | "NOT_SURE">("YES");
+  const [missedCalls, setMissedCalls] = useState<"NONE" | "SOME" | "A_LOT" | "NOT_SURE">("NOT_SURE");
+  const [acquisitionMethod, setAcquisitionMethod] = useState("");
   const [industry, setIndustry] = useState("");
   const [businessModel, setBusinessModel] = useState("");
   const [targetCustomer, setTargetCustomer] = useState("");
   const [brandVoice, setBrandVoice] = useState("");
+
+  const [billingPreference, setBillingPreference] = useState<BillingPreference>(packagePreset ? "subscription" : "credits");
+  const [selectedBundleId, setSelectedBundleId] = useState<PackagePreset | null>(packagePreset);
 
   const [goalIds, setGoalIds] = useState<string[]>([]);
   const normalizedGoals = normalizeGoalIds(goalIds);
@@ -127,6 +169,14 @@ function PortalGetStartedInner() {
   }, [recommendedPlanIds, selectionTouched]);
 
   useEffect(() => {
+    if (!packagePreset) return;
+    if (selectionTouched) return;
+    setSelectedBundleId(packagePreset);
+    setSelectedPlanIds(bundlePlanIds(packagePreset));
+    setBillingPreference("subscription");
+  }, [packagePreset, selectionTouched]);
+
+  useEffect(() => {
     // BUILD coupon: free bundle access for testing.
     if (!couponIsBuild) return;
     setSelectionTouched(true);
@@ -158,6 +208,7 @@ function PortalGetStartedInner() {
   function togglePlan(id: string) {
     if (couponIsBuild && (id === "ai-receptionist" || id === "reviews")) return;
     setSelectionTouched(true);
+    setSelectedBundleId(null);
     setSelectedPlanIds((prev) => {
       const s = new Set(prev);
       if (id === "core") return Array.from(s);
@@ -206,15 +257,48 @@ function PortalGetStartedInner() {
     ),
   );
 
+  const recommendedBundleId: PackagePreset = (() => {
+    const s = new Set(normalizedGoals);
+
+    // If the user explicitly wants brand/content/reviews, lean Brand Builder.
+    if (s.has("content") || s.has("reviews")) return "brand-builder";
+
+    // If they care about appointments/leads/outbound or miss calls, lean Sales Loop.
+    if (s.has("appointments") || s.has("leads") || s.has("outbound") || s.has("receptionist")) return "sales-loop";
+    if (missedCalls === "A_LOT" || missedCalls === "SOME") return "sales-loop";
+
+    // If they don't have a website yet or are unsure, default to Launch Kit.
+    if (hasWebsite === "NO" || s.has("unsure")) return "launch-kit";
+
+    return "sales-loop";
+  })();
+
   const canGoNext = (() => {
-    if (step === 0) return businessName.trim().length >= 2;
+    if (step === 0) return businessName.trim().length >= 2 && city.trim().length >= 2 && state.trim().length >= 2;
     if (step === 1) return true;
-    if (step === 2) return selectedPlanIds.includes("core");
-    if (step === 3) {
+    if (step === 2) return billingPreference === "credits" || billingPreference === "subscription";
+    if (step === 3) return billingPreference === "credits" ? true : selectedPlanIds.includes("core");
+    if (step === 4) {
       return name.trim().length >= 2 && email.trim().length >= 3 && password.trim().length >= 6;
     }
     return false;
   })();
+
+  function goNext() {
+    if (step === 2 && billingPreference === "credits") {
+      setStep(4);
+      return;
+    }
+    setStep((s) => Math.min(4, s + 1));
+  }
+
+  function goBack() {
+    if (step === 4 && billingPreference === "credits") {
+      setStep(2);
+      return;
+    }
+    setStep((s) => Math.max(0, s - 1));
+  }
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -230,7 +314,12 @@ function PortalGetStartedInner() {
         phone,
         password,
         businessName,
+        city,
+        state,
         websiteUrl,
+        hasWebsite,
+        missedCalls,
+        acquisitionMethod,
         industry,
         businessModel,
         targetCustomer,
@@ -240,6 +329,8 @@ function PortalGetStartedInner() {
         selectedPlanIds,
         selectedPlanQuantities: planQuantities,
         couponCode: normalizedCoupon,
+        billingPreference,
+        selectedBundleId,
       }),
     });
 
@@ -251,6 +342,30 @@ function PortalGetStartedInner() {
     }
 
     toast.success("Account created");
+
+    // Credits-only: skip subscription checkout and immediately activate services.
+    if (billingPreference === "credits") {
+      const confirmRes = await fetch("/api/portal/billing/onboarding-confirm", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ bypass: true }),
+      });
+      const confirmJson = await confirmRes.json().catch(() => null);
+      setLoading(false);
+      if (!confirmRes.ok || !confirmJson?.ok) {
+        setError(confirmJson?.error || "Unable to activate services");
+        router.push(`${portalBase}/login`);
+        return;
+      }
+
+      if (typeof confirmJson?.bonusCredits === "number" && confirmJson.bonusCredits > 0) {
+        toast.success(`We added ${confirmJson.bonusCredits} credits to get you started.`);
+      }
+
+      toast.success("Welcome to your portal");
+      router.push(`${portalBase}/app/onboarding`);
+      return;
+    }
 
     const checkoutRes = await fetch("/api/portal/billing/onboarding-checkout", {
       method: "POST",
@@ -278,8 +393,12 @@ function PortalGetStartedInner() {
         return;
       }
 
+      if (typeof confirmJson?.bonusCredits === "number" && confirmJson.bonusCredits > 0) {
+        toast.success(`We added ${confirmJson.bonusCredits} credits to get you started.`);
+      }
+
       toast.success("Welcome to your portal");
-      router.push(`${portalBase}/app/billing`);
+      router.push(`${portalBase}/app/onboarding`);
       return;
     }
 
@@ -322,9 +441,14 @@ function PortalGetStartedInner() {
               <button
                 key={label}
                 type="button"
-                onClick={() => (i <= step ? setStep(i) : null)}
+                onClick={() => {
+                  if (i > step) return;
+                  if (billingPreference === "credits" && i === 3) return;
+                  setStep(i);
+                }}
                 className={classNames(
                   "flex-1 rounded-full border px-3 py-2 text-xs font-semibold",
+                  billingPreference === "credits" && i === 3 ? "cursor-not-allowed opacity-50" : "",
                   i === step
                     ? "border-brand-ink bg-brand-ink text-white"
                     : i < step
@@ -345,7 +469,10 @@ function PortalGetStartedInner() {
 
                 <div className="mt-4 grid grid-cols-1 gap-4">
                   <div>
-                    <label className="text-base font-medium">Business name</label>
+                    <label className="text-base font-medium">
+                      Business name
+                      <RequiredMark />
+                    </label>
                     <input
                       className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-base outline-none focus:border-zinc-400"
                       value={businessName}
@@ -354,8 +481,51 @@ function PortalGetStartedInner() {
                     />
                   </div>
 
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                    <div>
+                      <label className="text-base font-medium">
+                        City
+                        <RequiredMark />
+                      </label>
+                      <input
+                        className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-base outline-none focus:border-zinc-400"
+                        value={city}
+                        onChange={(e) => setCity(e.target.value)}
+                        required
+                        placeholder="Austin"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="text-base font-medium">
+                        State
+                        <RequiredMark />
+                      </label>
+                      <input
+                        className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-base outline-none focus:border-zinc-400"
+                        value={state}
+                        onChange={(e) => setState(e.target.value)}
+                        required
+                        placeholder="TX"
+                      />
+                    </div>
+                  </div>
+
                   <div>
-                    <label className="text-base font-medium">Website (optional)</label>
+                    <label className="text-base font-medium">Do you already have a website?</label>
+                    <select
+                      className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-base outline-none focus:border-zinc-400"
+                      value={hasWebsite}
+                      onChange={(e) => setHasWebsite(e.target.value as typeof hasWebsite)}
+                    >
+                      <option value="YES">Yes</option>
+                      <option value="NO">No</option>
+                      <option value="NOT_SURE">Not sure</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="text-base font-medium">Website</label>
                     <input
                       className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-base outline-none focus:border-zinc-400"
                       value={websiteUrl}
@@ -365,7 +535,31 @@ function PortalGetStartedInner() {
                   </div>
 
                   <div>
-                    <label className="text-base font-medium">Industry (optional)</label>
+                    <label className="text-base font-medium">How many calls do you miss?</label>
+                    <select
+                      className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-base outline-none focus:border-zinc-400"
+                      value={missedCalls}
+                      onChange={(e) => setMissedCalls(e.target.value as typeof missedCalls)}
+                    >
+                      <option value="NOT_SURE">Not sure</option>
+                      <option value="NONE">None</option>
+                      <option value="SOME">Some</option>
+                      <option value="A_LOT">A lot</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="text-base font-medium">How do people find you?</label>
+                    <input
+                      className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-base outline-none focus:border-zinc-400"
+                      value={acquisitionMethod}
+                      onChange={(e) => setAcquisitionMethod(e.target.value)}
+                      placeholder="Referrals, Google, Facebook"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="text-base font-medium">Industry</label>
                     <input
                       list="industry-suggestions"
                       className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-base outline-none focus:border-zinc-400"
@@ -381,7 +575,7 @@ function PortalGetStartedInner() {
                   </div>
 
                   <div>
-                    <label className="text-base font-medium">Business model (optional)</label>
+                    <label className="text-base font-medium">Business model</label>
                     <input
                       list="business-model-suggestions"
                       className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-base outline-none focus:border-zinc-400"
@@ -397,7 +591,7 @@ function PortalGetStartedInner() {
                   </div>
 
                   <div>
-                    <label className="text-base font-medium">Target customer (optional)</label>
+                    <label className="text-base font-medium">Target customer</label>
                     <input
                       className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-base outline-none focus:border-zinc-400"
                       value={targetCustomer}
@@ -407,7 +601,7 @@ function PortalGetStartedInner() {
                   </div>
 
                   <div>
-                    <label className="text-base font-medium">Brand voice (optional)</label>
+                    <label className="text-base font-medium">Brand voice</label>
                     <input
                       className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-base outline-none focus:border-zinc-400"
                       value={brandVoice}
@@ -455,134 +649,165 @@ function PortalGetStartedInner() {
 
             {step === 2 ? (
               <div className="rounded-2xl border border-zinc-200 bg-white p-4">
-                <div className="text-sm font-semibold text-zinc-900">Services</div>
-                <div className="mt-1 text-sm text-zinc-600">
-                  We recommend a starting set. You can change this anytime.
-                </div>
+                <div className="text-sm font-semibold text-zinc-900">Pick your plan</div>
+                <div className="mt-1 text-sm text-zinc-600">Choose how you’d like to start. You can change this later.</div>
 
-                <div className="mt-4 space-y-3">
-                  <div className="rounded-2xl border border-zinc-200 bg-white p-4">
-                    <div className="flex flex-wrap items-center justify-between gap-3">
-                      <div>
-                        <div className="text-sm font-semibold text-zinc-900">Coupon code</div>
-                        <div className="mt-1 text-xs text-zinc-500">Optional: you can also enter a promo code at checkout.</div>
-                      </div>
-
-                      <input
-                        value={couponCode}
-                        onChange={(e) => setCouponCode(e.target.value)}
-                        placeholder="Enter code"
-                        className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-400 sm:w-64"
-                      />
-                    </div>
-
-                    {couponIsRichard ? (
-                      <div className="mt-2 text-xs font-semibold text-emerald-700">RICHARD applied; everything is free for testing.</div>
-                    ) : null}
-                    {couponIsBuild ? (
-                      <div className="mt-2 text-xs font-semibold text-emerald-700">
-                        BUILD applied; free bundle enabled (Core + AI Receptionist + Reviews).
-                      </div>
-                    ) : null}
-                  </div>
-
-                  <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
-                    <div className="flex items-start justify-between gap-4">
-                      <div>
-                        <div className="text-sm font-semibold text-zinc-900">Core Portal</div>
-                        <div className="mt-1 text-sm text-zinc-600">Includes Inbox/Outbox, Media Library, Tasks, and Reporting.</div>
-                      </div>
-                      <div className="text-right">
-                        <div className="text-sm font-semibold text-zinc-900">{moneyLabel(39)}</div>
-                        <div className="mt-1 text-xs text-zinc-500">Required</div>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="text-xs font-semibold text-zinc-600">Recommended</div>
-                  <div className="grid grid-cols-1 gap-3">
-                    {(recommendedPlanIds.length ? recommendedPlanIds : ["automations"]).map((id) => {
-                      const p = planById(id);
-                      if (!p) return null;
-                      const checked = selectedPlanIds.includes(id);
-                      const qty = planQuantity(p, planQuantities);
-                      const buildFree = couponIsBuild && (id === "ai-receptionist" || id === "reviews");
-                      return (
-                        <button
-                          key={id}
-                          type="button"
-                          onClick={() => togglePlan(id)}
-                          disabled={couponIsBuild && (id === "ai-receptionist" || id === "reviews")}
-                          className={classNames(
-                            "flex w-full items-start justify-between gap-4 rounded-2xl border p-4 text-left",
-                            checked ? "border-emerald-200 bg-emerald-50" : "border-zinc-200 bg-white hover:bg-zinc-50",
-                            couponIsBuild && (id === "ai-receptionist" || id === "reviews") ? "cursor-not-allowed opacity-70" : "",
-                          )}
-                        >
-                          <div>
-                            <div className="text-sm font-semibold text-zinc-900">{p.title}</div>
-                            <div className="mt-1 text-sm text-zinc-600">{p.description}</div>
-                            {checked && p.quantityConfig ? (
-                              <div className="mt-3 flex flex-wrap items-center gap-3 text-xs text-zinc-600">
-                                <div className="font-semibold text-zinc-700">{p.quantityConfig.label}</div>
-                                <input
-                                  type="number"
-                                  min={p.quantityConfig.min}
-                                  max={p.quantityConfig.max}
-                                  value={qty}
-                                  onClick={(e) => e.stopPropagation()}
-                                  onChange={(e) => {
-                                    e.stopPropagation();
-                                    setSelectionTouched(true);
-                                    const n = Number(e.target.value);
-                                    setPlanQuantities((prev) => ({ ...prev, [p.id]: n }));
-                                  }}
-                                  className="w-24 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-zinc-400"
-                                />
-                              </div>
-                            ) : null}
-                          </div>
-                          <div className="text-right">
-                            <div className="text-sm font-semibold text-zinc-900">{buildFree ? "$0/mo" : moneyLabel(p.monthlyUsd)}</div>
-                            {p.oneTimeUsd && !buildFree ? (
-                              <div className="mt-1 text-xs font-semibold text-zinc-600">+{formatUsd(p.oneTimeUsd, { maximumFractionDigits: 0 })} setup</div>
-                            ) : null}
-                            <div
-                              className={classNames(
-                                "mt-3 h-4 w-4 rounded border",
-                                checked ? "border-emerald-500 bg-emerald-500" : "border-zinc-300 bg-white",
-                              )}
-                            />
-                          </div>
-                        </button>
-                      );
-                    })}
-                  </div>
+                <div className="mt-4 grid grid-cols-1 gap-3">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setBillingPreference("credits");
+                      setSelectedBundleId(null);
+                    }}
+                    className={classNames(
+                      "rounded-2xl border p-4 text-left",
+                      billingPreference === "credits" ? "border-emerald-200 bg-emerald-50" : "border-zinc-200 bg-white hover:bg-zinc-50",
+                    )}
+                  >
+                    <div className="text-sm font-semibold text-zinc-900">Start for free</div>
+                    <div className="mt-1 text-sm text-zinc-600">Pay for usage with credits.</div>
+                    <div className="mt-2 text-xs font-semibold text-zinc-700">Best if you want to try it first.</div>
+                  </button>
 
                   <button
                     type="button"
-                    className="text-sm font-semibold text-brand-ink hover:underline"
-                    onClick={() => setShowAllServices((v) => !v)}
+                    onClick={() => setBillingPreference("subscription")}
+                    className={classNames(
+                      "rounded-2xl border p-4 text-left",
+                      billingPreference === "subscription" ? "border-emerald-200 bg-emerald-50" : "border-zinc-200 bg-white hover:bg-zinc-50",
+                    )}
                   >
-                    {showAllServices ? "Hide all services" : "See all services"}
+                    <div className="text-sm font-semibold text-zinc-900">Monthly membership</div>
+                    <div className="mt-1 text-sm text-zinc-600">Best value if you’re ready to grow.</div>
+                    <div className="mt-2 text-xs font-semibold text-zinc-700">You’ll pick services next.</div>
                   </button>
+                </div>
 
-                  {showAllServices ? (
-                    <div className="grid grid-cols-1 gap-3">
-                      {PORTAL_ONBOARDING_PLANS.filter((p) => p.id !== "core").map((p) => {
-                        const checked = selectedPlanIds.includes(p.id);
-                        const qty = planQuantity(p, planQuantities);
-                        const buildFree = couponIsBuild && (p.id === "ai-receptionist" || p.id === "reviews");
+                {billingPreference === "subscription" ? (
+                  <div className="mt-6">
+                    <div className="text-sm font-semibold text-zinc-900">Recommended package</div>
+                    <div className="mt-1 text-sm text-zinc-600">
+                      {packagePreset ? (
+                        <>
+                          You chose <span className="font-semibold text-zinc-900">{bundleTitle(packagePreset)}</span>. Based on your answers, we recommend{" "}
+                          <span className="font-semibold text-zinc-900">{bundleTitle(recommendedBundleId)}</span>.
+                        </>
+                      ) : (
+                        <>
+                          Based on your answers, we recommend <span className="font-semibold text-zinc-900">{bundleTitle(recommendedBundleId)}</span>.
+                        </>
+                      )}
+                    </div>
+
+                    <div className="mt-4 grid grid-cols-1 gap-3">
+                      {(["launch-kit", "sales-loop", "brand-builder"] as const).map((id) => {
+                        const checked = selectedBundleId === id;
+                        const isRecommended = recommendedBundleId === id;
+                        const isChosen = packagePreset === id;
                         return (
                           <button
-                            key={p.id}
+                            key={id}
                             type="button"
-                            onClick={() => togglePlan(p.id)}
-                            disabled={couponIsBuild && (p.id === "ai-receptionist" || p.id === "reviews")}
+                            onClick={() => {
+                              setBillingPreference("subscription");
+                              setSelectionTouched(true);
+                              setSelectedBundleId(id);
+                              setSelectedPlanIds(bundlePlanIds(id));
+                            }}
+                            className={classNames(
+                              "rounded-2xl border p-4 text-left",
+                              checked ? "border-brand-ink bg-zinc-50" : "border-zinc-200 bg-white hover:bg-zinc-50",
+                            )}
+                          >
+                            <div className="flex items-center justify-between gap-3">
+                              <div className="text-sm font-semibold text-zinc-900">{bundleTitle(id)}</div>
+                              <div className="flex items-center gap-2">
+                                {isChosen ? (
+                                  <span className="rounded-full bg-(--color-brand-pink) px-2 py-1 text-xs font-semibold text-white">You chose</span>
+                                ) : null}
+                                {isRecommended ? (
+                                  <span className="rounded-full bg-emerald-600 px-2 py-1 text-xs font-semibold text-white">Recommended</span>
+                                ) : null}
+                              </div>
+                            </div>
+                            <div className="mt-2 text-sm text-zinc-600">Includes: {bundlePlanIds(id).map((pid) => planById(pid)?.title || pid).join(", ")}</div>
+                            {checked ? <div className="mt-2 text-xs font-semibold text-zinc-700">Selected</div> : null}
+                          </button>
+                        );
+                      })}
+                    </div>
+                    <div className="mt-3 text-xs text-zinc-500">You can fine-tune services on the next step.</div>
+                  </div>
+                ) : (
+                  <div className="mt-6 rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+                    <div className="text-sm font-semibold text-zinc-900">We’ll start you with a recommended setup</div>
+                    <div className="mt-1 text-sm text-zinc-600">You can change your services anytime inside your portal.</div>
+                  </div>
+                )}
+              </div>
+            ) : null}
+
+            {step === 3 ? (
+              billingPreference === "subscription" ? (
+                <div className="rounded-2xl border border-zinc-200 bg-white p-4">
+                  <div className="text-sm font-semibold text-zinc-900">Services</div>
+                  <div className="mt-1 text-sm text-zinc-600">We recommend a starting set. You can change this anytime.</div>
+
+                  <div className="mt-4 space-y-3">
+                    <div className="rounded-2xl border border-zinc-200 bg-white p-4">
+                      <div className="flex flex-wrap items-center justify-between gap-3">
+                        <div>
+                          <div className="text-sm font-semibold text-zinc-900">Coupon code</div>
+                          <div className="mt-1 text-xs text-zinc-500">You can also enter a promo code at checkout.</div>
+                        </div>
+
+                        <input
+                          value={couponCode}
+                          onChange={(e) => setCouponCode(e.target.value)}
+                          placeholder="Enter code"
+                          className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-400 sm:w-64"
+                        />
+                      </div>
+
+                      {couponIsRichard ? (
+                        <div className="mt-2 text-xs font-semibold text-emerald-700">RICHARD applied; everything is free for testing.</div>
+                      ) : null}
+                      {couponIsBuild ? (
+                        <div className="mt-2 text-xs font-semibold text-emerald-700">BUILD applied; free bundle enabled (Core + AI Receptionist + Reviews).</div>
+                      ) : null}
+                    </div>
+
+                    <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+                      <div className="flex items-start justify-between gap-4">
+                        <div>
+                          <div className="text-sm font-semibold text-zinc-900">Core Portal</div>
+                          <div className="mt-1 text-sm text-zinc-600">Includes Inbox/Outbox, Media Library, Tasks, and Reporting.</div>
+                        </div>
+                        <div className="text-right">
+                          <div className="text-sm font-semibold text-zinc-900">{moneyLabel(39)}</div>
+                          <div className="mt-1 text-xs text-zinc-500">Required</div>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="text-xs font-semibold text-zinc-600">Recommended</div>
+                    <div className="grid grid-cols-1 gap-3">
+                      {(recommendedPlanIds.length ? recommendedPlanIds : ["automations"]).map((id) => {
+                        const p = planById(id);
+                        if (!p) return null;
+                        const checked = selectedPlanIds.includes(id);
+                        const qty = planQuantity(p, planQuantities);
+                        const buildFree = couponIsBuild && (id === "ai-receptionist" || id === "reviews");
+                        return (
+                          <button
+                            key={id}
+                            type="button"
+                            onClick={() => togglePlan(id)}
+                            disabled={couponIsBuild && (id === "ai-receptionist" || id === "reviews")}
                             className={classNames(
                               "flex w-full items-start justify-between gap-4 rounded-2xl border p-4 text-left",
                               checked ? "border-emerald-200 bg-emerald-50" : "border-zinc-200 bg-white hover:bg-zinc-50",
-                              couponIsBuild && (p.id === "ai-receptionist" || p.id === "reviews") ? "cursor-not-allowed opacity-70" : "",
+                              couponIsBuild && (id === "ai-receptionist" || id === "reviews") ? "cursor-not-allowed opacity-70" : "",
                             )}
                           >
                             <div>
@@ -613,44 +838,111 @@ function PortalGetStartedInner() {
                               {p.oneTimeUsd && !buildFree ? (
                                 <div className="mt-1 text-xs font-semibold text-zinc-600">+{formatUsd(p.oneTimeUsd, { maximumFractionDigits: 0 })} setup</div>
                               ) : null}
-                              <div
-                                className={classNames(
-                                  "mt-3 h-4 w-4 rounded border",
-                                  checked ? "border-emerald-500 bg-emerald-500" : "border-zinc-300 bg-white",
-                                )}
-                              />
+                              <div className={classNames("mt-3 h-4 w-4 rounded border", checked ? "border-emerald-500 bg-emerald-500" : "border-zinc-300 bg-white")} />
                             </div>
                           </button>
                         );
                       })}
                     </div>
-                  ) : null}
 
-                  <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <div className="text-sm font-semibold text-zinc-900">Due today</div>
-                      <div className="text-sm font-semibold text-zinc-900">{formatUsd(dueTodayUsd, { maximumFractionDigits: 0 })}</div>
-                    </div>
-                    <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
-                      <div className="text-xs font-semibold text-zinc-600">Monthly thereafter</div>
-                      <div className="text-xs font-semibold text-zinc-700">{formatUsd(monthlyThereafterUsd, { maximumFractionDigits: 0 })}/mo</div>
-                    </div>
-                    {oneTimeTotalUsd > 0 ? (
-                      <div className="mt-1 text-xs text-zinc-500">Includes {formatUsd(oneTimeTotalUsd, { maximumFractionDigits: 0 })} in one-time setup fees.</div>
+                    <button
+                      type="button"
+                      className="text-sm font-semibold text-brand-ink hover:underline"
+                      onClick={() => setShowAllServices((v) => !v)}
+                    >
+                      {showAllServices ? "Hide all services" : "See all services"}
+                    </button>
+
+                    {showAllServices ? (
+                      <div className="grid grid-cols-1 gap-3">
+                        {PORTAL_ONBOARDING_PLANS.filter((p) => p.id !== "core").map((p) => {
+                          const checked = selectedPlanIds.includes(p.id);
+                          const qty = planQuantity(p, planQuantities);
+                          const buildFree = couponIsBuild && (p.id === "ai-receptionist" || p.id === "reviews");
+                          return (
+                            <button
+                              key={p.id}
+                              type="button"
+                              onClick={() => togglePlan(p.id)}
+                              disabled={couponIsBuild && (p.id === "ai-receptionist" || p.id === "reviews")}
+                              className={classNames(
+                                "flex w-full items-start justify-between gap-4 rounded-2xl border p-4 text-left",
+                                checked ? "border-emerald-200 bg-emerald-50" : "border-zinc-200 bg-white hover:bg-zinc-50",
+                                couponIsBuild && (p.id === "ai-receptionist" || p.id === "reviews") ? "cursor-not-allowed opacity-70" : "",
+                              )}
+                            >
+                              <div>
+                                <div className="text-sm font-semibold text-zinc-900">{p.title}</div>
+                                <div className="mt-1 text-sm text-zinc-600">{p.description}</div>
+                                {checked && p.quantityConfig ? (
+                                  <div className="mt-3 flex flex-wrap items-center gap-3 text-xs text-zinc-600">
+                                    <div className="font-semibold text-zinc-700">{p.quantityConfig.label}</div>
+                                    <input
+                                      type="number"
+                                      min={p.quantityConfig.min}
+                                      max={p.quantityConfig.max}
+                                      value={qty}
+                                      onClick={(e) => e.stopPropagation()}
+                                      onChange={(e) => {
+                                        e.stopPropagation();
+                                        setSelectionTouched(true);
+                                        const n = Number(e.target.value);
+                                        setPlanQuantities((prev) => ({ ...prev, [p.id]: n }));
+                                      }}
+                                      className="w-24 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-zinc-400"
+                                    />
+                                  </div>
+                                ) : null}
+                              </div>
+                              <div className="text-right">
+                                <div className="text-sm font-semibold text-zinc-900">{buildFree ? "$0/mo" : moneyLabel(p.monthlyUsd)}</div>
+                                {p.oneTimeUsd && !buildFree ? (
+                                  <div className="mt-1 text-xs font-semibold text-zinc-600">+{formatUsd(p.oneTimeUsd, { maximumFractionDigits: 0 })} setup</div>
+                                ) : null}
+                                <div className={classNames("mt-3 h-4 w-4 rounded border", checked ? "border-emerald-500 bg-emerald-500" : "border-zinc-300 bg-white")} />
+                              </div>
+                            </button>
+                          );
+                        })}
+                      </div>
                     ) : null}
+
+                    <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div className="text-sm font-semibold text-zinc-900">Due today</div>
+                        <div className="text-sm font-semibold text-zinc-900">{formatUsd(dueTodayUsd, { maximumFractionDigits: 0 })}</div>
+                      </div>
+                      <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+                        <div className="text-xs font-semibold text-zinc-600">Monthly thereafter</div>
+                        <div className="text-xs font-semibold text-zinc-700">{formatUsd(monthlyThereafterUsd, { maximumFractionDigits: 0 })}/mo</div>
+                      </div>
+                      {oneTimeTotalUsd > 0 ? (
+                        <div className="mt-1 text-xs text-zinc-500">Includes {formatUsd(oneTimeTotalUsd, { maximumFractionDigits: 0 })} in one-time setup fees.</div>
+                      ) : null}
+                    </div>
                   </div>
                 </div>
-              </div>
+              ) : (
+                <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+                  <div className="text-sm font-semibold text-zinc-900">No monthly services needed</div>
+                  <div className="mt-1 text-sm text-zinc-600">You’re starting free. You can pick services anytime inside your portal.</div>
+                </div>
+              )
             ) : null}
 
-            {step === 3 ? (
+            {step === 4 ? (
               <div className="rounded-2xl border border-zinc-200 bg-white p-4">
                 <div className="text-sm font-semibold text-zinc-900">Create your account</div>
-                  <div className="mt-1 text-sm text-zinc-600">You&apos;ll check out next and activate services.</div>
+                <div className="mt-1 text-sm text-zinc-600">
+                  {billingPreference === "subscription" ? "You’ll check out next and activate services." : "You’ll start free and activate services."}
+                </div>
 
                 <div className="mt-4 grid grid-cols-1 gap-4">
                   <div>
-                    <label className="text-base font-medium">Name</label>
+                    <label className="text-base font-medium">
+                      Name
+                      <RequiredMark />
+                    </label>
                     <input
                       className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-base outline-none focus:border-zinc-400"
                       value={name}
@@ -660,7 +952,10 @@ function PortalGetStartedInner() {
                   </div>
 
                   <div>
-                    <label className="text-base font-medium">Email</label>
+                    <label className="text-base font-medium">
+                      Email
+                      <RequiredMark />
+                    </label>
                     <input
                       className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-base outline-none focus:border-zinc-400"
                       type="email"
@@ -671,7 +966,10 @@ function PortalGetStartedInner() {
                   </div>
 
                   <div>
-                    <label className="text-base font-medium">Phone</label>
+                    <label className="text-base font-medium">
+                      Phone
+                      <RequiredMark />
+                    </label>
                     <input
                       className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-base outline-none focus:border-zinc-400"
                       type="tel"
@@ -683,7 +981,10 @@ function PortalGetStartedInner() {
                   </div>
 
                   <div>
-                    <label className="text-base font-medium">Password</label>
+                    <label className="text-base font-medium">
+                      Password
+                      <RequiredMark />
+                    </label>
                     <input
                       className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-base outline-none focus:border-zinc-400"
                       type="password"
@@ -700,7 +1001,11 @@ function PortalGetStartedInner() {
                   disabled={loading}
                   type="submit"
                 >
-                  {loading ? "Continuing…" : "Create account and checkout"}
+                  {loading
+                    ? "Continuing…"
+                    : billingPreference === "subscription"
+                      ? "Create account and checkout"
+                      : "Create account and start free"}
                 </button>
               </div>
             ) : null}
@@ -709,17 +1014,17 @@ function PortalGetStartedInner() {
               <button
                 type="button"
                 className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50 disabled:opacity-50"
-                onClick={() => setStep((s) => Math.max(0, s - 1))}
+                onClick={goBack}
                 disabled={step === 0 || loading}
               >
                 Back
               </button>
 
-              {step < 3 ? (
+              {step < 4 ? (
                 <button
                   type="button"
                   className="rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
-                  onClick={() => setStep((s) => Math.min(3, s + 1))}
+                  onClick={goNext}
                   disabled={!canGoNext || loading}
                 >
                   Next
@@ -730,7 +1035,7 @@ function PortalGetStartedInner() {
 
           <div className="mt-6 text-base text-zinc-600">
             Already have an account?{" "}
-            <Link className="font-medium text-brand-ink hover:underline" href="/portal/login">
+            <Link className="font-medium text-brand-ink hover:underline" href={`${portalBase}/login`}>
               Sign in
             </Link>
           </div>

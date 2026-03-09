@@ -90,42 +90,49 @@ export function PortalOnboardingClient() {
           })}
 
           {stepRow({
-            label: "2) Set up Blogs automation",
+            label: "2) Add credits",
+            status: "Optional",
+            href: "/portal/app/billing",
+            detail: "Credits power usage-based actions like AI calls, scrapes, and automations. You can top up anytime.",
+          })}
+
+          {stepRow({
+            label: "3) Set up Blogs automation",
             status: blogsDone ? "Done" : "Next",
             href: "/portal/app/services/blogs",
             detail: "Create your blog workspace, set your slug, and turn on the scheduler.",
           })}
 
           {stepRow({
-            label: "3) Connect your Inbox (SMS/Email)",
+            label: "4) Connect your Inbox (SMS/Email)",
             status: "Optional",
             href: "/portal/app/services/inbox",
             detail: "Connect Twilio and start sending/receiving messages from one place.",
           })}
 
           {stepRow({
-            label: "4) Turn on Reviews",
+            label: "5) Turn on Reviews",
             status: "Optional",
             href: "/portal/app/services/reviews",
             detail: "Send review requests automatically after bookings or manually from contacts.",
           })}
 
           {stepRow({
-            label: "5) Build automations",
+            label: "6) Build automations",
             status: "Optional",
             href: "/portal/app/services/automations",
             detail: "Trigger messages, tasks, tags, and follow-ups based on real events.",
           })}
 
           {stepRow({
-            label: "6) Funnel Builder (funnels + hosted forms)",
+            label: "7) Funnel Builder (funnels + hosted forms)",
             status: "Optional",
             href: "/portal/app/services/funnel-builder",
             detail: "Create funnels and forms and preview them under /portal/f and /portal/forms.",
           })}
 
           {stepRow({
-            label: "7) Nurture campaigns",
+            label: "8) Nurture campaigns",
             status: "Optional",
             href: "/portal/app/services/nurture-campaigns",
             detail: "Schedule multi-step SMS/email sequences for leads and customers.",

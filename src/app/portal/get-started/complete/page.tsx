@@ -61,8 +61,12 @@ function PortalGetStartedCompleteInner() {
         return;
       }
 
+      if (typeof json?.bonusCredits === "number" && json.bonusCredits > 0) {
+        toast.success(`You got ${json.bonusCredits} credits.`);
+      }
+
       toast.success("Services activated");
-      router.replace(bypass ? `${portalBase}/app/billing` : `${portalBase}/app/services`);
+      router.replace(`${portalBase}/app/onboarding`);
       router.refresh();
     })();
 

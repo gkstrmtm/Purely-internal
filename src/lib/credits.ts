@@ -326,15 +326,28 @@ export async function setAutoTopUp(ownerId: string, autoTopUp: boolean): Promise
 }
 
 export async function addCredits(ownerId: string, amount: number): Promise<CreditsState> {
+  return await addCreditsTx(prisma as any, ownerId, amount);
+}
+
+export async function addCreditsTx(
+  tx: {
+    portalServiceSetup: {
+      findUnique: typeof prisma.portalServiceSetup.findUnique;
+      upsert: typeof prisma.portalServiceSetup.upsert;
+    };
+  },
+  ownerId: string,
+  amount: number,
+): Promise<CreditsState> {
   const delta = Math.max(0, Math.floor(amount));
-  const existing = await prisma.portalServiceSetup.findUnique({
+  const existing = await tx.portalServiceSetup.findUnique({
     where: { ownerId_serviceSlug: { ownerId, serviceSlug: SERVICE_SLUG } },
     select: { dataJson: true },
   });
   const prev = parseCreditsJson(existing?.dataJson);
   const next = { balance: prev.balance + delta, autoTopUp: prev.autoTopUp };
 
-  const row = await prisma.portalServiceSetup.upsert({
+  const row = await tx.portalServiceSetup.upsert({
     where: { ownerId_serviceSlug: { ownerId, serviceSlug: SERVICE_SLUG } },
     create: { ownerId, serviceSlug: SERVICE_SLUG, status: "COMPLETE", dataJson: next },
     update: { dataJson: next },

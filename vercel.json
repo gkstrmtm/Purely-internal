@@ -49,6 +49,10 @@
       "schedule": "*/5 * * * *"
     },
     {
+      "path": "/api/portal/billing/monthly-credits/cron",
+      "schedule": "22 * * * *"
+    },
+    {
       "path": "/api/hr/follow-ups/cron",
       "schedule": "*/5 * * * *"
     }

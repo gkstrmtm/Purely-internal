@@ -290,7 +290,7 @@ export default async function PortalDashboardPage() {
               </Link>
               <div className="mt-auto pt-6">
                 <Link
-                  href="/portal/get-started"
+                  href="/portal/get-started?package=brand-builder"
                   className="inline-flex w-full items-center justify-center rounded-2xl bg-[color:var(--color-brand-blue)] px-4 py-3 text-sm font-semibold text-white transition hover:-translate-y-px hover:opacity-95 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:rgba(29,78,216,0.45)] focus-visible:ring-offset-2 focus-visible:ring-offset-white"
                 >
                   Get Started
@@ -320,7 +320,7 @@ export default async function PortalDashboardPage() {
               </Link>
               <div className="mt-auto pt-6">
                 <Link
-                  href="/portal/get-started"
+                  href="/portal/get-started?package=sales-loop"
                   className="inline-flex w-full items-center justify-center rounded-2xl border border-[color:rgba(51,65,85,0.55)] bg-white px-4 py-3 text-sm font-semibold text-brand-ink transition hover:-translate-y-px hover:border-[color:rgba(51,65,85,0.85)] hover:bg-[color:rgba(51,65,85,0.04)] hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:rgba(29,78,216,0.55)] focus-visible:ring-offset-2 focus-visible:ring-offset-white"
                 >
                   Get Started
@@ -347,7 +347,7 @@ export default async function PortalDashboardPage() {
               </Link>
               <div className="mt-auto pt-6">
                 <Link
-                  href="/portal/get-started"
+                  href="/portal/get-started?package=launch-kit"
                   className="inline-flex w-full items-center justify-center rounded-2xl bg-[color:var(--color-brand-pink)] px-4 py-3 text-sm font-semibold text-white transition hover:-translate-y-px hover:opacity-95 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:rgba(251,113,133,0.40)] focus-visible:ring-offset-2 focus-visible:ring-offset-white"
                 >
                   Get Started

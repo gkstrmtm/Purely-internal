@@ -19,6 +19,7 @@ import {
   recommendPortalServiceSlugs,
 } from "@/lib/portalGetStartedRecommendations";
 import { CORE_INCLUDED_SERVICE_SLUGS, planById } from "@/lib/portalOnboardingWizardCatalog";
+import { PORTAL_BILLING_MODEL_OVERRIDE_SETUP_SLUG } from "@/lib/portalBillingModel";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -31,11 +32,19 @@ const bodySchema = z.object({
   password: z.string().min(6).max(200),
 
   businessName: z.string().trim().min(2).max(160),
+  city: z.string().trim().min(2).max(120),
+  state: z.string().trim().min(2).max(40),
   websiteUrl: z.string().trim().max(300).optional(),
+  hasWebsite: z.enum(["YES", "NO", "NOT_SURE"]).optional(),
+  missedCalls: z.enum(["NONE", "SOME", "A_LOT", "NOT_SURE"]).optional(),
+  acquisitionMethod: z.string().trim().max(160).optional(),
   industry: z.string().trim().max(120).optional(),
   businessModel: z.string().trim().max(120).optional(),
   targetCustomer: z.string().trim().max(240).optional(),
   brandVoice: z.string().trim().max(240).optional(),
+
+  billingPreference: z.enum(["credits", "subscription"]).optional(),
+  selectedBundleId: z.enum(["launch-kit", "sales-loop", "brand-builder"]).nullable().optional(),
 
   goalIds: z.array(z.string()).max(10).optional(),
   selectedServiceSlugs: z.array(z.string()).max(20).optional(),
@@ -133,10 +142,18 @@ export async function POST(req: Request) {
   const phoneE164 = phoneParsed && phoneParsed.ok ? phoneParsed.e164 : null;
 
   const websiteUrl = (parsed.data.websiteUrl || "").trim();
+  const city = parsed.data.city.trim();
+  const state = parsed.data.state.trim();
+  const hasWebsite = parsed.data.hasWebsite ?? null;
+  const missedCalls = parsed.data.missedCalls ?? null;
+  const acquisitionMethod = (parsed.data.acquisitionMethod || "").trim();
   const industry = (parsed.data.industry || "").trim();
   const businessModel = (parsed.data.businessModel || "").trim();
   const targetCustomer = (parsed.data.targetCustomer || "").trim();
   const brandVoice = (parsed.data.brandVoice || "").trim();
+
+  const billingPreference = parsed.data.billingPreference ?? null;
+  const selectedBundleId = typeof parsed.data.selectedBundleId === "string" ? parsed.data.selectedBundleId : null;
 
   const couponCode = (parsed.data.couponCode || "").trim().toUpperCase().slice(0, 40);
 
@@ -176,18 +193,53 @@ export async function POST(req: Request) {
         select: { id: true },
       });
 
-      if (phoneE164) {
+      await tx.portalServiceSetup.upsert({
+        where: { ownerId_serviceSlug: { ownerId: user.id, serviceSlug: "profile" } },
+        create: {
+          ownerId: user.id,
+          serviceSlug: "profile",
+          status: "COMPLETE",
+          dataJson: {
+            version: 1,
+            ...(phoneE164 ? { phone: phoneE164 } : {}),
+            city,
+            state,
+          },
+        },
+        update: {
+          status: "COMPLETE",
+          dataJson: {
+            version: 1,
+            ...(phoneE164 ? { phone: phoneE164 } : {}),
+            city,
+            state,
+          },
+        },
+        select: { id: true },
+      });
+
+      if (variant !== "credit" && billingPreference) {
         await tx.portalServiceSetup.upsert({
-          where: { ownerId_serviceSlug: { ownerId: user.id, serviceSlug: "profile" } },
+          where: {
+            ownerId_serviceSlug: { ownerId: user.id, serviceSlug: PORTAL_BILLING_MODEL_OVERRIDE_SETUP_SLUG },
+          },
           create: {
             ownerId: user.id,
-            serviceSlug: "profile",
+            serviceSlug: PORTAL_BILLING_MODEL_OVERRIDE_SETUP_SLUG,
             status: "COMPLETE",
-            dataJson: { version: 1, phone: phoneE164 },
+            dataJson: {
+              billingModel: billingPreference,
+              source: "onboarding",
+              updatedAt: new Date().toISOString(),
+            },
           },
           update: {
             status: "COMPLETE",
-            dataJson: { version: 1, phone: phoneE164 },
+            dataJson: {
+              billingModel: billingPreference,
+              source: "onboarding",
+              updatedAt: new Date().toISOString(),
+            },
           },
           select: { id: true },
         });
@@ -200,17 +252,25 @@ export async function POST(req: Request) {
           serviceSlug: "onboarding-intake",
           status: "COMPLETE",
           dataJson: {
-            version: 1,
+            version: 2,
             goalIds,
             recommendedServiceSlugs,
             selectedServiceSlugs,
             businessName: parsed.data.businessName,
+            city,
+            state,
             websiteUrl: websiteUrl ? websiteUrl : null,
+            hasWebsite,
+            missedCalls,
+            acquisitionMethod: acquisitionMethod ? acquisitionMethod : null,
             industry: industry ? industry : null,
             businessModel: businessModel ? businessModel : null,
             targetCustomer: targetCustomer ? targetCustomer : null,
             brandVoice: brandVoice ? brandVoice : null,
             phoneE164,
+            billingPreference,
+            selectedBundleId,
+            starterCreditsGifted: billingPreference === "credits" ? 50 : 0,
             selectedPlanIds: Array.isArray(parsed.data.selectedPlanIds)
               ? parsed.data.selectedPlanIds.map((x) => (typeof x === "string" ? x.trim() : "")).filter(Boolean).slice(0, 20)
               : [],
@@ -222,17 +282,25 @@ export async function POST(req: Request) {
         update: {
           status: "COMPLETE",
           dataJson: {
-            version: 1,
+            version: 2,
             goalIds,
             recommendedServiceSlugs,
             selectedServiceSlugs,
             businessName: parsed.data.businessName,
+            city,
+            state,
             websiteUrl: websiteUrl ? websiteUrl : null,
+            hasWebsite,
+            missedCalls,
+            acquisitionMethod: acquisitionMethod ? acquisitionMethod : null,
             industry: industry ? industry : null,
             businessModel: businessModel ? businessModel : null,
             targetCustomer: targetCustomer ? targetCustomer : null,
             brandVoice: brandVoice ? brandVoice : null,
             phoneE164,
+            billingPreference,
+            selectedBundleId,
+            starterCreditsGifted: billingPreference === "credits" ? 50 : 0,
             selectedPlanIds: Array.isArray(parsed.data.selectedPlanIds)
               ? parsed.data.selectedPlanIds.map((x) => (typeof x === "string" ? x.trim() : "")).filter(Boolean).slice(0, 20)
               : [],
@@ -251,54 +319,56 @@ export async function POST(req: Request) {
           ownerId: user.id,
           serviceSlug: "credits",
           status: "COMPLETE",
-          dataJson: { balance: 0, autoTopUp: true },
+          dataJson: { balance: billingPreference === "credits" ? 50 : 0, autoTopUp: true },
         },
         update: {
           status: "COMPLETE",
-          dataJson: { balance: 0, autoTopUp: true },
+          dataJson: { balance: billingPreference === "credits" ? 50 : 0, autoTopUp: true },
         },
         select: { id: true },
       });
 
-      // Keep services gated until checkout completes.
-      const allowed = new Set<string>(ONBOARDING_SERVICE_SLUGS_TO_GUARD as unknown as string[]);
-      const coreIncluded = new Set<string>(CORE_INCLUDED_SERVICE_SLUGS as unknown as string[]);
+      // Keep services gated until checkout completes (subscription billing only).
+      if (billingPreference !== "credits") {
+        const allowed = new Set<string>(ONBOARDING_SERVICE_SLUGS_TO_GUARD as unknown as string[]);
+        const coreIncluded = new Set<string>(CORE_INCLUDED_SERVICE_SLUGS as unknown as string[]);
 
-      const planIds = Array.isArray(parsed.data.selectedPlanIds)
-        ? parsed.data.selectedPlanIds.map((x) => (typeof x === "string" ? x.trim() : "")).filter(Boolean).slice(0, 20)
-        : [];
-      const planSlugs = planIds.flatMap((id) => planById(id)?.serviceSlugsToActivate ?? []);
+        const planIds = Array.isArray(parsed.data.selectedPlanIds)
+          ? parsed.data.selectedPlanIds.map((x) => (typeof x === "string" ? x.trim() : "")).filter(Boolean).slice(0, 20)
+          : [];
+        const planSlugs = planIds.flatMap((id) => planById(id)?.serviceSlugsToActivate ?? []);
 
-      const pendingPayment = new Set<string>([...selectedServiceSlugs, ...planSlugs]);
-      for (const slug of Array.from(pendingPayment)) {
-        if (!allowed.has(slug)) continue;
-        if (coreIncluded.has(slug)) continue;
+        const pendingPayment = new Set<string>([...selectedServiceSlugs, ...planSlugs]);
+        for (const slug of Array.from(pendingPayment)) {
+          if (!allowed.has(slug)) continue;
+          if (coreIncluded.has(slug)) continue;
 
-        const existing = await tx.portalServiceSetup
-          .findUnique({
+          const existing = await tx.portalServiceSetup
+            .findUnique({
+              where: { ownerId_serviceSlug: { ownerId: user.id, serviceSlug: slug } },
+              select: { id: true, dataJson: true },
+            })
+            .catch(() => null);
+
+          if (!existing) {
+            await tx.portalServiceSetup.create({
+              data: {
+                ownerId: user.id,
+                serviceSlug: slug,
+                status: "NOT_STARTED",
+                dataJson: withLifecycle({}, { state: "paused", reason: "pending_payment" }) as any,
+              },
+              select: { id: true },
+            });
+            continue;
+          }
+
+          await tx.portalServiceSetup.update({
             where: { ownerId_serviceSlug: { ownerId: user.id, serviceSlug: slug } },
-            select: { id: true, dataJson: true },
-          })
-          .catch(() => null);
-
-        if (!existing) {
-          await tx.portalServiceSetup.create({
-            data: {
-              ownerId: user.id,
-              serviceSlug: slug,
-              status: "NOT_STARTED",
-              dataJson: withLifecycle({}, { state: "paused", reason: "pending_payment" }) as any,
-            },
+            data: { dataJson: withLifecycle(existing.dataJson, { state: "paused", reason: "pending_payment" }) as any },
             select: { id: true },
           });
-          continue;
         }
-
-        await tx.portalServiceSetup.update({
-          where: { ownerId_serviceSlug: { ownerId: user.id, serviceSlug: slug } },
-          data: { dataJson: withLifecycle(existing.dataJson, { state: "paused", reason: "pending_payment" }) as any },
-          select: { id: true },
-        });
       }
 
       return user;

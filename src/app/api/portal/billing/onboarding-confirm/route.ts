@@ -4,7 +4,15 @@ import { z } from "zod";
 import { requireClientSession } from "@/lib/apiAuth";
 import { prisma } from "@/lib/db";
 import { getOrCreateStripeCustomerId, isStripeConfigured, stripeGet } from "@/lib/stripeFetch";
-import { CORE_INCLUDED_SERVICE_SLUGS, planById } from "@/lib/portalOnboardingWizardCatalog";
+import { ensureMonthlyCreditsGiftSchedule } from "@/lib/portalMonthlyCreditsGift";
+import {
+  CORE_INCLUDED_SERVICE_SLUGS,
+  monthlyTotalUsd,
+  oneTimeTotalUsd,
+  ONBOARDING_UPFRONT_PAID_PLAN_IDS,
+  planById,
+  planQuantity,
+} from "@/lib/portalOnboardingWizardCatalog";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -20,6 +28,141 @@ function normalizeCouponCode(input: unknown): "RICHARD" | "BUILD" | null {
   const code = input.trim().toUpperCase();
   if (code === "RICHARD" || code === "BUILD") return code;
   return null;
+}
+
+function readNumber(rec: unknown, key: string): number | null {
+  if (!rec || typeof rec !== "object" || Array.isArray(rec)) return null;
+  const v = (rec as any)[key];
+  const n = typeof v === "number" ? v : Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
+function normalizeBillingPreference(input: unknown): "credits" | "subscription" | null {
+  if (typeof input !== "string") return null;
+  const v = input.trim().toLowerCase();
+  if (v === "credits" || v === "credit" || v === "credits_only" || v === "credits-only") return "credits";
+  if (v === "subscription" || v === "subs" || v === "stripe") return "subscription";
+  return null;
+}
+
+function normalizePlanQuantities(value: unknown): Record<string, number> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  const out: Record<string, number> = {};
+  for (const [kRaw, vRaw] of Object.entries(value as Record<string, unknown>)) {
+    const k = String(kRaw).trim();
+    if (!k) continue;
+    const n = typeof vRaw === "number" ? vRaw : Number(vRaw);
+    if (!Number.isFinite(n)) continue;
+    out[k] = Math.max(0, Math.min(50, Math.trunc(n)));
+  }
+  return out;
+}
+
+function computeBonusCreditsFromIntake(intakeJson: Record<string, unknown>): number {
+  const couponCode = normalizeCouponCode((intakeJson as any).couponCode);
+  if (couponCode === "RICHARD") return 0;
+
+  const allowed = new Set<string>(ONBOARDING_UPFRONT_PAID_PLAN_IDS as unknown as string[]);
+  const rawPlanIds = Array.isArray((intakeJson as any).selectedPlanIds) ? ((intakeJson as any).selectedPlanIds as unknown[]) : [];
+  const unique = Array.from(
+    new Set(
+      rawPlanIds
+        .map((x) => (typeof x === "string" ? x.trim() : ""))
+        .filter(Boolean)
+        .filter((id) => allowed.has(id)),
+    ),
+  );
+
+  if (!unique.includes("core")) unique.unshift("core");
+  if (unique.includes("lead-scraping-b2b") && unique.includes("lead-scraping-b2c")) {
+    const filtered = unique.filter((id) => id !== "lead-scraping-b2b");
+    unique.splice(0, unique.length, ...filtered);
+  }
+
+  const quantities = normalizePlanQuantities((intakeJson as any).selectedPlanQuantities);
+  const qtyById: Record<string, number> = {};
+  for (const planId of unique) {
+    const plan = planById(planId);
+    if (!plan) continue;
+    qtyById[planId] = planQuantity(plan, quantities);
+  }
+
+  const billableForTotals = couponCode === "BUILD"
+    ? unique.filter((id) => id !== "ai-receptionist" && id !== "reviews")
+    : unique;
+
+  const totalMonthly = monthlyTotalUsd(billableForTotals, qtyById);
+  const totalOneTime = oneTimeTotalUsd(billableForTotals, qtyById);
+  const totalDueToday = totalMonthly + totalOneTime;
+  if (!totalDueToday || totalDueToday <= 0) return 0;
+
+  // Half of total paid today, converted at $0.10/credit => credits = usd * 10; half => usd * 5.
+  return Math.max(0, Math.round(totalDueToday * 5));
+}
+
+async function grantOnboardingBonusCredits(opts: { ownerId: string; amount: number }): Promise<number> {
+  const amount = Math.max(0, Math.trunc(opts.amount));
+  if (!amount) return 0;
+
+  const markerSlug = "onboarding-bonus-credits";
+
+  return prisma.$transaction(async (tx) => {
+    const existingMarker = await tx.portalServiceSetup
+      .findUnique({
+        where: { ownerId_serviceSlug: { ownerId: opts.ownerId, serviceSlug: markerSlug } },
+        select: { id: true },
+      })
+      .catch(() => null);
+    if (existingMarker?.id) return 0;
+
+    const creditsRow = await tx.portalServiceSetup
+      .findUnique({
+        where: { ownerId_serviceSlug: { ownerId: opts.ownerId, serviceSlug: "credits" } },
+        select: { id: true, dataJson: true },
+      })
+      .catch(() => null);
+
+    const currentBalance = readNumber(creditsRow?.dataJson, "balance") ?? 0;
+    const nextBalance = Math.max(0, Math.trunc(currentBalance) + amount);
+
+    if (!creditsRow?.id) {
+      await tx.portalServiceSetup.create({
+        data: {
+          ownerId: opts.ownerId,
+          serviceSlug: "credits",
+          status: "COMPLETE",
+          dataJson: { balance: nextBalance, autoTopUp: true },
+        },
+        select: { id: true },
+      });
+    } else {
+      await tx.portalServiceSetup.update({
+        where: { ownerId_serviceSlug: { ownerId: opts.ownerId, serviceSlug: "credits" } },
+        data: {
+          status: "COMPLETE",
+          dataJson: {
+            ...(creditsRow.dataJson && typeof creditsRow.dataJson === "object" && !Array.isArray(creditsRow.dataJson)
+              ? (creditsRow.dataJson as any)
+              : {}),
+            balance: nextBalance,
+          },
+        },
+        select: { id: true },
+      });
+    }
+
+    await tx.portalServiceSetup.create({
+      data: {
+        ownerId: opts.ownerId,
+        serviceSlug: markerSlug,
+        status: "COMPLETE",
+        dataJson: { amount, createdAt: new Date().toISOString() },
+      },
+      select: { id: true },
+    });
+
+    return amount;
+  });
 }
 
 type StripeCheckoutSession = {
@@ -211,9 +354,19 @@ export async function POST(req: Request) {
     ? (intake.dataJson as Record<string, unknown>)
     : {};
 
+  const billingPreference = normalizeBillingPreference((intakeRec as any).billingPreference);
+  const starterCreditsGifted = readNumber(intakeRec, "starterCreditsGifted") ?? 0;
+  let bonusCredits = 0;
+
   if (bypass || !isStripeConfigured()) {
     const activation = await activateFromIntake({ ownerId, intakeJson: intakeRec });
-    return NextResponse.json({ ok: true, stripeConfigured: isStripeConfigured(), bypass, activated: activation.activated });
+    if (billingPreference === "credits" && starterCreditsGifted > 0) {
+      bonusCredits = Math.max(0, Math.trunc(starterCreditsGifted));
+    }
+    if (billingPreference === "subscription") {
+      await ensureMonthlyCreditsGiftSchedule({ ownerId, intakeJson: intakeRec, anchorAtIso: new Date().toISOString() });
+    }
+    return NextResponse.json({ ok: true, stripeConfigured: isStripeConfigured(), bypass, activated: activation.activated, bonusCredits });
   }
 
   const customerId = await getOrCreateStripeCustomerId(email);
@@ -240,5 +393,12 @@ export async function POST(req: Request) {
   }
 
   const activation = await activateFromIntake({ ownerId, intakeJson: intakeRec });
-  return NextResponse.json({ ok: true, stripeConfigured: true, activated: activation.activated });
+
+  if (billingPreference === "subscription") {
+    const computed = computeBonusCreditsFromIntake(intakeRec);
+    bonusCredits = await grantOnboardingBonusCredits({ ownerId, amount: computed });
+    await ensureMonthlyCreditsGiftSchedule({ ownerId, intakeJson: intakeRec, anchorAtIso: new Date().toISOString() });
+  }
+
+  return NextResponse.json({ ok: true, stripeConfigured: true, activated: activation.activated, bonusCredits });
 }
