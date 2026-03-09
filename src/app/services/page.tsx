@@ -188,64 +188,7 @@ export default function ServicesIndexPage() {
 
       <section className="w-full bg-brand-mist">
         <div className="mx-auto max-w-6xl px-6 py-12">
-          <div className="rounded-3xl border border-zinc-200 bg-white p-7 shadow-sm">
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-              <div>
-                <div className="text-sm font-semibold text-zinc-900">Core Portal</div>
-                <div className="mt-1 text-sm text-zinc-600">
-                  Your home base for services, billing, onboarding, and reporting.
-                </div>
-              </div>
-              <Link
-                href="/services/portal"
-                className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-5 py-2.5 text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
-              >
-                Learn more
-              </Link>
-            </div>
-          </div>
-
-          <div className="mt-10 space-y-10">
-            {groups.map((group) => (
-              <div key={group.key} className="space-y-4">
-                <h2 className="text-xl font-bold text-brand-ink sm:text-2xl">{group.title}</h2>
-
-                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                  {group.services.map((s) => (
-                    <Link
-                      key={s.slug}
-                      href={`/services/${encodeURIComponent(s.slug)}`}
-                      className="group rounded-3xl border border-zinc-200 bg-white p-6 shadow-sm transition hover:-translate-y-0.5 hover:border-zinc-300 hover:shadow-lg"
-                    >
-                      <div className="flex items-start gap-3">
-                        <div className="mt-0.5 inline-flex h-9 w-9 items-center justify-center rounded-2xl border border-zinc-200 bg-white">
-                          <span className={accentTextColor(s.accent)}>
-                            <IconServiceGlyph slug={s.slug} />
-                          </span>
-                        </div>
-                        <div>
-                          <div className="text-sm font-semibold text-zinc-900">{s.title}</div>
-                          <div className="mt-2 text-sm text-zinc-600">{s.description}</div>
-                        </div>
-                      </div>
-                      {s.highlights?.length ? (
-                        <div className="mt-4 space-y-1 text-sm text-zinc-700">
-                          {s.highlights.slice(0, 3).map((h) => (
-                            <div key={h}>• {h}</div>
-                          ))}
-                        </div>
-                      ) : null}
-                      <div className="mt-5 text-sm font-semibold text-[color:var(--color-brand-blue)]">
-                        View details →
-                      </div>
-                    </Link>
-                  ))}
-                </div>
-              </div>
-            ))}
-          </div>
-
-          <div className="mt-12 rounded-3xl border border-zinc-200 bg-white p-7">
+          <div className="rounded-3xl border border-zinc-200 bg-white p-7">
             <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
               <div>
                 <h2 className="text-xl font-bold text-brand-ink sm:text-2xl">Which package should I get?</h2>
@@ -269,9 +212,9 @@ export default function ServicesIndexPage() {
                   For teams that want to get set up quickly and start converting leads without overthinking it.
                 </div>
                 <div className="mt-4 space-y-1 text-sm text-zinc-700">
-                  <div>• A clean intake path (forms / inbox)</div>
-                  <div>• Booking or routing turned on</div>
-                  <div>• Simple follow-up + reporting</div>
+                  <div>• Funnel Builder for intake</div>
+                  <div>• Automation Builder for routing + follow-up</div>
+                  <div>• AI receptionist + automated blogs</div>
                 </div>
                 <div className="mt-5">
                   <Link
@@ -293,9 +236,9 @@ export default function ServicesIndexPage() {
                   For lead-driven teams that need faster response, consistent follow-up, and more booked calls.
                 </div>
                 <div className="mt-4 space-y-1 text-sm text-zinc-700">
-                  <div>• AI receptionist or inbound intake</div>
-                  <div>• Outbound calls + lead scraping (optional)</div>
-                  <div>• Nurture campaigns that don’t drop leads</div>
+                  <div>• Booking automation + confirmations</div>
+                  <div>• AI receptionist for inbound lead handling</div>
+                  <div>• Lead scraping + AI outbound included</div>
                 </div>
                 <div className="mt-5">
                   <Link
@@ -351,6 +294,63 @@ export default function ServicesIndexPage() {
                 </Link>
               </div>
             </div>
+          </div>
+
+          <div className="mt-10 rounded-3xl border border-zinc-200 bg-white p-7 shadow-sm">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <div className="text-sm font-semibold text-zinc-900">Core Portal</div>
+                <div className="mt-1 text-sm text-zinc-600">
+                  Your home base for services, billing, onboarding, and reporting.
+                </div>
+              </div>
+              <Link
+                href="/services/portal"
+                className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-5 py-2.5 text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
+              >
+                Learn more
+              </Link>
+            </div>
+          </div>
+
+          <div className="mt-10 space-y-10">
+            {groups.map((group) => (
+              <div key={group.key} className="space-y-4">
+                <h2 className="text-xl font-bold text-brand-ink sm:text-2xl">{group.title}</h2>
+
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                  {group.services.map((s) => (
+                    <Link
+                      key={s.slug}
+                      href={`/services/${encodeURIComponent(s.slug)}`}
+                      className="group rounded-3xl border border-zinc-200 bg-white p-6 shadow-sm transition hover:-translate-y-0.5 hover:border-zinc-300 hover:shadow-lg"
+                    >
+                      <div className="flex items-start gap-3">
+                        <div className="mt-0.5 inline-flex h-9 w-9 items-center justify-center rounded-2xl border border-zinc-200 bg-white">
+                          <span className={accentTextColor(s.accent)}>
+                            <IconServiceGlyph slug={s.slug} />
+                          </span>
+                        </div>
+                        <div>
+                          <div className="text-sm font-semibold text-zinc-900">{s.title}</div>
+                          <div className="mt-2 text-sm text-zinc-600">{s.description}</div>
+                        </div>
+                      </div>
+                      {s.highlights?.length ? (
+                        <div className="mt-4 space-y-1 text-sm text-zinc-700">
+                          {s.highlights.slice(0, 3).map((h) => (
+                            <div key={h}>• {h}</div>
+                          ))}
+                        </div>
+                      ) : null}
+                      <div className="mt-5 text-sm font-semibold text-[color:var(--color-brand-blue)]">
+                        View details →
+                      </div>
+                    </Link>
+                  ))}
+                </div>
+              </div>
+            ))}
           </div>
         </div>
       </section>

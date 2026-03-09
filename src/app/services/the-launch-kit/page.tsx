@@ -8,7 +8,10 @@ export const metadata: Metadata = {
   keywords: [
     "automation launch package",
     "lead follow up",
-    "booking automation",
+    "funnel builder",
+    "automations",
+    "AI receptionist",
+    "automated blogs",
     "inbox automation",
     "small business automation",
     "Purely Automation",
@@ -25,27 +28,33 @@ export const metadata: Metadata = {
 
 const INCLUDED = [
   {
-    slug: "inbox",
-    title: "Inbox / Outbox",
-    description: "Keep SMS and email history in one place and reply with full context.",
-    accent: "blue" as const,
-  },
-  {
-    slug: "booking",
-    title: "Booking Automation",
-    description: "Scheduling, confirmations, reminders, and simple handoff rules.",
-    accent: "coral" as const,
-  },
-  {
     slug: "funnel-builder",
     title: "Funnel Builder",
     description: "A clean intake path so leads raise their hand and you capture details.",
     accent: "ink" as const,
   },
   {
-    slug: "reporting",
-    title: "Reporting",
-    description: "Visibility into what ran, what happened, and what to improve next.",
+    slug: "automations",
+    title: "Automation Builder",
+    description: "Build routing + follow-up flows so your team stops doing repetitive work.",
+    accent: "blue" as const,
+  },
+  {
+    slug: "ai-receptionist",
+    title: "AI Receptionist",
+    description: "Answer calls instantly, qualify intent, and capture details.",
+    accent: "coral" as const,
+  },
+  {
+    slug: "blogs",
+    title: "Automated Blogs",
+    description: "Publish consistently to build local SEO momentum without daily posting.",
+    accent: "ink" as const,
+  },
+  {
+    slug: "inbox",
+    title: "Inbox / Outbox",
+    description: "Keep SMS and email history in one place and reply with full context.",
     accent: "blue" as const,
   },
 ];
@@ -62,7 +71,7 @@ export default function LaunchKitPackagePage() {
     "@type": "Service",
     name: "The Launch Kit",
     description:
-      "A fast start automation package that sets up lead intake, routing, booking, and follow-up so you convert consistently.",
+      "A fast start automation package that sets up lead intake and core workflows so you can convert consistently.",
     provider: {
       "@type": "Organization",
       name: "Purely Automation",
@@ -112,7 +121,7 @@ export default function LaunchKitPackagePage() {
               </p>
               <p className="mt-4 text-sm text-white/80">
                 This is the fastest way to get a real automation foundation in place. You get a clear intake path, a
-                single place for messages, and booking with reminders so leads do not fall through.
+                simple automation builder, and an AI receptionist so leads do not fall through.
               </p>
 
               <div className="mt-7 flex flex-col gap-3 sm:flex-row">
@@ -146,15 +155,15 @@ export default function LaunchKitPackagePage() {
 
                 <div className="relative">
                   <div className="text-xs font-semibold tracking-wide text-white/75">WHAT YOU SHIP</div>
-                  <div className="mt-2 text-lg font-semibold text-white/95">Intake, routing, booking</div>
+                  <div className="mt-2 text-lg font-semibold text-white/95">Intake, automations, consistency</div>
                   <div className="mt-1 text-sm text-white/70">A simple system that makes it obvious what happens next.</div>
 
                   <div className="mt-6 grid grid-cols-2 gap-3">
                     {[
-                      { title: "Lead intake", hint: "forms, pages" },
-                      { title: "Inbox", hint: "sms, email" },
-                      { title: "Booking", hint: "confirm, remind" },
-                      { title: "Reporting", hint: "visibility" },
+                      { title: "Funnel", hint: "intake path" },
+                      { title: "Automations", hint: "routing" },
+                      { title: "AI receptionist", hint: "answer calls" },
+                      { title: "Blogs", hint: "SEO momentum" },
                     ].map((n) => (
                       <div
                         key={n.title}
@@ -271,19 +280,36 @@ export default function LaunchKitPackagePage() {
 
               <div className="mt-12 rounded-3xl bg-brand-mist p-8 sm:p-10">
                 <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Launch path</div>
-                <div className="mt-2 text-xl font-bold tracking-tight text-brand-ink">Intake to booking</div>
+                <div className="mt-2 text-xl font-bold tracking-tight text-brand-ink">Intake to consistency</div>
                 <div className="mt-3 text-sm text-zinc-600 sm:text-base">
                   A clean first version that your team can actually run, then you stack into Sales Loop or Brand Builder.
                 </div>
 
                 <div className="mt-8 grid gap-5">
                   {[
-                    { title: "Capture", desc: "A simple funnel and intake that collects the right details.", accent: "coral" as const },
-                    { title: "Route", desc: "Inbox and basic routing so every lead lands in the right place.", accent: "blue" as const },
-                    { title: "Book", desc: "Booking links, confirmations, and reminders to reduce no shows.", accent: "ink" as const },
-                  ].map((s, idx) => (
+                    {
+                      title: "Capture",
+                      desc: "A simple funnel and intake that collects the right details.",
+                      accent: "coral" as const,
+                    },
+                    {
+                      title: "Automate",
+                      desc: "Routing and follow-up flows so nothing gets missed.",
+                      accent: "blue" as const,
+                    },
+                    {
+                      title: "Answer",
+                      desc: "AI receptionist handles calls and captures intent automatically.",
+                      accent: "ink" as const,
+                    },
+                    {
+                      title: "Publish",
+                      desc: "Automated blogs build visibility while you focus on delivery.",
+                      accent: "coral" as const,
+                    },
+                  ].map((s, idx, all) => (
                     <div key={s.title} className="relative pl-8">
-                      {idx !== 2 ? (
+                      {idx !== all.length - 1 ? (
                         <div className="absolute left-[10px] top-[22px] h-[calc(100%-10px)] w-px bg-[color:rgba(51,65,85,0.20)]" aria-hidden="true" />
                       ) : null}
                       <div className="absolute left-0 top-1.5 h-5 w-5 rounded-full bg-white shadow-sm ring-1 ring-[color:rgba(51,65,85,0.15)]" aria-hidden="true">

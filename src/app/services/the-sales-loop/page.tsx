@@ -25,9 +25,27 @@ export const metadata: Metadata = {
 
 const INCLUDED = [
   {
+    slug: "booking",
+    title: "Booking Automation",
+    description: "Confirmations, reminders, and simple routing rules that reduce no shows.",
+    accent: "coral" as const,
+  },
+  {
     slug: "ai-receptionist",
     title: "AI Receptionist",
     description: "Answer calls instantly, qualify intent, and capture details.",
+    accent: "blue" as const,
+  },
+  {
+    slug: "lead-scraping",
+    title: "Lead scraping",
+    description: "Targeted leads on demand so you can create more opportunities.",
+    accent: "coral" as const,
+  },
+  {
+    slug: "ai-outbound-calls",
+    title: "AI outbound",
+    description: "Automate outbound calling so you follow up instantly when leads are hot.",
     accent: "blue" as const,
   },
   {
@@ -36,31 +54,19 @@ const INCLUDED = [
     description: "One place for conversations so you move fast with context.",
     accent: "ink" as const,
   },
-  {
-    slug: "booking",
-    title: "Booking Automation",
-    description: "Confirmations, reminders, and simple routing rules that reduce no shows.",
-    accent: "coral" as const,
-  },
-  {
-    slug: "nurture-campaigns",
-    title: "Nurture Campaigns",
-    description: "Long term follow up so leads do not go cold.",
-    accent: "blue" as const,
-  },
 ];
 
 const ADD_ONS = [
   {
-    slug: "ai-outbound-calls",
-    title: "AI outbound",
-    description: "Automate outbound calling to follow up fast when leads are hot.",
-    accent: "blue" as const,
+    slug: "nurture-campaigns",
+    title: "Nurture campaigns",
+    description: "Long term follow up so leads convert when the timing is right.",
+    accent: "ink" as const,
   },
   {
-    slug: "lead-scraping",
-    title: "Lead Scraping",
-    description: "Targeted leads on demand when you want more volume.",
+    slug: "reviews",
+    title: "Reviews",
+    description: "Add consistent review requests to build proof that converts.",
     accent: "coral" as const,
   },
 ];
@@ -244,7 +250,7 @@ export default function SalesLoopPackagePage() {
 
               <dl className="mt-8 grid grid-cols-2 gap-6">
                 {[
-                  { label: "Reply speed", value: "Fast" },
+                  { label: "Reply speed", value: "Instant" },
                   { label: "Follow up", value: "Consistent" },
                   { label: "Visibility", value: "Clear" },
                   { label: "Setup", value: "Simple" },
@@ -262,12 +268,6 @@ export default function SalesLoopPackagePage() {
                   className="inline-flex items-center justify-center rounded-2xl bg-linear-to-r from-(--color-brand-blue) via-violet-500 to-(--color-brand-pink) px-6 py-3 text-base font-semibold text-white shadow-sm hover:opacity-90"
                 >
                   Start free
-                </Link>
-                <Link
-                  href="/book-a-call"
-                  className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-6 py-3 text-base font-semibold text-white hover:opacity-95"
-                >
-                  Book a call
                 </Link>
               </div>
             </div>
@@ -322,7 +322,7 @@ export default function SalesLoopPackagePage() {
 
               <div className="mt-10 flex flex-wrap items-end justify-between gap-3">
                 <h3 className="text-lg font-semibold text-brand-ink">Optional add ons</h3>
-                <div className="text-sm text-zinc-600">When you want more volume.</div>
+                <div className="text-sm text-zinc-600">When you want more lift.</div>
               </div>
 
               <div className="mt-4 border-t border-zinc-200">
