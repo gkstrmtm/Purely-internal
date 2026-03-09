@@ -3,6 +3,7 @@ import { z } from "zod";
 
 import { requireClientSessionForService } from "@/lib/portalAccess";
 import { prisma } from "@/lib/db";
+import { PORTAL_CREDIT_COSTS } from "@/lib/portalCreditCosts";
 import { consumeCredits } from "@/lib/credits";
 import { resolveEntitlementsForOwnerId } from "@/lib/entitlements";
 import { baseUrlFromRequest, renderTemplate, sendEmail, sendSms } from "@/lib/leadOutbound";
@@ -476,7 +477,7 @@ export async function POST(req: Request) {
             }
           }
 
-          const smsCredits = 1;
+          const smsCredits = PORTAL_CREDIT_COSTS.leadScrapeSmsPerMessage;
           const consumed = await consumeCredits(ownerId, smsCredits);
           if (!consumed.ok) {
             skipped.push("Text skipped: insufficient credits.");

@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { requireClientSessionForService } from "@/lib/portalAccess";
 import { generateClientBlogDraft } from "@/lib/clientBlogAutomation";
+import { PORTAL_CREDIT_COSTS } from "@/lib/portalCreditCosts";
 import { consumeCredits } from "@/lib/credits";
 import { slugify } from "@/lib/slugify";
 import { getAppBaseUrl, tryNotifyPortalAccountUsers } from "@/lib/portalNotifications";
@@ -93,7 +94,7 @@ export async function POST() {
   const cursor = s.cursor;
   const topic = s.topics.length ? s.topics[cursor % s.topics.length] : undefined;
 
-  const needCredits = 50;
+  const needCredits = PORTAL_CREDIT_COSTS.blogGenerateDraft;
   const consumed = await consumeCredits(ownerId, needCredits);
   if (!consumed.ok) {
     return NextResponse.json(

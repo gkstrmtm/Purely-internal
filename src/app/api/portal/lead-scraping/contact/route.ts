@@ -3,6 +3,7 @@ import { z } from "zod";
 
 import { requireClientSessionForService } from "@/lib/portalAccess";
 import { prisma } from "@/lib/db";
+import { PORTAL_CREDIT_COSTS } from "@/lib/portalCreditCosts";
 import { consumeCredits } from "@/lib/credits";
 import { sendEmail } from "@/lib/leadOutbound";
 import { sendOwnerTwilioSms } from "@/lib/portalTwilio";
@@ -103,7 +104,7 @@ export async function POST(req: Request) {
       if (!lead.phone) {
         return NextResponse.json({ error: "This lead has no phone number." }, { status: 400 });
       }
-      const smsCredits = 1;
+      const smsCredits = PORTAL_CREDIT_COSTS.leadScrapeSmsPerMessage;
       const consumed = await consumeCredits(ownerId, smsCredits);
       if (!consumed.ok) {
         const balance = typeof (consumed as any)?.state?.balance === "number" ? (consumed as any).state.balance : null;

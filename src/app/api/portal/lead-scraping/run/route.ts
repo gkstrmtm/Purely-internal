@@ -4,6 +4,7 @@ import https from "https";
 
 import { requireClientSessionForService } from "@/lib/portalAccess";
 import { prisma } from "@/lib/db";
+import { PORTAL_CREDIT_COSTS } from "@/lib/portalCreditCosts";
 import { addCredits, consumeCredits } from "@/lib/credits";
 import { hasPlacesKey, placeDetails, placesTextSearch } from "@/lib/googlePlaces";
 import { resolveEntitlementsForOwnerId } from "@/lib/entitlements";
@@ -691,7 +692,7 @@ export async function POST(req: Request) {
     }
 
     // Billing: reserve up to requestedCount, then refund unused.
-    const reservedCredits = requestedCount;
+    const reservedCredits = requestedCount * PORTAL_CREDIT_COSTS.leadScrapeReservePerRequestedLead;
     const consumed = await consumeCredits(ownerId, reservedCredits);
     if (!consumed.ok) {
       return NextResponse.json(
@@ -1276,7 +1277,7 @@ export async function POST(req: Request) {
               }
             }
 
-            const smsCredits = 1;
+            const smsCredits = PORTAL_CREDIT_COSTS.leadScrapeSmsPerMessage;
             const consumed = await consumeCredits(ownerId, smsCredits);
             if (consumed.ok) {
               await sendSms({ ownerId, to: lead.phone, body: smsBody });

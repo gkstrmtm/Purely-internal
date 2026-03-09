@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { findOwnerByAiReceptionistWebhookToken, upsertAiReceptionistCallEvent } from "@/lib/aiReceptionist";
+import { PORTAL_CREDIT_COSTS } from "@/lib/portalCreditCosts";
 import { consumeCreditsOnce } from "@/lib/credits";
 import { normalizePhoneStrict } from "@/lib/phone";
 import { getAppBaseUrl, tryNotifyPortalAccountUsers } from "@/lib/portalNotifications";
@@ -25,7 +26,7 @@ function ceilMinutesFromSeconds(seconds: number): number {
   return Math.max(1, Math.ceil(s / 60));
 }
 
-const CREDITS_PER_STARTED_MINUTE = 5;
+const CREDITS_PER_STARTED_MINUTE = PORTAL_CREDIT_COSTS.voicePerStartedMinute;
 const MIN_BILLABLE_SECONDS = 15;
 
 export async function POST(req: Request, ctx: { params: Promise<{ token: string }> }) {

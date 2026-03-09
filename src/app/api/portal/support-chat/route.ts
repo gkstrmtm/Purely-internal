@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { generateText } from "@/lib/ai";
+import { portalCreditCostsForSupportText } from "@/lib/portalCreditCosts";
 import { PORTAL_ONBOARDING_PLANS } from "@/lib/portalOnboardingWizardCatalog";
 
 const SupportChatRequestSchema = z.object({
@@ -70,6 +71,8 @@ export async function POST(req: Request) {
     return `- ${p.title}: $${p.monthlyUsd}/mo${oneTime}${qty} (id: ${p.id}; slugs: ${p.serviceSlugsToActivate.join(", ")})${notes}`;
   }).join("\n");
 
+  const creditCosts = portalCreditCostsForSupportText();
+
   const portalKnowledge = [
     "Portal navigation:",
     "- Main portal app: /portal/app",
@@ -103,6 +106,13 @@ export async function POST(req: Request) {
     "- When troubleshooting, give 3-6 concrete clicks/fields to try, not generic advice.",
     "- If it looks like a product bug or data inconsistency, instruct them to click 'Report bug' and include: what they clicked, expected vs actual, and a screenshot if possible.",
     "",
+    "Billing models (important):",
+    "- Subscription (monthly): some modules are paid monthly; credits are still used for usage-based actions.",
+    "- Credits-only: no monthly module subscriptions; services are available and usage is billed via credits.",
+    "- Where to check: /portal/app/billing (it will show whether the account is subscription or credits-only).",
+    "",
+    creditCosts,
+    "",
     "Pricing knowledge (portal plans):",
     pricing,
   ].join("\n");
@@ -114,7 +124,11 @@ export async function POST(req: Request) {
     "Write short answers: aim for 3-8 lines. Use bullet points or numbered steps when helpful.",
     "Ask 1 clarifying question only if absolutely needed.",
     "Give step-by-step guidance with exact clicks/fields whenever possible.",
+    "Assume the user is already logged into the portal; never tell them to log in.",
+    "If asked about credits-only vs subscription billing, explain the difference succinctly.",
+    "If asked 'how many credits does X cost' (or similar), answer with the exact number or formula from the credit costs knowledge. If it truly varies, ask one targeted clarifying question.",
     "If you give a link, ALWAYS render it as a markdown link with the full absolute URL (not just a slug).",
+    "When building links to portal pages, use the provided Base URL and append the portal path.",
     "If you cannot provide a working hyperlink, do NOT say 'click this link' — instead give directions (click-path) using menu names and page names.",
     "If you are unsure about a detail, say so and ask a targeted question rather than guessing.",
     "Do not mention internal implementation details or vendors.",

@@ -4,6 +4,7 @@ import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { requireClientSessionForService } from "@/lib/portalAccess";
 import { generateClientBlogDraft } from "@/lib/clientBlogAutomation";
+import { PORTAL_CREDIT_COSTS } from "@/lib/portalCreditCosts";
 import { consumeCredits, getCreditsState } from "@/lib/credits";
 
 export const runtime = "nodejs";
@@ -53,7 +54,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ postId: string
     );
   }
 
-    const needCredits = 50;
+  const needCredits = PORTAL_CREDIT_COSTS.blogGenerateDraft;
   const consumed = await consumeCredits(ownerId, needCredits);
   if (!consumed.ok) {
     return NextResponse.json(

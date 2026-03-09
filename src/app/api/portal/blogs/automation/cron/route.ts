@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { prisma } from "@/lib/db";
 import { generateClientBlogDraft } from "@/lib/clientBlogAutomation";
+import { PORTAL_CREDIT_COSTS } from "@/lib/portalCreditCosts";
 import { consumeCredits } from "@/lib/credits";
 import { slugify } from "@/lib/slugify";
 import { getAppBaseUrl, tryNotifyPortalAccountUsers } from "@/lib/portalNotifications";
@@ -141,7 +142,7 @@ export async function GET(req: Request) {
     const topic = s.topics.length ? s.topics[cursor % s.topics.length] : undefined;
 
     try {
-      const needCredits = s.frequencyDays < 7 ? 50 : 0;
+      const needCredits = s.frequencyDays < 7 ? PORTAL_CREDIT_COSTS.blogGenerateDraft : 0;
       const consumed = await consumeCredits(setup.ownerId, needCredits);
       if (!consumed.ok) {
         errors.push({ ownerId: setup.ownerId, error: "INSUFFICIENT_CREDITS" });

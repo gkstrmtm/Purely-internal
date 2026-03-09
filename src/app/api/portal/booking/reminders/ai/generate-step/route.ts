@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { requireClientSessionForService } from "@/lib/portalAccess";
+import { PORTAL_CREDIT_COSTS } from "@/lib/portalCreditCosts";
 import { consumeCredits } from "@/lib/credits";
 import { generateText } from "@/lib/ai";
 
@@ -64,7 +65,7 @@ export async function POST(req: Request) {
   const { kind, prompt, existingSubject, existingBody } = parsed.data;
 
   const ownerId = auth.session.user.id;
-  const needCredits = 5;
+  const needCredits = PORTAL_CREDIT_COSTS.aiDraftStep;
   const consumed = await consumeCredits(ownerId, needCredits);
   if (!consumed.ok) {
     return NextResponse.json(

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { prisma } from "@/lib/db";
+import { PORTAL_CREDIT_COSTS } from "@/lib/portalCreditCosts";
 import { consumeCredits } from "@/lib/credits";
 import { generateClientNewsletterDraft } from "@/lib/clientNewsletterAutomation";
 import { uniqueNewsletterSlug, sendNewsletterToAudience } from "@/lib/portalNewsletter";
@@ -173,7 +174,7 @@ async function runKind(opts: {
     return { created: 0 };
   }
 
-  const needCredits = 30;
+  const needCredits = PORTAL_CREDIT_COSTS.newsletterGenerateDraft;
   const consumed = await consumeCredits(opts.ownerId, needCredits);
   if (!consumed.ok) return { created: 0, error: "INSUFFICIENT_CREDITS" };
 

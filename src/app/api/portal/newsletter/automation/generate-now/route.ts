@@ -3,6 +3,7 @@ import { z } from "zod";
 
 import { prisma } from "@/lib/db";
 import { requireClientSessionForService } from "@/lib/portalAccess";
+import { PORTAL_CREDIT_COSTS } from "@/lib/portalCreditCosts";
 import { consumeCredits } from "@/lib/credits";
 import { generateClientNewsletterDraft } from "@/lib/clientNewsletterAutomation";
 import { uniqueNewsletterSlug, sendNewsletterToAudience } from "@/lib/portalNewsletter";
@@ -194,7 +195,7 @@ export async function POST(req: Request) {
   const stored = parseStored(setup?.dataJson);
   const s = kind === "INTERNAL" ? stored.internal : stored.external;
 
-  const needCredits = 30;
+  const needCredits = PORTAL_CREDIT_COSTS.newsletterGenerateDraft;
   const consumed = await consumeCredits(ownerId, needCredits);
   if (!consumed.ok) {
     return NextResponse.json({ ok: false, error: "INSUFFICIENT_CREDITS" }, { status: 402 });

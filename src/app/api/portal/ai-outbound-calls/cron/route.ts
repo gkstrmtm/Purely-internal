@@ -2,6 +2,7 @@ import crypto from "crypto";
 import { NextResponse } from "next/server";
 
 import { prisma } from "@/lib/db";
+import { PORTAL_CREDIT_COSTS } from "@/lib/portalCreditCosts";
 import { consumeCredits } from "@/lib/credits";
 import { getAiReceptionistServiceData } from "@/lib/aiReceptionist";
 import { generateText } from "@/lib/ai";
@@ -287,7 +288,7 @@ export async function GET(req: Request) {
 
     if (status === "completed") {
       const minutes = startedMinutesFromSeconds(tw.call.durationSec);
-      const durationCredits = minutes * 5;
+      const durationCredits = minutes * PORTAL_CREDIT_COSTS.voicePerStartedMinute;
       if (durationCredits > 0) {
         const consumed = await consumeCredits(c.ownerId, durationCredits);
         if (!consumed.ok) {
@@ -508,7 +509,7 @@ export async function GET(req: Request) {
         phoneNumberIdCache.set(cacheKey, phoneNumberId);
       }
 
-      const ATTEMPT_CREDITS = 10;
+      const ATTEMPT_CREDITS = PORTAL_CREDIT_COSTS.aiOutboundCallAttempt;
       const consumed = await consumeCredits(e.ownerId, ATTEMPT_CREDITS);
       if (!consumed.ok) {
         await prisma.portalAiOutboundCallEnrollment.update({

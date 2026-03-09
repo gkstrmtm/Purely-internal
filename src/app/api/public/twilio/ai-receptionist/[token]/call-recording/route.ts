@@ -7,6 +7,7 @@ import {
   upsertAiReceptionistCallEvent,
 } from "@/lib/aiReceptionist";
 import { autoProcessAiReceptionistCall } from "@/lib/aiReceptionistAutoProcess";
+import { PORTAL_CREDIT_COSTS } from "@/lib/portalCreditCosts";
 import { consumeCreditsOnce } from "@/lib/credits";
 import { normalizePhoneStrict } from "@/lib/phone";
 import { getOwnerTwilioSmsConfig } from "@/lib/portalTwilio";
@@ -32,7 +33,7 @@ function ceilMinutesFromSeconds(seconds: number): number {
   return Math.max(1, Math.ceil(s / 60));
 }
 
-const CREDITS_PER_STARTED_MINUTE = 5;
+const CREDITS_PER_STARTED_MINUTE = PORTAL_CREDIT_COSTS.voicePerStartedMinute;
 const MIN_BILLABLE_SECONDS = 15;
 
 async function requestTranscription(opts: {

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { prisma } from "@/lib/db";
+import { PORTAL_CREDIT_COSTS } from "@/lib/portalCreditCosts";
 import { addCredits, consumeCredits } from "@/lib/credits";
 import { resolveEntitlements } from "@/lib/entitlements";
 import { hasPlacesKey, placeDetails, placesTextSearch } from "@/lib/googlePlaces";
@@ -393,7 +394,7 @@ async function runB2BForOwner(ownerId: string, settingsJson: unknown, baseUrl: s
     return { ownerId, ok: false as const, code: "PLACES_NOT_CONFIGURED" as const, createdCount: 0 };
   }
 
-  const reservedCredits = requestedCount;
+  const reservedCredits = requestedCount * PORTAL_CREDIT_COSTS.leadScrapeReservePerRequestedLead;
   const consumed = await consumeCredits(ownerId, reservedCredits);
   if (!consumed.ok) {
     return { ownerId, ok: false as const, code: "INSUFFICIENT_CREDITS" as const, createdCount: 0 };
@@ -742,7 +743,7 @@ async function runB2BForOwner(ownerId: string, settingsJson: unknown, baseUrl: s
               }
             }
 
-            const smsCredits = 1;
+            const smsCredits = PORTAL_CREDIT_COSTS.leadScrapeSmsPerMessage;
             const consumed = await consumeCredits(ownerId, smsCredits);
             if (consumed.ok) {
               await sendSms({ ownerId, to: lead.phone, body: smsBody });
