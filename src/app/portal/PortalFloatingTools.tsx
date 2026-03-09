@@ -2,6 +2,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 
+import { ElevenLabsConvaiWidget } from "@/components/ElevenLabsConvaiWidget";
+
 type VersionPayload = {
   ok?: boolean;
   buildSha?: string | null;
@@ -26,15 +28,23 @@ function classNames(...xs: Array<string | false | null | undefined>) {
 export function PortalFloatingTools() {
   const [minimized, setMinimized] = useState(true);
   const [version, setVersion] = useState<VersionPayload | null>(null);
-  const [open, setOpen] = useState(false);
+  const [reportOpen, setReportOpen] = useState(false);
+  const [chatOpen, setChatOpen] = useState(false);
   const [message, setMessage] = useState("");
   const [sending, setSending] = useState(false);
   const [note, setNote] = useState<string | null>(null);
 
   useEffect(() => {
-    // Always start minimized on fresh app loads.
-    setMinimized(true);
+    if (typeof window === "undefined") return;
+    const saved = window.localStorage.getItem("pa_portal_floating_tools_minimized");
+    if (saved === "0") setMinimized(false);
+    else setMinimized(true);
   }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem("pa_portal_floating_tools_minimized", minimized ? "1" : "0");
+  }, [minimized]);
 
   useEffect(() => {
     let mounted = true;
@@ -108,7 +118,7 @@ export function PortalFloatingTools() {
     }
 
     setMessage("");
-    setOpen(false);
+    setReportOpen(false);
     setSending(false);
 
     setNote(json.emailed ? "Bug report sent. Thanks!" : "Bug report saved (email not configured).");
@@ -123,13 +133,13 @@ export function PortalFloatingTools() {
         </div>
       ) : null}
 
-      {open ? (
+      {reportOpen ? (
         <div className="fixed inset-0 z-[9998]">
           <button
             type="button"
             className="absolute inset-0 bg-black/30"
             aria-label="Close"
-            onClick={() => (!sending ? setOpen(false) : null)}
+            onClick={() => (!sending ? setReportOpen(false) : null)}
           />
 
           <div className="absolute bottom-6 right-4 w-[min(520px,calc(100vw-2rem))] rounded-3xl border border-zinc-200 bg-white p-5 shadow-2xl">
@@ -142,10 +152,10 @@ export function PortalFloatingTools() {
               <button
                 type="button"
                 className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-700 hover:bg-zinc-50 disabled:opacity-60"
-                onClick={() => setOpen(false)}
+                onClick={() => setReportOpen(false)}
                 disabled={sending}
               >
-                Close
+                ×
               </button>
             </div>
 
@@ -175,6 +185,45 @@ export function PortalFloatingTools() {
         </div>
       ) : null}
 
+      {chatOpen ? (
+        <div className="fixed inset-0 z-[9998]">
+          <button
+            type="button"
+            className="absolute inset-0 bg-black/30"
+            aria-label="Close"
+            onClick={() => setChatOpen(false)}
+          />
+
+          <div className="absolute bottom-6 right-4 w-[min(520px,calc(100vw-2rem))] overflow-hidden rounded-3xl border border-zinc-200 bg-white p-5 shadow-2xl">
+            <div className="mb-3 h-1.5 w-16 rounded-full bg-[linear-gradient(90deg,rgba(29,78,216,0.9),rgba(251,113,133,0.35))]" />
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <div className="text-sm font-semibold text-zinc-900">Chat</div>
+                <div className="mt-1 text-xs text-zinc-500">{versionLabel}</div>
+              </div>
+              <button
+                type="button"
+                className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
+                onClick={() => setChatOpen(false)}
+              >
+                ×
+              </button>
+            </div>
+
+            <div className="mt-4 max-h-[60vh] overflow-auto">
+              <ElevenLabsConvaiWidget
+                agentId={
+                  process.env.NEXT_PUBLIC_PORTAL_SUPPORT_AGENT_ID ||
+                  process.env.NEXT_PUBLIC_SUPPORT_AGENT_ID ||
+                  process.env.NEXT_PUBLIC_PORTAL_SUPPORT_CHAT_AGENT_ID ||
+                  ""
+                }
+              />
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       <div className="fixed bottom-4 right-4 z-[9997]">
         {minimized ? (
           <button
@@ -183,12 +232,17 @@ export function PortalFloatingTools() {
             onClick={() => persistMinimized(false)}
             aria-label="Open tools"
           >
-            <span className="rounded-full bg-[color:rgba(29,78,216,0.10)] px-2 py-1 text-[11px] font-semibold text-[color:var(--color-brand-blue)]">
-              {shortSha(version?.buildSha)}
+            <span className="grid h-8 w-8 place-items-center rounded-full bg-[linear-gradient(90deg,rgba(29,78,216,0.95),rgba(251,113,133,0.55))] text-white">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <path
+                  d="M7 18.4 4.6 20c-.4.3-1 .1-1-.4V6.4C3.6 5.1 4.7 4 6 4h12c1.3 0 2.4 1.1 2.4 2.4v7.2c0 1.3-1.1 2.4-2.4 2.4H8.8c-.2 0-.4 0-.6.2Z"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                  strokeLinejoin="round"
+                />
+              </svg>
             </span>
-            <span className="rounded-full bg-[color:rgba(251,113,133,0.16)] px-2 py-1 text-[11px] font-semibold text-[color:var(--color-brand-pink)]">
-              Report
-            </span>
+            <span className="text-sm font-semibold text-zinc-900">Chat and Report</span>
           </button>
         ) : (
           <div className="w-[min(320px,calc(100vw-2rem))] rounded-3xl border border-zinc-200 bg-white p-4 shadow-2xl">
@@ -215,9 +269,20 @@ export function PortalFloatingTools() {
                   "rounded-2xl px-3 py-2 text-sm font-semibold",
                   "bg-[color:var(--color-brand-blue)] text-white hover:opacity-95",
                 )}
-                onClick={() => setOpen(true)}
+                onClick={() => setReportOpen(true)}
               >
                 Report bug
+              </button>
+
+              <button
+                type="button"
+                className={classNames(
+                  "rounded-2xl px-3 py-2 text-sm font-semibold",
+                  "border border-zinc-200 bg-white text-zinc-800 hover:bg-zinc-50",
+                )}
+                onClick={() => setChatOpen(true)}
+              >
+                Chat
               </button>
             </div>
           </div>

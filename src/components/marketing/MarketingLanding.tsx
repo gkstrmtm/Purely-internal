@@ -183,7 +183,7 @@ function AutomationHighlights() {
       desc: "Calls, texts, and emails get captured, tagged, and routed automatically.",
       icon: "phone",
       ctaHref: callHref,
-      ctaLabel: "See how",
+      ctaLabel: "Call our receptionist",
     },
     { title: "Follow up without chasing", desc: "Automated reminders and sequences keep prospects moving to a booked call.", icon: "message" },
     { title: "Book and dispatch faster", desc: "Scheduling, assignments, and notifications happen without manual handoffs.", icon: "dispatch" },

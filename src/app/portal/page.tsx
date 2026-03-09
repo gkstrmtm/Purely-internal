@@ -78,7 +78,7 @@ export default async function PortalDashboardPage() {
                 <div className="relative">
                   <div className="text-xs font-semibold tracking-wide text-white/75">AUTOMATION FLOW</div>
                   <div className="mt-2 text-lg font-semibold text-white/95">Capture → route → follow up</div>
-                  <div className="mt-1 text-sm text-white/70">A simple visual that hints at what the portal keeps running.</div>
+                  <div className="mt-1 text-sm text-white/70">A quick snapshot of what your portal keeps running.</div>
 
                   <div className="mt-6 grid grid-cols-3 gap-3">
                     {[
@@ -149,23 +149,73 @@ export default async function PortalDashboardPage() {
             <div>
               <h2 className="text-2xl font-bold text-brand-ink sm:text-3xl">Built to stay simple</h2>
               <p className="mt-3 max-w-2xl text-sm text-zinc-600 sm:text-base">
-                This portal shows what you’re running today and what you can add next, without a mess.
+                Automations stay easy and accessible, even if you’re not technical. Turn things on, see what ran, and make changes without getting lost.
               </p>
             </div>
           </div>
 
           <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-3">
             <div className="rounded-3xl border border-zinc-200 bg-white p-6">
-              <div className="text-sm font-semibold text-zinc-900">Invite your team</div>
+              <div className="flex items-start gap-3">
+                <div className="mt-0.5 grid h-10 w-10 place-items-center rounded-2xl bg-[color:rgba(29,78,216,0.10)] text-[color:var(--color-brand-blue)]">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                    <path
+                      d="M21 3 10.5 13.5M21 3l-6.8 19-3.7-8.5L2 10.8 21 3Z"
+                      stroke="currentColor"
+                      strokeWidth="1.8"
+                      strokeLinejoin="round"
+                      strokeLinecap="round"
+                    />
+                  </svg>
+                </div>
+                <div>
+                  <div className="text-sm font-semibold text-zinc-900">Invite your team</div>
               <div className="mt-2 text-sm text-zinc-600">Invite as many users as you want and manage access in one place.</div>
+                </div>
+              </div>
             </div>
             <div className="rounded-3xl border border-zinc-200 bg-white p-6">
-              <div className="text-sm font-semibold text-zinc-900">Add when it makes sense</div>
-              <div className="mt-2 text-sm text-zinc-600">Turn on the next service when you need it.</div>
+              <div className="flex items-start gap-3">
+                <div className="mt-0.5 grid h-10 w-10 place-items-center rounded-2xl bg-[color:rgba(251,113,133,0.16)] text-[color:var(--color-brand-pink)]">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                    <path
+                      d="M7 7h14M7 12h14M7 17h14"
+                      stroke="currentColor"
+                      strokeWidth="1.8"
+                      strokeLinecap="round"
+                    />
+                    <path
+                      d="M4 7h.01M4 12h.01M4 17h.01"
+                      stroke="currentColor"
+                      strokeWidth="3"
+                      strokeLinecap="round"
+                    />
+                  </svg>
+                </div>
+                <div>
+                  <div className="text-sm font-semibold text-zinc-900">Add when it makes sense</div>
+                  <div className="mt-2 text-sm text-zinc-600">Turn on the next service when you need it.</div>
+                </div>
+              </div>
             </div>
             <div className="rounded-3xl border border-zinc-200 bg-white p-6">
-              <div className="text-sm font-semibold text-zinc-900">Clear reporting</div>
-              <div className="mt-2 text-sm text-zinc-600">See what ran and what’s active at a glance.</div>
+              <div className="flex items-start gap-3">
+                <div className="mt-0.5 grid h-10 w-10 place-items-center rounded-2xl bg-[color:rgba(15,23,42,0.08)] text-[color:rgba(15,23,42,0.85)]">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                    <path
+                      d="M4 20V10M10 20V4M16 20v-8M22 20H2"
+                      stroke="currentColor"
+                      strokeWidth="1.8"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  </svg>
+                </div>
+                <div>
+                  <div className="text-sm font-semibold text-zinc-900">Clear reporting</div>
+                  <div className="mt-2 text-sm text-zinc-600">See what ran and what’s active at a glance.</div>
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -176,7 +226,7 @@ export default async function PortalDashboardPage() {
           <div className="flex flex-col items-start justify-between gap-2 sm:flex-row sm:items-center">
             <div>
               <div className="text-sm font-semibold text-zinc-900">Pricing that stays flexible</div>
-              <div className="mt-1 text-sm text-zinc-600">Pay monthly for services. Use credits only for volume.</div>
+              <div className="mt-1 text-sm text-zinc-600">Start for free and pay for what you use.</div>
             </div>
           </div>
 
@@ -194,7 +244,7 @@ export default async function PortalDashboardPage() {
               <div className="mt-auto pt-6">
                 <Link
                   href="/portal/get-started"
-                  className="inline-flex w-full items-center justify-center rounded-2xl bg-[color:rgba(15,23,42,0.96)] px-4 py-3 text-sm font-semibold text-white transition hover:-translate-y-px hover:bg-[color:rgba(15,23,42,1)] hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/50 focus-visible:ring-offset-2 focus-visible:ring-offset-white"
+                  className="inline-flex w-full items-center justify-center rounded-2xl bg-[color:var(--color-brand-blue)] px-4 py-3 text-sm font-semibold text-white transition hover:-translate-y-px hover:opacity-95 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:rgba(29,78,216,0.45)] focus-visible:ring-offset-2 focus-visible:ring-offset-white"
                 >
                   Get Started
                 </Link>
@@ -239,7 +289,7 @@ export default async function PortalDashboardPage() {
               <div className="mt-auto pt-6">
                 <Link
                   href="/portal/get-started"
-                  className="inline-flex w-full items-center justify-center rounded-2xl bg-[color:rgba(15,23,42,0.96)] px-4 py-3 text-sm font-semibold text-white transition hover:-translate-y-px hover:bg-[color:rgba(15,23,42,1)] hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/50 focus-visible:ring-offset-2 focus-visible:ring-offset-white"
+                  className="inline-flex w-full items-center justify-center rounded-2xl bg-[color:var(--color-brand-pink)] px-4 py-3 text-sm font-semibold text-white transition hover:-translate-y-px hover:opacity-95 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:rgba(251,113,133,0.40)] focus-visible:ring-offset-2 focus-visible:ring-offset-white"
                 >
                   Get Started
                 </Link>
@@ -283,25 +333,25 @@ export default async function PortalDashboardPage() {
         </div>
       </section>
 
-      <section className="w-full bg-[color:rgba(251,113,133,0.12)]">
+      <section className="w-full bg-linear-to-r from-(--color-brand-blue) to-(--color-brand-pink) text-white">
         <div className="mx-auto max-w-6xl px-6 py-12">
           <div className="flex flex-col items-start justify-between gap-4 sm:flex-row sm:items-center">
             <div>
-              <div className="text-sm font-semibold text-brand-ink">Ready to get started?</div>
-              <div className="mt-1 text-sm text-zinc-700">
+              <div className="text-sm font-semibold text-white/90">Ready to get started?</div>
+              <div className="mt-1 text-sm text-white/80">
                 Create your portal account, then activate the services you want.
               </div>
             </div>
             <div className="flex w-full flex-col gap-3 sm:w-auto sm:flex-row">
               <Link
                 href="/portal/get-started"
-                className="inline-flex w-full items-center justify-center rounded-2xl bg-[color:var(--color-brand-blue)] px-6 py-3 text-sm font-semibold text-white hover:opacity-95 sm:w-auto"
+                className="inline-flex w-full items-center justify-center rounded-2xl bg-white px-6 py-3 text-sm font-semibold text-[color:var(--color-brand-blue)] hover:bg-zinc-50 sm:w-auto"
               >
                 Create account
               </Link>
               <Link
                 href="/login"
-                className="inline-flex w-full items-center justify-center rounded-2xl bg-white px-6 py-3 text-sm font-semibold text-[color:var(--color-brand-blue)] hover:bg-zinc-50 sm:w-auto"
+                className="inline-flex w-full items-center justify-center rounded-2xl border border-white/35 bg-white/10 px-6 py-3 text-sm font-semibold text-white hover:bg-white/15 sm:w-auto"
               >
                 Sign in
               </Link>

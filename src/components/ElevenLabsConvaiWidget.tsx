@@ -27,8 +27,8 @@ export function ElevenLabsConvaiWidget(props: { agentId: string | null | undefin
   if (!agentId) {
     return (
       <div className={props.className ?? ""}>
-        <div className="rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">
-          No voice agent ID configured.
+        <div className="rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-700">
+          Chat is not configured yet.
         </div>
       </div>
     );
