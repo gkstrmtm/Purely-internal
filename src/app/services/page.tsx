@@ -64,6 +64,9 @@ export default function ServicesIndexPage() {
 
   const directoryItems = [
     { slug: "portal", title: "Core Portal" },
+    { slug: "the-launch-kit", title: "The Launch Kit" },
+    { slug: "the-sales-loop", title: "The Sales Loop" },
+    { slug: "the-brand-builder", title: "The Brand Builder" },
     ...groups
       .flatMap((g) => g.services)
       .map((s) => ({ slug: s.slug, title: s.title }))
@@ -166,7 +169,7 @@ export default function ServicesIndexPage() {
               </Link>
               <Link
                 href="/book-a-call"
-                className="inline-flex items-center justify-center rounded-2xl bg-[color:var(--color-brand-pink)] px-6 py-3 text-base font-semibold text-white hover:opacity-95"
+                className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-6 py-3 text-base font-semibold text-white hover:opacity-95"
               >
                 Book a Call
               </Link>
@@ -270,25 +273,21 @@ export default function ServicesIndexPage() {
                   <div>• Booking or routing turned on</div>
                   <div>• Simple follow-up + reporting</div>
                 </div>
-              </div>
-
-              <div className="rounded-3xl border border-[color:rgba(29,78,216,0.35)] bg-[color:rgba(29,78,216,0.04)] p-6">
-                <div className="text-xs font-semibold uppercase tracking-wide text-[color:rgba(29,78,216,0.78)]">
-                  Build trust
-                </div>
-                <div className="mt-2 text-lg font-semibold text-zinc-900">The Brand Builder</div>
-                <div className="mt-2 text-sm text-zinc-600">
-                  For businesses that want consistent visibility and proof; without posting every day.
-                </div>
-                <div className="mt-4 space-y-1 text-sm text-zinc-700">
-                  <div>• Automated blogs for SEO momentum</div>
-                  <div>• Reviews that build credibility</div>
-                  <div>• Newsletter to stay top-of-mind</div>
+                <div className="mt-5">
+                  <Link
+                    href="/services/the-launch-kit"
+                    className="text-sm font-semibold text-[color:var(--color-brand-blue)] hover:underline"
+                  >
+                    View package →
+                  </Link>
                 </div>
               </div>
 
-              <div className="rounded-3xl border border-zinc-200 bg-white p-6">
-                <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Close faster</div>
+              <div className="relative rounded-3xl border-2 border-[color:rgba(29,78,216,0.45)] bg-[color:rgba(29,78,216,0.05)] p-6">
+                <div className="absolute right-5 top-5 inline-flex items-center rounded-full bg-[color:rgba(29,78,216,0.12)] px-3 py-1 text-xs font-semibold text-[color:var(--color-brand-blue)]">
+                  Recommended
+                </div>
+                <div className="text-xs font-semibold uppercase tracking-wide text-[color:rgba(29,78,216,0.78)]">Close faster</div>
                 <div className="mt-2 text-lg font-semibold text-zinc-900">The Sales Loop</div>
                 <div className="mt-2 text-sm text-zinc-600">
                   For lead-driven teams that need faster response, consistent follow-up, and more booked calls.
@@ -297,6 +296,35 @@ export default function ServicesIndexPage() {
                   <div>• AI receptionist or inbound intake</div>
                   <div>• Outbound calls + lead scraping (optional)</div>
                   <div>• Nurture campaigns that don’t drop leads</div>
+                </div>
+                <div className="mt-5">
+                  <Link
+                    href="/services/the-sales-loop"
+                    className="text-sm font-semibold text-[color:var(--color-brand-blue)] hover:underline"
+                  >
+                    View package →
+                  </Link>
+                </div>
+              </div>
+
+              <div className="rounded-3xl border border-zinc-200 bg-white p-6">
+                <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Build trust</div>
+                <div className="mt-2 text-lg font-semibold text-zinc-900">The Brand Builder</div>
+                <div className="mt-2 text-sm text-zinc-600">
+                  For businesses that want consistent visibility and proof without posting every day.
+                </div>
+                <div className="mt-4 space-y-1 text-sm text-zinc-700">
+                  <div>• Automated blogs for SEO momentum</div>
+                  <div>• Reviews that build credibility</div>
+                  <div>• Newsletter to stay top-of-mind</div>
+                </div>
+                <div className="mt-5">
+                  <Link
+                    href="/services/the-brand-builder"
+                    className="text-sm font-semibold text-[color:var(--color-brand-blue)] hover:underline"
+                  >
+                    View package →
+                  </Link>
                 </div>
               </div>
             </div>
@@ -311,7 +339,7 @@ export default function ServicesIndexPage() {
               <div className="flex flex-col gap-3 sm:flex-row">
                 <Link
                   href="/book-a-call"
-                  className="inline-flex items-center justify-center rounded-2xl bg-[color:rgba(15,23,42,0.96)] px-6 py-3 text-sm font-semibold text-white transition hover:bg-[color:rgba(15,23,42,1)]"
+                  className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-6 py-3 text-sm font-semibold text-white hover:opacity-95"
                 >
                   Book a Call
                 </Link>

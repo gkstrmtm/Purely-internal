@@ -367,6 +367,9 @@ export default async function ServiceFunnelPage({ params }: { params: Promise<{ 
 
   const directoryItems = [
     { slug: "portal", title: "Core Portal" },
+    { slug: "the-launch-kit", title: "The Launch Kit" },
+    { slug: "the-sales-loop", title: "The Sales Loop" },
+    { slug: "the-brand-builder", title: "The Brand Builder" },
     ...PORTAL_SERVICES.filter((s) => !s.hidden && (!s.variants || s.variants.includes("portal"))).map((s) => ({
       slug: s.slug,
       title: s.title,
@@ -488,7 +491,7 @@ export default async function ServiceFunnelPage({ params }: { params: Promise<{ 
 
       <section className="w-full bg-brand-mist">
         <div className="mx-auto max-w-6xl px-6 py-12">
-          <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+          <div className="grid grid-cols-1 gap-6 lg:grid-cols-3 lg:items-start">
             <div className="rounded-3xl border border-zinc-200 bg-white p-7 shadow-sm lg:col-span-2">
               <h2 className="text-xl font-bold text-brand-ink sm:text-2xl">What you get</h2>
               <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -560,7 +563,7 @@ export default async function ServiceFunnelPage({ params }: { params: Promise<{ 
                       <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:items-center">
                         <Link
                           href="/blogs"
-                          className="inline-flex items-center justify-center rounded-2xl bg-[color:rgba(15,23,42,0.96)] px-5 py-3 text-sm font-semibold text-white transition hover:bg-[color:rgba(15,23,42,1)]"
+                          className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-5 py-3 text-sm font-semibold text-white hover:opacity-95"
                         >
                           View how ours work
                         </Link>
@@ -583,7 +586,7 @@ export default async function ServiceFunnelPage({ params }: { params: Promise<{ 
               </div>
             </div>
 
-            <div className="rounded-3xl border border-zinc-200 bg-white p-6 shadow-sm">
+            <div className="rounded-3xl border border-zinc-200 bg-white p-5 shadow-sm">
               <div className="text-sm font-semibold text-zinc-900">Next step</div>
               <div className="mt-2 text-sm text-zinc-600">
                 Start free in the portal, or book a call if you want something tailored.
@@ -604,13 +607,7 @@ export default async function ServiceFunnelPage({ params }: { params: Promise<{ 
                 </Link>
               </div>
 
-              <div className="mt-4 text-center">
-                <Link href="/login" className="text-sm font-semibold text-brand-blue hover:underline">
-                  Already a client? Sign in →
-                </Link>
-              </div>
-
-              <div className="mt-2 text-center">
+              <div className="mt-3 text-center">
                 <Link href="/services" className="text-sm font-semibold text-zinc-900 hover:underline">
                   Browse all services
                 </Link>
@@ -661,7 +658,7 @@ export default async function ServiceFunnelPage({ params }: { params: Promise<{ 
             <div className="flex flex-col gap-3 sm:flex-row">
               <Link
                 href="/portal/get-started"
-                className="inline-flex items-center justify-center rounded-2xl bg-[color:rgba(15,23,42,0.96)] px-6 py-3 text-sm font-semibold text-white transition hover:bg-[color:rgba(15,23,42,1)]"
+                className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-6 py-3 text-sm font-semibold text-white hover:opacity-95"
               >
                 Get Started
               </Link>
