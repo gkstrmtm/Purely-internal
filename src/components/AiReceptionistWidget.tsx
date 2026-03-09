@@ -3,7 +3,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { usePathname } from "next/navigation";
 
-import { ElevenLabsConvaiWidget } from "@/components/ElevenLabsConvaiWidget";
 function toTelHref(raw: string) {
   const digits = String(raw || "").replace(/\D/g, "");
   if (digits.length === 11 && digits.startsWith("1")) return `tel:+${digits}`;
@@ -15,17 +14,16 @@ function toTelHref(raw: string) {
 export function AiReceptionistWidget() {
   const pathname = usePathname() || "";
 
-  // Keep this hidden on login screens to avoid covering primary auth actions.
-  const hidden = pathname === "/login" || pathname === "/portal/login" || pathname === "/ads/login";
+  // Customer-facing widget only: never show in the portal (portal has its own Chat + Report tool).
+  const hidden =
+    pathname.startsWith("/portal") ||
+    pathname === "/login" ||
+    pathname === "/portal/login" ||
+    pathname === "/ads/login" ||
+    pathname.startsWith("/ads/app");
 
   const phone = process.env.NEXT_PUBLIC_AI_RECEPTIONIST_PHONE || "980-238-3381";
   const telHref = useMemo(() => toTelHref(phone), [phone]);
-
-  const helpAgentId =
-    process.env.NEXT_PUBLIC_HELP_WIDGET_AGENT_ID ||
-    process.env.NEXT_PUBLIC_HELP_AGENT_ID ||
-    process.env.NEXT_PUBLIC_ELEVENLABS_AGENT_ID ||
-    "";
 
   const [open, setOpen] = useState(false);
 
@@ -49,7 +47,7 @@ export function AiReceptionistWidget() {
           <div className="flex items-start justify-between gap-3 border-b border-zinc-200 bg-zinc-50 px-4 py-3">
             <div className="min-w-0">
               <div className="text-sm font-bold text-zinc-900">Need help?</div>
-              <div className="mt-0.5 text-xs font-semibold text-zinc-600">Chat with us, or tap Call.</div>
+              <div className="mt-0.5 text-xs font-semibold text-zinc-600">Tap Call to talk to us.</div>
             </div>
             <button
               type="button"
@@ -61,14 +59,10 @@ export function AiReceptionistWidget() {
             </button>
           </div>
 
-          <div className="max-h-130 overflow-auto px-4 py-4">
-            {helpAgentId.trim() ? (
-              <ElevenLabsConvaiWidget agentId={helpAgentId} />
-            ) : (
-              <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-700">
-                Chat is temporarily unavailable. You can still call us.
-              </div>
-            )}
+          <div className="px-4 py-4">
+            <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-700">
+              For support, the fastest way is a quick call.
+            </div>
           </div>
 
           <div className="border-t border-zinc-200 bg-white p-3">
@@ -106,7 +100,7 @@ export function AiReceptionistWidget() {
         </span>
         <span className="text-left">
           <div className="text-sm font-bold text-zinc-900">Need help?</div>
-          <div className="text-xs font-semibold text-zinc-600">Chat or call</div>
+          <div className="text-xs font-semibold text-zinc-600">Tap to call</div>
         </span>
       </button>
     </div>

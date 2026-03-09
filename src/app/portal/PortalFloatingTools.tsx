@@ -2,8 +2,6 @@
 
 import { useEffect, useMemo, useState } from "react";
 
-import { ElevenLabsConvaiWidget } from "@/components/ElevenLabsConvaiWidget";
-
 type VersionPayload = {
   ok?: boolean;
   buildSha?: string | null;
@@ -14,6 +12,9 @@ type VersionPayload = {
 };
 
 type BugReportResponse = { ok?: boolean; reportId?: string; emailed?: boolean; error?: string };
+
+type SupportChatMessage = { role: "assistant" | "user"; text: string };
+type SupportChatResponse = { ok?: boolean; reply?: string; error?: string };
 
 function shortSha(sha: string | null | undefined) {
   const s = (sha ?? "").trim();
@@ -30,6 +31,14 @@ export function PortalFloatingTools() {
   const [version, setVersion] = useState<VersionPayload | null>(null);
   const [reportOpen, setReportOpen] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
+  const [chatMessages, setChatMessages] = useState<SupportChatMessage[]>([
+    {
+      role: "assistant",
+      text: "Tell me what you’re trying to do in the portal and what went wrong. If it’s urgent, use Report bug.",
+    },
+  ]);
+  const [chatInput, setChatInput] = useState("");
+  const [chatSending, setChatSending] = useState(false);
   const [message, setMessage] = useState("");
   const [sending, setSending] = useState(false);
   const [note, setNote] = useState<string | null>(null);
@@ -125,16 +134,62 @@ export function PortalFloatingTools() {
     window.setTimeout(() => setNote(null), 3500);
   }
 
+  async function sendSupportChat() {
+    const text = chatInput.trim();
+    if (!text || chatSending) return;
+
+    setChatInput("");
+    setChatSending(true);
+    setChatMessages((cur) => [...cur, { role: "user", text }]);
+
+    const payload = {
+      message: text,
+      url: typeof window !== "undefined" ? window.location.href : undefined,
+      meta: {
+        buildSha: version?.buildSha ?? null,
+        commitRef: version?.commitRef ?? null,
+        deploymentId: version?.deploymentId ?? null,
+        nodeEnv: version?.nodeEnv ?? null,
+        clientTime: new Date().toISOString(),
+      },
+      context: {
+        recentMessages: chatMessages.slice(-10),
+      },
+    };
+
+    const res = await fetch("/api/portal/support-chat", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(payload),
+    }).catch(() => null as any);
+
+    if (!res?.ok) {
+      setChatMessages((cur) => [...cur, { role: "assistant", text: "Chat is unavailable right now. Please use Report bug." }]);
+      setChatSending(false);
+      return;
+    }
+
+    const json = (await res.json().catch(() => ({}))) as SupportChatResponse;
+    if (!json?.ok || !json.reply) {
+      setChatMessages((cur) => [...cur, { role: "assistant", text: json?.error ?? "Chat failed. Please use Report bug." }]);
+      setChatSending(false);
+      return;
+    }
+
+    setChatMessages((cur) => [...cur, { role: "assistant", text: json.reply ?? "" }]);
+    setChatSending(false);
+  }
+
   return (
     <>
       {note ? (
-        <div className="fixed bottom-24 right-4 z-[9999] max-w-sm rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-800 shadow-lg ring-1 ring-[color:rgba(29,78,216,0.14)]">
+        <div className="fixed bottom-24 right-4 z-9999 max-w-sm rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-800 shadow-lg ring-1 ring-[rgba(29,78,216,0.14)]">
           {note}
         </div>
       ) : null}
 
       {reportOpen ? (
-        <div className="fixed inset-0 z-[9998]">
+        <div className="fixed inset-0 z-9998">
           <button
             type="button"
             className="absolute inset-0 bg-black/30"
@@ -161,7 +216,7 @@ export function PortalFloatingTools() {
 
             <div className="mt-4">
               <textarea
-                className="min-h-[120px] w-full rounded-2xl border border-zinc-200 bg-white p-3 text-sm text-zinc-900 outline-none focus:border-[color:var(--color-brand-blue)]"
+                className="min-h-30 w-full rounded-2xl border border-zinc-200 bg-white p-3 text-sm text-zinc-900 outline-none focus:border-(--color-brand-blue)"
                 placeholder="What happened? What did you expect?"
                 value={message}
                 onChange={(e) => setMessage(e.target.value)}
@@ -186,7 +241,7 @@ export function PortalFloatingTools() {
       ) : null}
 
       {chatOpen ? (
-        <div className="fixed inset-0 z-[9998]">
+        <div className="fixed inset-0 z-9998">
           <button
             type="button"
             className="absolute inset-0 bg-black/30"
@@ -210,25 +265,51 @@ export function PortalFloatingTools() {
               </button>
             </div>
 
-            <div className="mt-4 max-h-[60vh] overflow-auto">
-              <ElevenLabsConvaiWidget
-                agentId={
-                  process.env.NEXT_PUBLIC_PORTAL_SUPPORT_AGENT_ID ||
-                  process.env.NEXT_PUBLIC_SUPPORT_AGENT_ID ||
-                  process.env.NEXT_PUBLIC_PORTAL_SUPPORT_CHAT_AGENT_ID ||
-                  ""
-                }
-              />
+            <div className="mt-4 max-h-[55vh] space-y-3 overflow-auto">
+              {chatMessages.map((m, idx) => (
+                <div
+                  key={idx}
+                  className={
+                    "rounded-2xl px-3 py-2 text-sm leading-relaxed " +
+                    (m.role === "user" ? "ml-10 bg-zinc-900 text-white" : "mr-10 bg-zinc-100 text-zinc-900")
+                  }
+                >
+                  {m.text}
+                </div>
+              ))}
             </div>
+
+            <div className="mt-4 flex gap-2">
+              <input
+                value={chatInput}
+                onChange={(e) => setChatInput(e.target.value)}
+                placeholder="Describe the issue…"
+                className="h-11 flex-1 rounded-2xl border border-zinc-200 bg-white px-4 text-sm text-zinc-900 outline-none focus:border-(--color-brand-blue)"
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") void sendSupportChat();
+                }}
+                disabled={chatSending}
+              />
+              <button
+                type="button"
+                className="h-11 rounded-2xl bg-(--color-brand-blue) px-4 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
+                onClick={() => void sendSupportChat()}
+                disabled={chatSending}
+              >
+                {chatSending ? "Sending…" : "Send"}
+              </button>
+            </div>
+
+            <div className="mt-2 text-xs text-zinc-500">If it looks like a bug, use Report bug so we get the details.</div>
           </div>
         </div>
       ) : null}
 
-      <div className="fixed bottom-4 right-4 z-[9997]">
+      <div className="fixed bottom-4 right-4 z-9997">
         {minimized ? (
           <button
             type="button"
-            className="flex items-center gap-2 rounded-full border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 shadow-lg ring-1 ring-[color:rgba(29,78,216,0.14)] hover:bg-zinc-50"
+            className="flex items-center gap-2 rounded-full border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 shadow-lg ring-1 ring-[rgba(29,78,216,0.14)] hover:bg-zinc-50"
             onClick={() => persistMinimized(false)}
             aria-label="Open tools"
           >
@@ -267,7 +348,7 @@ export function PortalFloatingTools() {
                 type="button"
                 className={classNames(
                   "rounded-2xl px-3 py-2 text-sm font-semibold",
-                  "bg-[color:var(--color-brand-blue)] text-white hover:opacity-95",
+                  "bg-(--color-brand-blue) text-white hover:opacity-95",
                 )}
                 onClick={() => setReportOpen(true)}
               >
