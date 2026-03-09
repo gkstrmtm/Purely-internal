@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 
+import { IconServiceGlyph } from "@/app/portal/PortalIcons";
 import { PORTAL_SERVICES } from "@/app/portal/services/catalog";
 import { groupPortalServices } from "@/app/portal/services/categories";
 
@@ -25,48 +26,10 @@ export const metadata: Metadata = {
   alternates: { canonical: "/services" },
 };
 
-function Icon({ path, title }: { path: string; title: string }) {
-  return (
-    <svg
-      aria-hidden="true"
-      viewBox="0 0 24 24"
-      className="h-5 w-5 text-[color:var(--color-brand-pink)]"
-      fill="none"
-    >
-      <title>{title}</title>
-      <path d={path} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
-}
-
-const ICONS = {
-  bolt: "M13 2 3 14h7l-1 8 10-12h-7l1-8Z",
-  calendar: "M8 2v3m8-3v3M4 9h16M6 6h12a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2Z",
-  phone: "M22 16.92v3a2 2 0 0 1-2.18 2 19.86 19.86 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6A19.86 19.86 0 0 1 2.08 4.18 2 2 0 0 1 4.06 2h3a2 2 0 0 1 2 1.72c.12.86.3 1.7.54 2.51a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.57-1.1a2 2 0 0 1 2.11-.45c.81.24 1.65.42 2.51.54A2 2 0 0 1 22 16.92Z",
-  star: "M12 2l3.09 6.26L22 9.27l-5 4.87L18.18 22 12 18.77 5.82 22 7 14.14l-5-4.87 6.91-1.01L12 2Z",
-  message: "M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4v8Z",
-  chart: "M4 19V5m0 14h16M8 15v-3m4 3V9m4 6v-5",
-};
-
-function iconPathForServiceSlug(slug: string): { path: string; title: string } {
-  switch (slug) {
-    case "booking":
-      return { path: ICONS.calendar, title: "Booking" };
-    case "blogs":
-      return { path: ICONS.chart, title: "Blogs" };
-    case "reviews":
-      return { path: ICONS.star, title: "Reviews" };
-    case "ai-receptionist":
-    case "ai-outbound-calls":
-      return { path: ICONS.phone, title: "Calls" };
-    case "inbox":
-      return { path: ICONS.message, title: "Inbox" };
-    case "lead-scraping":
-    case "funnel-builder":
-      return { path: ICONS.bolt, title: "Lead generation" };
-    default:
-      return { path: ICONS.bolt, title: "Automation" };
-  }
+function accentTextColor(accent: "blue" | "coral" | "ink") {
+  if (accent === "blue") return "text-[color:var(--color-brand-blue)]";
+  if (accent === "coral") return "text-[color:var(--color-brand-pink)]";
+  return "text-zinc-700";
 }
 
 export default function ServicesIndexPage() {
@@ -99,11 +62,59 @@ export default function ServicesIndexPage() {
     ];
   })();
 
+  const directoryItems = [
+    { slug: "portal", title: "Core Portal" },
+    ...groups
+      .flatMap((g) => g.services)
+      .map((s) => ({ slug: s.slug, title: s.title }))
+      .filter((item, idx, all) => all.findIndex((x) => x.slug === item.slug) === idx),
+  ];
+
   return (
     <main className="min-h-screen bg-white">
       <section className="w-full bg-[color:var(--color-brand-blue)] text-white">
         <div className="mx-auto max-w-6xl px-6 py-14 sm:py-16">
           <div className="max-w-3xl">
+            <div className="mb-7 flex flex-wrap items-center gap-2 text-sm text-white/85">
+              <Link
+                href="/"
+                className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-3 py-1.5 font-semibold text-white/90 hover:bg-white/15"
+              >
+                <span aria-hidden="true">←</span>
+                Home
+              </Link>
+              <span className="text-white/40" aria-hidden="true">
+                /
+              </span>
+              <Link
+                href="/services"
+                className="rounded-full border border-white/15 bg-white/10 px-3 py-1.5 font-semibold text-white/90 hover:bg-white/15"
+              >
+                Services
+              </Link>
+              <details className="group relative">
+                <summary className="cursor-pointer list-none select-none rounded-full border border-white/15 bg-white/10 px-3 py-1.5 font-semibold text-white/90 hover:bg-white/15 [&::-webkit-details-marker]:hidden">
+                  Directory
+                  <span className="ml-1 text-white/70" aria-hidden="true">
+                    ▾
+                  </span>
+                </summary>
+                <div className="absolute left-0 top-[calc(100%+10px)] z-10 w-[min(320px,calc(100vw-3rem))] overflow-hidden rounded-2xl border border-white/15 bg-white/10 p-2 shadow-xl backdrop-blur">
+                  <div className="max-h-72 overflow-auto">
+                    {directoryItems.map((item) => (
+                      <Link
+                        key={item.slug}
+                        href={`/services/${encodeURIComponent(item.slug)}`}
+                        className="block rounded-xl px-3 py-2 text-sm font-semibold text-white/90 hover:bg-white/10"
+                      >
+                        {item.title}
+                      </Link>
+                    ))}
+                  </div>
+                </div>
+              </details>
+            </div>
+
             <div className="text-xs font-semibold tracking-wide text-white/70">SERVICES</div>
             <h1 className="mt-4 text-3xl font-bold tracking-tight sm:text-5xl">One portal. Many automations.</h1>
             <p className="mt-4 text-base text-white/85 sm:text-lg">
@@ -111,35 +122,39 @@ export default function ServicesIndexPage() {
               and your activity trail.
             </p>
 
+            <div className="mt-4 text-sm text-white/80">Start for free. Activate services when you’re ready.</div>
+
             <div className="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <div className="flex items-start gap-3 rounded-3xl border border-white/15 bg-white/10 p-4">
-                <Icon path={ICONS.bolt} title="Automation" />
-                <div>
-                  <div className="text-sm font-semibold text-white/95">Automation you can measure</div>
-                  <div className="mt-1 text-sm text-white/75">See what ran, when it ran, and what it produced.</div>
+              {["ai-receptionist", "booking", "inbox", "reviews"].map((slug) => (
+                <div
+                  key={slug}
+                  className="flex items-start gap-3 rounded-3xl border border-white/15 bg-white/10 p-4"
+                >
+                  <div className="mt-0.5 grid h-9 w-9 place-items-center rounded-2xl border border-white/15 bg-white/10 text-white/95">
+                    <IconServiceGlyph slug={slug} />
+                  </div>
+                  <div>
+                    <div className="text-sm font-semibold text-white/95">
+                      {slug === "ai-receptionist"
+                        ? "Calls answered"
+                        : slug === "booking"
+                          ? "Booking + follow-up"
+                          : slug === "inbox"
+                            ? "Inbox and reply"
+                            : "Reviews + reputation"}
+                    </div>
+                    <div className="mt-1 text-sm text-white/75">
+                      {slug === "ai-receptionist"
+                        ? "Capture lead details and route requests automatically."
+                        : slug === "booking"
+                          ? "Scheduling automation, confirmations, and reminders."
+                          : slug === "inbox"
+                            ? "Keep SMS + email history together with full context."
+                            : "Consistent review requests that build trust."}
+                    </div>
+                  </div>
                 </div>
-              </div>
-              <div className="flex items-start gap-3 rounded-3xl border border-white/15 bg-white/10 p-4">
-                <Icon path={ICONS.calendar} title="Booking" />
-                <div>
-                  <div className="text-sm font-semibold text-white/95">Booking + follow-up</div>
-                  <div className="mt-1 text-sm text-white/75">Appointment scheduling automation and reminders.</div>
-                </div>
-              </div>
-              <div className="flex items-start gap-3 rounded-3xl border border-white/15 bg-white/10 p-4">
-                <Icon path={ICONS.phone} title="Calls" />
-                <div>
-                  <div className="text-sm font-semibold text-white/95">Calls, SMS, email</div>
-                  <div className="mt-1 text-sm text-white/75">Centralized communication and fast response workflows.</div>
-                </div>
-              </div>
-              <div className="flex items-start gap-3 rounded-3xl border border-white/15 bg-white/10 p-4">
-                <Icon path={ICONS.star} title="Reputation" />
-                <div>
-                  <div className="text-sm font-semibold text-white/95">Reviews + reputation</div>
-                  <div className="mt-1 text-sm text-white/75">Review request automation that stays consistent.</div>
-                </div>
-              </div>
+              ))}
             </div>
 
             <div className="mt-7 flex flex-col gap-3 sm:flex-row">
@@ -200,8 +215,10 @@ export default function ServicesIndexPage() {
                       className="group rounded-3xl border border-zinc-200 bg-white p-6 shadow-sm transition hover:-translate-y-0.5 hover:border-zinc-300 hover:shadow-lg"
                     >
                       <div className="flex items-start gap-3">
-                        <div className="mt-0.5 grid h-9 w-9 place-items-center rounded-2xl bg-[color:rgba(29,78,216,0.08)]">
-                          <Icon {...iconPathForServiceSlug(s.slug)} />
+                        <div className="mt-0.5 inline-flex h-9 w-9 items-center justify-center rounded-2xl border border-zinc-200 bg-white">
+                          <span className={accentTextColor(s.accent)}>
+                            <IconServiceGlyph slug={s.slug} />
+                          </span>
                         </div>
                         <div>
                           <div className="text-sm font-semibold text-zinc-900">{s.title}</div>
@@ -226,6 +243,64 @@ export default function ServicesIndexPage() {
           </div>
 
           <div className="mt-12 rounded-3xl border border-zinc-200 bg-white p-7">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+              <div>
+                <h2 className="text-xl font-bold text-brand-ink sm:text-2xl">Which package should I get?</h2>
+                <p className="mt-2 max-w-2xl text-sm text-zinc-600">
+                  If you’re not sure where to start, pick the outcome you want most. You can stack services later.
+                </p>
+              </div>
+              <Link
+                href="/portal/get-started"
+                className="inline-flex items-center justify-center rounded-2xl bg-linear-to-r from-(--color-brand-blue) via-violet-500 to-(--color-brand-pink) px-5 py-2.5 text-sm font-semibold text-white shadow-sm hover:opacity-90"
+              >
+                Start free
+              </Link>
+            </div>
+
+            <div className="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-3">
+              <div className="rounded-3xl border border-zinc-200 bg-white p-6">
+                <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Fast launch</div>
+                <div className="mt-2 text-lg font-semibold text-zinc-900">The Launch Kit</div>
+                <div className="mt-2 text-sm text-zinc-600">
+                  For teams that want to get set up quickly and start converting leads without overthinking it.
+                </div>
+                <div className="mt-4 space-y-1 text-sm text-zinc-700">
+                  <div>• A clean intake path (forms / inbox)</div>
+                  <div>• Booking or routing turned on</div>
+                  <div>• Simple follow-up + reporting</div>
+                </div>
+              </div>
+
+              <div className="rounded-3xl border border-[color:rgba(29,78,216,0.35)] bg-[color:rgba(29,78,216,0.04)] p-6">
+                <div className="text-xs font-semibold uppercase tracking-wide text-[color:rgba(29,78,216,0.78)]">
+                  Build trust
+                </div>
+                <div className="mt-2 text-lg font-semibold text-zinc-900">The Brand Builder</div>
+                <div className="mt-2 text-sm text-zinc-600">
+                  For businesses that want consistent visibility and proof; without posting every day.
+                </div>
+                <div className="mt-4 space-y-1 text-sm text-zinc-700">
+                  <div>• Automated blogs for SEO momentum</div>
+                  <div>• Reviews that build credibility</div>
+                  <div>• Newsletter to stay top-of-mind</div>
+                </div>
+              </div>
+
+              <div className="rounded-3xl border border-zinc-200 bg-white p-6">
+                <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Close faster</div>
+                <div className="mt-2 text-lg font-semibold text-zinc-900">The Sales Loop</div>
+                <div className="mt-2 text-sm text-zinc-600">
+                  For lead-driven teams that need faster response, consistent follow-up, and more booked calls.
+                </div>
+                <div className="mt-4 space-y-1 text-sm text-zinc-700">
+                  <div>• AI receptionist or inbound intake</div>
+                  <div>• Outbound calls + lead scraping (optional)</div>
+                  <div>• Nurture campaigns that don’t drop leads</div>
+                </div>
+              </div>
+            </div>
+
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <div className="text-lg font-semibold text-zinc-900">Not seeing your exact workflow?</div>

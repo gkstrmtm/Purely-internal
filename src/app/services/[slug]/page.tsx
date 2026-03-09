@@ -365,6 +365,14 @@ export default async function ServiceFunnelPage({ params }: { params: Promise<{ 
     .map((s) => getMarketingService(s))
     .filter((s): s is MarketingService => Boolean(s));
 
+  const directoryItems = [
+    { slug: "portal", title: "Core Portal" },
+    ...PORTAL_SERVICES.filter((s) => !s.hidden && (!s.variants || s.variants.includes("portal"))).map((s) => ({
+      slug: s.slug,
+      title: s.title,
+    })),
+  ];
+
   const jsonLd = {
     "@context": "https://schema.org",
     "@type": "Service",
@@ -403,19 +411,50 @@ export default async function ServiceFunnelPage({ params }: { params: Promise<{ 
       <section className="w-full bg-[color:var(--color-brand-blue)] text-white">
         <div className="mx-auto max-w-6xl px-6 py-14 sm:py-16">
           <div className="max-w-3xl">
+            <div className="mb-7 flex flex-wrap items-center gap-2 text-sm text-white/85">
+              <Link
+                href="/"
+                className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-3 py-1.5 font-semibold text-white/90 hover:bg-white/15"
+              >
+                <span aria-hidden="true">←</span>
+                Home
+              </Link>
+              <span className="text-white/40" aria-hidden="true">
+                /
+              </span>
+              <Link
+                href="/services"
+                className="rounded-full border border-white/15 bg-white/10 px-3 py-1.5 font-semibold text-white/90 hover:bg-white/15"
+              >
+                Services
+              </Link>
+              <details className="group relative">
+                <summary className="cursor-pointer list-none select-none rounded-full border border-white/15 bg-white/10 px-3 py-1.5 font-semibold text-white/90 hover:bg-white/15 [&::-webkit-details-marker]:hidden">
+                  Directory
+                  <span className="ml-1 text-white/70" aria-hidden="true">
+                    ▾
+                  </span>
+                </summary>
+                <div className="absolute left-0 top-[calc(100%+10px)] z-10 w-[min(320px,calc(100vw-3rem))] overflow-hidden rounded-2xl border border-white/15 bg-white/10 p-2 shadow-xl backdrop-blur">
+                  <div className="max-h-72 overflow-auto">
+                    {directoryItems.map((item) => (
+                      <Link
+                        key={item.slug}
+                        href={`/services/${encodeURIComponent(item.slug)}`}
+                        className="block rounded-xl px-3 py-2 text-sm font-semibold text-white/90 hover:bg-white/10"
+                      >
+                        {item.title}
+                      </Link>
+                    ))}
+                  </div>
+                </div>
+              </details>
+            </div>
+
             <div className="text-xs font-semibold tracking-wide text-white/70">SERVICE</div>
             <h1 className="mt-4 text-3xl font-bold tracking-tight sm:text-5xl">{service.title}</h1>
             <p className="mt-4 text-base text-white/85 sm:text-lg">{content.headline}</p>
             <p className="mt-4 text-sm text-white/80">{service.description}</p>
-
-            <div className="mt-5 rounded-3xl border border-white/15 bg-white/10 p-5">
-              <div className="text-xs font-semibold tracking-wide text-white/70">SEO KEYWORDS</div>
-              <div className="mt-2 text-sm text-white/85">
-                <span className="font-semibold text-white/95">{seo.primaryKeyword}</span>
-                <span className="text-white/70">; {seo.secondaryKeywords.slice(0, 4).join(", ")}</span>
-              </div>
-              <div className="mt-2 text-sm text-white/80">{seo.intro}</div>
-            </div>
 
             <div className="mt-7 flex flex-col gap-3 sm:flex-row">
               <Link
@@ -544,16 +583,16 @@ export default async function ServiceFunnelPage({ params }: { params: Promise<{ 
               </div>
             </div>
 
-            <div className="rounded-3xl border border-zinc-200 bg-white p-7 shadow-sm">
+            <div className="rounded-3xl border border-zinc-200 bg-white p-6 shadow-sm">
               <div className="text-sm font-semibold text-zinc-900">Next step</div>
               <div className="mt-2 text-sm text-zinc-600">
-                Start with plug-and-play setup in the portal, or book a call if you want something tailored.
+                Start free in the portal, or book a call if you want something tailored.
               </div>
 
-              <div className="mt-6 space-y-3">
+              <div className="mt-4 grid grid-cols-1 gap-2">
                 <Link
                   href="/portal/get-started"
-                  className="inline-flex w-full items-center justify-center rounded-2xl bg-[color:rgba(15,23,42,0.96)] px-5 py-3 text-sm font-semibold text-white transition hover:bg-[color:rgba(15,23,42,1)]"
+                  className="inline-flex w-full items-center justify-center rounded-2xl bg-linear-to-r from-(--color-brand-blue) via-violet-500 to-(--color-brand-pink) px-5 py-3 text-sm font-semibold text-white shadow-sm hover:opacity-90"
                 >
                   Get Started
                 </Link>
@@ -563,21 +602,17 @@ export default async function ServiceFunnelPage({ params }: { params: Promise<{ 
                 >
                   Book a Call
                 </Link>
-                <Link
-                  href="/services"
-                  className="inline-flex w-full items-center justify-center rounded-2xl border border-zinc-200 bg-white px-5 py-3 text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
-                >
-                  Browse services
+              </div>
+
+              <div className="mt-4 text-center">
+                <Link href="/login" className="text-sm font-semibold text-brand-blue hover:underline">
+                  Already a client? Sign in →
                 </Link>
               </div>
 
-              <div className="mt-6 rounded-2xl bg-zinc-50 p-4 text-xs text-zinc-600">
-                Tip: If you’re already a client, you can also sign in and activate services directly.
-              </div>
-
-              <div className="mt-3 text-center">
-                <Link href="/login" className="text-sm font-semibold text-brand-blue hover:underline">
-                  Client sign in
+              <div className="mt-2 text-center">
+                <Link href="/services" className="text-sm font-semibold text-zinc-900 hover:underline">
+                  Browse all services
                 </Link>
               </div>
             </div>

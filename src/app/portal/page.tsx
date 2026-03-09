@@ -10,18 +10,59 @@ export default async function PortalDashboardPage() {
   const getStartedHref = variant === "credit" ? "/credit/get-started" : "/portal/get-started";
   const signInHref = variant === "credit" ? "/credit/login" : "/login";
 
+  const directoryItems = [
+    { href: "/", label: "Home" },
+    { href: "/services", label: "Services" },
+    { href: "/book-a-call", label: "Book a call" },
+    { href: getStartedHref, label: "Get started" },
+  ];
+
   return (
     <div className="w-full">
       <section className="w-full bg-[color:var(--color-brand-blue)] text-white">
         <div className="mx-auto max-w-6xl px-6 py-14 sm:py-16">
           <div className="grid grid-cols-1 gap-10 md:grid-cols-2 md:items-center">
             <div className="max-w-3xl">
+              <div className="flex flex-wrap items-center gap-2 text-sm text-white/85">
+                <Link
+                  href="/"
+                  className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-3 py-1.5 font-semibold text-white/90 hover:bg-white/15"
+                >
+                  <span aria-hidden="true">←</span>
+                  Home
+                </Link>
+                <span className="text-white/40" aria-hidden="true">
+                  /
+                </span>
+                <details className="group relative">
+                  <summary className="cursor-pointer list-none select-none rounded-full border border-white/15 bg-white/10 px-3 py-1.5 font-semibold text-white/90 hover:bg-white/15 [&::-webkit-details-marker]:hidden">
+                    Directory
+                    <span className="ml-1 text-white/70" aria-hidden="true">
+                      ▾
+                    </span>
+                  </summary>
+                  <div className="absolute left-0 top-[calc(100%+10px)] z-10 w-[min(280px,calc(100vw-3rem))] overflow-hidden rounded-2xl border border-white/15 bg-white/10 p-2 shadow-xl backdrop-blur">
+                    {directoryItems.map((item) => (
+                      <Link
+                        key={item.href}
+                        href={item.href}
+                        className="block rounded-xl px-3 py-2 text-sm font-semibold text-white/90 hover:bg-white/10"
+                      >
+                        {item.label}
+                      </Link>
+                    ))}
+                  </div>
+                </details>
+              </div>
+
               <h1 className="mt-5 text-3xl font-bold tracking-tight sm:text-5xl">
                 Activate your automations and keep everything in one place.
               </h1>
               <p className="mt-4 text-base text-[color:rgba(255,255,255,0.86)] sm:text-lg">
                 Stop juggling tools and guessing what happened. Run your lead follow-up, booking, and customer communication from one portal; with clear visibility into what ran and what got done.
               </p>
+
+              <div className="mt-4 text-sm text-white/80">Start for free. Add services when you’re ready.</div>
 
               <div className="mt-7 flex flex-col gap-3 sm:flex-row">
                 <Link
@@ -345,9 +386,9 @@ export default async function PortalDashboardPage() {
             <div className="flex w-full flex-col gap-3 sm:w-auto sm:flex-row">
               <Link
                 href="/portal/get-started"
-                className="inline-flex w-full items-center justify-center rounded-2xl bg-white px-6 py-3 text-sm font-semibold text-[color:var(--color-brand-blue)] hover:bg-zinc-50 sm:w-auto"
+                className="inline-flex w-full items-center justify-center rounded-2xl bg-linear-to-r from-(--color-brand-blue) via-violet-500 to-(--color-brand-pink) px-6 py-3 text-sm font-semibold text-white shadow-sm hover:opacity-90 sm:w-auto"
               >
-                Create account
+                Start free
               </Link>
               <Link
                 href="/login"
