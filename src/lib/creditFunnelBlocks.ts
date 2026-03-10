@@ -327,8 +327,20 @@ function coerceBlocksJsonInternal(value: unknown, depth: number): CreditFunnelBl
       const html = typeof props?.html === "string" ? props.html.slice(0, 50000) : "";
       const css = typeof props?.css === "string" ? props.css.slice(0, 50000) : "";
       const heightPx = clampNum((props as any)?.heightPx, 120, 2000);
+      const chatJsonRaw = (props as any)?.chatJson;
+      const chatJson = Array.isArray(chatJsonRaw)
+        ? (chatJsonRaw
+            .filter((m: any) => m && typeof m === "object")
+            .map((m: any) => ({
+              role: m.role === "assistant" ? "assistant" : "user",
+              content: typeof m.content === "string" ? m.content.slice(0, 24000) : "",
+              at: typeof m.at === "string" ? m.at.slice(0, 64) : undefined,
+            }))
+            .filter((m: any) => typeof m.content === "string" && m.content.trim())
+            .slice(-40))
+        : undefined;
       const style = coerceStyle(props?.style);
-      out.push({ id, type, props: { html, css: css || undefined, heightPx, style } });
+      out.push({ id, type, props: { html, css: css || undefined, heightPx, style, ...(chatJson ? { chatJson } : {}) } as any });
       continue;
     }
 

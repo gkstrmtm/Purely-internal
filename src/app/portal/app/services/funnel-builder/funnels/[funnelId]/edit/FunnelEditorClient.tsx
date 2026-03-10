@@ -74,6 +74,8 @@ type Page = {
 
 type ChatMessage = { role: "user" | "assistant"; content: string; at?: string };
 
+type BlockChatMessage = { role: "user" | "assistant"; content: string; at?: string };
+
 type AiAttachment = {
   id: string;
   fileName: string;
@@ -828,7 +830,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                         "inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-sm font-semibold disabled:opacity-60",
                         selectedPage?.editorMode === "CUSTOM_HTML"
                           ? "border-transparent bg-linear-to-r from-[color:var(--color-brand-blue)] via-violet-500 to-[color:var(--color-brand-pink)] text-white shadow-sm hover:opacity-90"
-                          : "border-zinc-200 bg-white text-zinc-900 hover:bg-zinc-50",
+                          : "border-transparent bg-linear-to-r from-[color:var(--color-brand-blue)] via-violet-500 to-[color:var(--color-brand-pink)] text-white shadow-sm hover:opacity-90",
                       )}
                     >
                       <AiSparkIcon className="h-4 w-4" />
@@ -1560,6 +1562,8 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
   const [selectedBlockId, setSelectedBlockId] = useState<string | null>(null);
   const [hoveredBlockId, setHoveredBlockId] = useState<string | null>(null);
   const [chatInput, setChatInput] = useState("");
+  const [customCodeBlockPrompt, setCustomCodeBlockPrompt] = useState("");
+  const [customCodeBlockBusy, setCustomCodeBlockBusy] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -1640,6 +1644,40 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
     null | { type: "ai" } | { type: "image-block"; blockId: string } | { type: "chatbot-launcher"; blockId: string }
   >(null);
   const [aiAttachments, setAiAttachments] = useState<AiAttachment[]>([]);
+
+  const selectedPage = useMemo(
+    () => (pages || []).find((p) => p.id === selectedPageId) || null,
+    [pages, selectedPageId],
+  );
+
+  useEffect(() => {
+    setCustomCodeBlockPrompt("");
+  }, [selectedBlockId]);
+
+  useEffect(() => {
+    const isTextInputLike = (el: Element | null) => {
+      if (!el) return false;
+      const tag = (el as any).tagName ? String((el as any).tagName).toLowerCase() : "";
+      if (tag === "input" || tag === "textarea" || tag === "select") return true;
+      return Boolean((el as any).isContentEditable);
+    };
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (!selectedPage) return;
+      if (selectedPage.editorMode !== "BLOCKS") return;
+      if (!selectedBlockId) return;
+      if (busy) return;
+      if (dialog) return;
+      if (mediaPickerOpen) return;
+      if (e.key !== "Backspace" && e.key !== "Delete") return;
+      if (isTextInputLike(document.activeElement)) return;
+      e.preventDefault();
+      removeBlock(selectedBlockId);
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [selectedPage, selectedBlockId, busy, dialog, mediaPickerOpen]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1782,11 +1820,6 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
     (forms || []).forEach((f) => m.set(f.slug, f));
     return m;
   }, [forms]);
-
-  const selectedPage = useMemo(
-    () => (pages || []).find((p) => p.id === selectedPageId) || null,
-    [pages, selectedPageId],
-  );
 
   const selectedBlocks = useMemo(() => {
     if (!selectedPage) return [];
@@ -2358,7 +2391,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                           },
                         }
                       : type === "customCode"
-                        ? { id, type, props: { html: "", css: "", heightPx: 360 } }
+                        ? { id, type, props: { html: "", css: "", heightPx: 360, chatJson: [] } as any }
                         : type === "chatbot"
                           ? {
                               id,
@@ -3528,6 +3561,129 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
 
                       {selectedBlock.type === "customCode" ? (
                         <div className="space-y-2">
+                          <div className="rounded-2xl border border-zinc-200 bg-white p-3">
+                            <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Custom code (AI)</div>
+                            <div className="mt-2 max-h-[28vh] space-y-2 overflow-auto">
+                              {Array.isArray((selectedBlock.props as any).chatJson) && (selectedBlock.props as any).chatJson.length ? (
+                                ((selectedBlock.props as any).chatJson as BlockChatMessage[]).map((m, idx) => (
+                                  <div
+                                    key={idx}
+                                    className={classNames(
+                                      "rounded-xl px-3 py-2 text-sm",
+                                      m.role === "user" ? "bg-blue-50 text-zinc-900" : "bg-zinc-50 text-zinc-800",
+                                    )}
+                                  >
+                                    <div className="text-[10px] font-semibold uppercase tracking-wide text-zinc-500">{m.role}</div>
+                                    <div className="mt-1 whitespace-pre-wrap break-words">{m.content}</div>
+                                  </div>
+                                ))
+                              ) : (
+                                <div className="text-sm text-zinc-600">Ask for an embed or a custom section. Then follow up with edits.</div>
+                              )}
+                            </div>
+
+                            <textarea
+                              value={customCodeBlockPrompt}
+                              onChange={(e) => setCustomCodeBlockPrompt(e.target.value)}
+                              className="mt-3 min-h-[90px] w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                              placeholder="Describe what to build or change…"
+                            />
+
+                            <div className="mt-3 flex gap-2">
+                              <button
+                                type="button"
+                                disabled={busy || customCodeBlockBusy || !customCodeBlockPrompt.trim()}
+                                onClick={() => {
+                                  void (async () => {
+                                    if (!selectedPage) return;
+                                    if (!selectedBlock || selectedBlock.type !== "customCode") return;
+                                    const prompt = customCodeBlockPrompt.trim();
+                                    if (!prompt) return;
+
+                                    setCustomCodeBlockBusy(true);
+                                    setError(null);
+                                    try {
+                                      const res = await fetch("/api/portal/funnel-builder/custom-code-block/generate", {
+                                        method: "POST",
+                                        headers: { "content-type": "application/json" },
+                                        body: JSON.stringify({
+                                          funnelId,
+                                          pageId: selectedPage.id,
+                                          prompt,
+                                          currentHtml: String((selectedBlock.props as any).html || ""),
+                                          currentCss: String((selectedBlock.props as any).css || ""),
+                                        }),
+                                      });
+                                      const json = (await res.json().catch(() => null)) as any;
+                                      if (!res.ok || !json || json.ok !== true) throw new Error(json?.error || "Failed to generate code");
+
+                                      const nextHtml = typeof json.html === "string" ? json.html : "";
+                                      const nextCss = typeof json.css === "string" ? json.css : "";
+
+                                      const prevChat = Array.isArray((selectedBlock.props as any).chatJson)
+                                        ? ((selectedBlock.props as any).chatJson as BlockChatMessage[])
+                                        : [];
+
+                                      const userMsg: BlockChatMessage = { role: "user", content: prompt, at: new Date().toISOString() };
+                                      const assistantMsg: BlockChatMessage = {
+                                        role: "assistant",
+                                        content: [
+                                          nextHtml ? "```html\n" + nextHtml + "\n```" : "(no html)",
+                                          nextCss ? "```css\n" + nextCss + "\n```" : "",
+                                        ]
+                                          .filter(Boolean)
+                                          .join("\n\n"),
+                                        at: new Date().toISOString(),
+                                      };
+
+                                      const nextChat = [...prevChat, userMsg, assistantMsg].slice(-40);
+
+                                      upsertBlock({
+                                        ...selectedBlock,
+                                        props: {
+                                          ...(selectedBlock.props as any),
+                                          html: nextHtml,
+                                          css: nextCss,
+                                          chatJson: nextChat,
+                                        },
+                                      } as any);
+
+                                      setCustomCodeBlockPrompt("");
+                                    } catch (e) {
+                                      const msg = (e as any)?.message ? String((e as any).message) : "Failed to generate code";
+                                      setError(msg);
+                                      toast.error(msg);
+                                    } finally {
+                                      setCustomCodeBlockBusy(false);
+                                    }
+                                  })();
+                                }}
+                                className={classNames(
+                                  "flex-1 inline-flex items-center justify-center gap-2 rounded-2xl px-4 py-2 text-sm font-semibold text-white",
+                                  busy || customCodeBlockBusy || !customCodeBlockPrompt.trim()
+                                    ? "bg-zinc-400"
+                                    : "bg-linear-to-r from-[color:var(--color-brand-blue)] via-violet-500 to-[color:var(--color-brand-pink)] hover:opacity-90 shadow-sm",
+                                )}
+                              >
+                                <AiSparkIcon className="h-4 w-4" />
+                                <span>{customCodeBlockBusy ? "Working…" : "Ask AI"}</span>
+                              </button>
+                              <button
+                                type="button"
+                                disabled={busy || customCodeBlockBusy}
+                                onClick={() =>
+                                  upsertBlock({
+                                    ...selectedBlock,
+                                    props: { ...(selectedBlock.props as any), chatJson: [] },
+                                  } as any)
+                                }
+                                className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-60"
+                              >
+                                Clear
+                              </button>
+                            </div>
+                          </div>
+
                           <label className="block">
                             <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Height (px)</div>
                             <input
@@ -3587,9 +3743,9 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                                 } as any)
                               }
                               className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                              placeholder="elevenlabs_agent_..."
+                              placeholder="agent_..."
                             />
-                            <div className="mt-1 text-[11px] text-zinc-500">Paste the ElevenLabs Conversational AI agent ID to enable the widget.</div>
+                            <div className="mt-1 text-[11px] text-zinc-500">Paste your chat agent ID to enable the widget.</div>
                             {aiReceptionistVoiceAgentId ? (
                               <div className="mt-2">
                                 <button
@@ -3622,20 +3778,17 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                             )}
                           </label>
 
-                          <label className="block">
-                            <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Primary color</div>
-                            <input
-                              value={String((selectedBlock.props as any).primaryColor || "")}
-                              onChange={(e) =>
-                                upsertBlock({
-                                  ...selectedBlock,
-                                  props: { ...(selectedBlock.props as any), primaryColor: e.target.value },
-                                } as any)
-                              }
-                              className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                              placeholder="#1d4ed8"
-                            />
-                          </label>
+                          <ColorPickerField
+                            label="Primary color"
+                            value={String((selectedBlock.props as any).primaryColor || "")}
+                            onChange={(next) =>
+                              upsertBlock({
+                                ...selectedBlock,
+                                props: { ...(selectedBlock.props as any), primaryColor: next || "" },
+                              } as any)
+                            }
+                            swatches={colorSwatches}
+                          />
 
                           <label className="block">
                             <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Launcher style</div>
@@ -3659,18 +3812,31 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                           </label>
 
                           <label className="block">
-                            <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Launcher image URL (optional)</div>
-                            <input
-                              value={String((selectedBlock.props as any).launcherImageUrl || "")}
-                              onChange={(e) =>
-                                upsertBlock({
-                                  ...selectedBlock,
-                                  props: { ...(selectedBlock.props as any), launcherImageUrl: e.target.value },
-                                } as any)
-                              }
-                              className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                              placeholder="https://..."
-                            />
+                            <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Launcher image (optional)</div>
+
+                            {String((selectedBlock.props as any).launcherImageUrl || "").trim() ? (
+                              <div className="mb-2 flex items-center gap-2">
+                                <img
+                                  alt="Launcher image preview"
+                                  src={String((selectedBlock.props as any).launcherImageUrl || "").trim()}
+                                  className="h-10 w-10 rounded-lg border border-zinc-200 object-cover"
+                                />
+                                <button
+                                  type="button"
+                                  disabled={busy}
+                                  onClick={() =>
+                                    upsertBlock({
+                                      ...selectedBlock,
+                                      props: { ...(selectedBlock.props as any), launcherImageUrl: "" },
+                                    } as any)
+                                  }
+                                  className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-60"
+                                >
+                                  Remove image
+                                </button>
+                              </div>
+                            ) : null}
+
                             <div className="mt-2 flex flex-wrap gap-2">
                               <button
                                 type="button"
