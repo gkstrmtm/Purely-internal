@@ -3,6 +3,9 @@ import crypto from "crypto";
 
 import { findOwnerIdByInboundSmsToNumberHistory, findOwnerIdByTwilioAccountSid, findOwnerIdByTwilioToNumber } from "@/lib/twilioRouting";
 import { makeSmsThreadKey, normalizeSmsPeerKey, upsertPortalInboxMessage } from "@/lib/portalInbox";
+import { getAiReceptionistServiceData } from "@/lib/aiReceptionist";
+import { findPortalContactByPhone } from "@/lib/portalContacts";
+import { listContactTagsForContact } from "@/lib/portalContactTags";
 import { prisma } from "@/lib/db";
 import { ensurePortalInboxSchema } from "@/lib/portalInboxSchema";
 import { mirrorUploadToMediaLibrary } from "@/lib/portalMediaUploads";
@@ -10,6 +13,7 @@ import { getOwnerTwilioSmsConfig, sendOwnerTwilioSms } from "@/lib/portalTwilio"
 import { runOwnerAutomationsForInboundSms } from "@/lib/portalAutomationsRunner";
 import { getAppBaseUrl, listPortalAccountRecipientContacts, tryNotifyPortalAccountUsers } from "@/lib/portalNotifications";
 import { queueAiOutboundMessageRepliesForInboundMessage } from "@/lib/portalAiOutboundMessages";
+import { generateText } from "@/lib/ai";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -42,6 +46,38 @@ function twimlEmpty() {
     status: 200,
     headers: { "content-type": "application/xml" },
   });
+}
+
+function xmlEscape(text: string): string {
+  return String(text || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/\"/g, "&quot;")
+    .replace(/'/g, "&apos;");
+}
+
+function twimlMessage(message: string) {
+  const body = String(message || "").trim();
+  if (!body) return twimlEmpty();
+  const xml = `<?xml version="1.0" encoding="UTF-8"?><Response><Message>${xmlEscape(body)}</Message></Response>`;
+  return new NextResponse(xml, { status: 200, headers: { "content-type": "application/xml" } });
+}
+
+function normalizeSmsReply(raw: string): string {
+  const text = String(raw || "").trim();
+  if (!text) return "";
+  const oneLine = text.replace(/\s+/g, " ").trim();
+  if (!oneLine) return "";
+  return oneLine.length > 900 ? `${oneLine.slice(0, 899)}…` : oneLine;
+}
+
+function isOptOutMessage(raw: string): boolean {
+  const s = String(raw || "").trim().toLowerCase();
+  if (!s) return false;
+  if (s === "stop" || s === "unsubscribe" || s === "cancel" || s === "end" || s === "quit") return true;
+  if (s.startsWith("stop ") || s.includes("\nstop") || s.includes("\rstop")) return true;
+  return false;
 }
 
 async function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
@@ -78,7 +114,9 @@ export async function POST(req: Request) {
   const peer = normalizeSmsPeerKey(from);
   if (!peer.peer || !peer.peerKey) return twimlEmpty();
 
-  const { threadKey, peerAddress, peerKey } = makeSmsThreadKey(peer.peer);
+  const peerPhone = peer.peer;
+
+  const { threadKey, peerAddress, peerKey } = makeSmsThreadKey(peerPhone);
 
   // Avoid runtime failures if schema patches haven't been applied yet.
   await ensurePortalInboxSchema();
@@ -96,6 +134,104 @@ export async function POST(req: Request) {
     provider: "TWILIO",
     providerMessageId: messageSid || null,
   });
+
+  // AI Receptionist inbound SMS auto-reply (best-effort).
+  // If we reply here, skip AI Outbound auto-reply queue to avoid double-sending.
+  const tryAiReceptionistReply = async (): Promise<string | null> => {
+    if (isOptOutMessage(body)) return null;
+
+    const data = await getAiReceptionistServiceData(ownerId).catch(() => null);
+    const s = data?.settings as any;
+    if (!s || !s.smsEnabled) return null;
+
+    const includeIds = Array.isArray(s.smsIncludeTagIds) ? (s.smsIncludeTagIds as unknown[]).map((x) => String(x || "").trim()).filter(Boolean) : [];
+    const excludeIds = Array.isArray(s.smsExcludeTagIds) ? (s.smsExcludeTagIds as unknown[]).map((x) => String(x || "").trim()).filter(Boolean) : [];
+
+    try {
+      const contact = await findPortalContactByPhone({ ownerId, phone: peerPhone }).catch(() => null);
+      const tags = contact?.id ? await listContactTagsForContact(ownerId, String(contact.id)) : [];
+      const tagIds = new Set((tags || []).map((t) => String(t.id || "").trim()).filter(Boolean));
+
+      if (excludeIds.length && excludeIds.some((id) => tagIds.has(id))) return null;
+      if (includeIds.length && !includeIds.some((id) => tagIds.has(id))) return null;
+    } catch {
+      // If tag resolution fails and include rules exist, be conservative and do not reply.
+      if (Array.isArray((s as any).smsIncludeTagIds) && (s as any).smsIncludeTagIds.length) return null;
+    }
+
+    let historyText = "";
+    try {
+      const rows = await (prisma as any).portalInboxMessage.findMany({
+        where: { ownerId, threadId },
+        orderBy: { createdAt: "asc" },
+        take: 12,
+        select: { direction: true, bodyText: true },
+      });
+
+      const lines: string[] = [];
+      for (const r of rows || []) {
+        const dir = String(r?.direction || "").toUpperCase() === "OUT" ? "Assistant" : "Customer";
+        const t = String(r?.bodyText || "").trim();
+        if (!t) continue;
+        lines.push(`${dir}: ${t.replace(/\s+/g, " ").slice(0, 400)}`);
+        if (lines.join("\n").length > 3500) break;
+      }
+      historyText = lines.join("\n").trim();
+    } catch {
+      // ignore
+    }
+
+    const businessName = typeof s.businessName === "string" ? s.businessName.trim() : "";
+    const basePrompt = typeof s.systemPrompt === "string" ? s.systemPrompt.trim() : "";
+
+    const system = [
+      basePrompt || "You are a helpful receptionist.",
+      "You are replying via SMS.",
+      "Keep replies concise: 1-3 short sentences, under 320 characters when possible.",
+      "No markdown. No long lists. Ask at most one question.",
+      businessName ? `Business name: ${businessName}` : "",
+    ]
+      .filter(Boolean)
+      .join("\n\n")
+      .slice(0, 6000);
+
+    const user = [
+      historyText ? "Conversation:\n" + historyText : "",
+      `Latest inbound SMS from ${from} to ${to}:`,
+      String(body || "").trim().slice(0, 2000),
+      "\nWrite the SMS reply text only.",
+    ]
+      .filter(Boolean)
+      .join("\n\n");
+
+    const ai = await withTimeout(generateText({ system, user, model: process.env.AI_MODEL ?? "gpt-4o-mini" }), 5500).catch(() => "");
+    const reply = normalizeSmsReply(ai);
+    return reply || null;
+  };
+
+  const receptionistReply = await tryAiReceptionistReply().catch(() => null);
+
+  if (receptionistReply) {
+    try {
+      await upsertPortalInboxMessage({
+        ownerId,
+        channel: "SMS",
+        direction: "OUT",
+        threadKey,
+        peerAddress,
+        peerKey,
+        fromAddress: to,
+        toAddress: from,
+        bodyText: receptionistReply,
+        provider: "AI_RECEPTIONIST",
+        providerMessageId: null,
+      });
+    } catch {
+      // ignore
+    }
+
+    return twimlMessage(receptionistReply);
+  }
 
   // Best-effort: queue AI Outbound message auto-replies (sent by cron).
   // Keep this fast to avoid Twilio webhook timeouts.

@@ -33,6 +33,13 @@ export type AiReceptionistSettings = {
   greeting: string;
   systemPrompt: string;
 
+  // Inbound SMS auto-replies (separate from voice calls).
+  smsEnabled: boolean;
+  // If include list is non-empty, only contacts with ANY included tag will get a reply.
+  smsIncludeTagIds: string[];
+  // If exclude list matches ANY tag, do not reply.
+  smsExcludeTagIds: string[];
+
   // If enabled, the voice agent is allowed to decide to transfer the call to a human.
   // (Requires a forward/transfer phone number and compatible voice-agent tools.)
   aiCanTransferToHuman: boolean;
@@ -106,6 +113,10 @@ export function parseAiReceptionistSettings(
     systemPrompt:
       "You are a helpful receptionist. Answer questions casually and clearly, and keep a friendly tone. If appropriate, capture lead details (name, email, phone) and help book an appointment. Be concise.",
 
+    smsEnabled: false,
+    smsIncludeTagIds: [],
+    smsExcludeTagIds: [],
+
     aiCanTransferToHuman: false,
 
     forwardToPhoneE164: null,
@@ -125,6 +136,26 @@ export function parseAiReceptionistSettings(
   const systemPrompt = typeof rec.systemPrompt === "string" ? rec.systemPrompt.trim().slice(0, MAX_PROMPT_LEN) : base.systemPrompt;
   const aiCanTransferToHuman =
     typeof rec.aiCanTransferToHuman === "boolean" ? rec.aiCanTransferToHuman : base.aiCanTransferToHuman;
+
+  const smsEnabled = typeof (rec as any).smsEnabled === "boolean" ? Boolean((rec as any).smsEnabled) : base.smsEnabled;
+
+  const normalizeTagIds = (value: unknown): string[] => {
+    const raw = Array.isArray(value) ? value : [];
+    const out: string[] = [];
+    const seen = new Set<string>();
+    for (const x of raw) {
+      const id = typeof x === "string" ? x.trim().slice(0, 80) : "";
+      if (!id) continue;
+      if (seen.has(id)) continue;
+      seen.add(id);
+      out.push(id);
+      if (out.length >= 60) break;
+    }
+    return out;
+  };
+
+  const smsIncludeTagIds = normalizeTagIds((rec as any).smsIncludeTagIds);
+  const smsExcludeTagIds = normalizeTagIds((rec as any).smsExcludeTagIds);
 
   let forwardToPhoneE164: string | null = null;
   if (typeof rec.forwardToPhoneE164 === "string" && rec.forwardToPhoneE164.trim()) {
@@ -161,6 +192,10 @@ export function parseAiReceptionistSettings(
     businessName,
     greeting: greeting || base.greeting,
     systemPrompt: systemPrompt || base.systemPrompt,
+
+    smsEnabled,
+    smsIncludeTagIds,
+    smsExcludeTagIds,
     aiCanTransferToHuman,
     forwardToPhoneE164,
     voiceAgentId,

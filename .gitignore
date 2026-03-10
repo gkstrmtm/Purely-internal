@@ -45,7 +45,6 @@
 /chathistory
 
 # additional local chat history file (copilot transcript)
-/User: can you stage commit and push the .md
 
 # local-only Copilot context (do not commit)
 /newchathistory.md
@@ -75,4 +74,6 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
-src/app/api/portal/ai-receptionist/generate-settings/ourchathistory.md
+
+# local chat transcript accidentally created in API folder (do not commit)
+/src/app/api/portal/ai-receptionist/generate-settings/ourchathistory.md
