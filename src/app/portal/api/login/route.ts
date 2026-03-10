@@ -18,6 +18,16 @@ const portalVariantToCookieName: Record<PortalVariant, string> = {
   credit: CREDIT_PORTAL_SESSION_COOKIE_NAME,
 };
 
+function isSecureRequest(req: Request): boolean {
+  const xfProto = req.headers.get("x-forwarded-proto");
+  if (xfProto) return xfProto.split(",")[0].trim().toLowerCase() === "https";
+  try {
+    return new URL(req.url).protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
 export async function POST(req: Request) {
   const variant = (normalizePortalVariant(req.headers.get(PORTAL_VARIANT_HEADER)) || "portal") satisfies PortalVariant;
 
@@ -114,7 +124,7 @@ export async function POST(req: Request) {
     value: token,
     httpOnly: true,
     sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
+    secure: isSecureRequest(req),
     path: "/",
     maxAge: 60 * 60 * 24 * 30,
   });

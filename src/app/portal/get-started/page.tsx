@@ -325,6 +325,7 @@ function PortalGetStartedInner() {
     const res = await fetch("/api/auth/client-signup", {
       method: "POST",
       headers: { "content-type": "application/json" },
+      credentials: "include",
       body: JSON.stringify({
         name,
         email,
@@ -358,32 +359,19 @@ function PortalGetStartedInner() {
       return;
     }
 
-    // Credits-only: skip subscription checkout and immediately activate services.
+    // Credits-only: skip subscription checkout and go straight into onboarding.
+    // Note: the signup route already provisions starter credits for credits billing.
     if (billingPreference === "credits") {
-      const confirmRes = await fetch("/api/portal/billing/onboarding-confirm", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ bypass: true }),
-      });
-      const confirmJson = await confirmRes.json().catch(() => null);
-      if (!confirmRes.ok || !confirmJson?.ok) {
-        setLoading(false);
-        setError(confirmJson?.error || "Unable to activate services");
-        router.push(`${portalBase}/login?from=${encodeURIComponent(`${appBase}/app/onboarding`)}`);
-        return;
-      }
-
-      const bonusCredits = typeof confirmJson?.bonusCredits === "number" ? Math.max(0, Math.trunc(confirmJson.bonusCredits)) : 0;
-      const query = bonusCredits > 0 ? `?creditsAdded=${bonusCredits}` : "";
+      const starterCredits = 50;
       setLoading(false);
-      router.push(`${appBase}/app/onboarding${query}`);
-      router.refresh();
+      window.location.assign(`${appBase}/app/onboarding?creditsAdded=${starterCredits}`);
       return;
     }
 
     const checkoutRes = await fetch("/api/portal/billing/onboarding-checkout", {
       method: "POST",
       headers: { "content-type": "application/json" },
+      credentials: "include",
       body: JSON.stringify({
         planIds: upfrontPaidPlanIds,
         planQuantities: planQuantities,
@@ -398,6 +386,7 @@ function PortalGetStartedInner() {
       const confirmRes = await fetch("/api/portal/billing/onboarding-confirm", {
         method: "POST",
         headers: { "content-type": "application/json" },
+        credentials: "include",
         body: JSON.stringify({ bypass: true }),
       });
       const confirmJson = await confirmRes.json().catch(() => null);
@@ -409,8 +398,7 @@ function PortalGetStartedInner() {
 
       const bonusCredits = typeof confirmJson?.bonusCredits === "number" ? Math.max(0, Math.trunc(confirmJson.bonusCredits)) : 0;
       const query = bonusCredits > 0 ? `?creditsAdded=${bonusCredits}` : "";
-      router.push(`${appBase}/app/onboarding${query}`);
-      router.refresh();
+      window.location.assign(`${appBase}/app/onboarding${query}`);
       return;
     }
 
@@ -419,12 +407,11 @@ function PortalGetStartedInner() {
       toast.error(msg);
       setError(msg);
       if (checkoutRes.status === 401 || checkoutRes.status === 403) {
-        router.push(`${portalBase}/login?from=${encodeURIComponent(`${appBase}/app/onboarding`)}`);
+        window.location.assign(`${portalBase}/login?from=${encodeURIComponent(`${appBase}/app/onboarding`)}`);
         return;
       }
 
-      router.push(`${appBase}/app/billing`);
-      router.refresh();
+      window.location.assign(`${appBase}/app/billing`);
       return;
     }
 
@@ -1080,13 +1067,16 @@ function PortalGetStartedInner() {
 
           <div className="mt-6 text-base text-zinc-600">
             Already have an account?{" "}
-            <button
-              type="button"
+            <a
               className="font-medium text-brand-ink hover:underline"
-              onClick={() => router.push(`${portalBase}/login?from=${encodeURIComponent(`${appBase}/app/onboarding`)}`)}
+              href={`${portalBase}/login?from=${encodeURIComponent(`${appBase}/app/onboarding`)}`}
+              onClick={(e) => {
+                e.preventDefault();
+                window.location.assign(`${portalBase}/login?from=${encodeURIComponent(`${appBase}/app/onboarding`)}`);
+              }}
             >
               Sign in
-            </button>
+            </a>
           </div>
         </div>
       </div>

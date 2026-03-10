@@ -52,6 +52,7 @@ export default function PortalLoginClient() {
     const res = await fetch(`${apiBase}/api/login`, {
       method: "POST",
       headers: { "content-type": "application/json", [PORTAL_VARIANT_HEADER]: portalVariant },
+      credentials: "include",
       body: JSON.stringify({ email, password }),
     });
 
@@ -63,8 +64,8 @@ export default function PortalLoginClient() {
       return;
     }
 
-    router.push(from);
-    router.refresh();
+    // Hard navigation ensures the new session cookie is applied for the next request.
+    window.location.assign(from);
   }
 
   return (

@@ -54,6 +54,16 @@ const bodySchema = z.object({
   couponCode: z.string().trim().max(80).optional(),
 });
 
+function isSecureRequest(req: Request): boolean {
+  const xfProto = req.headers.get("x-forwarded-proto");
+  if (xfProto) return xfProto.split(",")[0].trim().toLowerCase() === "https";
+  try {
+    return new URL(req.url).protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
 function friendlySignupValidationError(issues: z.ZodIssue[]): string {
   for (const issue of issues) {
     const field = Array.isArray(issue.path) && issue.path.length ? String(issue.path[0]) : "";
@@ -461,7 +471,7 @@ export async function POST(req: Request) {
       value: token,
       httpOnly: true,
       sameSite: "lax",
-      secure: process.env.NODE_ENV === "production",
+      secure: isSecureRequest(req),
       path: "/",
       maxAge: 60 * 60 * 24 * 30,
     });

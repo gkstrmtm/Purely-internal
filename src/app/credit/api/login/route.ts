@@ -12,6 +12,16 @@ const bodySchema = z.object({
   password: z.string().min(6),
 });
 
+function isSecureRequest(req: Request): boolean {
+  const xfProto = req.headers.get("x-forwarded-proto");
+  if (xfProto) return xfProto.split(",")[0].trim().toLowerCase() === "https";
+  try {
+    return new URL(req.url).protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
 export async function POST(req: Request) {
   const secret = process.env.NEXTAUTH_SECRET;
   if (!secret) {
@@ -65,7 +75,7 @@ export async function POST(req: Request) {
     value: token,
     httpOnly: true,
     sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
+    secure: isSecureRequest(req),
     path: "/",
     maxAge: 60 * 60 * 24 * 30,
   });

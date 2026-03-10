@@ -8,9 +8,10 @@ export function PortalHeaderCta({ canOpenPortalApp }: { canOpenPortalApp: boolea
 
   if (!canOpenPortalApp) return null;
 
-  const isCredit = typeof pathname === "string" && pathname.startsWith("/credit");
-  const base = isCredit ? "/credit" : "/portal";
-  const inPortalApp = typeof pathname === "string" && pathname.startsWith(`${base}/app`);
+  // The authenticated client portal app lives under /portal/app.
+  // /credit is a branded entrypoint and does not have its own /credit/app.
+  const appHref = "/portal/app";
+  const inPortalApp = typeof pathname === "string" && pathname.startsWith("/portal/app");
 
   if (inPortalApp) {
     return (
@@ -27,7 +28,7 @@ export function PortalHeaderCta({ canOpenPortalApp }: { canOpenPortalApp: boolea
 
   return (
     <Link
-      href={`${base}/app`}
+      href={appHref}
       className="rounded-xl bg-brand-ink px-3 py-2 text-sm font-semibold text-white hover:opacity-95"
     >
       Open portal
