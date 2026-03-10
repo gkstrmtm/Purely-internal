@@ -230,7 +230,7 @@ export async function processDueMonthlyCreditsGifts(opts: {
           const s = parseSchedule(current?.dataJson);
           if (!s?.enabled) return 0;
 
-          let localNow = new Date();
+          const localNow = new Date();
           let localGifts = 0;
           let nextGiftAtIso = s.nextGiftAtIso;
 
