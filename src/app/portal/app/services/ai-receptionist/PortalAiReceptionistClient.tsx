@@ -10,6 +10,10 @@ import { PortalSelectDropdown } from "@/components/PortalSelectDropdown";
 import { ContactTagsEditor, type ContactTag } from "@/components/ContactTagsEditor";
 import { useToast } from "@/components/ToastProvider";
 
+function classNames(...xs: Array<string | false | null | undefined>) {
+  return xs.filter(Boolean).join(" ");
+}
+
 type Settings = {
   version: 1;
   enabled: boolean;
@@ -445,7 +449,26 @@ export function PortalAiReceptionistClient() {
       return null;
     }
 
-    setSettings(data.settings);
+    // Auto-populate business name from Business Profile if not already set
+    let settingsToUse = data.settings;
+    if (!settingsToUse.businessName?.trim()) {
+      try {
+        const profileRes = await fetch("/api/portal/business-profile", { cache: "no-store" }).catch(() => null as any);
+        if (profileRes?.ok) {
+          const profileJson = (await profileRes.json().catch(() => null)) as any;
+          if (profileJson?.ok && profileJson?.profile?.businessName) {
+            settingsToUse = {
+              ...settingsToUse,
+              businessName: String(profileJson.profile.businessName).trim(),
+            };
+          }
+        }
+      } catch {
+        // Ignore errors; just use settings as-is
+      }
+    }
+
+    setSettings(settingsToUse);
     setEvents(Array.isArray(data.events) ? data.events : []);
     setWebhookUrl(data.webhookUrl || "");
     setTwilioConfigured(Boolean(data.twilioConfigured ?? data.twilio?.configured));
@@ -804,6 +827,55 @@ export function PortalAiReceptionistClient() {
       {tab === "settings" ? (
         <div className="mt-4">
           <div className="min-w-0 rounded-3xl border border-zinc-200 bg-white p-6">
+            {settings?.mode === "AI" ? (
+              <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4 sm:col-span-2 mb-6">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+                  <div>
+                    <div className="text-sm font-semibold text-zinc-900">Generate with AI</div>
+                    <div className="mt-0.5 text-xs text-zinc-600">
+                      Automatically uses your Business Profile. Add context below if needed.
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    disabled={saving || !settings || generateBusy}
+                    onClick={() => void generateReceptionistCopy()}
+                    className={classNames(
+                      "inline-flex items-center gap-2 rounded-2xl px-4 py-2 text-xs font-semibold",
+                      saving || !settings || generateBusy
+                        ? "bg-zinc-200 text-zinc-600"
+                        : "bg-linear-to-r from-(--color-brand-blue) via-violet-500 to-(--color-brand-pink) text-white shadow-sm hover:opacity-90",
+                    )}
+                  >
+                    <svg
+                      aria-hidden="true"
+                      viewBox="0 0 24 24"
+                      className="h-4 w-4"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    >
+                      <path d="M12 2l1.5 5.5L19 9l-5.5 1.5L12 16l-1.5-5.5L5 9l5.5-1.5L12 2z" />
+                      <path d="M19 14l.8 2.6L22 17l-2.2.4L19 20l-.8-2.6L16 17l2.2-.4L19 14z" />
+                    </svg>
+                    <span>{generateBusy ? "Generating…" : "Generate"}</span>
+                  </button>
+                </div>
+
+                <div className="mt-3">
+                  <div className="text-xs font-semibold text-zinc-600">Additional context (optional)</div>
+                  <textarea
+                    className="mt-2 min-h-[90px] w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                    value={generateContext}
+                    onChange={(e) => setGenerateContext(e.target.value)}
+                    placeholder="Example: We answer calls for a boutique dental practice. If it's a new patient, ask what they're looking for and offer to book a consultation. Office hours are Mon–Fri 9–5."
+                  />
+                </div>
+              </div>
+            ) : null}
+
             <div className="text-sm font-semibold text-zinc-900">Core</div>
             <div className="mt-2 grid grid-cols-1 gap-4 sm:grid-cols-2">
               <label className="flex items-center justify-between gap-4 rounded-2xl border border-zinc-200 bg-white px-4 py-3 sm:col-span-2">
@@ -872,47 +944,6 @@ export function PortalAiReceptionistClient() {
                 />
                 <div className="mt-2 text-xs text-zinc-600">This guides how your receptionist responds.</div>
               </label>
-
-              {settings?.mode === "AI" ? (
-                <div className="rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm sm:col-span-2">
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div>
-                      <div className="text-sm font-semibold text-zinc-900">Generate with AI</div>
-                      <div className="mt-0.5 text-xs text-zinc-600">
-                        Uses your Business Profile automatically. Add extra context if you want.
-                      </div>
-                    </div>
-                    <div className="flex flex-wrap items-center gap-2">
-                      <button
-                        type="button"
-                        className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-brand-ink hover:bg-zinc-50 disabled:opacity-60"
-                        disabled={saving || !settings || contextBusy || generateBusy}
-                        onClick={() => void getQuickContextFromBusinessProfile()}
-                      >
-                        {contextBusy ? "Loading…" : "Get quick context"}
-                      </button>
-                      <button
-                        type="button"
-                        className="rounded-2xl bg-linear-to-r from-(--color-brand-blue) via-violet-500 to-(--color-brand-pink) px-3 py-2 text-xs font-semibold text-white hover:opacity-95 disabled:opacity-60"
-                        disabled={saving || !settings || generateBusy}
-                        onClick={() => void generateReceptionistCopy()}
-                      >
-                        {generateBusy ? "Generating…" : "Generate"}
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="mt-3">
-                    <div className="text-xs font-semibold text-zinc-600">Quick context (optional)</div>
-                    <textarea
-                      className="mt-2 min-h-[90px] w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                      value={generateContext}
-                      onChange={(e) => setGenerateContext(e.target.value)}
-                      placeholder="Example: We answer calls for a boutique dental practice. If it's a new patient, ask what they're looking for and offer to book a consultation. Office hours are Mon–Fri 9–5."
-                    />
-                  </div>
-                </div>
-              ) : null}
 
               {settings?.mode === "AI" ? (
                 <label className="flex items-start justify-between gap-4 rounded-2xl border border-zinc-200 bg-white px-4 py-3 sm:col-span-2">
