@@ -1,11 +1,13 @@
 "use client";
 
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { PortalSettingsSection } from "@/components/PortalSettingsSection";
 import { PortalListboxDropdown, type PortalListboxOption } from "@/components/PortalListboxDropdown";
 import { useToast } from "@/components/ToastProvider";
+import { PortalBackToOnboardingLink } from "@/components/PortalBackToOnboardingLink";
 
 export type BlogsTab = "posts" | "automation" | "settings";
 type FrequencyUnit = "days" | "weeks" | "months";
@@ -102,6 +104,16 @@ export function PortalBlogsClient({
   onTabChange: (tab: BlogsTab) => void;
 }) {
   const toast = useToast();
+  const searchParams = useSearchParams();
+  const fromOnboarding = (searchParams?.get("from") || "").trim().toLowerCase() === "onboarding";
+
+  function withFromOnboarding(href: string) {
+    if (!fromOnboarding) return href;
+    if (!href) return href;
+    if (href.includes("from=onboarding")) return href;
+    return href.includes("?") ? `${href}&from=onboarding` : `${href}?from=onboarding`;
+  }
+
   const [me, setMe] = useState<Me | null>(null);
   const [site, setSite] = useState<Site | null>(null);
   const [posts, setPosts] = useState<PostRow[]>([]);
@@ -513,6 +525,7 @@ export function PortalBlogsClient({
   if (loading) {
     return (
       <div className="mx-auto w-full max-w-6xl">
+        <PortalBackToOnboardingLink />
         <div className="rounded-3xl border border-zinc-200 bg-white p-6 text-sm text-zinc-600">
           Loading blogs…
         </div>
@@ -523,6 +536,7 @@ export function PortalBlogsClient({
   if (!entitled) {
     return (
       <div className="mx-auto w-full max-w-6xl">
+        <PortalBackToOnboardingLink />
         <div className="rounded-3xl border border-zinc-200 bg-white p-8">
           <div className="text-sm font-semibold text-zinc-900">Automated Blogs</div>
           <div className="mt-2 text-sm text-zinc-600">
@@ -540,13 +554,13 @@ export function PortalBlogsClient({
 
           <div className="mt-6 flex flex-col gap-3 sm:flex-row">
             <Link
-              href="/portal/app/billing?buy=blog&autostart=1"
+              href={withFromOnboarding("/portal/app/billing?buy=blog&autostart=1")}
               className="inline-flex items-center justify-center rounded-2xl bg-[color:var(--color-brand-blue)] px-5 py-3 text-sm font-semibold text-white hover:opacity-95"
             >
               Unlock in Billing
             </Link>
             <Link
-              href="/portal/app/services"
+              href={withFromOnboarding("/portal/app/services")}
               className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-5 py-3 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
             >
               Back to services
@@ -559,6 +573,7 @@ export function PortalBlogsClient({
 
   return (
     <div className="mx-auto w-full max-w-6xl">
+      <PortalBackToOnboardingLink />
       <div className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-end">
         <div>
           <h1 className="text-2xl font-bold text-brand-ink sm:text-3xl">Blogs</h1>

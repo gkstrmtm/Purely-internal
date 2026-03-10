@@ -9,6 +9,7 @@ import { PortalMediaPickerModal, type PortalMediaPickItem } from "@/components/P
 import { ContactTagsEditor, type ContactTag } from "@/components/ContactTagsEditor";
 import { PortalVariablePickerModal } from "@/components/PortalVariablePickerModal";
 import { useToast } from "@/components/ToastProvider";
+import { PortalBackToOnboardingLink } from "@/components/PortalBackToOnboardingLink";
 import { normalizePhoneForStorage } from "@/lib/phone";
 import { PORTAL_MESSAGE_VARIABLES } from "@/lib/portalTemplateVars";
 
@@ -765,6 +766,7 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
 
   return (
     <div className="mx-auto w-full max-w-7xl">
+      <PortalBackToOnboardingLink />
       <PortalVariablePickerModal
         open={variablePickerOpen}
         variables={PORTAL_MESSAGE_VARIABLES}

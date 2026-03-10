@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
-import { useRouter, useSelectedLayoutSegment } from "next/navigation";
+import { useRouter, useSearchParams, useSelectedLayoutSegment } from "next/navigation";
 
 import { PortalBlogsClient, type BlogsTab } from "@/app/portal/app/services/blogs/PortalBlogsClient";
 
@@ -20,6 +20,7 @@ function hrefForTab(tab: BlogsTab) {
 export function PortalBlogsShell() {
   const router = useRouter();
   const seg = useSelectedLayoutSegment();
+  const searchParams = useSearchParams();
 
   const routeTab = useMemo(() => tabFromSegment(seg), [seg]);
 
@@ -28,7 +29,9 @@ export function PortalBlogsShell() {
       routeTab={routeTab}
       onTabChange={(next) => {
         const href = hrefForTab(next);
-        if (href) router.push(href);
+        if (!href) return;
+        const qs = searchParams?.toString() || "";
+        router.push(qs ? `${href}?${qs}` : href);
       }}
     />
   );

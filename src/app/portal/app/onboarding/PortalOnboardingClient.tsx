@@ -184,7 +184,7 @@ export function PortalOnboardingClient() {
       <AppModal
         open={creditsModalOpen}
         title="Starter credits added"
-        description={`We gave you ${creditsAdded} credits to get started.`}
+        description={`We added ${creditsAdded} credits to help you get started — welcome!`}
         onClose={() => {
           setCreditsModalOpen(false);
           router.replace("/portal/app/onboarding");
