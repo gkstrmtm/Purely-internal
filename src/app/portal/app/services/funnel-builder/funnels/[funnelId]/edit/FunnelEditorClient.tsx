@@ -167,6 +167,76 @@ function formatColorWithAlpha(hex: string, alpha: number): string {
   return `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${rounded})`;
 }
 
+function maybeHexFromCssColor(raw: string | undefined | null): string | null {
+  const v = String(raw || "").trim();
+  if (!v) return null;
+
+  const lower = v.toLowerCase();
+  if (
+    lower === "transparent" ||
+    lower === "inherit" ||
+    lower === "initial" ||
+    lower === "unset" ||
+    lower === "currentcolor"
+  ) {
+    return null;
+  }
+
+  if (v.startsWith("#")) {
+    const normalized = normalizeHexInput(v);
+    return isHexColor(normalized) ? normalized : null;
+  }
+
+  if (lower.startsWith("rgb(")) {
+    const rgb = v.match(/^rgb\((\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})\)\s*$/i);
+    if (!rgb) return null;
+    const parsed = parseCssColor(v);
+    return isHexColor(parsed.hex) ? parsed.hex : null;
+  }
+
+  if (lower.startsWith("rgba(")) {
+    const rgba = v.match(
+      /^rgba\((\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(0|0?\.\d+|1|1\.0)\)\s*$/i,
+    );
+    if (!rgba) return null;
+    const parsed = parseCssColor(v);
+    return isHexColor(parsed.hex) ? parsed.hex : null;
+  }
+
+  return null;
+}
+
+function collectHexSwatchesFromUnknown(value: unknown, out: string[], depth = 0) {
+  if (depth > 10) return;
+  if (value == null) return;
+
+  if (typeof value === "string") {
+    const hex = maybeHexFromCssColor(value);
+    if (hex) out.push(hex);
+    return;
+  }
+
+  if (Array.isArray(value)) {
+    for (const item of value) collectHexSwatchesFromUnknown(item, out, depth + 1);
+    return;
+  }
+
+  if (typeof value === "object") {
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+      if (typeof v === "string") {
+        const looksLikeColor =
+          k.toLowerCase().includes("color") || v.trim().startsWith("#") || v.trim().toLowerCase().startsWith("rgb");
+        if (looksLikeColor) {
+          const hex = maybeHexFromCssColor(v);
+          if (hex) out.push(hex);
+          continue;
+        }
+      }
+      collectHexSwatchesFromUnknown(v, out, depth + 1);
+    }
+  }
+}
+
 function ColorPickerField({
   label,
   value,
@@ -1622,23 +1692,6 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
   const [bookingCalendars, setBookingCalendars] = useState<BookingCalendarLite[]>([]);
   const [bookingSiteSlug, setBookingSiteSlug] = useState<string | null>(null);
 
-  const colorSwatches = useMemo(() => {
-    const defaults = [
-      "#ffffff",
-      "#000000",
-      "#0f172a",
-      "#111827",
-      "#1d4ed8",
-      "#2563eb",
-      "#10b981",
-      "#f59e0b",
-      "#ef4444",
-      "#a855f7",
-    ];
-    const all = [...brandSwatches, ...defaults].filter((c) => isHexColor(c));
-    return Array.from(new Set(all));
-  }, [brandSwatches]);
-
   const [mediaPickerOpen, setMediaPickerOpen] = useState(false);
   const [mediaPickerTarget, setMediaPickerTarget] = useState<
     null | { type: "ai" } | { type: "image-block"; blockId: string } | { type: "chatbot-launcher"; blockId: string }
@@ -1989,6 +2042,31 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
   const saveableBlocks = useMemo(() => {
     return pageSettingsBlock ? [pageSettingsBlock, ...editableBlocks] : editableBlocks;
   }, [pageSettingsBlock, editableBlocks]);
+
+  const documentSwatches = useMemo(() => {
+    if (!selectedBlocks.length) return [] as string[];
+    const found: string[] = [];
+    collectHexSwatchesFromUnknown(selectedBlocks, found);
+    const unique = Array.from(new Set(found));
+    return unique.slice(0, 28);
+  }, [selectedBlocks]);
+
+  const colorSwatches = useMemo(() => {
+    const defaults = [
+      "#ffffff",
+      "#000000",
+      "#0f172a",
+      "#111827",
+      "#1d4ed8",
+      "#2563eb",
+      "#10b981",
+      "#f59e0b",
+      "#ef4444",
+      "#a855f7",
+    ];
+    const all = [...documentSwatches, ...brandSwatches, ...defaults].filter((c) => isHexColor(c));
+    return Array.from(new Set(all));
+  }, [brandSwatches, documentSwatches]);
 
   const selectedChat = useMemo(() => {
     if (!selectedPage) return [];
@@ -4643,44 +4721,43 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                               </CollapsibleGroup>
 
                               <CollapsibleGroup title="Style" defaultOpen={false}>
-                                <div className="grid grid-cols-2 gap-2">
-                                  <label className="block">
-                                    <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Text</div>
-                                    <input
-                                      value={(col.style as any)?.textColor || ""}
-                                      onChange={(e) => updateSelectedColumnsColumnStyle(colIdx, { textColor: normalizeHexInput(e.target.value) || undefined })}
-                                      className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                                      placeholder="#0f172a"
-                                    />
-                                  </label>
-                                  <label className="block">
-                                    <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Background</div>
-                                    <input
-                                      value={(col.style as any)?.backgroundColor || ""}
-                                      onChange={(e) => updateSelectedColumnsColumnStyle(colIdx, { backgroundColor: normalizeHexInput(e.target.value) || undefined })}
-                                      className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                                      placeholder="#ffffff"
-                                    />
-                                  </label>
-                                  <label className="block">
-                                    <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Padding</div>
-                                    <input
-                                      type="number"
-                                      value={(col.style as any)?.paddingPx ?? ""}
-                                      onChange={(e) =>
-                                        updateSelectedColumnsColumnStyle(colIdx, {
-                                          paddingPx: e.target.value === "" ? undefined : Number(e.target.value) || 0,
-                                        })
-                                      }
-                                      className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                                    />
-                                  </label>
-                                  <RadiusPicker
-                                    label="Radius"
-                                    value={(col.style as any)?.borderRadiusPx}
-                                    onChange={(v) => updateSelectedColumnsColumnStyle(colIdx, { borderRadiusPx: v })}
-                                    max={64}
+                                <div className="space-y-3">
+                                  <ColorPickerField
+                                    label="Text"
+                                    value={(col.style as any)?.textColor}
+                                    onChange={(v) => updateSelectedColumnsColumnStyle(colIdx, { textColor: v })}
+                                    swatches={colorSwatches}
+                                    allowAlpha
                                   />
+                                  <ColorPickerField
+                                    label="Background"
+                                    value={(col.style as any)?.backgroundColor}
+                                    onChange={(v) => updateSelectedColumnsColumnStyle(colIdx, { backgroundColor: v })}
+                                    swatches={colorSwatches}
+                                    allowAlpha
+                                  />
+
+                                  <div className="grid grid-cols-2 gap-2">
+                                    <label className="block">
+                                      <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Padding</div>
+                                      <input
+                                        type="number"
+                                        value={(col.style as any)?.paddingPx ?? ""}
+                                        onChange={(e) =>
+                                          updateSelectedColumnsColumnStyle(colIdx, {
+                                            paddingPx: e.target.value === "" ? undefined : Number(e.target.value) || 0,
+                                          })
+                                        }
+                                        className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                                      />
+                                    </label>
+                                    <RadiusPicker
+                                      label="Radius"
+                                      value={(col.style as any)?.borderRadiusPx}
+                                      onChange={(v) => updateSelectedColumnsColumnStyle(colIdx, { borderRadiusPx: v })}
+                                      max={64}
+                                    />
+                                  </div>
                                 </div>
                               </CollapsibleGroup>
                             </div>
