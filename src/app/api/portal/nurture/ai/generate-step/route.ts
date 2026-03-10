@@ -5,6 +5,7 @@ import { requireClientSessionForService } from "@/lib/portalAccess";
 import { PORTAL_CREDIT_COSTS } from "@/lib/portalCreditCosts";
 import { consumeCredits } from "@/lib/credits";
 import { generateText } from "@/lib/ai";
+import { getBusinessProfileAiContext } from "@/lib/businessProfileAiContext.server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -66,6 +67,7 @@ export async function POST(req: Request) {
 	const { kind, campaignName, prompt, existingSubject, existingBody } = parsed.data;
 
 	const ownerId = auth.session.user.id;
+	const businessContext = await getBusinessProfileAiContext(ownerId).catch(() => "");
 	const needCredits = PORTAL_CREDIT_COSTS.aiDraftStep;
 	const consumed = await consumeCredits(ownerId, needCredits);
 	if (!consumed.ok) {
@@ -82,6 +84,7 @@ export async function POST(req: Request) {
 
 	const user = [
 		"Draft the copy for a nurture campaign step.",
+		businessContext ? businessContext : "",
 		campaignName ? `Campaign: ${campaignName}` : "",
 		`Channel: ${kind}`,
 		"",

@@ -277,6 +277,9 @@ export function PortalAiReceptionistClient() {
   const [savingEnabled, setSavingEnabled] = useState(false);
   const [callSyncBusy, setCallSyncBusy] = useState(false);
   const autoSyncedCallSidsRef = useRef<Set<string>>(new Set());
+  const [generateContext, setGenerateContext] = useState("");
+  const [generateBusy, setGenerateBusy] = useState(false);
+  const [contextBusy, setContextBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
 
@@ -326,6 +329,72 @@ export function PortalAiReceptionistClient() {
   const [twilioConfigured, setTwilioConfigured] = useState<boolean>(false);
 
   const [selectedCallId, setSelectedCallId] = useState<string | null>(null);
+
+  function formatQuickContext(profile: any): string {
+    const p = profile && typeof profile === "object" && !Array.isArray(profile) ? (profile as Record<string, any>) : null;
+    if (!p) return "";
+
+    const lines = [
+      p.businessName ? `Business name: ${String(p.businessName).trim()}` : "",
+      p.websiteUrl ? `Website: ${String(p.websiteUrl).trim()}` : "",
+      p.industry ? `Industry: ${String(p.industry).trim()}` : "",
+      p.businessModel ? `Business model: ${String(p.businessModel).trim()}` : "",
+      Array.isArray(p.primaryGoals) && p.primaryGoals.length ? `Primary goals: ${p.primaryGoals.map((x: any) => String(x)).join("; ")}` : "",
+      p.targetCustomer ? `Target customer: ${String(p.targetCustomer).trim()}` : "",
+      p.brandVoice ? `Brand voice: ${String(p.brandVoice).trim()}` : "",
+    ].filter(Boolean);
+
+    return lines.join("\n").trim();
+  }
+
+  async function getQuickContextFromBusinessProfile() {
+    if (contextBusy) return;
+    setContextBusy(true);
+    try {
+      const res = await fetch("/api/portal/business-profile", { cache: "no-store" }).catch(() => null as any);
+      if (!res?.ok) throw new Error("Unable to load Business Profile.");
+      const json = (await res.json().catch(() => null)) as any;
+      if (!json?.ok) throw new Error(json?.error || "Unable to load Business Profile.");
+      const ctx = formatQuickContext(json?.profile);
+      if (!ctx) throw new Error("Business Profile is empty. Add details in Business Profile, then try again.");
+      setGenerateContext(ctx);
+      toast.success("Loaded quick context");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Unable to load quick context");
+    } finally {
+      setContextBusy(false);
+    }
+  }
+
+  async function generateReceptionistCopy() {
+    if (!settings) return;
+    if (generateBusy) return;
+    setGenerateBusy(true);
+    try {
+      const res = await fetch("/api/portal/ai-receptionist/generate-settings", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          context: generateContext,
+          mode: settings.mode,
+          aiCanTransferToHuman: settings.aiCanTransferToHuman,
+          forwardToPhoneE164: settings.forwardToPhoneE164,
+        }),
+      }).catch(() => null as any);
+      if (!res?.ok) {
+        const rawError = res ? await readJsonError(res) : null;
+        throw new Error(rawError || "Failed to generate");
+      }
+      const json = (await res.json().catch(() => null)) as any;
+      if (!json?.ok || !json?.settings) throw new Error(json?.error || "Failed to generate");
+      setSettings({ ...settings, ...json.settings });
+      toast.success(json?.warning ? "Generated (fallback)" : "Generated");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to generate");
+    } finally {
+      setGenerateBusy(false);
+    }
+  }
 
   function updateEventTags(eventId: string, next: ContactTag[]) {
     setEvents((prev) => prev.map((e) => (e.id === eventId ? { ...e, contactTags: next } : e)));
@@ -803,6 +872,47 @@ export function PortalAiReceptionistClient() {
                 />
                 <div className="mt-2 text-xs text-zinc-600">This guides how your receptionist responds.</div>
               </label>
+
+              {settings?.mode === "AI" ? (
+                <div className="rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm sm:col-span-2">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <div className="text-sm font-semibold text-zinc-900">Generate with AI</div>
+                      <div className="mt-0.5 text-xs text-zinc-600">
+                        Uses your Business Profile automatically. Add extra context if you want.
+                      </div>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <button
+                        type="button"
+                        className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-brand-ink hover:bg-zinc-50 disabled:opacity-60"
+                        disabled={saving || !settings || contextBusy || generateBusy}
+                        onClick={() => void getQuickContextFromBusinessProfile()}
+                      >
+                        {contextBusy ? "Loading…" : "Get quick context"}
+                      </button>
+                      <button
+                        type="button"
+                        className="rounded-2xl bg-linear-to-r from-(--color-brand-blue) via-violet-500 to-(--color-brand-pink) px-3 py-2 text-xs font-semibold text-white hover:opacity-95 disabled:opacity-60"
+                        disabled={saving || !settings || generateBusy}
+                        onClick={() => void generateReceptionistCopy()}
+                      >
+                        {generateBusy ? "Generating…" : "Generate"}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="mt-3">
+                    <div className="text-xs font-semibold text-zinc-600">Quick context (optional)</div>
+                    <textarea
+                      className="mt-2 min-h-[90px] w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                      value={generateContext}
+                      onChange={(e) => setGenerateContext(e.target.value)}
+                      placeholder="Example: We answer calls for a boutique dental practice. If it's a new patient, ask what they're looking for and offer to book a consultation. Office hours are Mon–Fri 9–5."
+                    />
+                  </div>
+                </div>
+              ) : null}
 
               {settings?.mode === "AI" ? (
                 <label className="flex items-start justify-between gap-4 rounded-2xl border border-zinc-200 bg-white px-4 py-3 sm:col-span-2">

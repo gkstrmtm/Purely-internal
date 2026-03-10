@@ -12,6 +12,7 @@ import { sendOwnerTwilioSms } from "@/lib/portalTwilio";
 import { createPortalLeadCompat } from "@/lib/portalLeadCompat";
 import { isB2cLeadPullUnlocked } from "@/lib/leadScrapingAccess";
 import { draftLeadOutboundEmail, draftLeadOutboundSms } from "@/lib/leadOutboundAi";
+import { getBusinessProfileAiContext } from "@/lib/businessProfileAiContext.server";
 import { runOwnerAutomationsForEvent } from "@/lib/portalAutomationsRunner";
 import { enqueueOutboundCallForContact } from "@/lib/portalAiOutboundCalls";
 import { enqueueOutboundMessageForContact } from "@/lib/portalAiOutboundMessages";
@@ -653,6 +654,7 @@ export async function POST(req: Request) {
     select: { businessName: true },
   });
   const fromName = profile?.businessName?.trim() || "Purely Automation";
+  const senderBusinessContext = await getBusinessProfileAiContext(ownerId).catch(() => "");
 
   const body = (await req.json().catch(() => null)) as unknown;
   const parsed = runSchema.safeParse(body);
@@ -1223,7 +1225,13 @@ export async function POST(req: Request) {
 
           if (updatedSettings.outbound.aiDraftAndSend && updatedSettings.outbound.aiPrompt?.trim()) {
             try {
-              const draft = await draftLeadOutboundEmail({ lead, resources, fromName, prompt: updatedSettings.outbound.aiPrompt });
+              const draft = await draftLeadOutboundEmail({
+                lead,
+                resources,
+                fromName,
+                prompt: updatedSettings.outbound.aiPrompt,
+                senderBusinessContext,
+              });
               if (draft?.subject) subject = draft.subject.slice(0, 120);
               if (draft?.text) textBase = draft.text;
             } catch {
@@ -1251,7 +1259,13 @@ export async function POST(req: Request) {
 
           if (updatedSettings.outbound.aiDraftAndSend && updatedSettings.outbound.aiPrompt?.trim()) {
             try {
-              const draft = await draftLeadOutboundSms({ lead, resources, fromName, prompt: updatedSettings.outbound.aiPrompt });
+              const draft = await draftLeadOutboundSms({
+                lead,
+                resources,
+                fromName,
+                prompt: updatedSettings.outbound.aiPrompt,
+                senderBusinessContext,
+              });
               if (draft) smsBodyBase = draft.slice(0, 900);
             } catch {
               // ignore and fall back to templates

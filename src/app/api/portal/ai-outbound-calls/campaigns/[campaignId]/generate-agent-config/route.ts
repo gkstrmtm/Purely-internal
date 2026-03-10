@@ -5,6 +5,7 @@ import { prisma } from "@/lib/db";
 import { generateText } from "@/lib/ai";
 import { ensurePortalAiOutboundCallsSchema } from "@/lib/portalAiOutboundCallsSchema";
 import { requireClientSessionForService } from "@/lib/portalAccess";
+import { getBusinessProfileAiContext } from "@/lib/businessProfileAiContext.server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -70,6 +71,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ campaignId: st
 
   const kind = parsed.data.kind;
   const context = parsed.data.context;
+  const businessContext = await getBusinessProfileAiContext(ownerId).catch(() => "");
 
   const system = [
     "You generate compact agent configuration JSON for an outbound automation product.",
@@ -81,6 +83,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ campaignId: st
 
   const user = [
     `Campaign: ${campaign.name}`,
+    businessContext ? businessContext : "",
     `Agent kind: ${kind === "calls" ? "phone calls" : "SMS/email messaging"}`,
     "Context:",
     context,

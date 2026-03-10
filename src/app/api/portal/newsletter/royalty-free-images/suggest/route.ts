@@ -3,6 +3,7 @@ import { z } from "zod";
 
 import { requireClientSessionForService } from "@/lib/portalAccess";
 import { generateText } from "@/lib/ai";
+import { getBusinessProfileAiContext } from "@/lib/businessProfileAiContext.server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -84,6 +85,8 @@ export async function POST(req: Request) {
 
   const prompt = parsed.data.prompt;
   const take = parsed.data.take;
+  const ownerId = auth.session.user.id;
+  const businessContext = await getBusinessProfileAiContext(ownerId).catch(() => "");
 
   const canUseAi = Boolean(process.env.AI_BASE_URL && process.env.AI_API_KEY);
 
@@ -96,7 +99,9 @@ export async function POST(req: Request) {
         "No punctuation, no quotes, no extra words.",
         "Prefer 3 to 8 words.",
       ].join("\n");
-      const user = `Prompt: ${prompt}\n\nSearch query:`;
+      const user = [businessContext, `Prompt: ${prompt}`, "", "Search query:"]
+        .filter(Boolean)
+        .join("\n\n");
       const raw = await generateText({ system, user });
       const normalized = normalizeQuery(raw);
       if (normalized.length >= 2) query = normalized;

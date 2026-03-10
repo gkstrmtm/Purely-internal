@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { requireFunnelBuilderSession } from "@/lib/funnelBuilderAccess";
 import { generateText, generateTextWithImages } from "@/lib/ai";
+import { getBusinessProfileAiContext } from "@/lib/businessProfileAiContext.server";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -94,6 +95,9 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
   });
   if (!page) return NextResponse.json({ ok: false, error: "Not found" }, { status: 404 });
 
+  const ownerId = auth.session.user.id;
+  const businessContext = await getBusinessProfileAiContext(ownerId).catch(() => "");
+
   const forms = await prisma.creditForm.findMany({
     where: { ownerId: auth.session.user.id },
     orderBy: [{ updatedAt: "desc" }],
@@ -166,6 +170,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
       .slice(0, 6);
 
     const userText = [
+      businessContext ? businessContext : "",
       `Funnel: ${page.funnel.name} (slug: ${page.funnel.slug})`,
       `Page: ${page.title} (slug: ${page.slug})`,
       "",

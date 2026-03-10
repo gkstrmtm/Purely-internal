@@ -36,6 +36,7 @@ export async function draftLeadOutboundEmail(opts: {
   resources?: Array<{ label: string; url: string }>;
   fromName?: string;
   prompt?: string;
+  senderBusinessContext?: string;
 }): Promise<{ subject: string; text: string } | null> {
   if (!isAiConfigured()) return null;
 
@@ -49,6 +50,7 @@ export async function draftLeadOutboundEmail(opts: {
 
   const user =
     "Draft a cold outreach email.\n\n" +
+    (opts.senderBusinessContext ? `Sender context:\n${safeMultiline(opts.senderBusinessContext, 2000)}\n\n` : "") +
     (opts.prompt ? `Goals: ${safeMultiline(opts.prompt, 4000)}\n\n` : "") +
     `From name: ${safeOneLine(opts.fromName || "", 80)}\n` +
     `Business name: ${safeOneLine(opts.lead.businessName, 200)}\n` +
@@ -80,6 +82,7 @@ export async function draftLeadOutboundSms(opts: {
   resources?: Array<{ label: string; url: string }>;
   fromName?: string;
   prompt?: string;
+  senderBusinessContext?: string;
 }): Promise<string | null> {
   if (!isAiConfigured()) return null;
 
@@ -93,6 +96,7 @@ export async function draftLeadOutboundSms(opts: {
 
   const user =
     "Draft a short cold outreach SMS.\n\n" +
+    (opts.senderBusinessContext ? `Sender context:\n${safeMultiline(opts.senderBusinessContext, 2000)}\n\n` : "") +
     (opts.prompt ? `Goals: ${safeMultiline(opts.prompt, 4000)}\n\n` : "") +
     `From name: ${safeOneLine(opts.fromName || "", 80)}\n` +
     `Business name: ${safeOneLine(opts.lead.businessName, 200)}\n` +

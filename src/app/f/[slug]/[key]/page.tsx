@@ -5,6 +5,8 @@ import { prisma } from "@/lib/db";
 import { inlineMarkdownToHtmlSafe, parseBlogContent } from "@/lib/blog";
 import { coerceBlocksJson, renderCreditFunnelBlocks } from "@/lib/creditFunnelBlocks";
 import { publicKeyFromId } from "@/lib/publicHostedKeys";
+import { renderTextTemplate } from "@/lib/textTemplate";
+import { getBusinessProfileTemplateVars } from "@/lib/businessProfileAiContext.server";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -116,10 +118,16 @@ async function fetchFunnel(slug: string, key: string) {
 
   const seoSettings = readFunnelSeo(settings?.dataJson ?? null, funnel.id);
   const page = funnel.pages[0] || null;
-  const seoFromCustomHtml = page?.editorMode === "CUSTOM_HTML" ? extractSeoFromCustomHtml(page.customHtml || "") : null;
+  const templateVars = funnel.ownerId ? await getBusinessProfileTemplateVars(funnel.ownerId).catch(() => ({})) : {};
+  const renderedCustomHtml =
+    page?.editorMode === "CUSTOM_HTML" && page.customHtml
+      ? renderTextTemplate(page.customHtml, templateVars)
+      : (page?.customHtml ?? "");
+
+  const seoFromCustomHtml = page?.editorMode === "CUSTOM_HTML" ? extractSeoFromCustomHtml(renderedCustomHtml || "") : null;
   const seo = mergeSeo(seoSettings, seoFromCustomHtml);
 
-  return { funnel, page, seo };
+  return { funnel, page, seo, renderedCustomHtml };
 }
 
 export async function generateMetadata({
@@ -161,7 +169,7 @@ export default async function HostedFunnelWithKeyPage({
 
   const loaded = await fetchFunnel(s, k);
   if (!loaded) notFound();
-  const { funnel, page } = loaded;
+  const { funnel, page, renderedCustomHtml } = loaded;
   const markdownBlocks = page ? parseBlogContent(page.contentMarkdown) : [];
   const blockBlocks = page ? coerceBlocksJson(page.blocksJson) : [];
 
@@ -173,7 +181,7 @@ export default async function HostedFunnelWithKeyPage({
             <iframe
               title={page.title}
               sandbox="allow-forms allow-popups allow-scripts"
-              srcDoc={page.customHtml || ""}
+              srcDoc={renderedCustomHtml || ""}
               className="h-[100vh] w-full bg-white"
             />
           ) : page.editorMode === "BLOCKS" ? (

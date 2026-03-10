@@ -8,6 +8,7 @@ import { consumeCredits } from "@/lib/credits";
 import { resolveEntitlementsForOwnerId } from "@/lib/entitlements";
 import { baseUrlFromRequest, renderTemplate, sendEmail, sendSms } from "@/lib/leadOutbound";
 import { draftLeadOutboundEmail, draftLeadOutboundSms } from "@/lib/leadOutboundAi";
+import { getBusinessProfileAiContext } from "@/lib/businessProfileAiContext.server";
 import { runOwnerAutomationsForEvent } from "@/lib/portalAutomationsRunner";
 import { enqueueOutboundCallForContact } from "@/lib/portalAiOutboundCalls";
 import { enqueueOutboundMessageForContact } from "@/lib/portalAiOutboundMessages";
@@ -304,6 +305,7 @@ export async function POST(req: Request) {
     select: { businessName: true },
   });
   const fromName = profile?.businessName?.trim() || "Purely Automation";
+  const senderBusinessContext = await getBusinessProfileAiContext(ownerId).catch(() => "");
 
   const setup = await prisma.portalServiceSetup.findUnique({
     where: { ownerId_serviceSlug: { ownerId, serviceSlug: SERVICE_SLUG } },
@@ -345,7 +347,13 @@ export async function POST(req: Request) {
 
     if (!useAiCampaign && settings.outbound.aiDraftAndSend && settings.outbound.aiPrompt?.trim()) {
       try {
-        const draft = await draftLeadOutboundEmail({ lead, resources, fromName, prompt: settings.outbound.aiPrompt });
+        const draft = await draftLeadOutboundEmail({
+          lead,
+          resources,
+          fromName,
+          prompt: settings.outbound.aiPrompt,
+          senderBusinessContext,
+        });
         if (draft?.subject) subject = draft.subject.slice(0, 120);
         if (draft?.text) textBase = draft.text;
       } catch {
@@ -461,7 +469,13 @@ export async function POST(req: Request) {
 
             if (settings.outbound.aiDraftAndSend && settings.outbound.aiPrompt?.trim()) {
             try {
-              const draft = await draftLeadOutboundSms({ lead, resources, fromName, prompt: settings.outbound.aiPrompt });
+              const draft = await draftLeadOutboundSms({
+                lead,
+                resources,
+                fromName,
+                prompt: settings.outbound.aiPrompt,
+                senderBusinessContext,
+              });
               if (draft) smsBodyBase = draft.slice(0, 900);
             } catch {
               // ignore and fall back to templates

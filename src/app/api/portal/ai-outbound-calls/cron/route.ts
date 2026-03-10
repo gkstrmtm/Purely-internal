@@ -6,6 +6,7 @@ import { PORTAL_CREDIT_COSTS } from "@/lib/portalCreditCosts";
 import { consumeCredits } from "@/lib/credits";
 import { getAiReceptionistServiceData } from "@/lib/aiReceptionist";
 import { generateText } from "@/lib/ai";
+import { getBusinessProfileAiContext } from "@/lib/businessProfileAiContext.server";
 import { normalizePhoneStrict } from "@/lib/phone";
 import { ensurePortalAiOutboundCallsSchema } from "@/lib/portalAiOutboundCallsSchema";
 import { placeElevenLabsTwilioOutboundCall, resolveElevenLabsAgentPhoneNumberId } from "@/lib/elevenLabsConvai";
@@ -661,6 +662,7 @@ export async function GET(req: Request) {
 
   const ownerContextCache = new Map<string, Awaited<ReturnType<typeof getOwnerContext>>>();
   const ownerTwilioCache = new Map<string, Awaited<ReturnType<typeof getOwnerTwilioSmsConfig>> | null>();
+  const ownerBusinessContextCache = new Map<string, string>();
 
   function normalizeMessageChannelPolicy(raw: unknown): "SMS" | "EMAIL" | "BOTH" {
     const v = typeof raw === "string" ? raw.trim().toUpperCase() : "";
@@ -1016,7 +1018,12 @@ export async function GET(req: Request) {
         .join("\n");
 
       const cfg = parseAgentConfig(e.campaign.chatAgentConfigJson);
-      const system = systemFromAgentConfig(cfg, threadChannel);
+      const businessContext = ownerBusinessContextCache.has(e.ownerId)
+        ? ownerBusinessContextCache.get(e.ownerId)!
+        : await getBusinessProfileAiContext(e.ownerId).catch(() => "");
+      if (!ownerBusinessContextCache.has(e.ownerId)) ownerBusinessContextCache.set(e.ownerId, businessContext);
+
+      const system = [systemFromAgentConfig(cfg, threadChannel), businessContext].filter(Boolean).join("\n\n");
 
       const userPrompt = [
         "Continue this conversation by replying to the most recent Customer message.",

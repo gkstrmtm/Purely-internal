@@ -5,6 +5,7 @@ import { prisma } from "@/lib/db";
 import { generateText } from "@/lib/ai";
 import { ensurePortalAiOutboundCallsSchema } from "@/lib/portalAiOutboundCallsSchema";
 import { requireClientSessionForService } from "@/lib/portalAccess";
+import { getBusinessProfileAiContext } from "@/lib/businessProfileAiContext.server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -81,7 +82,8 @@ export async function POST(req: Request, ctx: { params: Promise<{ campaignId: st
   if (!campaign) return NextResponse.json({ ok: false, error: "Not found" }, { status: 404 });
 
   const cfg = parseAgentConfig(campaign.chatAgentConfigJson);
-  const system = systemFromAgentConfig(cfg, parsed.data.channel);
+  const businessContext = await getBusinessProfileAiContext(ownerId).catch(() => "");
+  const system = [systemFromAgentConfig(cfg, parsed.data.channel), businessContext].filter(Boolean).join("\n\n");
 
   const history = Array.isArray((parsed.data as any).history) ? ((parsed.data as any).history as any[]) : [];
   const transcript = history
