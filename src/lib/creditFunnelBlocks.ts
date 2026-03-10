@@ -745,10 +745,19 @@ export function renderCreditFunnelBlocks({
 
   const wrapProps = (id: string): Record<string, any> => {
     if (!isEditor) return {};
+    const isInteractiveTarget = (evtTarget: any): boolean => {
+      try {
+        const el: any = evtTarget && evtTarget.nodeType === 1 ? evtTarget : evtTarget?.parentElement;
+        return Boolean(el?.closest?.('[data-funnel-editor-interactive="true"]'));
+      } catch {
+        return false;
+      }
+    };
     return {
       "data-block-id": id,
       className: "relative",
       onClick: (e: any) => {
+        if (isInteractiveTarget(e?.target)) return;
         e.preventDefault?.();
         e.stopPropagation?.();
         editor?.onSelectBlockId?.(id);
@@ -758,6 +767,10 @@ export function renderCreditFunnelBlocks({
       draggable: Boolean(editor?.onReorder),
       onDragStart: (e: any) => {
         if (!editor?.onReorder) return;
+        if (isInteractiveTarget(e?.target)) {
+          e.preventDefault?.();
+          return;
+        }
         e.dataTransfer.setData("text/x-block-id", id);
         e.dataTransfer.effectAllowed = "move";
       },
@@ -889,24 +902,51 @@ export function renderCreditFunnelBlocks({
         if (!agentId && !isEditor) return null;
 
         if (isEditor) {
+          const previewSrcDoc = agentId
+            ? `<!doctype html><html><head><meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" /></head><body style="margin:0;padding:0;min-height:100vh;">
+<script async src="https://unpkg.com/@elevenlabs/convai-widget-embed"></script>
+<elevenlabs-convai agent-id="${escapeHtmlAttr(agentId)}" variant="full" placement="bottom-right" always-expanded default-expanded></elevenlabs-convai>
+</body></html>`
+            : "";
+
           return React.createElement(
             "div",
             {
               key: b.id,
-              style: { ...wrapperStyle(b.props.style), ...(blockWrapStyle(b.id) || {}) },
+              style: { ...wrapperStyle(b.props.style), ...(blockWrapStyle(b.id) || {}), position: "relative" },
               ...wrapProps(b.id),
             },
             renderMoveControls(b.id),
             React.createElement(
               "div",
-              { className: "rounded-2xl border border-zinc-200 bg-white p-4" },
-              React.createElement("div", { className: "text-sm font-semibold text-zinc-900" }, "Chatbot"),
+              { className: "overflow-hidden rounded-2xl border border-zinc-200 bg-white" },
               React.createElement(
                 "div",
-                { className: "mt-1 text-sm text-zinc-600" },
-                agentId
-                  ? "This block enables a chat widget on your funnel. Switch to Preview to test it."
-                  : "Select this block to configure your chat widget.",
+                { className: "flex items-center justify-between border-b border-zinc-200 bg-zinc-50 px-4 py-2" },
+                React.createElement("div", { className: "text-sm font-semibold text-zinc-900" }, "Chatbot"),
+                React.createElement(
+                  "div",
+                  { className: "text-xs text-zinc-500" },
+                  agentId ? "Interact below" : "Select to configure",
+                ),
+              ),
+              React.createElement(
+                "div",
+                { "data-funnel-editor-interactive": "true", className: "p-0" },
+                !agentId
+                  ? React.createElement(
+                      "div",
+                      { className: "px-4 py-8 text-sm text-zinc-600" },
+                      "Set an Agent ID in the sidebar to preview and test your chat widget here.",
+                    )
+                  : React.createElement("iframe", {
+                      title: "Chatbot preview",
+                      srcDoc: previewSrcDoc,
+                      className: "w-full bg-white",
+                      style: { height: 520 },
+                      sandbox: "allow-scripts allow-forms allow-popups",
+                      allow: "microphone; autoplay",
+                    }),
               ),
             ),
           );

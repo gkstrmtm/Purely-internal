@@ -1650,6 +1650,124 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
     [pages, selectedPageId],
   );
 
+  type PageHistorySnapshot = Pick<Page, "editorMode" | "blocksJson" | "customHtml" | "customChatJson"> & {
+    selectedBlockId: string | null;
+  };
+
+  type PageHistoryState = {
+    undo: PageHistorySnapshot[];
+    redo: PageHistorySnapshot[];
+    last?: { actionKey: string; at: number };
+  };
+
+  const historyRef = useRef<Map<string, PageHistoryState>>(new Map());
+  const restoringHistoryRef = useRef(false);
+  const [historyTick, setHistoryTick] = useState(0);
+
+  const getPageHistory = useCallback((pageId: string): PageHistoryState => {
+    const existing = historyRef.current.get(pageId);
+    if (existing) return existing;
+    const fresh: PageHistoryState = { undo: [], redo: [] };
+    historyRef.current.set(pageId, fresh);
+    return fresh;
+  }, []);
+
+  const captureSnapshot = useCallback(
+    (p: Page): PageHistorySnapshot => ({
+      editorMode: p.editorMode,
+      blocksJson: p.blocksJson,
+      customHtml: p.customHtml,
+      customChatJson: p.customChatJson,
+      selectedBlockId,
+    }),
+    [selectedBlockId],
+  );
+
+  const pushUndoSnapshot = useCallback(
+    (actionKey: string, coalesceWindowMs: number) => {
+      if (!selectedPage) return;
+      if (restoringHistoryRef.current) return;
+      const hist = getPageHistory(selectedPage.id);
+      const now = Date.now();
+
+      if (hist.last && hist.last.actionKey === actionKey && now - hist.last.at < coalesceWindowMs) {
+        hist.last.at = now;
+        return;
+      }
+
+      hist.undo.push(captureSnapshot(selectedPage));
+      if (hist.undo.length > 100) hist.undo.splice(0, hist.undo.length - 100);
+      hist.redo = [];
+      hist.last = { actionKey, at: now };
+      setHistoryTick((t) => t + 1);
+    },
+    [captureSnapshot, getPageHistory, selectedPage],
+  );
+
+  const canUndo = useMemo(() => {
+    const id = selectedPage?.id;
+    if (!id) return false;
+    return getPageHistory(id).undo.length > 0;
+  }, [getPageHistory, historyTick, selectedPage?.id]);
+
+  const canRedo = useMemo(() => {
+    const id = selectedPage?.id;
+    if (!id) return false;
+    return getPageHistory(id).redo.length > 0;
+  }, [getPageHistory, historyTick, selectedPage?.id]);
+
+  const applySnapshot = useCallback(
+    (pageId: string, snap: PageHistorySnapshot) => {
+      restoringHistoryRef.current = true;
+      setDirtyPageIds((prev) => ({ ...prev, [pageId]: true }));
+      setPages((prev) =>
+        (prev || []).map((p) =>
+          p.id === pageId
+            ? ({
+                ...p,
+                editorMode: snap.editorMode,
+                blocksJson: snap.blocksJson,
+                customHtml: snap.customHtml,
+                customChatJson: snap.customChatJson,
+              } as Page)
+            : p,
+        ),
+      );
+      setSelectedBlockId(snap.selectedBlockId);
+      queueMicrotask(() => {
+        restoringHistoryRef.current = false;
+      });
+    },
+    [],
+  );
+
+  const undo = useCallback(() => {
+    if (!selectedPage) return;
+    const hist = getPageHistory(selectedPage.id);
+    const prev = hist.undo.pop();
+    if (!prev) return;
+    hist.redo.push(captureSnapshot(selectedPage));
+    hist.last = undefined;
+    setHistoryTick((t) => t + 1);
+    applySnapshot(selectedPage.id, prev);
+  }, [applySnapshot, captureSnapshot, getPageHistory, selectedPage]);
+
+  const redo = useCallback(() => {
+    if (!selectedPage) return;
+    const hist = getPageHistory(selectedPage.id);
+    const next = hist.redo.pop();
+    if (!next) return;
+    hist.undo.push(captureSnapshot(selectedPage));
+    hist.last = undefined;
+    setHistoryTick((t) => t + 1);
+    applySnapshot(selectedPage.id, next);
+  }, [applySnapshot, captureSnapshot, getPageHistory, selectedPage]);
+
+  useEffect(() => {
+    historyRef.current.clear();
+    setHistoryTick((t) => t + 1);
+  }, [funnelId]);
+
   useEffect(() => {
     setCustomCodeBlockPrompt("");
   }, [selectedBlockId]);
@@ -1678,6 +1796,39 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [selectedPage, selectedBlockId, busy, dialog, mediaPickerOpen]);
+
+  useEffect(() => {
+    const isTextInputLike = (el: Element | null) => {
+      if (!el) return false;
+      const tag = (el as any).tagName ? String((el as any).tagName).toLowerCase() : "";
+      if (tag === "input" || tag === "textarea" || tag === "select") return true;
+      return Boolean((el as any).isContentEditable);
+    };
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (!selectedPage) return;
+      if (busy) return;
+      if (dialog) return;
+      if (mediaPickerOpen) return;
+      if (!(e.metaKey || e.ctrlKey)) return;
+      if (isTextInputLike(document.activeElement)) return;
+
+      const key = (e.key || "").toLowerCase();
+      if (key === "z") {
+        e.preventDefault();
+        if (e.shiftKey) redo();
+        else undo();
+        return;
+      }
+      if (key === "y") {
+        e.preventDefault();
+        redo();
+      }
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [busy, dialog, mediaPickerOpen, redo, selectedPage, undo]);
 
   useEffect(() => {
     let cancelled = false;
@@ -2010,6 +2161,20 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
 
   const setSelectedPageLocal = (patch: Partial<Page>) => {
     if (!selectedPage) return;
+
+    const actionKey =
+      patch.blocksJson !== undefined
+        ? "blocks"
+        : patch.customHtml !== undefined
+          ? "customHtml"
+          : patch.customChatJson !== undefined
+            ? "customChatJson"
+            : patch.editorMode !== undefined
+              ? "editorMode"
+              : "meta";
+    const coalesceWindowMs = actionKey === "customHtml" ? 1200 : 250;
+    pushUndoSnapshot(actionKey, coalesceWindowMs);
+
     setDirtyPageIds((prev) => ({ ...prev, [selectedPage.id]: true }));
     setPages((prev) =>
       (prev || []).map((p) => (p.id === selectedPage.id ? ({ ...p, ...patch } as Page) : p)),
@@ -3006,6 +3171,34 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
               )}
             >
               + Page
+            </button>
+
+            <button
+              type="button"
+              disabled={busy || !selectedPage || !canUndo}
+              onClick={() => undo()}
+              className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-900 hover:bg-zinc-50 disabled:opacity-60"
+              title={
+                typeof navigator !== "undefined" && /mac/i.test(navigator.platform)
+                  ? "Undo (⌘Z)"
+                  : "Undo (Ctrl+Z)"
+              }
+            >
+              Undo
+            </button>
+
+            <button
+              type="button"
+              disabled={busy || !selectedPage || !canRedo}
+              onClick={() => redo()}
+              className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-900 hover:bg-zinc-50 disabled:opacity-60"
+              title={
+                typeof navigator !== "undefined" && /mac/i.test(navigator.platform)
+                  ? "Redo (⇧⌘Z)"
+                  : "Redo (Ctrl+Shift+Z)"
+              }
+            >
+              Redo
             </button>
 
             <button
