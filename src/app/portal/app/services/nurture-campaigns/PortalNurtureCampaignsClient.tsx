@@ -6,6 +6,7 @@ import { useToast } from "@/components/ToastProvider";
 import { PortalListboxDropdown } from "@/components/PortalListboxDropdown";
 import { PortalVariablePickerModal } from "@/components/PortalVariablePickerModal";
 import { PortalMediaPickerModal, type PortalMediaPickItem } from "@/components/PortalMediaPickerModal";
+import { PortalBackToOnboardingLink } from "@/components/PortalBackToOnboardingLink";
 import { DEFAULT_TAG_COLORS } from "@/lib/tagColors.shared";
 import { PORTAL_LINK_VARIABLES, PORTAL_MESSAGE_VARIABLES } from "@/lib/portalTemplateVars";
 import { NURTURE_TEMPLATES, type NurtureTemplate, type StepKind } from "@/lib/portalNurtureTemplates";
@@ -485,6 +486,7 @@ export function PortalNurtureCampaignsClient() {
 
   return (
     <div className="mx-auto w-full max-w-6xl">
+      <PortalBackToOnboardingLink />
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold text-brand-ink sm:text-3xl">Nurture Campaigns</h1>

@@ -6,6 +6,7 @@ import { PortalMediaPickerModal } from "@/components/PortalMediaPickerModal";
 import { Lightbox, type LightboxImage } from "@/components/Lightbox";
 import { PortalSettingsSection } from "@/components/PortalSettingsSection";
 import { PortalVariablePickerModal } from "@/components/PortalVariablePickerModal";
+import { PortalBackToOnboardingLink } from "@/components/PortalBackToOnboardingLink";
 import { useToast } from "@/components/ToastProvider";
 import { DEFAULT_TAG_COLORS } from "@/lib/tagColors.shared";
 import type { TemplateVariable } from "@/lib/portalTemplateVars";
@@ -894,6 +895,7 @@ export default function PortalReviewsClient() {
   if (loading) {
     return (
       <div className="mx-auto w-full max-w-5xl px-6 py-8">
+        <PortalBackToOnboardingLink />
         <div className="text-sm text-neutral-500">Loading…</div>
       </div>
     );
@@ -901,6 +903,7 @@ export default function PortalReviewsClient() {
 
   return (
     <div className="mx-auto w-full max-w-5xl px-6 py-8">
+      <PortalBackToOnboardingLink />
       <Lightbox
         open={lightboxOpen}
         images={lightboxImages}

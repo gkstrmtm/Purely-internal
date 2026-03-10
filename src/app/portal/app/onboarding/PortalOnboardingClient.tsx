@@ -67,7 +67,7 @@ export function PortalOnboardingClient() {
 
   const stepRow = (opts: {
     label: string;
-    status: "Done" | "Next" | "Optional";
+    status: "Done" | "Next";
     href: string;
     detail?: string;
   }) => (
@@ -78,9 +78,7 @@ export function PortalOnboardingClient() {
           className={
             opts.status === "Done"
               ? "text-xs font-semibold text-emerald-700"
-              : opts.status === "Next"
-                ? "text-xs font-semibold text-brand-ink"
-                : "text-xs font-semibold text-zinc-500"
+              : "text-xs font-semibold text-brand-ink"
           }
         >
           {opts.status}
@@ -116,7 +114,7 @@ export function PortalOnboardingClient() {
 
           {stepRow({
             label: "2) Add credits",
-            status: "Optional",
+            status: "Next",
             href: withFromOnboarding("/portal/app/billing"),
             detail: "Credits power usage-based actions like AI calls, scrapes, and automations. You can top up anytime.",
           })}
@@ -130,35 +128,35 @@ export function PortalOnboardingClient() {
 
           {stepRow({
             label: "4) Connect your Inbox (SMS/Email)",
-            status: "Optional",
+            status: "Next",
             href: withFromOnboarding("/portal/app/services/inbox"),
             detail: "Connect Twilio and start sending/receiving messages from one place.",
           })}
 
           {stepRow({
             label: "5) Turn on Reviews",
-            status: "Optional",
+            status: "Next",
             href: withFromOnboarding("/portal/app/services/reviews"),
             detail: "Send review requests automatically after bookings or manually from contacts.",
           })}
 
           {stepRow({
             label: "6) Build automations",
-            status: "Optional",
+            status: "Next",
             href: withFromOnboarding("/portal/app/services/automations"),
             detail: "Trigger messages, tasks, tags, and follow-ups based on real events.",
           })}
 
           {stepRow({
             label: "7) Funnel Builder (funnels + hosted forms)",
-            status: "Optional",
+            status: "Next",
             href: withFromOnboarding("/portal/app/services/funnel-builder"),
             detail: "Create funnels and forms and preview them under /portal/f and /portal/forms.",
           })}
 
           {stepRow({
             label: "8) Nurture campaigns",
-            status: "Optional",
+            status: "Next",
             href: withFromOnboarding("/portal/app/services/nurture-campaigns"),
             detail: "Schedule multi-step SMS/email sequences for leads and customers.",
           })}

@@ -6,6 +6,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { PortalListboxDropdown } from "@/components/PortalListboxDropdown";
 import { AppConfirmModal } from "@/components/AppModal";
+import { PortalBackToOnboardingLink } from "@/components/PortalBackToOnboardingLink";
 import { hostedFunnelPath, hostedFormPath } from "@/lib/publicHostedKeys";
 
 type CreditFunnel = {
@@ -624,6 +625,7 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
 
   return (
     <div className="mx-auto w-full max-w-6xl">
+      <PortalBackToOnboardingLink />
       <AppConfirmModal
         open={deleteDialog?.type === "funnel"}
         title="Delete funnel"

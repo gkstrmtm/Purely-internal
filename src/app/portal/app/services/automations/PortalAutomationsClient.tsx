@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { LocalTimePicker } from "@/components/LocalDateTimePicker";
 import { PortalListboxDropdown } from "@/components/PortalListboxDropdown";
 import { PortalVariablePickerModal } from "@/components/PortalVariablePickerModal";
+import { PortalBackToOnboardingLink } from "@/components/PortalBackToOnboardingLink";
 import { useToast } from "@/components/ToastProvider";
 import { PORTAL_SERVICES } from "@/app/portal/services/catalog";
 import { PORTAL_LINK_VARIABLES, PORTAL_MESSAGE_VARIABLES, type TemplateVariable } from "@/lib/portalTemplateVars";
@@ -2009,6 +2010,7 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
   if (loading) {
     return (
       <div className="p-6">
+        <PortalBackToOnboardingLink />
         <div className="text-sm text-zinc-600">Loading…</div>
       </div>
     );
@@ -2066,6 +2068,7 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
 
     return (
       <div className="p-6">
+        <PortalBackToOnboardingLink />
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <h1 className="text-2xl font-bold text-brand-ink sm:text-3xl">My Automations</h1>
@@ -2378,6 +2381,7 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
 
   return (
     <div className={mode === "editor" ? "p-3" : "p-6"}>
+      <PortalBackToOnboardingLink wrapperClassName={mode === "editor" ? "mb-2" : undefined} />
       {mode === "editor" ? (
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex min-w-0 items-center gap-2">
