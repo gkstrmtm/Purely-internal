@@ -649,9 +649,22 @@ export function PortalBlogPostClient({ postId }: { postId: string }) {
               void generateWithAi();
             }}
             disabled={working !== null}
-            className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50 disabled:opacity-60"
+            className="inline-flex items-center justify-center gap-2 rounded-2xl px-4 py-2 text-sm font-semibold text-white bg-linear-to-r from-[color:var(--color-brand-blue)] via-violet-500 to-[color:var(--color-brand-pink)] shadow-sm hover:opacity-90 disabled:bg-zinc-400 disabled:opacity-60"
           >
-            {working === "generate" ? "Generating…" : "Generate with AI"}
+            <svg
+              aria-hidden="true"
+              viewBox="0 0 24 24"
+              className="h-4 w-4"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <path d="M12 2l1.5 5.5L19 9l-5.5 1.5L12 16l-1.5-5.5L5 9l5.5-1.5L12 2z" />
+              <path d="M19 14l.8 2.6L22 17l-2.2.4L19 20l-.8-2.6L16 17l2.2-.4L19 14z" />
+            </svg>
+            <span>{working === "generate" ? "Generating…" : "Generate with AI"}</span>
           </button>
           {working === "generate" ? (
             <button
