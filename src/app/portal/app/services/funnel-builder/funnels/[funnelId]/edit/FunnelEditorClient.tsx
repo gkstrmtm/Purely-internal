@@ -3208,10 +3208,8 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
               disabled={busy || !selectedPage}
               onClick={() => void setEditorMode("CUSTOM_HTML")}
               className={classNames(
-                "inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-sm font-semibold",
-                selectedPage?.editorMode === "CUSTOM_HTML"
-                  ? "border-[color:var(--color-brand-blue)] bg-blue-50 text-blue-800"
-                  : "border-zinc-200 bg-white text-zinc-900 hover:bg-zinc-50",
+                "inline-flex items-center gap-2 rounded-2xl px-3 py-2 text-sm font-semibold text-white disabled:opacity-60",
+                "bg-linear-to-r from-[color:var(--color-brand-blue)] via-violet-500 to-[color:var(--color-brand-pink)] hover:opacity-90 shadow-sm",
               )}
             >
               <AiSparkIcon className="h-4 w-4" />
@@ -5262,156 +5260,164 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
 
                     <CollapsibleGroup title="Style" defaultOpen>
                       <div className="space-y-2">
-                        {(
-                          selectedBlock.type === "heading" ||
-                          selectedBlock.type === "paragraph" ||
-                          selectedBlock.type === "button" ||
-                          selectedBlock.type === "formLink" ||
-                          selectedBlock.type === "columns" ||
-                          selectedBlock.type === "section"
-                        ) ? (
-                          <ColorPickerField
-                            label="Text color"
-                            value={selectedBlock.props.style?.textColor}
-                            onChange={(v) => updateSelectedBlockStyle({ textColor: v })}
-                            swatches={colorSwatches}
-                            allowAlpha
-                          />
-                        ) : null}
-
-                        {selectedBlock.type !== "customCode" ? (
-                          <ColorPickerField
-                            label="Background"
-                            value={selectedBlock.props.style?.backgroundColor}
-                            onChange={(v) => updateSelectedBlockStyle({ backgroundColor: v })}
-                            swatches={colorSwatches}
-                            allowAlpha
-                          />
-                        ) : null}
-
-                        {selectedBlock.type === "section" ? (
-                          <label className="block">
-                            <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-zinc-500">Background image URL</div>
-                            <div className="flex flex-wrap items-center gap-2">
-                              <input
-                                value={selectedBlock.props.style?.backgroundImageUrl || ""}
-                                onChange={(e) => updateSelectedBlockStyle({ backgroundImageUrl: e.target.value.trim() || undefined })}
-                                className="min-w-[180px] flex-1 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                                placeholder="https://..."
+                        {selectedBlock.type === "chatbot" ? (
+                          <div className="rounded-xl border border-zinc-200 bg-white p-3 text-xs text-zinc-700">
+                            Styling for the floating chat widget is controlled above (placement, primary color, launcher style/image).
+                          </div>
+                        ) : (
+                          <>
+                            {(
+                              selectedBlock.type === "heading" ||
+                              selectedBlock.type === "paragraph" ||
+                              selectedBlock.type === "button" ||
+                              selectedBlock.type === "formLink" ||
+                              selectedBlock.type === "columns" ||
+                              selectedBlock.type === "section"
+                            ) ? (
+                              <ColorPickerField
+                                label="Text color"
+                                value={selectedBlock.props.style?.textColor}
+                                onChange={(v) => updateSelectedBlockStyle({ textColor: v })}
+                                swatches={colorSwatches}
+                                allowAlpha
                               />
-                              <button
-                                type="button"
-                                onClick={() => updateSelectedBlockStyle({ backgroundImageUrl: undefined })}
-                                className="shrink-0 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
-                              >
-                                Clear
-                              </button>
-                            </div>
-                            <div className="mt-1 text-xs text-zinc-500">Renders as a cover background on hosted pages.</div>
-                          </label>
-                        ) : null}
+                            ) : null}
 
-                        {(selectedBlock.type === "heading" || selectedBlock.type === "paragraph") ? (
-                          <label className="block">
-                            <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-zinc-500">Font size (px)</div>
-                            <input
-                              type="number"
-                              value={selectedBlock.props.style?.fontSizePx ?? ""}
-                              onChange={(e) =>
-                                updateSelectedBlockStyle({
-                                  fontSizePx: e.target.value === "" ? undefined : Number(e.target.value) || undefined,
-                                })
-                              }
-                              className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                              placeholder="16"
-                            />
-                          </label>
-                        ) : null}
+                            {selectedBlock.type !== "customCode" ? (
+                              <ColorPickerField
+                                label="Background"
+                                value={selectedBlock.props.style?.backgroundColor}
+                                onChange={(v) => updateSelectedBlockStyle({ backgroundColor: v })}
+                                swatches={colorSwatches}
+                                allowAlpha
+                              />
+                            ) : null}
 
-                        {selectedBlock.type !== "customCode" ? (
-                          <AlignPicker
-                            value={selectedBlock.props.style?.align}
-                            onChange={(v) => updateSelectedBlockStyle({ align: v })}
-                          />
-                        ) : null}
+                            {selectedBlock.type === "section" ? (
+                              <label className="block">
+                                <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-zinc-500">Background image URL</div>
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <input
+                                    value={selectedBlock.props.style?.backgroundImageUrl || ""}
+                                    onChange={(e) => updateSelectedBlockStyle({ backgroundImageUrl: e.target.value.trim() || undefined })}
+                                    className="min-w-[180px] flex-1 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                                    placeholder="https://..."
+                                  />
+                                  <button
+                                    type="button"
+                                    onClick={() => updateSelectedBlockStyle({ backgroundImageUrl: undefined })}
+                                    className="shrink-0 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+                                  >
+                                    Clear
+                                  </button>
+                                </div>
+                                <div className="mt-1 text-xs text-zinc-500">Renders as a cover background on hosted pages.</div>
+                              </label>
+                            ) : null}
 
-                        <PaddingPicker
-                          label="Margin top"
-                          value={selectedBlock.props.style?.marginTopPx}
-                          onChange={(v) => updateSelectedBlockStyle({ marginTopPx: v })}
-                          max={240}
-                        />
-
-                        <PaddingPicker
-                          label="Margin bottom"
-                          value={selectedBlock.props.style?.marginBottomPx}
-                          onChange={(v) => updateSelectedBlockStyle({ marginBottomPx: v })}
-                          max={240}
-                        />
-
-                        <PaddingPicker
-                          label="Padding"
-                          value={selectedBlock.props.style?.paddingPx}
-                          onChange={(v) => updateSelectedBlockStyle({ paddingPx: v })}
-                        />
-
-                        {selectedBlock.type === "button" ? (
-                          <div className="space-y-2">
-                            <ColorPickerField
-                              label="Outline color"
-                              value={selectedBlock.props.style?.borderColor}
-                              onChange={(v) => updateSelectedBlockStyle({ borderColor: v })}
-                              swatches={colorSwatches}
-                              allowAlpha
-                            />
-                            <label className="block">
-                              <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-zinc-500">Outline width (px)</div>
-                              <div className="flex flex-wrap items-center gap-3">
-                                <input
-                                  type="range"
-                                  min={0}
-                                  max={12}
-                                  value={Math.round(selectedBlock.props.style?.borderWidthPx ?? 0)}
-                                  onChange={(e) => updateSelectedBlockStyle({ borderWidthPx: Number(e.target.value) || 0 })}
-                                  className="min-w-[160px] flex-1"
-                                />
+                            {(selectedBlock.type === "heading" || selectedBlock.type === "paragraph") ? (
+                              <label className="block">
+                                <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-zinc-500">Font size (px)</div>
                                 <input
                                   type="number"
-                                  value={selectedBlock.props.style?.borderWidthPx ?? ""}
+                                  value={selectedBlock.props.style?.fontSizePx ?? ""}
                                   onChange={(e) =>
                                     updateSelectedBlockStyle({
-                                      borderWidthPx: e.target.value === "" ? undefined : Number(e.target.value) || 0,
+                                      fontSizePx: e.target.value === "" ? undefined : Number(e.target.value) || undefined,
                                     })
                                   }
-                                  className="w-24 shrink-0 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                                  placeholder="Auto"
+                                  className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                                  placeholder="16"
                                 />
-                                <button
-                                  type="button"
-                                  onClick={() => updateSelectedBlockStyle({ borderWidthPx: undefined })}
-                                  className="shrink-0 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
-                                >
-                                  Clear
-                                </button>
+                              </label>
+                            ) : null}
+
+                            {selectedBlock.type !== "customCode" ? (
+                              <AlignPicker
+                                value={selectedBlock.props.style?.align}
+                                onChange={(v) => updateSelectedBlockStyle({ align: v })}
+                              />
+                            ) : null}
+
+                            <PaddingPicker
+                              label="Margin top"
+                              value={selectedBlock.props.style?.marginTopPx}
+                              onChange={(v) => updateSelectedBlockStyle({ marginTopPx: v })}
+                              max={240}
+                            />
+
+                            <PaddingPicker
+                              label="Margin bottom"
+                              value={selectedBlock.props.style?.marginBottomPx}
+                              onChange={(v) => updateSelectedBlockStyle({ marginBottomPx: v })}
+                              max={240}
+                            />
+
+                            <PaddingPicker
+                              label="Padding"
+                              value={selectedBlock.props.style?.paddingPx}
+                              onChange={(v) => updateSelectedBlockStyle({ paddingPx: v })}
+                            />
+
+                            {selectedBlock.type === "button" ? (
+                              <div className="space-y-2">
+                                <ColorPickerField
+                                  label="Outline color"
+                                  value={selectedBlock.props.style?.borderColor}
+                                  onChange={(v) => updateSelectedBlockStyle({ borderColor: v })}
+                                  swatches={colorSwatches}
+                                  allowAlpha
+                                />
+                                <label className="block">
+                                  <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-zinc-500">Outline width (px)</div>
+                                  <div className="flex flex-wrap items-center gap-3">
+                                    <input
+                                      type="range"
+                                      min={0}
+                                      max={12}
+                                      value={Math.round(selectedBlock.props.style?.borderWidthPx ?? 0)}
+                                      onChange={(e) => updateSelectedBlockStyle({ borderWidthPx: Number(e.target.value) || 0 })}
+                                      className="min-w-[160px] flex-1"
+                                    />
+                                    <input
+                                      type="number"
+                                      value={selectedBlock.props.style?.borderWidthPx ?? ""}
+                                      onChange={(e) =>
+                                        updateSelectedBlockStyle({
+                                          borderWidthPx: e.target.value === "" ? undefined : Number(e.target.value) || 0,
+                                        })
+                                      }
+                                      className="w-24 shrink-0 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                                      placeholder="Auto"
+                                    />
+                                    <button
+                                      type="button"
+                                      onClick={() => updateSelectedBlockStyle({ borderWidthPx: undefined })}
+                                      className="shrink-0 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+                                    >
+                                      Clear
+                                    </button>
+                                  </div>
+                                </label>
                               </div>
-                            </label>
-                          </div>
-                        ) : null}
+                            ) : null}
 
-                        <RadiusPicker
-                          label="Radius"
-                          value={selectedBlock.props.style?.borderRadiusPx}
-                          onChange={(v) => updateSelectedBlockStyle({ borderRadiusPx: v })}
-                          max={64}
-                        />
+                            <RadiusPicker
+                              label="Radius"
+                              value={selectedBlock.props.style?.borderRadiusPx}
+                              onChange={(v) => updateSelectedBlockStyle({ borderRadiusPx: v })}
+                              max={64}
+                            />
 
-                        {(selectedBlock.type === "image" || selectedBlock.type === "button") ? (
-                          <MaxWidthPicker
-                            label="Max width"
-                            value={selectedBlock.props.style?.maxWidthPx}
-                            onChange={(v) => updateSelectedBlockStyle({ maxWidthPx: v })}
-                          />
-                        ) : null}
+                            {(selectedBlock.type === "image" || selectedBlock.type === "button") ? (
+                              <MaxWidthPicker
+                                label="Max width"
+                                value={selectedBlock.props.style?.maxWidthPx}
+                                onChange={(v) => updateSelectedBlockStyle({ maxWidthPx: v })}
+                              />
+                            ) : null}
+                          </>
+                        )}
                       </div>
                     </CollapsibleGroup>
 

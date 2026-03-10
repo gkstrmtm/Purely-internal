@@ -679,6 +679,36 @@ export function renderCreditFunnelBlocks({
 
   const isEditor = Boolean(editor?.enabled);
 
+  const collectChatbotBlocks = (xs: CreditFunnelBlock[]): CreditFunnelBlock[] => {
+    const out: CreditFunnelBlock[] = [];
+    const walk = (arr: CreditFunnelBlock[]) => {
+      for (const b of arr) {
+        if (!b || typeof b !== "object") continue;
+        if (b.type === "chatbot") {
+          out.push(b);
+          continue;
+        }
+        if (b.type === "section") {
+          if (Array.isArray((b.props as any)?.children)) walk((b.props as any).children);
+          if (Array.isArray((b.props as any)?.leftChildren)) walk((b.props as any).leftChildren);
+          if (Array.isArray((b.props as any)?.rightChildren)) walk((b.props as any).rightChildren);
+          continue;
+        }
+        if (b.type === "columns") {
+          const cols = Array.isArray((b.props as any)?.columns) ? ((b.props as any).columns as any[]) : [];
+          for (const c of cols) {
+            if (c && Array.isArray((c as any).children)) walk((c as any).children);
+          }
+          continue;
+        }
+      }
+    };
+    walk(xs);
+    return out;
+  };
+
+  const chatbotBlocks = isEditor ? collectChatbotBlocks(renderBlocks) : [];
+
   const renderMoveControls = (id: string): React.ReactNode => {
     if (!isEditor) return null;
     if (!editor?.onMove) return null;
@@ -930,38 +960,17 @@ export function renderCreditFunnelBlocks({
             renderMoveControls(b.id),
             React.createElement(
               "div",
-              { className: "overflow-hidden rounded-2xl border border-zinc-200 bg-white" },
+              {
+                className:
+                  "rounded-2xl border border-dashed border-zinc-300 bg-zinc-50 px-4 py-3 text-sm text-zinc-700",
+              },
+              React.createElement("div", { className: "font-semibold text-zinc-900" }, "Chatbot widget"),
               React.createElement(
                 "div",
-                { className: "flex items-center justify-between border-b border-zinc-200 bg-zinc-50 px-4 py-2" },
-                React.createElement("div", { className: "text-sm font-semibold text-zinc-900" }, "Chatbot"),
-                React.createElement(
-                  "div",
-                  { className: "text-xs text-zinc-500" },
-                  agentId ? "Interact below" : "Select to configure",
-                ),
-              ),
-              React.createElement(
-                "div",
-                { "data-funnel-editor-interactive": "true", className: "relative h-[560px] bg-white" },
-                !agentId
-                  ? React.createElement(
-                      "div",
-                      { className: "px-4 py-8 text-sm text-zinc-600" },
-                      "Set an Agent ID in the sidebar to preview and test your chat widget here.",
-                    )
-                  : React.createElement(ConvaiChatWidget, {
-                      agentId,
-                      signedUrlEndpoint: "/api/portal/elevenlabs/convai/signed-url",
-                      positioning: "absolute",
-                      placementX,
-                      placementY,
-                      primaryColor: (b.props as any)?.primaryColor,
-                      launcherStyle: (b.props as any)?.launcherStyle,
-                      launcherImageUrl: (b.props as any)?.launcherImageUrl,
-                      panelTitle: "Chat",
-                      panelSubtitle: "Message us",
-                    }),
+                { className: "mt-1 text-xs text-zinc-600" },
+                agentId
+                  ? "Floating widget preview is shown on the page. Click the launcher to select."
+                  : "Set an Agent ID in the sidebar to enable live chat.",
               ),
             ),
           );
@@ -1472,10 +1481,48 @@ export function renderCreditFunnelBlocks({
     React.createElement(
       "div",
       {
-        className: "space-y-4",
+        className: "relative space-y-4",
         style: { ...wrapperStyle(pageStyleBlock?.props.style), width: "100%", minHeight: "100vh" },
       },
       renderBlocksInner(renderBlocks),
+      isEditor && chatbotBlocks.length
+        ? React.createElement(
+            "div",
+            {
+              key: "__chatbot_overlay__",
+              className: "pointer-events-none absolute inset-0",
+            },
+            ...chatbotBlocks.map((b) => {
+              const placementX = (b.props as any)?.placementX || "right";
+              const placementY = (b.props as any)?.placementY || "bottom";
+              const agentId = typeof (b.props as any)?.agentId === "string" ? String((b.props as any).agentId).trim() : "";
+
+              return React.createElement(
+                "div",
+                {
+                  key: `chatbot_${b.id}`,
+                  className: "pointer-events-auto",
+                  onMouseDownCapture: (e: any) => {
+                    if (typeof e?.button === "number" && e.button !== 0) return;
+                    editor?.onSelectBlockId?.(b.id);
+                  },
+                },
+                React.createElement(ConvaiChatWidget, {
+                  agentId: agentId || undefined,
+                  signedUrlEndpoint: "/api/portal/elevenlabs/convai/signed-url",
+                  positioning: "absolute",
+                  placementX,
+                  placementY,
+                  primaryColor: (b.props as any)?.primaryColor,
+                  launcherStyle: (b.props as any)?.launcherStyle,
+                  launcherImageUrl: (b.props as any)?.launcherImageUrl,
+                  panelTitle: "Chat",
+                  panelSubtitle: "Message us",
+                }),
+              );
+            }),
+          )
+        : null,
     ),
   );
 }
