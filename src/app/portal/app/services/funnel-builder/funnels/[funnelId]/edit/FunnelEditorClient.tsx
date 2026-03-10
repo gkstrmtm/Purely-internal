@@ -1172,11 +1172,24 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                           disabled={busy || !chatInput.trim()}
                           onClick={runAi}
                           className={classNames(
-                            "flex-1 rounded-2xl px-4 py-2 text-sm font-semibold text-white",
-                            busy ? "bg-zinc-400" : "bg-[color:var(--color-brand-blue)] hover:bg-blue-700",
+                            "flex-1 inline-flex items-center justify-center gap-2 rounded-2xl px-4 py-2 text-sm font-semibold text-white",
+                            busy || !chatInput.trim() ? "bg-zinc-400" : "bg-linear-to-r from-[color:var(--color-brand-blue)] via-violet-500 to-[color:var(--color-brand-pink)] hover:opacity-90 shadow-sm",
                           )}
                         >
-                          {busy ? "Working…" : "Ask AI"}
+                          <svg
+                            aria-hidden="true"
+                            viewBox="0 0 24 24"
+                            className="h-4 w-4"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          >
+                            <path d="M12 2l1.5 5.5L19 9l-5.5 1.5L12 16l-1.5-5.5L5 9l5.5-1.5L12 2z" />
+                            <path d="M19 14l.8 2.6L22 17l-2.2.4L19 20l-.8-2.6L16 17l2.2-.4L19 14z" />
+                          </svg>
+                          <span>{busy ? "Working…" : "Ask AI"}</span>
                         </button>
                         <button
                           type="button"
@@ -4757,11 +4770,24 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                   disabled={busy || !chatInput.trim()}
                   onClick={() => void runAi()}
                   className={classNames(
-                    "flex-1 rounded-2xl px-4 py-2 text-sm font-semibold text-white",
-                    busy ? "bg-zinc-400" : "bg-[color:var(--color-brand-blue)] hover:bg-blue-700",
+                    "flex-1 inline-flex items-center justify-center gap-2 rounded-2xl px-4 py-2 text-sm font-semibold text-white",
+                    busy || !chatInput.trim() ? "bg-zinc-400" : "bg-linear-to-r from-[color:var(--color-brand-blue)] via-violet-500 to-[color:var(--color-brand-pink)] hover:opacity-90 shadow-sm",
                   )}
                 >
-                  {busy ? "Working…" : "Ask AI"}
+                  <svg
+                    aria-hidden="true"
+                    viewBox="0 0 24 24"
+                    className="h-4 w-4"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <path d="M12 2l1.5 5.5L19 9l-5.5 1.5L12 16l-1.5-5.5L5 9l5.5-1.5L12 2z" />
+                    <path d="M19 14l.8 2.6L22 17l-2.2.4L19 20l-.8-2.6L16 17l2.2-.4L19 14z" />
+                  </svg>
+                  <span>{busy ? "Working…" : "Ask AI"}</span>
                 </button>
                 <button
                   type="button"
