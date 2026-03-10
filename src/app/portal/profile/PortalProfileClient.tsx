@@ -198,8 +198,6 @@ export function PortalProfileClient() {
   const [currentPassword, setCurrentPassword] = useState("");
   const [savingContact, setSavingContact] = useState(false);
 
-  const [savingLocation, setSavingLocation] = useState(false);
-
   const phoneValidation = useMemo(() => {
     const res = normalizePhoneStrict(phone);
     return res;
@@ -272,25 +270,45 @@ export function PortalProfileClient() {
     const nextEmail = email.trim().toLowerCase();
     const nextPhoneRaw = phone.trim();
     const nextVoiceAgentId = voiceAgentId.trim();
-
-    const nextPhoneRes = normalizePhoneStrict(nextPhoneRaw);
-    if (!nextPhoneRes.ok) return false;
-    if (!nextPhoneRes.e164) return false;
-    const nextPhone = nextPhoneRes.e164 ?? "";
+    const nextCity = city.trim();
+    const nextState = state.trim();
 
     const curName = me.user?.name ?? "";
     const curEmail = (me.user?.email ?? "").toLowerCase();
     const curPhone = (me.user?.phone ?? "").trim();
     const curVoiceAgentId = (me.user?.voiceAgentId ?? "").trim();
+    const curCity = (me.user?.city ?? "").trim();
+    const curState = (me.user?.state ?? "").trim();
+
+    const nextPhoneE164 = (() => {
+      if (!nextPhoneRaw) return null;
+      const res = normalizePhoneStrict(nextPhoneRaw);
+      if (!res.ok) return null;
+      return res.e164 ?? null;
+    })();
+
     const wantsNameChange = nextName !== curName;
     const wantsEmailChange = nextEmail !== curEmail;
-    const wantsPhoneChange = nextPhone !== curPhone;
+    const wantsPhoneChange = nextPhoneRaw ? nextPhoneE164 !== curPhone : Boolean(curPhone);
     const wantsVoiceAgentIdChange = nextVoiceAgentId !== curVoiceAgentId;
     const wantsVoiceAgentApiKeyChange = Boolean(voiceAgentApiKey.trim());
+    const wantsCityChange = nextCity !== curCity;
+    const wantsStateChange = nextState !== curState;
 
-    if (!wantsNameChange && !wantsEmailChange && !wantsPhoneChange && !wantsVoiceAgentIdChange && !wantsVoiceAgentApiKeyChange) {
+    if (
+      !wantsNameChange &&
+      !wantsEmailChange &&
+      !wantsPhoneChange &&
+      !wantsVoiceAgentIdChange &&
+      !wantsVoiceAgentApiKeyChange &&
+      !wantsCityChange &&
+      !wantsStateChange
+    ) {
       return false;
     }
+
+    const requiresPhone = wantsNameChange || wantsEmailChange || wantsPhoneChange || wantsVoiceAgentIdChange || wantsVoiceAgentApiKeyChange;
+    if (requiresPhone && !nextPhoneE164) return false;
 
     if (wantsNameChange || wantsEmailChange) {
       return currentPassword.trim().length >= 6 && nextName.length >= 2 && nextEmail.length >= 3;
@@ -298,7 +316,7 @@ export function PortalProfileClient() {
 
     // No password required for phone/agent id/api key updates.
     return true;
-  }, [me, name, email, phone, voiceAgentId, voiceAgentApiKey, currentPassword]);
+  }, [me, name, email, phone, city, state, voiceAgentId, voiceAgentApiKey, currentPassword]);
 
   const canSavePassword = useMemo(() => {
     return (
@@ -308,16 +326,6 @@ export function PortalProfileClient() {
       pwNext === pwConfirm
     );
   }, [pwCurrent, pwNext, pwConfirm]);
-
-  const canSaveLocation = useMemo(() => {
-    if (!me?.user) return false;
-    if (!canEditProfile) return false;
-    const nextCity = city.trim();
-    const nextState = state.trim();
-    const curCity = (me.user.city ?? "").trim();
-    const curState = (me.user.state ?? "").trim();
-    return nextCity !== curCity || nextState !== curState;
-  }, [me, city, state, canEditProfile]);
 
   useEffect(() => {
     let mounted = true;
@@ -679,29 +687,42 @@ export function PortalProfileClient() {
     const nextEmail = email.trim().toLowerCase();
     const nextPhoneRaw = phone.trim();
     const nextVoiceAgentId = voiceAgentId.trim();
-    const nextPhoneRes = normalizePhoneStrict(nextPhoneRaw);
-    if (!nextPhoneRes.ok) {
-      setSavingContact(false);
-      setError(nextPhoneRes.error);
-      return;
-    }
-    if (!nextPhoneRes.e164) {
-      setSavingContact(false);
-      setError("Phone is required.");
-      return;
-    }
-    const nextPhone = nextPhoneRes.e164 ?? "";
+    const nextCity = city.trim();
+    const nextState = state.trim();
 
     const curName = me.user.name ?? "";
     const curEmail = (me.user.email ?? "").toLowerCase();
     const curPhone = (me.user.phone ?? "").trim();
     const curVoiceAgentId = (me.user.voiceAgentId ?? "").trim();
+    const curCity = (me.user.city ?? "").trim();
+    const curState = (me.user.state ?? "").trim();
     const wantsVoiceAgentApiKeyChange = Boolean(voiceAgentApiKey.trim());
 
     const wantsNameChange = nextName !== curName;
     const wantsEmailChange = nextEmail !== curEmail;
-    const wantsPhoneChange = nextPhone !== curPhone;
+    const nextPhoneE164 = (() => {
+      if (!nextPhoneRaw) return null;
+      const res = normalizePhoneStrict(nextPhoneRaw);
+      if (!res.ok) {
+        setSavingContact(false);
+        setError(res.error);
+        return null;
+      }
+      return res.e164 ?? null;
+    })();
+    const wantsPhoneChange = nextPhoneRaw ? nextPhoneE164 !== curPhone : Boolean(curPhone);
     const wantsVoiceAgentIdChange = nextVoiceAgentId !== curVoiceAgentId;
+    const wantsCityChange = nextCity !== curCity;
+    const wantsStateChange = nextState !== curState;
+
+    const requiresPhone = wantsNameChange || wantsEmailChange || wantsPhoneChange || wantsVoiceAgentIdChange || wantsVoiceAgentApiKeyChange;
+    if (requiresPhone && !nextPhoneE164) {
+      setSavingContact(false);
+      setError("Phone is required.");
+      return;
+    }
+
+    const nextPhone = nextPhoneE164 ?? curPhone;
 
     const payload: Record<string, unknown> = {};
     if (wantsNameChange) payload.name = nextName;
@@ -710,6 +731,8 @@ export function PortalProfileClient() {
     if (wantsVoiceAgentIdChange) payload.voiceAgentId = nextVoiceAgentId;
     if (wantsVoiceAgentApiKeyChange) payload.voiceAgentApiKey = voiceAgentApiKey.trim();
     if (wantsNameChange || wantsEmailChange) payload.currentPassword = currentPassword;
+    if (wantsCityChange) payload.city = nextCity;
+    if (wantsStateChange) payload.state = nextState;
 
     const res = await fetch("/api/portal/profile", {
       method: "PUT",
@@ -746,8 +769,8 @@ export function PortalProfileClient() {
         name: json.user?.name ?? nextName,
         email: json.user?.email ?? nextEmail,
         phone: json.user?.phone ?? nextPhone,
-        city: json.user?.city ?? me.user.city ?? null,
-        state: json.user?.state ?? me.user.state ?? null,
+        city: json.user?.city ?? (wantsCityChange ? nextCity : me.user.city) ?? null,
+        state: json.user?.state ?? (wantsStateChange ? nextState : me.user.state) ?? null,
         voiceAgentId: json.user?.voiceAgentId ?? nextVoiceAgentId,
         voiceAgentApiKeyConfigured: Boolean(
           json.user?.voiceAgentApiKeyConfigured ?? (wantsVoiceAgentApiKeyChange ? true : me.user.voiceAgentApiKeyConfigured),
@@ -758,50 +781,9 @@ export function PortalProfileClient() {
     setCurrentPassword("");
     setVoiceAgentApiKey("");
     setPhone(formatPhoneForDisplay(json.user?.phone ?? nextPhone));
+    if (wantsCityChange) setCity(json.user?.city ?? nextCity);
+    if (wantsStateChange) setState(json.user?.state ?? nextState);
     setNotice(json.note ?? "Saved. You may need to sign out/in to refresh your session.");
-  }
-
-  async function saveLocation() {
-    if (!me?.user) return;
-    if (!canEditProfile) return;
-    if (!canSaveLocation) return;
-    setSavingLocation(true);
-    setError(null);
-    setNotice(null);
-
-    const res = await fetch("/api/portal/profile", {
-      method: "PUT",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ city: city.trim(), state: state.trim() }),
-    });
-
-    const json = (await res.json().catch(() => ({}))) as {
-      ok?: boolean;
-      error?: string;
-      note?: string;
-      user?: { city?: string | null; state?: string | null } | null;
-    };
-    setSavingLocation(false);
-
-    if (!res.ok || !json.ok) {
-      setError(json.error ?? "Unable to save location");
-      return;
-    }
-
-    const nextCity = (json.user?.city ?? city.trim()) || null;
-    const nextState = (json.user?.state ?? state.trim()) || null;
-
-    setMe({
-      ok: true,
-      user: {
-        ...me.user,
-        city: nextCity,
-        state: nextState,
-      },
-    });
-    setCity(nextCity ?? "");
-    setState(nextState ?? "");
-    setNotice(json.note ?? "Saved.");
   }
 
   async function clearVoiceAgentApiKey() {
@@ -907,7 +889,7 @@ export function PortalProfileClient() {
             <div className="lg:col-span-2">
               <PortalSettingsSection
                 title="Contact info"
-                description="Name, email, phone, and password."
+                description="Name, email, phone, and location."
                 accent="blue"
                 collapsible={false}
                 dotClassName="hidden"
@@ -942,43 +924,23 @@ export function PortalProfileClient() {
                     />
                   </div>
                   <div>
-                    <label className="text-xs font-semibold text-zinc-600">Agent ID (optional)</label>
+                    <label className="text-xs font-semibold text-zinc-600">City</label>
                     <input
-                      value={voiceAgentId}
-                      onChange={(e) => setVoiceAgentId(e.target.value)}
+                      value={city}
+                      onChange={(e) => setCity(e.target.value)}
                       className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300"
-                      placeholder="agent_…"
-                      autoComplete="off"
+                      placeholder="Dallas"
                     />
-                    <div className="mt-2 text-xs text-zinc-500">Used by voice/AI calling services when enabled.</div>
                   </div>
 
-                  <div className="sm:col-span-2">
-                    <div className="flex items-center justify-between">
-                      <label className="text-xs font-semibold text-zinc-600">Voice agent API key (optional)</label>
-                      <div className="text-xs text-zinc-500">{voiceAgentApiKeyConfigured ? "configured" : "not set"}</div>
-                    </div>
+                  <div>
+                    <label className="text-xs font-semibold text-zinc-600">State</label>
                     <input
-                      value={voiceAgentApiKey}
-                      onChange={(e) => setVoiceAgentApiKey(e.target.value)}
-                      type="password"
+                      value={state}
+                      onChange={(e) => setState(e.target.value)}
                       className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300"
-                      placeholder={voiceAgentApiKeyConfigured ? "(leave blank to keep)" : "(paste key)"}
-                      autoComplete="off"
+                      placeholder="TX"
                     />
-                    <div className="mt-2 flex items-center justify-between gap-2">
-                      <div className="text-xs text-zinc-500">
-                        Used by AI outbound when enabled.
-                      </div>
-                      <button
-                        type="button"
-                        className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold hover:bg-zinc-50 disabled:opacity-60"
-                        disabled={savingContact || !voiceAgentApiKeyConfigured}
-                        onClick={() => void clearVoiceAgentApiKey()}
-                      >
-                        Clear key
-                      </button>
-                    </div>
                   </div>
                   <div className="sm:col-span-2">
                     <label className="text-xs font-semibold text-zinc-600">Current password (required for name/email changes)</label>
@@ -1006,7 +968,7 @@ export function PortalProfileClient() {
                     onClick={saveContact}
                     disabled={!canSaveContact || savingContact}
                   >
-                    {savingContact ? "Saving…" : "Save contact info"}
+                    {savingContact ? "Saving…" : "Save changes"}
                   </button>
                   <button
                     type="button"
@@ -1015,54 +977,6 @@ export function PortalProfileClient() {
                     disabled={!canEditProfile}
                   >
                     Change password
-                  </button>
-                </div>
-              </PortalSettingsSection>
-
-              <PortalSettingsSection
-                title="Location"
-                description="Used as a default for things like lead scraping. Optional."
-                accent="blue"
-                collapsible={false}
-                dotClassName="hidden"
-              >
-                {!canEditProfile ? (
-                  <div className="mt-1 rounded-2xl border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">
-                    You have view-only access.
-                  </div>
-                ) : null}
-
-                <div className="mt-3 grid grid-cols-1 gap-4 sm:grid-cols-2">
-                  <div>
-                    <label className="text-xs font-semibold text-zinc-600">City (optional)</label>
-                    <input
-                      value={city}
-                      onChange={(e) => setCity(e.target.value)}
-                      disabled={!canEditProfile}
-                      className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300 disabled:opacity-60"
-                      placeholder="Dallas"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-xs font-semibold text-zinc-600">State (optional)</label>
-                    <input
-                      value={state}
-                      onChange={(e) => setState(e.target.value)}
-                      disabled={!canEditProfile}
-                      className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300 disabled:opacity-60"
-                      placeholder="TX"
-                    />
-                  </div>
-                </div>
-
-                <div className="mt-4 flex flex-col gap-3 sm:flex-row">
-                  <button
-                    type="button"
-                    className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-5 py-3 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
-                    onClick={saveLocation}
-                    disabled={!canSaveLocation || savingLocation}
-                  >
-                    {savingLocation ? "Saving…" : "Save location"}
                   </button>
                 </div>
               </PortalSettingsSection>
@@ -1154,6 +1068,73 @@ export function PortalProfileClient() {
 
           {advancedOpen ? (
             <div className="space-y-4">
+              <PortalSettingsSection
+                title="Voice agent"
+                description="Advanced settings for AI calling services."
+                accent="blue"
+                collapsible={false}
+                dotClassName="hidden"
+              >
+                {!canEditProfile ? (
+                  <div className="mt-1 rounded-2xl border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">
+                    You have view-only access.
+                  </div>
+                ) : null}
+
+                <div className="mt-1 grid grid-cols-1 gap-4 sm:grid-cols-2">
+                  <div>
+                    <label className="text-xs font-semibold text-zinc-600">Agent ID</label>
+                    <input
+                      value={voiceAgentId}
+                      onChange={(e) => setVoiceAgentId(e.target.value)}
+                      disabled={!canEditProfile}
+                      className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300 disabled:opacity-60"
+                      placeholder="agent_…"
+                      autoComplete="off"
+                    />
+                    <div className="mt-2 text-xs text-zinc-500">Used by voice/AI calling services when enabled.</div>
+                  </div>
+
+                  <div className="sm:col-span-2">
+                    <div className="flex items-center justify-between">
+                      <label className="text-xs font-semibold text-zinc-600">Voice agent API key</label>
+                      <div className="text-xs text-zinc-500">{voiceAgentApiKeyConfigured ? "configured" : "not set"}</div>
+                    </div>
+                    <input
+                      value={voiceAgentApiKey}
+                      onChange={(e) => setVoiceAgentApiKey(e.target.value)}
+                      disabled={!canEditProfile}
+                      type="password"
+                      className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300 disabled:opacity-60"
+                      placeholder={voiceAgentApiKeyConfigured ? "(leave blank to keep)" : "(paste key)"}
+                      autoComplete="off"
+                    />
+                    <div className="mt-2 flex items-center justify-between gap-2">
+                      <div className="text-xs text-zinc-500">Used by AI outbound when enabled.</div>
+                      <button
+                        type="button"
+                        className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold hover:bg-zinc-50 disabled:opacity-60"
+                        disabled={savingContact || !voiceAgentApiKeyConfigured || !canEditProfile}
+                        onClick={() => void clearVoiceAgentApiKey()}
+                      >
+                        Clear key
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="mt-4 flex flex-col gap-3 sm:flex-row">
+                  <button
+                    type="button"
+                    className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-5 py-3 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
+                    onClick={saveContact}
+                    disabled={!canSaveContact || savingContact}
+                  >
+                    {savingContact ? "Saving…" : "Save voice agent settings"}
+                  </button>
+                </div>
+              </PortalSettingsSection>
+
               {canViewWebhooks ? (
                 <div ref={webhooksRef}>
                   <PortalSettingsSection

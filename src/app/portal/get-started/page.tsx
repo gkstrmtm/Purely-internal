@@ -2,7 +2,6 @@
 
 import { Suspense } from "react";
 import Image from "next/image";
-import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -10,7 +9,6 @@ import { useEffect, useState } from "react";
 import { useToast } from "@/components/ToastProvider";
 import { PortalListboxDropdown, type PortalListboxOption } from "@/components/PortalListboxDropdown";
 import { PortalMultiSelectDropdown } from "@/components/PortalMultiSelectDropdown";
-import { AppModal } from "@/components/AppModal";
 import {
   GET_STARTED_GOALS,
   goalLabelsFromIds,
@@ -107,6 +105,8 @@ function PortalGetStartedInner() {
   const toast = useToast();
 
   const portalBase = pathname.startsWith("/credit") ? "/credit" : "/portal";
+  // The authenticated app lives under /portal; /credit is a branded entrypoint.
+  const appBase = "/portal";
   const logoSrc = portalBase === "/credit" ? "/brand/purely%20credit.png" : "/brand/purity-5.png";
 
   const checkoutState = (search?.get("checkout") || "").trim().toLowerCase();
@@ -175,9 +175,6 @@ function PortalGetStartedInner() {
 
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-
-  const [successModalOpen, setSuccessModalOpen] = useState(false);
-  const [successBonusCredits, setSuccessBonusCredits] = useState(0);
 
   useEffect(() => {
     if (error) toast.error(error);
@@ -299,7 +296,7 @@ function PortalGetStartedInner() {
     if (step === 2) return billingPreference === "credits" || billingPreference === "subscription";
     if (step === 3) return billingPreference === "credits" ? true : selectedPlanIds.includes("core");
     if (step === 4) {
-      return name.trim().length >= 2 && email.trim().length >= 3 && password.trim().length >= 6;
+      return name.trim().length >= 2 && email.trim().length >= 3 && password.trim().length >= 8;
     }
     return false;
   })();
@@ -357,7 +354,7 @@ function PortalGetStartedInner() {
     if (!res.ok) {
       const body = await res.json().catch(() => ({}));
       setLoading(false);
-      setError(body?.error ?? "Unable to create account");
+      setError(body?.error ?? "Unable to create account. Please check your details and try again.");
       return;
     }
 
@@ -372,13 +369,15 @@ function PortalGetStartedInner() {
       if (!confirmRes.ok || !confirmJson?.ok) {
         setLoading(false);
         setError(confirmJson?.error || "Unable to activate services");
-        router.push(`${portalBase}/login`);
+        router.push(`${portalBase}/login?from=${encodeURIComponent(`${appBase}/app/onboarding`)}`);
         return;
       }
 
-      setSuccessBonusCredits(typeof confirmJson?.bonusCredits === "number" ? Math.max(0, Math.trunc(confirmJson.bonusCredits)) : 0);
+      const bonusCredits = typeof confirmJson?.bonusCredits === "number" ? Math.max(0, Math.trunc(confirmJson.bonusCredits)) : 0;
+      const query = bonusCredits > 0 ? `?creditsAdded=${bonusCredits}` : "";
       setLoading(false);
-      setSuccessModalOpen(true);
+      router.push(`${appBase}/app/onboarding${query}`);
+      router.refresh();
       return;
     }
 
@@ -404,12 +403,14 @@ function PortalGetStartedInner() {
       const confirmJson = await confirmRes.json().catch(() => null);
       if (!confirmRes.ok || !confirmJson?.ok) {
         setError(confirmJson?.error || "Unable to activate services");
-        router.push(`${portalBase}/login`);
+        router.push(`${portalBase}/login?from=${encodeURIComponent(`${appBase}/app/onboarding`)}`);
         return;
       }
 
-      setSuccessBonusCredits(typeof confirmJson?.bonusCredits === "number" ? Math.max(0, Math.trunc(confirmJson.bonusCredits)) : 0);
-      setSuccessModalOpen(true);
+      const bonusCredits = typeof confirmJson?.bonusCredits === "number" ? Math.max(0, Math.trunc(confirmJson.bonusCredits)) : 0;
+      const query = bonusCredits > 0 ? `?creditsAdded=${bonusCredits}` : "";
+      router.push(`${appBase}/app/onboarding${query}`);
+      router.refresh();
       return;
     }
 
@@ -418,11 +419,11 @@ function PortalGetStartedInner() {
       toast.error(msg);
       setError(msg);
       if (checkoutRes.status === 401 || checkoutRes.status === 403) {
-        router.push(`${portalBase}/login`);
+        router.push(`${portalBase}/login?from=${encodeURIComponent(`${appBase}/app/onboarding`)}`);
         return;
       }
 
-      router.push(`${portalBase}/app/billing`);
+      router.push(`${appBase}/app/billing`);
       router.refresh();
       return;
     }
@@ -715,7 +716,8 @@ function PortalGetStartedInner() {
                   >
                     <div className="text-sm font-semibold text-zinc-900">Monthly membership</div>
                     <div className="mt-1 text-sm text-zinc-600">Best value if you’re ready to grow.</div>
-                    <div className="mt-2 text-xs font-semibold text-zinc-700">You’ll pick services next.</div>
+                    <div className="mt-2 text-xs font-semibold text-zinc-700">Includes free credits every month.</div>
+                    <div className="mt-1 text-xs font-semibold text-zinc-700">You’ll pick services next.</div>
                   </button>
                 </div>
 
@@ -1035,6 +1037,7 @@ function PortalGetStartedInner() {
                       autoComplete="new-password"
                       required
                     />
+                    <div className="mt-2 text-xs text-zinc-500">Minimum 8 characters.</div>
                   </div>
                 </div>
 
@@ -1077,39 +1080,14 @@ function PortalGetStartedInner() {
 
           <div className="mt-6 text-base text-zinc-600">
             Already have an account?{" "}
-            <Link className="font-medium text-brand-ink hover:underline" href={`${portalBase}/login`}>
+            <button
+              type="button"
+              className="font-medium text-brand-ink hover:underline"
+              onClick={() => router.push(`${portalBase}/login?from=${encodeURIComponent(`${appBase}/app/onboarding`)}`)}
+            >
               Sign in
-            </Link>
+            </button>
           </div>
-
-          <AppModal
-            open={successModalOpen}
-            title="Starter credits added"
-            description={successBonusCredits > 0 ? `We gave you ${successBonusCredits} credits to get started.` : "You're ready to go."}
-            onClose={() => {
-              setSuccessModalOpen(false);
-              router.push(`${portalBase}/app/onboarding`);
-            }}
-            widthClassName="w-[min(520px,calc(100vw-32px))]"
-            footer={
-              <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
-                <button
-                  type="button"
-                  className="rounded-2xl bg-[color:var(--color-brand-blue)] px-4 py-2 text-sm font-semibold text-white hover:opacity-95"
-                  onClick={() => {
-                    setSuccessModalOpen(false);
-                    router.push(`${portalBase}/app/onboarding`);
-                  }}
-                >
-                  Continue
-                </button>
-              </div>
-            }
-          >
-            <div className="text-sm text-zinc-600">
-              You can top up credits anytime in Billing.
-            </div>
-          </AppModal>
         </div>
       </div>
     </div>

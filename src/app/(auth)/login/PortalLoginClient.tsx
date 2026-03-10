@@ -28,7 +28,8 @@ export default function PortalLoginClient() {
   );
 
   const fromRaw = searchParams.get("from");
-  const defaultFrom = useMemo(() => (pathnameVariant === "credit" ? "/credit/app" : "/portal/app"), [pathnameVariant]);
+  // The authenticated portal UI lives under /portal/app.
+  const defaultFrom = useMemo(() => "/portal/app", []);
   const from = useMemo(() => safeInternalPath(fromRaw, defaultFrom), [fromRaw, defaultFrom]);
   const portalVariant = useMemo(() => (pathnameVariant === "credit" || from.startsWith("/credit") ? "credit" : "portal"), [from, pathnameVariant]);
   const apiBase = useMemo(() => (portalVariant === "credit" ? "/credit" : "/portal"), [portalVariant]);

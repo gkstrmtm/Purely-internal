@@ -3,6 +3,8 @@ import { prisma } from "@/lib/db";
 
 import { MODULE_KEYS } from "@/lib/entitlements.shared";
 import type { Entitlements } from "@/lib/entitlements.shared";
+import type { PortalVariant } from "@/lib/portalVariant";
+import { getPortalBillingModelForOwner } from "@/lib/portalBillingModel.server";
 
 export type { Entitlements, ModuleKey } from "@/lib/entitlements.shared";
 
@@ -22,6 +24,12 @@ function blankEntitlements(): Entitlements {
     crm: false,
     leadOutbound: false,
   };
+}
+
+function allEntitlements(): Entitlements {
+  const out = blankEntitlements();
+  for (const key of MODULE_KEYS) out[key] = true;
+  return out;
 }
 
 const OVERRIDES_SETUP_SLUG = "__portal_entitlement_overrides";
@@ -285,6 +293,21 @@ export async function resolveEntitlements(
       .catch(() => null));
 
   if (!resolvedOwnerId) return base;
+
+  // Credits-only billing: modules are unlocked and usage is billed via credits.
+  try {
+    const owner = await prisma.user
+      .findUnique({ where: { id: resolvedOwnerId }, select: { clientPortalVariant: true } })
+      .catch(() => null);
+    const portalVariant: PortalVariant = owner?.clientPortalVariant === "CREDIT" ? "credit" : "portal";
+    const billingModel = await getPortalBillingModelForOwner({ ownerId: resolvedOwnerId, portalVariant });
+    if (billingModel === "credits") {
+      const overrides = await entitlementsFromOverrides(resolvedOwnerId);
+      return { ...allEntitlements(), ...overrides };
+    }
+  } catch {
+    // Fall through to Stripe-based entitlements.
+  }
 
   const overrides = await entitlementsFromOverrides(resolvedOwnerId);
   return { ...base, ...overrides };

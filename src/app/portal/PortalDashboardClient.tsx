@@ -232,13 +232,18 @@ function AccentCard({
 }) {
   const a = accentForWidget(widgetId);
   return (
-    <div className={classNames("h-full overflow-hidden rounded-3xl border border-zinc-200 bg-white p-6 shadow-sm", a.ring)}>
+    <div
+      className={classNames(
+        "flex h-full flex-col overflow-hidden rounded-3xl border border-zinc-200 bg-white p-6 shadow-sm",
+        a.ring,
+      )}
+    >
       <div className={classNames("mb-4 h-1.5 w-14 rounded-full", a.bar)} />
       <div className="flex items-start justify-between gap-3">
         <div className="text-sm font-semibold text-zinc-900">{title}</div>
         {showHandle ? <div className="drag-handle cursor-grab select-none text-zinc-400">⋮⋮</div> : null}
       </div>
-      <div className="mt-3 text-sm text-zinc-700">{children}</div>
+      <div className="mt-3 min-h-0 flex-1 overflow-auto pr-1 text-sm text-zinc-700">{children}</div>
     </div>
   );
 }

@@ -123,17 +123,17 @@ function defaultDashboard(): PortalDashboardData {
       { id: "services" },
     ],
     layout: [
-      { i: "hoursSaved", x: 0, y: 0, w: 3, h: 7, minW: 3, minH: 5 },
-      { i: "billing", x: 3, y: 0, w: 3, h: 7, minW: 3, minH: 5 },
-      { i: "stripeSales", x: 6, y: 0, w: 3, h: 7, minW: 3, minH: 5 },
-      { i: "creditsRemaining", x: 9, y: 0, w: 3, h: 7, minW: 3, minH: 5 },
+      { i: "hoursSaved", x: 0, y: 0, w: 3, h: 8, minW: 3, minH: 6 },
+      { i: "billing", x: 3, y: 0, w: 3, h: 8, minW: 3, minH: 6 },
+      { i: "stripeSales", x: 6, y: 0, w: 3, h: 8, minW: 3, minH: 6 },
+      { i: "creditsRemaining", x: 9, y: 0, w: 3, h: 8, minW: 3, minH: 6 },
 
-      { i: "creditsRunway", x: 0, y: 7, w: 4, h: 9, minW: 3, minH: 6 },
-      { i: "successRate", x: 4, y: 7, w: 4, h: 9, minW: 3, minH: 6 },
-      { i: "failures", x: 8, y: 7, w: 4, h: 9, minW: 3, minH: 6 },
+      { i: "creditsRunway", x: 0, y: 8, w: 4, h: 10, minW: 3, minH: 8 },
+      { i: "successRate", x: 4, y: 8, w: 4, h: 10, minW: 3, minH: 8 },
+      { i: "failures", x: 8, y: 8, w: 4, h: 10, minW: 3, minH: 8 },
 
-      { i: "dailyActivity", x: 0, y: 16, w: 12, h: 14, minW: 6, minH: 10 },
-      { i: "services", x: 0, y: 30, w: 12, h: 10, minW: 6, minH: 8 },
+      { i: "dailyActivity", x: 0, y: 18, w: 12, h: 22, minW: 6, minH: 16 },
+      { i: "services", x: 0, y: 40, w: 12, h: 14, minW: 6, minH: 10 },
     ],
   };
 }

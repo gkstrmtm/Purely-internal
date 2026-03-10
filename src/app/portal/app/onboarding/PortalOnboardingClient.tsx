@@ -1,7 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { useEffect, useMemo, useState } from "react";
+
+import { AppModal } from "@/components/AppModal";
 
 type Status = {
   businessProfileComplete: boolean;
@@ -10,8 +13,25 @@ type Status = {
 };
 
 export function PortalOnboardingClient() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+
   const [status, setStatus] = useState<Status | null>(null);
   const [loading, setLoading] = useState(true);
+
+  const creditsAdded = useMemo(() => {
+    const raw = (searchParams?.get("creditsAdded") || "").trim();
+    if (!raw) return 0;
+    const n = Number(raw);
+    if (!Number.isFinite(n)) return 0;
+    return Math.max(0, Math.trunc(n));
+  }, [searchParams]);
+
+  const [creditsModalOpen, setCreditsModalOpen] = useState(false);
+
+  useEffect(() => {
+    if (creditsAdded > 0) setCreditsModalOpen(true);
+  }, [creditsAdded]);
 
   function withFromOnboarding(href: string) {
     if (!href) return href;
@@ -160,6 +180,33 @@ export function PortalOnboardingClient() {
           </button>
         </div>
       </div>
+
+      <AppModal
+        open={creditsModalOpen}
+        title="Starter credits added"
+        description={`We gave you ${creditsAdded} credits to get started.`}
+        onClose={() => {
+          setCreditsModalOpen(false);
+          router.replace("/portal/app/onboarding");
+        }}
+        widthClassName="w-[min(520px,calc(100vw-32px))]"
+        footer={
+          <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
+            <button
+              type="button"
+              className="rounded-2xl bg-[color:var(--color-brand-blue)] px-4 py-2 text-sm font-semibold text-white hover:opacity-95"
+              onClick={() => {
+                setCreditsModalOpen(false);
+                router.replace("/portal/app/onboarding");
+              }}
+            >
+              Continue
+            </button>
+          </div>
+        }
+      >
+        <div className="text-sm text-zinc-600">You can top up credits anytime in Billing.</div>
+      </AppModal>
     </div>
   );
 }

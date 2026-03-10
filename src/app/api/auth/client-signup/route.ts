@@ -29,7 +29,7 @@ const bodySchema = z.object({
   name: z.string().trim().min(2).max(120),
   email: z.string().trim().email(),
   phone: z.string().trim().max(32).optional(),
-  password: z.string().min(6).max(200),
+  password: z.string().min(8).max(200),
 
   businessName: z.string().trim().min(2).max(160),
   city: z.string().trim().min(2).max(120),
@@ -53,6 +53,32 @@ const bodySchema = z.object({
   selectedPlanQuantities: z.record(z.string(), z.number()).optional(),
   couponCode: z.string().trim().max(80).optional(),
 });
+
+function friendlySignupValidationError(issues: z.ZodIssue[]): string {
+  for (const issue of issues) {
+    const field = Array.isArray(issue.path) && issue.path.length ? String(issue.path[0]) : "";
+    if (field === "password") {
+      return "Password must be at least 8 characters.";
+    }
+    if (field === "email") {
+      return "Enter a valid email address.";
+    }
+    if (field === "name") {
+      return "Enter your name.";
+    }
+    if (field === "businessName") {
+      return "Enter your business name.";
+    }
+    if (field === "city") {
+      return "Enter your city.";
+    }
+    if (field === "state") {
+      return "Enter your state.";
+    }
+  }
+
+  return "Please check the form and try again.";
+}
 
 const ONBOARDING_SERVICE_SLUGS_TO_GUARD = [
   "inbox",
@@ -137,7 +163,10 @@ export async function POST(req: Request) {
   const json = await req.json().catch(() => null);
   const parsed = bodySchema.safeParse(json);
   if (!parsed.success) {
-    return NextResponse.json({ error: "Invalid payload" }, { status: 400 });
+    return NextResponse.json(
+      { error: friendlySignupValidationError(parsed.error.issues) },
+      { status: 400 },
+    );
   }
 
   const email = parsed.data.email.toLowerCase();
