@@ -52,12 +52,6 @@ prisma.$on("error", (e) => {
   console.error("[prisma error]", e.message);
 });
 
-function loadSqlFile(relPath) {
-  const p = path.join(process.cwd(), relPath);
-  if (!fs.existsSync(p)) throw new Error(`Missing SQL file: ${relPath}`);
-  return fs.readFileSync(p, "utf8");
-}
-
 async function verify() {
   const types = await prisma.$queryRawUnsafe(
     `SELECT t.typname

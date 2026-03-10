@@ -284,7 +284,7 @@ function SettingsSection({
   children: React.ReactNode;
 }) {
   return (
-    <div className="rounded-3xl border border-zinc-200 bg-white p-5">
+    <div className="rounded-3xl border border-zinc-200 bg-white p-5" data-accent={accent}>
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0">
           <div className="flex items-center gap-3">
@@ -745,7 +745,7 @@ export function PortalLeadScrapingClient() {
       window.clearTimeout(timeout);
       controller.abort();
     };
-  }, [aiCallsUnlocked]);
+  }, [aiCallsUnlocked, aiCampaigns, aiCampaignsBusy]);
 
   useEffect(() => {
     if (loading) return;

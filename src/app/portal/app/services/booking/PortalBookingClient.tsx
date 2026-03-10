@@ -71,14 +71,6 @@ type Booking = {
   canceledAt?: string | null;
 };
 
-type TwilioMasked = {
-  configured: boolean;
-  accountSidMasked: string | null;
-  fromNumberE164: string | null;
-  hasAuthToken: boolean;
-  updatedAtIso: string | null;
-};
-
 type EmailAttachmentRef = {
   mediaItemId: string;
   fileName: string;
@@ -405,7 +397,6 @@ export function PortalBookingClient() {
 
   const [reminderSettings, setReminderSettings] = useState<AppointmentReminderSettings | null>(null);
   const [reminderDraft, setReminderDraft] = useState<AppointmentReminderSettings | null>(null);
-  const [reminderTwilio, setReminderTwilio] = useState<TwilioMasked | null>(null);
   const [reminderEvents, setReminderEvents] = useState<AppointmentReminderEvent[]>([]);
   const [reminderSaving, setReminderSaving] = useState(false);
   const [reminderTemplateOpen, setReminderTemplateOpen] = useState(false);
@@ -644,7 +635,6 @@ export function PortalBookingClient() {
     const settings = ((remindersJson as any)?.settings as AppointmentReminderSettings) ?? null;
     setReminderSettings(settings);
     setReminderDraft(settings);
-    setReminderTwilio(((remindersJson as any)?.twilio as TwilioMasked) ?? null);
     setReminderEvents((((remindersJson as any)?.events as AppointmentReminderEvent[]) ?? []).slice(0, 50));
     setReminderBuiltinVariables((((remindersJson as any)?.builtinVariables as string[]) ?? []).slice(0, 50));
   }
@@ -716,7 +706,6 @@ export function PortalBookingClient() {
       const settings = ((remindersJson as any)?.settings as AppointmentReminderSettings) ?? null;
       setReminderSettings(settings);
       setReminderDraft(settings);
-      setReminderTwilio(((remindersJson as any)?.twilio as TwilioMasked) ?? null);
       setReminderEvents((((remindersJson as any)?.events as AppointmentReminderEvent[]) ?? []).slice(0, 50));
       setReminderBuiltinVariables((((remindersJson as any)?.builtinVariables as string[]) ?? []).slice(0, 50));
     }
@@ -820,7 +809,6 @@ export function PortalBookingClient() {
     const settings = ((body as any)?.settings as AppointmentReminderSettings) ?? next;
     setReminderSettings(settings);
     setReminderDraft(settings);
-    setReminderTwilio(((body as any)?.twilio as TwilioMasked) ?? null);
     setReminderEvents((((body as any)?.events as AppointmentReminderEvent[]) ?? []).slice(0, 50));
     setStatus("Saved appointment reminders");
   }

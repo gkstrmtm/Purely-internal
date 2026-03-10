@@ -24,6 +24,7 @@ type Settings = {
   systemPrompt: string;
 
   smsEnabled: boolean;
+  smsSystemPrompt: string;
   smsIncludeTagIds: string[];
   smsExcludeTagIds: string[];
 
@@ -299,7 +300,6 @@ export function PortalAiReceptionistClient() {
   const autoSyncedCallSidsRef = useRef<Set<string>>(new Set());
   const [generateContext, setGenerateContext] = useState("");
   const [generateBusy, setGenerateBusy] = useState(false);
-  const [contextBusy, setContextBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
 
@@ -349,7 +349,6 @@ export function PortalAiReceptionistClient() {
   const [twilioConfigured, setTwilioConfigured] = useState<boolean>(false);
 
   const [contactTags, setContactTags] = useState<ContactTag[]>([]);
-  const [contactTagsLoaded, setContactTagsLoaded] = useState(false);
   const [smsIncludeTagSearch, setSmsIncludeTagSearch] = useState("");
   const [smsExcludeTagSearch, setSmsExcludeTagSearch] = useState("");
   const [smsIncludeAddTagValue, setSmsIncludeAddTagValue] = useState("");
@@ -366,41 +365,7 @@ export function PortalAiReceptionistClient() {
   const [smsTestReason, setSmsTestReason] = useState<string | null>(null);
   const [smsTestReply, setSmsTestReply] = useState<string>("");
 
-  function formatQuickContext(profile: any): string {
-    const p = profile && typeof profile === "object" && !Array.isArray(profile) ? (profile as Record<string, any>) : null;
-    if (!p) return "";
-
-    const lines = [
-      p.businessName ? `Business name: ${String(p.businessName).trim()}` : "",
-      p.websiteUrl ? `Website: ${String(p.websiteUrl).trim()}` : "",
-      p.industry ? `Industry: ${String(p.industry).trim()}` : "",
-      p.businessModel ? `Business model: ${String(p.businessModel).trim()}` : "",
-      Array.isArray(p.primaryGoals) && p.primaryGoals.length ? `Primary goals: ${p.primaryGoals.map((x: any) => String(x)).join("; ")}` : "",
-      p.targetCustomer ? `Target customer: ${String(p.targetCustomer).trim()}` : "",
-      p.brandVoice ? `Brand voice: ${String(p.brandVoice).trim()}` : "",
-    ].filter(Boolean);
-
-    return lines.join("\n").trim();
-  }
-
-  async function getQuickContextFromBusinessProfile() {
-    if (contextBusy) return;
-    setContextBusy(true);
-    try {
-      const res = await fetch("/api/portal/business-profile", { cache: "no-store" }).catch(() => null as any);
-      if (!res?.ok) throw new Error("Unable to load Business Profile.");
-      const json = (await res.json().catch(() => null)) as any;
-      if (!json?.ok) throw new Error(json?.error || "Unable to load Business Profile.");
-      const ctx = formatQuickContext(json?.profile);
-      if (!ctx) throw new Error("Business Profile is empty. Add details in Business Profile, then try again.");
-      setGenerateContext(ctx);
-      toast.success("Loaded quick context");
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Unable to load quick context");
-    } finally {
-      setContextBusy(false);
-    }
-  }
+  const [smsPromptBusy, setSmsPromptBusy] = useState<boolean>(false);
 
   async function generateReceptionistCopy() {
     if (!settings) return;
@@ -429,6 +394,34 @@ export function PortalAiReceptionistClient() {
       setError(e instanceof Error ? e.message : "Failed to generate");
     } finally {
       setGenerateBusy(false);
+    }
+  }
+
+  async function generateSmsSystemPrompt() {
+    if (!settings) return;
+    if (smsPromptBusy) return;
+    setSmsPromptBusy(true);
+    try {
+      const res = await fetch("/api/portal/ai-receptionist/generate-sms-system-prompt", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ context: generateContext }),
+      }).catch(() => null as any);
+
+      if (!res?.ok) {
+        const rawError = res ? await readJsonError(res) : null;
+        throw new Error(rawError || "Failed to generate");
+      }
+
+      const json = (await res.json().catch(() => null)) as any;
+      if (!json?.ok || typeof json.smsSystemPrompt !== "string") throw new Error(json?.error || "Failed to generate");
+
+      setSettings({ ...settings, smsSystemPrompt: json.smsSystemPrompt });
+      toast.success("Generated SMS prompt");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to generate");
+    } finally {
+      setSmsPromptBusy(false);
     }
   }
 
@@ -466,7 +459,6 @@ export function PortalAiReceptionistClient() {
     const json = (await res?.json?.().catch(() => null)) as any;
     if (res?.ok && json?.ok === true && Array.isArray(json.tags)) {
       setContactTags(json.tags as ContactTag[]);
-      setContactTagsLoaded(true);
     }
   }, []);
 
@@ -1036,6 +1028,7 @@ export function PortalAiReceptionistClient() {
                   <div className="mt-0.5 text-xs text-zinc-600">
                     When enabled, inbound texts to your Twilio number can get an AI reply.
                   </div>
+                  <div className="mt-1 text-xs text-zinc-600">SMS activity will show up in your Inbox/Outbox.</div>
                 </div>
                 <span className="relative inline-flex h-6 w-11 shrink-0 items-center">
                   <input
@@ -1049,6 +1042,50 @@ export function PortalAiReceptionistClient() {
                   <span className="pointer-events-none absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow-sm transition peer-checked:translate-x-5" />
                 </span>
               </label>
+
+              <div className="rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm sm:col-span-2">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="min-w-0">
+                    <div className="text-xs font-semibold text-zinc-600">SMS system prompt</div>
+                    <div className="mt-1 text-xs text-zinc-600">
+                      Used only for inbound SMS auto-replies. If blank, we’ll fall back to the main System prompt.
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    disabled={!settings || saving || smsPromptBusy}
+                    onClick={() => void generateSmsSystemPrompt()}
+                    className={classNames(
+                      "inline-flex items-center justify-center gap-2 rounded-2xl px-4 py-2 text-xs font-semibold text-white shadow-sm",
+                      !settings || saving || smsPromptBusy
+                        ? "bg-zinc-400"
+                        : "bg-linear-to-r from-[color:var(--color-brand-blue)] via-violet-500 to-[color:var(--color-brand-pink)] hover:opacity-90",
+                    )}
+                  >
+                    <svg
+                      aria-hidden="true"
+                      viewBox="0 0 24 24"
+                      className="h-4 w-4"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    >
+                      <path d="M12 2l1.5 5.5L19 9l-5.5 1.5L12 16l-1.5-5.5L5 9l5.5-1.5L12 2z" />
+                      <path d="M19 14l.8 2.6L22 17l-2.2.4L19 20l-.8-2.6L16 17l2.2-.4L19 14z" />
+                    </svg>
+                    <span>{smsPromptBusy ? "Working…" : "Ask AI"}</span>
+                  </button>
+                </div>
+
+                <textarea
+                  className="mt-3 min-h-[150px] w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                  value={settings?.smsSystemPrompt ?? ""}
+                  onChange={(e) => settings && setSettings({ ...settings, smsSystemPrompt: e.target.value })}
+                  placeholder="Write how the AI should respond via SMS…"
+                />
+              </div>
 
               <div className="rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm sm:col-span-2">
                 <div className="text-xs font-semibold text-zinc-600">Only reply to contacts with these tags (optional)</div>

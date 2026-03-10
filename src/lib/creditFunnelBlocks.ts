@@ -1,5 +1,6 @@
 import React from "react";
 
+import { ConvaiChatWidget } from "@/components/ConvaiChatWidget";
 import { inlineMarkdownToHtmlSafe, parseBlogContent } from "@/lib/blog";
 import { coerceFontFamily, coerceGoogleFamily, googleFontImportCss } from "@/lib/fontPresets";
 
@@ -45,6 +46,8 @@ export type CreditFunnelBlock =
         primaryColor?: string;
         launcherStyle?: "bubble" | "dots" | "spark";
         launcherImageUrl?: string;
+        placementX?: "left" | "center" | "right";
+        placementY?: "top" | "middle" | "bottom";
         style?: BlockStyle;
       };
     }
@@ -349,6 +352,10 @@ function coerceBlocksJsonInternal(value: unknown, depth: number): CreditFunnelBl
       const primaryColor = coerceCssColor((props as any)?.primaryColor);
       const launcherStyle = (props as any)?.launcherStyle === "dots" ? "dots" : (props as any)?.launcherStyle === "spark" ? "spark" : "bubble";
       const launcherImageUrl = coerceCssUrl((props as any)?.launcherImageUrl);
+      const placementXRaw = typeof (props as any)?.placementX === "string" ? String((props as any).placementX).trim().toLowerCase() : "";
+      const placementYRaw = typeof (props as any)?.placementY === "string" ? String((props as any).placementY).trim().toLowerCase() : "";
+      const placementX = (placementXRaw === "left" || placementXRaw === "center" || placementXRaw === "right") ? (placementXRaw as any) : undefined;
+      const placementY = (placementYRaw === "top" || placementYRaw === "middle" || placementYRaw === "bottom") ? (placementYRaw as any) : undefined;
       const style = coerceStyle(props?.style);
       out.push({
         id,
@@ -358,6 +365,8 @@ function coerceBlocksJsonInternal(value: unknown, depth: number): CreditFunnelBl
           ...(primaryColor ? { primaryColor } : {}),
           launcherStyle,
           ...(launcherImageUrl ? { launcherImageUrl } : {}),
+          ...(placementX ? { placementX } : {}),
+          ...(placementY ? { placementY } : {}),
           style,
         },
       });
@@ -756,6 +765,12 @@ export function renderCreditFunnelBlocks({
     return {
       "data-block-id": id,
       className: "relative",
+      onMouseDownCapture: (e: any) => {
+        // Always select on click/tap, even if the target is an interactive widget.
+        // Don't preventDefault/stopPropagation so the widget remains usable.
+        if (typeof e?.button === "number" && e.button !== 0) return;
+        editor?.onSelectBlockId?.(id);
+      },
       onClick: (e: any) => {
         if (isInteractiveTarget(e?.target)) return;
         e.preventDefault?.();
@@ -899,16 +914,12 @@ export function renderCreditFunnelBlocks({
       if (b.type === "chatbot") {
         const agentId = typeof b.props.agentId === "string" ? b.props.agentId.trim() : "";
 
+        const placementX = (b.props as any)?.placementX || "right";
+        const placementY = (b.props as any)?.placementY || "bottom";
+
         if (!agentId && !isEditor) return null;
 
         if (isEditor) {
-          const previewSrcDoc = agentId
-            ? `<!doctype html><html><head><meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" /></head><body style="margin:0;padding:0;min-height:100vh;">
-<script async src="https://unpkg.com/@elevenlabs/convai-widget-embed"></script>
-<elevenlabs-convai agent-id="${escapeHtmlAttr(agentId)}" variant="full" placement="bottom-right" always-expanded default-expanded></elevenlabs-convai>
-</body></html>`
-            : "";
-
           return React.createElement(
             "div",
             {
@@ -932,26 +943,31 @@ export function renderCreditFunnelBlocks({
               ),
               React.createElement(
                 "div",
-                { "data-funnel-editor-interactive": "true", className: "p-0" },
+                { "data-funnel-editor-interactive": "true", className: "relative h-[560px] bg-white" },
                 !agentId
                   ? React.createElement(
                       "div",
                       { className: "px-4 py-8 text-sm text-zinc-600" },
                       "Set an Agent ID in the sidebar to preview and test your chat widget here.",
                     )
-                  : React.createElement("iframe", {
-                      title: "Chatbot preview",
-                      srcDoc: previewSrcDoc,
-                      className: "w-full bg-white",
-                      style: { height: 520 },
-                      sandbox: "allow-scripts allow-forms allow-popups",
-                      allow: "microphone; autoplay",
+                  : React.createElement(ConvaiChatWidget, {
+                      agentId,
+                      signedUrlEndpoint: "/api/portal/elevenlabs/convai/signed-url",
+                      positioning: "absolute",
+                      placementX,
+                      placementY,
+                      primaryColor: (b.props as any)?.primaryColor,
+                      launcherStyle: (b.props as any)?.launcherStyle,
+                      launcherImageUrl: (b.props as any)?.launcherImageUrl,
+                      panelTitle: "Chat",
+                      panelSubtitle: "Message us",
                     }),
               ),
             ),
           );
         }
 
+        // In runtime (public funnel), render our custom widget, positioned fixed.
         return React.createElement(
           "div",
           {
@@ -959,15 +975,18 @@ export function renderCreditFunnelBlocks({
             style: { ...wrapperStyle(b.props.style), ...(blockWrapStyle(b.id) || {}) },
             ...wrapProps(b.id),
           },
-          React.createElement(
-            "div",
-            { className: "rounded-2xl border border-zinc-200 bg-white p-4" },
-            React.createElement("script", {
-              async: true,
-              src: "https://unpkg.com/@elevenlabs/convai-widget-embed",
-            }),
-            React.createElement("elevenlabs-convai", { "agent-id": agentId }),
-          ),
+          React.createElement(ConvaiChatWidget, {
+            agentId,
+            signedUrlEndpoint: "/api/public/elevenlabs/convai/signed-url",
+            positioning: "fixed",
+            placementX,
+            placementY,
+            primaryColor: (b.props as any)?.primaryColor,
+            launcherStyle: (b.props as any)?.launcherStyle,
+            launcherImageUrl: (b.props as any)?.launcherImageUrl,
+            panelTitle: "Chat",
+            panelSubtitle: "Message us",
+          }),
         );
       }
 

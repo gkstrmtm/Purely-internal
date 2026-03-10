@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import { useMemo, useState } from "react";
 
 import { useToast } from "@/components/ToastProvider";
@@ -16,7 +16,6 @@ function safeInternalPath(raw: string | null | undefined, fallback: string) {
 }
 
 export default function PortalLoginClient() {
-  const router = useRouter();
   const pathname = usePathname() || "";
   const searchParams = useSearchParams();
   const toast = useToast();

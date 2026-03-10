@@ -129,7 +129,6 @@ export function PortalBlogsClient({
   }, [error, toast]);
 
   const [credits, setCredits] = useState<number | null>(null);
-  const [billingPath, setBillingPath] = useState<string>("/portal/app/billing");
   const [blogCreditsUsed30d, setBlogCreditsUsed30d] = useState<number | null>(null);
   const [blogGenerations30d, setBlogGenerations30d] = useState<number | null>(null);
   const [generatingNow, setGeneratingNow] = useState(false);
@@ -274,11 +273,6 @@ export function PortalBlogsClient({
 
       if (creditsRes.ok) {
         setCredits(typeof creditsJson.credits === "number" && Number.isFinite(creditsJson.credits) ? creditsJson.credits : 0);
-        setBillingPath(
-          typeof creditsJson.billingPath === "string" && creditsJson.billingPath.trim()
-            ? creditsJson.billingPath
-            : "/portal/app/billing",
-        );
       }
 
       if (usageRes.ok) {

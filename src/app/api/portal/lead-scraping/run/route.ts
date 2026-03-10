@@ -1111,7 +1111,6 @@ export async function POST(req: Request) {
 
     // Keep real error out of the client/UI, but log it for debugging.
     try {
-      // eslint-disable-next-line no-console
       console.error("[portal][lead-scraping][run][B2B] failed", {
         ownerId,
         runId: run.id,

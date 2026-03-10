@@ -35,6 +35,7 @@ export type AiReceptionistSettings = {
 
   // Inbound SMS auto-replies (separate from voice calls).
   smsEnabled: boolean;
+  smsSystemPrompt: string;
   // If include list is non-empty, only contacts with ANY included tag will get a reply.
   smsIncludeTagIds: string[];
   // If exclude list matches ANY tag, do not reply.
@@ -114,6 +115,7 @@ export function parseAiReceptionistSettings(
       "You are a helpful receptionist. Answer questions casually and clearly, and keep a friendly tone. If appropriate, capture lead details (name, email, phone) and help book an appointment. Be concise.",
 
     smsEnabled: false,
+    smsSystemPrompt: "",
     smsIncludeTagIds: [],
     smsExcludeTagIds: [],
 
@@ -138,6 +140,9 @@ export function parseAiReceptionistSettings(
     typeof rec.aiCanTransferToHuman === "boolean" ? rec.aiCanTransferToHuman : base.aiCanTransferToHuman;
 
   const smsEnabled = typeof (rec as any).smsEnabled === "boolean" ? Boolean((rec as any).smsEnabled) : base.smsEnabled;
+  const smsSystemPrompt = typeof (rec as any).smsSystemPrompt === "string"
+    ? String((rec as any).smsSystemPrompt).trim().slice(0, MAX_PROMPT_LEN)
+    : base.smsSystemPrompt;
 
   const normalizeTagIds = (value: unknown): string[] => {
     const raw = Array.isArray(value) ? value : [];
@@ -194,6 +199,7 @@ export function parseAiReceptionistSettings(
     systemPrompt: systemPrompt || base.systemPrompt,
 
     smsEnabled,
+    smsSystemPrompt,
     smsIncludeTagIds,
     smsExcludeTagIds,
     aiCanTransferToHuman,

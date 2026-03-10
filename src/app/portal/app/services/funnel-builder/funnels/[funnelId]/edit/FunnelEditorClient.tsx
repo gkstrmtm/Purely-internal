@@ -897,10 +897,8 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                       disabled={busy || !selectedPage}
                       onClick={() => void setEditorMode("CUSTOM_HTML")}
                       className={classNames(
-                        "inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-sm font-semibold disabled:opacity-60",
-                        selectedPage?.editorMode === "CUSTOM_HTML"
-                          ? "border-transparent bg-linear-to-r from-[color:var(--color-brand-blue)] via-violet-500 to-[color:var(--color-brand-pink)] text-white shadow-sm hover:opacity-90"
-                          : "border-transparent bg-linear-to-r from-[color:var(--color-brand-blue)] via-violet-500 to-[color:var(--color-brand-pink)] text-white shadow-sm hover:opacity-90",
+                        "inline-flex items-center gap-2 rounded-2xl px-3 py-2 text-sm font-semibold text-white disabled:opacity-60",
+                        "bg-linear-to-r from-[color:var(--color-brand-blue)] via-violet-500 to-[color:var(--color-brand-pink)] hover:opacity-90 shadow-sm",
                       )}
                     >
                       <AiSparkIcon className="h-4 w-4" />
@@ -1757,17 +1755,8 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
     [captureSnapshot, getPageHistory, selectedPage],
   );
 
-  const canUndo = useMemo(() => {
-    const id = selectedPage?.id;
-    if (!id) return false;
-    return getPageHistory(id).undo.length > 0;
-  }, [getPageHistory, historyTick, selectedPage?.id]);
-
-  const canRedo = useMemo(() => {
-    const id = selectedPage?.id;
-    if (!id) return false;
-    return getPageHistory(id).redo.length > 0;
-  }, [getPageHistory, historyTick, selectedPage?.id]);
+  const canUndo = Boolean(selectedPage?.id && historyTick >= 0 && getPageHistory(selectedPage.id).undo.length > 0);
+  const canRedo = Boolean(selectedPage?.id && historyTick >= 0 && getPageHistory(selectedPage.id).redo.length > 0);
 
   const applySnapshot = useCallback(
     (pageId: string, snap: PageHistorySnapshot) => {
@@ -1825,6 +1814,10 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
     setCustomCodeBlockPrompt("");
   }, [selectedBlockId]);
 
+  const removeBlockRef = useRef<(blockId: string) => void>(() => {
+    // no-op until initialized
+  });
+
   useEffect(() => {
     const isTextInputLike = (el: Element | null) => {
       if (!el) return false;
@@ -1843,7 +1836,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
       if (e.key !== "Backspace" && e.key !== "Delete") return;
       if (isTextInputLike(document.activeElement)) return;
       e.preventDefault();
-      removeBlock(selectedBlockId);
+      removeBlockRef.current(selectedBlockId);
     };
 
     window.addEventListener("keydown", onKeyDown);
@@ -2237,7 +2230,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
     return `b_${Math.random().toString(36).slice(2)}_${Date.now()}`;
   };
 
-  const setSelectedPageLocal = (patch: Partial<Page>) => {
+  const setSelectedPageLocal = useCallback((patch: Partial<Page>) => {
     if (!selectedPage) return;
 
     const actionKey =
@@ -2257,7 +2250,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
     setPages((prev) =>
       (prev || []).map((p) => (p.id === selectedPage.id ? ({ ...p, ...patch } as Page) : p)),
     );
-  };
+  }, [pushUndoSnapshot, selectedPage]);
 
   const load = async () => {
     setError(null);
@@ -2643,6 +2636,8 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                                 agentId: String(aiReceptionistVoiceAgentId || "").trim(),
                                 primaryColor: "#1d4ed8",
                                 launcherStyle: "bubble",
+                                placementX: "right",
+                                placementY: "bottom",
                               },
                             }
                           : { id, type: "spacer", props: { height: 24 } };
@@ -2804,12 +2799,14 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
     setSelectedBlockId(blocks[0].id);
   };
 
-  const removeBlock = (blockId: string) => {
+  const removeBlock = useCallback((blockId: string) => {
     if (!selectedPage) return;
     const nextEditable = removeBlockFromTree(editableBlocks, blockId);
     setSelectedPageLocal({ blocksJson: pageSettingsBlock ? [pageSettingsBlock, ...nextEditable] : nextEditable });
     if (selectedBlockId === blockId) setSelectedBlockId(null);
-  };
+  }, [editableBlocks, pageSettingsBlock, removeBlockFromTree, selectedBlockId, selectedPage, setSelectedPageLocal]);
+
+  removeBlockRef.current = removeBlock;
 
   const reorderBlocks = (dragId: string, dropId: string) => {
     if (dragId === dropId) return;
@@ -4003,6 +4000,73 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
 
                       {selectedBlock.type === "chatbot" ? (
                         <div className="space-y-2">
+                          {(() => {
+                            const placementX = String((selectedBlock.props as any).placementX || "right").trim();
+                            const placementY = String((selectedBlock.props as any).placementY || "bottom").trim();
+
+                            const btnCls = (active: boolean) =>
+                              classNames(
+                                "px-3 py-2 text-xs font-semibold",
+                                active ? "bg-zinc-900 text-white" : "bg-white text-zinc-800 hover:bg-zinc-50",
+                              );
+
+                            return (
+                              <>
+                                <label className="block">
+                                  <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Placement (horizontal)</div>
+                                  <div className="inline-flex overflow-hidden rounded-xl border border-zinc-200 bg-white">
+                                    {([
+                                      { v: "left", label: "Left" },
+                                      { v: "center", label: "Center" },
+                                      { v: "right", label: "Right" },
+                                    ] as const).map((opt) => (
+                                      <button
+                                        key={opt.v}
+                                        type="button"
+                                        disabled={busy}
+                                        onClick={() =>
+                                          upsertBlock({
+                                            ...selectedBlock,
+                                            props: { ...(selectedBlock.props as any), placementX: opt.v },
+                                          } as any)
+                                        }
+                                        className={btnCls(placementX === opt.v)}
+                                      >
+                                        {opt.label}
+                                      </button>
+                                    ))}
+                                  </div>
+                                </label>
+
+                                <label className="block">
+                                  <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Placement (vertical)</div>
+                                  <div className="inline-flex overflow-hidden rounded-xl border border-zinc-200 bg-white">
+                                    {([
+                                      { v: "top", label: "Top" },
+                                      { v: "middle", label: "Middle" },
+                                      { v: "bottom", label: "Bottom" },
+                                    ] as const).map((opt) => (
+                                      <button
+                                        key={opt.v}
+                                        type="button"
+                                        disabled={busy}
+                                        onClick={() =>
+                                          upsertBlock({
+                                            ...selectedBlock,
+                                            props: { ...(selectedBlock.props as any), placementY: opt.v },
+                                          } as any)
+                                        }
+                                        className={btnCls(placementY === opt.v)}
+                                      >
+                                        {opt.label}
+                                      </button>
+                                    ))}
+                                  </div>
+                                </label>
+                              </>
+                            );
+                          })()}
+
                           <label className="block">
                             <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Agent ID</div>
                             <input
@@ -4079,7 +4143,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                               className="w-full"
                               buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
                             />
-                            <div className="mt-1 text-[11px] text-zinc-500">Some launcher styling options may depend on the provider widget.</div>
+                            <div className="mt-1 text-[11px] text-zinc-500">Affects the launcher icon when no image is set.</div>
                           </label>
 
                           <label className="block">
@@ -4087,6 +4151,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
 
                             {String((selectedBlock.props as any).launcherImageUrl || "").trim() ? (
                               <div className="mb-2 flex items-center gap-2">
+                                {/* eslint-disable-next-line @next/next/no-img-element */}
                                 <img
                                   alt="Launcher image preview"
                                   src={String((selectedBlock.props as any).launcherImageUrl || "").trim()}
@@ -5214,13 +5279,15 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                           />
                         ) : null}
 
-                        <ColorPickerField
-                          label="Background"
-                          value={selectedBlock.props.style?.backgroundColor}
-                          onChange={(v) => updateSelectedBlockStyle({ backgroundColor: v })}
-                          swatches={colorSwatches}
-                          allowAlpha
-                        />
+                        {selectedBlock.type !== "customCode" ? (
+                          <ColorPickerField
+                            label="Background"
+                            value={selectedBlock.props.style?.backgroundColor}
+                            onChange={(v) => updateSelectedBlockStyle({ backgroundColor: v })}
+                            swatches={colorSwatches}
+                            allowAlpha
+                          />
+                        ) : null}
 
                         {selectedBlock.type === "section" ? (
                           <label className="block">
@@ -5261,10 +5328,12 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                           </label>
                         ) : null}
 
-                        <AlignPicker
-                          value={selectedBlock.props.style?.align}
-                          onChange={(v) => updateSelectedBlockStyle({ align: v })}
-                        />
+                        {selectedBlock.type !== "customCode" ? (
+                          <AlignPicker
+                            value={selectedBlock.props.style?.align}
+                            onChange={(v) => updateSelectedBlockStyle({ align: v })}
+                          />
+                        ) : null}
 
                         <PaddingPicker
                           label="Margin top"

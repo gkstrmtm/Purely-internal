@@ -586,7 +586,6 @@ async function runB2BForOwner(ownerId: string, settingsJson: unknown, baseUrl: s
 
     // Keep real error out of portal notifications; log it for debugging.
     try {
-      // eslint-disable-next-line no-console
       console.error("[portal][lead-scraping][cron][B2B] failed", {
         ownerId,
         runId: run.id,

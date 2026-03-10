@@ -182,7 +182,8 @@ export async function POST(req: Request) {
     }
 
     const businessName = typeof s.businessName === "string" ? s.businessName.trim() : "";
-    const basePrompt = typeof s.systemPrompt === "string" ? s.systemPrompt.trim() : "";
+    const smsPrompt = typeof s.smsSystemPrompt === "string" ? s.smsSystemPrompt.trim() : "";
+    const basePrompt = smsPrompt || (typeof s.systemPrompt === "string" ? s.systemPrompt.trim() : "");
 
     const system = [
       basePrompt || "You are a helpful receptionist.",
