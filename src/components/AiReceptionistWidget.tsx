@@ -293,7 +293,12 @@ export function AiReceptionistWidget() {
   // Customer-facing widget:
   // - show on marketing pages and /portal
   // - never show inside /portal/app (portal app has its own Chat + Report tools)
-  const hidden = pathname.startsWith("/portal/app") || pathname === "/login" || pathname === "/ads/login" || pathname.startsWith("/ads/app");
+  const hidden =
+    pathname.startsWith("/portal/app") ||
+    pathname.startsWith("/credit/app") ||
+    pathname === "/login" ||
+    pathname === "/ads/login" ||
+    pathname.startsWith("/ads/app");
 
   const phone = process.env.NEXT_PUBLIC_AI_RECEPTIONIST_PHONE || "980-238-3381";
   const telHref = useMemo(() => toTelHref(phone), [phone]);
