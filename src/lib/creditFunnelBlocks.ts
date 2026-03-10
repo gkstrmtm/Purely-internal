@@ -34,6 +34,22 @@ export type CreditFunnelBlock =
     }
   | {
       id: string;
+      type: "customCode";
+      props: { html: string; css?: string; heightPx?: number; style?: BlockStyle };
+    }
+  | {
+      id: string;
+      type: "chatbot";
+      props: {
+        agentId?: string;
+        primaryColor?: string;
+        launcherStyle?: "bubble" | "dots" | "spark";
+        launcherImageUrl?: string;
+        style?: BlockStyle;
+      };
+    }
+  | {
+      id: string;
       type: "heading";
       props: { text: string; html?: string; level?: 1 | 2 | 3; style?: BlockStyle };
     }
@@ -304,6 +320,35 @@ function coerceBlocksJsonInternal(value: unknown, depth: number): CreditFunnelBl
     if (type === "page") {
       const style = coerceStyle(props?.style);
       out.push({ id, type, props: { style } });
+      continue;
+    }
+
+    if (type === "customCode") {
+      const html = typeof props?.html === "string" ? props.html.slice(0, 50000) : "";
+      const css = typeof props?.css === "string" ? props.css.slice(0, 50000) : "";
+      const heightPx = clampNum((props as any)?.heightPx, 120, 2000);
+      const style = coerceStyle(props?.style);
+      out.push({ id, type, props: { html, css: css || undefined, heightPx, style } });
+      continue;
+    }
+
+    if (type === "chatbot") {
+      const agentId = typeof props?.agentId === "string" ? props.agentId.trim().slice(0, 120) : "";
+      const primaryColor = coerceCssColor((props as any)?.primaryColor);
+      const launcherStyle = (props as any)?.launcherStyle === "dots" ? "dots" : (props as any)?.launcherStyle === "spark" ? "spark" : "bubble";
+      const launcherImageUrl = coerceCssUrl((props as any)?.launcherImageUrl);
+      const style = coerceStyle(props?.style);
+      out.push({
+        id,
+        type,
+        props: {
+          ...(agentId ? { agentId } : {}),
+          ...(primaryColor ? { primaryColor } : {}),
+          launcherStyle,
+          ...(launcherImageUrl ? { launcherImageUrl } : {}),
+          style,
+        },
+      });
       continue;
     }
 
@@ -770,6 +815,109 @@ export function renderCreditFunnelBlocks({
   const renderBlocksInner: (inner: CreditFunnelBlock[]) => React.ReactNode[] = (inner) =>
     inner.map((b) => {
       if (b.type === "page") return null;
+
+      if (b.type === "customCode") {
+        const html = String(b.props.html || "");
+        const css = String(b.props.css || "");
+        const height = typeof b.props.heightPx === "number" ? b.props.heightPx : 360;
+        const srcDoc = `<!doctype html><html><head><meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />${css.trim() ? `<style>${css}</style>` : ""}</head><body>${html}</body></html>`;
+
+        if (!html.trim() && !isEditor) return null;
+
+        return React.createElement(
+          "div",
+          {
+            key: b.id,
+            style: { ...wrapperStyle(b.props.style), ...(blockWrapStyle(b.id) || {}), position: "relative" },
+            ...wrapProps(b.id),
+          },
+          renderMoveControls(b.id),
+          !html.trim() && isEditor
+            ? React.createElement(
+                "div",
+                {
+                  className:
+                    "rounded-2xl border border-dashed border-zinc-300 bg-zinc-50 px-4 py-10 text-center text-sm text-zinc-600",
+                },
+                "Custom code block: select it to add HTML and CSS.",
+              )
+            : isEditor
+              ? React.createElement(
+                  "div",
+                  { style: { position: "relative" } },
+                  React.createElement("iframe", {
+                    title: "Custom code",
+                    srcDoc,
+                    className: "w-full rounded-2xl border border-zinc-200 bg-white",
+                    style: { height },
+                    sandbox: "allow-forms allow-popups allow-scripts",
+                  }),
+                  React.createElement("div", {
+                    style: {
+                      position: "absolute",
+                      inset: 0,
+                      cursor: "pointer",
+                      background: "transparent",
+                    },
+                  }),
+                )
+              : React.createElement("iframe", {
+                  title: "Custom code",
+                  srcDoc,
+                  className: "w-full rounded-2xl border border-zinc-200 bg-white",
+                  style: { height },
+                  sandbox: "allow-forms allow-popups allow-scripts",
+                }),
+        );
+      }
+
+      if (b.type === "chatbot") {
+        const agentId = typeof b.props.agentId === "string" ? b.props.agentId.trim() : "";
+
+        if (!agentId && !isEditor) return null;
+
+        if (isEditor) {
+          return React.createElement(
+            "div",
+            {
+              key: b.id,
+              style: { ...wrapperStyle(b.props.style), ...(blockWrapStyle(b.id) || {}) },
+              ...wrapProps(b.id),
+            },
+            renderMoveControls(b.id),
+            React.createElement(
+              "div",
+              { className: "rounded-2xl border border-zinc-200 bg-white p-4" },
+              React.createElement("div", { className: "text-sm font-semibold text-zinc-900" }, "Chatbot"),
+              React.createElement(
+                "div",
+                { className: "mt-1 text-sm text-zinc-600" },
+                agentId
+                  ? "This block enables a chat widget on your funnel. Switch to Preview to test it."
+                  : "Select this block to configure your chat widget.",
+              ),
+            ),
+          );
+        }
+
+        return React.createElement(
+          "div",
+          {
+            key: b.id,
+            style: { ...wrapperStyle(b.props.style), ...(blockWrapStyle(b.id) || {}) },
+            ...wrapProps(b.id),
+          },
+          React.createElement(
+            "div",
+            { className: "rounded-2xl border border-zinc-200 bg-white p-4" },
+            React.createElement("script", {
+              async: true,
+              src: "https://unpkg.com/@elevenlabs/convai-widget-embed",
+            }),
+            React.createElement("elevenlabs-convai", { "agent-id": agentId }),
+          ),
+        );
+      }
 
       if (b.type === "heading") {
         const Tag =

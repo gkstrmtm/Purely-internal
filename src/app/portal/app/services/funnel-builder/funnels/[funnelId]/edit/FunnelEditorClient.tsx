@@ -825,9 +825,9 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                       disabled={busy || !selectedPage}
                       onClick={() => void setEditorMode("CUSTOM_HTML")}
                       className={classNames(
-                        "inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-sm font-semibold",
+                        "inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-sm font-semibold disabled:opacity-60",
                         selectedPage?.editorMode === "CUSTOM_HTML"
-                          ? "border-[color:var(--color-brand-blue)] bg-blue-50 text-blue-800"
+                          ? "border-transparent bg-linear-to-r from-[color:var(--color-brand-blue)] via-violet-500 to-[color:var(--color-brand-pink)] text-white shadow-sm hover:opacity-90"
                           : "border-zinc-200 bg-white text-zinc-900 hover:bg-zinc-50",
                       )}
                     >
@@ -1572,7 +1572,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
 
   const [previewDevice, setPreviewDevice] = useState<"desktop" | "mobile">("desktop");
   const [sidebarPanel, setSidebarPanel] = useState<
-    "presets" | "text" | "layout" | "forms" | "media" | "page" | "selected"
+    "presets" | "text" | "layout" | "forms" | "media" | "ai" | "page" | "selected"
   >("presets");
 
   const [dialog, setDialog] = useState<FunnelEditorDialog>(null);
@@ -1613,6 +1613,8 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
 
   const [brandSwatches, setBrandSwatches] = useState<string[]>([]);
 
+  const [aiReceptionistVoiceAgentId, setAiReceptionistVoiceAgentId] = useState<string | null>(null);
+
   const [bookingCalendars, setBookingCalendars] = useState<BookingCalendarLite[]>([]);
   const [bookingSiteSlug, setBookingSiteSlug] = useState<string | null>(null);
 
@@ -1635,7 +1637,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
 
   const [mediaPickerOpen, setMediaPickerOpen] = useState(false);
   const [mediaPickerTarget, setMediaPickerTarget] = useState<
-    null | { type: "ai" } | { type: "image-block"; blockId: string }
+    null | { type: "ai" } | { type: "image-block"; blockId: string } | { type: "chatbot-launcher"; blockId: string }
   >(null);
   const [aiAttachments, setAiAttachments] = useState<AiAttachment[]>([]);
 
@@ -1654,6 +1656,28 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
           .map((x) => (typeof x === "string" ? x.trim() : ""))
           .filter((x) => isHexColor(x));
         if (!cancelled) setBrandSwatches(values);
+      } catch {
+        // ignore
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [portalVariant]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    void (async () => {
+      try {
+        const res = await fetch("/api/portal/ai-receptionist/settings", {
+          cache: "no-store",
+          headers: { [PORTAL_VARIANT_HEADER]: portalVariant },
+        });
+        const json = (await res.json().catch(() => null)) as any;
+        const id = typeof json?.settings?.voiceAgentId === "string" ? json.settings.voiceAgentId.trim() : "";
+        if (!cancelled) setAiReceptionistVoiceAgentId(id || null);
       } catch {
         // ignore
       }
@@ -2333,7 +2357,19 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                             stackOnMobile: true,
                           },
                         }
-                    : { id, type: "spacer", props: { height: 24 } };
+                      : type === "customCode"
+                        ? { id, type, props: { html: "", css: "", heightPx: 360 } }
+                        : type === "chatbot"
+                          ? {
+                              id,
+                              type,
+                              props: {
+                                agentId: String(aiReceptionistVoiceAgentId || "").trim(),
+                                primaryColor: "#1d4ed8",
+                                launcherStyle: "bubble",
+                              },
+                            }
+                          : { id, type: "spacer", props: { height: 24 } };
 
     const selectedContainer = selectedBlockId ? findContainerForBlock(editableBlocks, selectedBlockId) : null;
     const nextEditable = (() => {
@@ -2698,6 +2734,21 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                 alt: (block.props.alt || "").trim() ? block.props.alt : it.fileName,
               },
             });
+            return;
+          }
+
+          if (target.type === "chatbot-launcher") {
+            const block = findBlockInTree(editableBlocks, target.blockId)?.block;
+            if (!block || block.type !== "chatbot") return;
+            const nextUrl = String(it.shareUrl || it.previewUrl || "").trim();
+            if (!nextUrl) return;
+            upsertBlock({
+              ...block,
+              props: {
+                ...(block.props as any),
+                launcherImageUrl: nextUrl,
+              },
+            } as any);
           }
         }}
       />
@@ -3008,6 +3059,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                     { key: "layout", label: "Layout" },
                     { key: "forms", label: "Forms" },
                     { key: "media", label: "Media" },
+                    { key: "ai", label: "AI" },
                     { key: "page", label: "Theme" },
                     { key: "selected", label: "Selected" },
                   ] as const
@@ -3387,6 +3439,37 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                 </div>
               ) : null}
 
+              {sidebarPanel === "ai" ? (
+                <div className="mt-4 rounded-2xl border border-zinc-200 bg-white p-4">
+                  <div className="text-sm font-semibold text-zinc-900">AI</div>
+                  <div className="mt-3 grid grid-cols-2 gap-2">
+                    {(
+                      [
+                        { type: "chatbot", label: "Chatbot" },
+                        { type: "customCode", label: "Custom code" },
+                      ] as const
+                    ).map((b) => (
+                      <button
+                        key={b.type}
+                        type="button"
+                        disabled={busy}
+                        draggable
+                        onDragStart={(e) => {
+                          e.dataTransfer.setData("text/x-block-type", b.type);
+                          e.dataTransfer.effectAllowed = "copy";
+                        }}
+                        onClick={() => addBlock(b.type)}
+                        className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-left text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+                        title="Drag into preview or click to add"
+                      >
+                        {b.label}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="mt-2 text-xs text-zinc-500">AI blocks add chat and advanced embeds to your funnel.</div>
+                </div>
+              ) : null}
+
               {sidebarPanel === "selected" ? (
                 <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
                   <div className="text-sm font-semibold text-zinc-900">Selected</div>
@@ -3441,6 +3524,213 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                             })
                           }
                         />
+                      ) : null}
+
+                      {selectedBlock.type === "customCode" ? (
+                        <div className="space-y-2">
+                          <label className="block">
+                            <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Height (px)</div>
+                            <input
+                              type="number"
+                              value={String((selectedBlock.props as any).heightPx ?? 360)}
+                              onChange={(e) =>
+                                upsertBlock({
+                                  ...selectedBlock,
+                                  props: { ...(selectedBlock.props as any), heightPx: Number(e.target.value) || 0 },
+                                } as any)
+                              }
+                              className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                              placeholder="360"
+                            />
+                          </label>
+                          <label className="block">
+                            <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">HTML</div>
+                            <textarea
+                              value={String((selectedBlock.props as any).html || "")}
+                              onChange={(e) =>
+                                upsertBlock({
+                                  ...selectedBlock,
+                                  props: { ...(selectedBlock.props as any), html: e.target.value },
+                                } as any)
+                              }
+                              className="min-h-[140px] w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 font-mono text-xs"
+                              placeholder="<div>Hello world</div>"
+                            />
+                          </label>
+                          <label className="block">
+                            <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">CSS (optional)</div>
+                            <textarea
+                              value={String((selectedBlock.props as any).css || "")}
+                              onChange={(e) =>
+                                upsertBlock({
+                                  ...selectedBlock,
+                                  props: { ...(selectedBlock.props as any), css: e.target.value },
+                                } as any)
+                              }
+                              className="min-h-[120px] w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 font-mono text-xs"
+                              placeholder=".container { max-width: 900px; }"
+                            />
+                          </label>
+                        </div>
+                      ) : null}
+
+                      {selectedBlock.type === "chatbot" ? (
+                        <div className="space-y-2">
+                          <label className="block">
+                            <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Agent ID</div>
+                            <input
+                              value={String((selectedBlock.props as any).agentId || "")}
+                              onChange={(e) =>
+                                upsertBlock({
+                                  ...selectedBlock,
+                                  props: { ...(selectedBlock.props as any), agentId: e.target.value },
+                                } as any)
+                              }
+                              className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                              placeholder="elevenlabs_agent_..."
+                            />
+                            <div className="mt-1 text-[11px] text-zinc-500">Paste the ElevenLabs Conversational AI agent ID to enable the widget.</div>
+                            {aiReceptionistVoiceAgentId ? (
+                              <div className="mt-2">
+                                <button
+                                  type="button"
+                                  disabled={busy}
+                                  onClick={() =>
+                                    upsertBlock({
+                                      ...selectedBlock,
+                                      props: { ...(selectedBlock.props as any), agentId: aiReceptionistVoiceAgentId },
+                                    } as any)
+                                  }
+                                  className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-60"
+                                >
+                                  Use AI Receptionist agent ID
+                                </button>
+                              </div>
+                            ) : (
+                              <div className="mt-2 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
+                                <div className="font-semibold">No AI Receptionist agent ID found</div>
+                                <div className="mt-1 text-amber-900/80">Set your agent ID in AI Receptionist settings to reuse it here.</div>
+                                <div className="mt-2">
+                                  <Link
+                                    href="/portal/app/services/ai-receptionist?tab=settings"
+                                    className="inline-flex rounded-lg border border-amber-200 bg-white px-2 py-1 text-xs font-semibold text-amber-900 hover:bg-amber-100"
+                                  >
+                                    Open AI Receptionist settings
+                                  </Link>
+                                </div>
+                              </div>
+                            )}
+                          </label>
+
+                          <label className="block">
+                            <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Primary color</div>
+                            <input
+                              value={String((selectedBlock.props as any).primaryColor || "")}
+                              onChange={(e) =>
+                                upsertBlock({
+                                  ...selectedBlock,
+                                  props: { ...(selectedBlock.props as any), primaryColor: e.target.value },
+                                } as any)
+                              }
+                              className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                              placeholder="#1d4ed8"
+                            />
+                          </label>
+
+                          <label className="block">
+                            <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Launcher style</div>
+                            <PortalListboxDropdown
+                              value={String((selectedBlock.props as any).launcherStyle || "bubble")}
+                              onChange={(launcherStyle) =>
+                                upsertBlock({
+                                  ...selectedBlock,
+                                  props: { ...(selectedBlock.props as any), launcherStyle: String(launcherStyle || "bubble") },
+                                } as any)
+                              }
+                              options={[
+                                { value: "bubble", label: "Bubble" },
+                                { value: "dots", label: "Dots" },
+                                { value: "spark", label: "Spark" },
+                              ]}
+                              className="w-full"
+                              buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
+                            />
+                            <div className="mt-1 text-[11px] text-zinc-500">Some launcher styling options may depend on the provider widget.</div>
+                          </label>
+
+                          <label className="block">
+                            <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Launcher image URL (optional)</div>
+                            <input
+                              value={String((selectedBlock.props as any).launcherImageUrl || "")}
+                              onChange={(e) =>
+                                upsertBlock({
+                                  ...selectedBlock,
+                                  props: { ...(selectedBlock.props as any), launcherImageUrl: e.target.value },
+                                } as any)
+                              }
+                              className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                              placeholder="https://..."
+                            />
+                            <div className="mt-2 flex flex-wrap gap-2">
+                              <button
+                                type="button"
+                                disabled={busy}
+                                onClick={() => {
+                                  setMediaPickerTarget({ type: "chatbot-launcher", blockId: selectedBlock.id });
+                                  setMediaPickerOpen(true);
+                                }}
+                                className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-60"
+                              >
+                                Choose from media
+                              </button>
+                              <label
+                                className={classNames(
+                                  "cursor-pointer rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50",
+                                  uploadingImageBlockId === selectedBlock.id ? "opacity-60" : "",
+                                )}
+                              >
+                                {uploadingImageBlockId === selectedBlock.id ? "Uploading…" : "Upload image"}
+                                <input
+                                  type="file"
+                                  accept="image/*"
+                                  className="hidden"
+                                  disabled={busy || uploadingImageBlockId === selectedBlock.id}
+                                  onChange={(e) => {
+                                    const files = e.target.files;
+                                    e.currentTarget.value = "";
+                                    if (!files || files.length === 0) return;
+                                    if (!selectedBlock || selectedBlock.type !== "chatbot") return;
+                                    setUploadingImageBlockId(selectedBlock.id);
+                                    setError(null);
+                                    void (async () => {
+                                      try {
+                                        const created = await uploadToMediaLibrary(files, { maxFiles: 1 });
+                                        const it = created[0];
+                                        if (!it) return;
+                                        const nextUrl = String((it as any).shareUrl || (it as any).previewUrl || (it as any).openUrl || (it as any).downloadUrl || "").trim();
+                                        if (!nextUrl) return;
+                                        upsertBlock({
+                                          ...selectedBlock,
+                                          props: {
+                                            ...(selectedBlock.props as any),
+                                            launcherImageUrl: nextUrl,
+                                          },
+                                        } as any);
+                                        toast.success("Launcher image uploaded and selected");
+                                      } catch (err) {
+                                        const msg = (err as any)?.message ? String((err as any).message) : "Upload failed";
+                                        setError(msg);
+                                        toast.error(msg);
+                                      } finally {
+                                        setUploadingImageBlockId(null);
+                                      }
+                                    })();
+                                  }}
+                                />
+                              </label>
+                            </div>
+                          </label>
+                        </div>
                       ) : null}
 
                     {selectedBlock.type === "button" ? (
