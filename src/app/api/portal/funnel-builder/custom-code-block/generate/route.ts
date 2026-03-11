@@ -17,6 +17,170 @@ const bodySchema = z.object({
   currentCss: z.string().optional().default(""),
 });
 
+const blockStyleSchema = z
+  .object({
+    textColor: z.string().trim().max(40).optional(),
+    backgroundColor: z.string().trim().max(40).optional(),
+    backgroundImageUrl: z.string().trim().max(500).optional(),
+    fontSizePx: z.number().finite().min(8).max(96).optional(),
+    fontFamily: z.string().trim().max(120).optional(),
+    fontGoogleFamily: z.string().trim().max(120).optional(),
+    align: z.enum(["left", "center", "right"]).optional(),
+    marginTopPx: z.number().finite().min(0).max(240).optional(),
+    marginBottomPx: z.number().finite().min(0).max(240).optional(),
+    paddingPx: z.number().finite().min(0).max(240).optional(),
+    borderRadiusPx: z.number().finite().min(0).max(160).optional(),
+    borderColor: z.string().trim().max(40).optional(),
+    borderWidthPx: z.number().finite().min(0).max(24).optional(),
+    maxWidthPx: z.number().finite().min(120).max(1400).optional(),
+  })
+  .strip();
+
+const chatbotBlockSchema = z
+  .object({
+    type: z.literal("chatbot"),
+    props: z
+      .object({
+        agentId: z.string().trim().max(120).optional(),
+        primaryColor: z.string().trim().max(40).optional(),
+        launcherStyle: z.enum(["bubble", "dots", "spark"]).optional(),
+        launcherImageUrl: z.string().trim().max(500).optional(),
+        placementX: z.enum(["left", "center", "right"]).optional(),
+        placementY: z.enum(["top", "middle", "bottom"]).optional(),
+        style: blockStyleSchema.optional(),
+      })
+      .strip(),
+  })
+  .strip();
+
+const imageBlockSchema = z
+  .object({
+    type: z.literal("image"),
+    props: z
+      .object({
+        src: z.string().trim().max(800),
+        alt: z.string().trim().max(200).optional(),
+        style: blockStyleSchema.optional(),
+      })
+      .strip(),
+  })
+  .strip();
+
+const headingBlockSchema = z
+  .object({
+    type: z.literal("heading"),
+    props: z
+      .object({
+        text: z.string().trim().min(1).max(240),
+        level: z.union([z.literal(1), z.literal(2), z.literal(3)]).optional(),
+        style: blockStyleSchema.optional(),
+      })
+      .strip(),
+  })
+  .strip();
+
+const paragraphBlockSchema = z
+  .object({
+    type: z.literal("paragraph"),
+    props: z
+      .object({
+        text: z.string().trim().min(1).max(2000),
+        style: blockStyleSchema.optional(),
+      })
+      .strip(),
+  })
+  .strip();
+
+const buttonBlockSchema = z
+  .object({
+    type: z.literal("button"),
+    props: z
+      .object({
+        text: z.string().trim().min(1).max(120),
+        href: z.string().trim().min(1).max(600),
+        variant: z.enum(["primary", "secondary"]).optional(),
+        style: blockStyleSchema.optional(),
+      })
+      .strip(),
+  })
+  .strip();
+
+const spacerBlockSchema = z
+  .object({
+    type: z.literal("spacer"),
+    props: z
+      .object({
+        height: z.number().finite().min(0).max(240).optional(),
+        style: blockStyleSchema.optional(),
+      })
+      .strip(),
+  })
+  .strip();
+
+const formLinkBlockSchema = z
+  .object({
+    type: z.literal("formLink"),
+    props: z
+      .object({
+        formSlug: z.string().trim().min(1).max(120),
+        text: z.string().trim().max(120).optional(),
+        style: blockStyleSchema.optional(),
+      })
+      .strip(),
+  })
+  .strip();
+
+const formEmbedBlockSchema = z
+  .object({
+    type: z.literal("formEmbed"),
+    props: z
+      .object({
+        formSlug: z.string().trim().min(1).max(120),
+        height: z.number().finite().min(120).max(1600).optional(),
+        style: blockStyleSchema.optional(),
+      })
+      .strip(),
+  })
+  .strip();
+
+const calendarEmbedBlockSchema = z
+  .object({
+    type: z.literal("calendarEmbed"),
+    props: z
+      .object({
+        calendarId: z.string().trim().min(1).max(120),
+        height: z.number().finite().min(120).max(1600).optional(),
+        style: blockStyleSchema.optional(),
+      })
+      .strip(),
+  })
+  .strip();
+
+const aiInsertableBlockSchema = z.discriminatedUnion("type", [
+  chatbotBlockSchema,
+  imageBlockSchema,
+  headingBlockSchema,
+  paragraphBlockSchema,
+  buttonBlockSchema,
+  spacerBlockSchema,
+  formLinkBlockSchema,
+  formEmbedBlockSchema,
+  calendarEmbedBlockSchema,
+]);
+
+const aiActionSchema = z
+  .object({
+    type: z.literal("insertAfter"),
+    block: aiInsertableBlockSchema,
+  })
+  .strip();
+
+const aiActionsPayloadSchema = z
+  .object({
+    actions: z.array(aiActionSchema).min(1).max(6),
+  })
+  .strip();
+
 function clampText(s: string, maxLen: number) {
   const text = String(s || "");
   if (text.length <= maxLen) return text;
@@ -75,9 +239,14 @@ export async function POST(req: Request) {
   const system = [
     "You generate HTML + CSS for a *custom code block* inside a funnel page.",
     "Return ONLY code fences, no explanation.",
-    "Output format:",
+    "Output options (choose ONE):",
+    "A) HTML/CSS (default):",
     "- A single ```html fenced block containing an HTML fragment (no <html>, no <head>).",
     "- Optionally a ```css fenced block for styles used by that fragment.",
+    "B) Funnel blocks (when the request is better represented as built-in blocks like chatbot or images):",
+    "- A single ```json fenced block with shape: { actions: [{ type: 'insertAfter', block: { type, props } }] }",
+    "- Allowed block types: chatbot, image, heading, paragraph, button, spacer, formLink, formEmbed, calendarEmbed.",
+    "- Do NOT include HTML/CSS fences when you return JSON actions.",
     "Constraints:",
     "- No external JS/CSS, no frameworks.",
     "- Prefer semantic HTML and classes; keep it minimal.",
@@ -125,6 +294,19 @@ export async function POST(req: Request) {
       { ok: false, error: (e as any)?.message ? String((e as any).message) : "AI generation failed" },
       { status: 500 },
     );
+  }
+
+  const jsonFence = extractFence(raw, "json");
+  if (jsonFence.trim()) {
+    try {
+      const payload = JSON.parse(jsonFence) as unknown;
+      const parsedActions = aiActionsPayloadSchema.safeParse(payload);
+      if (parsedActions.success) {
+        return NextResponse.json({ ok: true, actions: parsedActions.data.actions });
+      }
+    } catch {
+      // ignore: fall back to html/css
+    }
   }
 
   const html = extractFence(raw, "html");

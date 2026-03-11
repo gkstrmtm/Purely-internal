@@ -849,7 +849,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
           };
 
           return (
-            <div className="flex min-h-screen flex-col">
+            <div className="flex min-h-screen flex-col lg:h-[100dvh] lg:overflow-hidden">
               <header className="sticky top-0 z-20 border-b border-zinc-200 bg-white/85 backdrop-blur">
                 <div className="flex flex-col gap-2 px-4 py-3 lg:flex-row lg:items-center lg:justify-between">
                   <div className="flex flex-wrap items-center gap-3">
@@ -997,8 +997,8 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
 
               {error ? <div className="mx-4 mt-4 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">{error}</div> : null}
 
-              <div className="flex flex-1 flex-col overflow-auto lg:flex-row lg:overflow-hidden">
-                <aside className="w-full shrink-0 border-b border-zinc-200 bg-white p-4 lg:w-[380px] lg:overflow-y-auto lg:border-b-0 lg:border-r">
+              <div className="flex flex-1 flex-col overflow-auto lg:min-h-0 lg:flex-row lg:overflow-hidden">
+                <aside className="w-full shrink-0 border-b border-zinc-200 bg-white p-4 lg:min-h-0 lg:w-[380px] lg:overflow-y-auto lg:border-b-0 lg:border-r">
                   {!selectedPage ? (
                     <div className="text-sm text-zinc-600">Select a page to edit.</div>
                   ) : selectedPage.editorMode === "MARKDOWN" ? (
@@ -1288,7 +1288,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                   )}
                 </aside>
 
-                <main className="flex-1 overflow-auto bg-zinc-100 p-3 sm:p-4 lg:overflow-hidden">
+                <main className="flex-1 overflow-auto bg-zinc-100 p-3 sm:p-4 lg:min-h-0 lg:overflow-hidden">
                   <div className="flex h-full flex-col overflow-hidden rounded-2xl border border-zinc-200 bg-white">
                     <div className="flex items-center justify-between border-b border-zinc-200 bg-white px-4 py-2">
                       <div className="min-w-0">
@@ -1510,7 +1510,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                   )}
                 </aside>
 
-                <main className="flex-1 overflow-hidden bg-zinc-100 p-4">
+                <main className="flex-1 overflow-hidden bg-zinc-100 p-4 lg:min-h-0">
                   <div className="flex h-full flex-col overflow-hidden rounded-2xl border border-zinc-200 bg-white">
                     <div className="flex items-center justify-between border-b border-zinc-200 bg-white px-4 py-2">
                       <div className="min-w-0">
@@ -1686,6 +1686,8 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
   const [brandSwatches, setBrandSwatches] = useState<string[]>([]);
 
   const [aiReceptionistVoiceAgentId, setAiReceptionistVoiceAgentId] = useState<string | null>(null);
+  const [aiReceptionistChatAgentId, setAiReceptionistChatAgentId] = useState<string | null>(null);
+  const [availableAgentOptions, setAvailableAgentOptions] = useState<Array<{ id: string; name?: string }>>([]);
 
   const [bookingCalendars, setBookingCalendars] = useState<BookingCalendarLite[]>([]);
   const [bookingSiteSlug, setBookingSiteSlug] = useState<string | null>(null);
@@ -1911,8 +1913,42 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
           headers: { [PORTAL_VARIANT_HEADER]: portalVariant },
         });
         const json = (await res.json().catch(() => null)) as any;
-        const id = typeof json?.settings?.voiceAgentId === "string" ? json.settings.voiceAgentId.trim() : "";
-        if (!cancelled) setAiReceptionistVoiceAgentId(id || null);
+        const voiceId = typeof json?.settings?.voiceAgentId === "string" ? json.settings.voiceAgentId.trim() : "";
+        const chatId = typeof json?.settings?.chatAgentId === "string" ? json.settings.chatAgentId.trim() : "";
+        if (!cancelled) {
+          setAiReceptionistVoiceAgentId(voiceId || null);
+          setAiReceptionistChatAgentId(chatId || null);
+        }
+      } catch {
+        // ignore
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [portalVariant]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    void (async () => {
+      try {
+        const res = await fetch("/api/portal/ai-agents", {
+          cache: "no-store",
+          headers: { [PORTAL_VARIANT_HEADER]: portalVariant },
+        });
+        const json = (await res.json().catch(() => null)) as any;
+        const agents = Array.isArray(json?.agents) ? (json.agents as any[]) : [];
+        const normalized = agents
+          .map((a) => ({
+            id: typeof a?.id === "string" ? a.id.trim() : "",
+            name: typeof a?.name === "string" ? a.name.trim() : "",
+          }))
+          .filter((a) => a.id)
+          .slice(0, 200);
+
+        if (!cancelled) setAvailableAgentOptions(normalized);
       } catch {
         // ignore
       }
@@ -2633,7 +2669,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                               id,
                               type,
                               props: {
-                                agentId: String(aiReceptionistVoiceAgentId || "").trim(),
+                                agentId: String(aiReceptionistChatAgentId || "").trim(),
                                 primaryColor: "#1d4ed8",
                                 launcherStyle: "bubble",
                                 placementX: "right",
@@ -2706,6 +2742,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
       blocksJson: pageSettingsBlock ? [pageSettingsBlock, ...nextEditable] : nextEditable,
     });
     setSelectedBlockId(id);
+    setSidebarPanel("selected");
   };
 
   const addPresetSection = (preset: "hero" | "body" | "form") => {
@@ -2797,6 +2834,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
       blocksJson: pageSettingsBlock ? [pageSettingsBlock, ...nextEditable] : nextEditable,
     });
     setSelectedBlockId(blocks[0].id);
+    setSidebarPanel("selected");
   };
 
   const removeBlock = useCallback((blockId: string) => {
@@ -2977,7 +3015,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
   };
 
   return (
-    <div className="flex min-h-screen flex-col">
+    <div className="flex min-h-screen flex-col lg:h-[100dvh] lg:overflow-hidden">
       <PortalMediaPickerModal
         open={mediaPickerOpen}
         onClose={() => {
@@ -3312,8 +3350,8 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
         </div>
       ) : null}
 
-      <div className="flex flex-1 flex-col overflow-auto lg:flex-row lg:overflow-hidden">
-        <aside className="w-full shrink-0 border-b border-zinc-200 bg-white p-4 lg:w-[380px] lg:overflow-y-auto lg:border-b-0 lg:border-r">
+      <div className="flex flex-1 flex-col overflow-auto lg:min-h-0 lg:flex-row lg:overflow-hidden">
+        <aside className="w-full shrink-0 border-b border-zinc-200 bg-white p-4 lg:min-h-0 lg:w-[380px] lg:overflow-y-auto lg:border-b-0 lg:border-r">
           {!selectedPage ? (
             <div className="text-sm text-zinc-600">Select a page to edit.</div>
           ) : selectedPage.editorMode === "MARKDOWN" ? (
@@ -3883,6 +3921,243 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                                       const json = (await res.json().catch(() => null)) as any;
                                       if (!res.ok || !json || json.ok !== true) throw new Error(json?.error || "Failed to generate code");
 
+                                      const actions = Array.isArray(json?.actions) ? (json.actions as any[]) : [];
+                                      if (actions.length) {
+                                        const prevChat = Array.isArray((selectedBlock.props as any).chatJson)
+                                          ? ((selectedBlock.props as any).chatJson as BlockChatMessage[])
+                                          : [];
+
+                                        const userMsg: BlockChatMessage = { role: "user", content: prompt, at: new Date().toISOString() };
+                                        const assistantMsg: BlockChatMessage = {
+                                          role: "assistant",
+                                          content: [
+                                            "```json\n" +
+                                              JSON.stringify(
+                                                {
+                                                  actions: actions.slice(0, 6).map((a) => ({
+                                                    type: typeof a?.type === "string" ? a.type : "",
+                                                    block: a?.block,
+                                                  })),
+                                                },
+                                                null,
+                                                2,
+                                              ) +
+                                              "\n```",
+                                            "\n\n(Inserted blocks into the page.)",
+                                          ].join(""),
+                                          at: new Date().toISOString(),
+                                        };
+
+                                        const nextChat = [...prevChat, userMsg, assistantMsg].slice(-40);
+
+                                        const s = (v: unknown, max = 240) =>
+                                          (typeof v === "string" ? v : "").trim().slice(0, max);
+
+                                        const isSafeHref = (href: string) => {
+                                          const raw = String(href || "").trim();
+                                          if (!raw) return false;
+                                          if (raw.startsWith("/") || raw.startsWith("#")) return true;
+                                          try {
+                                            const u = new URL(raw);
+                                            return ["http:", "https:", "mailto:", "tel:"].includes(u.protocol);
+                                          } catch {
+                                            return false;
+                                          }
+                                        };
+
+                                        const coerceAiBlock = (rawBlock: any): CreditFunnelBlock | null => {
+                                          const type = s(rawBlock?.type, 40);
+                                          const props = rawBlock?.props && typeof rawBlock.props === "object" && !Array.isArray(rawBlock.props) ? rawBlock.props : {};
+                                          const id = newId();
+
+                                          if (type === "chatbot") {
+                                            const agentId = s((props as any).agentId, 140);
+                                            return {
+                                              id,
+                                              type: "chatbot",
+                                              props: {
+                                                agentId: agentId || String(aiReceptionistChatAgentId || "").trim(),
+                                                primaryColor: s((props as any).primaryColor, 40) || "#1d4ed8",
+                                                launcherStyle:
+                                                  (props as any).launcherStyle === "dots"
+                                                    ? "dots"
+                                                    : (props as any).launcherStyle === "spark"
+                                                      ? "spark"
+                                                      : "bubble",
+                                                launcherImageUrl: s((props as any).launcherImageUrl, 800) || "",
+                                                placementX:
+                                                  (props as any).placementX === "left"
+                                                    ? "left"
+                                                    : (props as any).placementX === "center"
+                                                      ? "center"
+                                                      : "right",
+                                                placementY:
+                                                  (props as any).placementY === "top"
+                                                    ? "top"
+                                                    : (props as any).placementY === "middle"
+                                                      ? "middle"
+                                                      : "bottom",
+                                              } as any,
+                                            };
+                                          }
+
+                                          if (type === "image") {
+                                            const src = s((props as any).src, 1200);
+                                            return {
+                                              id,
+                                              type: "image",
+                                              props: {
+                                                src,
+                                                alt: s((props as any).alt, 200),
+                                              },
+                                            };
+                                          }
+
+                                          if (type === "heading") {
+                                            const text = s((props as any).text, 240) || "Heading";
+                                            const level = [1, 2, 3].includes(Number((props as any).level))
+                                              ? (Number((props as any).level) as 1 | 2 | 3)
+                                              : 2;
+                                            return { id, type: "heading", props: { text, level } } as any;
+                                          }
+
+                                          if (type === "paragraph") {
+                                            const text = s((props as any).text, 2000) || "";
+                                            if (!text) return null;
+                                            return { id, type: "paragraph", props: { text } } as any;
+                                          }
+
+                                          if (type === "button") {
+                                            const text = s((props as any).text, 120) || "Click";
+                                            const hrefRaw = s((props as any).href, 800) || "#";
+                                            const href = isSafeHref(hrefRaw) ? hrefRaw : "#";
+                                            const variant = (props as any).variant === "secondary" ? "secondary" : "primary";
+                                            return { id, type: "button", props: { text, href, variant } } as any;
+                                          }
+
+                                          if (type === "spacer") {
+                                            const heightNum = Number((props as any).height);
+                                            const height = Number.isFinite(heightNum) ? Math.max(0, Math.min(240, heightNum)) : 24;
+                                            return { id, type: "spacer", props: { height } } as any;
+                                          }
+
+                                          if (type === "formLink") {
+                                            const formSlug = s((props as any).formSlug, 160);
+                                            if (!formSlug) return null;
+                                            const text = s((props as any).text, 120) || "Open form";
+                                            return { id, type: "formLink", props: { formSlug, text } } as any;
+                                          }
+
+                                          if (type === "formEmbed") {
+                                            const formSlug = s((props as any).formSlug, 160);
+                                            if (!formSlug) return null;
+                                            const heightNum = Number((props as any).height);
+                                            const height = Number.isFinite(heightNum) ? Math.max(120, Math.min(1600, heightNum)) : undefined;
+                                            return { id, type: "formEmbed", props: { formSlug, ...(typeof height === "number" ? { height } : {}) } } as any;
+                                          }
+
+                                          if (type === "calendarEmbed") {
+                                            const calendarId = s((props as any).calendarId, 160);
+                                            if (!calendarId) return null;
+                                            const heightNum = Number((props as any).height);
+                                            const height = Number.isFinite(heightNum) ? Math.max(120, Math.min(1600, heightNum)) : undefined;
+                                            return { id, type: "calendarEmbed", props: { calendarId, ...(typeof height === "number" ? { height } : {}) } } as any;
+                                          }
+
+                                          return null;
+                                        };
+
+                                        const insertAfterAnchor = (
+                                          blocks: CreditFunnelBlock[],
+                                          anchorId: string,
+                                          block: CreditFunnelBlock,
+                                        ): CreditFunnelBlock[] => {
+                                          const container = anchorId ? findContainerForBlock(blocks, anchorId) : null;
+                                          if (anchorId && container && container.key !== "root") {
+                                            const containerBlock = findBlockInTree(blocks, container.sectionId)?.block;
+                                            if (containerBlock && (containerBlock.type === "section" || containerBlock.type === "columns")) {
+                                              const props: any = (containerBlock as any).props;
+                                              if (containerBlock.type === "columns" && container.key === "columnChildren") {
+                                                const cols = Array.isArray(props.columns) ? (props.columns as any[]) : [];
+                                                const col = cols[container.columnIndex];
+                                                const arr =
+                                                  col && typeof col === "object" && Array.isArray((col as any).children)
+                                                    ? ((col as any).children as CreditFunnelBlock[])
+                                                    : [];
+                                                const idx = arr.findIndex((b) => b.id === anchorId);
+                                                const nextArr = [...arr];
+                                                nextArr.splice(idx >= 0 ? idx + 1 : nextArr.length, 0, block);
+                                                const nextCols = cols.map((c, i) =>
+                                                  i === container.columnIndex ? { ...(c || {}), children: nextArr } : c,
+                                                );
+                                                const nextContainer: CreditFunnelBlock = {
+                                                  ...(containerBlock as any),
+                                                  props: { ...props, columns: nextCols },
+                                                } as any;
+                                                return replaceBlockInTree(blocks, nextContainer);
+                                              }
+
+                                              const arr = Array.isArray(props[container.key])
+                                                ? (props[container.key] as CreditFunnelBlock[])
+                                                : [];
+                                              const idx = arr.findIndex((b) => b.id === anchorId);
+                                              const nextArr = [...arr];
+                                              nextArr.splice(idx >= 0 ? idx + 1 : nextArr.length, 0, block);
+                                              const nextContainer: CreditFunnelBlock = {
+                                                ...(containerBlock as any),
+                                                props: { ...props, [container.key]: nextArr },
+                                              } as any;
+                                              return replaceBlockInTree(blocks, nextContainer);
+                                            }
+                                          }
+
+                                          if (anchorId && container?.key === "root") {
+                                            const idx = blocks.findIndex((b) => b.id === anchorId);
+                                            if (idx >= 0) {
+                                              const next = [...blocks];
+                                              next.splice(idx + 1, 0, block);
+                                              return next;
+                                            }
+                                          }
+
+                                          return [...blocks, block];
+                                        };
+
+                                        const updatedCustomCodeBlock: CreditFunnelBlock = {
+                                          ...selectedBlock,
+                                          props: {
+                                            ...(selectedBlock.props as any),
+                                            chatJson: nextChat,
+                                          },
+                                        } as any;
+
+                                        let nextEditable = replaceBlockInTree(editableBlocks, updatedCustomCodeBlock);
+                                        let anchorId = selectedBlock.id;
+                                        const insertedIds: string[] = [];
+                                        for (const a of actions.slice(0, 6)) {
+                                          if (!a || a.type !== "insertAfter") continue;
+                                          const nextBlock = coerceAiBlock(a.block);
+                                          if (!nextBlock) continue;
+                                          nextEditable = insertAfterAnchor(nextEditable, anchorId, nextBlock);
+                                          anchorId = nextBlock.id;
+                                          insertedIds.push(nextBlock.id);
+                                        }
+
+                                        setSelectedPageLocal({
+                                          editorMode: "BLOCKS",
+                                          blocksJson: pageSettingsBlock ? [pageSettingsBlock, ...nextEditable] : nextEditable,
+                                        });
+
+                                        if (insertedIds[0]) {
+                                          setSelectedBlockId(insertedIds[0]);
+                                          setSidebarPanel("selected");
+                                          toast.success(`Added ${insertedIds.length} block${insertedIds.length === 1 ? "" : "s"}`);
+                                        }
+
+                                        setCustomCodeBlockPrompt("");
+                                        return;
+                                      }
+
                                       const nextHtml = typeof json.html === "string" ? json.html : "";
                                       const nextCss = typeof json.css === "string" ? json.css : "";
 
@@ -4067,19 +4342,46 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
 
                           <label className="block">
                             <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Agent ID</div>
-                            <input
-                              value={String((selectedBlock.props as any).agentId || "")}
-                              onChange={(e) =>
-                                upsertBlock({
-                                  ...selectedBlock,
-                                  props: { ...(selectedBlock.props as any), agentId: e.target.value },
-                                } as any)
-                              }
-                              className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                              placeholder="agent_..."
-                            />
-                            <div className="mt-1 text-[11px] text-zinc-500">Paste your chat agent ID to enable the widget.</div>
-                            {aiReceptionistVoiceAgentId ? (
+                            {availableAgentOptions.length ? (
+                              <PortalListboxDropdown
+                                value={String((selectedBlock.props as any).agentId || "")}
+                                onChange={(v) =>
+                                  upsertBlock({
+                                    ...selectedBlock,
+                                    props: { ...(selectedBlock.props as any), agentId: String(v || "") },
+                                  } as any)
+                                }
+                                options={(() => {
+                                  const current = String((selectedBlock.props as any).agentId || "").trim();
+                                  const opts = availableAgentOptions.map((a) => ({
+                                    value: a.id,
+                                    label: a.name ? `${a.name} (${a.id})` : a.id,
+                                  }));
+                                  const hasCurrent = current && opts.some((o) => o.value === current);
+                                  return [
+                                    ...(current && !hasCurrent ? [{ value: current, label: `Current (${current})` }] : []),
+                                    { value: "", label: "Select an agent…" },
+                                    ...opts,
+                                  ];
+                                })() as any}
+                                className="w-full"
+                                buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
+                              />
+                            ) : (
+                              <input
+                                value={String((selectedBlock.props as any).agentId || "")}
+                                onChange={(e) =>
+                                  upsertBlock({
+                                    ...selectedBlock,
+                                    props: { ...(selectedBlock.props as any), agentId: e.target.value },
+                                  } as any)
+                                }
+                                className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                                placeholder="agent_..."
+                              />
+                            )}
+                            <div className="mt-1 text-[11px] text-zinc-500">Pick the agent to power this widget.</div>
+                            {aiReceptionistChatAgentId ? (
                               <div className="mt-2">
                                 <button
                                   type="button"
@@ -4087,18 +4389,18 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                                   onClick={() =>
                                     upsertBlock({
                                       ...selectedBlock,
-                                      props: { ...(selectedBlock.props as any), agentId: aiReceptionistVoiceAgentId },
+                                      props: { ...(selectedBlock.props as any), agentId: aiReceptionistChatAgentId },
                                     } as any)
                                   }
                                   className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-60"
                                 >
-                                  Use AI Receptionist agent ID
+                                  Use AI Receptionist messaging agent
                                 </button>
                               </div>
                             ) : (
                               <div className="mt-2 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
                                 <div className="font-semibold">No AI Receptionist agent ID found</div>
-                                <div className="mt-1 text-amber-900/80">Set your agent ID in AI Receptionist settings to reuse it here.</div>
+                                <div className="mt-1 text-amber-900/80">Set your messaging agent ID in AI Receptionist settings to reuse it here.</div>
                                 <div className="mt-2">
                                   <Link
                                     href="/portal/app/services/ai-receptionist?tab=settings"
@@ -5617,7 +5919,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
           )}
         </aside>
 
-        <main className="flex-1 overflow-auto bg-zinc-100 p-3 sm:p-4 lg:overflow-hidden">
+                <main className="flex-1 overflow-auto bg-zinc-100 p-3 sm:p-4 lg:min-h-0 lg:overflow-hidden">
           <div className="flex h-full flex-col overflow-hidden rounded-2xl border border-zinc-200 bg-white">
             <div className="flex items-center justify-between border-b border-zinc-200 bg-white px-4 py-2">
               <div className="min-w-0">

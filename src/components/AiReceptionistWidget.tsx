@@ -296,6 +296,12 @@ export function AiReceptionistWidget() {
   const hidden =
     pathname.startsWith("/portal/app") ||
     pathname.startsWith("/credit/app") ||
+    pathname === "/f" ||
+    pathname.startsWith("/f/") ||
+    pathname === "/portal/f" ||
+    pathname.startsWith("/portal/f/") ||
+    pathname === "/credit/f" ||
+    pathname.startsWith("/credit/f/") ||
     pathname === "/login" ||
     pathname === "/ads/login" ||
     pathname.startsWith("/ads/app");

@@ -30,6 +30,7 @@ type Settings = {
 
   aiCanTransferToHuman: boolean;
   forwardToPhoneE164: string | null;
+  chatAgentId: string;
   voiceAgentId: string;
   voiceAgentConfigured: boolean;
 };
@@ -1204,8 +1205,19 @@ export function PortalAiReceptionistClient() {
               </div>
             </div>
 
-            <div className="mt-8 text-sm font-semibold text-zinc-900">Voice agent (optional)</div>
+            <div className="mt-8 text-sm font-semibold text-zinc-900">Agents (optional)</div>
             <div className="mt-2 grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <label className="rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm">
+                <div className="text-xs font-semibold text-zinc-600">Messaging agent ID</div>
+                <input
+                  className="mt-2 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                  value={settings?.chatAgentId ?? ""}
+                  onChange={(e) => settings && setSettings({ ...settings, chatAgentId: e.target.value })}
+                  placeholder="agent_..."
+                />
+                <div className="mt-2 text-xs text-zinc-600">Used for chat widgets in funnels and other messaging experiences.</div>
+              </label>
+
               <label className="rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm">
                 <div className="text-xs font-semibold text-zinc-600">Agent ID</div>
                 <input
@@ -1214,6 +1226,7 @@ export function PortalAiReceptionistClient() {
                   onChange={(e) => settings && setSettings({ ...settings, voiceAgentId: e.target.value })}
                   placeholder="agent_..."
                 />
+                <div className="mt-2 text-xs text-zinc-600">Used for inbound/outbound calls.</div>
               </label>
 
               <div className="rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm">

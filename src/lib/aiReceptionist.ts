@@ -47,6 +47,9 @@ export type AiReceptionistSettings = {
 
   forwardToPhoneE164: string | null;
 
+  // Messaging/chat agent (used by portal tools like funnels; separate from voice).
+  chatAgentId: string;
+
   voiceAgentId: string;
   voiceAgentApiKey: string | null;
 };
@@ -123,6 +126,8 @@ export function parseAiReceptionistSettings(
 
     forwardToPhoneE164: null,
 
+    chatAgentId: prev?.chatAgentId ?? "",
+
     voiceAgentId: "",
     voiceAgentApiKey: prev?.voiceAgentApiKey ?? null,
   };
@@ -173,6 +178,16 @@ export function parseAiReceptionistSettings(
       ? rec.webhookToken.trim()
       : base.webhookToken;
 
+  const chatAgentIdRaw =
+    typeof (rec as any).chatAgentId === "string"
+      ? (rec as any).chatAgentId
+      : typeof (rec as any).messagingAgentId === "string"
+        ? (rec as any).messagingAgentId
+        : typeof (rec as any).chatAgent === "string"
+          ? (rec as any).chatAgent
+          : "";
+  const chatAgentId = String(chatAgentIdRaw || "").trim().slice(0, 120) || base.chatAgentId;
+
   const voiceAgentIdRaw =
     typeof rec.voiceAgentId === "string"
       ? rec.voiceAgentId
@@ -204,6 +219,7 @@ export function parseAiReceptionistSettings(
     smsExcludeTagIds,
     aiCanTransferToHuman,
     forwardToPhoneE164,
+    chatAgentId,
     voiceAgentId,
     voiceAgentApiKey,
   };
