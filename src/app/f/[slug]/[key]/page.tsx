@@ -2,11 +2,14 @@ import { notFound } from "next/navigation";
 import type { Metadata } from "next";
 
 import { prisma } from "@/lib/db";
+import { isCreditsOnlyBilling } from "@/lib/portalBillingModel";
+import { getPortalBillingModelForOwner } from "@/lib/portalBillingModel.server";
 import { inlineMarkdownToHtmlSafe, parseBlogContent } from "@/lib/blog";
 import { coerceBlocksJson, renderCreditFunnelBlocks } from "@/lib/creditFunnelBlocks";
 import { publicKeyFromId } from "@/lib/publicHostedKeys";
 import { renderTextTemplate } from "@/lib/textTemplate";
 import { getBusinessProfileTemplateVars } from "@/lib/businessProfileAiContext.server";
+import { AiSparkIcon } from "@/components/AiSparkIcon";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -173,6 +176,11 @@ export default async function HostedFunnelWithKeyPage({
   const markdownBlocks = page ? parseBlogContent(page.contentMarkdown) : [];
   const blockBlocks = page ? coerceBlocksJson(page.blocksJson) : [];
 
+  const billingModel = funnel.ownerId
+    ? await getPortalBillingModelForOwner({ ownerId: funnel.ownerId, portalVariant: "credit" }).catch(() => "credits" as const)
+    : "credits";
+  const showWatermark = isCreditsOnlyBilling(billingModel);
+
   return (
     <main className="w-full min-h-screen">
       {page ? (
@@ -247,6 +255,20 @@ export default async function HostedFunnelWithKeyPage({
           <p className="text-sm text-zinc-700">No pages yet for this funnel.</p>
         </div>
       )}
+
+      {showWatermark ? (
+        <div className="pointer-events-none fixed inset-x-0 bottom-3 z-50 flex justify-center px-4">
+          <a
+            href="https://purelyautomation.com"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="pointer-events-auto inline-flex items-center gap-1.5 rounded-full border border-zinc-200 bg-white/75 px-3 py-1 text-[11px] font-semibold text-zinc-700 shadow-sm backdrop-blur hover:bg-white hover:text-zinc-900"
+          >
+            <AiSparkIcon className="h-3.5 w-3.5 text-[color:var(--color-brand-blue)]" />
+            Powered by Purely Automation
+          </a>
+        </div>
+      ) : null}
     </main>
   );
 }

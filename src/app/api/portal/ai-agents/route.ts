@@ -18,16 +18,27 @@ function normalizeAgentId(raw: unknown): string {
   return cleaned;
 }
 
-function addAgent(
-  map: Map<string, { id: string; name?: string }>,
-  idRaw: unknown,
-  nameRaw?: unknown,
-) {
+function normalizeLabel(raw: unknown): string {
+  const s = typeof raw === "string" ? raw.trim().replace(/\s+/g, " ") : "";
+  return s ? s.slice(0, 160) : "";
+}
+
+function pushUnique(list: string[], value: string) {
+  if (!value) return;
+  if (list.includes(value)) return;
+  list.push(value);
+}
+
+function addAgent(map: Map<string, { id: string; labels: string[] }>, idRaw: unknown, labelRaw?: unknown) {
   const id = normalizeAgentId(idRaw);
   if (!id) return;
-  if (map.has(id)) return;
-  const name = typeof nameRaw === "string" ? nameRaw.trim().slice(0, 140) : "";
-  map.set(id, { id, ...(name ? { name } : {}) });
+  const label = normalizeLabel(labelRaw);
+  const existing = map.get(id);
+  if (existing) {
+    pushUnique(existing.labels, label);
+    return;
+  }
+  map.set(id, { id, labels: label ? [label] : [] });
 }
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -48,7 +59,7 @@ export async function GET() {
   // IMPORTANT: Do not list agents from ElevenLabs by API key.
   // API keys may be shared across multiple portal accounts.
   // Instead, return only agent IDs that are already referenced by this signed-in owner.
-  const agentsMap = new Map<string, { id: string; name?: string }>();
+  const agentsMap = new Map<string, { id: string; labels: string[] }>();
 
   const setups = await prisma.portalServiceSetup.findMany({
     where: {
@@ -62,14 +73,18 @@ export async function GET() {
     const data = asRecord(s.dataJson);
 
     if (s.serviceSlug === PROFILE_EXTRAS_SERVICE_SLUG) {
-      addAgent(agentsMap, data.voiceAgentId, "Profile voice agent");
+      addAgent(agentsMap, data.voiceAgentId, "Profile — Voice");
       continue;
     }
 
     if (s.serviceSlug === AI_RECEPTIONIST_SERVICE_SLUG) {
       const settings = asRecord((data as any).settings ?? data);
-      addAgent(agentsMap, (settings as any).voiceAgentId, "AI Receptionist (voice)");
-      addAgent(agentsMap, (settings as any).chatAgentId ?? (settings as any).messagingAgentId, "AI Receptionist (messaging)");
+      addAgent(agentsMap, (settings as any).voiceAgentId, "AI Receptionist — Voice");
+      addAgent(
+        agentsMap,
+        (settings as any).chatAgentId ?? (settings as any).messagingAgentId,
+        "AI Receptionist — SMS",
+      );
       continue;
     }
   }
@@ -82,11 +97,18 @@ export async function GET() {
   });
 
   for (const c of campaigns) {
-    if (c.voiceAgentId) addAgent(agentsMap, c.voiceAgentId, `${c.name} (calls)`);
-    if (c.chatAgentId) addAgent(agentsMap, c.chatAgentId, `${c.name} (messages)`);
+    const n = normalizeLabel(c.name) || "Outbound campaign";
+    if (c.voiceAgentId) addAgent(agentsMap, c.voiceAgentId, `AI Outbound — ${n} (Calls)`);
+    if (c.chatAgentId) addAgent(agentsMap, c.chatAgentId, `AI Outbound — ${n} (Messages)`);
   }
 
-  const agents = Array.from(agentsMap.values()).slice(0, 200);
+  const agents = Array.from(agentsMap.values())
+    .map((a) => {
+      const label = a.labels.length ? a.labels.join(" · ") : "";
+      const name = label ? label.slice(0, 180) : undefined;
+      return { id: a.id, ...(name ? { name } : {}) };
+    })
+    .slice(0, 200);
   agents.sort((a, b) => (a.name || a.id).localeCompare(b.name || b.id));
   return NextResponse.json({ ok: true, agents });
 }

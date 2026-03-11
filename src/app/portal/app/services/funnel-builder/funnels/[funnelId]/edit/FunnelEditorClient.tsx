@@ -3793,9 +3793,15 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                           e.dataTransfer.effectAllowed = "copy";
                         }}
                         onClick={() => addBlock(b.type)}
-                        className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-left text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+                        className={classNames(
+                          "rounded-xl px-3 py-2 text-left text-xs font-semibold",
+                          b.type === "chatbot" || b.type === "customCode"
+                            ? "inline-flex items-center gap-2 border border-transparent bg-linear-to-r from-[color:var(--color-brand-blue)] via-violet-500 to-[color:var(--color-brand-pink)] text-white shadow-sm hover:opacity-90"
+                            : "border border-zinc-200 bg-white text-zinc-800 hover:bg-zinc-50",
+                        )}
                         title="Drag into preview or click to add"
                       >
+                        <AiSparkIcon className="h-4 w-4" />
                         {b.label}
                       </button>
                     ))}
@@ -4354,7 +4360,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                                   const current = String((selectedBlock.props as any).agentId || "").trim();
                                   const opts = availableAgentOptions.map((a) => ({
                                     value: a.id,
-                                    label: a.id,
+                                    label: a.name ? `${a.name} — ${a.id}` : a.id,
                                   }));
                                   const hasCurrent = current && opts.some((o) => o.value === current);
                                   return [
