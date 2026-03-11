@@ -239,8 +239,8 @@ export function PortalMultiSelectDropdown(props: {
       if (ev.target && menuEl && menuEl.contains(ev.target as Node)) return;
       setOpen(false);
     };
-    window.addEventListener("mousedown", onDown);
-    return () => window.removeEventListener("mousedown", onDown);
+    window.addEventListener("mousedown", onDown, true);
+    return () => window.removeEventListener("mousedown", onDown, true);
   }, [open]);
 
   useEffect(() => {

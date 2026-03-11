@@ -8,6 +8,7 @@ import { consumeCredits } from "@/lib/credits";
 import { generateClientNewsletterDraft } from "@/lib/clientNewsletterAutomation";
 import { uniqueNewsletterSlug, sendNewsletterToAudience } from "@/lib/portalNewsletter";
 import { getAppBaseUrl, tryNotifyPortalAccountUsers } from "@/lib/portalNotifications";
+import { normalizeNewsletterFontKey, stripLegacyNewsletterFontWrapper } from "@/lib/portalNewsletterFonts";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -35,8 +36,7 @@ function normalizeStrings(items: unknown, max: number) {
 function parseKindSettings(value: unknown) {
   const rec = value && typeof value === "object" ? (value as Record<string, unknown>) : null;
   const channelsRec = rec?.channels && typeof rec.channels === "object" ? (rec.channels as Record<string, unknown>) : null;
-  const fontKeyRaw = typeof rec?.fontKey === "string" ? String(rec.fontKey).trim().toLowerCase() : "";
-  const fontKey = fontKeyRaw === "sans" || fontKeyRaw === "mono" || fontKeyRaw === "brand" ? fontKeyRaw : "brand";
+  const fontKey = normalizeNewsletterFontKey(rec?.fontKey);
   return {
     enabled: Boolean(rec?.enabled),
     frequencyDays:
@@ -123,19 +123,6 @@ function insertImagesIntoMarkdown(markdown: string, images: CommonsImage[], opts
   return [...before, "", imgLines[0], "", ...(imgLines[1] && !opts.whereNeeded ? [imgLines[1], ""] : []), ...after].join("\n");
 }
 
-function wrapMarkdownWithFont(markdown: string, fontKey: string | null | undefined) {
-  const md = String(markdown || "").trim();
-  if (!md) return md;
-  const key = String(fontKey || "brand").trim().toLowerCase();
-  const cls = key === "mono" ? "font-mono" : key === "sans" ? "font-sans" : "font-brand";
-
-  // Avoid wrapping multiple times.
-  if (/^<div\s+class="[^"]*\bfont-(?:brand|sans|mono)\b[^"]*">/i.test(md)) {
-    return md;
-  }
-
-  return [`<div class="${cls}">`, "", md, "", "</div>"].join("\n");
-}
 
 function parseStored(value: unknown) {
   const rec = value && typeof value === "object" ? (value as Record<string, unknown>) : null;
@@ -229,7 +216,7 @@ export async function POST(req: Request) {
     contentWithImages = insertImagesIntoMarkdown(draft.content, images, { whereNeeded: Boolean(s.includeImagesWhereNeeded) });
   }
 
-  contentWithImages = wrapMarkdownWithFont(contentWithImages, (s as any).fontKey);
+  contentWithImages = stripLegacyNewsletterFontWrapper(contentWithImages);
 
   const slug = await uniqueNewsletterSlug(site.id, kind, draft.title);
 

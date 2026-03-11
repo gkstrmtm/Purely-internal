@@ -7,8 +7,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { InlineElevenLabsAgentTester } from "@/components/InlineElevenLabsAgentTester";
 import { PortalListboxDropdown } from "@/components/PortalListboxDropdown";
 import { PortalSelectDropdown } from "@/components/PortalSelectDropdown";
+import { PortalVariablePickerModal } from "@/components/PortalVariablePickerModal";
 import { useToast } from "@/components/ToastProvider";
 import { DEFAULT_TAG_COLORS } from "@/lib/tagColors.shared";
+import { PORTAL_MESSAGE_VARIABLES } from "@/lib/portalTemplateVars";
 import { DEFAULT_VOICE_AGENT_CONFIG, type VoiceAgentConfig } from "@/lib/voiceAgentConfig.shared";
 
 type CampaignStatus = "DRAFT" | "ACTIVE" | "PAUSED" | "ARCHIVED";
@@ -416,6 +418,127 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
 
   const [tab, setTab] = useState<OutboundTabKey>(initialTab ?? "calls");
   const [settingsTab, setSettingsTab] = useState<"calls" | "messages">("calls");
+
+  const [variablePickerOpen, setVariablePickerOpen] = useState(false);
+  const [variablePickerTarget, setVariablePickerTarget] = useState<null | "calls_first" | "messages_first">(null);
+  const [knownContactCustomVarKeys, setKnownContactCustomVarKeys] = useState<string[]>([]);
+
+  const callsFirstMessageRef = useRef<HTMLInputElement | null>(null);
+  const messagesFirstMessageRef = useRef<HTMLInputElement | null>(null);
+
+  useEffect(() => {
+    let canceled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/portal/people/contacts/custom-variable-keys", { cache: "no-store" });
+        const json = (await res.json().catch(() => null)) as any;
+        if (!res.ok || !json?.ok || !Array.isArray(json.keys)) return;
+        const keys = json.keys.map((k: any) => String(k || "").trim()).filter(Boolean).slice(0, 50);
+        if (!canceled) setKnownContactCustomVarKeys(keys);
+      } catch {
+        // ignore
+      }
+    })();
+
+    return () => {
+      canceled = true;
+    };
+  }, []);
+
+  const variablePickerVariables = useMemo(() => {
+    const base = PORTAL_MESSAGE_VARIABLES.slice();
+    const keys = Array.isArray(knownContactCustomVarKeys) ? knownContactCustomVarKeys : [];
+    for (const k of keys) {
+      base.push({
+        key: `contact.custom.${k}`,
+        label: `Contact custom: ${k}`,
+        group: "Custom",
+        appliesTo: "Lead/contact",
+      });
+    }
+    return base;
+  }, [knownContactCustomVarKeys]);
+
+  function openVariablePicker(target: NonNullable<typeof variablePickerTarget>) {
+    setVariablePickerTarget(target);
+    setVariablePickerOpen(true);
+  }
+
+  function insertAtCursor(
+    current: string,
+    insert: string,
+    el: HTMLInputElement | null,
+  ): { next: string; caret: number } {
+    const base = String(current ?? "");
+    if (!el) {
+      const next = base + insert;
+      return { next, caret: next.length };
+    }
+    const start = typeof el.selectionStart === "number" ? el.selectionStart : base.length;
+    const end = typeof el.selectionEnd === "number" ? el.selectionEnd : start;
+    const next = base.slice(0, start) + insert + base.slice(end);
+    return { next, caret: start + insert.length };
+  }
+
+  function applyPickedVariable(variableKey: string) {
+    if (!selected) return;
+    const key = String(variableKey || "").trim();
+    if (!key) return;
+    const token = `{${key}}`;
+
+    const setCaretSoon = (el: HTMLInputElement | null, caret: number) => {
+      if (!el) return;
+      requestAnimationFrame(() => {
+        try {
+          el.focus();
+          el.setSelectionRange(caret, caret);
+        } catch {
+          // ignore
+        }
+      });
+    };
+
+    if (variablePickerTarget === "calls_first") {
+      const el = callsFirstMessageRef.current;
+      const cur = selected.voiceAgentConfig?.firstMessage ?? "";
+      const { next, caret } = insertAtCursor(cur, token, el);
+      setCampaigns((prev) =>
+        prev.map((c) =>
+          c.id === selected.id
+            ? {
+                ...c,
+                voiceAgentConfig: {
+                  ...(c.voiceAgentConfig ?? DEFAULT_VOICE_AGENT_CONFIG),
+                  firstMessage: next,
+                },
+              }
+            : c,
+        ),
+      );
+      setCaretSoon(el, caret);
+      return;
+    }
+
+    if (variablePickerTarget === "messages_first") {
+      const el = messagesFirstMessageRef.current;
+      const cur = selected.chatAgentConfig?.firstMessage ?? "";
+      const { next, caret } = insertAtCursor(cur, token, el);
+      setCampaigns((prev) =>
+        prev.map((c) =>
+          c.id === selected.id
+            ? {
+                ...c,
+                chatAgentConfig: {
+                  ...(c.chatAgentConfig ?? DEFAULT_VOICE_AGENT_CONFIG),
+                  firstMessage: next,
+                },
+              }
+            : c,
+        ),
+      );
+      setCaretSoon(el, caret);
+    }
+  }
 
   useEffect(() => {
     if (!initialTab) return;
@@ -1526,6 +1649,15 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
 
   return (
     <div className="mx-auto w-full max-w-6xl">
+      <PortalVariablePickerModal
+        open={variablePickerOpen}
+        variables={variablePickerVariables}
+        onPick={applyPickedVariable}
+        onClose={() => {
+          setVariablePickerOpen(false);
+          setVariablePickerTarget(null);
+        }}
+      />
       <div className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-end">
         <div>
           <h1 className="text-2xl font-bold text-brand-ink sm:text-3xl">AI outbound</h1>
@@ -2603,8 +2735,18 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
                         </div>
 
                         <div className="mt-4">
-                          <div className="text-xs font-semibold text-zinc-700">First message</div>
+                          <div className="flex items-center justify-between gap-3">
+                            <div className="text-xs font-semibold text-zinc-700">First message</div>
+                            <button
+                              type="button"
+                              className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
+                              onClick={() => openVariablePicker("calls_first")}
+                            >
+                              Insert variable
+                            </button>
+                          </div>
                           <input
+                            ref={callsFirstMessageRef}
                             value={selected.voiceAgentConfig?.firstMessage ?? ""}
                             onChange={(e) => {
                               const firstMessage = e.target.value;
@@ -2928,8 +3070,18 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
                         </div>
 
                         <div className="mt-4">
-                          <div className="text-xs font-semibold text-zinc-700">First message</div>
+                          <div className="flex items-center justify-between gap-3">
+                            <div className="text-xs font-semibold text-zinc-700">First message</div>
+                            <button
+                              type="button"
+                              className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
+                              onClick={() => openVariablePicker("messages_first")}
+                            >
+                              Insert variable
+                            </button>
+                          </div>
                           <input
+                            ref={messagesFirstMessageRef}
                             value={selected.chatAgentConfig?.firstMessage ?? ""}
                             onChange={(e) => {
                               const firstMessage = e.target.value;
@@ -2952,7 +3104,7 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
                                 chatAgentConfig: { firstMessage: (selected.chatAgentConfig?.firstMessage ?? "").trim() },
                               })
                             }
-                            placeholder="Hey {{first_name}} …"
+                            placeholder="Hey {contact.firstName} …"
                             className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
                           />
                         </div>

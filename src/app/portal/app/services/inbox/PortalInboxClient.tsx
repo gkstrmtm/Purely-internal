@@ -11,7 +11,7 @@ import { PortalVariablePickerModal } from "@/components/PortalVariablePickerModa
 import { useToast } from "@/components/ToastProvider";
 import { PortalBackToOnboardingLink } from "@/components/PortalBackToOnboardingLink";
 import { normalizePhoneForStorage } from "@/lib/phone";
-import { PORTAL_MESSAGE_VARIABLES } from "@/lib/portalTemplateVars";
+import { normalizePortalContactCustomVarKey, PORTAL_MESSAGE_VARIABLES } from "@/lib/portalTemplateVars";
 
 type Channel = "email" | "sms";
 type EmailBox = "inbox" | "sent" | "all";
@@ -252,6 +252,41 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
 
   const [variablePickerOpen, setVariablePickerOpen] = useState(false);
   const [variablePickerTarget, setVariablePickerTarget] = useState<null | "sms_body" | "email_subject" | "email_body">(null);
+
+  const [knownContactCustomVarKeys, setKnownContactCustomVarKeys] = useState<string[]>([]);
+
+  useEffect(() => {
+    let canceled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/portal/people/contacts/custom-variable-keys", { cache: "no-store" });
+        const json = (await res.json().catch(() => null)) as any;
+        if (!res.ok || !json?.ok || !Array.isArray(json.keys)) return;
+        const keys = json.keys.map((k: any) => String(k || "").trim()).filter(Boolean).slice(0, 50);
+        if (!canceled) setKnownContactCustomVarKeys(keys);
+      } catch {
+        // ignore
+      }
+    })();
+
+    return () => {
+      canceled = true;
+    };
+  }, []);
+
+  const variablePickerVariables = useMemo(() => {
+    const base = PORTAL_MESSAGE_VARIABLES.slice();
+    const keys = Array.isArray(knownContactCustomVarKeys) ? knownContactCustomVarKeys : [];
+    for (const k of keys) {
+      base.push({
+        key: `contact.custom.${k}`,
+        label: `Contact custom: ${k}`,
+        group: "Custom",
+        appliesTo: "Lead/contact",
+      });
+    }
+    return base;
+  }, [knownContactCustomVarKeys]);
 
   const smsComposeRef = useRef<HTMLInputElement | null>(null);
   const emailSubjectRef = useRef<HTMLInputElement | null>(null);
@@ -727,7 +762,9 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
   }
 
   function applyPickedVariable(variableKey: string) {
-    const token = `{${variableKey}}`;
+    const key = String(variableKey || "").trim();
+    const normalizedCustomKey = !key.includes(".") ? normalizePortalContactCustomVarKey(key) : "";
+    const token = `{${key.includes(".") ? key : `contact.custom.${normalizedCustomKey || key}`}}`;
     const setCaretSoon = (el: HTMLInputElement | HTMLTextAreaElement | null, caret: number) => {
       if (!el) return;
       requestAnimationFrame(() => {
@@ -769,11 +806,43 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
       <PortalBackToOnboardingLink />
       <PortalVariablePickerModal
         open={variablePickerOpen}
-        variables={PORTAL_MESSAGE_VARIABLES}
+        variables={variablePickerVariables}
         onPick={applyPickedVariable}
         onClose={() => {
           setVariablePickerOpen(false);
           setVariablePickerTarget(null);
+        }}
+        createCustom={{
+          enabled: Boolean(activeThread?.contactId),
+          existingKeys: knownContactCustomVarKeys,
+          onCreate: async (key, value) => {
+            const contactId = String(activeThread?.contactId || "").trim();
+            if (!contactId) throw new Error("Open a thread with a saved contact to create variables.");
+
+            const v = String(value ?? "").trim();
+            if (!v) throw new Error("Value is required.");
+
+            const res = await fetch(`/api/portal/people/contacts/${contactId}/custom-variables`, {
+              method: "PATCH",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({ key, value: v }),
+            });
+
+            const json = (await res.json().catch(() => null)) as any;
+            if (!res.ok || !json?.ok) {
+              throw new Error(typeof json?.error === "string" ? json.error : "Failed to create variable.");
+            }
+
+            const normalizedKey = String(json?.key || key).trim();
+            if (normalizedKey) {
+              setKnownContactCustomVarKeys((prev) => {
+                const set = new Set((prev ?? []).map((x) => String(x || "").trim()).filter(Boolean));
+                set.add(normalizedKey);
+                return Array.from(set).sort((a, b) => a.localeCompare(b)).slice(0, 50);
+              });
+            }
+            toast.success("Custom variable saved to this contact.");
+          },
         }}
       />
 

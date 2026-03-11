@@ -5,6 +5,7 @@ import type { CSSProperties } from "react";
 import { prisma } from "@/lib/db";
 import { hasPublicColumn } from "@/lib/dbSchema";
 import { findOwnerIdByStoredBlogSiteSlug } from "@/lib/blogSiteSlug";
+import { resolveNewsletterHostedFont } from "@/lib/portalNewsletterFonts";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -102,6 +103,12 @@ export default async function ClientNewslettersIndexPage(props: PageProps) {
     ["--client-text" as any]: brandText,
   } as CSSProperties;
 
+  const setup = await prisma.portalServiceSetup.findUnique({
+    where: { ownerId_serviceSlug: { ownerId: (site as any).ownerId, serviceSlug: "newsletter" } },
+    select: { dataJson: true },
+  });
+  const hostedFont = resolveNewsletterHostedFont((setup?.dataJson as any)?.external?.fontKey);
+
   const newsletters = await prisma.clientNewsletter.findMany({
     where: { siteId: site.id, kind: "EXTERNAL", status: "SENT" },
     orderBy: [{ sentAt: "desc" }, { updatedAt: "desc" }],
@@ -110,7 +117,11 @@ export default async function ClientNewslettersIndexPage(props: PageProps) {
   });
 
   return (
-    <div className="min-h-screen bg-white" style={themeStyle}>
+    <div
+      className={"min-h-screen bg-white " + (hostedFont.className || "")}
+      style={{ ...(themeStyle as any), ...(hostedFont.style || {}) } as any}
+    >
+      {hostedFont.googleImportCss ? <style>{hostedFont.googleImportCss}</style> : null}
       <header className="border-b border-zinc-200 bg-white/80 backdrop-blur">
         <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-4">
           <Link href={`/${siteHandle}/newsletters`} className="flex items-center gap-3">
@@ -138,7 +149,7 @@ export default async function ClientNewslettersIndexPage(props: PageProps) {
         <section style={{ backgroundColor: "var(--client-primary)" }}>
           <div className="mx-auto max-w-6xl px-6 py-14">
             <div className="max-w-3xl">
-              <div className="font-brand text-4xl text-white sm:text-5xl">newsletters</div>
+              <div className="text-4xl text-white sm:text-5xl">newsletters</div>
               <p className="mt-4 text-lg leading-relaxed text-white/90">Latest updates from {brandName}.</p>
             </div>
           </div>
@@ -164,7 +175,7 @@ export default async function ClientNewslettersIndexPage(props: PageProps) {
                     <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
                       {formatDate(n.sentAt ?? n.updatedAt)}
                     </div>
-                    <div className="mt-2 font-brand text-2xl" style={{ color: "var(--client-primary)" }}>
+                    <div className="mt-2 text-2xl" style={{ color: "var(--client-primary)" }}>
                       {n.title}
                     </div>
                     <div className="mt-3 text-sm leading-relaxed text-zinc-700">{n.excerpt}</div>

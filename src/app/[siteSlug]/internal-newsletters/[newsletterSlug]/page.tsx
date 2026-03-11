@@ -6,6 +6,7 @@ import { prisma } from "@/lib/db";
 import { inlineMarkdownToHtmlSafe, parseBlogContent } from "@/lib/blog";
 import { hasPublicColumn } from "@/lib/dbSchema";
 import { findOwnerIdByStoredBlogSiteSlug } from "@/lib/blogSiteSlug";
+import { resolveNewsletterHostedFont, stripLegacyNewsletterFontWrapper } from "@/lib/portalNewsletterFonts";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -122,10 +123,20 @@ export default async function ClientInternalNewsletterPage(props: PageProps) {
     ["--client-text" as any]: brandText,
   } as CSSProperties;
 
-  const blocks = parseBlogContent(newsletter.content);
+  const setup = await prisma.portalServiceSetup.findUnique({
+    where: { ownerId_serviceSlug: { ownerId: (site as any).ownerId, serviceSlug: "newsletter" } },
+    select: { dataJson: true },
+  });
+  const hostedFont = resolveNewsletterHostedFont((setup?.dataJson as any)?.internal?.fontKey);
+
+  const blocks = parseBlogContent(stripLegacyNewsletterFontWrapper(newsletter.content));
 
   return (
-    <div className="min-h-screen bg-white" style={themeStyle}>
+    <div
+      className={"min-h-screen bg-white " + (hostedFont.className || "")}
+      style={{ ...(themeStyle as any), ...(hostedFont.style || {}) } as any}
+    >
+      {hostedFont.googleImportCss ? <style>{hostedFont.googleImportCss}</style> : null}
       <header className="border-b border-zinc-200 bg-white/80 backdrop-blur">
         <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-4">
           <Link href={`/${siteHandle}/internal-newsletters`} className="flex items-center gap-3">
@@ -159,7 +170,7 @@ export default async function ClientInternalNewsletterPage(props: PageProps) {
           <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
             {formatDate(newsletter.sentAt ?? newsletter.updatedAt)}
           </div>
-          <h1 className="mt-3 font-brand text-4xl leading-tight sm:text-5xl" style={{ color: "var(--client-primary)" }}>
+          <h1 className="mt-3 text-4xl leading-tight sm:text-5xl" style={{ color: "var(--client-primary)" }}>
             {newsletter.title}
           </h1>
           <p className="mt-5 text-base leading-relaxed text-zinc-700">{newsletter.excerpt}</p>
@@ -168,7 +179,7 @@ export default async function ClientInternalNewsletterPage(props: PageProps) {
             {blocks.map((b, idx) => {
               if (b.type === "h2") {
                 return (
-                  <h2 key={idx} className="pt-4 font-brand text-2xl" style={{ color: "var(--client-text)" }}>
+                  <h2 key={idx} className="pt-4 text-2xl" style={{ color: "var(--client-text)" }}>
                     <span dangerouslySetInnerHTML={{ __html: inlineMarkdownToHtmlSafe(b.text) }} />
                   </h2>
                 );

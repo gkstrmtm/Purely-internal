@@ -51,6 +51,10 @@ function normalizeCustomVarKey(raw: string): string {
   return cleaned;
 }
 
+export function normalizePortalContactCustomVarKey(raw: string): string {
+  return normalizeCustomVarKey(raw);
+}
+
 export function buildPortalTemplateVars(ctx: PortalTemplateContext): Record<string, string> {
   const contactName = String(ctx.contact?.name ?? "").trim();
   const contactEmail = String(ctx.contact?.email ?? "").trim();

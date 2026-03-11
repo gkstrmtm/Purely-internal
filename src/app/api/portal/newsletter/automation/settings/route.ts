@@ -3,6 +3,7 @@ import { z } from "zod";
 
 import { prisma } from "@/lib/db";
 import { requireClientSessionForService } from "@/lib/portalAccess";
+import { normalizeNewsletterFontKey } from "@/lib/portalNewsletterFonts";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -21,7 +22,7 @@ type StoredKindSettings = {
   deliverySmsHint?: string;
   includeImages?: boolean;
   includeImagesWhereNeeded?: boolean;
-  fontKey?: "brand" | "sans" | "mono";
+  fontKey?: string;
   audience?: {
     tagIds?: string[];
     contactIds?: string[];
@@ -58,7 +59,10 @@ function normalizeStrings(items: unknown, max: number) {
 }
 
 function parseKindSettings(value: unknown): Required<
-  Pick<StoredKindSettings, "enabled" | "frequencyDays" | "cursor" | "requireApproval" | "channels" | "topics" | "promptAnswers" | "audience">
+  Pick<
+    StoredKindSettings,
+    "enabled" | "frequencyDays" | "cursor" | "requireApproval" | "channels" | "topics" | "promptAnswers" | "audience" | "fontKey"
+  >
 > {
   const rec = value && typeof value === "object" ? (value as Record<string, unknown>) : null;
   const enabled = Boolean(rec?.enabled);
@@ -101,8 +105,7 @@ function parseKindSettings(value: unknown): Required<
   const deliverySmsHint = typeof rec?.deliverySmsHint === "string" ? rec.deliverySmsHint.trim().slice(0, 800) : "";
   const includeImages = Boolean(rec?.includeImages);
   const includeImagesWhereNeeded = Boolean(rec?.includeImagesWhereNeeded);
-  const fontKeyRaw = typeof rec?.fontKey === "string" ? rec.fontKey.trim().toLowerCase() : "";
-  const fontKey = fontKeyRaw === "sans" || fontKeyRaw === "mono" || fontKeyRaw === "brand" ? (fontKeyRaw as any) : "brand";
+  const fontKey = normalizeNewsletterFontKey(rec?.fontKey);
 
   return {
     enabled,
@@ -142,7 +145,7 @@ const putSchema = z.object({
   deliverySmsHint: z.string().trim().max(800).optional(),
   includeImages: z.boolean().optional(),
   includeImagesWhereNeeded: z.boolean().optional(),
-  fontKey: z.enum(["brand", "sans", "mono"]).optional(),
+  fontKey: z.string().trim().min(1).max(40).optional(),
   audience: z
     .object({
       tagIds: z.array(z.string().trim().min(1).max(80)).max(200).optional(),
@@ -224,13 +227,14 @@ export async function PUT(req: Request) {
 
   const prev = parseStored(existing?.dataJson);
   const prevKind = kind === "INTERNAL" ? prev.internal : prev.external;
+  const nextFontKey = normalizeNewsletterFontKey(parsedBody.data.fontKey ?? (prevKind as any).fontKey ?? "brand");
 
   const nextKind: StoredKindSettings = {
     enabled: parsedBody.data.enabled,
     frequencyDays: parsedBody.data.frequencyDays,
     cursor: prevKind.cursor,
     requireApproval: Boolean(parsedBody.data.requireApproval),
-    fontKey: parsedBody.data.fontKey ?? (prevKind as any).fontKey ?? "brand",
+    fontKey: nextFontKey,
     channels: {
       email: parsedBody.data.channels ? Boolean(parsedBody.data.channels.email ?? true) : prevKind.channels.email,
       sms: parsedBody.data.channels ? Boolean(parsedBody.data.channels.sms ?? true) : prevKind.channels.sms,

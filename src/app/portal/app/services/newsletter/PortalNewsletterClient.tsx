@@ -9,6 +9,7 @@ import { RichTextMarkdownEditor } from "@/components/RichTextMarkdownEditor";
 import { PortalMediaPickerModal } from "@/components/PortalMediaPickerModal";
 import { ContactTagsEditor, type ContactTag } from "@/components/ContactTagsEditor";
 import { PortalListboxDropdown } from "@/components/PortalListboxDropdown";
+import { FONT_PRESETS } from "@/lib/fontPresets";
 
 type AudienceTab = "external" | "internal";
 
@@ -34,7 +35,7 @@ type Settings = {
   deliverySmsHint?: string;
   includeImages?: boolean;
   includeImagesWhereNeeded?: boolean;
-  fontKey?: "sans" | "brand" | "mono";
+  fontKey?: string;
   audience: { tagIds: string[]; contactIds: string[]; emails: string[]; userIds: string[]; sendAllUsers?: boolean };
   lastGeneratedAt: string | null;
   nextDueAt: string | null;
@@ -255,6 +256,22 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
     if (typeof window === "undefined") return publicBasePath;
     return `${window.location.origin}${publicBasePath}`;
   }, [publicBasePath]);
+
+  const fontOptions = useMemo(() => {
+    const base = [
+      { value: "brand", label: "Brand" },
+      { value: "sans", label: "Sans" },
+      { value: "mono", label: "Mono" },
+    ];
+
+    const presetOptions = FONT_PRESETS.filter((p) => !base.some((b) => b.value === p.key)).map((p) => ({
+      value: p.key,
+      label: p.label,
+      hint: p.googleFamily ? "Google font" : p.fontFamily ? "System font" : undefined,
+    }));
+
+    return [...base, ...presetOptions];
+  }, []);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -1713,13 +1730,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                       <div className="mt-2">
                         <PortalListboxDropdown
                           value={(settings?.fontKey ?? "brand") as any}
-                          options={
-                            [
-                              { value: "brand", label: "Brand" },
-                              { value: "sans", label: "Sans" },
-                              { value: "mono", label: "Mono" },
-                            ] as any
-                          }
+                          options={fontOptions as any}
                           onChange={(v) => setSettings((prev) => (prev ? { ...prev, fontKey: v as any } : prev))}
                           placeholder="Font"
                         />

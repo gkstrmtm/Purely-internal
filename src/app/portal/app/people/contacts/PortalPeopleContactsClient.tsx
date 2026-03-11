@@ -40,11 +40,40 @@ function customVariablesFromRows(rows: CustomVarRow[]): Record<string, string> |
   for (const row of rows) {
     const key = String(row.key || "").trim().slice(0, 60);
     if (!key) continue;
+    const value = String(row.value ?? "").trim().slice(0, 300);
+    if (!value) continue;
     const stableKey = key.toLowerCase();
     if (out[stableKey] !== undefined) continue;
-    out[stableKey] = String(row.value ?? "").trim().slice(0, 300);
+    out[stableKey] = value;
   }
   return Object.keys(out).length ? out : null;
+}
+
+function mergeRowsWithKnownKeys(existing: CustomVarRow[], knownKeys: string[]): CustomVarRow[] {
+  const out: CustomVarRow[] = [];
+  const seen = new Set<string>();
+
+  for (const r of existing || []) {
+    const key = String(r?.key ?? "").trim();
+    if (!key) continue;
+    const stable = key.toLowerCase();
+    if (seen.has(stable)) continue;
+    seen.add(stable);
+    out.push({ key, value: String(r?.value ?? "") });
+    if (out.length >= 25) return out;
+  }
+
+  for (const k of knownKeys || []) {
+    const key = String(k ?? "").trim();
+    if (!key) continue;
+    const stable = key.toLowerCase();
+    if (seen.has(stable)) continue;
+    seen.add(stable);
+    out.push({ key, value: "" });
+    if (out.length >= 25) return out;
+  }
+
+  return out;
 }
 
 type LeadRow = {
@@ -234,6 +263,7 @@ export function PortalPeopleContactsClient() {
   const [manualPhone, setManualPhone] = useState("");
   const [manualTags, setManualTags] = useState("");
   const [manualCustomVarRows, setManualCustomVarRows] = useState<CustomVarRow[]>([]);
+  const [knownCustomVarKeys, setKnownCustomVarKeys] = useState<string[]>([]);
   const [importHeaders, setImportHeaders] = useState<string[]>([]);
   const [importRows, setImportRows] = useState<string[][]>([]);
   const [importDupesOpen, setImportDupesOpen] = useState(false);
@@ -383,7 +413,18 @@ export function PortalPeopleContactsClient() {
     setManualEmail("");
     setManualPhone("");
     setManualTags("");
-    setManualCustomVarRows([]);
+    setManualCustomVarRows(knownCustomVarKeys.map((k) => ({ key: k, value: "" })));
+  }, [knownCustomVarKeys]);
+
+  const loadKnownCustomVarKeys = useCallback(async () => {
+    try {
+      const res = await fetch("/api/portal/people/contacts/custom-variable-keys", { cache: "no-store" });
+      const json = (await res.json().catch(() => ({}))) as any;
+      if (!res.ok || !json?.ok || !Array.isArray(json?.keys)) return [] as string[];
+      return json.keys.map((k: any) => String(k || "").trim()).filter(Boolean).slice(0, 50) as string[];
+    } catch {
+      return [] as string[];
+    }
   }, []);
 
   const loadOwnerTags = useCallback(async () => {
@@ -504,7 +545,11 @@ export function PortalPeopleContactsClient() {
     void load();
     void loadOwnerTags();
     void loadDuplicatesSummary();
-  }, [load, loadOwnerTags, loadDuplicatesSummary]);
+    void (async () => {
+      const keys = await loadKnownCustomVarKeys();
+      setKnownCustomVarKeys(keys);
+    })();
+  }, [load, loadOwnerTags, loadDuplicatesSummary, loadKnownCustomVarKeys]);
 
   async function openContact(contactId: string) {
     setSelectedContactId(contactId);
@@ -528,7 +573,9 @@ export function PortalPeopleContactsClient() {
       setEditName(payload.contact?.name ?? "");
       setEditEmail(payload.contact?.email ?? "");
       setEditPhone(payload.contact?.phone ?? "");
-      setEditCustomVarRows(rowsFromCustomVariables(payload.contact?.customVariables));
+      setEditCustomVarRows(
+        mergeRowsWithKnownKeys(rowsFromCustomVariables(payload.contact?.customVariables), knownCustomVarKeys),
+      );
     } catch (e: any) {
       toast.error(String(e?.message || "Failed to load contact"));
     } finally {
@@ -1158,7 +1205,7 @@ export function PortalPeopleContactsClient() {
                         </div>
                       ))
                     ) : (
-                      <div className="text-sm text-zinc-600">No custom variables yet.</div>
+                      <div className="text-sm text-zinc-600">No custom variables saved yet. Add one below.</div>
                     )}
                     <button
                       type="button"
