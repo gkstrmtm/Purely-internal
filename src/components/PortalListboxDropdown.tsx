@@ -81,6 +81,7 @@ export function PortalListboxDropdown<T extends string>(props: {
               <button
                 key={o.value}
                 type="button"
+                title={o.label}
                 className={
                   "w-full rounded-xl px-3 py-2 text-left text-sm transition " +
                   (disabled
@@ -96,7 +97,9 @@ export function PortalListboxDropdown<T extends string>(props: {
                 }}
               >
                 <div className="flex items-center justify-between gap-2">
-                  <div className="truncate font-semibold">{o.label}</div>
+                  <div className="truncate font-semibold" title={o.label}>
+                    {o.label}
+                  </div>
                   {isSel ? <div className="text-xs">✓</div> : null}
                 </div>
                 {o.hint ? (
@@ -176,7 +179,12 @@ export function PortalListboxDropdown<T extends string>(props: {
         aria-haspopup="listbox"
         aria-expanded={open}
       >
-        <span className={"truncate " + (!current && placeholder ? "text-zinc-500" : "")}>{currentLabel}</span>
+        <span
+          className={"truncate " + (!current && placeholder ? "text-zinc-500" : "")}
+          title={typeof currentLabel === "string" ? currentLabel : String(currentLabel)}
+        >
+          {currentLabel}
+        </span>
         <span className="shrink-0 text-xs text-zinc-500">▾</span>
       </button>
 

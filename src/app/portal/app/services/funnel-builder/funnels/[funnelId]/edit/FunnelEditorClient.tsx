@@ -3405,14 +3405,23 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                     onClick={() => setSidebarPanel(t.key)}
                     className={classNames(
                       "rounded-xl border px-3 py-2 text-left text-xs font-semibold",
-                      t.key === sidebarPanel
-                        ? "border-[color:var(--color-brand-blue)] bg-blue-50 text-zinc-900"
-                        : "border-zinc-200 bg-zinc-50 text-zinc-800 hover:bg-white",
+                      t.key === "ai"
+                        ? "inline-flex items-center gap-2 border-transparent bg-linear-to-r from-[color:var(--color-brand-blue)] via-violet-500 to-[color:var(--color-brand-pink)] text-white shadow-sm hover:opacity-90"
+                        : t.key === sidebarPanel
+                          ? "border-[color:var(--color-brand-blue)] bg-blue-50 text-zinc-900"
+                          : "border-zinc-200 bg-zinc-50 text-zinc-800 hover:bg-white",
                       t.key === "selected" && !selectedBlock ? "opacity-50" : "",
                     )}
                     aria-pressed={t.key === sidebarPanel}
                   >
-                    {t.label}
+                    {t.key === "ai" ? (
+                      <>
+                        <AiSparkIcon className="h-4 w-4" />
+                        {t.label}
+                      </>
+                    ) : (
+                      t.label
+                    )}
                   </button>
                 ))}
               </div>
@@ -3793,15 +3802,9 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                           e.dataTransfer.effectAllowed = "copy";
                         }}
                         onClick={() => addBlock(b.type)}
-                        className={classNames(
-                          "rounded-xl px-3 py-2 text-left text-xs font-semibold",
-                          b.type === "chatbot" || b.type === "customCode"
-                            ? "inline-flex items-center gap-2 border border-transparent bg-linear-to-r from-[color:var(--color-brand-blue)] via-violet-500 to-[color:var(--color-brand-pink)] text-white shadow-sm hover:opacity-90"
-                            : "border border-zinc-200 bg-white text-zinc-800 hover:bg-zinc-50",
-                        )}
+                        className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-left text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
                         title="Drag into preview or click to add"
                       >
-                        <AiSparkIcon className="h-4 w-4" />
                         {b.label}
                       </button>
                     ))}
