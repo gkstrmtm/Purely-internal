@@ -4,6 +4,7 @@ export type PortalContactVars = {
   email?: string | null;
   phone?: string | null;
   businessName?: string | null;
+  tags?: string[] | null;
   customVariables?: Record<string, string> | null;
 };
 
@@ -60,7 +61,40 @@ export function buildPortalTemplateVars(ctx: PortalTemplateContext): Record<stri
   const contactEmail = String(ctx.contact?.email ?? "").trim();
   const contactPhone = String(ctx.contact?.phone ?? "").trim();
   const contactId = String(ctx.contact?.id ?? "").trim();
-  const contactBusinessName = String(ctx.contact?.businessName ?? "").trim();
+  const rawCustom = ctx.contact?.customVariables;
+
+  const contactBusinessName = (() => {
+    const direct = String(ctx.contact?.businessName ?? "").trim();
+    if (direct) return direct;
+    if (!rawCustom || typeof rawCustom !== "object" || Array.isArray(rawCustom)) return "";
+
+    const candidates = new Set(["business_name", "businessname", "company_name", "company"]);
+    for (const [k, v] of Object.entries(rawCustom)) {
+      const key = normalizeCustomVarKey(k);
+      if (!key || !candidates.has(key)) continue;
+      const value = String(v ?? "").trim();
+      if (value) return value;
+    }
+
+    return "";
+  })();
+
+  const contactTags = (() => {
+    const raw = ctx.contact?.tags;
+    if (!Array.isArray(raw)) return "";
+    const out: string[] = [];
+    const seen = new Set<string>();
+    for (const t of raw) {
+      const name = String(t ?? "").trim();
+      if (!name) continue;
+      const key = name.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(name.slice(0, 60));
+      if (out.length >= 20) break;
+    }
+    return out.join(", ");
+  })();
 
   const businessName = String(ctx.business?.name ?? "").trim();
   const businessEmail = String(ctx.business?.email ?? "").trim();
@@ -86,6 +120,7 @@ export function buildPortalTemplateVars(ctx: PortalTemplateContext): Record<stri
     "contact.email": contactEmail,
     "contact.phone": contactPhone,
     "contact.businessName": contactBusinessName,
+    "contact.tags": contactTags,
 
     "business.name": businessName,
     "business.email": businessEmail,
@@ -111,6 +146,7 @@ export function buildPortalTemplateVars(ctx: PortalTemplateContext): Record<stri
     contactEmail,
     contactPhone,
     contactBusinessName,
+    contactTags,
     businessName,
     businessEmail,
     businessPhone,
@@ -123,7 +159,6 @@ export function buildPortalTemplateVars(ctx: PortalTemplateContext): Record<stri
     messageTo,
   };
 
-  const rawCustom = ctx.contact?.customVariables;
   if (rawCustom && typeof rawCustom === "object" && !Array.isArray(rawCustom)) {
     for (const [k, v] of Object.entries(rawCustom)) {
       const key = normalizeCustomVarKey(k);
@@ -151,6 +186,7 @@ export const PORTAL_MESSAGE_VARIABLES: TemplateVariable[] = [
   { key: "contact.email", label: "Contact email", group: "Contact", appliesTo: "Lead/contact" },
   { key: "contact.phone", label: "Contact phone", group: "Contact", appliesTo: "Lead/contact" },
   { key: "contact.businessName", label: "Contact business name", group: "Contact", appliesTo: "Lead/contact" },
+  { key: "contact.tags", label: "Contact tags", group: "Contact", appliesTo: "Lead/contact" },
 
   { key: "business.name", label: "Your business name", group: "Business", appliesTo: "Your business" },
   { key: "business.email", label: "Your business email", group: "Business", appliesTo: "Your business" },

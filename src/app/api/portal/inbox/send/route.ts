@@ -126,12 +126,29 @@ export async function POST(req: Request) {
         .catch(() => null)
     : null;
 
+  const contactTags = contactRow?.id
+    ? await (prisma as any).portalContactTagAssignment
+        .findMany({
+          where: { ownerId, contactId: String(contactRow.id) },
+          take: 200,
+          select: { tag: { select: { name: true } } },
+        })
+        .then((rows: any[]) =>
+          (rows || [])
+            .map((r) => String(r?.tag?.name || "").trim())
+            .filter(Boolean)
+            .slice(0, 50),
+        )
+        .catch(() => [] as string[])
+    : ([] as string[]);
+
   const templateVars = buildPortalTemplateVars({
     contact: {
       id: contactRow?.id ? String(contactRow.id) : null,
       name: contactRow?.name ? String(contactRow.name) : null,
       email: contactRow?.email ? String(contactRow.email) : null,
       phone: contactRow?.phone ? String(contactRow.phone) : null,
+      tags: contactTags,
       customVariables:
         contactRow?.customVariables && typeof contactRow.customVariables === "object" && !Array.isArray(contactRow.customVariables)
           ? (contactRow.customVariables as Record<string, string>)

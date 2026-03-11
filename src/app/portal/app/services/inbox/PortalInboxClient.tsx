@@ -761,6 +761,74 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
     setVariablePickerOpen(true);
   }
 
+  function findContactIdForComposeTo(): string | null {
+    const to = String(composeTo || "").trim();
+    if (!to) return null;
+
+    const list = Array.isArray(contacts) ? contacts : [];
+    if (tab === "email") {
+      const email = to.toLowerCase();
+      const found = list.find((c) => String(c.email || "").trim().toLowerCase() === email);
+      return found?.id ? String(found.id) : null;
+    }
+
+    const normalizedTo = normalizePhoneForStorage(to);
+    if (!normalizedTo) return null;
+    const found = list.find((c) => normalizePhoneForStorage(String(c.phone || "").trim()) === normalizedTo);
+    return found?.id ? String(found.id) : null;
+  }
+
+  async function ensureContactIdForVariableCreate(): Promise<string> {
+    const fromThread = String(activeThread?.contactId || "").trim();
+    if (fromThread) return fromThread;
+
+    const fromCompose = findContactIdForComposeTo();
+    if (fromCompose) return fromCompose;
+
+    const to = String(composeTo || "").trim();
+    if (!to) throw new Error("Add a recipient to create variables.");
+
+    // Best-effort: create a contact so custom variables have somewhere to live.
+    const email = tab === "email" ? (safeEmailFromPeer(to) || to) : "";
+    const phone = tab === "sms" ? to : "";
+    const name = tab === "email" ? (email || to) : (phone || to);
+
+    const res = await fetch("/api/portal/people/contacts", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name, email, phone }),
+    });
+    const json = (await res.json().catch(() => null)) as any;
+    if (!res.ok || !json?.ok || !json?.contactId) {
+      throw new Error(typeof json?.error === "string" ? json.error : "Could not create a contact for this recipient.");
+    }
+
+    const contactId = String(json.contactId).trim();
+    if (contactId) {
+      const nextContact: ContactLite = {
+        id: contactId,
+        name: String(name || "Contact").slice(0, 80),
+        email: email ? String(email).slice(0, 120) : null,
+        phone: phone ? String(phone).slice(0, 40) : null,
+      };
+
+      setContacts((prev) => {
+        const base = Array.isArray(prev) ? prev : [];
+        if (base.some((c) => c.id === contactId)) return base;
+        return [nextContact, ...base].slice(0, 200);
+      });
+
+      // Best-effort refresh if contacts haven't been loaded yet.
+      try {
+        await ensureContactsLoaded();
+      } catch {
+        // ignore
+      }
+    }
+
+    return contactId;
+  }
+
   function applyPickedVariable(variableKey: string) {
     const key = String(variableKey || "").trim();
     const normalizedCustomKey = !key.includes(".") ? normalizePortalContactCustomVarKey(key) : "";
@@ -813,11 +881,10 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
           setVariablePickerTarget(null);
         }}
         createCustom={{
-          enabled: Boolean(activeThread?.contactId),
+          enabled: Boolean(String(activeThread?.contactId || "").trim() || String(composeTo || "").trim()),
           existingKeys: knownContactCustomVarKeys,
           onCreate: async (key, value) => {
-            const contactId = String(activeThread?.contactId || "").trim();
-            if (!contactId) throw new Error("Open a thread with a saved contact to create variables.");
+            const contactId = await ensureContactIdForVariableCreate();
 
             const v = String(value ?? "").trim();
             if (!v) throw new Error("Value is required.");

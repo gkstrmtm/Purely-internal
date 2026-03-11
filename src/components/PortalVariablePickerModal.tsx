@@ -127,8 +127,8 @@ export function PortalVariablePickerModal(props: {
 
   return (
     <>
-      <div className="fixed inset-0 z-[80] bg-black/30" onMouseDown={onClose} aria-hidden />
-      <div className="fixed inset-0 z-[85] flex items-center justify-center p-4" aria-modal role="dialog">
+      <div className="fixed inset-0 z-80 bg-black/30" onMouseDown={onClose} aria-hidden />
+      <div className="fixed inset-0 z-85 flex items-center justify-center p-4" aria-modal role="dialog">
         <div className="w-full max-w-lg overflow-hidden rounded-3xl border border-zinc-200 bg-white shadow-xl">
           <div className="flex items-start justify-between gap-3 border-b border-zinc-100 p-4">
             <div className="min-w-0">
@@ -195,6 +195,7 @@ export function PortalVariablePickerModal(props: {
                       className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300"
                       placeholder="Value"
                     />
+                    <div className="mt-1 text-[11px] text-zinc-500">Saved on this contact.</div>
                   </div>
 
                   <div className="sm:col-span-1">

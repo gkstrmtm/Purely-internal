@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { PortalPeopleTabs } from "@/app/portal/app/people/PortalPeopleTabs";
 import { PortalListboxDropdown } from "@/components/PortalListboxDropdown";
+import { PortalMultiSelectDropdown } from "@/components/PortalMultiSelectDropdown";
 import { PortalSelectDropdown } from "@/components/PortalSelectDropdown";
 import { useToast } from "@/components/ToastProvider";
 import { parseCsv } from "@/lib/csv";
@@ -261,7 +262,7 @@ export function PortalPeopleContactsClient() {
   const [manualName, setManualName] = useState("");
   const [manualEmail, setManualEmail] = useState("");
   const [manualPhone, setManualPhone] = useState("");
-  const [manualTags, setManualTags] = useState("");
+  const [manualTagValues, setManualTagValues] = useState<string[]>([]);
   const [manualCustomVarRows, setManualCustomVarRows] = useState<CustomVarRow[]>([]);
   const [knownCustomVarKeys, setKnownCustomVarKeys] = useState<string[]>([]);
   const [importHeaders, setImportHeaders] = useState<string[]>([]);
@@ -412,9 +413,15 @@ export function PortalPeopleContactsClient() {
     setManualName("");
     setManualEmail("");
     setManualPhone("");
-    setManualTags("");
-    setManualCustomVarRows(knownCustomVarKeys.map((k) => ({ key: k, value: "" })));
+    setManualTagValues([]);
+    setManualCustomVarRows(mergeRowsWithKnownKeys([{ key: "business_name", value: "" }], knownCustomVarKeys));
   }, [knownCustomVarKeys]);
+
+  useEffect(() => {
+    if (!importOpen) return;
+    if (addMode !== "manual") return;
+    setManualCustomVarRows((prev) => mergeRowsWithKnownKeys(prev, knownCustomVarKeys));
+  }, [addMode, importOpen, knownCustomVarKeys]);
 
   const loadKnownCustomVarKeys = useCallback(async () => {
     try {
@@ -1133,38 +1140,54 @@ export function PortalPeopleContactsClient() {
                       placeholder="Full name"
                       className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
                     />
+                    <div className="mt-1 text-[11px] text-zinc-500">
+                      Templates: <span className="font-mono">{`{contact.name}`}</span> · <span className="font-mono">{`{contact.firstName}`}</span>
+                    </div>
                   </label>
                   <label className="block">
-                    <div className="text-xs font-semibold text-zinc-700">Phone (optional)</div>
+                    <div className="text-xs font-semibold text-zinc-700">Phone</div>
                     <input
                       value={manualPhone}
                       onChange={(e) => setManualPhone(e.target.value)}
                       placeholder="+1 (555) 555-5555"
                       className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
                     />
+                    <div className="mt-1 text-[11px] text-zinc-500">
+                      Templates: <span className="font-mono">{`{contact.phone}`}</span>
+                    </div>
                   </label>
                   <label className="block">
-                    <div className="text-xs font-semibold text-zinc-700">Email (optional)</div>
+                    <div className="text-xs font-semibold text-zinc-700">Email</div>
                     <input
                       value={manualEmail}
                       onChange={(e) => setManualEmail(e.target.value)}
                       placeholder="name@company.com"
                       className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
                     />
+                    <div className="mt-1 text-[11px] text-zinc-500">
+                      Templates: <span className="font-mono">{`{contact.email}`}</span>
+                    </div>
                   </label>
-                  <label className="block">
-                    <div className="text-xs font-semibold text-zinc-700">Tags (optional)</div>
-                    <input
-                      value={manualTags}
-                      onChange={(e) => setManualTags(e.target.value)}
-                      placeholder="New, Follow-up"
-                      className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                    />
-                  </label>
+                  <div className="block">
+                    <div className="text-xs font-semibold text-zinc-700">Tags</div>
+                    <div className="mt-1">
+                      <PortalMultiSelectDropdown
+                        label="Tags"
+                        value={manualTagValues}
+                        onChange={setManualTagValues}
+                        allowCustom
+                        placeholder="Search tags…"
+                        options={(ownerTags || []).map((t) => ({ value: t.name, label: t.name }))}
+                      />
+                    </div>
+                    <div className="mt-1 text-[11px] text-zinc-500">
+                      Templates: <span className="font-mono">{`{contact.tags}`}</span>
+                    </div>
+                  </div>
                 </div>
 
                 <div className="mt-4">
-                  <div className="text-xs font-semibold text-zinc-700">Custom variables (optional)</div>
+                  <div className="text-xs font-semibold text-zinc-700">Custom variables</div>
                   <div className="mt-2 space-y-2">
                     {manualCustomVarRows.length ? (
                       manualCustomVarRows.map((row, idx) => (
@@ -1214,7 +1237,7 @@ export function PortalPeopleContactsClient() {
                     >
                       Add variable
                     </button>
-                    <div className="text-xs text-zinc-500">Available in templates as `contact.custom.&lt;key&gt;`.</div>
+                    <div className="text-xs text-zinc-500">Available in templates as {"{contact.custom.<key>}"}.</div>
                   </div>
                 </div>
 
@@ -1225,7 +1248,7 @@ export function PortalPeopleContactsClient() {
                 ) : null}
 
                 <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                  <div className="text-xs text-zinc-500">Tip: name is required. Phone and email are optional.</div>
+                  <div className="text-xs text-zinc-500">Tip: Name is required.</div>
                   <button
                     type="button"
                     disabled={manualBusy}
@@ -1241,7 +1264,7 @@ export function PortalPeopleContactsClient() {
                               name: manualName,
                               email: manualEmail,
                               phone: manualPhone,
-                              tags: manualTags,
+                              tags: (manualTagValues || []).join(", "),
                               customVariables: customVariablesFromRows(manualCustomVarRows),
                             }),
                           });
