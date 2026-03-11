@@ -7,49 +7,58 @@ export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 const PROFILE_EXTRAS_SERVICE_SLUG = "profile";
+const AI_RECEPTIONIST_SERVICE_SLUG = "ai-receptionist";
 
-async function getOwnerVoiceAgentApiKey(ownerId: string): Promise<string | null> {
-  const row = await prisma.portalServiceSetup.findUnique({
-    where: { ownerId_serviceSlug: { ownerId, serviceSlug: PROFILE_EXTRAS_SERVICE_SLUG } },
-    select: { dataJson: true },
-  });
-
-  const rec =
-    row?.dataJson && typeof row.dataJson === "object" && !Array.isArray(row.dataJson)
-      ? (row.dataJson as Record<string, unknown>)
-      : null;
-
-  const raw = rec?.voiceAgentApiKey;
-  const key = typeof raw === "string" ? raw.trim().slice(0, 400) : "";
-  return key ? key : null;
+function normalizeAgentId(raw: unknown): string {
+  const s = typeof raw === "string" ? raw.trim() : "";
+  if (!s) return "";
+  return s.slice(0, 120);
 }
 
-function coerceAgents(raw: unknown): Array<{ id: string; name?: string }> {
-  const arr = Array.isArray(raw)
-    ? raw
-    : raw && typeof raw === "object" && Array.isArray((raw as any).agents)
-      ? ((raw as any).agents as any[])
-      : [];
+function addAgent(
+  map: Map<string, { id: string; name?: string }>,
+  idRaw: unknown,
+  nameRaw?: unknown,
+) {
+  const id = normalizeAgentId(idRaw);
+  if (!id) return;
+  if (map.has(id)) return;
+  const name = typeof nameRaw === "string" ? nameRaw.trim().slice(0, 140) : "";
+  map.set(id, { id, ...(name ? { name } : {}) });
+}
 
-  const out: Array<{ id: string; name?: string }> = [];
-  const seen = new Set<string>();
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+}
 
-  for (const a of arr) {
-    const rec = a && typeof a === "object" ? (a as any) : null;
-    const idRaw = rec?.agent_id ?? rec?.agentId ?? rec?.id;
-    const nameRaw = rec?.name ?? rec?.title;
+function collectAgentIdsFromJson(value: unknown, out: string[], depth = 0) {
+  if (depth > 12) return;
+  if (value == null) return;
 
-    const id = typeof idRaw === "string" ? idRaw.trim().slice(0, 120) : "";
-    if (!id) continue;
-    if (seen.has(id)) continue;
-    seen.add(id);
-
-    const name = typeof nameRaw === "string" ? nameRaw.trim().slice(0, 140) : "";
-    out.push({ id, ...(name ? { name } : {}) });
-    if (out.length >= 200) break;
+  if (typeof value === "string") {
+    const v = normalizeAgentId(value);
+    if (v) out.push(v);
+    return;
   }
 
-  return out;
+  if (Array.isArray(value)) {
+    for (const item of value) collectAgentIdsFromJson(item, out, depth + 1);
+    return;
+  }
+
+  if (typeof value === "object") {
+    const rec = value as Record<string, unknown>;
+    for (const [k, v] of Object.entries(rec)) {
+      const key = k.toLowerCase();
+      const looksLikeAgentIdKey = key === "agentid" || key === "agent_id" || key.endsWith("agentid") || key.endsWith("agent_id");
+      if (looksLikeAgentIdKey && typeof v === "string") {
+        const id = normalizeAgentId(v);
+        if (id) out.push(id);
+        continue;
+      }
+      collectAgentIdsFromJson(v, out, depth + 1);
+    }
+  }
 }
 
 export async function GET() {
@@ -62,35 +71,68 @@ export async function GET() {
   }
 
   const ownerId = auth.session.user.id;
-  const apiKey = await getOwnerVoiceAgentApiKey(ownerId);
-  if (!apiKey) {
-    return NextResponse.json(
-      { ok: false, error: "Missing API key. Add it in Portal → Profile." },
-      { status: 400 },
-    );
-  }
 
-  const res = await fetch("https://api.elevenlabs.io/v1/convai/agents", {
-    method: "GET",
-    headers: {
-      "xi-api-key": apiKey,
-      accept: "application/json",
+  // IMPORTANT: Do not list agents from ElevenLabs by API key.
+  // API keys may be shared across multiple portal accounts.
+  // Instead, return only agent IDs that are already referenced by this signed-in owner.
+  const agentsMap = new Map<string, { id: string; name?: string }>();
+
+  const setups = await prisma.portalServiceSetup.findMany({
+    where: {
+      ownerId,
+      serviceSlug: { in: [PROFILE_EXTRAS_SERVICE_SLUG, AI_RECEPTIONIST_SERVICE_SLUG] },
     },
-    cache: "no-store",
-  }).catch(() => null as any);
+    select: { serviceSlug: true, dataJson: true },
+  });
 
-  const json = await res?.json?.().catch(() => null);
-  if (!res || !res.ok) {
-    const msg =
-      typeof json?.detail === "string"
-        ? json.detail
-        : typeof json?.error === "string"
-          ? json.error
-          : "Unable to list agents";
+  for (const s of setups) {
+    const data = asRecord(s.dataJson);
 
-    return NextResponse.json({ ok: false, error: String(msg || "Unable to list agents").slice(0, 240) }, { status: 502 });
+    if (s.serviceSlug === PROFILE_EXTRAS_SERVICE_SLUG) {
+      addAgent(agentsMap, data.voiceAgentId, "Profile voice agent");
+      continue;
+    }
+
+    if (s.serviceSlug === AI_RECEPTIONIST_SERVICE_SLUG) {
+      const settings = asRecord((data as any).settings ?? data);
+      addAgent(agentsMap, (settings as any).voiceAgentId, "AI Receptionist (voice)");
+      addAgent(agentsMap, (settings as any).chatAgentId ?? (settings as any).messagingAgentId, "AI Receptionist (messaging)");
+      continue;
+    }
   }
 
-  const agents = coerceAgents(json);
+  const campaigns = await prisma.portalAiOutboundCallCampaign.findMany({
+    where: { ownerId },
+    select: { id: true, name: true, voiceAgentId: true, chatAgentId: true, updatedAt: true },
+    orderBy: { updatedAt: "desc" },
+    take: 60,
+  });
+
+  for (const c of campaigns) {
+    if (c.voiceAgentId) addAgent(agentsMap, c.voiceAgentId, `${c.name} (calls)`);
+    if (c.chatAgentId) addAgent(agentsMap, c.chatAgentId, `${c.name} (messages)`);
+  }
+
+  const pages = await prisma.creditFunnelPage.findMany({
+    where: { funnel: { ownerId } },
+    select: { id: true, title: true, blocksJson: true, customChatJson: true, updatedAt: true },
+    orderBy: { updatedAt: "desc" },
+    take: 80,
+  });
+
+  for (const p of pages) {
+    const found: string[] = [];
+    collectAgentIdsFromJson(p.blocksJson, found);
+    collectAgentIdsFromJson(p.customChatJson, found);
+
+    for (const id of found) {
+      addAgent(agentsMap, id, p.title ? `Funnel page: ${p.title}` : "Funnel page");
+      if (agentsMap.size >= 200) break;
+    }
+    if (agentsMap.size >= 200) break;
+  }
+
+  const agents = Array.from(agentsMap.values()).slice(0, 200);
+  agents.sort((a, b) => (a.name || a.id).localeCompare(b.name || b.id));
   return NextResponse.json({ ok: true, agents });
 }

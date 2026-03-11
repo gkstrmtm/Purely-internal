@@ -13,7 +13,7 @@ import {
   toPublicSettings,
   upsertAiReceptionistCallEvent,
 } from "@/lib/aiReceptionist";
-import { patchElevenLabsAgent, resolveElevenLabsConvaiToolIdsByKeys } from "@/lib/elevenLabsConvai";
+import { createElevenLabsAgent, patchElevenLabsAgent, resolveElevenLabsConvaiToolIdsByKeys } from "@/lib/elevenLabsConvai";
 import { normalizeEmailKey, normalizeNameKey, normalizePhoneKey } from "@/lib/portalContacts";
 import { ensurePortalContactTagsReady, listContactTagsForContact } from "@/lib/portalContactTags";
 import { ensurePortalContactsSchema } from "@/lib/portalContactsSchema";
@@ -408,6 +408,7 @@ const putSchema = z.object({
   regenerateToken: z.boolean().optional(),
   clearVoiceAgentKey: z.boolean().optional(),
   clearElevenLabsKey: z.boolean().optional(),
+  syncChatAgent: z.boolean().optional(),
 });
 
 export async function PUT(req: Request) {
@@ -450,7 +451,7 @@ export async function PUT(req: Request) {
   }
 
   const normalized = parseAiReceptionistSettings(rawRec, current.settings);
-  const next = await setAiReceptionistSettings(ownerId, normalized);
+  let next = await setAiReceptionistSettings(ownerId, normalized);
 
   // Sync agent config (first message + prompt) to ElevenLabs at save-time.
   // Do not attempt per-call overrides during the Twilio webhook.
@@ -501,6 +502,55 @@ export async function PUT(req: Request) {
     if (!patched.ok) {
       await setAiReceptionistSettings(ownerId, current.settings).catch(() => null);
       return NextResponse.json({ ok: false, error: patched.error }, { status: patched.status || 502 });
+    }
+  }
+
+  // Optional: sync (create/patch) messaging agent for SMS / chat experiences.
+  // This must be explicitly requested because API keys may be shared.
+  if (parsed.data.syncChatAgent) {
+    if (!apiKey) {
+      await setAiReceptionistSettings(ownerId, current.settings).catch(() => null);
+      return NextResponse.json(
+        { ok: false, error: "Missing API key. Add it in Portal → Profile." },
+        { status: 400 },
+      );
+    }
+
+    const smsPrompt = String(next.smsSystemPrompt || "").trim() || String(next.systemPrompt || "").trim();
+    let chatAgentId = String(next.chatAgentId || "").trim();
+
+    if (!chatAgentId) {
+      const businessName = String(next.businessName || "").trim();
+      const name = (businessName ? `${businessName} — AI Receptionist (SMS)` : "AI Receptionist (SMS)").slice(0, 160);
+      const created = await createElevenLabsAgent({
+        apiKey,
+        name,
+        prompt: smsPrompt || undefined,
+      });
+
+      if (!created.ok) {
+        await setAiReceptionistSettings(ownerId, current.settings).catch(() => null);
+        return NextResponse.json({ ok: false, error: created.error }, { status: created.status || 502 });
+      }
+
+      chatAgentId = created.agentId;
+      try {
+        next = await setAiReceptionistSettings(ownerId, { ...next, chatAgentId });
+      } catch {
+        await setAiReceptionistSettings(ownerId, current.settings).catch(() => null);
+        return NextResponse.json({ ok: false, error: "Failed to persist messaging agent ID" }, { status: 500 });
+      }
+    } else {
+      const patched = await patchElevenLabsAgent({
+        apiKey,
+        agentId: chatAgentId,
+        prompt: smsPrompt || undefined,
+      });
+
+      if (!patched.ok) {
+        await setAiReceptionistSettings(ownerId, current.settings).catch(() => null);
+        return NextResponse.json({ ok: false, error: patched.error }, { status: patched.status || 502 });
+      }
     }
   }
 

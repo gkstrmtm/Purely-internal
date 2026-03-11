@@ -2826,7 +2826,9 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
                               onClick={() => void saveMessagesAgentSettings()}
                               className={classNames(
                                 "rounded-2xl px-4 py-2 text-xs font-semibold",
-                                busy ? "bg-zinc-200 text-zinc-600" : "bg-zinc-900 text-white hover:bg-zinc-800",
+                                busy
+                                  ? "bg-zinc-200 text-zinc-600"
+                                  : "border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50",
                               )}
                               title="Save messages settings"
                             >

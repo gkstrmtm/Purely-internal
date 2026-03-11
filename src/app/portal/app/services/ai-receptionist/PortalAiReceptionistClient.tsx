@@ -300,6 +300,7 @@ export function PortalAiReceptionistClient() {
   const [callSyncBusy, setCallSyncBusy] = useState(false);
   const autoSyncedCallSidsRef = useRef<Set<string>>(new Set());
   const [generateContext, setGenerateContext] = useState("");
+  const [smsGenerateContext, setSmsGenerateContext] = useState("");
   const [generateBusy, setGenerateBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
@@ -343,6 +344,7 @@ export function PortalAiReceptionistClient() {
   const [billingPath, setBillingPath] = useState<string>("/portal/app/billing");
 
   const [tab, setTab] = useState<"settings" | "testing" | "activity" | "missed-call-textback">("activity");
+  const [settingsSubTab, setSettingsSubTab] = useState<"voice" | "sms">("voice");
 
   const [settings, setSettings] = useState<Settings | null>(null);
   const [events, setEvents] = useState<EventRow[]>([]);
@@ -406,7 +408,7 @@ export function PortalAiReceptionistClient() {
       const res = await fetch("/api/portal/ai-receptionist/generate-sms-system-prompt", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ context: generateContext }),
+        body: JSON.stringify({ context: smsGenerateContext }),
       }).catch(() => null as any);
 
       if (!res?.ok) {
@@ -724,6 +726,32 @@ export function PortalAiReceptionistClient() {
     window.setTimeout(() => setNote(null), 1800);
   }
 
+  async function saveSms(next: Settings) {
+    setSaving(true);
+    setError(null);
+    setNote(null);
+
+    const res = await fetch("/api/portal/ai-receptionist/settings", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ settings: next, syncChatAgent: true }),
+    });
+
+    const data = (await res.json().catch(() => null)) as ApiPayload | null;
+    if (!res.ok || !data?.ok) {
+      setSaving(false);
+      setError(friendlyApiError({ status: res.status, rawError: data?.error ?? null, action: "save" }));
+      return;
+    }
+
+    setSettings(data.settings);
+    setEvents(Array.isArray(data.events) ? data.events : []);
+    setWebhookUrl(data.webhookUrl || webhookUrl);
+    setSaving(false);
+    setNote("Saved.");
+    window.setTimeout(() => setNote(null), 1800);
+  }
+
   async function saveEnabled(nextEnabled: boolean) {
     if (!settings) return;
     const prev = settings.enabled;
@@ -862,57 +890,86 @@ export function PortalAiReceptionistClient() {
       {tab === "settings" ? (
         <div className="mt-4">
           <div className="min-w-0 rounded-3xl border border-zinc-200 bg-white p-6">
-            {settings?.mode === "AI" ? (
-              <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4 sm:col-span-2 mb-6">
-                <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
-                  <div>
-                    <div className="text-sm font-semibold text-zinc-900">Generate with AI</div>
-                    <div className="mt-0.5 text-xs text-zinc-600">
-                      Automatically uses your Business Profile. Add context below if needed.
+            <div className="mb-6 flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setSettingsSubTab("voice")}
+                className={classNames(
+                  "rounded-2xl px-4 py-2 text-xs font-semibold",
+                  settingsSubTab === "voice"
+                    ? "bg-zinc-900 text-white"
+                    : "border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50",
+                )}
+              >
+                Voice
+              </button>
+              <button
+                type="button"
+                onClick={() => setSettingsSubTab("sms")}
+                className={classNames(
+                  "rounded-2xl px-4 py-2 text-xs font-semibold",
+                  settingsSubTab === "sms"
+                    ? "bg-zinc-900 text-white"
+                    : "border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50",
+                )}
+              >
+                SMS
+              </button>
+            </div>
+
+            {settingsSubTab === "voice" ? (
+              <>
+                {settings?.mode === "AI" ? (
+                  <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4 sm:col-span-2 mb-6">
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+                      <div>
+                        <div className="text-sm font-semibold text-zinc-900">Generate with AI</div>
+                        <div className="mt-0.5 text-xs text-zinc-600">
+                          Automatically uses your Business Profile. Add context below if needed.
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        disabled={saving || !settings || generateBusy}
+                        onClick={() => void generateReceptionistCopy()}
+                        className={classNames(
+                          "inline-flex items-center gap-2 rounded-2xl px-4 py-2 text-xs font-semibold",
+                          saving || !settings || generateBusy
+                            ? "bg-zinc-200 text-zinc-600"
+                            : "bg-linear-to-r from-(--color-brand-blue) via-violet-500 to-(--color-brand-pink) text-white shadow-sm hover:opacity-90",
+                        )}
+                      >
+                        <svg
+                          aria-hidden="true"
+                          viewBox="0 0 24 24"
+                          className="h-4 w-4"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        >
+                          <path d="M12 2l1.5 5.5L19 9l-5.5 1.5L12 16l-1.5-5.5L5 9l5.5-1.5L12 2z" />
+                          <path d="M19 14l.8 2.6L22 17l-2.2.4L19 20l-.8-2.6L16 17l2.2-.4L19 14z" />
+                        </svg>
+                        <span>{generateBusy ? "Generating…" : "Generate"}</span>
+                      </button>
+                    </div>
+
+                    <div className="mt-3">
+                      <div className="text-xs font-semibold text-zinc-600">Additional context (optional)</div>
+                      <textarea
+                        className="mt-2 min-h-[90px] w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                        value={generateContext}
+                        onChange={(e) => setGenerateContext(e.target.value)}
+                        placeholder="Example: We answer calls for a boutique dental practice. If it's a new patient, ask what they're looking for and offer to book a consultation. Office hours are Mon–Fri 9–5."
+                      />
                     </div>
                   </div>
-                  <button
-                    type="button"
-                    disabled={saving || !settings || generateBusy}
-                    onClick={() => void generateReceptionistCopy()}
-                    className={classNames(
-                      "inline-flex items-center gap-2 rounded-2xl px-4 py-2 text-xs font-semibold",
-                      saving || !settings || generateBusy
-                        ? "bg-zinc-200 text-zinc-600"
-                        : "bg-linear-to-r from-(--color-brand-blue) via-violet-500 to-(--color-brand-pink) text-white shadow-sm hover:opacity-90",
-                    )}
-                  >
-                    <svg
-                      aria-hidden="true"
-                      viewBox="0 0 24 24"
-                      className="h-4 w-4"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    >
-                      <path d="M12 2l1.5 5.5L19 9l-5.5 1.5L12 16l-1.5-5.5L5 9l5.5-1.5L12 2z" />
-                      <path d="M19 14l.8 2.6L22 17l-2.2.4L19 20l-.8-2.6L16 17l2.2-.4L19 14z" />
-                    </svg>
-                    <span>{generateBusy ? "Generating…" : "Generate"}</span>
-                  </button>
-                </div>
+                ) : null}
 
-                <div className="mt-3">
-                  <div className="text-xs font-semibold text-zinc-600">Additional context (optional)</div>
-                  <textarea
-                    className="mt-2 min-h-[90px] w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                    value={generateContext}
-                    onChange={(e) => setGenerateContext(e.target.value)}
-                    placeholder="Example: We answer calls for a boutique dental practice. If it's a new patient, ask what they're looking for and offer to book a consultation. Office hours are Mon–Fri 9–5."
-                  />
-                </div>
-              </div>
-            ) : null}
-
-            <div className="text-sm font-semibold text-zinc-900">Core</div>
-            <div className="mt-2 grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <div className="text-sm font-semibold text-zinc-900">Core</div>
+                <div className="mt-2 grid grid-cols-1 gap-4 sm:grid-cols-2">
               <label className="flex items-center justify-between gap-4 rounded-2xl border border-zinc-200 bg-white px-4 py-3 sm:col-span-2">
                 <div className="min-w-0">
                   <div className="text-sm font-semibold text-zinc-900">Enabled</div>
@@ -1021,229 +1078,272 @@ export function PortalAiReceptionistClient() {
                 </label>
               ) : null}
             </div>
-            <div className="mt-8 text-sm font-semibold text-zinc-900">Inbound SMS auto-replies (optional)</div>
-            <div className="mt-2 grid grid-cols-1 gap-4 sm:grid-cols-2">
-              <label className="flex items-center justify-between gap-4 rounded-2xl border border-zinc-200 bg-white px-4 py-3 sm:col-span-2">
-                <div className="min-w-0">
-                  <div className="text-sm font-semibold text-zinc-900">Enable inbound SMS replies</div>
-                  <div className="mt-0.5 text-xs text-zinc-600">
-                    When enabled, inbound texts to your Twilio number can get an AI reply.
-                  </div>
-                  <div className="mt-1 text-xs text-zinc-600">SMS activity will show up in your Inbox/Outbox.</div>
-                </div>
-                <span className="relative inline-flex h-6 w-11 shrink-0 items-center">
-                  <input
-                    type="checkbox"
-                    className="peer sr-only"
-                    checked={Boolean(settings?.smsEnabled)}
-                    disabled={saving || savingEnabled || !settings}
-                    onChange={(e) => settings && setSettings({ ...settings, smsEnabled: e.target.checked })}
-                  />
-                  <span className="h-6 w-11 rounded-full bg-zinc-200 transition peer-checked:bg-(--color-brand-blue) peer-focus-visible:ring-2 peer-focus-visible:ring-brand-ink/40 peer-focus-visible:ring-offset-2 peer-focus-visible:ring-offset-white peer-disabled:opacity-60" />
-                  <span className="pointer-events-none absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow-sm transition peer-checked:translate-x-5" />
-                </span>
-              </label>
+                <div className="mt-8 text-sm font-semibold text-zinc-900">Agent (optional)</div>
+                <div className="mt-2 grid grid-cols-1 gap-4 sm:grid-cols-2">
+                  <label className="rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm">
+                    <div className="text-xs font-semibold text-zinc-600">Agent ID</div>
+                    <input
+                      className="mt-2 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                      value={settings?.voiceAgentId ?? ""}
+                      onChange={(e) => settings && setSettings({ ...settings, voiceAgentId: e.target.value })}
+                      placeholder="agent_..."
+                    />
+                    <div className="mt-2 text-xs text-zinc-600">Used for inbound/outbound calls.</div>
+                  </label>
 
-              <div className="rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm sm:col-span-2">
-                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                  <div className="min-w-0">
-                    <div className="text-xs font-semibold text-zinc-600">SMS system prompt</div>
-                    <div className="mt-1 text-xs text-zinc-600">
-                      Used only for inbound SMS auto-replies. If blank, we’ll fall back to the main System prompt.
+                  <div className="rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm">
+                    <div className="flex items-center justify-between">
+                      <div className="text-xs font-semibold text-zinc-600">API key</div>
+                      <Link
+                        href="/portal/profile"
+                        className="rounded-lg border border-zinc-200 bg-white px-2 py-1 text-xs font-semibold text-brand-ink hover:bg-zinc-50"
+                      >
+                        Open Profile
+                      </Link>
+                    </div>
+                    <div className="mt-2 text-xs text-zinc-600">
+                      This key is managed in your Profile settings so AI services can share it.
                     </div>
                   </div>
-                  <button
-                    type="button"
-                    disabled={!settings || saving || smsPromptBusy}
-                    onClick={() => void generateSmsSystemPrompt()}
-                    className={classNames(
-                      "inline-flex items-center justify-center gap-2 rounded-2xl px-4 py-2 text-xs font-semibold text-white shadow-sm",
-                      !settings || saving || smsPromptBusy
-                        ? "bg-zinc-400"
-                        : "bg-linear-to-r from-[color:var(--color-brand-blue)] via-violet-500 to-[color:var(--color-brand-pink)] hover:opacity-90",
-                    )}
-                  >
-                    <svg
-                      aria-hidden="true"
-                      viewBox="0 0 24 24"
-                      className="h-4 w-4"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4 mb-6">
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+                    <div>
+                      <div className="text-sm font-semibold text-zinc-900">Generate SMS prompt with AI</div>
+                      <div className="mt-0.5 text-xs text-zinc-600">
+                        Generates a system prompt specifically for inbound SMS replies.
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      disabled={saving || !settings || smsPromptBusy}
+                      onClick={() => void generateSmsSystemPrompt()}
+                      className={classNames(
+                        "inline-flex items-center gap-2 rounded-2xl px-4 py-2 text-xs font-semibold",
+                        saving || !settings || smsPromptBusy
+                          ? "bg-zinc-200 text-zinc-600"
+                          : "bg-linear-to-r from-(--color-brand-blue) via-violet-500 to-(--color-brand-pink) text-white shadow-sm hover:opacity-90",
+                      )}
                     >
-                      <path d="M12 2l1.5 5.5L19 9l-5.5 1.5L12 16l-1.5-5.5L5 9l5.5-1.5L12 2z" />
-                      <path d="M19 14l.8 2.6L22 17l-2.2.4L19 20l-.8-2.6L16 17l2.2-.4L19 14z" />
-                    </svg>
-                    <span>{smsPromptBusy ? "Working…" : "Ask AI"}</span>
-                  </button>
+                      <svg
+                        aria-hidden="true"
+                        viewBox="0 0 24 24"
+                        className="h-4 w-4"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      >
+                        <path d="M12 2l1.5 5.5L19 9l-5.5 1.5L12 16l-1.5-5.5L5 9l5.5-1.5L12 2z" />
+                        <path d="M19 14l.8 2.6L22 17l-2.2.4L19 20l-.8-2.6L16 17l2.2-.4L19 14z" />
+                      </svg>
+                      <span>{smsPromptBusy ? "Generating…" : "Generate"}</span>
+                    </button>
+                  </div>
+
+                  <div className="mt-3">
+                    <div className="text-xs font-semibold text-zinc-600">Additional context (optional)</div>
+                    <textarea
+                      className="mt-2 min-h-[90px] w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                      value={smsGenerateContext}
+                      onChange={(e) => setSmsGenerateContext(e.target.value)}
+                      placeholder="Example: Keep replies under 320 chars. Ask 1 question at a time. If it's pricing, offer a link + ask for a good time to call."
+                    />
+                  </div>
                 </div>
 
-                <textarea
-                  className="mt-3 min-h-[150px] w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                  value={settings?.smsSystemPrompt ?? ""}
-                  onChange={(e) => settings && setSettings({ ...settings, smsSystemPrompt: e.target.value })}
-                  placeholder="Write how the AI should respond via SMS…"
-                />
-              </div>
+                <div className="text-sm font-semibold text-zinc-900">Inbound SMS auto-replies (optional)</div>
+                <div className="mt-2 grid grid-cols-1 gap-4 sm:grid-cols-2">
+                  <label className="flex items-center justify-between gap-4 rounded-2xl border border-zinc-200 bg-white px-4 py-3 sm:col-span-2">
+                    <div className="min-w-0">
+                      <div className="text-sm font-semibold text-zinc-900">Enable inbound SMS replies</div>
+                      <div className="mt-0.5 text-xs text-zinc-600">
+                        When enabled, inbound texts to your Twilio number can get an AI reply.
+                      </div>
+                      <div className="mt-1 text-xs text-zinc-600">SMS activity will show up in your Inbox/Outbox.</div>
+                    </div>
+                    <span className="relative inline-flex h-6 w-11 shrink-0 items-center">
+                      <input
+                        type="checkbox"
+                        className="peer sr-only"
+                        checked={Boolean(settings?.smsEnabled)}
+                        disabled={saving || savingEnabled || !settings}
+                        onChange={(e) => settings && setSettings({ ...settings, smsEnabled: e.target.checked })}
+                      />
+                      <span className="h-6 w-11 rounded-full bg-zinc-200 transition peer-checked:bg-(--color-brand-blue) peer-focus-visible:ring-2 peer-focus-visible:ring-brand-ink/40 peer-focus-visible:ring-offset-2 peer-focus-visible:ring-offset-white peer-disabled:opacity-60" />
+                      <span className="pointer-events-none absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow-sm transition peer-checked:translate-x-5" />
+                    </span>
+                  </label>
 
-              <div className="rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm sm:col-span-2">
-                <div className="text-xs font-semibold text-zinc-600">Only reply to contacts with these tags (optional)</div>
-                <div className="mt-2 flex flex-wrap items-center gap-2">
-                  {(settings?.smsIncludeTagIds ?? []).length ? (
-                    (settings?.smsIncludeTagIds ?? []).map((id) => {
-                      const t = contactTags.find((x) => x.id === id);
-                      const label = t?.name ? t.name : id;
-                      return (
-                        <button
-                          key={id}
-                          type="button"
-                          className="rounded-full border border-zinc-200 bg-zinc-50 px-3 py-1 text-xs font-semibold text-zinc-900 hover:bg-zinc-100"
-                          title="Remove"
-                          onClick={() => {
-                            if (!settings) return;
-                            const next = (settings.smsIncludeTagIds || []).filter((x) => x !== id);
-                            setSettings({ ...settings, smsIncludeTagIds: next });
-                          }}
-                        >
-                          {label} <span className="ml-1 text-zinc-500">×</span>
-                        </button>
-                      );
-                    })
-                  ) : (
-                    <div className="text-xs text-zinc-500">No include tags</div>
-                  )}
+                  <div className="rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm sm:col-span-2">
+                    <div className="min-w-0">
+                      <div className="text-xs font-semibold text-zinc-600">SMS system prompt</div>
+                      <div className="mt-1 text-xs text-zinc-600">
+                        Used only for inbound SMS auto-replies. If blank, we’ll fall back to the main System prompt.
+                      </div>
+                    </div>
+
+                    <textarea
+                      className="mt-3 min-h-[150px] w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                      value={settings?.smsSystemPrompt ?? ""}
+                      onChange={(e) => settings && setSettings({ ...settings, smsSystemPrompt: e.target.value })}
+                      placeholder="Write how the AI should respond via SMS…"
+                    />
+                  </div>
+
+                  <div className="rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm sm:col-span-2">
+                    <div className="text-xs font-semibold text-zinc-600">Only reply to contacts with these tags (optional)</div>
+                    <div className="mt-2 flex flex-wrap items-center gap-2">
+                      {(settings?.smsIncludeTagIds ?? []).length ? (
+                        (settings?.smsIncludeTagIds ?? []).map((id) => {
+                          const t = contactTags.find((x) => x.id === id);
+                          const label = t?.name ? t.name : id;
+                          return (
+                            <button
+                              key={id}
+                              type="button"
+                              className="rounded-full border border-zinc-200 bg-zinc-50 px-3 py-1 text-xs font-semibold text-zinc-900 hover:bg-zinc-100"
+                              title="Remove"
+                              onClick={() => {
+                                if (!settings) return;
+                                const next = (settings.smsIncludeTagIds || []).filter((x) => x !== id);
+                                setSettings({ ...settings, smsIncludeTagIds: next });
+                              }}
+                            >
+                              {label} <span className="ml-1 text-zinc-500">×</span>
+                            </button>
+                          );
+                        })
+                      ) : (
+                        <div className="text-xs text-zinc-500">No include tags</div>
+                      )}
+                    </div>
+
+                    <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                      <input
+                        value={smsIncludeTagSearch}
+                        onChange={(e) => setSmsIncludeTagSearch(e.target.value)}
+                        placeholder="Search tags…"
+                        className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                      />
+                      <PortalListboxDropdown
+                        value={smsIncludeAddTagValue}
+                        options={buildAddTagOptionsFromTags(contactTags, settings?.smsIncludeTagIds ?? [], smsIncludeTagSearch) as any}
+                        onChange={(v) => {
+                          const id = String(v || "");
+                          if (!id) {
+                            setSmsIncludeAddTagValue("");
+                            return;
+                          }
+                          if (!settings) return;
+                          const next = new Set(settings.smsIncludeTagIds || []);
+                          next.add(id);
+                          setSmsIncludeAddTagValue("");
+                          setSettings({ ...settings, smsIncludeTagIds: Array.from(next).slice(0, 60) });
+                        }}
+                        disabled={!settings || saving}
+                        className="w-full"
+                        buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50"
+                      />
+                    </div>
+                    <div className="mt-2 text-xs text-zinc-600">If you leave this empty, we’ll reply to any contact (unless excluded below).</div>
+                  </div>
+
+                  <div className="rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm sm:col-span-2">
+                    <div className="text-xs font-semibold text-zinc-600">Never reply to contacts with these tags (optional)</div>
+                    <div className="mt-2 flex flex-wrap items-center gap-2">
+                      {(settings?.smsExcludeTagIds ?? []).length ? (
+                        (settings?.smsExcludeTagIds ?? []).map((id) => {
+                          const t = contactTags.find((x) => x.id === id);
+                          const label = t?.name ? t.name : id;
+                          return (
+                            <button
+                              key={id}
+                              type="button"
+                              className="rounded-full border border-zinc-200 bg-zinc-50 px-3 py-1 text-xs font-semibold text-zinc-900 hover:bg-zinc-100"
+                              title="Remove"
+                              onClick={() => {
+                                if (!settings) return;
+                                const next = (settings.smsExcludeTagIds || []).filter((x) => x !== id);
+                                setSettings({ ...settings, smsExcludeTagIds: next });
+                              }}
+                            >
+                              {label} <span className="ml-1 text-zinc-500">×</span>
+                            </button>
+                          );
+                        })
+                      ) : (
+                        <div className="text-xs text-zinc-500">No exclude tags</div>
+                      )}
+                    </div>
+
+                    <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                      <input
+                        value={smsExcludeTagSearch}
+                        onChange={(e) => setSmsExcludeTagSearch(e.target.value)}
+                        placeholder="Search tags…"
+                        className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                      />
+                      <PortalListboxDropdown
+                        value={smsExcludeAddTagValue}
+                        options={buildAddTagOptionsFromTags(contactTags, settings?.smsExcludeTagIds ?? [], smsExcludeTagSearch) as any}
+                        onChange={(v) => {
+                          const id = String(v || "");
+                          if (!id) {
+                            setSmsExcludeAddTagValue("");
+                            return;
+                          }
+                          if (!settings) return;
+                          const next = new Set(settings.smsExcludeTagIds || []);
+                          next.add(id);
+                          setSmsExcludeAddTagValue("");
+                          setSettings({ ...settings, smsExcludeTagIds: Array.from(next).slice(0, 60) });
+                        }}
+                        disabled={!settings || saving}
+                        className="w-full"
+                        buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50"
+                      />
+                    </div>
+                    <div className="mt-2 text-xs text-zinc-600">Exclude rules win over include rules.</div>
+                  </div>
                 </div>
 
-                <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
-                  <input
-                    value={smsIncludeTagSearch}
-                    onChange={(e) => setSmsIncludeTagSearch(e.target.value)}
-                    placeholder="Search tags…"
-                    className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                  />
-                  <PortalListboxDropdown
-                    value={smsIncludeAddTagValue}
-                    options={buildAddTagOptionsFromTags(contactTags, settings?.smsIncludeTagIds ?? [], smsIncludeTagSearch) as any}
-                    onChange={(v) => {
-                      const id = String(v || "");
-                      if (!id) {
-                        setSmsIncludeAddTagValue("");
-                        return;
-                      }
-                      if (!settings) return;
-                      const next = new Set(settings.smsIncludeTagIds || []);
-                      next.add(id);
-                      setSmsIncludeAddTagValue("");
-                      setSettings({ ...settings, smsIncludeTagIds: Array.from(next).slice(0, 60) });
-                    }}
-                    disabled={!settings || saving}
-                    className="w-full"
-                    buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50"
-                  />
-                </div>
-                <div className="mt-2 text-xs text-zinc-600">If you leave this empty, we’ll reply to any contact (unless excluded below).</div>
-              </div>
+                <div className="mt-8 text-sm font-semibold text-zinc-900">Messaging agent (optional)</div>
+                <div className="mt-2 grid grid-cols-1 gap-4 sm:grid-cols-2">
+                  <label className="rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm">
+                    <div className="text-xs font-semibold text-zinc-600">Messaging agent ID</div>
+                    <input
+                      className="mt-2 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                      value={settings?.chatAgentId ?? ""}
+                      onChange={(e) => settings && setSettings({ ...settings, chatAgentId: e.target.value })}
+                      placeholder="agent_..."
+                    />
+                    <div className="mt-2 text-xs text-zinc-600">
+                      When you click Save, we’ll create/sync a messaging agent and store its ID here.
+                    </div>
+                  </label>
 
-              <div className="rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm sm:col-span-2">
-                <div className="text-xs font-semibold text-zinc-600">Never reply to contacts with these tags (optional)</div>
-                <div className="mt-2 flex flex-wrap items-center gap-2">
-                  {(settings?.smsExcludeTagIds ?? []).length ? (
-                    (settings?.smsExcludeTagIds ?? []).map((id) => {
-                      const t = contactTags.find((x) => x.id === id);
-                      const label = t?.name ? t.name : id;
-                      return (
-                        <button
-                          key={id}
-                          type="button"
-                          className="rounded-full border border-zinc-200 bg-zinc-50 px-3 py-1 text-xs font-semibold text-zinc-900 hover:bg-zinc-100"
-                          title="Remove"
-                          onClick={() => {
-                            if (!settings) return;
-                            const next = (settings.smsExcludeTagIds || []).filter((x) => x !== id);
-                            setSettings({ ...settings, smsExcludeTagIds: next });
-                          }}
-                        >
-                          {label} <span className="ml-1 text-zinc-500">×</span>
-                        </button>
-                      );
-                    })
-                  ) : (
-                    <div className="text-xs text-zinc-500">No exclude tags</div>
-                  )}
+                  <div className="rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm">
+                    <div className="flex items-center justify-between">
+                      <div className="text-xs font-semibold text-zinc-600">API key</div>
+                      <Link
+                        href="/portal/profile"
+                        className="rounded-lg border border-zinc-200 bg-white px-2 py-1 text-xs font-semibold text-brand-ink hover:bg-zinc-50"
+                      >
+                        Open Profile
+                      </Link>
+                    </div>
+                    <div className="mt-2 text-xs text-zinc-600">
+                      This key is managed in your Profile settings so AI services can share it.
+                    </div>
+                  </div>
                 </div>
-
-                <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
-                  <input
-                    value={smsExcludeTagSearch}
-                    onChange={(e) => setSmsExcludeTagSearch(e.target.value)}
-                    placeholder="Search tags…"
-                    className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                  />
-                  <PortalListboxDropdown
-                    value={smsExcludeAddTagValue}
-                    options={buildAddTagOptionsFromTags(contactTags, settings?.smsExcludeTagIds ?? [], smsExcludeTagSearch) as any}
-                    onChange={(v) => {
-                      const id = String(v || "");
-                      if (!id) {
-                        setSmsExcludeAddTagValue("");
-                        return;
-                      }
-                      if (!settings) return;
-                      const next = new Set(settings.smsExcludeTagIds || []);
-                      next.add(id);
-                      setSmsExcludeAddTagValue("");
-                      setSettings({ ...settings, smsExcludeTagIds: Array.from(next).slice(0, 60) });
-                    }}
-                    disabled={!settings || saving}
-                    className="w-full"
-                    buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50"
-                  />
-                </div>
-                <div className="mt-2 text-xs text-zinc-600">Exclude rules win over include rules.</div>
-              </div>
-            </div>
-
-            <div className="mt-8 text-sm font-semibold text-zinc-900">Agents (optional)</div>
-            <div className="mt-2 grid grid-cols-1 gap-4 sm:grid-cols-2">
-              <label className="rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm">
-                <div className="text-xs font-semibold text-zinc-600">Messaging agent ID</div>
-                <input
-                  className="mt-2 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                  value={settings?.chatAgentId ?? ""}
-                  onChange={(e) => settings && setSettings({ ...settings, chatAgentId: e.target.value })}
-                  placeholder="agent_..."
-                />
-                <div className="mt-2 text-xs text-zinc-600">Used for chat widgets in funnels and other messaging experiences.</div>
-              </label>
-
-              <label className="rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm">
-                <div className="text-xs font-semibold text-zinc-600">Agent ID</div>
-                <input
-                  className="mt-2 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                  value={settings?.voiceAgentId ?? ""}
-                  onChange={(e) => settings && setSettings({ ...settings, voiceAgentId: e.target.value })}
-                  placeholder="agent_..."
-                />
-                <div className="mt-2 text-xs text-zinc-600">Used for inbound/outbound calls.</div>
-              </label>
-
-              <div className="rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm">
-                <div className="flex items-center justify-between">
-                  <div className="text-xs font-semibold text-zinc-600">API key</div>
-                  <Link
-                    href="/portal/profile"
-                    className="rounded-lg border border-zinc-200 bg-white px-2 py-1 text-xs font-semibold text-brand-ink hover:bg-zinc-50"
-                  >
-                    Open Profile
-                  </Link>
-                </div>
-                <div className="mt-2 text-xs text-zinc-600">
-                  This key is managed in your Profile settings so AI services can share it.
-                </div>
-              </div>
-            </div>
+              </>
+            )}
 
             <div className="mt-6 flex items-center justify-end gap-2">
               <button
@@ -1258,7 +1358,7 @@ export function PortalAiReceptionistClient() {
                 type="button"
                 className="rounded-2xl bg-[color:var(--color-brand-blue)] px-4 py-2 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
                 disabled={saving || !settings || !canSave}
-                onClick={() => settings && void save(settings)}
+                onClick={() => settings && void (settingsSubTab === "sms" ? saveSms(settings) : save(settings))}
               >
                 {saving ? "Saving…" : "Save"}
               </button>

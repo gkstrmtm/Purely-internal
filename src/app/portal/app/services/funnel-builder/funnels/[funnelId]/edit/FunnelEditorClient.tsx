@@ -255,7 +255,7 @@ function ColorPickerField({
   const currentAlpha = parsed.alpha;
 
   return (
-    <label className="block">
+    <div className="block">
       <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-zinc-500">{label}</div>
       <div className="flex flex-wrap items-center gap-2">
         <input
@@ -332,7 +332,7 @@ function ColorPickerField({
           ))}
         </div>
       ) : null}
-    </label>
+    </div>
   );
 }
 
@@ -1685,7 +1685,6 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
 
   const [brandSwatches, setBrandSwatches] = useState<string[]>([]);
 
-  const [aiReceptionistVoiceAgentId, setAiReceptionistVoiceAgentId] = useState<string | null>(null);
   const [aiReceptionistChatAgentId, setAiReceptionistChatAgentId] = useState<string | null>(null);
   const [availableAgentOptions, setAvailableAgentOptions] = useState<Array<{ id: string; name?: string }>>([]);
 
@@ -1913,10 +1912,8 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
           headers: { [PORTAL_VARIANT_HEADER]: portalVariant },
         });
         const json = (await res.json().catch(() => null)) as any;
-        const voiceId = typeof json?.settings?.voiceAgentId === "string" ? json.settings.voiceAgentId.trim() : "";
         const chatId = typeof json?.settings?.chatAgentId === "string" ? json.settings.chatAgentId.trim() : "";
         if (!cancelled) {
-          setAiReceptionistVoiceAgentId(voiceId || null);
           setAiReceptionistChatAgentId(chatId || null);
         }
       } catch {
@@ -4446,7 +4443,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                             <div className="mt-1 text-[11px] text-zinc-500">Affects the launcher icon when no image is set.</div>
                           </label>
 
-                          <label className="block">
+                          <div className="block">
                             <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Launcher image (optional)</div>
 
                             {String((selectedBlock.props as any).launcherImageUrl || "").trim() ? (
@@ -4531,7 +4528,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                                 />
                               </label>
                             </div>
-                          </label>
+                          </div>
                         </div>
                       ) : null}
 
