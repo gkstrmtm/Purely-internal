@@ -177,8 +177,8 @@ export default async function HostedFunnelWithKeyPage({
   const blockBlocks = page ? coerceBlocksJson(page.blocksJson) : [];
 
   const billingModel = funnel.ownerId
-    ? await getPortalBillingModelForOwner({ ownerId: funnel.ownerId, portalVariant: "credit" }).catch(() => "credits" as const)
-    : "credits";
+    ? await getPortalBillingModelForOwner({ ownerId: funnel.ownerId, portalVariant: "portal" }).catch(() => "subscription" as const)
+    : "subscription";
   const showWatermark = isCreditsOnlyBilling(billingModel);
 
   return (
