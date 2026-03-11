@@ -2105,7 +2105,7 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
                 value={listQuery}
                 onChange={(e) => setListQuery(e.target.value)}
                 className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-zinc-300"
-                placeholder="Search by name or id…"
+                placeholder="Search by name…"
               />
             </div>
             <div className="md:col-span-3">
@@ -2195,7 +2195,6 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
                           </span>
                         </button>
                       )}
-                      <div className="truncate text-xs text-zinc-500">{a.id}</div>
                     </div>
 
                     <div className="col-span-2">
@@ -2430,7 +2429,6 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
                   </span>
                 </button>
               )}
-              <div className="truncate text-xs text-zinc-500">{selectedAutomation?.id ?? ""}</div>
             </div>
           </div>
 

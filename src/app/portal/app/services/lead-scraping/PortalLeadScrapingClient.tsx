@@ -2081,74 +2081,78 @@ export function PortalLeadScrapingClient() {
                       placeholder="e.g. Roofing, Med Spa, Dentist"
                     />
 
-                    <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+                    <div className="mt-4 flex h-70 flex-col rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
                       <div className="text-xs font-semibold text-zinc-700">Fallback niches / keywords</div>
 
-                      {(settings.b2b.fallbackNiches ?? []).length ? (
-                        <div className="mt-3 flex flex-wrap gap-2">
-                          {(settings.b2b.fallbackNiches ?? []).slice(0, 20).map((v) => (
-                            <span
-                              key={v}
-                              className="inline-flex items-center gap-2 rounded-full border border-zinc-200 bg-white px-3 py-1 text-xs font-semibold text-zinc-800"
-                            >
-                              <span className="max-w-45 truncate">{v}</span>
-                              <button
-                                type="button"
-                                className="rounded-full border border-zinc-200 bg-white px-2 py-0.5 text-[11px] font-semibold text-zinc-700 hover:bg-zinc-50"
-                                onClick={() =>
-                                  setSettings((prev) =>
-                                    prev
-                                      ? {
-                                          ...prev,
-                                          b2b: {
-                                            ...prev.b2b,
-                                            fallbackNiches: (prev.b2b.fallbackNiches ?? []).filter((x) => x !== v),
-                                          },
-                                        }
-                                      : prev,
-                                  )
-                                }
+                      <div className="mt-3 min-h-0 flex-1 overflow-auto">
+                        {(settings.b2b.fallbackNiches ?? []).length ? (
+                          <div className="flex flex-wrap gap-2">
+                            {(settings.b2b.fallbackNiches ?? []).slice(0, 20).map((v) => (
+                              <span
+                                key={v}
+                                className="inline-flex items-center gap-2 rounded-full border border-zinc-200 bg-white px-3 py-1 text-xs font-semibold text-zinc-800"
                               >
-                                ×
-                              </button>
-                            </span>
-                          ))}
-                        </div>
-                      ) : (
-                        <div className="mt-3 text-xs text-zinc-500">None</div>
-                      )}
-
-                      <div className="mt-3 flex gap-2">
-                        <input
-                          className="h-10 flex-1 rounded-xl border border-zinc-200 bg-white px-3 text-sm"
-                          placeholder="e.g. Roofing contractor"
-                          value={fallbackNicheDraft}
-                          onChange={(e) => setFallbackNicheDraft(e.target.value)}
-                          disabled={!Boolean((settings.b2b as any).fallbackEnabled)}
-                        />
-                        <button
-                          type="button"
-                          className="inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-(--color-brand-blue) px-4 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
-                          disabled={!Boolean((settings.b2b as any).fallbackEnabled)}
-                          onClick={() => {
-                            const nextValue = fallbackNicheDraft.trim();
-                            if (!nextValue) return;
-                            setSettings((prev) => {
-                              if (!prev) return prev;
-                              const existing = prev.b2b.fallbackNiches ?? [];
-                              const next = Array.from(new Set([nextValue, ...existing])).slice(0, 20);
-                              return { ...prev, b2b: { ...prev.b2b, fallbackNiches: next } };
-                            });
-                            setFallbackNicheDraft("");
-                          }}
-                        >
-                          <span className="text-base leading-none">+</span>
-                          <span>Add</span>
-                        </button>
+                                <span className="max-w-45 truncate">{v}</span>
+                                <button
+                                  type="button"
+                                  className="rounded-full border border-zinc-200 bg-white px-2 py-0.5 text-[11px] font-semibold text-zinc-700 hover:bg-zinc-50"
+                                  onClick={() =>
+                                    setSettings((prev) =>
+                                      prev
+                                        ? {
+                                            ...prev,
+                                            b2b: {
+                                              ...prev.b2b,
+                                              fallbackNiches: (prev.b2b.fallbackNiches ?? []).filter((x) => x !== v),
+                                            },
+                                          }
+                                        : prev,
+                                    )
+                                  }
+                                >
+                                  ×
+                                </button>
+                              </span>
+                            ))}
+                          </div>
+                        ) : (
+                          <div className="text-xs text-zinc-500">None</div>
+                        )}
                       </div>
 
-                      <div className="mt-2 text-xs text-zinc-500">
-                        If the main niche is too tight, we’ll keep trying these keywords (in your location + fallbacks) until we hit your requested count.
+                      <div className="mt-3">
+                        <div className="flex gap-2">
+                          <input
+                            className="h-10 flex-1 rounded-xl border border-zinc-200 bg-white px-3 text-sm"
+                            placeholder="e.g. Roofing contractor"
+                            value={fallbackNicheDraft}
+                            onChange={(e) => setFallbackNicheDraft(e.target.value)}
+                            disabled={!Boolean((settings.b2b as any).fallbackEnabled)}
+                          />
+                          <button
+                            type="button"
+                            className="inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-(--color-brand-blue) px-4 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
+                            disabled={!Boolean((settings.b2b as any).fallbackEnabled)}
+                            onClick={() => {
+                              const nextValue = fallbackNicheDraft.trim();
+                              if (!nextValue) return;
+                              setSettings((prev) => {
+                                if (!prev) return prev;
+                                const existing = prev.b2b.fallbackNiches ?? [];
+                                const next = Array.from(new Set([nextValue, ...existing])).slice(0, 20);
+                                return { ...prev, b2b: { ...prev.b2b, fallbackNiches: next } };
+                              });
+                              setFallbackNicheDraft("");
+                            }}
+                          >
+                            <span className="text-base leading-none">+</span>
+                            <span>Add</span>
+                          </button>
+                        </div>
+
+                        <div className="mt-2 min-h-8 overflow-hidden text-xs leading-4 text-zinc-500 [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:2]">
+                          If the main niche is too tight, we’ll keep trying these keywords (in your location + fallbacks) until we hit your requested count.
+                        </div>
                       </div>
                     </div>
                   </label>
@@ -2174,76 +2178,80 @@ export function PortalLeadScrapingClient() {
                       placeholder="e.g. Austin TX"
                     />
 
-                    <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+                    <div className="mt-4 flex h-70 flex-col rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
                       <div className="text-xs font-semibold text-zinc-700">Fallback locations</div>
 
-                      {(((settings.b2b as any).fallbackLocations ?? []) as string[]).length ? (
-                        <div className="mt-3 flex flex-wrap gap-2">
-                          {(((settings.b2b as any).fallbackLocations ?? []) as string[]).slice(0, 20).map((v) => (
-                            <span
-                              key={v}
-                              className="inline-flex items-center gap-2 rounded-full border border-zinc-200 bg-white px-3 py-1 text-xs font-semibold text-zinc-800"
-                            >
-                              <span className="max-w-45 truncate">{v}</span>
-                              <button
-                                type="button"
-                                className="rounded-full border border-zinc-200 bg-white px-2 py-0.5 text-[11px] font-semibold text-zinc-700 hover:bg-zinc-50"
-                                onClick={() =>
-                                  setSettings((prev) =>
-                                    prev
-                                      ? {
-                                          ...prev,
-                                          b2b: {
-                                            ...prev.b2b,
-                                            fallbackLocations: (((prev.b2b as any).fallbackLocations ?? []) as string[]).filter(
-                                              (x) => x !== v,
-                                            ),
-                                          } as any,
-                                        }
-                                      : prev,
-                                  )
-                                }
+                      <div className="mt-3 min-h-0 flex-1 overflow-auto">
+                        {(((settings.b2b as any).fallbackLocations ?? []) as string[]).length ? (
+                          <div className="flex flex-wrap gap-2">
+                            {(((settings.b2b as any).fallbackLocations ?? []) as string[]).slice(0, 20).map((v) => (
+                              <span
+                                key={v}
+                                className="inline-flex items-center gap-2 rounded-full border border-zinc-200 bg-white px-3 py-1 text-xs font-semibold text-zinc-800"
                               >
-                                ×
-                              </button>
-                            </span>
-                          ))}
-                        </div>
-                      ) : (
-                        <div className="mt-3 text-xs text-zinc-500">None</div>
-                      )}
-
-                      <div className="mt-3 flex gap-2">
-                        <input
-                          className="h-10 flex-1 rounded-xl border border-zinc-200 bg-white px-3 text-sm"
-                          placeholder="e.g. Dallas TX"
-                          value={fallbackLocationDraft}
-                          onChange={(e) => setFallbackLocationDraft(e.target.value)}
-                          disabled={!Boolean((settings.b2b as any).fallbackEnabled)}
-                        />
-                        <button
-                          type="button"
-                          className="inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-(--color-brand-blue) px-4 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
-                          disabled={!Boolean((settings.b2b as any).fallbackEnabled)}
-                          onClick={() => {
-                            const nextValue = fallbackLocationDraft.trim();
-                            if (!nextValue) return;
-                            setSettings((prev) => {
-                              if (!prev) return prev;
-                              const existing = (((prev.b2b as any).fallbackLocations ?? []) as string[]).filter(Boolean);
-                              const next = Array.from(new Set([nextValue, ...existing])).slice(0, 20);
-                              return { ...prev, b2b: { ...prev.b2b, fallbackLocations: next } as any };
-                            });
-                            setFallbackLocationDraft("");
-                          }}
-                        >
-                          <span className="text-base leading-none">+</span>
-                          <span>Add</span>
-                        </button>
+                                <span className="max-w-45 truncate">{v}</span>
+                                <button
+                                  type="button"
+                                  className="rounded-full border border-zinc-200 bg-white px-2 py-0.5 text-[11px] font-semibold text-zinc-700 hover:bg-zinc-50"
+                                  onClick={() =>
+                                    setSettings((prev) =>
+                                      prev
+                                        ? {
+                                            ...prev,
+                                            b2b: {
+                                              ...prev.b2b,
+                                              fallbackLocations: (((prev.b2b as any).fallbackLocations ?? []) as string[]).filter(
+                                                (x) => x !== v,
+                                              ),
+                                            } as any,
+                                          }
+                                        : prev,
+                                    )
+                                  }
+                                >
+                                  ×
+                                </button>
+                              </span>
+                            ))}
+                          </div>
+                        ) : (
+                          <div className="text-xs text-zinc-500">None</div>
+                        )}
                       </div>
 
-                      <div className="mt-2 text-xs text-zinc-500">
-                        Add nearby cities/areas to keep pulling until we hit your requested count.
+                      <div className="mt-3">
+                        <div className="flex gap-2">
+                          <input
+                            className="h-10 flex-1 rounded-xl border border-zinc-200 bg-white px-3 text-sm"
+                            placeholder="e.g. Dallas TX"
+                            value={fallbackLocationDraft}
+                            onChange={(e) => setFallbackLocationDraft(e.target.value)}
+                            disabled={!Boolean((settings.b2b as any).fallbackEnabled)}
+                          />
+                          <button
+                            type="button"
+                            className="inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-(--color-brand-blue) px-4 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
+                            disabled={!Boolean((settings.b2b as any).fallbackEnabled)}
+                            onClick={() => {
+                              const nextValue = fallbackLocationDraft.trim();
+                              if (!nextValue) return;
+                              setSettings((prev) => {
+                                if (!prev) return prev;
+                                const existing = (((prev.b2b as any).fallbackLocations ?? []) as string[]).filter(Boolean);
+                                const next = Array.from(new Set([nextValue, ...existing])).slice(0, 20);
+                                return { ...prev, b2b: { ...prev.b2b, fallbackLocations: next } as any };
+                              });
+                              setFallbackLocationDraft("");
+                            }}
+                          >
+                            <span className="text-base leading-none">+</span>
+                            <span>Add</span>
+                          </button>
+                        </div>
+
+                        <div className="mt-2 min-h-8 overflow-hidden text-xs leading-4 text-zinc-500 [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:2]">
+                          Add nearby cities/areas to keep pulling until we hit your requested count.
+                        </div>
                       </div>
                     </div>
                   </label>
