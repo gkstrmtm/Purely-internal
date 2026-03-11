@@ -237,6 +237,48 @@ function idFromLabel(label: string) {
 
 export default function PortalReviewsClient() {
   const toast = useToast();
+
+  const [knownContactCustomVarKeys, setKnownContactCustomVarKeys] = useState<string[]>([]);
+
+  useEffect(() => {
+    let canceled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/portal/people/contacts/custom-variable-keys", { cache: "no-store" });
+        const json = (await res.json().catch(() => null)) as any;
+        if (!res.ok || !json?.ok || !Array.isArray(json.keys)) return;
+        const keys = json.keys.map((k: any) => String(k || "").trim()).filter(Boolean).slice(0, 50);
+        if (!canceled) setKnownContactCustomVarKeys(keys);
+      } catch {
+        // ignore
+      }
+    })();
+
+    return () => {
+      canceled = true;
+    };
+  }, []);
+
+  const varPickerVariables = useMemo(() => {
+    const base: TemplateVariable[] = [...REVIEW_TEMPLATE_VARIABLES];
+    const keys = Array.isArray(knownContactCustomVarKeys) ? knownContactCustomVarKeys : [];
+    for (const k of keys) {
+      base.push({
+        key: `contact.custom.${k}`,
+        label: `Contact custom: ${k}`,
+        group: "Custom",
+        appliesTo: "Lead/contact",
+      });
+    }
+
+    const seen = new Set<string>();
+    return base.filter((v) => {
+      const key = `${v.group}:${v.key}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }, [knownContactCustomVarKeys]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -2265,8 +2307,9 @@ export default function PortalReviewsClient() {
       <PortalVariablePickerModal
         open={varPickerOpen}
         onClose={() => setVarPickerOpen(false)}
-        variables={REVIEW_TEMPLATE_VARIABLES}
+        variables={varPickerVariables}
         title="Insert variable"
+        createCustom={{ enabled: true, existingKeys: knownContactCustomVarKeys, allowContactPick: true }}
         onPick={(key) => {
           const target = varPickerTarget;
           if (!target) return;

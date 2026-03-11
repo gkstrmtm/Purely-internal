@@ -881,7 +881,7 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
           setVariablePickerTarget(null);
         }}
         createCustom={{
-          enabled: Boolean(String(activeThread?.contactId || "").trim() || String(composeTo || "").trim()),
+          enabled: true,
           existingKeys: knownContactCustomVarKeys,
           onCreate: async (key, value) => {
             const contactId = await ensureContactIdForVariableCreate();
@@ -1730,13 +1730,6 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
               <div className="border-t border-zinc-100 bg-white p-4">
                 <div className="mb-2 flex items-center justify-between gap-3">
                   <div className="text-xs font-semibold text-zinc-700">{activeThread ? "Reply" : "Message"}</div>
-                  <button
-                    type="button"
-                    className="rounded-xl border border-zinc-200 bg-white px-2 py-1 text-[11px] font-semibold text-zinc-700 hover:bg-zinc-50"
-                    onClick={() => openVariablePicker("email_body")}
-                  >
-                    Insert variable
-                  </button>
                 </div>
                 <textarea
                   ref={emailBodyRef}

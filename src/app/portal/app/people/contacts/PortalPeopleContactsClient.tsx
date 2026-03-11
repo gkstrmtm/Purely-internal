@@ -5,7 +5,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { PortalPeopleTabs } from "@/app/portal/app/people/PortalPeopleTabs";
 import { PortalListboxDropdown } from "@/components/PortalListboxDropdown";
-import { PortalMultiSelectDropdown } from "@/components/PortalMultiSelectDropdown";
 import { PortalSelectDropdown } from "@/components/PortalSelectDropdown";
 import { useToast } from "@/components/ToastProvider";
 import { parseCsv } from "@/lib/csv";
@@ -263,6 +262,10 @@ export function PortalPeopleContactsClient() {
   const [manualEmail, setManualEmail] = useState("");
   const [manualPhone, setManualPhone] = useState("");
   const [manualTagValues, setManualTagValues] = useState<string[]>([]);
+  const [manualCreateTagOpen, setManualCreateTagOpen] = useState(false);
+  const [manualCreateTagName, setManualCreateTagName] = useState("");
+  const [manualCreateTagColor, setManualCreateTagColor] = useState<(typeof DEFAULT_TAG_COLORS)[number]>("#2563EB");
+  const [manualCreateTagBusy, setManualCreateTagBusy] = useState(false);
   const [manualCustomVarRows, setManualCustomVarRows] = useState<CustomVarRow[]>([]);
   const [knownCustomVarKeys, setKnownCustomVarKeys] = useState<string[]>([]);
   const [importHeaders, setImportHeaders] = useState<string[]>([]);
@@ -295,6 +298,7 @@ export function PortalPeopleContactsClient() {
   const [detail, setDetail] = useState<ContactDetailPayload["contact"] | null>(null);
   const [detailTags, setDetailTags] = useState<ContactTag[]>([]);
   const [tagBusyId, setTagBusyId] = useState<string | null>(null);
+  const [createTagOpen, setCreateTagOpen] = useState(false);
   const [createTagName, setCreateTagName] = useState("");
   const [createTagColor, setCreateTagColor] = useState<(typeof DEFAULT_TAG_COLORS)[number]>("#2563EB");
   const [createTagBusy, setCreateTagBusy] = useState(false);
@@ -414,6 +418,9 @@ export function PortalPeopleContactsClient() {
     setManualEmail("");
     setManualPhone("");
     setManualTagValues([]);
+    setManualCreateTagOpen(false);
+    setManualCreateTagName("");
+    setManualCreateTagColor("#2563EB");
     setManualCustomVarRows(mergeRowsWithKnownKeys([{ key: "business_name", value: "" }], knownCustomVarKeys));
   }, [knownCustomVarKeys]);
 
@@ -563,6 +570,8 @@ export function PortalPeopleContactsClient() {
     setDetailOpen(true);
     setDetailLoading(true);
     setDetail(null);
+    setCreateTagOpen(false);
+    setCreateTagName("");
 
     // Optimistic: show tags from list payload while full detail loads.
     const fromList = (data?.contacts || []).find((c) => c.id === contactId);
@@ -608,6 +617,12 @@ export function PortalPeopleContactsClient() {
       // ignore
     }
   }
+
+  useEffect(() => {
+    if (!detailOpen) return;
+    if (!editingContact) return;
+    setEditCustomVarRows((prev) => mergeRowsWithKnownKeys(prev, knownCustomVarKeys));
+  }, [detailOpen, editingContact, knownCustomVarKeys]);
 
   async function addTagToSelected(tagId: string) {
     if (!selectedContactId) return;
@@ -701,6 +716,7 @@ export function PortalPeopleContactsClient() {
       });
       setCreateTagName("");
       setCreateTagColor("#2563EB");
+      setCreateTagOpen(false);
       if (selectedContactId) {
         await addTagToSelected(created.id);
       }
@@ -708,6 +724,58 @@ export function PortalPeopleContactsClient() {
       toast.error(String(e?.message || "Failed to create tag"));
     } finally {
       setCreateTagBusy(false);
+    }
+  }
+
+  function addManualTagValue(name: string) {
+    const t = String(name || "").trim().slice(0, 60);
+    if (!t) return;
+    setManualTagValues((prev) => {
+      const seen = new Set((prev ?? []).map((x) => String(x || "").trim().toLowerCase()).filter(Boolean));
+      if (seen.has(t.toLowerCase())) return prev;
+      return [...(prev ?? []), t];
+    });
+  }
+
+  async function createOwnerTagForManual() {
+    const name = manualCreateTagName.trim().slice(0, 60);
+    if (!name) {
+      toast.error("Enter a tag name");
+      return;
+    }
+
+    const safeColor = manualCreateTagColor;
+    setManualCreateTagBusy(true);
+    try {
+      const res = await fetch("/api/portal/contact-tags", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ name, color: safeColor }),
+      });
+      const json = (await res.json().catch(() => ({}))) as any;
+      if (!res.ok || !json?.ok || !json?.tag?.id) {
+        throw new Error(String(json?.error || "Failed to create tag"));
+      }
+      const created: ContactTag = {
+        id: String(json.tag.id),
+        name: String(json.tag.name || name).slice(0, 60),
+        color: typeof json.tag.color === "string" ? String(json.tag.color) : null,
+      };
+
+      setOwnerTags((prev) => {
+        const next = [...prev.filter((t) => t.id !== created.id), created];
+        next.sort((a, b) => a.name.localeCompare(b.name));
+        return next;
+      });
+
+      addManualTagValue(created.name);
+      setManualCreateTagName("");
+      setManualCreateTagColor("#2563EB");
+      setManualCreateTagOpen(false);
+    } catch (e: any) {
+      toast.error(String(e?.message || "Failed to create tag"));
+    } finally {
+      setManualCreateTagBusy(false);
     }
   }
 
@@ -1170,16 +1238,105 @@ export function PortalPeopleContactsClient() {
                   </label>
                   <div className="block">
                     <div className="text-xs font-semibold text-zinc-700">Tags</div>
-                    <div className="mt-1">
-                      <PortalMultiSelectDropdown
-                        label="Tags"
-                        value={manualTagValues}
-                        onChange={setManualTagValues}
-                        allowCustom
-                        placeholder="Search tags…"
-                        options={(ownerTags || []).map((t) => ({ value: t.name, label: t.name }))}
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      {manualTagValues.length ? (
+                        manualTagValues.map((t) => (
+                          <button
+                            key={t}
+                            type="button"
+                            className="inline-flex items-center gap-2 rounded-full border border-zinc-200 bg-white px-3 py-1 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
+                            title="Remove tag"
+                            onClick={() => setManualTagValues((prev) => (prev ?? []).filter((x) => String(x || "").trim().toLowerCase() !== String(t || "").trim().toLowerCase()))}
+                          >
+                            {t}
+                            <span className="text-zinc-400">×</span>
+                          </button>
+                        ))
+                      ) : (
+                        <div className="text-sm text-zinc-600">No tags yet.</div>
+                      )}
+                    </div>
+
+                    <div className="mt-2">
+                      <PortalSelectDropdown<string>
+                        value={""}
+                        onChange={(v) => {
+                          const val = String(v || "").trim();
+                          if (!val) return;
+                          if (val === "__new_tag__") {
+                            setManualCreateTagOpen(true);
+                            return;
+                          }
+                          addManualTagValue(val);
+                        }}
+                        options={[
+                          { value: "", label: "Select a tag…", disabled: true },
+                          ...ownerTags
+                            .map((t) => String(t.name || "").trim())
+                            .filter(Boolean)
+                            .filter((name) => !manualTagValues.some((x) => String(x || "").trim().toLowerCase() === name.toLowerCase()))
+                            .slice(0, 250)
+                            .map((name) => ({ value: name, label: name })),
+                          { value: "__new_tag__", label: "New tag…" },
+                        ]}
+                        buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none hover:bg-zinc-50 focus:border-[color:var(--color-brand-blue)]"
                       />
                     </div>
+
+                    {manualCreateTagOpen ? (
+                      <div className="mt-3 rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
+                        <div className="text-xs font-semibold text-zinc-600">Create new tag</div>
+                        <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-3">
+                          <input
+                            className="sm:col-span-2 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-[color:var(--color-brand-blue)]"
+                            placeholder="Tag name"
+                            value={manualCreateTagName}
+                            onChange={(e) => setManualCreateTagName(e.target.value)}
+                            autoFocus
+                          />
+                          <div className="flex flex-wrap items-center gap-1.5 rounded-xl border border-zinc-200 bg-white px-2 py-2">
+                            {DEFAULT_TAG_COLORS.slice(0, 10).map((c) => {
+                              const selected = c === manualCreateTagColor;
+                              return (
+                                <button
+                                  key={c}
+                                  type="button"
+                                  className={classNames(
+                                    "h-6 w-6 rounded-full border",
+                                    selected ? "border-zinc-900 ring-2 ring-zinc-900/20" : "border-zinc-200",
+                                  )}
+                                  style={{ backgroundColor: c }}
+                                  onClick={() => setManualCreateTagColor(c)}
+                                  title={c}
+                                />
+                              );
+                            })}
+                          </div>
+                        </div>
+                        <div className="mt-2 flex items-center justify-between gap-3">
+                          <button
+                            type="button"
+                            className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
+                            onClick={() => {
+                              setManualCreateTagOpen(false);
+                              setManualCreateTagName("");
+                              setManualCreateTagColor("#2563EB");
+                            }}
+                            disabled={manualCreateTagBusy}
+                          >
+                            Cancel
+                          </button>
+                          <button
+                            type="button"
+                            className="rounded-xl bg-brand-ink px-3 py-2 text-xs font-semibold text-white hover:opacity-95 disabled:opacity-60"
+                            disabled={manualCreateTagBusy}
+                            onClick={() => void createOwnerTagForManual()}
+                          >
+                            {manualCreateTagBusy ? "Creating…" : "Create"}
+                          </button>
+                        </div>
+                      </div>
+                    ) : null}
                     <div className="mt-1 text-[11px] text-zinc-500">
                       Templates: <span className="font-mono">{`{contact.tags}`}</span>
                     </div>
@@ -1881,6 +2038,10 @@ export function PortalPeopleContactsClient() {
                         value={""}
                         onChange={(tagId) => {
                           if (!tagId) return;
+                          if (tagId === "__new_tag__") {
+                            setCreateTagOpen(true);
+                            return;
+                          }
                           void addTagToSelected(tagId);
                         }}
                         disabled={!selectedContactId}
@@ -1889,52 +2050,67 @@ export function PortalPeopleContactsClient() {
                           ...ownerTags
                             .filter((t) => !detailTags.some((x) => x.id === t.id))
                             .map((t) => ({ value: t.id, label: t.name })),
+                          { value: "__new_tag__", label: "New tag…" },
                         ]}
                         buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none hover:bg-zinc-50 focus:border-[color:var(--color-brand-blue)]"
                       />
                     </div>
                   </div>
 
-                  <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
-                    <div className="text-xs font-semibold text-zinc-600">Create new tag</div>
-                    <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-3">
-                      <input
-                        className="sm:col-span-2 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-[color:var(--color-brand-blue)]"
-                        placeholder="Tag name"
-                        value={createTagName}
-                        onChange={(e) => setCreateTagName(e.target.value)}
-                      />
-                      <div className="flex flex-wrap items-center gap-1.5 rounded-xl border border-zinc-200 bg-white px-2 py-2">
-                        {DEFAULT_TAG_COLORS.slice(0, 10).map((c) => {
-                          const selected = c === createTagColor;
-                          return (
-                            <button
-                              key={c}
-                              type="button"
-                              className={classNames(
-                                "h-6 w-6 rounded-full border",
-                                selected ? "border-zinc-900 ring-2 ring-zinc-900/20" : "border-zinc-200",
-                              )}
-                              style={{ backgroundColor: c }}
-                              onClick={() => setCreateTagColor(c)}
-                              title={c}
-                            />
-                          );
-                        })}
+                  {createTagOpen ? (
+                    <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
+                      <div className="text-xs font-semibold text-zinc-600">Create new tag</div>
+                      <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-3">
+                        <input
+                          className="sm:col-span-2 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-[color:var(--color-brand-blue)]"
+                          placeholder="Tag name"
+                          value={createTagName}
+                          onChange={(e) => setCreateTagName(e.target.value)}
+                          autoFocus
+                        />
+                        <div className="flex flex-wrap items-center gap-1.5 rounded-xl border border-zinc-200 bg-white px-2 py-2">
+                          {DEFAULT_TAG_COLORS.slice(0, 10).map((c) => {
+                            const selected = c === createTagColor;
+                            return (
+                              <button
+                                key={c}
+                                type="button"
+                                className={classNames(
+                                  "h-6 w-6 rounded-full border",
+                                  selected ? "border-zinc-900 ring-2 ring-zinc-900/20" : "border-zinc-200",
+                                )}
+                                style={{ backgroundColor: c }}
+                                onClick={() => setCreateTagColor(c)}
+                                title={c}
+                              />
+                            );
+                          })}
+                        </div>
+                      </div>
+                      <div className="mt-2 flex items-center justify-between gap-3">
+                        <button
+                          type="button"
+                          className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
+                          onClick={() => {
+                            setCreateTagOpen(false);
+                            setCreateTagName("");
+                            setCreateTagColor("#2563EB");
+                          }}
+                          disabled={createTagBusy}
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          type="button"
+                          className="rounded-xl bg-brand-ink px-3 py-2 text-xs font-semibold text-white hover:opacity-95 disabled:opacity-60"
+                          disabled={createTagBusy}
+                          onClick={() => void createOwnerTag()}
+                        >
+                          {createTagBusy ? "Creating…" : "Create"}
+                        </button>
                       </div>
                     </div>
-                    <div className="mt-2 flex items-center justify-between gap-3">
-                      <div className="text-xs text-zinc-500">Pick a default color.</div>
-                      <button
-                        type="button"
-                        className="rounded-xl bg-brand-ink px-3 py-2 text-xs font-semibold text-white hover:opacity-95 disabled:opacity-60"
-                        disabled={createTagBusy}
-                        onClick={() => void createOwnerTag()}
-                      >
-                        {createTagBusy ? "Creating…" : "Create"}
-                      </button>
-                    </div>
-                  </div>
+                  ) : null}
                 </div>
               </div>
             </div>

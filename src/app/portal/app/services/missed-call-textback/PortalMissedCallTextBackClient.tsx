@@ -6,7 +6,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { PortalMediaPickerModal, type PortalMediaPickItem } from "@/components/PortalMediaPickerModal";
 import { PortalVariablePickerModal } from "@/components/PortalVariablePickerModal";
 import { useToast } from "@/components/ToastProvider";
-import { PORTAL_MISSED_CALL_VARIABLES } from "@/lib/portalTemplateVars";
+import { PORTAL_MISSED_CALL_VARIABLES, PORTAL_MESSAGE_VARIABLES, type TemplateVariable } from "@/lib/portalTemplateVars";
 
 type Settings = {
   version: 1;
@@ -76,6 +76,48 @@ export function PortalMissedCallTextBackClient({ embedded }: { embedded?: boolea
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
+
+  const [knownContactCustomVarKeys, setKnownContactCustomVarKeys] = useState<string[]>([]);
+
+  useEffect(() => {
+    let canceled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/portal/people/contacts/custom-variable-keys", { cache: "no-store" });
+        const json = (await res.json().catch(() => null)) as any;
+        if (!res.ok || !json?.ok || !Array.isArray(json.keys)) return;
+        const keys = json.keys.map((k: any) => String(k || "").trim()).filter(Boolean).slice(0, 50);
+        if (!canceled) setKnownContactCustomVarKeys(keys);
+      } catch {
+        // ignore
+      }
+    })();
+
+    return () => {
+      canceled = true;
+    };
+  }, []);
+
+  const varPickerVariables = useMemo(() => {
+    const base: TemplateVariable[] = [...PORTAL_MESSAGE_VARIABLES, ...PORTAL_MISSED_CALL_VARIABLES];
+    const keys = Array.isArray(knownContactCustomVarKeys) ? knownContactCustomVarKeys : [];
+    for (const k of keys) {
+      base.push({
+        key: `contact.custom.${k}`,
+        label: `Contact custom: ${k}`,
+        group: "Custom",
+        appliesTo: "Lead/contact",
+      });
+    }
+
+    const seen = new Set<string>();
+    return base.filter((v) => {
+      const key = `${v.group}:${v.key}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }, [knownContactCustomVarKeys]);
 
   const friendlyApiError = useCallback((opts: {
     status?: number;
@@ -497,8 +539,9 @@ export function PortalMissedCallTextBackClient({ embedded }: { embedded?: boolea
         <PortalVariablePickerModal
           open={varPickerOpen}
           onClose={() => setVarPickerOpen(false)}
-          variables={PORTAL_MISSED_CALL_VARIABLES}
+          variables={varPickerVariables}
           title="Insert variable"
+          createCustom={{ enabled: true, existingKeys: knownContactCustomVarKeys, allowContactPick: true }}
           onPick={(key) => {
             if (!settings) return;
             const token = `{${key}}`;

@@ -7,7 +7,7 @@ import { PortalVariablePickerModal } from "@/components/PortalVariablePickerModa
 import { PortalListboxDropdown, type PortalListboxOption } from "@/components/PortalListboxDropdown";
 import { AppModal } from "@/components/AppModal";
 import { useToast } from "@/components/ToastProvider";
-import { LEAD_OUTBOUND_VARIABLES } from "@/lib/portalTemplateVars";
+import { LEAD_OUTBOUND_VARIABLES, type TemplateVariable } from "@/lib/portalTemplateVars";
 
 const TAG_COLORS = [
   "#0EA5E9", // sky
@@ -355,6 +355,27 @@ export function PortalLeadScrapingClient() {
   const [aiCallsUnlocked, setAiCallsUnlocked] = useState<boolean>(false);
   const [contactTagDefs, setContactTagDefs] = useState<ContactTag[]>([]);
 
+  const [knownContactCustomVarKeys, setKnownContactCustomVarKeys] = useState<string[]>([]);
+
+  useEffect(() => {
+    let canceled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/portal/people/contacts/custom-variable-keys", { cache: "no-store" });
+        const json = (await res.json().catch(() => null)) as any;
+        if (!res.ok || !json?.ok || !Array.isArray(json.keys)) return;
+        const keys = json.keys.map((k: any) => String(k || "").trim()).filter(Boolean).slice(0, 50);
+        if (!canceled) setKnownContactCustomVarKeys(keys);
+      } catch {
+        // ignore
+      }
+    })();
+
+    return () => {
+      canceled = true;
+    };
+  }, []);
+
   const [leads, setLeads] = useState<LeadRow[]>([]);
   const [leadTotalCount, setLeadTotalCount] = useState<number | null>(null);
   const [leadMatchedCount, setLeadMatchedCount] = useState<number | null>(null);
@@ -650,23 +671,37 @@ export function PortalLeadScrapingClient() {
   }, [leadQueryDebounced, loadLeads]);
 
   const leadOutboundTemplateVariables = useMemo(() => {
-    const custom = Object.keys(templateCustomVariables)
+    const serviceCustom: TemplateVariable[] = Object.keys(templateCustomVariables)
       .map((key) => key.trim())
       .filter(Boolean)
       .sort((a, b) => a.localeCompare(b))
       .slice(0, 60)
-      .map(
-        (key) =>
-          ({
-            key,
-            label: key,
-            group: "Custom",
-            appliesTo: "Custom",
-          }) as const,
-      );
+      .map((key) => ({
+        key,
+        label: key,
+        group: "Custom" as const,
+        appliesTo: "Custom",
+      }));
 
-    return [...LEAD_OUTBOUND_VARIABLES, ...custom];
-  }, [templateCustomVariables]);
+    const contactCustom: TemplateVariable[] = (Array.isArray(knownContactCustomVarKeys) ? knownContactCustomVarKeys : [])
+      .filter((k) => typeof k === "string" && k.trim())
+      .slice(0, 50)
+      .map((k) => ({
+        key: `contact.custom.${k}`,
+        label: `Contact custom: ${k}`,
+        group: "Custom",
+        appliesTo: "Lead/contact",
+      }));
+
+    const base: TemplateVariable[] = [...LEAD_OUTBOUND_VARIABLES, ...contactCustom, ...serviceCustom];
+    const seen = new Set<string>();
+    return base.filter((v) => {
+      const key = `${v.group}:${v.key}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }, [knownContactCustomVarKeys, templateCustomVariables]);
 
   const leadOutboundExistingKeys = useMemo(() => {
     const keys = new Set<string>();

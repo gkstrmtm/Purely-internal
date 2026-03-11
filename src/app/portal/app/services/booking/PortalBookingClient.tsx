@@ -286,6 +286,26 @@ function toAvailabilityPathname(pathname: string) {
 
 export function PortalBookingClient() {
   const toast = useToast();
+  const [knownContactCustomVarKeys, setKnownContactCustomVarKeys] = useState<string[]>([]);
+
+  useEffect(() => {
+    let canceled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/portal/people/contacts/custom-variable-keys", { cache: "no-store" });
+        const json = (await res.json().catch(() => null)) as any;
+        if (!res.ok || !json?.ok || !Array.isArray(json.keys)) return;
+        const keys = json.keys.map((k: any) => String(k || "").trim()).filter(Boolean).slice(0, 50);
+        if (!canceled) setKnownContactCustomVarKeys(keys);
+      } catch {
+        // ignore
+      }
+    })();
+
+    return () => {
+      canceled = true;
+    };
+  }, []);
   const [me, setMe] = useState<Me | null>(null);
   const [site, setSite] = useState<Site | null>(null);
   const [upcoming, setUpcoming] = useState<Booking[]>([]);
@@ -486,12 +506,17 @@ export function PortalBookingClient() {
       .slice(0, 100)
       .map((k) => ({ key: k, label: `Custom: ${k}`, group: "Custom" as const, appliesTo: "Custom variable" }));
 
+    const contactCustomVars = (Array.isArray(knownContactCustomVarKeys) ? knownContactCustomVarKeys : [])
+      .filter((k) => typeof k === "string" && k.trim())
+      .slice(0, 50)
+      .map((k) => ({ key: `contact.custom.${k}`, label: `Contact custom: ${k}`, group: "Custom" as const, appliesTo: "Lead/contact" }));
+
     const builtinVars = (Array.isArray(reminderBuiltinVariables) ? reminderBuiltinVariables : [])
       .filter((k) => typeof k === "string" && k.trim())
       .slice(0, 100)
       .map((k) => ({ key: k, label: k, group: "Custom" as const, appliesTo: "Built-in" }));
 
-    const merged = [...PORTAL_MESSAGE_VARIABLES, ...PORTAL_BOOKING_VARIABLES, ...builtinVars, ...customVars];
+    const merged = [...PORTAL_MESSAGE_VARIABLES, ...PORTAL_BOOKING_VARIABLES, ...contactCustomVars, ...builtinVars, ...customVars];
     const seen = new Set<string>();
     return merged.filter((v) => {
       const key = `${v.group}:${v.key}`;
@@ -499,7 +524,7 @@ export function PortalBookingClient() {
       seen.add(key);
       return true;
     });
-  }, [reminderDraft?.customVariables, reminderBuiltinVariables]);
+  }, [knownContactCustomVarKeys, reminderDraft?.customVariables, reminderBuiltinVariables]);
 
   const allReminderVariableKeys = useMemo(() => {
     const custom = reminderDraft?.customVariables && typeof reminderDraft.customVariables === "object" ? reminderDraft.customVariables : {};

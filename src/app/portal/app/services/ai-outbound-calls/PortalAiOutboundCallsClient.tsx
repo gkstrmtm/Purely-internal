@@ -1653,6 +1653,7 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
         open={variablePickerOpen}
         variables={variablePickerVariables}
         onPick={applyPickedVariable}
+        createCustom={{ enabled: true, existingKeys: knownContactCustomVarKeys, allowContactPick: true }}
         onClose={() => {
           setVariablePickerOpen(false);
           setVariablePickerTarget(null);

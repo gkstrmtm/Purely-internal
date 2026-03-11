@@ -200,6 +200,26 @@ function ToggleSwitch({
 
 export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) {
   const toast = useToast();
+  const [knownContactCustomVarKeys, setKnownContactCustomVarKeys] = useState<string[]>([]);
+
+  useEffect(() => {
+    let canceled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/portal/people/contacts/custom-variable-keys", { cache: "no-store" });
+        const json = (await res.json().catch(() => null)) as any;
+        if (!res.ok || !json?.ok || !Array.isArray(json.keys)) return;
+        const keys = json.keys.map((k: any) => String(k || "").trim()).filter(Boolean).slice(0, 50);
+        if (!canceled) setKnownContactCustomVarKeys(keys);
+      } catch {
+        // ignore
+      }
+    })();
+
+    return () => {
+      canceled = true;
+    };
+  }, []);
   const isEmbedded = Boolean(embedded);
   const service = useMemo(() => PORTAL_SERVICES.find((s) => s.slug === "follow-up") ?? null, []);
 
@@ -418,7 +438,17 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
       .slice(0, 100)
       .map((k) => ({ key: k, label: k, group: "Custom" as const, appliesTo: "Built-in" }));
 
-    const merged = [...PORTAL_MESSAGE_VARIABLES, ...PORTAL_BOOKING_VARIABLES, ...builtinVars, ...customVars];
+    const contactCustomVars: TemplateVariable[] = (Array.isArray(knownContactCustomVarKeys) ? knownContactCustomVarKeys : [])
+      .filter((k) => typeof k === "string" && k.trim())
+      .slice(0, 50)
+      .map((k) => ({
+        key: `contact.custom.${k}`,
+        label: `Contact custom: ${k}`,
+        group: "Custom" as const,
+        appliesTo: "Lead/contact",
+      }));
+
+    const merged = [...PORTAL_MESSAGE_VARIABLES, ...PORTAL_BOOKING_VARIABLES, ...contactCustomVars, ...builtinVars, ...customVars];
     const seen = new Set<string>();
     return merged.filter((v) => {
       const key = `${v.group}:${v.key}`;
@@ -426,7 +456,7 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
       seen.add(key);
       return true;
     });
-  }, [settings?.customVariables, builtinVariables]);
+  }, [builtinVariables, knownContactCustomVarKeys, settings?.customVariables]);
 
   useEffect(() => {
     let mounted = true;
@@ -807,7 +837,7 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
     return (
       <div className="mx-auto w-full max-w-6xl">
         <div className="rounded-3xl border border-zinc-200 bg-white p-8">
-          <div className="inline-flex items-center gap-2 rounded-full bg-[color:rgba(251,113,133,0.14)] px-3 py-1 text-xs font-semibold text-[color:var(--color-brand-pink)]">
+          <div className="inline-flex items-center gap-2 rounded-full bg-[rgba(251,113,133,0.14)] px-3 py-1 text-xs font-semibold text-(--color-brand-pink)">
             Locked
           </div>
           <h1 className="mt-2 text-2xl font-bold text-brand-ink sm:text-3xl">Unlock {service.title}</h1>
@@ -823,7 +853,7 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
           <div className="mt-6 flex flex-col gap-3 sm:flex-row">
             <Link
               href="/portal/app/billing?buy=booking"
-              className="inline-flex items-center justify-center rounded-2xl bg-[color:var(--color-brand-blue)] px-5 py-3 text-sm font-semibold text-white hover:opacity-95"
+              className="inline-flex items-center justify-center rounded-2xl bg-(--color-brand-blue) px-5 py-3 text-sm font-semibold text-white hover:opacity-95"
             >
               Enable booking to unlock
             </Link>
@@ -867,7 +897,7 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
           onClick={() => setTab("activity")}
           aria-current={tab === "activity" ? "page" : undefined}
           className={
-            "flex-1 min-w-[160px] rounded-2xl border px-4 py-2.5 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
+            "flex-1 min-w-40 rounded-2xl border px-4 py-2.5 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
             (tab === "activity"
               ? "border-brand-ink bg-brand-ink text-white shadow-sm"
               : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
@@ -880,7 +910,7 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
           onClick={() => setTab("settings")}
           aria-current={tab === "settings" ? "page" : undefined}
           className={
-            "flex-1 min-w-[160px] rounded-2xl border px-4 py-2.5 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
+            "flex-1 min-w-40 rounded-2xl border px-4 py-2.5 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
             (tab === "settings"
               ? "border-brand-ink bg-brand-ink text-white shadow-sm"
               : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
@@ -1462,7 +1492,7 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
                                             </div>
                                           </div>
                                         ) : (
-                                          <div className="mt-2 text-xs text-zinc-500 break-words">
+                                          <div className="mt-2 text-xs text-zinc-500 wrap-break-word">
                                             Uses booking notification emails (calendar overrides site). Configure emails in Booking settings.
                                           </div>
                                         )}
@@ -1876,7 +1906,7 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
                   type="button"
                   onClick={() => void sendTest("EMAIL")}
                   disabled={testBusy || testEmail.trim().length < 3}
-                  className="inline-flex items-center justify-center rounded-2xl bg-[color:var(--color-brand-blue)] px-4 py-2 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
+                  className="inline-flex items-center justify-center rounded-2xl bg-(--color-brand-blue) px-4 py-2 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
                 >
                   {testBusy ? "Sending…" : "Send test email"}
                 </button>

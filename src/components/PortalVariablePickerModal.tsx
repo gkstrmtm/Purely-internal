@@ -40,7 +40,9 @@ export function PortalVariablePickerModal(props: {
   createCustom?: {
     enabled?: boolean;
     existingKeys?: string[];
-    onCreate: (key: string, value: string) => void | Promise<void>;
+    contactId?: string | null;
+    allowContactPick?: boolean;
+    onCreate?: (key: string, value: string, contactId: string) => void | Promise<void>;
   };
 }) {
   const { open, title, variables, onPick, onClose, createCustom } = props;
@@ -51,6 +53,12 @@ export function PortalVariablePickerModal(props: {
   const [createError, setCreateError] = useState<string | null>(null);
   const [createBusy, setCreateBusy] = useState(false);
 
+  const [createContacts, setCreateContacts] = useState<Array<{ id: string; name: string; email?: string | null; phone?: string | null }> | null>(null);
+  const [createContactsLoading, setCreateContactsLoading] = useState(false);
+  const [createContactQuery, setCreateContactQuery] = useState("");
+  const [createContactId, setCreateContactId] = useState<string>("");
+  const [localCreatedKeys, setLocalCreatedKeys] = useState<string[]>([]);
+
   useEffect(() => {
     if (!open) return;
     setQuery("");
@@ -59,6 +67,11 @@ export function PortalVariablePickerModal(props: {
     setCreateBusy(false);
     setNewKey("");
     setNewValue("");
+    setCreateContacts(null);
+    setCreateContactsLoading(false);
+    setCreateContactQuery("");
+    setCreateContactId("");
+    setLocalCreatedKeys([]);
   }, [open]);
 
   useEffect(() => {
@@ -84,15 +97,89 @@ export function PortalVariablePickerModal(props: {
     });
   }, [variables, query]);
 
-  if (!open) return null;
-
   const canCreateCustom = Boolean(createCustom?.enabled);
   const existingKeys = new Set(
-    (createCustom?.existingKeys ?? [])
+    [...(createCustom?.existingKeys ?? []), ...(localCreatedKeys ?? [])]
       .filter((k) => typeof k === "string")
       .map((k) => k.trim())
       .filter(Boolean),
   );
+
+  const createUsesDefaultContactSave = createCustom ? !createCustom.onCreate : false;
+  const createNeedsContactPick =
+    createUsesDefaultContactSave && Boolean(createCustom?.allowContactPick) && !String(createCustom?.contactId || "").trim();
+
+  useEffect(() => {
+    if (!open) return;
+    if (mode !== "create") return;
+    if (!canCreateCustom) return;
+    if (!createNeedsContactPick) return;
+    if (createContacts || createContactsLoading) return;
+
+    let canceled = false;
+    setCreateContactsLoading(true);
+    (async () => {
+      try {
+        const res = await fetch("/api/portal/people/contacts?take=50", { cache: "no-store" }).catch(() => null as any);
+        const json = (await res?.json?.().catch(() => null)) as any;
+        if (!res?.ok || !json?.ok || !Array.isArray(json?.contacts)) {
+          if (!canceled) setCreateContacts([]);
+          return;
+        }
+
+        const list = (json.contacts as any[])
+          .map((c) => ({
+            id: String(c?.id || "").trim(),
+            name: String(c?.name || "").trim().slice(0, 80),
+            email: c?.email ? String(c.email) : null,
+            phone: c?.phone ? String(c.phone) : null,
+          }))
+          .filter((c) => c.id && c.name);
+
+        if (!canceled) setCreateContacts(list);
+      } catch {
+        if (!canceled) setCreateContacts([]);
+      } finally {
+        if (!canceled) setCreateContactsLoading(false);
+      }
+    })();
+
+    return () => {
+      canceled = true;
+    };
+  }, [canCreateCustom, createContacts, createContactsLoading, createNeedsContactPick, mode, open]);
+
+  const filteredCreateContacts = useMemo(() => {
+    const base = Array.isArray(createContacts) ? createContacts : [];
+    const q = String(createContactQuery || "").trim().toLowerCase();
+    if (!q) return base;
+    return base.filter((c) => {
+      const hay = `${c.name} ${c.email || ""} ${c.phone || ""}`.toLowerCase();
+      return hay.includes(q);
+    });
+  }, [createContactQuery, createContacts]);
+
+  async function defaultCreateCustomVariable(key: string, value: string, contactId: string) {
+    const res = await fetch(`/api/portal/people/contacts/${encodeURIComponent(contactId)}/custom-variables`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ key, value }),
+    });
+
+    const json = (await res.json().catch(() => null)) as any;
+    if (!res.ok || !json?.ok) {
+      throw new Error(typeof json?.error === "string" ? json.error : "Failed to create variable.");
+    }
+    const normalizedKey = String(json?.key || key).trim();
+    if (normalizedKey) {
+      setLocalCreatedKeys((prev) => {
+        const set = new Set((prev ?? []).map((x) => String(x || "").trim()).filter(Boolean));
+        set.add(normalizedKey);
+        return Array.from(set).slice(0, 100);
+      });
+    }
+    return normalizedKey || key;
+  }
 
   async function tryCreateCustom() {
     if (!createCustom) return;
@@ -112,10 +199,32 @@ export function PortalVariablePickerModal(props: {
       return;
     }
 
+    const contactIdFromProps = String(createCustom?.contactId || "").trim();
+    const contactIdFromPick = String(createContactId || "").trim();
+    const contactId = contactIdFromProps || contactIdFromPick;
+
+    if (createUsesDefaultContactSave) {
+      if (!contactId) {
+        setCreateError(createNeedsContactPick ? "Pick a contact to save this variable." : "A contact is required to save variables.");
+        return;
+      }
+
+      if (!String(value).trim()) {
+        setCreateError("Value is required.");
+        return;
+      }
+    }
+
     setCreateBusy(true);
     try {
-      await createCustom.onCreate(key, value);
-      onPick(key);
+      const createdKey = createCustom.onCreate
+        ? (await createCustom.onCreate(key, value, contactId), key)
+        : await defaultCreateCustomVariable(key, String(value).trim(), contactId);
+
+      const insertKey = createUsesDefaultContactSave
+        ? (createdKey.includes(".") ? createdKey : `contact.custom.${createdKey}`)
+        : createdKey;
+      onPick(insertKey);
       onClose();
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Failed to create variable.";
@@ -124,6 +233,8 @@ export function PortalVariablePickerModal(props: {
       setCreateBusy(false);
     }
   }
+
+  if (!open) return null;
 
   return (
     <>
@@ -171,6 +282,38 @@ export function PortalVariablePickerModal(props: {
                 <div className="text-sm font-semibold text-zinc-900">New variable</div>
                 <div className="mt-1 text-xs text-zinc-600">Create a custom variable and insert it immediately.</div>
 
+                {createNeedsContactPick ? (
+                  <div className="mt-3 rounded-2xl border border-zinc-200 bg-white p-3">
+                    <div className="text-xs font-semibold text-zinc-600">Contact</div>
+                    <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-12 sm:items-end">
+                      <div className="sm:col-span-7">
+                        <input
+                          value={createContactQuery}
+                          onChange={(e) => setCreateContactQuery(e.target.value)}
+                          className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300"
+                          placeholder="Search contacts…"
+                        />
+                      </div>
+                      <div className="sm:col-span-5">
+                        <select
+                          value={createContactId}
+                          onChange={(e) => setCreateContactId(e.target.value)}
+                          className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300"
+                          disabled={createContactsLoading}
+                        >
+                          <option value="">{createContactsLoading ? "Loading…" : "Select a contact…"}</option>
+                          {filteredCreateContacts.slice(0, 50).map((c) => (
+                            <option key={c.id} value={c.id}>
+                              {c.name}{c.email ? ` • ${c.email}` : c.phone ? ` • ${c.phone}` : ""}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+                    <div className="mt-2 text-[11px] text-zinc-500">We save the value onto the selected contact.</div>
+                  </div>
+                ) : null}
+
                 <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-12 sm:items-end">
                   <div className="sm:col-span-5">
                     <label className="text-xs font-semibold text-zinc-600">Name</label>
@@ -183,7 +326,12 @@ export function PortalVariablePickerModal(props: {
                       autoFocus
                     />
                     <div className="mt-1 text-[11px] text-zinc-500">
-                      Inserts as <span className="font-mono">{`{${newKey.trim() || "variable"}}`}</span>
+                      Inserts as{" "}
+                      <span className="font-mono">
+                        {createUsesDefaultContactSave
+                          ? `{contact.custom.${newKey.trim() || "variable"}}`
+                          : `{${newKey.trim() || "variable"}}`}
+                      </span>
                     </div>
                   </div>
 
@@ -195,7 +343,9 @@ export function PortalVariablePickerModal(props: {
                       className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300"
                       placeholder="Value"
                     />
-                    <div className="mt-1 text-[11px] text-zinc-500">Saved on this contact.</div>
+                    <div className="mt-1 text-[11px] text-zinc-500">
+                      {createUsesDefaultContactSave ? "Saved on the selected contact." : ""}
+                    </div>
                   </div>
 
                   <div className="sm:col-span-1">

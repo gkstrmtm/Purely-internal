@@ -695,6 +695,27 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
     | "update_contact_phone"
   >(null);
 
+  const [knownContactCustomVarKeys, setKnownContactCustomVarKeys] = useState<string[]>([]);
+
+  useEffect(() => {
+    let canceled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/portal/people/contacts/custom-variable-keys", { cache: "no-store" });
+        const json = (await res.json().catch(() => null)) as any;
+        if (!res.ok || !json?.ok || !Array.isArray(json.keys)) return;
+        const keys = json.keys.map((k: any) => String(k || "").trim()).filter(Boolean).slice(0, 50);
+        if (!canceled) setKnownContactCustomVarKeys(keys);
+      } catch {
+        // ignore
+      }
+    })();
+
+    return () => {
+      canceled = true;
+    };
+  }, []);
+
   const [confirm, setConfirm] = useState<
     | null
     | { kind: "delete_node"; nodeId: string }
@@ -746,6 +767,36 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
       })
       .filter(Boolean) as TemplateVariable[];
   }, [ownerFormFields]);
+
+  const automationVariablePickerVariables = useMemo((): TemplateVariable[] => {
+    const base: TemplateVariable[] = [
+      ...PORTAL_TIME_VARIABLES,
+      ...PORTAL_EVENT_VARIABLES,
+      ...PORTAL_BOOKING_VARIABLES,
+      ...PORTAL_LEAD_VARIABLES,
+      ...PORTAL_MESSAGE_VARIABLES,
+      ...PORTAL_LINK_VARIABLES,
+      ...formTemplateVariables,
+    ];
+
+    const keys = Array.isArray(knownContactCustomVarKeys) ? knownContactCustomVarKeys : [];
+    for (const k of keys) {
+      base.push({
+        key: `contact.custom.${k}`,
+        label: `Contact custom: ${k}`,
+        group: "Custom",
+        appliesTo: "Lead/contact",
+      });
+    }
+
+    const seen = new Set<string>();
+    return base.filter((v) => {
+      const key = `${v.group}:${v.key}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }, [formTemplateVariables, knownContactCustomVarKeys]);
 
   const formConditionFieldOptions = useMemo((): Array<{ value: string; label: string; hint?: string }> => {
     return formTemplateVariables.map((v) => ({
@@ -2488,15 +2539,8 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
 
       <PortalVariablePickerModal
         open={variablePickerOpen}
-        variables={[
-          ...PORTAL_TIME_VARIABLES,
-          ...PORTAL_EVENT_VARIABLES,
-          ...PORTAL_BOOKING_VARIABLES,
-          ...PORTAL_LEAD_VARIABLES,
-          ...PORTAL_MESSAGE_VARIABLES,
-          ...PORTAL_LINK_VARIABLES,
-          ...formTemplateVariables,
-        ]}
+        variables={automationVariablePickerVariables}
+        createCustom={{ enabled: true, existingKeys: knownContactCustomVarKeys, allowContactPick: true }}
         onPick={applyPickedVariable}
         onClose={() => {
           setVariablePickerOpen(false);
