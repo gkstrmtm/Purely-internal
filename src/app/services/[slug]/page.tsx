@@ -595,7 +595,7 @@ export default async function ServiceFunnelPage({ params }: { params: Promise<{ 
               <div className="mt-4 grid grid-cols-1 gap-2">
                 <Link
                   href="/portal/get-started"
-                  className="inline-flex w-full items-center justify-center rounded-2xl bg-linear-to-r from-(--color-brand-blue) via-violet-500 to-(--color-brand-pink) px-5 py-3 text-sm font-semibold text-white shadow-sm hover:opacity-90"
+                  className="inline-flex w-full items-center justify-center rounded-2xl bg-linear-to-r from-[color:var(--color-brand-blue)] via-violet-500 to-[color:var(--color-brand-pink)] px-5 py-3 text-sm font-semibold text-white shadow-sm hover:opacity-90"
                 >
                   Get Started
                 </Link>

@@ -342,7 +342,7 @@ export function PortalMissedCallTextBackClient({ embedded }: { embedded?: boolea
                   onChange={(e) => void save({ ...settings, enabled: e.target.checked })}
                   aria-label="Enable Missed-Call Text Back"
                 />
-                <span className="h-6 w-11 rounded-full bg-zinc-200 transition peer-checked:bg-(--color-brand-blue) peer-focus-visible:ring-2 peer-focus-visible:ring-brand-ink/40 peer-focus-visible:ring-offset-2 peer-focus-visible:ring-offset-white peer-disabled:opacity-60" />
+                <span className="h-6 w-11 rounded-full bg-zinc-200 transition peer-checked:bg-[color:var(--color-brand-blue)] peer-focus-visible:ring-2 peer-focus-visible:ring-brand-ink/40 peer-focus-visible:ring-offset-2 peer-focus-visible:ring-offset-white peer-disabled:opacity-60" />
                 <span className="pointer-events-none absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow-sm transition peer-checked:translate-x-5" />
               </span>
             </label>

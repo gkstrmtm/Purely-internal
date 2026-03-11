@@ -198,7 +198,7 @@ export default function ServicesIndexPage() {
               </div>
               <Link
                 href="/portal/get-started"
-                className="inline-flex items-center justify-center rounded-2xl bg-linear-to-r from-(--color-brand-blue) via-violet-500 to-(--color-brand-pink) px-5 py-2.5 text-sm font-semibold text-white shadow-sm hover:opacity-90"
+                className="inline-flex items-center justify-center rounded-2xl bg-linear-to-r from-[color:var(--color-brand-blue)] via-violet-500 to-[color:var(--color-brand-pink)] px-5 py-2.5 text-sm font-semibold text-white shadow-sm hover:opacity-90"
               >
                 Start free
               </Link>

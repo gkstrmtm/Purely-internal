@@ -370,7 +370,7 @@ function ActionKindDropdown(props: {
                     (disabled
                       ? "cursor-not-allowed text-zinc-400"
                       : isSel
-                        ? "bg-zinc-900 text-white"
+                        ? "bg-brand-ink text-white"
                         : "hover:bg-zinc-50 text-zinc-900")
                   }
                   onClick={() => {
@@ -2866,7 +2866,7 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
                       key={a.id}
                       className={
                         "flex items-center justify-between gap-3 rounded-2xl border px-3 py-3 " +
-                        (isSel ? "border-zinc-900 bg-zinc-900 text-white" : "border-zinc-200 bg-white")
+                        (isSel ? "border-brand-ink bg-brand-ink text-white" : "border-zinc-200 bg-white")
                       }
                     >
                       <button
@@ -2950,8 +2950,10 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
                         <button
                           type="button"
                           className={
-                            "rounded-xl border px-2 py-1 text-xs font-semibold hover:bg-zinc-50 " +
-                            (isSel ? "border-zinc-700 bg-zinc-800 text-white hover:bg-zinc-700" : "border-zinc-200 bg-white text-zinc-700")
+                            "rounded-xl border px-2 py-1 text-xs font-semibold " +
+                            (isSel
+                              ? "border-brand-ink bg-brand-ink text-white hover:opacity-95"
+                              : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
                           }
                           onClick={() => setLibraryMenuFor((prev) => (prev === a.id ? null : a.id))}
                           title="Actions"

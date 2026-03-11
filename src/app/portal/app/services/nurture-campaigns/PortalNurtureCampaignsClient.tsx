@@ -498,7 +498,7 @@ export function PortalNurtureCampaignsClient() {
         <div className="flex flex-wrap items-center gap-2">
           <button
             type="button"
-            className="inline-flex items-center gap-2 rounded-2xl bg-(--color-brand-blue) px-4 py-2 text-sm font-semibold text-white shadow-sm hover:opacity-90 disabled:opacity-60"
+            className="inline-flex items-center gap-2 rounded-2xl bg-[color:var(--color-brand-blue)] px-4 py-2 text-sm font-semibold text-white shadow-sm hover:opacity-90 disabled:opacity-60"
             onClick={() => void createCampaign()}
             disabled={loadingList}
           >
@@ -532,7 +532,7 @@ export function PortalNurtureCampaignsClient() {
                     className={classNames(
                       "w-full rounded-2xl border px-3 py-3 text-left transition",
                       active
-                        ? "border-(--color-brand-blue) bg-brand-blue/5 text-zinc-900 ring-2 ring-brand-blue/15"
+                        ? "border-[color:var(--color-brand-blue)] bg-brand-blue/5 text-zinc-900 ring-2 ring-brand-blue/15"
                         : "border-zinc-200 bg-white hover:bg-zinc-50",
                     )}
                     onClick={() => setSelectedId(c.id)}
@@ -540,7 +540,7 @@ export function PortalNurtureCampaignsClient() {
                     <div className="flex items-start justify-between gap-2">
                       <div className={classNames("min-w-0", active ? "text-zinc-900" : "text-zinc-900")}>
                         <div className="truncate text-sm font-semibold">{c.name}</div>
-                        <div className={classNames("mt-1 text-xs", active ? "text-(--color-brand-blue)" : "text-zinc-500")}>
+                        <div className={classNames("mt-1 text-xs", active ? "text-[color:var(--color-brand-blue)]" : "text-zinc-500")}>
                           {c.status} · {c.stepsCount} step{c.stepsCount === 1 ? "" : "s"}
                         </div>
                       </div>
@@ -583,7 +583,7 @@ export function PortalNurtureCampaignsClient() {
                     className={classNames(
                       "rounded-2xl px-4 py-2 text-sm font-semibold disabled:opacity-60",
                       campaignDirty
-                        ? "bg-(--color-brand-blue) text-white shadow-sm hover:opacity-90"
+                        ? "bg-[color:var(--color-brand-blue)] text-white shadow-sm hover:opacity-90"
                         : "border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50",
                     )}
                     onClick={() => void saveCampaign()}
@@ -612,7 +612,7 @@ export function PortalNurtureCampaignsClient() {
                 <div>
                   <label className="text-xs font-semibold text-zinc-600">Name</label>
                   <input
-                    className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-(--color-brand-blue)"
+                    className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-[color:var(--color-brand-blue)]"
                     value={detail.name}
                     onChange={(e) => {
                       setDetail((p) => (p ? { ...p, name: e.target.value.slice(0, 80) } : p));
@@ -770,7 +770,7 @@ export function PortalNurtureCampaignsClient() {
                         </div>
                         <button
                           type="button"
-                          className="rounded-2xl bg-(--color-brand-blue) px-3 py-2 text-xs font-semibold text-white shadow-sm hover:opacity-90 disabled:opacity-60"
+                          className="rounded-2xl bg-[color:var(--color-brand-blue)] px-3 py-2 text-xs font-semibold text-white shadow-sm hover:opacity-90 disabled:opacity-60"
                           disabled={createTagBusy}
                           onClick={() => {
                             const name = createTagName.trim().slice(0, 60);
@@ -819,7 +819,7 @@ export function PortalNurtureCampaignsClient() {
                 <div>
                   <label className="text-xs font-semibold text-zinc-600">SMS footer</label>
                   <textarea
-                    className="mt-1 min-h-22.5 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-(--color-brand-blue)"
+                    className="mt-1 min-h-22.5 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-[color:var(--color-brand-blue)]"
                     value={detail.smsFooter}
                     onChange={(e) => {
                       setDetail((p) => (p ? { ...p, smsFooter: e.target.value.slice(0, 300) } : p));
@@ -831,7 +831,7 @@ export function PortalNurtureCampaignsClient() {
                 <div>
                   <label className="text-xs font-semibold text-zinc-600">Email footer</label>
                   <textarea
-                    className="mt-1 min-h-22.5 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-(--color-brand-blue)"
+                    className="mt-1 min-h-22.5 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-[color:var(--color-brand-blue)]"
                     value={detail.emailFooter}
                     onChange={(e) => {
                       setDetail((p) => (p ? { ...p, emailFooter: e.target.value.slice(0, 2000) } : p));
@@ -851,7 +851,7 @@ export function PortalNurtureCampaignsClient() {
                   <div className="flex flex-wrap items-center gap-2">
                     <button
                       type="button"
-                      className="rounded-2xl bg-(--color-brand-blue) px-3 py-2 text-xs font-semibold text-white shadow-sm hover:opacity-90 disabled:opacity-60"
+                      className="rounded-2xl bg-[color:var(--color-brand-blue)] px-3 py-2 text-xs font-semibold text-white shadow-sm hover:opacity-90 disabled:opacity-60"
                       onClick={() => setTemplateOpen(true)}
                       disabled={templateBusy}
                     >
@@ -1021,7 +1021,7 @@ export function PortalNurtureCampaignsClient() {
                       ) : (
                         <button
                           type="button"
-                          className="inline-flex items-center justify-center rounded-2xl bg-(--color-brand-blue) px-4 py-2 text-sm font-semibold text-white shadow-sm hover:opacity-90 disabled:opacity-60"
+                          className="inline-flex items-center justify-center rounded-2xl bg-[color:var(--color-brand-blue)] px-4 py-2 text-sm font-semibold text-white shadow-sm hover:opacity-90 disabled:opacity-60"
                           onClick={() => {
                             const t = confirm.template;
                             setConfirm(null);
@@ -1053,7 +1053,7 @@ export function PortalNurtureCampaignsClient() {
                     </button>
                     <button
                       type="button"
-                      className="rounded-2xl bg-(--color-brand-blue) px-3 py-2 text-xs font-semibold text-white shadow-sm hover:opacity-90"
+                      className="rounded-2xl bg-[color:var(--color-brand-blue)] px-3 py-2 text-xs font-semibold text-white shadow-sm hover:opacity-90"
                       onClick={() => void enroll(false)}
                     >
                       Enroll now
@@ -1285,7 +1285,7 @@ function StepCard(props: {
             className={classNames(
               "rounded-2xl px-3 py-2 text-xs font-semibold",
               dirty
-                ? "bg-(--color-brand-blue) text-white shadow-sm hover:opacity-90"
+                ? "bg-[color:var(--color-brand-blue)] text-white shadow-sm hover:opacity-90"
                 : "border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50",
             )}
             onClick={save}
@@ -1422,7 +1422,7 @@ function StepCard(props: {
               }}
               className={
                 "inline-flex items-center gap-2 rounded-xl px-2 py-1 text-xs font-semibold text-white shadow-sm transition hover:opacity-90 disabled:opacity-60 " +
-                "bg-linear-to-r from-(--color-brand-blue) via-violet-500 to-(--color-brand-pink)"
+                "bg-linear-to-r from-[color:var(--color-brand-blue)] via-violet-500 to-[color:var(--color-brand-pink)]"
               }
             >
               <svg
@@ -1469,7 +1469,7 @@ function StepCard(props: {
             <div className="flex items-start justify-between gap-3">
               <div>
                 <div className="inline-flex items-center gap-2 text-base font-semibold text-zinc-900">
-                  <span className="inline-flex h-7 w-7 items-center justify-center rounded-2xl bg-linear-to-r from-(--color-brand-blue) via-violet-500 to-(--color-brand-pink) text-white">
+                  <span className="inline-flex h-7 w-7 items-center justify-center rounded-2xl bg-linear-to-r from-[color:var(--color-brand-blue)] via-violet-500 to-[color:var(--color-brand-pink)] text-white">
                     <svg
                       aria-hidden="true"
                       viewBox="0 0 24 24"
@@ -1527,7 +1527,7 @@ function StepCard(props: {
                 disabled={aiBusy}
                 className={
                   "inline-flex items-center justify-center gap-2 rounded-2xl px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:opacity-90 disabled:opacity-60 " +
-                  "bg-linear-to-r from-(--color-brand-blue) via-violet-500 to-(--color-brand-pink)"
+                  "bg-linear-to-r from-[color:var(--color-brand-blue)] via-violet-500 to-[color:var(--color-brand-pink)]"
                 }
                 onClick={() => {
                   if (aiBusy) return;

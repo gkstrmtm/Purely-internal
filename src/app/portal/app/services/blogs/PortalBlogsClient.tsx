@@ -1032,7 +1032,7 @@ export function PortalBlogsClient({
                     </div>
                     <Link
                       href="/portal/app/services/funnel-builder/settings"
-                      className="text-xs font-semibold text-(--color-brand-blue) hover:underline"
+                      className="text-xs font-semibold text-[color:var(--color-brand-blue)] hover:underline"
                     >
                       Add / manage domains
                     </Link>

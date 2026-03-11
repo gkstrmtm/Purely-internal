@@ -276,6 +276,10 @@ export async function POST(req: Request) {
   const email = String(body?.email ?? "").trim().slice(0, 120);
   const phone = String(body?.phone ?? "").trim().slice(0, 40);
   const tags = splitTags(body?.tags);
+  const customVariables =
+    body?.customVariables && typeof body.customVariables === "object" && !Array.isArray(body.customVariables)
+      ? (body.customVariables as Record<string, string>)
+      : null;
 
   if (!name) {
     return NextResponse.json({ ok: false, error: "Name is required" }, { status: 400 });
@@ -296,6 +300,7 @@ export async function POST(req: Request) {
     name,
     email: email || null,
     phone: phone || null,
+    customVariables,
   });
 
   if (!contactId) {

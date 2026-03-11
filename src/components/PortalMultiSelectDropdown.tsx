@@ -275,7 +275,14 @@ export function PortalMultiSelectDropdown(props: {
         aria-haspopup="listbox"
         aria-expanded={open}
       >
-        <span className={classNames("truncate", selected.length ? "text-zinc-900" : "text-zinc-500")}>{summary}</span>
+        <span
+          className={classNames(
+            "truncate",
+            selected.length ? "font-semibold text-[color:var(--color-brand-blue)]" : "text-zinc-500",
+          )}
+        >
+          {summary}
+        </span>
         <span className="shrink-0 text-xs text-zinc-500">▾</span>
       </button>
 

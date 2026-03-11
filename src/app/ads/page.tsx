@@ -141,7 +141,7 @@ export default function AdsLandingPage() {
               ].map((c) => (
                 <div
                   key={c.title}
-                  className="relative overflow-hidden rounded-[1.75rem] border border-white/30 bg-(--color-brand-blue) bg-linear-to-r from-(--color-brand-blue) to-(--color-brand-pink) p-5 shadow-sm"
+                  className="relative overflow-hidden rounded-[1.75rem] border border-white/30 bg-[color:var(--color-brand-blue)] bg-linear-to-r from-[color:var(--color-brand-blue)] to-[color:var(--color-brand-pink)] p-5 shadow-sm"
                 >
                   <div className="pointer-events-none absolute inset-0 bg-black/20" />
                   <div className="relative flex items-start gap-3">

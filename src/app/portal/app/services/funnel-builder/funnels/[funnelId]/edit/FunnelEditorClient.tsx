@@ -1302,7 +1302,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                             onClick={() => setPreviewMode("edit")}
                             className={classNames(
                               "rounded-lg px-3 py-1.5 text-sm font-semibold",
-                              previewMode === "edit" ? "bg-zinc-900 text-white" : "text-zinc-700 hover:bg-zinc-50",
+                              previewMode === "edit" ? "bg-brand-ink text-white" : "text-zinc-700 hover:bg-zinc-50",
                             )}
                           >
                             Edit
@@ -1312,7 +1312,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                             onClick={() => setPreviewMode("preview")}
                             className={classNames(
                               "inline-flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm font-semibold",
-                              previewMode === "preview" ? "bg-zinc-900 text-white" : "text-zinc-700 hover:bg-zinc-50",
+                              previewMode === "preview" ? "bg-brand-ink text-white" : "text-zinc-700 hover:bg-zinc-50",
                             )}
                           >
                             <AiSparkIcon className="h-4 w-4" />
@@ -1326,7 +1326,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                             onClick={() => setPreviewDevice("desktop")}
                             className={classNames(
                               "rounded-lg px-3 py-1.5 text-sm font-semibold",
-                              previewDevice === "desktop" ? "bg-zinc-900 text-white" : "text-zinc-700 hover:bg-zinc-50",
+                              previewDevice === "desktop" ? "bg-brand-ink text-white" : "text-zinc-700 hover:bg-zinc-50",
                             )}
                           >
                             Desktop
@@ -1336,7 +1336,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                             onClick={() => setPreviewDevice("mobile")}
                             className={classNames(
                               "rounded-lg px-3 py-1.5 text-sm font-semibold",
-                              previewDevice === "mobile" ? "bg-zinc-900 text-white" : "text-zinc-700 hover:bg-zinc-50",
+                              previewDevice === "mobile" ? "bg-brand-ink text-white" : "text-zinc-700 hover:bg-zinc-50",
                             )}
                           >
                             Mobile
@@ -5911,7 +5911,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                     onClick={() => setPreviewDevice("desktop")}
                     className={classNames(
                       "rounded-lg px-3 py-1.5 text-sm font-semibold",
-                      previewDevice === "desktop" ? "bg-zinc-900 text-white" : "text-zinc-700 hover:bg-zinc-50",
+                      previewDevice === "desktop" ? "bg-brand-ink text-white" : "text-zinc-700 hover:bg-zinc-50",
                     )}
                   >
                     Desktop
@@ -5921,7 +5921,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                     onClick={() => setPreviewDevice("mobile")}
                     className={classNames(
                       "rounded-lg px-3 py-1.5 text-sm font-semibold",
-                      previewDevice === "mobile" ? "bg-zinc-900 text-white" : "text-zinc-700 hover:bg-zinc-50",
+                      previewDevice === "mobile" ? "bg-brand-ink text-white" : "text-zinc-700 hover:bg-zinc-50",
                     )}
                   >
                     Mobile

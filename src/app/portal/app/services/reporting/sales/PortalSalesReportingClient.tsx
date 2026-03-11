@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 
 import { useToast } from "@/components/ToastProvider";
@@ -61,6 +62,10 @@ function classNames(...xs: Array<string | false | null | undefined>) {
 
 export function PortalSalesReportingClient() {
   const toast = useToast();
+  const searchParams = useSearchParams();
+  const from = String(searchParams?.get("from") || "").toLowerCase();
+  const backHref = from === "dashboard" ? "/portal" : "/portal/app/services/reporting";
+  const backLabel = from === "dashboard" ? "Back to Dashboard" : "Back to Reporting";
 
   const [status, setStatus] = useState<SalesStatusPayload | null>(null);
   const [range, setRange] = useState<RangeKey>("30d");
@@ -134,10 +139,10 @@ export function PortalSalesReportingClient() {
         </div>
         <div className="flex gap-2">
           <Link
-            href="/portal/app/services/reporting"
+            href={backHref}
             className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
           >
-            Back to Reporting
+            {backLabel}
           </Link>
           <Link
             href="/portal/app/profile"

@@ -641,7 +641,7 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
 
     const json = (await res.json().catch(() => null)) as any;
     if (!res.ok || !json?.ok || !json?.attachment) {
-      setError(typeof json?.error === "string" ? json.error : "Could not attach file");
+      setError(typeof json?.error === "string" ? json.error : "Could not upload file");
       return;
     }
 
@@ -814,7 +814,7 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
           className={
             "flex-1 min-w-35 rounded-2xl border px-4 py-2.5 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
             (tab === "email"
-              ? "border-zinc-900 bg-zinc-900 text-white shadow-sm"
+              ? "border-brand-ink bg-brand-ink text-white shadow-sm focus-visible:ring-brand-ink/40"
               : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
           }
         >
@@ -827,7 +827,7 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
           className={
             "flex-1 min-w-35 rounded-2xl border px-4 py-2.5 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
             (tab === "sms"
-              ? "border-zinc-900 bg-zinc-900 text-white shadow-sm"
+              ? "border-brand-blue bg-brand-blue text-white shadow-sm focus-visible:ring-brand-blue/40"
               : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
           }
         >
@@ -950,7 +950,7 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
                   onClick={() => setEmailBox("inbox")}
                   className={classNames(
                     "flex-1 rounded-2xl border px-3 py-2 text-sm font-semibold",
-                    emailBox === "inbox" ? "border-zinc-900 bg-zinc-900 text-white" : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50",
+                    emailBox === "inbox" ? "border-brand-ink bg-brand-ink text-white" : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50",
                   )}
                 >
                   Inbox
@@ -960,7 +960,7 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
                   onClick={() => setEmailBox("sent")}
                   className={classNames(
                     "flex-1 rounded-2xl border px-3 py-2 text-sm font-semibold",
-                    emailBox === "sent" ? "border-zinc-900 bg-zinc-900 text-white" : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50",
+                    emailBox === "sent" ? "border-(--color-brand-pink) bg-(--color-brand-pink) text-white" : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50",
                   )}
                 >
                   Sent
@@ -1028,6 +1028,7 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
                                   }}
                                 >
                                   {tag.name}
+                                  Upload
                                 </span>
                               ))}
                               {t.contactTags.length > 3 ? (
@@ -1644,7 +1645,7 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
                       onClick={() => emailFileRef.current?.click()}
                       className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
                     >
-                      Attach
+                      Upload
                     </button>
                     <button
                       type="button"

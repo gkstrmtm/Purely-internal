@@ -392,7 +392,7 @@ export default async function PortalDashboardPage() {
         </div>
       </section>
 
-      <section className="w-full bg-linear-to-r from-(--color-brand-blue) to-(--color-brand-pink) text-white">
+      <section className="w-full bg-linear-to-r from-[color:var(--color-brand-blue)] to-[color:var(--color-brand-pink)] text-white">
         <div className="mx-auto max-w-6xl px-6 py-12">
           <div className="flex flex-col items-start justify-between gap-4 sm:flex-row sm:items-center">
             <div>
@@ -404,7 +404,7 @@ export default async function PortalDashboardPage() {
             <div className="flex w-full flex-col gap-3 sm:w-auto sm:flex-row">
               <Link
                 href="/portal/get-started"
-                className="inline-flex w-full items-center justify-center rounded-2xl bg-linear-to-r from-(--color-brand-blue) via-violet-500 to-(--color-brand-pink) px-6 py-3 text-sm font-semibold text-white shadow-sm hover:opacity-90 sm:w-auto"
+                className="inline-flex w-full items-center justify-center rounded-2xl bg-linear-to-r from-[color:var(--color-brand-blue)] via-violet-500 to-[color:var(--color-brand-pink)] px-6 py-3 text-sm font-semibold text-white shadow-sm hover:opacity-90 sm:w-auto"
               >
                 Start free
               </Link>

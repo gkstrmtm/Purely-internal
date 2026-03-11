@@ -525,7 +525,7 @@ export default function NewAdsCampaignPage() {
                 type="button"
                 onClick={() => void generateCreative()}
                 disabled={creativeBusy || busy}
-                className="inline-flex items-center gap-2 rounded-2xl bg-(--color-brand-blue) bg-linear-to-r from-(--color-brand-blue) to-(--color-brand-pink) px-4 py-2 text-sm font-bold text-white shadow-sm hover:opacity-95 disabled:opacity-60"
+                className="inline-flex items-center gap-2 rounded-2xl bg-[color:var(--color-brand-blue)] bg-linear-to-r from-[color:var(--color-brand-blue)] to-[color:var(--color-brand-pink)] px-4 py-2 text-sm font-bold text-white shadow-sm hover:opacity-95 disabled:opacity-60"
               >
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
                   <path

@@ -466,6 +466,7 @@ export function PortalLeadScrapingClient() {
   }
 
   const [leadMutating, setLeadMutating] = useState(false);
+  const [deleteForeverLeadId, setDeleteForeverLeadId] = useState<string | null>(null);
   const [leadEmailDraft, setLeadEmailDraft] = useState("");
   const [leadTagDraft, setLeadTagDraft] = useState("");
   const [leadTagColorDraft, setLeadTagColorDraft] = useState("#111827");
@@ -1545,6 +1546,46 @@ export function PortalLeadScrapingClient() {
             ) : null}
 
             <div className="text-xs text-zinc-500">Tip: you can reference variables like {"{businessName}"} and {"{website}"}.</div>
+          </div>
+        </AppModal>
+
+        <AppModal
+          open={Boolean(deleteForeverLeadId)}
+          title="Delete lead forever?"
+          description="This cannot be undone."
+          onClose={() => {
+            if (leadMutating) return;
+            setDeleteForeverLeadId(null);
+          }}
+          widthClassName="w-[min(560px,calc(100vw-32px))]"
+          footer={
+            <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+              <button
+                type="button"
+                className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-60"
+                disabled={leadMutating}
+                onClick={() => setDeleteForeverLeadId(null)}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="rounded-2xl bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-60"
+                disabled={leadMutating || !deleteForeverLeadId}
+                onClick={async () => {
+                  const id = deleteForeverLeadId;
+                  if (!id) return;
+                  setDeleteForeverLeadId(null);
+                  await deleteLeadForever(id);
+                }}
+              >
+                Delete forever
+              </button>
+            </div>
+          }
+        >
+          <div className="text-sm text-zinc-700">
+            This will permanently remove the lead from your account.
           </div>
         </AppModal>
 
@@ -3085,7 +3126,7 @@ export function PortalLeadScrapingClient() {
                 <button
                   type="button"
                   onClick={() => {
-                    if (window.confirm("Delete this lead forever? This cannot be undone.")) void deleteLeadForever(activeLead.id);
+                    setDeleteForeverLeadId(activeLead.id);
                   }}
                   disabled={leadMutating}
                   className="inline-flex items-center justify-center rounded-2xl border border-red-200 bg-white px-5 py-3 text-sm font-semibold text-red-700 hover:bg-red-50 disabled:opacity-60"

@@ -21,13 +21,13 @@ export async function ensurePortalContactsSchema(): Promise<void> {
   const now = Date.now();
   if (ensuredAt && now - ensuredAt < ENSURE_TTL_MS) return;
 
-  if (await contactsSchemaLooksReady()) {
-    ensuredAt = Date.now();
-    return;
-  }
+  const ready = await contactsSchemaLooksReady();
 
   const statements: string[] = [
-    `
+    ...(ready
+      ? []
+      : [
+          `
 CREATE TABLE IF NOT EXISTS "PortalContact" (
   "id" TEXT NOT NULL,
   "ownerId" TEXT NOT NULL,
@@ -37,14 +37,19 @@ CREATE TABLE IF NOT EXISTS "PortalContact" (
   "emailKey" TEXT,
   "phone" TEXT,
   "phoneKey" TEXT,
+  "customVariables" JSONB,
   "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
   "updatedAt" TIMESTAMP(3) NOT NULL,
   CONSTRAINT "PortalContact_pkey" PRIMARY KEY ("id")
 );
-    `.trim(),
+          `.trim(),
+        ]),
 
     // Align with Prisma: updatedAt is set by app code/Prisma.
     `ALTER TABLE "PortalContact" ALTER COLUMN "updatedAt" DROP DEFAULT;`,
+
+    // Drift hardening: contact custom fields.
+    `ALTER TABLE "PortalContact" ADD COLUMN IF NOT EXISTS "customVariables" JSONB;`,
 
     `CREATE INDEX IF NOT EXISTS "PortalContact_ownerId_idx" ON "PortalContact"("ownerId");`,
     `CREATE INDEX IF NOT EXISTS "PortalContact_ownerId_emailKey_idx" ON "PortalContact"("ownerId", "emailKey");`,

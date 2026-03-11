@@ -1426,7 +1426,7 @@ export function PortalBookingClient() {
                         </div>
 
                         {isToday ? (
-                          <div className="shrink-0 rounded-full bg-zinc-900 px-2 py-0.5 text-[10px] font-semibold text-white">Today</div>
+                          <div className="shrink-0 rounded-full bg-brand-ink px-2 py-0.5 text-[10px] font-semibold text-white">Today</div>
                         ) : null}
                       </div>
 
@@ -1495,7 +1495,7 @@ export function PortalBookingClient() {
                     const baseCls =
                       "h-24 rounded-3xl border px-3 py-3 text-left hover:bg-zinc-50 focus:outline-none focus:ring-2 focus:ring-zinc-300";
                     const borderCls = selected
-                      ? "border-zinc-900 bg-white"
+                      ? "border-brand-ink bg-white"
                       : inMonth
                         ? "border-zinc-200 bg-white"
                         : "border-zinc-200 bg-zinc-50";
@@ -1512,7 +1512,7 @@ export function PortalBookingClient() {
                             {day.getDate()}
                           </div>
                           {today ? (
-                            <div className="rounded-full bg-zinc-900 px-2 py-0.5 text-[10px] font-semibold text-white">Today</div>
+                            <div className="rounded-full bg-brand-ink px-2 py-0.5 text-[10px] font-semibold text-white">Today</div>
                           ) : null}
                         </div>
 
@@ -1521,7 +1521,7 @@ export function PortalBookingClient() {
                             {hasCoverage ? "Avail" : "No avail"}
                           </div>
                           {bookingCount ? (
-                            <div className="rounded-full bg-zinc-900 px-2 py-0.5 text-[10px] font-semibold text-white">{bookingCount}</div>
+                            <div className="rounded-full bg-brand-ink px-2 py-0.5 text-[10px] font-semibold text-white">{bookingCount}</div>
                           ) : null}
                         </div>
                       </button>

@@ -885,7 +885,7 @@ export function PortalDashboardClient() {
                     Connect
                   </Link>
                   <Link
-                    href="/portal/app/services/reporting/sales"
+                    href="/portal/app/services/reporting/sales?from=dashboard"
                     className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-xs font-semibold text-brand-ink hover:bg-zinc-50"
                   >
                     Open sales dashboard
@@ -905,7 +905,7 @@ export function PortalDashboardClient() {
 
                 <div className="mt-4 flex flex-col gap-2 sm:flex-row">
                   <Link
-                    href="/portal/app/services/reporting/sales"
+                    href="/portal/app/services/reporting/sales?from=dashboard"
                     className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-4 py-2 text-xs font-semibold text-white hover:opacity-95"
                   >
                     View details
@@ -920,7 +920,7 @@ export function PortalDashboardClient() {
                 {salesError ? <div className="text-xs text-zinc-500">{salesError}</div> : null}
                 <div className="flex flex-col gap-2 sm:flex-row">
                   <Link
-                    href="/portal/app/services/reporting/sales"
+                    href="/portal/app/services/reporting/sales?from=dashboard"
                     className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-xs font-semibold text-brand-ink hover:bg-zinc-50"
                   >
                     Open sales dashboard
@@ -1402,7 +1402,7 @@ export function PortalDashboardClient() {
             ) : (
               <button
                 type="button"
-                className="rounded-2xl bg-(--color-brand-blue) px-4 py-2 text-sm font-semibold text-white hover:opacity-95"
+                className="rounded-2xl bg-[color:var(--color-brand-blue)] px-4 py-2 text-sm font-semibold text-white hover:opacity-95"
                 onClick={beginEdit}
               >
                 Edit

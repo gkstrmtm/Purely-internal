@@ -22,6 +22,31 @@ type ContactRow = {
   tags: ContactTag[];
 };
 
+type CustomVarRow = { key: string; value: string };
+
+function rowsFromCustomVariables(input: unknown): CustomVarRow[] {
+  if (!input || typeof input !== "object" || Array.isArray(input)) return [];
+  return Object.entries(input as Record<string, unknown>)
+    .map(([key, value]) => ({
+      key: String(key || ""),
+      value: typeof value === "string" ? value : String(value ?? ""),
+    }))
+    .filter((r) => r.key.trim())
+    .slice(0, 25);
+}
+
+function customVariablesFromRows(rows: CustomVarRow[]): Record<string, string> | null {
+  const out: Record<string, string> = {};
+  for (const row of rows) {
+    const key = String(row.key || "").trim().slice(0, 60);
+    if (!key) continue;
+    const stableKey = key.toLowerCase();
+    if (out[stableKey] !== undefined) continue;
+    out[stableKey] = String(row.value ?? "").trim().slice(0, 300);
+  }
+  return Object.keys(out).length ? out : null;
+}
+
 type LeadRow = {
   id: string;
   businessName: string;
@@ -49,6 +74,7 @@ type ContactDetailPayload = {
     name: string;
     email: string | null;
     phone: string | null;
+    customVariables?: Record<string, string> | null;
     createdAtIso: string;
     updatedAtIso: string;
     leads: Array<{
@@ -200,13 +226,14 @@ export function PortalPeopleContactsClient() {
   const [importBusy, setImportBusy] = useState(false);
   const [importError, setImportError] = useState<string | null>(null);
   const [importFile, setImportFile] = useState<File | null>(null);
-  const [addMode, setAddMode] = useState<"csv" | "manual">("csv");
+  const [addMode, setAddMode] = useState<"csv" | "manual">("manual");
   const [manualBusy, setManualBusy] = useState(false);
   const [manualError, setManualError] = useState<string | null>(null);
   const [manualName, setManualName] = useState("");
   const [manualEmail, setManualEmail] = useState("");
   const [manualPhone, setManualPhone] = useState("");
   const [manualTags, setManualTags] = useState("");
+  const [manualCustomVarRows, setManualCustomVarRows] = useState<CustomVarRow[]>([]);
   const [importHeaders, setImportHeaders] = useState<string[]>([]);
   const [importRows, setImportRows] = useState<string[][]>([]);
   const [importDupesOpen, setImportDupesOpen] = useState(false);
@@ -245,6 +272,7 @@ export function PortalPeopleContactsClient() {
   const [editName, setEditName] = useState("");
   const [editEmail, setEditEmail] = useState("");
   const [editPhone, setEditPhone] = useState("");
+  const [editCustomVarRows, setEditCustomVarRows] = useState<CustomVarRow[]>([]);
   const [savingContact, setSavingContact] = useState(false);
 
   const [leadModalOpen, setLeadModalOpen] = useState(false);
@@ -343,7 +371,7 @@ export function PortalPeopleContactsClient() {
 
   const openImportModal = useCallback(() => {
     setImportOpen(true);
-    setAddMode("csv");
+    setAddMode("manual");
     setImportError(null);
     setImportFile(null);
     setImportHeaders([]);
@@ -355,6 +383,7 @@ export function PortalPeopleContactsClient() {
     setManualEmail("");
     setManualPhone("");
     setManualTags("");
+    setManualCustomVarRows([]);
   }, []);
 
   const loadOwnerTags = useCallback(async () => {
@@ -499,6 +528,7 @@ export function PortalPeopleContactsClient() {
       setEditName(payload.contact?.name ?? "");
       setEditEmail(payload.contact?.email ?? "");
       setEditPhone(payload.contact?.phone ?? "");
+      setEditCustomVarRows(rowsFromCustomVariables(payload.contact?.customVariables));
     } catch (e: any) {
       toast.error(String(e?.message || "Failed to load contact"));
     } finally {
@@ -631,10 +661,11 @@ export function PortalPeopleContactsClient() {
     if (!selectedContactId) return;
     setSavingContact(true);
     try {
+      const customVariables = customVariablesFromRows(editCustomVarRows);
       const res = await fetch(`/api/portal/contacts/${encodeURIComponent(selectedContactId)}`, {
         method: "PATCH",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ name: editName, email: editEmail, phone: editPhone }),
+        body: JSON.stringify({ name: editName, email: editEmail, phone: editPhone, customVariables }),
       });
       const json = (await res.json().catch(() => ({}))) as any;
       if (!res.ok || !json?.ok) throw new Error(String(json?.error || "Failed to save"));
@@ -1027,7 +1058,7 @@ export function PortalPeopleContactsClient() {
                 onClick={() => setAddMode("csv")}
                 className={classNames(
                   "rounded-2xl border px-4 py-2 text-sm font-semibold",
-                  addMode === "csv" ? "border-zinc-900 bg-zinc-900 text-white" : "border-zinc-200 bg-white text-zinc-800 hover:bg-zinc-50",
+                  addMode === "csv" ? "border-(--color-brand-pink) bg-(--color-brand-pink) text-white" : "border-zinc-200 bg-white text-zinc-800 hover:bg-zinc-50",
                 )}
               >
                 CSV
@@ -1037,7 +1068,7 @@ export function PortalPeopleContactsClient() {
                 onClick={() => setAddMode("manual")}
                 className={classNames(
                   "rounded-2xl border px-4 py-2 text-sm font-semibold",
-                  addMode === "manual" ? "border-zinc-900 bg-zinc-900 text-white" : "border-zinc-200 bg-white text-zinc-800 hover:bg-zinc-50",
+                  addMode === "manual" ? "border-(--color-brand-blue) bg-(--color-brand-blue) text-white" : "border-zinc-200 bg-white text-zinc-800 hover:bg-zinc-50",
                 )}
               >
                 Manual
@@ -1085,6 +1116,61 @@ export function PortalPeopleContactsClient() {
                   </label>
                 </div>
 
+                <div className="mt-4">
+                  <div className="text-xs font-semibold text-zinc-700">Custom variables (optional)</div>
+                  <div className="mt-2 space-y-2">
+                    {manualCustomVarRows.length ? (
+                      manualCustomVarRows.map((row, idx) => (
+                        <div key={`${idx}-${row.key}`} className="grid grid-cols-1 gap-2 md:grid-cols-5">
+                          <input
+                            value={row.key}
+                            onChange={(e) =>
+                              setManualCustomVarRows((prev) => {
+                                const next = [...prev];
+                                next[idx] = { ...next[idx], key: e.target.value };
+                                return next;
+                              })
+                            }
+                            placeholder="key (e.g. city)"
+                            className="md:col-span-2 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                          />
+                          <input
+                            value={row.value}
+                            onChange={(e) =>
+                              setManualCustomVarRows((prev) => {
+                                const next = [...prev];
+                                next[idx] = { ...next[idx], value: e.target.value };
+                                return next;
+                              })
+                            }
+                            placeholder="value"
+                            className="md:col-span-3 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                          />
+                          <div className="md:col-span-5 flex justify-end">
+                            <button
+                              type="button"
+                              className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+                              onClick={() => setManualCustomVarRows((prev) => prev.filter((_, i) => i !== idx))}
+                            >
+                              Remove
+                            </button>
+                          </div>
+                        </div>
+                      ))
+                    ) : (
+                      <div className="text-sm text-zinc-600">No custom variables yet.</div>
+                    )}
+                    <button
+                      type="button"
+                      className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+                      onClick={() => setManualCustomVarRows((prev) => [...prev, { key: "", value: "" }])}
+                    >
+                      Add variable
+                    </button>
+                    <div className="text-xs text-zinc-500">Available in templates as `contact.custom.&lt;key&gt;`.</div>
+                  </div>
+                </div>
+
                 {manualError ? (
                   <div className="mt-3 rounded-2xl border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-800">
                     {manualError}
@@ -1109,6 +1195,7 @@ export function PortalPeopleContactsClient() {
                               email: manualEmail,
                               phone: manualPhone,
                               tags: manualTags,
+                              customVariables: customVariablesFromRows(manualCustomVarRows),
                             }),
                           });
                           const json = (await res.json().catch(() => ({}))) as any;
@@ -1543,6 +1630,78 @@ export function PortalPeopleContactsClient() {
                   <div className="mt-1 text-sm text-zinc-800">{detail?.phone ?? "N/A"}</div>
                 )}
 
+                <div className="mt-3 text-xs font-semibold text-zinc-600">Custom variables</div>
+                {editingContact ? (
+                  <div className="mt-2 space-y-2">
+                    {editCustomVarRows.length ? (
+                      editCustomVarRows.map((row, idx) => (
+                        <div key={`${idx}-${row.key}`} className="grid grid-cols-1 gap-2 sm:grid-cols-5">
+                          <input
+                            className="sm:col-span-2 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-800 outline-none focus:border-[color:var(--color-brand-blue)]"
+                            value={row.key}
+                            onChange={(e) =>
+                              setEditCustomVarRows((prev) => {
+                                const next = [...prev];
+                                next[idx] = { ...next[idx], key: e.target.value };
+                                return next;
+                              })
+                            }
+                            placeholder="key (e.g. city)"
+                          />
+                          <input
+                            className="sm:col-span-3 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-800 outline-none focus:border-[color:var(--color-brand-blue)]"
+                            value={row.value}
+                            onChange={(e) =>
+                              setEditCustomVarRows((prev) => {
+                                const next = [...prev];
+                                next[idx] = { ...next[idx], value: e.target.value };
+                                return next;
+                              })
+                            }
+                            placeholder="value"
+                          />
+                          <div className="sm:col-span-5 flex justify-end">
+                            <button
+                              type="button"
+                              className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+                              onClick={() => setEditCustomVarRows((prev) => prev.filter((_, i) => i !== idx))}
+                            >
+                              Remove
+                            </button>
+                          </div>
+                        </div>
+                      ))
+                    ) : (
+                      <div className="text-sm text-zinc-600">None yet.</div>
+                    )}
+
+                    <button
+                      type="button"
+                      className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+                      onClick={() => setEditCustomVarRows((prev) => [...prev, { key: "", value: "" }])}
+                    >
+                      Add variable
+                    </button>
+                    <div className="text-xs text-zinc-500">Use in templates as `contact.custom.&lt;key&gt;`.</div>
+                  </div>
+                ) : (
+                  <div className="mt-2">
+                    {detail?.customVariables && Object.keys(detail.customVariables).length ? (
+                      <div className="space-y-1">
+                        {Object.entries(detail.customVariables)
+                          .slice(0, 8)
+                          .map(([k, v]) => (
+                            <div key={k} className="text-sm text-zinc-800">
+                              <span className="font-semibold">{k}:</span> {String(v)}
+                            </div>
+                          ))}
+                      </div>
+                    ) : (
+                      <div className="text-sm text-zinc-600">None.</div>
+                    )}
+                  </div>
+                )}
+
                 <div className="mt-4 flex flex-wrap items-center gap-2">
                   <a
                     className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
@@ -1571,7 +1730,7 @@ export function PortalPeopleContactsClient() {
                     {!editingContact ? (
                       <button
                         type="button"
-                        className="rounded-xl bg-zinc-900 px-3 py-2 text-xs font-semibold text-white hover:bg-zinc-800"
+                        className="rounded-xl bg-brand-ink px-3 py-2 text-xs font-semibold text-white hover:opacity-95"
                         onClick={() => setEditingContact(true)}
                         disabled={!detail}
                       >
@@ -1587,6 +1746,7 @@ export function PortalPeopleContactsClient() {
                             setEditName(detail?.name ?? "");
                             setEditEmail(detail?.email ?? "");
                             setEditPhone(detail?.phone ?? "");
+                            setEditCustomVarRows(rowsFromCustomVariables(detail?.customVariables));
                           }}
                           disabled={savingContact}
                         >
@@ -1594,7 +1754,7 @@ export function PortalPeopleContactsClient() {
                         </button>
                         <button
                           type="button"
-                          className="rounded-xl bg-zinc-900 px-3 py-2 text-xs font-semibold text-white hover:bg-zinc-800 disabled:opacity-60"
+                          className="rounded-xl bg-brand-ink px-3 py-2 text-xs font-semibold text-white hover:opacity-95 disabled:opacity-60"
                           onClick={() => void saveContactEdits()}
                           disabled={savingContact}
                         >
@@ -1697,7 +1857,7 @@ export function PortalPeopleContactsClient() {
                       <div className="text-xs text-zinc-500">Pick a default color.</div>
                       <button
                         type="button"
-                        className="rounded-xl bg-zinc-900 px-3 py-2 text-xs font-semibold text-white hover:bg-zinc-800 disabled:opacity-60"
+                        className="rounded-xl bg-brand-ink px-3 py-2 text-xs font-semibold text-white hover:opacity-95 disabled:opacity-60"
                         disabled={createTagBusy}
                         onClick={() => void createOwnerTag()}
                       >
@@ -1877,7 +2037,7 @@ export function PortalPeopleContactsClient() {
               </button>
               <button
                 type="button"
-                className="rounded-2xl bg-zinc-900 px-4 py-2 text-sm font-semibold text-white hover:bg-zinc-800 disabled:opacity-60"
+                className="rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
                 onClick={() => void saveLeadEdits()}
                 disabled={savingLead || !leadBusinessName.trim()}
               >

@@ -1550,7 +1550,7 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
                 "inline-flex h-9 w-9 items-center justify-center rounded-xl text-base font-semibold",
                 busy
                   ? "border border-zinc-200 bg-zinc-100 text-zinc-500"
-                  : "bg-(--color-brand-blue) text-white shadow-sm hover:opacity-90",
+                  : "bg-[color:var(--color-brand-blue)] text-white shadow-sm hover:opacity-90",
               )}
               title="Create campaign"
               aria-label="Create campaign"
@@ -1631,7 +1631,7 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
                   className={
                     "flex-1 min-w-40 rounded-2xl border px-4 py-2.5 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
                     (tab === "calls"
-                      ? "border-(--color-brand-blue) bg-(--color-brand-blue) text-white shadow-sm"
+                      ? "border-[color:var(--color-brand-blue)] bg-[color:var(--color-brand-blue)] text-white shadow-sm"
                       : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
                   }
                 >
@@ -1644,7 +1644,7 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
                   className={
                     "flex-1 min-w-40 rounded-2xl border px-4 py-2.5 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
                     (tab === "messages"
-                      ? "border-(--color-brand-blue) bg-(--color-brand-blue) text-white shadow-sm"
+                      ? "border-[color:var(--color-brand-blue)] bg-[color:var(--color-brand-blue)] text-white shadow-sm"
                       : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
                   }
                 >
@@ -1657,7 +1657,7 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
                   className={
                     "flex-1 min-w-40 rounded-2xl border px-4 py-2.5 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
                     (tab === "settings"
-                      ? "border-(--color-brand-blue) bg-(--color-brand-blue) text-white shadow-sm"
+                      ? "border-[color:var(--color-brand-blue)] bg-[color:var(--color-brand-blue)] text-white shadow-sm"
                       : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
                   }
                 >
@@ -1962,7 +1962,7 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
                             updateCampaign({ status: nextStatus });
                           }}
                         />
-                        <span className="absolute inset-0 rounded-full bg-zinc-200 transition peer-checked:bg-(--color-brand-blue) peer-disabled:opacity-60" />
+                        <span className="absolute inset-0 rounded-full bg-zinc-200 transition peer-checked:bg-[color:var(--color-brand-blue)] peer-disabled:opacity-60" />
                         <span className="absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow-sm transition peer-checked:translate-x-5 peer-disabled:opacity-80" />
                       </span>
                     </div>
@@ -2153,7 +2153,7 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
                                     className={
                                       "w-full rounded-2xl border px-4 py-3 text-left text-sm transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
                                       (isSelected
-                                        ? "border-zinc-900 bg-zinc-900 text-white"
+                                        ? "border-brand-ink bg-brand-ink text-white"
                                         : "border-zinc-200 bg-zinc-50 hover:bg-zinc-100")
                                     }
                                   >
@@ -2350,7 +2350,7 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
                         className={
                           "rounded-2xl border px-4 py-2 text-xs font-semibold transition " +
                           (settingsTab === "calls"
-                            ? "border-(--color-brand-blue) bg-(--color-brand-blue) text-white"
+                            ? "border-[color:var(--color-brand-blue)] bg-[color:var(--color-brand-blue)] text-white"
                             : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
                         }
                       >
@@ -2362,7 +2362,7 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
                         className={
                           "rounded-2xl border px-4 py-2 text-xs font-semibold transition " +
                           (settingsTab === "messages"
-                            ? "border-(--color-brand-blue) bg-(--color-brand-blue) text-white"
+                            ? "border-[color:var(--color-brand-blue)] bg-[color:var(--color-brand-blue)] text-white"
                             : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
                         }
                       >
@@ -2430,7 +2430,7 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
                                 "rounded-2xl px-4 py-2 text-xs font-semibold",
                                 busy
                                   ? "bg-zinc-200 text-zinc-600"
-                                  : "bg-(--color-brand-blue) text-white hover:opacity-95",
+                                  : "bg-[color:var(--color-brand-blue)] text-white hover:opacity-95",
                               )}
                               title={
                                 voiceToolsApiKeyConfigured
@@ -2459,7 +2459,7 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
                                 "inline-flex items-center gap-2 rounded-2xl px-4 py-2 text-xs font-semibold",
                                 busy || generateBusy
                                   ? "bg-zinc-200 text-zinc-600"
-                                  : "bg-linear-to-r from-(--color-brand-blue) via-violet-500 to-(--color-brand-pink) text-white shadow-sm hover:opacity-90",
+                                  : "bg-linear-to-r from-[color:var(--color-brand-blue)] via-violet-500 to-[color:var(--color-brand-pink)] text-white shadow-sm hover:opacity-90",
                               )}
                             >
                               <svg
@@ -2842,7 +2842,7 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
                                 "rounded-2xl px-4 py-2 text-xs font-semibold",
                                 busy
                                   ? "bg-zinc-200 text-zinc-600"
-                                  : "bg-(--color-brand-blue) text-white hover:opacity-95",
+                                  : "bg-[color:var(--color-brand-blue)] text-white hover:opacity-95",
                               )}
                               title="Sync messages agent"
                             >
@@ -2899,7 +2899,7 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
                                 "inline-flex items-center gap-2 rounded-2xl px-4 py-2 text-xs font-semibold",
                                 busy || generateBusy
                                   ? "bg-zinc-200 text-zinc-600"
-                                  : "bg-linear-to-r from-(--color-brand-blue) via-violet-500 to-(--color-brand-pink) text-white shadow-sm hover:opacity-90",
+                                  : "bg-linear-to-r from-[color:var(--color-brand-blue)] via-violet-500 to-[color:var(--color-brand-pink)] text-white shadow-sm hover:opacity-90",
                               )}
                             >
                               <svg
@@ -3317,7 +3317,7 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
                                 disabled={busy}
                                 onChange={(e) => updateCampaign({ callOutcomeTagging: { enabled: e.target.checked } })}
                               />
-                              <span className="absolute inset-0 rounded-full bg-zinc-200 transition peer-checked:bg-(--color-brand-blue) peer-disabled:opacity-60" />
+                              <span className="absolute inset-0 rounded-full bg-zinc-200 transition peer-checked:bg-[color:var(--color-brand-blue)] peer-disabled:opacity-60" />
                               <span className="absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow-sm transition peer-checked:translate-x-5 peer-disabled:opacity-80" />
                             </span>
                           </label>
@@ -3607,7 +3607,7 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
                                 disabled={busy}
                                 onChange={(e) => updateCampaign({ messageOutcomeTagging: { enabled: e.target.checked } })}
                               />
-                              <span className="absolute inset-0 rounded-full bg-zinc-200 transition peer-checked:bg-(--color-brand-blue) peer-disabled:opacity-60" />
+                              <span className="absolute inset-0 rounded-full bg-zinc-200 transition peer-checked:bg-[color:var(--color-brand-blue)] peer-disabled:opacity-60" />
                               <span className="absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow-sm transition peer-checked:translate-x-5 peer-disabled:opacity-80" />
                             </span>
                           </label>

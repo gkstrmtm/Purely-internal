@@ -838,9 +838,9 @@ export default async function PortalTutorialDetailPage(props: { params: Promise<
             <span
               className={
                 service.accent === "blue"
-                  ? "text-(--color-brand-blue)"
+                  ? "text-[color:var(--color-brand-blue)]"
                   : service.accent === "coral"
-                    ? "text-(--color-brand-pink)"
+                    ? "text-[color:var(--color-brand-pink)]"
                     : "text-zinc-700"
               }
             >

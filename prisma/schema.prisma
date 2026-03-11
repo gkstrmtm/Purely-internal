@@ -767,6 +767,9 @@ model PortalContact {
   phone    String?
   phoneKey String?
 
+  // User-defined per-contact variables used for templating (e.g. birthdays, preferences).
+  customVariables Json?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -1060,10 +1063,10 @@ model PortalMailboxAddress {
   ownerId String @unique
 
   // Local-part only, e.g. "acme-co" for acme-co@purelyautomation.com
-  localPart String
+  localPart String @unique
 
   // Full email address for convenience.
-  emailAddress String
+  emailAddress String @unique
   emailKey     String @unique
 
   createdAt DateTime @default(now())

@@ -28,7 +28,7 @@ function envHelpWidgetAgentId(): string {
 export async function POST() {
   const apiKey = envElevenLabsApiKey();
   if (!apiKey) {
-    return NextResponse.json({ ok: false, error: "Missing ElevenLabs API key" }, { status: 400 });
+    return NextResponse.json({ ok: false, error: "Missing voice agent API key" }, { status: 400 });
   }
 
   const agentId = envHelpWidgetAgentId();

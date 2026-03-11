@@ -102,7 +102,7 @@ export function DiscountCheckoutClient(props: {
             <div className="mt-4">
               <Link
                 href={`${props.basePath}/app/billing`}
-                className="inline-flex items-center justify-center rounded-2xl bg-zinc-900 px-4 py-2 text-sm font-semibold text-white hover:bg-zinc-800"
+                className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95"
               >
                 Go to Billing
               </Link>

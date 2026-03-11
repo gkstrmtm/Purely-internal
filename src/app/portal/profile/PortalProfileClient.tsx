@@ -27,8 +27,6 @@ type Me = {
     phone?: string | null;
     city?: string | null;
     state?: string | null;
-    voiceAgentId?: string | null;
-    voiceAgentApiKeyConfigured?: boolean;
   } | null;
 };
 
@@ -192,9 +190,6 @@ export function PortalProfileClient() {
   const [phone, setPhone] = useState("");
   const [city, setCity] = useState("");
   const [state, setState] = useState("");
-  const [voiceAgentId, setVoiceAgentId] = useState("");
-  const [voiceAgentApiKey, setVoiceAgentApiKey] = useState("");
-  const [voiceAgentApiKeyConfigured, setVoiceAgentApiKeyConfigured] = useState(false);
   const [currentPassword, setCurrentPassword] = useState("");
   const [savingContact, setSavingContact] = useState(false);
 
@@ -269,14 +264,12 @@ export function PortalProfileClient() {
     const nextName = name.trim();
     const nextEmail = email.trim().toLowerCase();
     const nextPhoneRaw = phone.trim();
-    const nextVoiceAgentId = voiceAgentId.trim();
     const nextCity = city.trim();
     const nextState = state.trim();
 
     const curName = me.user?.name ?? "";
     const curEmail = (me.user?.email ?? "").toLowerCase();
     const curPhone = (me.user?.phone ?? "").trim();
-    const curVoiceAgentId = (me.user?.voiceAgentId ?? "").trim();
     const curCity = (me.user?.city ?? "").trim();
     const curState = (me.user?.state ?? "").trim();
 
@@ -290,8 +283,6 @@ export function PortalProfileClient() {
     const wantsNameChange = nextName !== curName;
     const wantsEmailChange = nextEmail !== curEmail;
     const wantsPhoneChange = nextPhoneRaw ? nextPhoneE164 !== curPhone : Boolean(curPhone);
-    const wantsVoiceAgentIdChange = nextVoiceAgentId !== curVoiceAgentId;
-    const wantsVoiceAgentApiKeyChange = Boolean(voiceAgentApiKey.trim());
     const wantsCityChange = nextCity !== curCity;
     const wantsStateChange = nextState !== curState;
 
@@ -299,24 +290,22 @@ export function PortalProfileClient() {
       !wantsNameChange &&
       !wantsEmailChange &&
       !wantsPhoneChange &&
-      !wantsVoiceAgentIdChange &&
-      !wantsVoiceAgentApiKeyChange &&
       !wantsCityChange &&
       !wantsStateChange
     ) {
       return false;
     }
 
-    const requiresPhone = wantsNameChange || wantsEmailChange || wantsPhoneChange || wantsVoiceAgentIdChange || wantsVoiceAgentApiKeyChange;
+    const requiresPhone = wantsNameChange || wantsEmailChange || wantsPhoneChange;
     if (requiresPhone && !nextPhoneE164) return false;
 
     if (wantsNameChange || wantsEmailChange) {
       return currentPassword.trim().length >= 6 && nextName.length >= 2 && nextEmail.length >= 3;
     }
 
-    // No password required for phone/agent id/api key updates.
+    // No password required for phone updates.
     return true;
-  }, [me, name, email, phone, city, state, voiceAgentId, voiceAgentApiKey, currentPassword]);
+  }, [me, name, email, phone, city, state, currentPassword]);
 
   const canSavePassword = useMemo(() => {
     return (
@@ -340,8 +329,6 @@ export function PortalProfileClient() {
         setPhone(formatPhoneForDisplay(json.user?.phone ?? ""));
         setCity(json.user?.city ?? "");
         setState(json.user?.state ?? "");
-        setVoiceAgentId(json.user?.voiceAgentId ?? "");
-        setVoiceAgentApiKeyConfigured(Boolean(json.user?.voiceAgentApiKeyConfigured));
       } else {
         const json = (await res.json().catch(() => ({}))) as { error?: string };
         setError(json.error ?? "Unable to load profile");
@@ -686,17 +673,14 @@ export function PortalProfileClient() {
     const nextName = name.trim();
     const nextEmail = email.trim().toLowerCase();
     const nextPhoneRaw = phone.trim();
-    const nextVoiceAgentId = voiceAgentId.trim();
     const nextCity = city.trim();
     const nextState = state.trim();
 
     const curName = me.user.name ?? "";
     const curEmail = (me.user.email ?? "").toLowerCase();
     const curPhone = (me.user.phone ?? "").trim();
-    const curVoiceAgentId = (me.user.voiceAgentId ?? "").trim();
     const curCity = (me.user.city ?? "").trim();
     const curState = (me.user.state ?? "").trim();
-    const wantsVoiceAgentApiKeyChange = Boolean(voiceAgentApiKey.trim());
 
     const wantsNameChange = nextName !== curName;
     const wantsEmailChange = nextEmail !== curEmail;
@@ -711,11 +695,10 @@ export function PortalProfileClient() {
       return res.e164 ?? null;
     })();
     const wantsPhoneChange = nextPhoneRaw ? nextPhoneE164 !== curPhone : Boolean(curPhone);
-    const wantsVoiceAgentIdChange = nextVoiceAgentId !== curVoiceAgentId;
     const wantsCityChange = nextCity !== curCity;
     const wantsStateChange = nextState !== curState;
 
-    const requiresPhone = wantsNameChange || wantsEmailChange || wantsPhoneChange || wantsVoiceAgentIdChange || wantsVoiceAgentApiKeyChange;
+    const requiresPhone = wantsNameChange || wantsEmailChange || wantsPhoneChange;
     if (requiresPhone && !nextPhoneE164) {
       setSavingContact(false);
       setError("Phone is required.");
@@ -728,8 +711,6 @@ export function PortalProfileClient() {
     if (wantsNameChange) payload.name = nextName;
     if (wantsEmailChange) payload.email = nextEmail;
     if (wantsPhoneChange) payload.phone = nextPhone;
-    if (wantsVoiceAgentIdChange) payload.voiceAgentId = nextVoiceAgentId;
-    if (wantsVoiceAgentApiKeyChange) payload.voiceAgentApiKey = voiceAgentApiKey.trim();
     if (wantsNameChange || wantsEmailChange) payload.currentPassword = currentPassword;
     if (wantsCityChange) payload.city = nextCity;
     if (wantsStateChange) payload.state = nextState;
@@ -750,8 +731,6 @@ export function PortalProfileClient() {
         phone?: string | null;
         city?: string | null;
         state?: string | null;
-        voiceAgentId?: string | null;
-        voiceAgentApiKeyConfigured?: boolean;
         role?: string;
       } | null;
     };
@@ -771,64 +750,14 @@ export function PortalProfileClient() {
         phone: json.user?.phone ?? nextPhone,
         city: json.user?.city ?? (wantsCityChange ? nextCity : me.user.city) ?? null,
         state: json.user?.state ?? (wantsStateChange ? nextState : me.user.state) ?? null,
-        voiceAgentId: json.user?.voiceAgentId ?? nextVoiceAgentId,
-        voiceAgentApiKeyConfigured: Boolean(
-          json.user?.voiceAgentApiKeyConfigured ?? (wantsVoiceAgentApiKeyChange ? true : me.user.voiceAgentApiKeyConfigured),
-        ),
         role: json.user?.role ?? me.user.role,
       },
     });
     setCurrentPassword("");
-    setVoiceAgentApiKey("");
     setPhone(formatPhoneForDisplay(json.user?.phone ?? nextPhone));
     if (wantsCityChange) setCity(json.user?.city ?? nextCity);
     if (wantsStateChange) setState(json.user?.state ?? nextState);
     setNotice(json.note ?? "Saved. You may need to sign out/in to refresh your session.");
-  }
-
-  async function clearVoiceAgentApiKey() {
-    if (!me?.user) return;
-    if (!phoneValidation.ok) {
-      setError(phoneValidation.error);
-      return;
-    }
-    if (!phoneValidation.e164) {
-      setError("Phone is required.");
-      return;
-    }
-    setSavingContact(true);
-    setError(null);
-    setNotice(null);
-
-    const res = await fetch("/api/portal/profile", {
-      method: "PUT",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ voiceAgentApiKey: "" }),
-    });
-
-    const json = (await res.json().catch(() => ({}))) as {
-      ok?: boolean;
-      error?: string;
-      note?: string;
-      user?: { voiceAgentApiKeyConfigured?: boolean } | null;
-    };
-    setSavingContact(false);
-
-    if (!res.ok || !json.ok) {
-      setError(json.error ?? "Unable to clear API key");
-      return;
-    }
-
-    setVoiceAgentApiKey("");
-    setVoiceAgentApiKeyConfigured(Boolean(json.user?.voiceAgentApiKeyConfigured));
-    setMe({
-      ok: true,
-      user: {
-        ...me.user,
-        voiceAgentApiKeyConfigured: Boolean(json.user?.voiceAgentApiKeyConfigured),
-      },
-    });
-    setNotice(json.note ?? "Saved.");
   }
 
   async function changePassword() {
@@ -1068,72 +997,7 @@ export function PortalProfileClient() {
 
           {advancedOpen ? (
             <div className="space-y-4">
-              <PortalSettingsSection
-                title="Voice agent"
-                description="Advanced settings for AI calling services."
-                accent="blue"
-                collapsible={false}
-                dotClassName="hidden"
-              >
-                {!canEditProfile ? (
-                  <div className="mt-1 rounded-2xl border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">
-                    You have view-only access.
-                  </div>
-                ) : null}
-
-                <div className="mt-1 grid grid-cols-1 gap-4 sm:grid-cols-2">
-                  <div>
-                    <label className="text-xs font-semibold text-zinc-600">Agent ID</label>
-                    <input
-                      value={voiceAgentId}
-                      onChange={(e) => setVoiceAgentId(e.target.value)}
-                      disabled={!canEditProfile}
-                      className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300 disabled:opacity-60"
-                      placeholder="agent_…"
-                      autoComplete="off"
-                    />
-                    <div className="mt-2 text-xs text-zinc-500">Used by voice/AI calling services when enabled.</div>
-                  </div>
-
-                  <div className="sm:col-span-2">
-                    <div className="flex items-center justify-between">
-                      <label className="text-xs font-semibold text-zinc-600">Voice agent API key</label>
-                      <div className="text-xs text-zinc-500">{voiceAgentApiKeyConfigured ? "configured" : "not set"}</div>
-                    </div>
-                    <input
-                      value={voiceAgentApiKey}
-                      onChange={(e) => setVoiceAgentApiKey(e.target.value)}
-                      disabled={!canEditProfile}
-                      type="password"
-                      className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300 disabled:opacity-60"
-                      placeholder={voiceAgentApiKeyConfigured ? "(leave blank to keep)" : "(paste key)"}
-                      autoComplete="off"
-                    />
-                    <div className="mt-2 flex items-center justify-between gap-2">
-                      <div className="text-xs text-zinc-500">Used by AI outbound when enabled.</div>
-                      <button
-                        type="button"
-                        className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold hover:bg-zinc-50 disabled:opacity-60"
-                        disabled={savingContact || !voiceAgentApiKeyConfigured || !canEditProfile}
-                        onClick={() => void clearVoiceAgentApiKey()}
-                      >
-                        Clear key
-                      </button>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="mt-4 flex flex-col gap-3 sm:flex-row">
-                  <button
-                    type="button"
-                    className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-5 py-3 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
-                    onClick={saveContact}
-                    disabled={!canSaveContact || savingContact}
-                  >
-                    {savingContact ? "Saving…" : "Save voice agent settings"}
-                  </button>
-                </div>
-              </PortalSettingsSection>
+              
 
               {canViewWebhooks ? (
                 <div ref={webhooksRef}>

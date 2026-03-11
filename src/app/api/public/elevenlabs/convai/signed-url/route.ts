@@ -23,7 +23,7 @@ const bodySchema = z.object({
 export async function POST(req: Request) {
   const apiKey = envElevenLabsApiKey();
   if (!apiKey) {
-    return NextResponse.json({ ok: false, error: "Missing ElevenLabs API key" }, { status: 400 });
+    return NextResponse.json({ ok: false, error: "Missing voice agent API key" }, { status: 400 });
   }
 
   const json = await req.json().catch(() => null);

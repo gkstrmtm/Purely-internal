@@ -881,7 +881,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
           className={
             "flex-1 min-w-40 rounded-2xl border px-4 py-2.5 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
             (audience === "external"
-              ? "border-(--color-brand-blue) bg-(--color-brand-blue) text-white shadow-sm"
+              ? "border-[color:var(--color-brand-blue)] bg-[color:var(--color-brand-blue)] text-white shadow-sm"
               : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
           }
         >
@@ -894,7 +894,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
           className={
             "flex-1 min-w-40 rounded-2xl border px-4 py-2.5 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
             (audience === "internal"
-              ? "border-(--color-brand-pink) bg-(--color-brand-pink) text-white shadow-sm"
+              ? "border-[color:var(--color-brand-pink)] bg-[color:var(--color-brand-pink)] text-white shadow-sm"
               : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
           }
         >
@@ -915,7 +915,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                   <button
                     type="button"
                     onClick={() => setTab("newsletters")}
-                    className="rounded-2xl bg-(--color-brand-blue) px-3 py-2 text-xs font-semibold text-white shadow-sm transition"
+                    className="rounded-2xl bg-[color:var(--color-brand-blue)] px-3 py-2 text-xs font-semibold text-white shadow-sm transition"
                   >
                     Newsletters
                   </button>
@@ -931,7 +931,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                 <button
                   type="button"
                   onClick={refresh}
-                  className="inline-flex items-center justify-center rounded-2xl bg-(--color-brand-blue) px-4 py-2 text-sm font-semibold text-white shadow-sm hover:opacity-90"
+                  className="inline-flex items-center justify-center rounded-2xl bg-[color:var(--color-brand-blue)] px-4 py-2 text-sm font-semibold text-white shadow-sm hover:opacity-90"
                 >
                   Refresh
                 </button>
@@ -939,7 +939,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
             </div>
 
             <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-3">
-              <div className="rounded-2xl border border-zinc-200 bg-linear-to-br from-(--color-brand-mist) to-white p-4 shadow-sm">
+              <div className="rounded-2xl border border-zinc-200 bg-linear-to-br from-[color:var(--color-brand-mist)] to-white p-4 shadow-sm">
                 <div className="text-xs font-semibold text-zinc-600">Total credits</div>
                 <div className="mt-2 text-2xl font-bold text-brand-ink">{credits === null ? "N/A" : credits.toLocaleString()}</div>
               </div>
@@ -965,7 +965,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
             <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
               <button
                 type="button"
-                className="inline-flex items-center justify-center rounded-2xl bg-(--color-brand-blue) px-4 py-2 text-sm font-semibold text-white shadow-sm hover:opacity-90"
+                className="inline-flex items-center justify-center rounded-2xl bg-[color:var(--color-brand-blue)] px-4 py-2 text-sm font-semibold text-white shadow-sm hover:opacity-90"
                 onClick={() => {
                   setComposerOpen(true);
                   setMode("ai");
@@ -1049,7 +1049,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                                 <button
                                   type="button"
                                   onClick={() => void sendReady(n.id)}
-                                  className="rounded-2xl bg-zinc-900 px-3 py-2 text-xs font-semibold text-white hover:bg-zinc-800"
+                                  className="rounded-2xl bg-brand-ink px-3 py-2 text-xs font-semibold text-white hover:opacity-95"
                                 >
                                   Send now
                                 </button>
@@ -1088,7 +1088,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                     className={
                       "inline-flex items-center gap-2 rounded-2xl px-4 py-2 text-xs font-semibold transition " +
                       (mode === "ai"
-                        ? "bg-linear-to-r from-(--color-brand-blue) via-violet-500 to-(--color-brand-pink) text-white shadow-sm hover:opacity-90"
+                        ? "bg-linear-to-r from-[color:var(--color-brand-blue)] via-violet-500 to-[color:var(--color-brand-pink)] text-white shadow-sm hover:opacity-90"
                         : "border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
                     }
                   >
@@ -1112,7 +1112,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                     onClick={() => setMode("manual")}
                     className={
                       "inline-flex items-center gap-2 rounded-2xl px-4 py-2 text-xs font-semibold transition " +
-                      (mode === "manual" ? "bg-zinc-900 text-white hover:bg-zinc-800" : "border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
+                      (mode === "manual" ? "bg-brand-ink text-white hover:opacity-95" : "border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
                     }
                   >
                     <span>Manual</span>
@@ -1126,7 +1126,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                       "inline-flex items-center justify-center rounded-2xl px-4 py-2 text-xs font-semibold shadow-sm transition " +
                       (saving || !settings
                         ? "bg-zinc-200 text-zinc-600"
-                        : "bg-(--color-brand-blue) text-white hover:opacity-90")
+                        : "bg-[color:var(--color-brand-blue)] text-white hover:opacity-90")
                     }
                   >
                     {saving ? "Saving…" : "Save"}
@@ -1260,7 +1260,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                   <button
                     type="button"
                     disabled={!manualAssetUrl}
-                    className="rounded-2xl bg-zinc-900 px-3 py-2 text-xs font-semibold text-white hover:bg-zinc-800 disabled:opacity-50"
+                    className="rounded-2xl bg-brand-ink px-3 py-2 text-xs font-semibold text-white hover:opacity-95 disabled:opacity-50"
                     onClick={() => {
                       if (!manualAssetUrl) return;
                       const alt = manualAssetAlt.trim() || "image";
@@ -1345,7 +1345,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
 
                       <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
                         <a
-                          className="text-xs font-semibold text-(--color-brand-blue) hover:underline"
+                          className="text-xs font-semibold text-[color:var(--color-brand-blue)] hover:underline"
                           href={manualImagePreview.sourcePage}
                           target="_blank"
                           rel="noreferrer"
@@ -1373,7 +1373,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                           </button>
                           <button
                             type="button"
-                            className="rounded-2xl bg-zinc-900 px-3 py-2 text-xs font-semibold text-white hover:bg-zinc-800 disabled:opacity-60"
+                            className="rounded-2xl bg-brand-ink px-3 py-2 text-xs font-semibold text-white hover:opacity-95 disabled:opacity-60"
                             disabled={manualImageImporting}
                             onClick={async () => {
                               setManualImageImporting(true);
@@ -1423,7 +1423,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                     />
                     <button
                       type="button"
-                      className="rounded-2xl bg-zinc-900 px-3 py-2 text-sm font-semibold text-white hover:bg-zinc-800"
+                      className="rounded-2xl bg-brand-ink px-3 py-2 text-sm font-semibold text-white hover:opacity-95"
                       onClick={() => void searchManualImages()}
                       disabled={manualImageSearching}
                     >
@@ -1469,7 +1469,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                 </button>
                 <button
                   type="button"
-                  className="rounded-2xl bg-zinc-900 px-4 py-2 text-sm font-semibold text-white hover:bg-zinc-800 disabled:opacity-60"
+                  className="rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
                   onClick={() => void createManual("READY")}
                   disabled={manualCreating}
                 >
@@ -1493,7 +1493,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                         className={
                           "rounded-2xl border px-3 py-2 text-xs font-semibold transition " +
                           (active
-                            ? "border-zinc-900 bg-zinc-900 text-white"
+                            ? "border-brand-ink bg-brand-ink text-white"
                             : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
                         }
                       >
@@ -1515,7 +1515,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                       <button
                         type="button"
                         onClick={() => setAiStep("review")}
-                        className="rounded-2xl bg-linear-to-r from-(--color-brand-blue) via-violet-500 to-(--color-brand-pink) px-4 py-2 text-xs font-semibold text-white shadow-sm hover:opacity-90"
+                        className="rounded-2xl bg-linear-to-r from-[color:var(--color-brand-blue)] via-violet-500 to-[color:var(--color-brand-pink)] px-4 py-2 text-xs font-semibold text-white shadow-sm hover:opacity-90"
                       >
                         Skip to Review
                       </button>
@@ -1534,7 +1534,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                         checked={Boolean(settings?.enabled)}
                         onChange={(e) => setSettings((prev) => (prev ? { ...prev, enabled: e.target.checked } : prev))}
                       />
-                      <span className="absolute inset-0 rounded-full bg-zinc-200 transition peer-checked:bg-(--color-brand-blue)" />
+                      <span className="absolute inset-0 rounded-full bg-zinc-200 transition peer-checked:bg-[color:var(--color-brand-blue)]" />
                       <span className="absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow-sm transition peer-checked:translate-x-5" />
                     </span>
                   </label>
@@ -1604,7 +1604,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                         checked={Boolean(settings?.requireApproval)}
                         onChange={(e) => setSettings((prev) => (prev ? { ...prev, requireApproval: e.target.checked } : prev))}
                       />
-                      <span className="absolute inset-0 rounded-full bg-zinc-200 transition peer-checked:bg-(--color-brand-blue)" />
+                      <span className="absolute inset-0 rounded-full bg-zinc-200 transition peer-checked:bg-[color:var(--color-brand-blue)]" />
                       <span className="absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow-sm transition peer-checked:translate-x-5" />
                     </span>
                   </label>
@@ -1616,7 +1616,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                         className={
                           "inline-flex cursor-pointer items-center gap-2 rounded-2xl border px-3 py-2 text-sm font-semibold transition " +
                           (settings?.channels?.email
-                            ? "border-(--color-brand-blue) bg-(--color-brand-mist) text-brand-ink"
+                            ? "border-[color:var(--color-brand-blue)] bg-[color:var(--color-brand-mist)] text-brand-ink"
                             : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
                         }
                       >
@@ -1632,7 +1632,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                           aria-hidden="true"
                           className={
                             "h-2.5 w-2.5 rounded-full " +
-                            (settings?.channels?.email ? "bg-(--color-brand-blue)" : "bg-zinc-300")
+                            (settings?.channels?.email ? "bg-[color:var(--color-brand-blue)]" : "bg-zinc-300")
                           }
                         />
                         Email
@@ -1642,7 +1642,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                         className={
                           "inline-flex cursor-pointer items-center gap-2 rounded-2xl border px-3 py-2 text-sm font-semibold transition " +
                           (settings?.channels?.sms
-                            ? "border-(--color-brand-blue) bg-(--color-brand-mist) text-brand-ink"
+                            ? "border-[color:var(--color-brand-blue)] bg-[color:var(--color-brand-mist)] text-brand-ink"
                             : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
                         }
                       >
@@ -1658,7 +1658,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                           aria-hidden="true"
                           className={
                             "h-2.5 w-2.5 rounded-full " +
-                            (settings?.channels?.sms ? "bg-(--color-brand-blue)" : "bg-zinc-300")
+                            (settings?.channels?.sms ? "bg-[color:var(--color-brand-blue)]" : "bg-zinc-300")
                           }
                         />
                         SMS (link)
@@ -1806,7 +1806,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                       type="button"
                       className={
                         "rounded-2xl px-4 py-2 text-sm font-semibold shadow-sm transition " +
-                        (saving || !settings ? "bg-zinc-200 text-zinc-600" : "bg-(--color-brand-blue) text-white hover:opacity-90")
+                        (saving || !settings ? "bg-zinc-200 text-zinc-600" : "bg-[color:var(--color-brand-blue)] text-white hover:opacity-90")
                       }
                       disabled={saving || !settings}
                       onClick={saveSettings}
@@ -1824,7 +1824,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                         "inline-flex items-center gap-2 rounded-2xl px-4 py-2 text-sm font-semibold " +
                         (generating || saving || !settings
                           ? "bg-zinc-200 text-zinc-600"
-                          : "bg-linear-to-r from-(--color-brand-blue) via-violet-500 to-(--color-brand-pink) text-white shadow-sm hover:opacity-90")
+                          : "bg-linear-to-r from-[color:var(--color-brand-blue)] via-violet-500 to-[color:var(--color-brand-pink)] text-white shadow-sm hover:opacity-90")
                       }
                     >
                       <svg
@@ -1859,7 +1859,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                   type="button"
                   disabled={aiStepIndex >= aiStepOrder.length - 1}
                   onClick={() => setAiStep(aiStepOrder[Math.min(aiStepOrder.length - 1, aiStepIndex + 1)])}
-                  className="rounded-2xl bg-zinc-900 px-4 py-2 text-sm font-semibold text-white hover:bg-zinc-800 disabled:opacity-50"
+                  className="rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-50"
                 >
                   Next
                 </button>
@@ -1891,7 +1891,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                 <button
                   type="button"
                   onClick={() => setTab("settings")}
-                  className="rounded-2xl bg-(--color-brand-blue) px-3 py-2 text-xs font-semibold text-white shadow-sm transition"
+                  className="rounded-2xl bg-[color:var(--color-brand-blue)] px-3 py-2 text-xs font-semibold text-white shadow-sm transition"
                 >
                   Settings
                 </button>
@@ -1900,7 +1900,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
               <button
                 type="button"
                 onClick={refresh}
-                className="inline-flex items-center justify-center rounded-2xl bg-(--color-brand-blue) px-4 py-2 text-sm font-semibold text-white shadow-sm hover:opacity-90"
+                className="inline-flex items-center justify-center rounded-2xl bg-[color:var(--color-brand-blue)] px-4 py-2 text-sm font-semibold text-white shadow-sm hover:opacity-90"
               >
                 Refresh
               </button>
@@ -1944,7 +1944,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                 {!showCreateTag ? (
                   <button
                     type="button"
-                    className="mt-2 text-xs font-semibold text-(--color-brand-blue) hover:underline"
+                    className="mt-2 text-xs font-semibold text-[color:var(--color-brand-blue)] hover:underline"
                     onClick={() => {
                       const suggestion = tagSearch.trim().slice(0, 60);
                       if (suggestion && !createTagName.trim()) setCreateTagName(suggestion);
@@ -2035,7 +2035,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                     <div className="text-xs text-zinc-500">Pick a default color.</div>
                     <button
                       type="button"
-                      className="rounded-xl bg-zinc-900 px-3 py-2 text-xs font-semibold text-white hover:bg-zinc-800 disabled:opacity-60"
+                      className="rounded-xl bg-brand-ink px-3 py-2 text-xs font-semibold text-white hover:opacity-95 disabled:opacity-60"
                       disabled={createTagBusy}
                       onClick={() => void createOwnerTag()}
                     >
@@ -2097,7 +2097,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                                       "rounded-2xl px-3 py-2 text-sm font-semibold " +
                                       (added
                                         ? "border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50"
-                                        : "bg-zinc-900 text-white hover:bg-zinc-800")
+                                        : "bg-brand-ink text-white hover:opacity-95")
                                     }
                                     onClick={() =>
                                       setSettings((prev) => {
@@ -2175,7 +2175,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                           )
                         }
                       />
-                      <span className="absolute inset-0 rounded-full bg-zinc-200 transition peer-checked:bg-(--color-brand-blue)" />
+                      <span className="absolute inset-0 rounded-full bg-zinc-200 transition peer-checked:bg-[color:var(--color-brand-blue)]" />
                       <span className="absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow-sm transition peer-checked:translate-x-5" />
                     </span>
                   </label>
@@ -2210,7 +2210,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                       />
                       <button
                         type="button"
-                        className="rounded-2xl bg-zinc-900 px-3 py-2 text-sm font-semibold text-white hover:bg-zinc-800"
+                        className="rounded-2xl bg-brand-ink px-3 py-2 text-sm font-semibold text-white hover:opacity-95"
                         onClick={() => {
                           const next = internalEmailInput.trim();
                           if (!isEmail(next)) {
@@ -2327,7 +2327,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                       <Link
                         href={publicBasePath || "#"}
                         target="_blank"
-                        className="rounded-xl bg-zinc-900 px-3 py-2 text-xs font-semibold text-white hover:bg-zinc-800"
+                        className="rounded-xl bg-brand-ink px-3 py-2 text-xs font-semibold text-white hover:opacity-95"
                       >
                         Open
                       </Link>
@@ -2339,7 +2339,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                     <div className="mt-3 flex flex-wrap gap-2">
                       <button
                         type="button"
-                        className="rounded-2xl bg-zinc-900 px-4 py-2 text-sm font-semibold text-white hover:bg-zinc-800"
+                        className="rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95"
                         onClick={() => {
                           setSiteConfigName(site?.name || "Newsletter site");
                           setSiteConfigSlug(site?.slug || "");
@@ -2520,7 +2520,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                       <button
                         type="button"
                         disabled={!assetUrl}
-                        className="rounded-2xl bg-zinc-900 px-3 py-2 text-xs font-semibold text-white hover:bg-zinc-800 disabled:opacity-50"
+                        className="rounded-2xl bg-brand-ink px-3 py-2 text-xs font-semibold text-white hover:opacity-95 disabled:opacity-50"
                         onClick={() => {
                           if (!assetUrl) return;
                           const alt = assetAlt.trim() || "image";
@@ -2578,7 +2578,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                     </button>
                     <button
                       type="button"
-                      className="rounded-2xl bg-zinc-900 px-4 py-2 text-sm font-semibold text-white hover:bg-zinc-800 disabled:opacity-60"
+                      className="rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
                       onClick={() => void saveDraft()}
                       disabled={draftSaving || !draftTitle.trim()}
                     >
@@ -2728,7 +2728,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                   <div className="text-xs text-zinc-500">Domains come from Funnel Builder → Settings → Custom domains.</div>
                   <Link
                     href="/portal/app/services/funnel-builder/settings"
-                    className="text-xs font-semibold text-(--color-brand-blue) hover:underline"
+                    className="text-xs font-semibold text-[color:var(--color-brand-blue)] hover:underline"
                   >
                     Add / manage domains
                   </Link>
@@ -2747,7 +2747,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
               </button>
               <button
                 type="button"
-                className="rounded-2xl bg-(--color-brand-blue) px-4 py-2 text-sm font-semibold text-white shadow-sm hover:opacity-90 disabled:opacity-60"
+                className="rounded-2xl bg-[color:var(--color-brand-blue)] px-4 py-2 text-sm font-semibold text-white shadow-sm hover:opacity-90 disabled:opacity-60"
                 disabled={siteConfigBusy || siteConfigName.trim().length < 2}
                 onClick={async () => {
                   const name = siteConfigName.trim().slice(0, 120);

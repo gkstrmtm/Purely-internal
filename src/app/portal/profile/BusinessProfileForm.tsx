@@ -24,17 +24,25 @@ type ApiGet = { ok: boolean; profile: BusinessProfile | null };
 
 type ApiPut = { ok: boolean; profile: BusinessProfile };
 
-function goalsToText(goals: unknown) {
-  if (!Array.isArray(goals)) return "";
-  return goals.filter((g) => typeof g === "string").join(", ");
+const HEX_RE = /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/;
+
+function normalizeGoals(goals: unknown) {
+  if (!Array.isArray(goals)) return [] as string[];
+  const out: string[] = [];
+  for (const g of goals) {
+    if (typeof g !== "string") continue;
+    const v = g.trim();
+    if (!v) continue;
+    if (out.includes(v)) continue;
+    out.push(v);
+    if (out.length >= 10) break;
+  }
+  return out;
 }
 
-function textToGoals(text: string) {
-  const xs = String(text || "")
-    .split(",")
-    .map((x) => x.trim())
-    .filter(Boolean);
-  return xs.length ? Array.from(new Set(xs)).slice(0, 10) : undefined;
+function safeColorValue(value: string, fallback: string) {
+  const v = String(value || "").trim();
+  return HEX_RE.test(v) ? v : fallback;
 }
 
 export function BusinessProfileForm({
@@ -63,7 +71,8 @@ export function BusinessProfileForm({
   const [websiteUrl, setWebsiteUrl] = useState("");
   const [industry, setIndustry] = useState("");
   const [businessModel, setBusinessModel] = useState("");
-  const [primaryGoalsText, setPrimaryGoalsText] = useState("");
+  const [primaryGoals, setPrimaryGoals] = useState<string[]>([]);
+  const [primaryGoalDraft, setPrimaryGoalDraft] = useState("");
   const [targetCustomer, setTargetCustomer] = useState("");
   const [brandVoice, setBrandVoice] = useState("");
 
@@ -96,7 +105,7 @@ export function BusinessProfileForm({
         setWebsiteUrl(p.websiteUrl ?? "");
         setIndustry(p.industry ?? "");
         setBusinessModel(p.businessModel ?? "");
-        setPrimaryGoalsText(goalsToText(p.primaryGoals));
+        setPrimaryGoals(normalizeGoals(p.primaryGoals));
         setTargetCustomer(p.targetCustomer ?? "");
         setBrandVoice(p.brandVoice ?? "");
 
@@ -126,7 +135,7 @@ export function BusinessProfileForm({
         websiteUrl,
         industry,
         businessModel,
-        primaryGoals: textToGoals(primaryGoalsText),
+        primaryGoals: primaryGoals.length ? primaryGoals : undefined,
         targetCustomer,
         brandVoice,
 
@@ -171,7 +180,7 @@ export function BusinessProfileForm({
 
       <div className={(embedded ? "mt-2" : "mt-5") + " grid grid-cols-1 gap-4 sm:grid-cols-2"}>
         <div className="sm:col-span-2">
-          <label className="text-xs font-semibold text-zinc-600">Logo (optional)</label>
+          <label className="text-xs font-semibold text-zinc-600">Logo</label>
           <div className="mt-2 flex flex-col gap-3 sm:flex-row sm:items-center">
             <div className="flex min-w-0 flex-1 items-center gap-3">
               <div className="h-12 w-12 overflow-hidden rounded-2xl border border-zinc-200 bg-zinc-50">
@@ -251,7 +260,7 @@ export function BusinessProfileForm({
         </div>
 
         <div className="sm:col-span-2">
-          <label className="text-xs font-semibold text-zinc-600">Website (optional)</label>
+          <label className="text-xs font-semibold text-zinc-600">Website</label>
           <input
             value={websiteUrl}
             onChange={(e) => setWebsiteUrl(e.target.value)}
@@ -262,7 +271,7 @@ export function BusinessProfileForm({
         </div>
 
         <div>
-          <label className="text-xs font-semibold text-zinc-600">Industry (optional)</label>
+          <label className="text-xs font-semibold text-zinc-600">Industry</label>
           <input
             value={industry}
             onChange={(e) => setIndustry(e.target.value)}
@@ -273,7 +282,7 @@ export function BusinessProfileForm({
         </div>
 
         <div>
-          <label className="text-xs font-semibold text-zinc-600">Business model (optional)</label>
+          <label className="text-xs font-semibold text-zinc-600">Business model</label>
           <input
             value={businessModel}
             onChange={(e) => setBusinessModel(e.target.value)}
@@ -284,19 +293,58 @@ export function BusinessProfileForm({
         </div>
 
         <div className="sm:col-span-2">
-          <label className="text-xs font-semibold text-zinc-600">Primary goals (optional)</label>
-          <input
-            value={primaryGoalsText}
-            onChange={(e) => setPrimaryGoalsText(e.target.value)}
-            disabled={Boolean(readOnly)}
-            className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300"
-            placeholder="More leads, fewer no-shows, better SEO"
-          />
-          <div className="mt-1 text-xs text-zinc-500">Comma-separated is fine.</div>
+          <label className="text-xs font-semibold text-zinc-600">Primary goals</label>
+          <div className="mt-1 flex flex-col gap-2 sm:flex-row">
+            <input
+              value={primaryGoalDraft}
+              onChange={(e) => setPrimaryGoalDraft(e.target.value)}
+              disabled={Boolean(readOnly)}
+              className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300"
+              placeholder="Add a goal (e.g. More leads)"
+            />
+            <button
+              type="button"
+              disabled={Boolean(readOnly)}
+              className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm font-semibold text-brand-ink hover:bg-zinc-50 disabled:opacity-60"
+              onClick={() => {
+                if (readOnly) return;
+                const v = primaryGoalDraft.trim();
+                if (!v) return;
+                setPrimaryGoals((xs) => {
+                  if (xs.includes(v)) return xs;
+                  if (xs.length >= 10) return xs;
+                  return [...xs, v];
+                });
+                setPrimaryGoalDraft("");
+              }}
+            >
+              + Add
+            </button>
+          </div>
+
+          {primaryGoals.length ? (
+            <div className="mt-2 flex flex-wrap gap-2">
+              {primaryGoals.map((g) => (
+                <button
+                  key={g}
+                  type="button"
+                  disabled={Boolean(readOnly)}
+                  onClick={() => !readOnly && setPrimaryGoals((xs) => xs.filter((x) => x !== g))}
+                  className="inline-flex items-center gap-2 rounded-2xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-100 disabled:opacity-60"
+                  title={readOnly ? undefined : "Remove"}
+                >
+                  <span className="max-w-[18rem] truncate">{g}</span>
+                  {!readOnly ? <span className="text-zinc-500">×</span> : null}
+                </button>
+              ))}
+            </div>
+          ) : (
+            <div className="mt-2 text-xs text-zinc-500">Add up to 10 goals.</div>
+          )}
         </div>
 
         <div className="sm:col-span-2">
-          <label className="text-xs font-semibold text-zinc-600">Target customer (optional)</label>
+          <label className="text-xs font-semibold text-zinc-600">Target customer</label>
           <input
             value={targetCustomer}
             onChange={(e) => setTargetCustomer(e.target.value)}
@@ -307,7 +355,7 @@ export function BusinessProfileForm({
         </div>
 
         <div className="sm:col-span-2">
-          <label className="text-xs font-semibold text-zinc-600">Brand voice (optional)</label>
+          <label className="text-xs font-semibold text-zinc-600">Brand voice</label>
           <input
             value={brandVoice}
             onChange={(e) => setBrandVoice(e.target.value)}
@@ -318,8 +366,16 @@ export function BusinessProfileForm({
         </div>
 
         <div>
-          <label className="text-xs font-semibold text-zinc-600">Brand primary color (optional)</label>
+          <label className="text-xs font-semibold text-zinc-600">Brand primary color</label>
           <div className="mt-1 flex items-center gap-2">
+            <input
+              type="color"
+              value={safeColorValue(brandPrimaryHex, "#1d4ed8")}
+              onChange={(e) => setBrandPrimaryHex(e.target.value)}
+              disabled={Boolean(readOnly)}
+              className="h-10 w-10 cursor-pointer rounded-2xl border border-zinc-200 bg-white p-1 disabled:opacity-60"
+              aria-label="Pick primary color"
+            />
             <input
               value={brandPrimaryHex}
               onChange={(e) => setBrandPrimaryHex(e.target.value)}
@@ -327,13 +383,24 @@ export function BusinessProfileForm({
               className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300"
               placeholder="#1d4ed8"
             />
-            <div className="h-10 w-10 rounded-2xl border border-zinc-200" style={{ background: brandPrimaryHex || "#1d4ed8" }} />
+            <div
+              className="h-10 w-10 rounded-2xl border border-zinc-200"
+              style={{ background: safeColorValue(brandPrimaryHex, "#1d4ed8") }}
+            />
           </div>
         </div>
 
         <div>
-          <label className="text-xs font-semibold text-zinc-600">Brand accent color (optional)</label>
+          <label className="text-xs font-semibold text-zinc-600">Brand accent color</label>
           <div className="mt-1 flex items-center gap-2">
+            <input
+              type="color"
+              value={safeColorValue(brandAccentHex, "#fb7185")}
+              onChange={(e) => setBrandAccentHex(e.target.value)}
+              disabled={Boolean(readOnly)}
+              className="h-10 w-10 cursor-pointer rounded-2xl border border-zinc-200 bg-white p-1 disabled:opacity-60"
+              aria-label="Pick accent color"
+            />
             <input
               value={brandAccentHex}
               onChange={(e) => setBrandAccentHex(e.target.value)}
@@ -341,13 +408,24 @@ export function BusinessProfileForm({
               className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300"
               placeholder="#fb7185"
             />
-            <div className="h-10 w-10 rounded-2xl border border-zinc-200" style={{ background: brandAccentHex || "#fb7185" }} />
+            <div
+              className="h-10 w-10 rounded-2xl border border-zinc-200"
+              style={{ background: safeColorValue(brandAccentHex, "#fb7185") }}
+            />
           </div>
         </div>
 
         <div className="sm:col-span-2">
-          <label className="text-xs font-semibold text-zinc-600">Text color (optional)</label>
+          <label className="text-xs font-semibold text-zinc-600">Text color</label>
           <div className="mt-1 flex items-center gap-2">
+            <input
+              type="color"
+              value={safeColorValue(brandTextHex, "#0f172a")}
+              onChange={(e) => setBrandTextHex(e.target.value)}
+              disabled={Boolean(readOnly)}
+              className="h-10 w-10 cursor-pointer rounded-2xl border border-zinc-200 bg-white p-1 disabled:opacity-60"
+              aria-label="Pick text color"
+            />
             <input
               value={brandTextHex}
               onChange={(e) => setBrandTextHex(e.target.value)}
@@ -355,7 +433,10 @@ export function BusinessProfileForm({
               className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300"
               placeholder="#0f172a"
             />
-            <div className="flex h-10 items-center rounded-2xl border border-zinc-200 bg-white px-3 text-xs" style={{ color: brandTextHex || "#0f172a" }}>
+            <div
+              className="flex h-10 items-center rounded-2xl border border-zinc-200 bg-white px-3 text-xs"
+              style={{ color: safeColorValue(brandTextHex, "#0f172a") }}
+            >
               Aa
             </div>
           </div>

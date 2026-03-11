@@ -180,7 +180,14 @@ export function PortalListboxDropdown<T extends string>(props: {
         aria-expanded={open}
       >
         <span
-          className={"truncate " + (!current && placeholder ? "text-zinc-500" : "")}
+          className={
+            "truncate " +
+            (!current && placeholder
+              ? "text-zinc-500"
+              : current
+                ? "font-semibold text-[color:var(--color-brand-blue)]"
+                : "")
+          }
           title={typeof currentLabel === "string" ? currentLabel : String(currentLabel)}
         >
           {currentLabel}

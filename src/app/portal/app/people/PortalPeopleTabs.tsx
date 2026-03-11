@@ -22,8 +22,8 @@ export function PortalPeopleTabs() {
         const isActive = active === t.href || active.startsWith(t.href + "/");
         const activeClass =
           t.href === "/portal/app/people/contacts"
-            ? "bg-(--color-brand-blue) text-white"
-            : "bg-(--color-brand-pink) text-white";
+            ? "bg-[color:var(--color-brand-blue)] text-white"
+            : "bg-[color:var(--color-brand-pink)] text-white";
         return (
           <Link
             key={t.href}

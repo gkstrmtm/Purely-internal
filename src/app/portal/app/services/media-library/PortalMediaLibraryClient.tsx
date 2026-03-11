@@ -942,7 +942,7 @@ export function PortalMediaLibraryClient() {
       {toast && typeof document !== "undefined"
         ? createPortal(
             <div
-              className="fixed z-[200] rounded-2xl bg-zinc-900 px-3 py-2 text-xs font-semibold text-white shadow-lg"
+              className="fixed z-[200] rounded-2xl bg-brand-ink px-3 py-2 text-xs font-semibold text-white shadow-lg"
               style={{ left: toast.left, top: toast.top }}
             >
               {toast.text}

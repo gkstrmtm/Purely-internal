@@ -192,6 +192,20 @@ export function PortalPeopleUsersClient() {
     void load();
   }, [load]);
 
+  useEffect(() => {
+    const onFocus = () => void load();
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") void load();
+    };
+
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, [load]);
+
   const canInvite = useMemo(() => {
     const r = data?.myRole;
     return r === "OWNER" || r === "ADMIN";
@@ -322,13 +336,7 @@ export function PortalPeopleUsersClient() {
           <p className="mt-2 text-sm text-zinc-600">Manage portal users and invites.</p>
           <PortalPeopleTabs />
         </div>
-        <button
-          type="button"
-          onClick={() => load()}
-          className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
-        >
-          Refresh
-        </button>
+        <div className="text-xs font-semibold text-zinc-500">Auto-refreshes when you return to this tab.</div>
       </div>
 
       {loading ? (
@@ -416,7 +424,7 @@ export function PortalPeopleUsersClient() {
                 {canInvite ? (
                   <button
                     type="button"
-                    className="rounded-2xl bg-(--color-brand-pink) px-3 py-2 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
+                    className="rounded-2xl bg-[color:var(--color-brand-pink)] px-3 py-2 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
                     onClick={() => {
                       setInviteModalOpen(true);
                       setPermissionsOpen(false);
@@ -447,7 +455,7 @@ export function PortalPeopleUsersClient() {
                       value={inviteEmail}
                       onChange={(e) => setInviteEmail(e.target.value)}
                       placeholder="teammate@company.com"
-                      className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 outline-none placeholder:text-zinc-500 focus:border-(--color-brand-blue)"
+                      className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 outline-none placeholder:text-zinc-500 focus:border-[color:var(--color-brand-blue)]"
                     />
                   </div>
                   <div>
@@ -574,7 +582,7 @@ export function PortalPeopleUsersClient() {
                       "rounded-2xl px-4 py-2 text-sm font-semibold",
                       inviting || !inviteEmail.trim()
                         ? "cursor-not-allowed bg-zinc-200 text-zinc-600"
-                        : "bg-(--color-brand-blue) text-white hover:opacity-95",
+                        : "bg-[color:var(--color-brand-blue)] text-white hover:opacity-95",
                     )}
                   >
                     {inviting ? "Inviting…" : "Send invite"}
@@ -831,7 +839,7 @@ export function PortalPeopleUsersClient() {
                     // ignore
                   }
                 }}
-                className="rounded-2xl bg-zinc-900 px-4 py-2 text-sm font-semibold text-white hover:bg-zinc-800"
+                className="rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95"
               >
                 Continue
               </button>

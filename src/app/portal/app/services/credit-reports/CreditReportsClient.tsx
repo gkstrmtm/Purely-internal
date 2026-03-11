@@ -273,7 +273,7 @@ export default function CreditReportsClient() {
               type="button"
               disabled={busy}
               onClick={requestProviderPull}
-              className="rounded-xl bg-zinc-900 px-4 py-2 text-sm font-semibold text-white hover:bg-zinc-800 disabled:opacity-60"
+              className="rounded-xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
             >
               {busy ? "Working…" : "Pull report"}
             </button>

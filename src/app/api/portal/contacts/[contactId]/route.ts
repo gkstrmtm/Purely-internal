@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { Prisma } from "@prisma/client";
 import { z } from "zod";
 
 import { prisma } from "@/lib/db";
@@ -38,6 +39,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ contactId: str
       name: true,
       email: true,
       phone: true,
+      customVariables: true,
       createdAt: true,
       updatedAt: true,
       portalLeads: {
@@ -109,6 +111,10 @@ export async function GET(_req: Request, ctx: { params: Promise<{ contactId: str
       name: contact.name,
       email: contact.email,
       phone: contact.phone,
+      customVariables:
+        (contact as any).customVariables && typeof (contact as any).customVariables === "object"
+          ? ((contact as any).customVariables as any)
+          : null,
       createdAtIso: contact.createdAt.toISOString(),
       updatedAtIso: contact.updatedAt.toISOString(),
       tags: (contact as any).tagAssignments
@@ -180,6 +186,8 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ contactId: st
   const name = typeof body?.name === "string" ? body.name.trim() : "";
   const emailRaw = typeof body?.email === "string" ? body.email.trim() : "";
   const phoneRaw = typeof body?.phone === "string" ? body.phone.trim() : "";
+  const hasCustomVariables = Object.prototype.hasOwnProperty.call(body || {}, "customVariables");
+  const customVariablesRaw = body?.customVariables;
 
   if (!name) {
     return NextResponse.json({ ok: false, error: "Name is required." }, { status: 400 });
@@ -206,12 +214,33 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ contactId: st
     phone = normalized.e164;
   }
 
+  const customVariables =
+    customVariablesRaw && typeof customVariablesRaw === "object" && !Array.isArray(customVariablesRaw)
+      ? (customVariablesRaw as Record<string, string>)
+      : null;
+
+  let customVariablesUpdate:
+    | Prisma.InputJsonValue
+    | Prisma.NullableJsonNullValueInput
+    | undefined;
+
+  if (hasCustomVariables) {
+    if (customVariablesRaw === null) {
+      customVariablesUpdate = Prisma.DbNull;
+    } else if (customVariables) {
+      customVariablesUpdate = customVariables;
+    } else {
+      return NextResponse.json({ ok: false, error: "Invalid custom variables." }, { status: 400 });
+    }
+  }
+
   const updated = await prisma.portalContact.updateMany({
     where: { id: contactId.data, ownerId },
     data: {
       name,
       email,
       phone,
+      customVariables: customVariablesUpdate,
     },
   });
 

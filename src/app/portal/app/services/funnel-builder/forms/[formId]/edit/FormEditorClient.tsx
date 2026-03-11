@@ -725,7 +725,7 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
               busy || !form || !fields || form?.status === "ARCHIVED"
                 ? "bg-zinc-400"
                 : form?.status === "ACTIVE"
-                  ? "bg-zinc-700 hover:bg-zinc-800"
+                  ? "bg-brand-ink hover:opacity-95"
                   : "bg-green-600 hover:bg-green-700",
             )}
             title={form?.status === "ACTIVE" ? "Set this form back to draft" : "Publish this form (make it live)"}

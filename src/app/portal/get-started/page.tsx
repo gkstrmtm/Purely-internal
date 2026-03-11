@@ -64,7 +64,7 @@ function moneyLabel(monthlyUsd: number) {
 }
 
 function RequiredMark() {
-  return <span className="ml-1 align-text-top text-(--color-brand-pink)">*</span>;
+  return <span className="ml-1 align-text-top text-[color:var(--color-brand-pink)]">*</span>;
 }
 
 function bundleTitle(id: PackagePreset) {
@@ -748,7 +748,7 @@ function PortalGetStartedInner() {
                               <div className="text-sm font-semibold text-zinc-900">{bundleTitle(id)}</div>
                               <div className="flex items-center gap-2">
                                 {isChosen ? (
-                                  <span className="rounded-full bg-(--color-brand-pink) px-2 py-1 text-xs font-semibold text-white">You chose</span>
+                                  <span className="rounded-full bg-[color:var(--color-brand-pink)] px-2 py-1 text-xs font-semibold text-white">You chose</span>
                                 ) : null}
                                 {isRecommended ? (
                                   <span className="rounded-full bg-emerald-600 px-2 py-1 text-xs font-semibold text-white">Recommended</span>

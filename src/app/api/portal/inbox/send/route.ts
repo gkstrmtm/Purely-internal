@@ -121,7 +121,7 @@ export async function POST(req: Request) {
     ? await (prisma as any).portalContact
         .findFirst({
           where: { ownerId, id: String(existingThread.contactId) },
-          select: { id: true, name: true, email: true, phone: true },
+          select: { id: true, name: true, email: true, phone: true, customVariables: true },
         })
         .catch(() => null)
     : null;
@@ -132,6 +132,10 @@ export async function POST(req: Request) {
       name: contactRow?.name ? String(contactRow.name) : null,
       email: contactRow?.email ? String(contactRow.email) : null,
       phone: contactRow?.phone ? String(contactRow.phone) : null,
+      customVariables:
+        contactRow?.customVariables && typeof contactRow.customVariables === "object" && !Array.isArray(contactRow.customVariables)
+          ? (contactRow.customVariables as Record<string, string>)
+          : null,
     },
     business: { name: profile?.businessName?.trim() || "Purely Automation" },
     owner: { name: ownerName, email: ownerEmail, phone: ownerPhone },

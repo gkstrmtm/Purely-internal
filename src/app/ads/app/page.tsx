@@ -174,7 +174,7 @@ export default function AdsAppHomePage() {
           <div className="mt-2 flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
             <Link
               href="/ads/app/campaigns/new"
-              className="inline-flex items-center justify-center rounded-2xl bg-(--color-brand-blue) px-5 py-3 text-sm font-semibold text-white hover:opacity-95"
+              className="inline-flex items-center justify-center rounded-2xl bg-[color:var(--color-brand-blue)] px-5 py-3 text-sm font-semibold text-white hover:opacity-95"
             >
               Create a campaign
             </Link>

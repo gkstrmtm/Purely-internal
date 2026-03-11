@@ -4,6 +4,7 @@ export type PortalContactVars = {
   email?: string | null;
   phone?: string | null;
   businessName?: string | null;
+  customVariables?: Record<string, string> | null;
 };
 
 export type PortalBusinessVars = {
@@ -37,6 +38,17 @@ function firstNameFromName(nameRaw: string | null | undefined) {
   if (!name) return "";
   const first = name.split(/\s+/g)[0] || "";
   return first;
+}
+
+function normalizeCustomVarKey(raw: string): string {
+  const s = String(raw ?? "").trim().toLowerCase();
+  const cleaned = s
+    .replace(/[^a-z0-9\s_-]+/g, "")
+    .replace(/[\s-]+/g, "_")
+    .replace(/_+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .slice(0, 32);
+  return cleaned;
 }
 
 export function buildPortalTemplateVars(ctx: PortalTemplateContext): Record<string, string> {
@@ -106,6 +118,16 @@ export function buildPortalTemplateVars(ctx: PortalTemplateContext): Record<stri
     messageFrom,
     messageTo,
   };
+
+  const rawCustom = ctx.contact?.customVariables;
+  if (rawCustom && typeof rawCustom === "object" && !Array.isArray(rawCustom)) {
+    for (const [k, v] of Object.entries(rawCustom)) {
+      const key = normalizeCustomVarKey(k);
+      if (!key) continue;
+      const value = String(v ?? "").trim();
+      vars[`contact.custom.${key}`] = value;
+    }
+  }
 
   return vars;
 }

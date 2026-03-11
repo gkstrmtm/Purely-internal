@@ -1,11 +1,32 @@
 import { prisma } from "@/lib/db";
 
+function safeOneLine(s: string) {
+  return String(s || "")
+    .replace(/[\r\n]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function getMailboxDomain() {
+  const raw = safeOneLine(process.env.PORTAL_MAILBOX_DOMAIN || "");
+  const cleaned = raw
+    .toLowerCase()
+    .replace(/[^a-z0-9.-]/g, "")
+    .replace(/\.+/g, ".")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 200);
+
+  return cleaned || "purelyautomation.com";
+}
+
 let ensuredAt = 0;
 const ENSURE_TTL_MS = 10 * 60 * 1000;
 
 export async function ensurePortalMailboxSchema(): Promise<void> {
   const now = Date.now();
   if (ensuredAt && now - ensuredAt < ENSURE_TTL_MS) return;
+
+  const domain = getMailboxDomain();
 
   const statements: string[] = [
     `
@@ -31,6 +52,75 @@ CREATE TABLE IF NOT EXISTS "PortalMailboxAddress" (
     `CREATE UNIQUE INDEX IF NOT EXISTS "PortalMailboxAddress_ownerId_key" ON "PortalMailboxAddress"("ownerId");`,
     `CREATE UNIQUE INDEX IF NOT EXISTS "PortalMailboxAddress_emailKey_key" ON "PortalMailboxAddress"("emailKey");`,
     `CREATE INDEX IF NOT EXISTS "PortalMailboxAddress_ownerId_idx" ON "PortalMailboxAddress"("ownerId");`,
+
+    // Drift hardening: ensure no duplicate business emails/local-parts exist before adding unique indexes.
+    // If duplicates exist (older deployments), deterministically re-alias non-canonical rows.
+    `
+WITH ranked AS (
+  SELECT
+    "id",
+    "ownerId",
+    "localPart",
+    "emailAddress",
+    "createdAt",
+    row_number() OVER (PARTITION BY lower("emailAddress") ORDER BY "createdAt" ASC, "id" ASC) AS rn
+  FROM "PortalMailboxAddress"
+)
+UPDATE "PortalMailboxAddress" p
+SET
+  "localPart" = left(
+    p."localPart" || '-' || lower(substring(regexp_replace(p."ownerId", '[^a-zA-Z0-9]', '', 'g') from 1 for 6)),
+    48
+  ),
+  "emailAddress" = left(
+    p."localPart" || '-' || lower(substring(regexp_replace(p."ownerId", '[^a-zA-Z0-9]', '', 'g') from 1 for 6)),
+    48
+  ) || '@${domain}',
+  "emailKey" = lower(
+    left(
+      p."localPart" || '-' || lower(substring(regexp_replace(p."ownerId", '[^a-zA-Z0-9]', '', 'g') from 1 for 6)),
+      48
+    ) || '@${domain}'
+  ),
+  "updatedAt" = current_timestamp
+FROM ranked r
+WHERE p."id" = r."id" AND r.rn > 1;
+    `.trim(),
+
+    `
+WITH ranked AS (
+  SELECT
+    "id",
+    "ownerId",
+    "localPart",
+    "createdAt",
+    row_number() OVER (PARTITION BY lower("localPart") ORDER BY "createdAt" ASC, "id" ASC) AS rn
+  FROM "PortalMailboxAddress"
+)
+UPDATE "PortalMailboxAddress" p
+SET
+  "localPart" = left(
+    p."localPart" || '-' || lower(substring(regexp_replace(p."ownerId", '[^a-zA-Z0-9]', '', 'g') from 1 for 6)),
+    48
+  ),
+  "emailAddress" = left(
+    p."localPart" || '-' || lower(substring(regexp_replace(p."ownerId", '[^a-zA-Z0-9]', '', 'g') from 1 for 6)),
+    48
+  ) || '@${domain}',
+  "emailKey" = lower(
+    left(
+      p."localPart" || '-' || lower(substring(regexp_replace(p."ownerId", '[^a-zA-Z0-9]', '', 'g') from 1 for 6)),
+      48
+    ) || '@${domain}'
+  ),
+  "updatedAt" = current_timestamp
+FROM ranked r
+WHERE p."id" = r."id" AND r.rn > 1;
+    `.trim(),
+
+    `CREATE UNIQUE INDEX IF NOT EXISTS "PortalMailboxAddress_emailAddress_key" ON "PortalMailboxAddress"(lower("emailAddress"));`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS "PortalMailboxAddress_localPart_key" ON "PortalMailboxAddress"(lower("localPart"));`,
+    `CREATE INDEX IF NOT EXISTS "PortalMailboxAddress_emailAddress_idx" ON "PortalMailboxAddress"(lower("emailAddress"));`,
 
     `
 DO $$

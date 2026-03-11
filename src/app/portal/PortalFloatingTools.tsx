@@ -511,7 +511,7 @@ export function PortalFloatingTools() {
 
             <div className="mt-4">
               <textarea
-                className="min-h-30 w-full rounded-2xl border border-zinc-200 bg-white p-3 text-sm text-zinc-900 outline-none focus:border-(--color-brand-blue)"
+                className="min-h-30 w-full rounded-2xl border border-zinc-200 bg-white p-3 text-sm text-zinc-900 outline-none focus:border-[color:var(--color-brand-blue)]"
                 placeholder="What happened? What did you expect?"
                 value={message}
                 onChange={(e) => setMessage(e.target.value)}
@@ -583,7 +583,7 @@ export function PortalFloatingTools() {
                 value={chatInput}
                 onChange={(e) => setChatInput(e.target.value)}
                 placeholder="Describe the issue…"
-                className="h-11 flex-1 rounded-2xl border border-zinc-200 bg-white px-4 text-sm text-zinc-900 outline-none focus:border-(--color-brand-blue)"
+                className="h-11 flex-1 rounded-2xl border border-zinc-200 bg-white px-4 text-sm text-zinc-900 outline-none focus:border-[color:var(--color-brand-blue)]"
                 onKeyDown={(e) => {
                   if (e.key === "Enter") void sendSupportChat();
                 }}
@@ -591,7 +591,7 @@ export function PortalFloatingTools() {
               />
               <button
                 type="button"
-                className="h-11 rounded-2xl bg-linear-to-r from-(--color-brand-blue) to-(--color-brand-pink) px-4 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
+                className="h-11 rounded-2xl bg-linear-to-r from-[color:var(--color-brand-blue)] to-[color:var(--color-brand-pink)] px-4 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
                 onClick={() => void sendSupportChat()}
                 disabled={chatSending}
               >
@@ -646,7 +646,7 @@ export function PortalFloatingTools() {
                 type="button"
                 className={classNames(
                   "rounded-2xl px-3 py-2 text-sm font-semibold",
-                  "bg-(--color-brand-blue) text-white hover:opacity-95",
+                  "bg-[color:var(--color-brand-blue)] text-white hover:opacity-95",
                 )}
                 onClick={() => setReportOpen(true)}
               >
@@ -657,7 +657,7 @@ export function PortalFloatingTools() {
                 type="button"
                 className={classNames(
                   "rounded-2xl px-3 py-2 text-sm font-semibold",
-                  "bg-linear-to-r from-(--color-brand-blue) to-(--color-brand-pink) text-white hover:opacity-95",
+                  "bg-linear-to-r from-[color:var(--color-brand-blue)] to-[color:var(--color-brand-pink)] text-white hover:opacity-95",
                 )}
                 onClick={() => setChatOpen(true)}
               >

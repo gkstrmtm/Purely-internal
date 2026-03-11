@@ -263,8 +263,38 @@ export async function updateOwnerMailboxLocalPartOnce(opts: {
   await ensurePortalMailboxSchema().catch(() => null);
   await getOrCreateOwnerMailboxAddress(ownerId).catch(() => null);
 
+  // App-level uniqueness check (case-insensitive), so we can show a clean error
+  // without relying on database constraint error messages.
+  const alreadyTaken = await prisma
+    .$queryRaw<Array<{ ownerId: string }>>`
+      select "ownerId"
+      from "PortalMailboxAddress"
+      where lower("localPart") = lower(${desired})
+        and "ownerId" <> ${ownerId}
+      limit 1;
+    `
+    .catch(() => []);
+
+  if (alreadyTaken?.[0]?.ownerId) {
+    return { ok: false, error: "That email is already taken. Please choose another." };
+  }
+
   const nextEmailAddress = makeEmailAddress(desired);
   const nextEmailKey = nextEmailAddress.toLowerCase();
+
+  const emailAlreadyTaken = await prisma
+    .$queryRaw<Array<{ ownerId: string }>>`
+      select "ownerId"
+      from "PortalMailboxAddress"
+      where lower("emailKey") = lower(${nextEmailKey})
+        and "ownerId" <> ${ownerId}
+      limit 1;
+    `
+    .catch(() => []);
+
+  if (emailAlreadyTaken?.[0]?.ownerId) {
+    return { ok: false, error: "That email is already taken. Please choose another." };
+  }
 
   try {
     const updated = await prisma.$queryRaw<Array<{ localPart: string; emailAddress: string }>>`

@@ -993,7 +993,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                       `&path=${encodeURIComponent(pathname || "")}` +
                       `&to=${encodeURIComponent(sidebarCampaign?.creative?.linkUrl || `${basePath}/app/billing`)}`
                     }
-                    className="mt-2 inline-flex rounded-xl bg-zinc-900 px-3 py-2 text-xs font-semibold text-white hover:bg-zinc-800"
+                    className="mt-2 inline-flex rounded-xl bg-brand-ink px-3 py-2 text-xs font-semibold text-white hover:opacity-95"
                   >
                     {sidebarCampaign?.creative?.ctaText || "View upgrades"}
                   </a>
@@ -1216,7 +1216,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                     `&path=${encodeURIComponent(pathname || "")}` +
                     `&to=${encodeURIComponent(sidebarCampaign?.creative?.linkUrl || `${basePath}/app/billing`)}`
                   }
-                  className="mt-2 inline-flex rounded-xl bg-zinc-900 px-3 py-2 text-xs font-semibold text-white hover:bg-zinc-800"
+                  className="mt-2 inline-flex rounded-xl bg-brand-ink px-3 py-2 text-xs font-semibold text-white hover:opacity-95"
                 >
                   {sidebarCampaign?.creative?.ctaText || "View upgrades"}
                 </a>
@@ -1307,7 +1307,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                         `&path=${encodeURIComponent(pathname || "")}` +
                         `&to=${encodeURIComponent(topBannerCampaign?.creative?.linkUrl || `${basePath}/app/billing`)}`
                       }
-                      className="inline-flex items-center justify-center rounded-2xl bg-zinc-900 px-4 py-2 text-sm font-semibold text-white hover:bg-zinc-800"
+                      className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95"
                     >
                       {topBannerCampaign?.creative?.ctaText || "Learn more"}
                     </Link>
@@ -1358,7 +1358,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                 <div className="flex shrink-0 items-center gap-2">
                   <button
                     type="button"
-                    className="rounded-2xl bg-zinc-900 px-4 py-2 text-sm font-semibold text-white hover:bg-zinc-800"
+                    className="rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95"
                     onClick={() => setRewardModalOpen(true)}
                   >
                     Watch
@@ -1648,7 +1648,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                         </button>
                         <button
                           type="button"
-                          className="rounded-2xl bg-zinc-900 px-4 py-2 text-sm font-semibold text-white hover:bg-zinc-800"
+                          className="rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95"
                           onClick={() => {
                             setRewardConfirmExit(false);
                             setRewardModalOpen(false);
@@ -1779,7 +1779,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                       `&path=${encodeURIComponent(pathname || "")}` +
                       `&to=${encodeURIComponent(popupCampaign?.creative?.linkUrl || `${basePath}/app/billing`)}`
                     }
-                    className="inline-flex items-center justify-center rounded-2xl bg-zinc-900 px-4 py-2 text-sm font-semibold text-white hover:bg-zinc-800"
+                    className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95"
                   >
                     {popupCampaign?.creative?.ctaText || "Learn more"}
                   </a>

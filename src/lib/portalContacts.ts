@@ -35,8 +35,23 @@ type ContactCandidate = {
   name: string;
   email: string | null;
   phone: string | null;
+  customVariables?: unknown;
   updatedAt: Date;
 };
+
+function normalizeCustomVariables(raw: unknown): Record<string, string> {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
+    const key = String(k ?? "").trim().slice(0, 64);
+    if (!key) continue;
+    const value = String(v ?? "").trim().slice(0, 800);
+    if (!value) continue;
+    out[key] = value;
+    if (Object.keys(out).length >= 30) break;
+  }
+  return out;
+}
 
 function matchCount(
   c: ContactCandidate,
@@ -82,6 +97,7 @@ export async function findOrCreatePortalContact(input: {
   name: string;
   email: string | null;
   phone: string | null;
+  customVariables?: Record<string, string> | null;
 }): Promise<string | null> {
   const ownerId = String(input.ownerId);
   const name = String(input.name ?? "").trim().slice(0, 80);
@@ -99,6 +115,8 @@ export async function findOrCreatePortalContact(input: {
   const phoneKey = phoneNorm.phoneKey;
   const phone = phoneNorm.phone;
   const email = emailKey ? String(input.email ?? "").trim().slice(0, 120) : null;
+
+  const incomingCustom = normalizeCustomVariables(input.customVariables);
 
   const ors: any[] = [{ nameKey }];
   if (emailKey) ors.push({ emailKey });
@@ -119,6 +137,7 @@ export async function findOrCreatePortalContact(input: {
         name: true,
         email: true,
         phone: true,
+        customVariables: true,
         updatedAt: true,
       },
     })) as ContactCandidate[];
@@ -155,6 +174,11 @@ export async function findOrCreatePortalContact(input: {
           data.phoneKey = phoneKey;
         }
 
+        if (Object.keys(incomingCustom).length) {
+          const prev = normalizeCustomVariables((existing as any).customVariables);
+          data.customVariables = { ...prev, ...incomingCustom };
+        }
+
         if (Object.keys(data).length) {
           await (prisma as any).portalContact.update({
             where: { id: existing.id },
@@ -184,6 +208,11 @@ export async function findOrCreatePortalContact(input: {
         data.phoneKey = phoneKey;
       }
 
+      if (Object.keys(incomingCustom).length) {
+        const prev = normalizeCustomVariables((existing as any).customVariables);
+        data.customVariables = { ...prev, ...incomingCustom };
+      }
+
       await (prisma as any).portalContact.update({
         where: { id: existing.id },
         data,
@@ -202,6 +231,7 @@ export async function findOrCreatePortalContact(input: {
         emailKey: emailKey ? emailKey : null,
         phone: phoneKey ? phone : null,
         phoneKey: phoneKey ? phoneKey : null,
+        customVariables: Object.keys(incomingCustom).length ? incomingCustom : undefined,
       },
       select: { id: true },
     });
