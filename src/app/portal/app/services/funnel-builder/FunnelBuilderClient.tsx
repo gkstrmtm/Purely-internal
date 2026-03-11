@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { PortalListboxDropdown } from "@/components/PortalListboxDropdown";
 import { AppConfirmModal } from "@/components/AppModal";
@@ -85,6 +85,14 @@ function CopyIcon({ className }: { className?: string }) {
     >
       <rect x="9" y="9" width="13" height="13" rx="2" />
       <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+    </svg>
+  );
+}
+
+function DotsIcon({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="currentColor" className={className} aria-hidden="true">
+      <path d="M12 7.25a1.75 1.75 0 1 0 0-3.5 1.75 1.75 0 0 0 0 3.5zm0 6.5a1.75 1.75 0 1 0 0-3.5 1.75 1.75 0 0 0 0 3.5zm0 6.5a1.75 1.75 0 1 0 0-3.5 1.75 1.75 0 0 0 0 3.5z" />
     </svg>
   );
 }
@@ -211,6 +219,40 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
 
   const [funnelDomainBusy, setFunnelDomainBusy] = useState<Record<string, boolean>>({});
   const [funnelDomainError, setFunnelDomainError] = useState<Record<string, string | null>>({});
+
+  const [funnelStatusBusy, setFunnelStatusBusy] = useState<Record<string, boolean>>({});
+  const [funnelStatusError, setFunnelStatusError] = useState<Record<string, string | null>>({});
+
+  const [openFunnelMenuId, setOpenFunnelMenuId] = useState<string | null>(null);
+  const funnelMenuRootRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!openFunnelMenuId) return;
+
+    const close = () => setOpenFunnelMenuId(null);
+
+    const onDown = (ev: MouseEvent) => {
+      const root = funnelMenuRootRef.current;
+      const target = ev.target;
+      if (root && target && target instanceof Node && root.contains(target)) return;
+      close();
+    };
+
+    const onKey = (ev: KeyboardEvent) => {
+      if (ev.key === "Escape") close();
+    };
+
+    window.addEventListener("mousedown", onDown);
+    window.addEventListener("keydown", onKey);
+    window.addEventListener("scroll", close, true);
+    window.addEventListener("resize", close);
+    return () => {
+      window.removeEventListener("mousedown", onDown);
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("scroll", close, true);
+      window.removeEventListener("resize", close);
+    };
+  }, [openFunnelMenuId]);
 
   const domainsByName = useMemo(() => {
     const m = new Map<string, CreditDomain>();
@@ -532,6 +574,57 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
     [loadFunnels],
   );
 
+  const patchFunnelStatus = useCallback(
+    async (funnel: CreditFunnel, nextStatus: CreditFunnel["status"]) => {
+      if (funnelStatusBusy[funnel.id]) return false;
+      if (funnel.status === nextStatus) return true;
+
+      setFunnelStatusBusy((m) => ({ ...m, [funnel.id]: true }));
+      setFunnelStatusError((m) => ({ ...m, [funnel.id]: null }));
+
+      // Optimistic update
+      setFunnels((prev) => {
+        if (!prev) return prev;
+        return prev.map((f) => (f.id === funnel.id ? { ...f, status: nextStatus } : f));
+      });
+
+      try {
+        const res = await fetch(`/api/portal/funnel-builder/funnels/${encodeURIComponent(funnel.id)}`, {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ status: nextStatus }),
+        });
+        const json = (await res.json().catch(() => null)) as any;
+        if (!res.ok || !json || json.ok !== true) throw new Error(json?.error || "Failed to update funnel status");
+
+        const status = (json?.funnel?.status ?? null) as CreditFunnel["status"] | null;
+        if (status && (status === "DRAFT" || status === "ACTIVE" || status === "ARCHIVED")) {
+          setFunnels((prev) => {
+            if (!prev) return prev;
+            return prev.map((f) => (f.id === funnel.id ? { ...f, status } : f));
+          });
+        }
+
+        return true;
+      } catch (e) {
+        setFunnelStatusError((m) => ({
+          ...m,
+          [funnel.id]: (e as any)?.message ? String((e as any).message) : "Failed to update funnel status",
+        }));
+        try {
+          await loadFunnels();
+        } catch {
+          // ignore
+        }
+
+        return false;
+      } finally {
+        setFunnelStatusBusy((m) => ({ ...m, [funnel.id]: false }));
+      }
+    },
+    [funnelStatusBusy, loadFunnels],
+  );
+
   useEffect(() => {
     let mounted = true;
     (async () => {
@@ -738,11 +831,12 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
               const assignedDomainClean = String(f.assignedDomain || "").trim().toLowerCase();
               const assignedDomainStatus = getAssignedDomainStatus(assignedDomainClean);
               const hasVerifiedCustomDomain = assignedDomainClean && assignedDomainStatus === "VERIFIED";
-              const liveHref = hasVerifiedCustomDomain
+              const liveHrefRaw = hasVerifiedCustomDomain
                 ? getFunnelLiveHref(f.assignedDomain, f.slug, f.id)
                 : assignedDomainClean
                   ? null
                   : getFunnelLiveHref(null, f.slug, f.id);
+              const liveHref = f.status === "ACTIVE" ? liveHrefRaw : null;
               const liveUrlLabel = assignedDomainClean ? "Custom domain URL" : "Hosted URL";
 
               return (
@@ -804,50 +898,127 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                         </span>
                       );
                     })()}
-                    <div className="flex items-center gap-3">
-                      <Link
-                        href={`${basePath}/app/services/funnel-builder/funnels/${encodeURIComponent(f.id)}/edit`}
-                        target="_blank"
-                        className="text-sm font-semibold text-brand-ink hover:underline"
+                    <div className="relative">
+                      <div
+                        ref={openFunnelMenuId === f.id ? funnelMenuRootRef : undefined}
+                        className="relative"
                       >
-                        Edit
-                      </Link>
-                      <Link
-                        href={hostedFunnelPath(f.slug, f.id) || `${funnelPreviewBase}/${encodeURIComponent(f.slug)}`}
-                        target="_blank"
-                        className="text-sm font-semibold text-[color:var(--color-brand-blue)] hover:underline"
-                      >
-                        Preview
-                      </Link>
-
-                      {liveHref ? (
-                        <Link
-                          href={liveHref}
-                          target="_blank"
-                          className="text-sm font-semibold text-[color:var(--color-brand-blue)] hover:underline"
+                        <button
+                          type="button"
+                          aria-label="Funnel actions"
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            setOpenFunnelMenuId((prev) => (prev === f.id ? null : f.id));
+                          }}
+                          className="grid h-9 w-9 place-items-center rounded-xl border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50"
                         >
-                          Live
-                        </Link>
-                      ) : (
-                        <span
-                          className="text-sm font-semibold text-zinc-400"
-                          title="This domain is pending DNS verification. Verify DNS to enable the Live link."
-                        >
-                          Live
-                        </span>
-                      )}
+                          <DotsIcon className="h-5 w-5" />
+                        </button>
 
-                      <button
-                        type="button"
-                        disabled={!!funnelDeleteBusy[f.id]}
-                        onClick={() => {
-                          if (funnelDeleteBusy[f.id]) return;
-                          setDeleteDialog({ type: "funnel", id: f.id });
-                        }}
-                        className="text-sm font-semibold text-red-600 hover:underline disabled:opacity-60"
-                      >
-                        Delete
-                      </button>
+                        {openFunnelMenuId === f.id ? (
+                          <div className="absolute right-0 z-20 mt-2 w-56 overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-xl">
+                            <div className="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-zinc-500">
+                              Actions
+                            </div>
+
+                            <div className="px-2 pb-2">
+                              <Link
+                                href={`${basePath}/app/services/funnel-builder/funnels/${encodeURIComponent(f.id)}/edit`}
+                                target="_blank"
+                                className="flex w-full items-center rounded-xl px-3 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+                                onClick={() => setOpenFunnelMenuId(null)}
+                              >
+                                Edit
+                              </Link>
+
+                              <Link
+                                href={hostedFunnelPath(f.slug, f.id) || `${funnelPreviewBase}/${encodeURIComponent(f.slug)}`}
+                                target="_blank"
+                                className="flex w-full items-center rounded-xl px-3 py-2 text-sm font-semibold text-[color:var(--color-brand-blue)] hover:bg-zinc-50"
+                                onClick={() => setOpenFunnelMenuId(null)}
+                              >
+                                Preview
+                              </Link>
+
+                              {liveHref ? (
+                                <Link
+                                  href={liveHref}
+                                  target="_blank"
+                                  className="flex w-full items-center rounded-xl px-3 py-2 text-sm font-semibold text-[color:var(--color-brand-blue)] hover:bg-zinc-50"
+                                  onClick={() => setOpenFunnelMenuId(null)}
+                                >
+                                  Live
+                                </Link>
+                              ) : (
+                                <div
+                                  className="flex w-full items-center rounded-xl px-3 py-2 text-sm font-semibold text-zinc-400"
+                                  title={
+                                    f.status !== "ACTIVE"
+                                      ? "Set this funnel to Live to enable the live link."
+                                      : assignedDomainClean
+                                        ? "This domain is pending DNS verification. Verify DNS to enable the Live link."
+                                        : "Live link is currently unavailable."
+                                  }
+                                >
+                                  Live
+                                </div>
+                              )}
+
+                              <div className="my-2 h-px bg-zinc-100" />
+
+                              {f.status !== "ARCHIVED" ? (
+                                <button
+                                  type="button"
+                                  disabled={!!funnelStatusBusy[f.id]}
+                                  onClick={() => {
+                                    const next = f.status === "ACTIVE" ? "DRAFT" : "ACTIVE";
+                                    void (async () => {
+                                      const ok = await patchFunnelStatus(f, next);
+                                      if (ok) setOpenFunnelMenuId(null);
+                                    })();
+                                  }}
+                                  className={classNames(
+                                    "flex w-full items-center rounded-xl px-3 py-2 text-left text-sm font-semibold hover:bg-zinc-50",
+                                    f.status === "ACTIVE" ? "text-zinc-700" : "text-green-700",
+                                    funnelStatusBusy[f.id] ? "opacity-60" : "",
+                                  )}
+                                >
+                                  {f.status === "ACTIVE" ? "Set status: Draft" : "Set status: Live"}
+                                </button>
+                              ) : (
+                                <div className="flex w-full items-center rounded-xl px-3 py-2 text-sm font-semibold text-zinc-400">
+                                  Status: Archived
+                                </div>
+                              )}
+
+                              {funnelStatusError[f.id] ? (
+                                <div className="mt-2 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-medium text-red-700">
+                                  {funnelStatusError[f.id]}
+                                </div>
+                              ) : null}
+
+                              <div className="my-2 h-px bg-zinc-100" />
+
+                              <button
+                                type="button"
+                                disabled={!!funnelDeleteBusy[f.id]}
+                                onClick={() => {
+                                  if (funnelDeleteBusy[f.id]) return;
+                                  setDeleteDialog({ type: "funnel", id: f.id });
+                                  setOpenFunnelMenuId(null);
+                                }}
+                                className={classNames(
+                                  "flex w-full items-center rounded-xl px-3 py-2 text-left text-sm font-semibold text-red-600 hover:bg-zinc-50",
+                                  funnelDeleteBusy[f.id] ? "opacity-60" : "",
+                                )}
+                              >
+                                Delete
+                              </button>
+                            </div>
+                          </div>
+                        ) : null}
+                      </div>
                     </div>
                   </div>
                 </div>

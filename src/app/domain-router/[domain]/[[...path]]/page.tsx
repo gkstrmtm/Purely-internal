@@ -341,7 +341,7 @@ function FunnelMarkdown({ blocks }: { blocks: any[] }) {
 async function renderFunnel(ownerId: string, slug: string, funnelDomains: Record<string, string>, allowedDomains: Set<string>) {
   const funnel = await prisma.creditFunnel
     .findFirst({
-      where: { ownerId, slug },
+      where: { ownerId, slug, status: "ACTIVE" },
       select: {
         id: true,
         ownerId: true,
@@ -435,7 +435,7 @@ export async function generateMetadata({
 
   const funnel = await prisma.creditFunnel
     .findFirst({
-      where: { ownerId: mapping.ownerId, slug: funnelSlug },
+      where: { ownerId: mapping.ownerId, slug: funnelSlug, status: "ACTIVE" },
       select: {
         id: true,
         pages: {
