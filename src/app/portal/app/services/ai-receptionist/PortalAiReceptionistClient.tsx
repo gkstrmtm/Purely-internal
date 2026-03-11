@@ -897,7 +897,7 @@ export function PortalAiReceptionistClient() {
                 className={classNames(
                   "rounded-2xl px-4 py-2 text-xs font-semibold",
                   settingsSubTab === "voice"
-                    ? "bg-zinc-900 text-white"
+                    ? "bg-[color:var(--color-brand-blue)] text-white shadow-sm hover:opacity-95"
                     : "border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50",
                 )}
               >
@@ -909,7 +909,7 @@ export function PortalAiReceptionistClient() {
                 className={classNames(
                   "rounded-2xl px-4 py-2 text-xs font-semibold",
                   settingsSubTab === "sms"
-                    ? "bg-zinc-900 text-white"
+                    ? "bg-[color:var(--color-brand-blue)] text-white shadow-sm hover:opacity-95"
                     : "border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50",
                 )}
               >

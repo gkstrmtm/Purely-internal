@@ -4277,12 +4277,14 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                             const btnCls = (active: boolean) =>
                               classNames(
                                 "px-3 py-2 text-xs font-semibold",
-                                active ? "bg-zinc-900 text-white" : "bg-white text-zinc-800 hover:bg-zinc-50",
+                                active
+                                  ? "bg-[color:var(--color-brand-blue)] text-white"
+                                  : "bg-white text-zinc-800 hover:bg-zinc-50",
                               );
 
                             return (
                               <>
-                                <label className="block">
+                                <div className="block">
                                   <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Placement (horizontal)</div>
                                   <div className="inline-flex overflow-hidden rounded-xl border border-zinc-200 bg-white">
                                     {([
@@ -4306,9 +4308,9 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                                       </button>
                                     ))}
                                   </div>
-                                </label>
+                                </div>
 
-                                <label className="block">
+                                <div className="block">
                                   <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Placement (vertical)</div>
                                   <div className="inline-flex overflow-hidden rounded-xl border border-zinc-200 bg-white">
                                     {([
@@ -4332,12 +4334,12 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                                       </button>
                                     ))}
                                   </div>
-                                </label>
+                                </div>
                               </>
                             );
                           })()}
 
-                          <label className="block">
+                          <div className="block">
                             <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Agent ID</div>
                             {availableAgentOptions.length ? (
                               <PortalListboxDropdown
@@ -4352,7 +4354,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                                   const current = String((selectedBlock.props as any).agentId || "").trim();
                                   const opts = availableAgentOptions.map((a) => ({
                                     value: a.id,
-                                    label: a.name ? `${a.name} (${a.id})` : a.id,
+                                    label: a.id,
                                   }));
                                   const hasCurrent = current && opts.some((o) => o.value === current);
                                   return [
@@ -4378,37 +4380,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                               />
                             )}
                             <div className="mt-1 text-[11px] text-zinc-500">Pick the agent to power this widget.</div>
-                            {aiReceptionistChatAgentId ? (
-                              <div className="mt-2">
-                                <button
-                                  type="button"
-                                  disabled={busy}
-                                  onClick={() =>
-                                    upsertBlock({
-                                      ...selectedBlock,
-                                      props: { ...(selectedBlock.props as any), agentId: aiReceptionistChatAgentId },
-                                    } as any)
-                                  }
-                                  className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-60"
-                                >
-                                  Use AI Receptionist messaging agent
-                                </button>
-                              </div>
-                            ) : (
-                              <div className="mt-2 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
-                                <div className="font-semibold">No AI Receptionist agent ID found</div>
-                                <div className="mt-1 text-amber-900/80">Set your messaging agent ID in AI Receptionist settings to reuse it here.</div>
-                                <div className="mt-2">
-                                  <Link
-                                    href="/portal/app/services/ai-receptionist?tab=settings"
-                                    className="inline-flex rounded-lg border border-amber-200 bg-white px-2 py-1 text-xs font-semibold text-amber-900 hover:bg-amber-100"
-                                  >
-                                    Open AI Receptionist settings
-                                  </Link>
-                                </div>
-                              </div>
-                            )}
-                          </label>
+                          </div>
 
                           <ColorPickerField
                             label="Primary color"
