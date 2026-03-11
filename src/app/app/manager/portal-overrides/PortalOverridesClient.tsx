@@ -12,6 +12,9 @@ type UserRow = {
   name: string;
   active: boolean;
   createdAt: string;
+  invitesSentCount?: number;
+  invitesVerifiedCount?: number;
+  inviteCreditsAwardedCount?: number;
   overrides: ModuleKey[];
   creditsOnlyOverride?: boolean;
   creditsBalance?: number;
@@ -288,6 +291,12 @@ export default function PortalOverridesClient() {
                         Phone: <span className="font-mono text-zinc-800">{u.phone}</span>
                       </div>
                     ) : null}
+                    <div>
+                      Invites: <span className="font-semibold text-zinc-800">{Math.max(0, u.invitesSentCount ?? 0)}</span>
+                      {u.invitesVerifiedCount || u.inviteCreditsAwardedCount ? (
+                        <span className="text-zinc-500"> · verified {Math.max(0, u.invitesVerifiedCount ?? 0)} · awarded {Math.max(0, u.inviteCreditsAwardedCount ?? 0)}</span>
+                      ) : null}
+                    </div>
                     <div className="flex items-center gap-2">
                       <span
                         className={

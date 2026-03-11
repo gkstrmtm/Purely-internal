@@ -240,6 +240,26 @@ export async function GET(req: Request) {
     twilioFromByOwner.set(row.ownerId, parseTwilioFromNumberE164(row.dataJson));
   }
 
+  const [refTotalAgg, refVerifiedAgg, refAwardedAgg] = ownerIds.length
+    ? await Promise.all([
+        prisma.portalReferral.groupBy({ by: ["inviterId"], where: { inviterId: { in: ownerIds } }, _count: { _all: true } }),
+        prisma.portalReferral.groupBy({
+          by: ["inviterId"],
+          where: { inviterId: { in: ownerIds }, invitedVerifiedAt: { not: null } },
+          _count: { _all: true },
+        }),
+        prisma.portalReferral.groupBy({
+          by: ["inviterId"],
+          where: { inviterId: { in: ownerIds }, creditsAwardedAt: { not: null } },
+          _count: { _all: true },
+        }),
+      ])
+    : [[], [], []];
+
+  const refTotalByOwner = new Map<string, number>(refTotalAgg.map((r) => [r.inviterId, r._count._all]));
+  const refVerifiedByOwner = new Map<string, number>(refVerifiedAgg.map((r) => [r.inviterId, r._count._all]));
+  const refAwardedByOwner = new Map<string, number>(refAwardedAgg.map((r) => [r.inviterId, r._count._all]));
+
   return NextResponse.json({
     users: users.map((u) => ({
       id: u.id,
@@ -247,6 +267,9 @@ export async function GET(req: Request) {
       name: u.name,
       active: u.active,
       createdAt: u.createdAt,
+      invitesSentCount: refTotalByOwner.get(u.id) ?? 0,
+      invitesVerifiedCount: refVerifiedByOwner.get(u.id) ?? 0,
+      inviteCreditsAwardedCount: refAwardedByOwner.get(u.id) ?? 0,
       overrides: Array.from(byOwner.get(u.id) ?? []),
       creditsOnlyOverride: creditsOnlyByOwner.get(u.id) ?? false,
       creditsBalance: creditsByOwner.get(u.id) ?? 0,

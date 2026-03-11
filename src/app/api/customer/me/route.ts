@@ -11,6 +11,7 @@ import { normalizePortalVariant, PORTAL_VARIANT_HEADER } from "@/lib/portalVaria
 import { listAiReceptionistEvents, type AiReceptionistCallEvent } from "@/lib/aiReceptionist";
 import { listMissedCallTextBackEvents, type MissedCallTextBackEvent } from "@/lib/missedCallTextBack";
 import { sumHoursSavedSeconds } from "@/lib/hoursSaved";
+import { sendVerifyEmail } from "@/lib/portalEmailVerification.server";
 
 function safeDate(value: unknown): Date | null {
   if (typeof value !== "string" || !value.trim()) return null;
@@ -240,8 +241,27 @@ export async function GET(req: Request) {
     const ownerId = portalUser?.id ? String(portalUser.id) : null;
     ownerIdForEntitlements = ownerId;
     if (ownerId) {
-      const owner = await prisma.user.findUnique({ where: { id: ownerId }, select: { email: true } }).catch(() => null);
+      const owner = await prisma.user
+        .findUnique({
+          where: { id: ownerId },
+          select: { email: true, createdAt: true, emailVerifiedAt: true, emailVerificationEmailSentAt: true },
+        })
+        .catch(() => null);
       if (owner?.email) entitlementsEmail = String(owner.email);
+
+      // Send verify email about ~10 minutes after signup (first portal load after delay).
+      // Guarded so it only sends once.
+      try {
+        const now = Date.now();
+        const createdAtMs = owner?.createdAt ? new Date(owner.createdAt).getTime() : NaN;
+        const isDue = Number.isFinite(createdAtMs) && createdAtMs <= now - 10 * 60 * 1000;
+        const needs = !!owner?.email && !owner?.emailVerifiedAt && !owner?.emailVerificationEmailSentAt;
+        if (isDue && needs) {
+          await sendVerifyEmail({ userId: ownerId, toEmail: String(owner.email) });
+        }
+      } catch {
+        // ignore
+      }
     }
   }
 

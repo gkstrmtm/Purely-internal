@@ -114,6 +114,13 @@ model User {
   active       Boolean @default(true)
   timeZone     String  @default("America/New_York")
 
+  // Portal growth: referrals + email verification (clients).
+  portalReferralCode            String?   @unique
+  portalReferralCodeCreatedAt   DateTime?
+  portalReferralCodeCreatedIp   String?
+  emailVerifiedAt               DateTime?
+  emailVerificationEmailSentAt  DateTime?
+
   // Stripe credentials (encrypted at rest).
   // Stored on the portal account owner; members inherit reporting access.
   stripeSecretKeyCiphertext String?
@@ -226,6 +233,47 @@ model User {
 
   salesReportingSettings    SalesReportingSettings?
   salesReportingCredentials SalesReportingCredential[]
+
+  portalReferralsSent       PortalReferral[]              @relation("PortalReferralInviter")
+  portalReferralReceived    PortalReferral?               @relation("PortalReferralInvited")
+  portalEmailVerifyTokens   PortalEmailVerificationToken[]
+}
+
+model PortalReferral {
+  id String @id @default(cuid())
+
+  inviterId     String
+  invitedUserId String @unique
+
+  invitedEmail String
+  invitedIp    String?
+
+  invitedVerifiedAt DateTime?
+  creditsAwardedAt  DateTime?
+
+  createdAt DateTime @default(now())
+
+  inviter     User @relation("PortalReferralInviter", fields: [inviterId], references: [id], onDelete: Cascade)
+  invitedUser User @relation("PortalReferralInvited", fields: [invitedUserId], references: [id], onDelete: Cascade)
+
+  @@index([inviterId, createdAt])
+  @@index([invitedEmail])
+}
+
+model PortalEmailVerificationToken {
+  id String @id @default(cuid())
+
+  userId    String
+  tokenHash String @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@index([expiresAt])
 }
 
 model SalesReportingSettings {

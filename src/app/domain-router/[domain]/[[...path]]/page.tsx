@@ -352,6 +352,7 @@ async function renderFunnel(ownerId: string, slug: string, funnelDomains: Record
           orderBy: [{ sortOrder: "asc" }, { id: "asc" }],
           take: 1,
           select: {
+            id: true,
             title: true,
             contentMarkdown: true,
             editorMode: true,
@@ -393,7 +394,7 @@ async function renderFunnel(ownerId: string, slug: string, funnelDomains: Record
               {renderCreditFunnelBlocks({
                 blocks: blockBlocks,
                 basePath: "",
-                context: { bookingOwnerId: funnel.ownerId },
+                context: { bookingOwnerId: funnel.ownerId, funnelPageId: page.id },
               })}
             </div>
           ) : (

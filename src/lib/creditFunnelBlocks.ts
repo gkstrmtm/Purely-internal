@@ -1,6 +1,7 @@
 import React from "react";
 
 import { ConvaiChatWidget } from "@/components/ConvaiChatWidget";
+import { SalesCheckoutButton } from "@/components/funnel/SalesCheckoutButton";
 import { inlineMarkdownToHtmlSafe, parseBlogContent } from "@/lib/blog";
 import { coerceFontFamily, coerceGoogleFamily, googleFontImportCss } from "@/lib/fontPresets";
 
@@ -32,6 +33,16 @@ export type CreditFunnelBlock =
       id: string;
       type: "page";
       props: { style?: BlockStyle };
+    }
+  | {
+      id: string;
+      type: "salesCheckoutButton";
+      props: {
+        priceId: string;
+        quantity?: number;
+        text?: string;
+        style?: BlockStyle;
+      };
     }
   | {
       id: string;
@@ -323,6 +334,15 @@ function coerceBlocksJsonInternal(value: unknown, depth: number): CreditFunnelBl
     if (type === "page") {
       const style = coerceStyle(props?.style);
       out.push({ id, type, props: { style } });
+      continue;
+    }
+
+    if (type === "salesCheckoutButton") {
+      const priceId = typeof props?.priceId === "string" ? props.priceId.trim().slice(0, 128) : "";
+      const quantity = clampNum((props as any)?.quantity, 1, 20);
+      const text = typeof props?.text === "string" ? props.text.slice(0, 120) : "Buy now";
+      const style = coerceStyle(props?.style);
+      out.push({ id, type, props: { priceId, ...(quantity ? { quantity } : {}), text, style } });
       continue;
     }
 
@@ -659,6 +679,7 @@ export function renderCreditFunnelBlocks({
   context?: {
     bookingSiteSlug?: string;
     bookingOwnerId?: string;
+    funnelPageId?: string;
   };
   editor?: {
     enabled?: boolean;
@@ -885,6 +906,33 @@ export function renderCreditFunnelBlocks({
   const renderBlocksInner: (inner: CreditFunnelBlock[]) => React.ReactNode[] = (inner) =>
     inner.map((b) => {
       if (b.type === "page") return null;
+
+      if (b.type === "salesCheckoutButton") {
+        const pageId = typeof context?.funnelPageId === "string" ? context.funnelPageId : "";
+        const priceId = String((b.props as any)?.priceId || "").trim();
+        const quantityRaw = (b.props as any)?.quantity;
+        const quantity = typeof quantityRaw === "number" && Number.isFinite(quantityRaw) ? Math.max(1, Math.min(20, quantityRaw)) : undefined;
+        const text = typeof (b.props as any)?.text === "string" ? String((b.props as any).text) : "Buy now";
+
+        if (!isEditor && (!pageId || !priceId)) return null;
+
+        return React.createElement(
+          "div",
+          {
+            key: b.id,
+            style: { ...wrapperStyle((b.props as any)?.style), ...(blockWrapStyle(b.id) || {}) },
+            ...wrapProps(b.id),
+          },
+          renderMoveControls(b.id),
+          React.createElement(SalesCheckoutButton, {
+            pageId,
+            priceId,
+            quantity,
+            text,
+            disabled: isEditor,
+          }),
+        );
+      }
 
       if (b.type === "customCode") {
         const html = String(b.props.html || "");

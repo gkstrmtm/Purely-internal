@@ -110,6 +110,7 @@ function PortalGetStartedInner() {
   const logoSrc = portalBase === "/credit" ? "/brand/purely%20credit.png" : "/brand/purity-5.png";
 
   const checkoutState = (search?.get("checkout") || "").trim().toLowerCase();
+  const referralCode = (search?.get("ref") || "").trim();
   useEffect(() => {
     if (checkoutState === "cancel") {
       toast.error("Checkout canceled");
@@ -331,6 +332,7 @@ function PortalGetStartedInner() {
         email,
         phone,
         password,
+        referralCode,
         businessName,
         city,
         state,

@@ -20,6 +20,8 @@ import {
 } from "@/lib/portalGetStartedRecommendations";
 import { CORE_INCLUDED_SERVICE_SLUGS, planById } from "@/lib/portalOnboardingWizardCatalog";
 import { PORTAL_BILLING_MODEL_OVERRIDE_SETUP_SLUG } from "@/lib/portalBillingModel";
+import { getRequestIp } from "@/lib/requestIp";
+import { readReferralCodeFromUnknown } from "@/lib/portalReferrals.server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -30,6 +32,8 @@ const bodySchema = z.object({
   email: z.string().trim().email(),
   phone: z.string().trim().max(32).optional(),
   password: z.string().min(8).max(200),
+
+  referralCode: z.string().trim().max(64).optional(),
 
   businessName: z.string().trim().min(2).max(160),
   city: z.string().trim().min(2).max(120),
@@ -180,6 +184,8 @@ export async function POST(req: Request) {
   }
 
   const email = parsed.data.email.toLowerCase();
+  const invitedIp = getRequestIp(req);
+  const referralCode = readReferralCodeFromUnknown(parsed.data.referralCode);
 
   const goalIds = normalizeGoalIds(parsed.data.goalIds);
   const recommendedServiceSlugs = recommendPortalServiceSlugs(goalIds);
@@ -230,6 +236,31 @@ export async function POST(req: Request) {
         },
         select: { id: true, email: true, name: true, role: true },
       });
+
+      if (referralCode) {
+        const inviter = await tx.user.findUnique({
+          where: { portalReferralCode: referralCode },
+          select: { id: true, email: true, portalReferralCodeCreatedIp: true, role: true },
+        });
+
+        const inviterIp = String(inviter?.portalReferralCodeCreatedIp || "").trim();
+        const isValidInviter = inviter && inviter.role === "CLIENT" && inviter.email.toLowerCase() !== email;
+
+        const ipOk = !inviterIp || !invitedIp || inviterIp !== invitedIp;
+        if (isValidInviter && ipOk) {
+          await tx.portalReferral
+            .create({
+              data: {
+                inviterId: inviter.id,
+                invitedUserId: user.id,
+                invitedEmail: email,
+                invitedIp,
+              },
+              select: { id: true },
+            })
+            .catch(() => null);
+        }
+      }
 
       const primaryGoals = goalLabelsFromIds(goalIds);
 

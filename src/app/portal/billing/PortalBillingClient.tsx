@@ -74,6 +74,10 @@ type PortalPricing =
     }
   | { ok: false; error?: string };
 
+type ReferralLinkResponse =
+  | { ok: true; code: string; url: string; stats: { total: number; verified: number; awarded: number } }
+  | { ok: false; error?: string };
+
 function formatMoney(cents: number, currency: string) {
   const value = typeof cents === "number" && Number.isFinite(cents) ? cents : 0;
   const curr = (currency || "usd").toUpperCase();
@@ -99,6 +103,9 @@ export function PortalBillingClient() {
   const [loading, setLoading] = useState(true);
   const [actionBusy, setActionBusy] = useState<string | null>(null);
 
+  const [referral, setReferral] = useState<null | { url: string; code: string; stats: { total: number; verified: number; awarded: number } }>(null);
+  const [referralLoading, setReferralLoading] = useState(false);
+
   const billingModel = services && "ok" in services && services.ok ? services.billingModel : undefined;
   const creditsOnly = billingModel === "credits";
 
@@ -118,6 +125,33 @@ export function PortalBillingClient() {
     typed: string;
     ack: boolean;
   }>(null);
+
+  const loadReferral = useCallback(async () => {
+    setReferralLoading(true);
+    try {
+      const res = await fetch("/api/portal/referrals/link", { cache: "no-store" });
+      const json = (await res.json().catch(() => ({}))) as unknown;
+      const okJson = json && typeof json === "object" && !Array.isArray(json) ? (json as any) : null;
+      if (!res.ok || !okJson?.ok) {
+        return;
+      }
+      setReferral({
+        url: String(okJson.url || ""),
+        code: String(okJson.code || ""),
+        stats: {
+          total: Number(okJson?.stats?.total ?? 0) || 0,
+          verified: Number(okJson?.stats?.verified ?? 0) || 0,
+          awarded: Number(okJson?.stats?.awarded ?? 0) || 0,
+        },
+      });
+    } finally {
+      setReferralLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadReferral();
+  }, [loadReferral]);
 
   const [creditsOnlyCancelModal, setCreditsOnlyCancelModal] = useState<null | {
     typed: string;
@@ -1080,6 +1114,62 @@ export function PortalBillingClient() {
           ) : (
             <div className="mt-3 text-sm text-zinc-600">Credit purchasing is unavailable right now.</div>
           )}
+        </div>
+
+        <div className="mt-5 rounded-2xl border border-zinc-200 bg-white p-4">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <div className="text-sm font-semibold text-zinc-900">Refer for free credits</div>
+              <div className="mt-1 text-xs text-zinc-500">
+                Earn 100 credits when someone signs up with your link and verifies their email.
+              </div>
+            </div>
+            <button
+              type="button"
+              className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-60"
+              onClick={() => void loadReferral()}
+              disabled={referralLoading}
+            >
+              {referralLoading ? "Refreshing…" : "Refresh"}
+            </button>
+          </div>
+
+          <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center">
+            <input
+              className="w-full flex-1 rounded-2xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm text-zinc-700"
+              readOnly
+              value={referral?.url ?? ""}
+              placeholder={referralLoading ? "Loading your link…" : "Unable to load your referral link"}
+              aria-label="Your referral link"
+            />
+            <button
+              type="button"
+              className="rounded-2xl bg-[color:var(--color-brand-blue)] px-4 py-2 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
+              disabled={!referral?.url}
+              onClick={() => {
+                const url = referral?.url;
+                if (!url) return;
+                void navigator.clipboard
+                  .writeText(url)
+                  .then(() => toast.success("Referral link copied"))
+                  .catch(() => toast.error("Unable to copy link"));
+              }}
+            >
+              Copy link
+            </button>
+          </div>
+
+          {referral?.stats ? (
+            <div className="mt-3 text-xs text-zinc-600">
+              Invites: <span className="font-semibold text-zinc-800">{Math.max(0, referral.stats.total)}</span>
+              {" "}• Verified: <span className="font-semibold text-zinc-800">{Math.max(0, referral.stats.verified)}</span>
+              {" "}• Awarded: <span className="font-semibold text-zinc-800">{Math.max(0, referral.stats.awarded)}</span>
+            </div>
+          ) : null}
+
+          <div className="mt-2 text-[11px] text-zinc-500">
+            Credits are awarded after the invited user verifies their email, and only when the signup is from a different email and IP.
+          </div>
         </div>
       </div>
 

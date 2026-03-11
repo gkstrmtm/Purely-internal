@@ -27,6 +27,7 @@ export default async function CreditHostedFunnelPage({ params }: { params: Promi
           orderBy: [{ sortOrder: "asc" }, { id: "asc" }],
           take: 1,
           select: {
+            id: true,
             title: true,
             contentMarkdown: true,
             editorMode: true,
@@ -65,7 +66,7 @@ export default async function CreditHostedFunnelPage({ params }: { params: Promi
               {renderCreditFunnelBlocks({
                 blocks: blockBlocks,
                 basePath: "/credit",
-                context: { bookingOwnerId: funnel.ownerId },
+                context: { bookingOwnerId: funnel.ownerId, funnelPageId: page.id },
               })}
             </div>
           ) : (

@@ -106,7 +106,7 @@ async function fetchFunnel(slug: string, key: string) {
         pages: {
           orderBy: [{ sortOrder: "asc" }, { id: "asc" }],
           take: 1,
-          select: { title: true, contentMarkdown: true, editorMode: true, blocksJson: true, customHtml: true },
+          select: { id: true, title: true, contentMarkdown: true, editorMode: true, blocksJson: true, customHtml: true },
         },
       },
     })
@@ -197,7 +197,7 @@ export default async function HostedFunnelWithKeyPage({
               {renderCreditFunnelBlocks({
                 blocks: blockBlocks,
                 basePath: "",
-                context: { bookingOwnerId: funnel.ownerId },
+                context: { bookingOwnerId: funnel.ownerId, funnelPageId: page.id },
               })}
             </div>
           ) : (

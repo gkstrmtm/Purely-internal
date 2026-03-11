@@ -25,6 +25,15 @@ function stripeKeyHeader(secretKey: string): string {
   return k;
 }
 
+async function parseStripeResponse<T>(res: Response): Promise<T> {
+  const json = (await res.json().catch(() => ({}))) as StripeErrorResponse & T;
+  if (!res.ok) {
+    const msg = json?.error?.message ?? `Stripe error (${res.status})`;
+    throw new Error(msg);
+  }
+  return json as T;
+}
+
 export async function stripeGetWithKey<T>(secretKey: string, path: string, params?: Record<string, unknown>): Promise<T> {
   const key = stripeKeyHeader(secretKey);
 
@@ -41,11 +50,25 @@ export async function stripeGetWithKey<T>(secretKey: string, path: string, param
     },
   });
 
-  const json = (await res.json().catch(() => ({}))) as StripeErrorResponse & T;
-  if (!res.ok) {
-    const msg = json?.error?.message ?? `Stripe error (${res.status})`;
-    throw new Error(msg);
-  }
+  return parseStripeResponse<T>(res);
+}
 
-  return json as T;
+export async function stripePostWithKey<T>(
+  secretKey: string,
+  path: string,
+  params?: Record<string, unknown>,
+): Promise<T> {
+  const key = stripeKeyHeader(secretKey);
+  const url = new URL(`https://api.stripe.com${path}`);
+
+  const res = await fetch(url, {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${key}`,
+      "content-type": "application/x-www-form-urlencoded",
+    },
+    body: params ? toFormBody(params) : undefined,
+  });
+
+  return parseStripeResponse<T>(res);
 }
