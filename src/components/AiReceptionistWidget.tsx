@@ -294,6 +294,8 @@ export function AiReceptionistWidget() {
   // - show on marketing pages and /portal
   // - never show inside /portal/app (portal app has its own Chat + Report tools)
   const hidden =
+    pathname === "/app" ||
+    pathname.startsWith("/app/") ||
     pathname.startsWith("/portal/app") ||
     pathname.startsWith("/credit/app") ||
     pathname === "/f" ||
