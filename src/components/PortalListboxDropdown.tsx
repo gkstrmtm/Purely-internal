@@ -1,5 +1,6 @@
 "use client";
 
+import type { CSSProperties } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
@@ -20,8 +21,22 @@ export function PortalListboxDropdown<T extends string>(props: {
   portal?: boolean;
   disabled?: boolean;
   placeholder?: string;
+  getOptionStyle?: (opt: PortalListboxOption<T>) => CSSProperties | undefined;
+  getButtonLabelStyle?: (opt: PortalListboxOption<T> | null) => CSSProperties | undefined;
 }) {
-  const { value, options, onChange, buttonId, className, buttonClassName, portal = true, disabled = false, placeholder } = props;
+  const {
+    value,
+    options,
+    onChange,
+    buttonId,
+    className,
+    buttonClassName,
+    portal = true,
+    disabled = false,
+    placeholder,
+    getOptionStyle,
+    getButtonLabelStyle,
+  } = props;
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement | null>(null);
   const buttonRef = useRef<HTMLButtonElement | null>(null);
@@ -97,7 +112,7 @@ export function PortalListboxDropdown<T extends string>(props: {
                 }}
               >
                 <div className="flex items-center justify-between gap-2">
-                  <div className="truncate font-semibold" title={o.label}>
+                  <div className="truncate font-semibold" title={o.label} style={getOptionStyle?.(o)}>
                     {o.label}
                   </div>
                   {isSel ? <div className="text-xs">✓</div> : null}
@@ -118,7 +133,7 @@ export function PortalListboxDropdown<T extends string>(props: {
 
     if (typeof document === "undefined") return null;
     return createPortal(menu, document.body);
-  }, [menuRect, onChange, open, options, portal, value]);
+  }, [getOptionStyle, menuRect, onChange, open, options, portal, value]);
 
   useEffect(() => {
     if (!open) return;
@@ -189,6 +204,7 @@ export function PortalListboxDropdown<T extends string>(props: {
                 : "")
           }
           title={typeof currentLabel === "string" ? currentLabel : String(currentLabel)}
+          style={current ? (getButtonLabelStyle ? getButtonLabelStyle(current) : getOptionStyle?.(current)) : undefined}
         >
           {currentLabel}
         </span>

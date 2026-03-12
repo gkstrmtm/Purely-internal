@@ -22,7 +22,7 @@ import {
 import { PortalSelectDropdown } from "@/components/PortalSelectDropdown";
 import { useToast } from "@/components/ToastProvider";
 import { PORTAL_VARIANT_HEADER, type PortalVariant } from "@/lib/portalVariant";
-import { FONT_PRESETS, applyFontPresetToStyle, fontPresetKeyFromStyle } from "@/lib/fontPresets";
+import { FONT_PRESETS, applyFontPresetToStyle, fontPresetKeyFromStyle, googleFontImportCss } from "@/lib/fontPresets";
 import { hostedFunnelPath } from "@/lib/publicHostedKeys";
 
 type Funnel = {
@@ -1321,12 +1321,82 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
 
                             {selectedBlock.type === "image" ? (
                               <div className="space-y-2">
-                                <input
-                                  value={selectedBlock.props.src}
-                                  onChange={(e) => upsertBlock({ ...selectedBlock, props: { ...selectedBlock.props, src: e.target.value } })}
-                                  className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                                  placeholder="https://..."
-                                />
+                                <div className="flex flex-wrap gap-2">
+                                  <button
+                                    type="button"
+                                    disabled={busy}
+                                    onClick={() => {
+                                      setMediaPickerTarget({ type: "image-block", blockId: selectedBlock.id });
+                                      setMediaPickerOpen(true);
+                                    }}
+                                    className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-60"
+                                  >
+                                    Choose from media
+                                  </button>
+                                  <label
+                                    className={classNames(
+                                      "cursor-pointer rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50",
+                                      uploadingImageBlockId === selectedBlock.id ? "opacity-60" : "",
+                                    )}
+                                  >
+                                    {uploadingImageBlockId === selectedBlock.id ? "Uploading…" : "Upload image"}
+                                    <input
+                                      type="file"
+                                      accept="image/*"
+                                      className="hidden"
+                                      disabled={busy || uploadingImageBlockId === selectedBlock.id}
+                                      onChange={(e) => {
+                                        const files = e.target.files;
+                                        e.currentTarget.value = "";
+                                        if (!files || files.length === 0) return;
+                                        if (!selectedBlock || selectedBlock.type !== "image") return;
+                                        setUploadingImageBlockId(selectedBlock.id);
+                                        setError(null);
+                                        void (async () => {
+                                          try {
+                                            const created = await uploadToMediaLibrary(files, { maxFiles: 1 });
+                                            const it = created[0];
+                                            if (!it) return;
+                                            const nextSrc = String((it as any).shareUrl || (it as any).previewUrl || (it as any).openUrl || (it as any).downloadUrl || "").trim();
+                                            if (!nextSrc) return;
+                                            upsertBlock({
+                                              ...selectedBlock,
+                                              props: {
+                                                ...selectedBlock.props,
+                                                src: nextSrc,
+                                                alt: (selectedBlock.props.alt || "").trim() ? selectedBlock.props.alt : it.fileName,
+                                              },
+                                            });
+                                            toast.success("Image uploaded and selected");
+                                          } catch (err) {
+                                            const msg = (err as any)?.message ? String((err as any).message) : "Upload failed";
+                                            setError(msg);
+                                            toast.error(msg);
+                                          } finally {
+                                            setUploadingImageBlockId(null);
+                                          }
+                                        })();
+                                      }}
+                                    />
+                                  </label>
+                                  <button
+                                    type="button"
+                                    disabled={busy || !selectedBlock.props.src}
+                                    onClick={() => upsertBlock({ ...selectedBlock, props: { ...selectedBlock.props, src: "" } })}
+                                    className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-60"
+                                  >
+                                    Clear
+                                  </button>
+                                </div>
+
+                                {selectedBlock.props.src ? (
+                                  <div className="rounded-xl border border-zinc-200 bg-white px-3 py-2">
+                                    <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Selected image</div>
+                                    <div className="mt-1 break-all font-mono text-xs text-zinc-700">{selectedBlock.props.src}</div>
+                                  </div>
+                                ) : (
+                                  <div className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-600">No image selected.</div>
+                                )}
                                 <input
                                   value={selectedBlock.props.alt ?? ""}
                                   onChange={(e) => upsertBlock({ ...selectedBlock, props: { ...selectedBlock.props, alt: e.target.value } })}
@@ -1559,7 +1629,13 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                           )}
                         >
                           {previewMode === "preview" ? (
-                            <div className="min-h-[70vh]">{renderCreditFunnelBlocks({ blocks: selectedBlocks, basePath })}</div>
+                            <div className="min-h-[70vh]">
+                              {renderCreditFunnelBlocks({
+                                blocks: selectedBlocks,
+                                basePath,
+                                context: { funnelPageId: selectedPage?.id || "" },
+                              })}
+                            </div>
                           ) : (
                             <div className="bg-white p-8">
                               {selectedBlocks.length === 0 ? (
@@ -1594,7 +1670,21 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                                       )}
                                     >
                                       <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">{b.type}</div>
-                                      <div className="mt-3">{renderCreditFunnelBlocks({ blocks: [b], basePath })}</div>
+                                      <div className="mt-3">
+                                        {renderCreditFunnelBlocks({
+                                          blocks: [b],
+                                          basePath,
+                                          context: { funnelPageId: selectedPage?.id || "" },
+                                          editor: {
+                                            enabled: true,
+                                            selectedBlockId,
+                                            hoveredBlockId,
+                                            onSelectBlockId: (id) => setSelectedBlockId(id),
+                                            onHoverBlockId: (id) => setHoveredBlockId(id),
+                                            onUpsertBlock: (next) => upsertBlock(next),
+                                          },
+                                        })}
+                                      </div>
                                     </div>
                                   ))}
                                 </div>
@@ -1823,6 +1913,11 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
     return h === "localhost" || h.endsWith(".local") || h === "127.0.0.1";
   }, [platformTargetHost]);
 
+  const allFontPreviewGoogleCss = useMemo(() => {
+    const lines = FONT_PRESETS.map((p) => googleFontImportCss(p.googleFamily)).filter(Boolean) as string[];
+    return lines.length ? lines.join("\n") : null;
+  }, []);
+
   const funnelLiveHref = useMemo(() => {
     const assignedDomain = String(funnel?.assignedDomain || "").trim().toLowerCase();
     const slug = String(funnel?.slug || "").trim();
@@ -1847,7 +1942,11 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
 
   const [mediaPickerOpen, setMediaPickerOpen] = useState(false);
   const [mediaPickerTarget, setMediaPickerTarget] = useState<
-    null | { type: "ai" } | { type: "image-block"; blockId: string } | { type: "chatbot-launcher"; blockId: string }
+    | null
+    | { type: "ai" }
+    | { type: "image-block"; blockId: string }
+    | { type: "section-background"; blockId: string }
+    | { type: "chatbot-launcher"; blockId: string }
   >(null);
   const [aiAttachments, setAiAttachments] = useState<AiAttachment[]>([]);
 
@@ -3225,6 +3324,8 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
 
   return (
     <div className="flex min-h-screen flex-col lg:h-[100dvh] lg:overflow-hidden">
+      {allFontPreviewGoogleCss ? <style>{allFontPreviewGoogleCss}</style> : null}
+
       <PortalMediaPickerModal
         open={mediaPickerOpen}
         onClose={() => {
@@ -3254,6 +3355,21 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                 alt: (block.props.alt || "").trim() ? block.props.alt : it.fileName,
               },
             });
+            return;
+          }
+
+          if (target.type === "section-background") {
+            const block = findBlockInTree(editableBlocks, target.blockId)?.block;
+            if (!block || block.type !== "section") return;
+            const nextUrl = String(it.shareUrl || it.previewUrl || "").trim();
+            if (!nextUrl) return;
+            upsertBlock({
+              ...block,
+              props: {
+                ...(block.props as any),
+                style: applyStylePatch((block.props as any)?.style, { backgroundImageUrl: nextUrl }),
+              },
+            } as any);
             return;
           }
 
@@ -3666,10 +3782,26 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                               ...FONT_PRESETS.filter((p) => p.key !== "default").map((p) => ({ value: p.key, label: p.label })),
                               { value: "custom", label: "Custom…" },
                             ]}
+                            getOptionStyle={(o) => {
+                              if (o.value === "custom") {
+                                const fam = String((pageStyle as any)?.fontFamily || "").trim();
+                                return fam ? { fontFamily: fam } : undefined;
+                              }
+                              const preset = FONT_PRESETS.find((p) => p.key === o.value);
+                              return preset?.fontFamily ? { fontFamily: preset.fontFamily } : undefined;
+                            }}
+                            getButtonLabelStyle={(o) => {
+                              if (!o) return undefined;
+                              if (o.value === "custom") {
+                                const fam = String((pageStyle as any)?.fontFamily || "").trim();
+                                return fam ? { fontFamily: fam } : undefined;
+                              }
+                              const preset = FONT_PRESETS.find((p) => p.key === o.value);
+                              return preset?.fontFamily ? { fontFamily: preset.fontFamily } : undefined;
+                            }}
                             className="mt-1 w-full"
                             buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
                           />
-                          <div className="mt-1 text-xs text-zinc-500">Presets auto-load Google Fonts on hosted pages.</div>
 
                           {presetKey === "custom" ? (
                             <label className="mt-2 block">
@@ -4926,19 +5058,29 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                               }}
                             />
                           </label>
+                          <button
+                            type="button"
+                            disabled={busy || !selectedBlock.props.src}
+                            onClick={() =>
+                              upsertBlock({
+                                ...selectedBlock,
+                                props: { ...selectedBlock.props, src: "" },
+                              })
+                            }
+                            className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-60"
+                          >
+                            Clear
+                          </button>
                         </div>
 
-                        <input
-                          value={selectedBlock.props.src}
-                          onChange={(e) =>
-                            upsertBlock({
-                              ...selectedBlock,
-                              props: { ...selectedBlock.props, src: e.target.value },
-                            })
-                          }
-                          className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                          placeholder="https://..."
-                        />
+                        {selectedBlock.props.src ? (
+                          <div className="rounded-xl border border-zinc-200 bg-white px-3 py-2">
+                            <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Selected image</div>
+                            <div className="mt-1 break-all font-mono text-xs text-zinc-700">{selectedBlock.props.src}</div>
+                          </div>
+                        ) : (
+                          <div className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-600">No image selected.</div>
+                        )}
                         <input
                           value={selectedBlock.props.alt ?? ""}
                           onChange={(e) =>
@@ -5825,23 +5967,89 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
 
                             {selectedBlock.type === "section" ? (
                               <label className="block">
-                                <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-zinc-500">Background image URL</div>
-                                <div className="flex flex-wrap items-center gap-2">
-                                  <input
-                                    value={selectedBlock.props.style?.backgroundImageUrl || ""}
-                                    onChange={(e) => updateSelectedBlockStyle({ backgroundImageUrl: e.target.value.trim() || undefined })}
-                                    className="min-w-[180px] flex-1 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                                    placeholder="https://..."
-                                  />
+                                <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-zinc-500">Background image</div>
+                                <div className="flex flex-wrap gap-2">
                                   <button
                                     type="button"
+                                    disabled={busy}
+                                    onClick={() => {
+                                      setMediaPickerTarget({ type: "section-background", blockId: selectedBlock.id });
+                                      setMediaPickerOpen(true);
+                                    }}
+                                    className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-60"
+                                  >
+                                    Choose from media
+                                  </button>
+                                  <label
+                                    className={classNames(
+                                      "cursor-pointer rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50",
+                                      uploadingImageBlockId === selectedBlock.id ? "opacity-60" : "",
+                                    )}
+                                  >
+                                    {uploadingImageBlockId === selectedBlock.id ? "Uploading…" : "Upload image"}
+                                    <input
+                                      type="file"
+                                      accept="image/*"
+                                      className="hidden"
+                                      disabled={busy || uploadingImageBlockId === selectedBlock.id}
+                                      onChange={(e) => {
+                                        const files = e.target.files;
+                                        e.currentTarget.value = "";
+                                        if (!files || files.length === 0) return;
+                                        if (!selectedBlock || selectedBlock.type !== "section") return;
+                                        setUploadingImageBlockId(selectedBlock.id);
+                                        setError(null);
+                                        void (async () => {
+                                          try {
+                                            const created = await uploadToMediaLibrary(files, { maxFiles: 1 });
+                                            const it = created[0];
+                                            if (!it) return;
+                                            const nextUrl = String((it as any).shareUrl || (it as any).previewUrl || (it as any).openUrl || (it as any).downloadUrl || "").trim();
+                                            if (!nextUrl) return;
+                                            updateSelectedBlockStyle({ backgroundImageUrl: nextUrl });
+                                            toast.success("Background image uploaded and selected");
+                                          } catch (err) {
+                                            const msg = (err as any)?.message ? String((err as any).message) : "Upload failed";
+                                            setError(msg);
+                                            toast.error(msg);
+                                          } finally {
+                                            setUploadingImageBlockId(null);
+                                          }
+                                        })();
+                                      }}
+                                    />
+                                  </label>
+                                  <button
+                                    type="button"
+                                    disabled={busy || !selectedBlock.props.style?.backgroundImageUrl}
                                     onClick={() => updateSelectedBlockStyle({ backgroundImageUrl: undefined })}
-                                    className="shrink-0 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+                                    className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-60"
                                   >
                                     Clear
                                   </button>
                                 </div>
-                                <div className="mt-1 text-xs text-zinc-500">Renders as a cover background on hosted pages.</div>
+
+                                {selectedBlock.props.style?.backgroundImageUrl ? (
+                                  <div className="mt-2 rounded-xl border border-zinc-200 bg-white p-3">
+                                    <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Selected background</div>
+                                    <div className="mt-2 flex items-center gap-3">
+                                      <div
+                                        className="h-10 w-16 rounded-lg border border-zinc-200 bg-zinc-50"
+                                        style={{
+                                          backgroundImage: `url(${selectedBlock.props.style.backgroundImageUrl})`,
+                                          backgroundSize: "cover",
+                                          backgroundPosition: "center",
+                                        }}
+                                      />
+                                      <div className="min-w-0 flex-1 break-all font-mono text-xs text-zinc-700">
+                                        {selectedBlock.props.style.backgroundImageUrl}
+                                      </div>
+                                    </div>
+                                    <div className="mt-1 text-xs text-zinc-500">Renders as a cover background on hosted pages.</div>
+                                  </div>
+                                ) : (
+                                  <div className="mt-1 text-xs text-zinc-500">No background image selected.</div>
+                                )}
                               </label>
                             ) : null}
 
@@ -5861,6 +6069,74 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                                 />
                               </label>
                             ) : null}
+
+                            {(
+                              selectedBlock.type === "heading" ||
+                              selectedBlock.type === "paragraph" ||
+                              selectedBlock.type === "button" ||
+                              selectedBlock.type === "formLink" ||
+                              selectedBlock.type === "salesCheckoutButton"
+                            )
+                              ? (() => {
+                                  const blockStyle = selectedBlock.props.style as any;
+                                  const presetKey = fontPresetKeyFromStyle({
+                                    fontFamily: blockStyle?.fontFamily,
+                                    fontGoogleFamily: blockStyle?.fontGoogleFamily,
+                                  });
+
+                                  const customFontFamily = String(blockStyle?.fontFamily || "").trim();
+
+                                  return (
+                                    <div>
+                                      <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-zinc-500">Font</div>
+                                      <PortalListboxDropdown
+                                        value={presetKey as any}
+                                        onChange={(k) => {
+                                          const next = applyFontPresetToStyle(String(k || "default"));
+                                          updateSelectedBlockStyle({
+                                            fontFamily: next.fontFamily,
+                                            fontGoogleFamily: next.fontGoogleFamily,
+                                          } as any);
+                                        }}
+                                        options={[
+                                          { value: "default", label: "Default (theme)" },
+                                          ...FONT_PRESETS.filter((p) => p.key !== "default").map((p) => ({ value: p.key, label: p.label })),
+                                          { value: "custom", label: "Custom…" },
+                                        ] as any}
+                                        getOptionStyle={(o: any) => {
+                                          if (o.value === "custom") return customFontFamily ? { fontFamily: customFontFamily } : undefined;
+                                          const preset = FONT_PRESETS.find((p) => p.key === o.value);
+                                          return preset?.fontFamily ? { fontFamily: preset.fontFamily } : undefined;
+                                        }}
+                                        getButtonLabelStyle={(o: any) => {
+                                          if (!o) return undefined;
+                                          if (o.value === "custom") return customFontFamily ? { fontFamily: customFontFamily } : undefined;
+                                          const preset = FONT_PRESETS.find((p) => p.key === o.value);
+                                          return preset?.fontFamily ? { fontFamily: preset.fontFamily } : undefined;
+                                        }}
+                                        className="w-full"
+                                        buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
+                                      />
+                                      {presetKey === "custom" ? (
+                                        <label className="mt-2 block">
+                                          <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-zinc-500">Custom font-family</div>
+                                          <input
+                                            value={customFontFamily}
+                                            onChange={(e) =>
+                                              updateSelectedBlockStyle({
+                                                fontFamily: e.target.value.replace(/[\r\n\t]/g, " ").slice(0, 200) || undefined,
+                                                fontGoogleFamily: undefined,
+                                              } as any)
+                                            }
+                                            className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                                            placeholder='e.g. ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial'
+                                          />
+                                        </label>
+                                      ) : null}
+                                    </div>
+                                  );
+                                })()
+                              : null}
 
                             {selectedBlock.type !== "customCode" ? (
                               <AlignPicker

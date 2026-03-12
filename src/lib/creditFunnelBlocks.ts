@@ -696,7 +696,53 @@ export function renderCreditFunnelBlocks({
   const first = blocks[0];
   const pageStyleBlock = first && first.type === "page" ? first : null;
   const renderBlocks = pageStyleBlock ? blocks.slice(1) : blocks;
-  const googleCss = googleFontImportCss(pageStyleBlock?.props?.style?.fontGoogleFamily);
+  const googleCss = (() => {
+    const families = new Set<string>();
+
+    const addFromStyle = (style: unknown) => {
+      if (!style || typeof style !== "object") return;
+      const fam = typeof (style as any).fontGoogleFamily === "string" ? String((style as any).fontGoogleFamily).trim() : "";
+      if (!fam) return;
+      if (!googleFontImportCss(fam)) return;
+      families.add(fam);
+    };
+
+    addFromStyle(pageStyleBlock?.props?.style);
+
+    const walk = (arr: CreditFunnelBlock[]) => {
+      for (const b of arr) {
+        if (!b || typeof b !== "object") continue;
+        addFromStyle((b.props as any)?.style);
+
+        if (b.type === "section") {
+          addFromStyle((b.props as any)?.leftStyle);
+          addFromStyle((b.props as any)?.rightStyle);
+          if (Array.isArray((b.props as any)?.children)) walk((b.props as any).children);
+          if (Array.isArray((b.props as any)?.leftChildren)) walk((b.props as any).leftChildren);
+          if (Array.isArray((b.props as any)?.rightChildren)) walk((b.props as any).rightChildren);
+          continue;
+        }
+
+        if (b.type === "columns") {
+          const cols = Array.isArray((b.props as any)?.columns) ? ((b.props as any).columns as any[]) : [];
+          for (const c of cols) {
+            addFromStyle(c?.style);
+            if (c && Array.isArray((c as any).children)) walk((c as any).children);
+          }
+          continue;
+        }
+      }
+    };
+
+    walk(renderBlocks);
+
+    const css = Array.from(families)
+      .map((f) => googleFontImportCss(f))
+      .filter(Boolean)
+      .join("\n");
+
+    return css || null;
+  })();
 
   const isEditor = Boolean(editor?.enabled);
 
