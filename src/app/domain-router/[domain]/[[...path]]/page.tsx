@@ -8,6 +8,7 @@ import { coerceBlocksJson, renderCreditFunnelBlocks } from "@/lib/creditFunnelBl
 import { coerceFontFamily, coerceGoogleFamily } from "@/lib/fontPresets";
 import { isCreditsOnlyBilling } from "@/lib/portalBillingModel";
 import { getPortalBillingModelForOwner } from "@/lib/portalBillingModel.server";
+import { resolveCustomDomain } from "@/lib/customDomainResolver";
 
 import { CreditHostedFormClient, type CreditFormStyle, type Field } from "@/app/credit/forms/[slug]/CreditHostedFormClient";
 import { AiSparkIcon } from "@/components/AiSparkIcon";
@@ -262,34 +263,7 @@ function parseStyle(schemaJson: unknown): CreditFormStyle {
   return out;
 }
 
-async function resolveCustomDomain(host: string): Promise<{ ownerId: string; matchedDomain: string; status: "PENDING" | "VERIFIED" } | null> {
-  const clean = String(host || "")
-    .trim()
-    .toLowerCase()
-    .replace(/\.$/, "");
-  if (!clean) return null;
 
-  const primary = await prisma.creditCustomDomain
-    .findFirst({ where: { domain: clean }, select: { ownerId: true, domain: true, status: true } })
-    .catch(() => null);
-  if (primary) return { ownerId: primary.ownerId, matchedDomain: primary.domain, status: primary.status };
-
-  if (clean.startsWith("www.")) {
-    const apex = clean.slice(4);
-    const fallback = await prisma.creditCustomDomain
-      .findFirst({ where: { domain: apex }, select: { ownerId: true, domain: true, status: true } })
-      .catch(() => null);
-    if (fallback) return { ownerId: fallback.ownerId, matchedDomain: fallback.domain, status: fallback.status };
-  } else {
-    const www = `www.${clean}`;
-    const fallback = await prisma.creditCustomDomain
-      .findFirst({ where: { domain: www }, select: { ownerId: true, domain: true, status: true } })
-      .catch(() => null);
-    if (fallback) return { ownerId: fallback.ownerId, matchedDomain: fallback.domain, status: fallback.status };
-  }
-
-  return null;
-}
 
 function FunnelMarkdown({ blocks }: { blocks: any[] }) {
   return (
