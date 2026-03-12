@@ -239,7 +239,6 @@ function toYmd(d: Date): string {
 function makeClientId(prefix: string): string {
   try {
     if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
-      // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
       const uuid = (crypto as any).randomUUID() as string;
       return `${prefix}${uuid.replace(/-/g, "")}`;
     }

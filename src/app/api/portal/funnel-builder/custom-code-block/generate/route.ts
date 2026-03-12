@@ -157,6 +157,20 @@ const calendarEmbedBlockSchema = z
   })
   .strip();
 
+const salesCheckoutButtonBlockSchema = z
+  .object({
+    type: z.literal("salesCheckoutButton"),
+    props: z
+      .object({
+        priceId: z.string().trim().max(140).optional().default(""),
+        quantity: z.number().finite().min(1).max(20).optional(),
+        text: z.string().trim().max(120).optional(),
+        style: blockStyleSchema.optional(),
+      })
+      .strip(),
+  })
+  .strip();
+
 const aiInsertableBlockSchema = z.discriminatedUnion("type", [
   chatbotBlockSchema,
   imageBlockSchema,
@@ -167,14 +181,26 @@ const aiInsertableBlockSchema = z.discriminatedUnion("type", [
   formLinkBlockSchema,
   formEmbedBlockSchema,
   calendarEmbedBlockSchema,
+  salesCheckoutButtonBlockSchema,
 ]);
 
-const aiActionSchema = z
+const presetKeySchema = z.enum(["hero", "body", "form", "shop"]);
+
+const aiInsertAfterActionSchema = z
   .object({
     type: z.literal("insertAfter"),
     block: aiInsertableBlockSchema,
   })
   .strip();
+
+const aiInsertPresetAfterActionSchema = z
+  .object({
+    type: z.literal("insertPresetAfter"),
+    preset: presetKeySchema,
+  })
+  .strip();
+
+const aiActionSchema = z.union([aiInsertAfterActionSchema, aiInsertPresetAfterActionSchema]);
 
 const aiActionsPayloadSchema = z
   .object({
@@ -235,6 +261,20 @@ const aiAnalysisCalendarEmbedBlockSchema = z
   })
   .strip();
 
+const aiAnalysisSalesCheckoutButtonBlockSchema = z
+  .object({
+    type: z.literal("salesCheckoutButton"),
+    props: z
+      .object({
+        priceId: z.string().trim().max(140).optional().default(""),
+        quantity: z.number().finite().min(1).max(20).optional(),
+        text: z.string().trim().max(120).optional(),
+        style: blockStyleSchema.optional(),
+      })
+      .strip(),
+  })
+  .strip();
+
 const aiAnalysisInsertableBlockSchema = z.discriminatedUnion("type", [
   chatbotBlockSchema,
   imageBlockSchema,
@@ -245,14 +285,24 @@ const aiAnalysisInsertableBlockSchema = z.discriminatedUnion("type", [
   aiAnalysisFormLinkBlockSchema,
   aiAnalysisFormEmbedBlockSchema,
   aiAnalysisCalendarEmbedBlockSchema,
+  aiAnalysisSalesCheckoutButtonBlockSchema,
 ]);
 
-const aiAnalysisActionSchema = z
+const aiAnalysisInsertAfterActionSchema = z
   .object({
     type: z.literal("insertAfter"),
     block: aiAnalysisInsertableBlockSchema,
   })
   .strip();
+
+const aiAnalysisInsertPresetAfterActionSchema = z
+  .object({
+    type: z.literal("insertPresetAfter"),
+    preset: presetKeySchema,
+  })
+  .strip();
+
+const aiAnalysisActionSchema = z.union([aiAnalysisInsertAfterActionSchema, aiAnalysisInsertPresetAfterActionSchema]);
 
 const aiAnalysisPayloadSchema = z
   .object({
@@ -390,8 +440,11 @@ export async function POST(req: Request) {
     "- A single ```html fenced block containing an HTML fragment (no <html>, no <head>).",
     "- Optionally a ```css fenced block for styles used by that fragment.",
     "B) Funnel blocks (when the request is better represented as built-in blocks like chatbot or images):",
-    "- A single ```json fenced block with shape: { actions: [{ type: 'insertAfter', block: { type, props } }] }",
-    "- Allowed block types: chatbot, image, heading, paragraph, button, spacer, formLink, formEmbed, calendarEmbed.",
+    "- A single ```json fenced block with shape: { actions: [...] }",
+    "- Action types:",
+    "  - { type: 'insertAfter', block: { type, props } }",
+    "  - { type: 'insertPresetAfter', preset: 'hero'|'body'|'form'|'shop' }",
+    "- Allowed block types for insertAfter: chatbot, image, heading, paragraph, button, spacer, formLink, formEmbed, calendarEmbed, salesCheckoutButton.",
     "- Do NOT include HTML/CSS fences when you return JSON actions.",
     "Constraints:",
     "- No external JS/CSS, no frameworks.",
@@ -402,6 +455,7 @@ export async function POST(req: Request) {
     `- This page is hosted at: ${basePath}/f/${page.funnel.slug}`,
     `- Hosted forms are at: ${basePath}/forms/{formSlug}`,
     "- For booking/scheduling: prefer returning a calendarEmbed block rather than hardcoding a booking URL.",
+    "- If the user asks for a shop/store/product list, prefer insertPresetAfter with preset='shop'.",
     "Available forms (slug: name [status]):",
     ...forms.map((f) => `- ${f.slug}: ${f.name} [${f.status}]`),
     "Available calendars (id: title [enabled]):",
@@ -418,12 +472,16 @@ export async function POST(req: Request) {
     "Output schema:",
     "{",
     "  output: 'actions' | 'html',",
-    "  actions?: [{ type: 'insertAfter', block: { type, props } }],",
+    "  actions?: [",
+    "    { type: 'insertAfter', block: { type, props } },",
+    "    { type: 'insertPresetAfter', preset: 'hero'|'body'|'form'|'shop' }",
+    "  ],",
     "  buildPrompt?: string",
     "}",
     "Rules:",
     "- If user says 'embed my calendar' or anything about booking/scheduling, prefer output='actions' with a calendarEmbed block.",
     "- If user says 'embed my form' or anything about forms, prefer output='actions' with a formEmbed (or formLink if they want a link).",
+    "- If user asks for a shop/store/product list, prefer output='actions' with an insertPresetAfter preset='shop'.",
     "- For calendarEmbed, props must include { calendar: { pick: 'default'|'byId'|'byTitle', value? }, height?, style? }.",
     "- For formEmbed/formLink, props must include { form: { pick: 'default'|'bySlug'|'byName', value? }, ... }.",
     "- Use pick='default' for 'my calendar'/'my form' when no specific name/slug is provided.",
@@ -484,6 +542,7 @@ export async function POST(req: Request) {
     // Resolve asset picks into concrete props.
     const resolvedActions = analysisParsed.data.actions
       .map((a) => {
+        if (a.type === "insertPresetAfter") return a;
         const block = a.block as any;
         if (block.type === "formLink" || block.type === "formEmbed") {
           const formSlug = resolveFormSlug(block.props.form, forms);

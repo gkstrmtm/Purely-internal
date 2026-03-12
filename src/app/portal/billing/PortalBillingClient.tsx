@@ -74,10 +74,6 @@ type PortalPricing =
     }
   | { ok: false; error?: string };
 
-type ReferralLinkResponse =
-  | { ok: true; code: string; url: string; stats: { total: number; verified: number; awarded: number } }
-  | { ok: false; error?: string };
-
 function formatMoney(cents: number, currency: string) {
   const value = typeof cents === "number" && Number.isFinite(cents) ? cents : 0;
   const curr = (currency || "usd").toUpperCase();

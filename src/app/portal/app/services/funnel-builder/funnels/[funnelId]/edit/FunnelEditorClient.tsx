@@ -757,6 +757,18 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
     // Intentionally omit `load` from deps to avoid re-creating it.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [funnelId, funnel, pages]);
+    type StripeProductLite = {
+      id: string;
+      name: string;
+      description: string | null;
+      defaultPrice: null | { id: string; unitAmount: number | null; currency: string };
+    };
+    const [stripeProducts, setStripeProducts] = useState<StripeProductLite[]>([]);
+    const [stripeProductsBusy, setStripeProductsBusy] = useState(false);
+    const [stripeProductsError, setStripeProductsError] = useState<string | null>(null);
+    const [newStripeProductName, setNewStripeProductName] = useState("");
+    const [newStripeProductPriceCents, setNewStripeProductPriceCents] = useState<number>(4900);
+    const [newStripeProductCurrency, setNewStripeProductCurrency] = useState("usd");
 
   const createPage = async () => {
     const slug = normalizeSlug(PROMPT_DISABLED("Page slug (e.g. landing)") || "");
@@ -1768,21 +1780,6 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
   const [dirtyPageIds, setDirtyPageIds] = useState<Record<string, boolean>>({});
   const [forms, setForms] = useState<CreditForm[] | null>(null);
 
-  type StripeProductLite = {
-    id: string;
-    name: string;
-    description: string | null;
-    defaultPrice: null | { id: string; unitAmount: number | null; currency: string };
-  };
-
-  const [stripeProducts, setStripeProducts] = useState<StripeProductLite[]>([]);
-  const [stripeProductsBusy, setStripeProductsBusy] = useState(false);
-  const [stripeProductsError, setStripeProductsError] = useState<string | null>(null);
-
-  const [newStripeProductName, setNewStripeProductName] = useState("");
-  const [newStripeProductPriceCents, setNewStripeProductPriceCents] = useState<number>(4900);
-  const [newStripeProductCurrency, setNewStripeProductCurrency] = useState("usd");
-
   const [selectedPageId, setSelectedPageId] = useState<string | null>(null);
   const [selectedBlockId, setSelectedBlockId] = useState<string | null>(null);
   const [hoveredBlockId, setHoveredBlockId] = useState<string | null>(null);
@@ -1806,75 +1803,6 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
 
   const [dialog, setDialog] = useState<FunnelEditorDialog>(null);
   const [dialogError, setDialogError] = useState<string | null>(null);
-
-  const formatMoney = useCallback((cents: number | null, currency: string) => {
-    const cur = String(currency || "usd").toUpperCase();
-    if (typeof cents !== "number" || !Number.isFinite(cents)) return cur;
-    const amount = cents / 100;
-    try {
-      return new Intl.NumberFormat(undefined, { style: "currency", currency: cur }).format(amount);
-    } catch {
-      return `${amount.toFixed(2)} ${cur}`;
-    }
-  }, []);
-
-  const loadStripeProducts = useCallback(async () => {
-    setStripeProductsBusy(true);
-    setStripeProductsError(null);
-    try {
-      const res = await fetch("/api/portal/funnel-builder/sales/products", { cache: "no-store" });
-      const json = (await res.json().catch(() => null)) as any;
-      if (!res.ok || !json || json.ok !== true) {
-        const msg = (json && typeof json.error === "string" && json.error) || "Failed to load products";
-        throw new Error(msg);
-      }
-      const products = Array.isArray(json.products) ? (json.products as StripeProductLite[]) : [];
-      setStripeProducts(products);
-    } catch (e) {
-      const msg = e && typeof e === "object" && "message" in e ? String((e as any).message) : "Failed to load products";
-      setStripeProductsError(msg || "Failed to load products");
-    } finally {
-      setStripeProductsBusy(false);
-    }
-  }, []);
-
-  const createStripeProduct = useCallback(async () => {
-    const name = newStripeProductName.trim();
-    if (!name) {
-      toast.error("Product name is required");
-      return null;
-    }
-
-    setStripeProductsBusy(true);
-    setStripeProductsError(null);
-    try {
-      const res = await fetch("/api/portal/funnel-builder/sales/products", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          name,
-          priceCents: Number(newStripeProductPriceCents),
-          currency: String(newStripeProductCurrency || "usd").trim().toLowerCase(),
-        }),
-      });
-      const json = (await res.json().catch(() => null)) as any;
-      if (!res.ok || !json || json.ok !== true) {
-        const msg = (json && typeof json.error === "string" && json.error) || "Failed to create product";
-        throw new Error(msg);
-      }
-      const created = (json.product ?? null) as StripeProductLite | null;
-      toast.success("Product created in Stripe");
-      setNewStripeProductName("");
-      await loadStripeProducts();
-      return created;
-    } catch (e) {
-      const msg = e && typeof e === "object" && "message" in e ? String((e as any).message) : "Failed to create product";
-      setStripeProductsError(msg || "Failed to create product");
-      return null;
-    } finally {
-      setStripeProductsBusy(false);
-    }
-  }, [loadStripeProducts, newStripeProductCurrency, newStripeProductName, newStripeProductPriceCents, toast]);
 
   const portalVariant: PortalVariant = basePath === "/credit" ? "credit" : "portal";
 
@@ -2978,8 +2906,10 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
     setSidebarPanel("selected");
   };
 
-  const addPresetSection = (preset: "hero" | "body" | "form") => {
-    if (!selectedPage) return;
+  type FunnelPresetKey = "hero" | "body" | "form" | "shop";
+
+  const buildPresetBlocks = (preset: FunnelPresetKey): CreditFunnelBlock[] => {
+    if (!selectedPage) return [];
 
     const blocks: CreditFunnelBlock[] = [];
     const firstFormSlug = (forms || []).find((f) => typeof f?.slug === "string" && f.slug.trim())?.slug || "";
@@ -3060,6 +2990,52 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
       });
     }
 
+    if (preset === "shop") {
+      const productCard = (label: string): CreditFunnelBlock[] => [
+        { id: newId(), type: "heading", props: { text: label, level: 3 } },
+        { id: newId(), type: "paragraph", props: { text: "Short description (optional)." } },
+        { id: newId(), type: "salesCheckoutButton", props: { text: "Buy now", priceId: "", quantity: 1 } },
+      ];
+
+      blocks.push({
+        id: newId(),
+        type: "section",
+        props: {
+          layout: "one",
+          children: [
+            { id: newId(), type: "heading", props: { text: "Shop", level: 2 } },
+            {
+              id: newId(),
+              type: "paragraph",
+              props: {
+                text: "Add products and connect each Buy button to a Stripe price. (Use the Checkout block settings to pick a product.)",
+              },
+            },
+            {
+              id: newId(),
+              type: "columns",
+              props: {
+                columns: [
+                  { markdown: "", children: productCard("Product 1") },
+                  { markdown: "", children: productCard("Product 2") },
+                  { markdown: "", children: productCard("Product 3") },
+                ],
+                gapPx: 16,
+                stackOnMobile: true,
+              },
+            },
+          ],
+          style: { paddingPx: 32, backgroundColor: "#f8fafc", borderRadiusPx: 24, marginBottomPx: 16 },
+        },
+      });
+    }
+
+    return blocks;
+  };
+
+  const addPresetSection = (preset: FunnelPresetKey) => {
+    if (!selectedPage) return;
+    const blocks = buildPresetBlocks(preset);
     if (!blocks.length) return;
     const nextEditable = [...editableBlocks, ...blocks].filter((b) => b.type !== "page");
     setSelectedPageLocal({
@@ -3895,6 +3871,21 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                     >
                       Form
                     </button>
+
+                    <button
+                      type="button"
+                      disabled={busy}
+                      draggable
+                      onDragStart={(e) => {
+                        e.dataTransfer.setData("text/x-funnel-preset", "shop");
+                        e.dataTransfer.effectAllowed = "copy";
+                      }}
+                      onClick={() => addPresetSection("shop")}
+                      className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-left text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+                      title="Drag into preview or click to add"
+                    >
+                      Shop
+                    </button>
                   </div>
                   <div className="mt-2 text-xs text-zinc-500">Quick-start templates using real blocks (no markdown typing).</div>
                 </div>
@@ -4178,7 +4169,8 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                                                 {
                                                   actions: actions.slice(0, 6).map((a) => ({
                                                     type: typeof a?.type === "string" ? a.type : "",
-                                                    block: a?.block,
+                                                    ...(a?.type === "insertAfter" ? { block: a?.block } : {}),
+                                                    ...(a?.type === "insertPresetAfter" ? { preset: a?.preset } : {}),
                                                   })),
                                                 },
                                                 null,
@@ -4306,6 +4298,14 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                                             return { id, type: "calendarEmbed", props: { calendarId, ...(typeof height === "number" ? { height } : {}) } } as any;
                                           }
 
+                                          if (type === "salesCheckoutButton") {
+                                            const priceId = s((props as any).priceId, 140);
+                                            const qtyNum = Number((props as any).quantity);
+                                            const quantity = Number.isFinite(qtyNum) ? Math.max(1, Math.min(20, Math.floor(qtyNum))) : 1;
+                                            const text = s((props as any).text, 120) || "Buy now";
+                                            return { id, type: "salesCheckoutButton", props: { text, priceId, quantity } } as any;
+                                          }
+
                                           return null;
                                         };
 
@@ -4377,12 +4377,26 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                                         let anchorId = selectedBlock.id;
                                         const insertedIds: string[] = [];
                                         for (const a of actions.slice(0, 6)) {
-                                          if (!a || a.type !== "insertAfter") continue;
-                                          const nextBlock = coerceAiBlock(a.block);
-                                          if (!nextBlock) continue;
-                                          nextEditable = insertAfterAnchor(nextEditable, anchorId, nextBlock);
-                                          anchorId = nextBlock.id;
-                                          insertedIds.push(nextBlock.id);
+                                          if (!a || typeof a.type !== "string") continue;
+                                          if (a.type === "insertAfter") {
+                                            const nextBlock = coerceAiBlock(a.block);
+                                            if (!nextBlock) continue;
+                                            nextEditable = insertAfterAnchor(nextEditable, anchorId, nextBlock);
+                                            anchorId = nextBlock.id;
+                                            insertedIds.push(nextBlock.id);
+                                            continue;
+                                          }
+
+                                          if (a.type === "insertPresetAfter") {
+                                            const preset = String((a as any).preset || "").trim();
+                                            if (preset !== "hero" && preset !== "body" && preset !== "form" && preset !== "shop") continue;
+                                            const presetBlocks = buildPresetBlocks(preset as any);
+                                            for (const b of presetBlocks.slice(0, 3)) {
+                                              nextEditable = insertAfterAnchor(nextEditable, anchorId, b);
+                                              anchorId = b.id;
+                                              insertedIds.push(b.id);
+                                            }
+                                          }
                                         }
 
                                         setSelectedPageLocal({
@@ -6200,8 +6214,8 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                 if (!selectedPage || selectedPage.editorMode !== "BLOCKS") return;
                 e.preventDefault();
                 const preset = e.dataTransfer.getData("text/x-funnel-preset");
-                if (preset === "hero" || preset === "body" || preset === "form") {
-                  addPresetSection(preset);
+                if (preset === "hero" || preset === "body" || preset === "form" || preset === "shop") {
+                  addPresetSection(preset as any);
                   return;
                 }
                 const t = e.dataTransfer.getData("text/x-block-type");
