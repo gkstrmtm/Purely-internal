@@ -166,6 +166,7 @@ type CampaignUserAnalyticsRow = {
   email: string;
   businessName: string | null;
   lastSeenAt: string | null;
+  lastSeenPath?: string | null;
   topServiceSlug?: string | null;
   topServiceSec?: number | null;
   impressions: number;
@@ -390,6 +391,7 @@ export default function PortalAdCampaignsClient() {
           email: String(r.email || ""),
           businessName: r.businessName ? String(r.businessName) : null,
           lastSeenAt: r.lastSeenAt ? String(r.lastSeenAt) : null,
+          lastSeenPath: r.lastSeenPath ? String(r.lastSeenPath) : null,
           topServiceSlug: r.topServiceSlug ? String(r.topServiceSlug) : null,
           topServiceSec: Number.isFinite(Number(r.topServiceSec)) ? Number(r.topServiceSec) : null,
           impressions: Number(r.impressions || 0),
@@ -1317,6 +1319,7 @@ export default function PortalAdCampaignsClient() {
                   <th className="py-2 pr-4">Impressions</th>
                   <th className="py-2 pr-4">Clicks</th>
                   <th className="py-2 pr-4">CTR</th>
+                  <th className="py-2 pr-4">Last path</th>
                   <th className="py-2 pr-4">Last seen</th>
                 </tr>
               </thead>
@@ -1348,6 +1351,8 @@ export default function PortalAdCampaignsClient() {
                         ? `${Math.round(topServiceSec / 60)}m`
                         : `${topServiceSec}s`
                       : "";
+                    const lastPath = String(r.lastSeenPath || "").trim();
+                    const lastPathLabel = lastPath ? lastPath : "n/a";
                     return (
                       <tr key={r.ownerId} className="border-b border-zinc-100">
                         <td className="py-3 pr-4">
@@ -1368,6 +1373,11 @@ export default function PortalAdCampaignsClient() {
                         <td className="py-3 pr-4 font-semibold text-zinc-900">{clicks.toLocaleString()}</td>
                         <td className="py-3 pr-4 font-semibold text-zinc-900">{ctr.toFixed(1)}%</td>
                         <td className="py-3 pr-4 text-zinc-700">
+                          <span className="font-mono text-xs" title={lastPath || undefined}>
+                            {lastPathLabel}
+                          </span>
+                        </td>
+                        <td className="py-3 pr-4 text-zinc-700">
                           {r.lastSeenAt ? new Date(r.lastSeenAt).toLocaleString() : "n/a"}
                         </td>
                       </tr>
@@ -1376,7 +1386,7 @@ export default function PortalAdCampaignsClient() {
 
                 {!usersLoading && (!usersRows || usersRows.length === 0) ? (
                   <tr>
-                    <td colSpan={7} className="py-6 text-center text-sm text-zinc-500">
+                    <td colSpan={8} className="py-6 text-center text-sm text-zinc-500">
                       No analytics yet.
                     </td>
                   </tr>

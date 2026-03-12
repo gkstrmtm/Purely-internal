@@ -293,9 +293,9 @@ export default function PortalOverridesClient() {
                     ) : null}
                     <div>
                       Invites: <span className="font-semibold text-zinc-800">{Math.max(0, u.invitesSentCount ?? 0)}</span>
-                      {u.invitesVerifiedCount || u.inviteCreditsAwardedCount ? (
-                        <span className="text-zinc-500"> · verified {Math.max(0, u.invitesVerifiedCount ?? 0)} · awarded {Math.max(0, u.inviteCreditsAwardedCount ?? 0)}</span>
-                      ) : null}
+                      <span className="text-zinc-500">
+                        {" "}· verified {Math.max(0, u.invitesVerifiedCount ?? 0)} · awarded {Math.max(0, u.inviteCreditsAwardedCount ?? 0)}
+                      </span>
                     </div>
                     <div className="flex items-center gap-2">
                       <span

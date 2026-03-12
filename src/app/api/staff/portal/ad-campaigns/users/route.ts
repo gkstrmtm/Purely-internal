@@ -35,6 +35,7 @@ export async function GET(req: Request) {
             email: string;
             businessName: string | null;
             lastSeenAt: Date | null;
+            lastSeenPath: string | null;
             topServiceSlug: string | null;
             topServiceSec: number | null;
             impressions: number;
@@ -71,6 +72,7 @@ export async function GET(req: Request) {
               WHEN portal."lastSeenAt" IS NULL THEN a."lastSeenAt"
               ELSE GREATEST(a."lastSeenAt", portal."lastSeenAt")
             END as "lastSeenAt",
+            portal."lastSeenPath" as "lastSeenPath",
             portal."topServiceSlug" as "topServiceSlug",
             portal."topServiceSec"::int as "topServiceSec",
             COALESCE(a."impressions", 0)::int as "impressions",
@@ -90,6 +92,7 @@ export async function GET(req: Request) {
                   NULLIF(regexp_replace(COALESCE(ps."dataJson"->>'lastSeenAtMs',''), '[^0-9]', '', 'g'), '')::bigint / 1000.0
                 )
               END as "lastSeenAt"
+              , NULLIF(trim(COALESCE(ps."dataJson"->>'lastSeenPath','')), '')::text as "lastSeenPath"
               , top."topServiceSlug" as "topServiceSlug",
               top."topServiceSec" as "topServiceSec"
             FROM "PortalServiceSetup" ps
@@ -114,6 +117,7 @@ export async function GET(req: Request) {
             email: string;
             businessName: string | null;
             lastSeenAt: Date | null;
+            lastSeenPath: string | null;
             topServiceSlug: string | null;
             topServiceSec: number | null;
             impressions: number;
@@ -133,6 +137,7 @@ export async function GET(req: Request) {
               WHEN MAX(portal."lastSeenAt") IS NULL THEN MAX(e."createdAt")
               ELSE GREATEST(MAX(e."createdAt"), MAX(portal."lastSeenAt"))
             END as "lastSeenAt",
+              MAX(portal."lastSeenPath") as "lastSeenPath",
               MAX(portal."topServiceSlug") as "topServiceSlug",
               MAX(portal."topServiceSec")::int as "topServiceSec",
             SUM(CASE WHEN COALESCE(e."metaJson"->>'action','IMPRESSION') = 'CLICK' THEN 0 ELSE 1 END)::int as "impressions",
@@ -152,6 +157,7 @@ export async function GET(req: Request) {
                   NULLIF(regexp_replace(COALESCE(ps."dataJson"->>'lastSeenAtMs',''), '[^0-9]', '', 'g'), '')::bigint / 1000.0
                 )
               END as "lastSeenAt"
+              , NULLIF(trim(COALESCE(ps."dataJson"->>'lastSeenPath','')), '')::text as "lastSeenPath"
               , top."topServiceSlug" as "topServiceSlug",
               top."topServiceSec" as "topServiceSec"
             FROM "PortalServiceSetup" ps
