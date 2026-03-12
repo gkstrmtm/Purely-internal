@@ -25,6 +25,16 @@ import { PORTAL_VARIANT_HEADER, type PortalVariant } from "@/lib/portalVariant";
 import { FONT_PRESETS, applyFontPresetToStyle, fontPresetKeyFromStyle, googleFontImportCss } from "@/lib/fontPresets";
 import { hostedFunnelPath } from "@/lib/publicHostedKeys";
 
+function formatMoney(cents: number | null | undefined, currency: string) {
+  if (typeof cents !== "number" || !Number.isFinite(cents)) return "";
+  const curr = (currency || "usd").toUpperCase();
+  try {
+    return new Intl.NumberFormat(undefined, { style: "currency", currency: curr }).format(cents / 100);
+  } catch {
+    return `${curr} ${(cents / 100).toFixed(2)}`;
+  }
+}
+
 type Funnel = {
   id: string;
   slug: string;
@@ -1237,14 +1247,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                                   </div>
                                 ) : null}
 
-                                <button
-                                  type="button"
-                                  disabled={stripeProductsBusy}
-                                  onClick={() => void loadStripeProducts()}
-                                  className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
-                                >
-                                  Refresh Stripe products
-                                </button>
+                                <div className="text-[11px] text-zinc-500">Stripe products auto-load.</div>
 
                                 <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
                                   <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Create Stripe product</div>
@@ -1864,6 +1867,36 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
 export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; funnelId: string }) {
   const router = useRouter();
   const toast = useToast();
+
+  type StripeProductLite = {
+    id: string;
+    name: string;
+    description: string | null;
+    defaultPrice: null | { id: string; unitAmount: number | null; currency: string };
+  };
+  const [stripeProducts, setStripeProducts] = useState<StripeProductLite[]>([]);
+  const [stripeProductsBusy, setStripeProductsBusy] = useState(false);
+  const [stripeProductsError, setStripeProductsError] = useState<string | null>(null);
+
+  const loadStripeProducts = useCallback(async () => {
+    if (stripeProductsBusy) return;
+    setStripeProductsBusy(true);
+    setStripeProductsError(null);
+    try {
+      const res = await fetch("/api/portal/funnel-builder/sales/products", { cache: "no-store" });
+      const json = (await res.json().catch(() => null)) as any;
+      if (!res.ok || !json || json.ok !== true) {
+        throw new Error((json && typeof json.error === "string" && json.error) || "Unable to load Stripe products");
+      }
+      const items = Array.isArray(json.products) ? (json.products as StripeProductLite[]) : [];
+      setStripeProducts(items.filter(Boolean));
+    } catch (e) {
+      const msg = e && typeof e === "object" && "message" in e ? String((e as any).message) : "Unable to load Stripe products";
+      setStripeProductsError(msg || "Unable to load Stripe products");
+    } finally {
+      setStripeProductsBusy(false);
+    }
+  }, [stripeProductsBusy]);
 
   const [funnel, setFunnel] = useState<Funnel | null>(null);
   const [pages, setPages] = useState<Page[] | null>(null);
@@ -2515,6 +2548,49 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
     if (!selectedBlockId) return null;
     return findBlockInTree(editableBlocks, selectedBlockId)?.block || null;
   }, [editableBlocks, selectedBlockId, findBlockInTree]);
+
+  const pageHasSalesCheckoutButton = useMemo(() => {
+    const visit = (blocks: CreditFunnelBlock[] | undefined): boolean => {
+      if (!blocks || blocks.length === 0) return false;
+      for (const b of blocks) {
+        if (!b) continue;
+        if (b.type === "salesCheckoutButton") return true;
+        if (b.type === "section") {
+          const props: any = b.props;
+          const keys = ["children", "leftChildren", "rightChildren"] as const;
+          for (const key of keys) {
+            const arr = Array.isArray(props?.[key]) ? (props[key] as CreditFunnelBlock[]) : undefined;
+            if (visit(arr)) return true;
+          }
+        }
+        if (b.type === "columns") {
+          const props: any = b.props;
+          const cols = Array.isArray(props?.columns) ? (props.columns as any[]) : [];
+          for (const c of cols) {
+            const arr = Array.isArray(c?.children) ? (c.children as CreditFunnelBlock[]) : undefined;
+            if (visit(arr)) return true;
+          }
+        }
+      }
+      return false;
+    };
+
+    return visit(editableBlocks);
+  }, [editableBlocks]);
+
+  const stripeProductsAutoLoadAttemptedRef = useRef(false);
+  useEffect(() => {
+    if (stripeProductsAutoLoadAttemptedRef.current) return;
+    if (!pageHasSalesCheckoutButton && (!selectedBlock || selectedBlock.type !== "salesCheckoutButton")) return;
+    if (stripeProductsBusy) return;
+    if (stripeProducts.length > 0) {
+      stripeProductsAutoLoadAttemptedRef.current = true;
+      return;
+    }
+
+    stripeProductsAutoLoadAttemptedRef.current = true;
+    void loadStripeProducts();
+  }, [loadStripeProducts, pageHasSalesCheckoutButton, selectedBlock, stripeProducts.length, stripeProductsBusy]);
 
   const newId = () => {
     try {
@@ -5007,37 +5083,71 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                           placeholder="Button text (e.g. Buy now)"
                         />
 
-                        <input
-                          value={selectedBlock.props.priceId ?? ""}
-                          onChange={(e) =>
-                            upsertBlock({
-                              ...selectedBlock,
-                              props: { ...selectedBlock.props, priceId: e.target.value.trim() },
-                            })
-                          }
-                          className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-mono"
-                          placeholder="Stripe price id (price_...)"
-                        />
+                        <label className="block">
+                          <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Product</div>
+                          <PortalListboxDropdown
+                            value={selectedBlock.props.priceId ?? ""}
+                            onChange={(priceId) =>
+                              upsertBlock({
+                                ...selectedBlock,
+                                props: { ...selectedBlock.props, priceId: String(priceId || "").trim() },
+                              })
+                            }
+                            placeholder={stripeProductsBusy ? "Loading Stripe products…" : "Select a Stripe product"}
+                            options={[
+                              { value: "", label: "(No product selected)" },
+                              ...stripeProducts
+                                .filter((p) => p && p.defaultPrice && p.defaultPrice.id)
+                                .map((p) => ({
+                                  value: p.defaultPrice!.id,
+                                  label: p.name || "Product",
+                                  hint: formatMoney(p.defaultPrice!.unitAmount, p.defaultPrice!.currency) || "",
+                                })),
+                            ]}
+                            className="w-full"
+                            buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
+                            disabled={stripeProductsBusy}
+                          />
+                          <div className="mt-1 text-[11px] text-zinc-500">Pulled from your connected Stripe account.</div>
+                        </label>
 
-                        <div className="text-[11px] text-zinc-500">Tip: use the other inspector panel to browse products, or paste a Price ID here.</div>
+                        {stripeProductsError ? (
+                          <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+                            {stripeProductsError}
+                          </div>
+                        ) : null}
 
-                        <input
-                          type="number"
-                          min={1}
-                          max={20}
-                          value={String(selectedBlock.props.quantity ?? 1)}
-                          onChange={(e) =>
-                            upsertBlock({
-                              ...selectedBlock,
-                              props: {
-                                ...selectedBlock.props,
-                                quantity: Math.max(1, Math.min(20, Number(e.target.value) || 1)),
-                              },
-                            })
-                          }
-                          className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                          placeholder="Quantity"
-                        />
+                        {stripeProductsError ? (
+                          <button
+                            type="button"
+                            disabled={stripeProductsBusy}
+                            onClick={() => void loadStripeProducts()}
+                            className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-60"
+                          >
+                            Retry loading Stripe products
+                          </button>
+                        ) : null}
+
+                        <label className="block">
+                          <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Quantity</div>
+                          <input
+                            type="number"
+                            min={1}
+                            max={20}
+                            value={String(selectedBlock.props.quantity ?? 1)}
+                            onChange={(e) =>
+                              upsertBlock({
+                                ...selectedBlock,
+                                props: {
+                                  ...selectedBlock.props,
+                                  quantity: Math.max(1, Math.min(20, Number(e.target.value) || 1)),
+                                },
+                              })
+                            }
+                            className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                            placeholder="1"
+                          />
+                        </label>
                       </div>
                     ) : null}
 
@@ -6180,7 +6290,9 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                               selectedBlock.type === "paragraph" ||
                               selectedBlock.type === "button" ||
                               selectedBlock.type === "formLink" ||
-                              selectedBlock.type === "salesCheckoutButton"
+                              selectedBlock.type === "salesCheckoutButton" ||
+                              selectedBlock.type === "columns" ||
+                              selectedBlock.type === "section"
                             )
                               ? (() => {
                                   const blockStyle = selectedBlock.props.style as any;
