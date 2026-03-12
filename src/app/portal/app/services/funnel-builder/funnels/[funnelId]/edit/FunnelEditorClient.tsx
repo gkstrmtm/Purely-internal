@@ -1932,7 +1932,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
     return hostedFunnelPath(slug, funnelId);
   }, [funnel?.assignedDomain, funnel?.slug, funnel?.id, isLocalPreview]);
 
-  const [brandSwatches, setBrandSwatches] = useState<string[]>([]);
+  const [brandPalette, setBrandPalette] = useState<null | { primary?: string; accent?: string; text?: string }>(null);
 
   const [aiReceptionistChatAgentId, setAiReceptionistChatAgentId] = useState<string | null>(null);
   const [availableAgentOptions, setAvailableAgentOptions] = useState<Array<{ id: string; name?: string }>>([]);
@@ -2141,10 +2141,15 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
         });
         const json = (await res.json().catch(() => null)) as any;
         const p = json?.profile;
-        const values = [p?.brandPrimaryHex, p?.brandAccentHex, p?.brandTextHex]
-          .map((x) => (typeof x === "string" ? x.trim() : ""))
-          .filter((x) => isHexColor(x));
-        if (!cancelled) setBrandSwatches(values);
+        const primary = typeof p?.brandPrimaryHex === "string" ? p.brandPrimaryHex.trim() : "";
+        const accent = typeof p?.brandAccentHex === "string" ? p.brandAccentHex.trim() : "";
+        const text = typeof p?.brandTextHex === "string" ? p.brandTextHex.trim() : "";
+        const next = {
+          primary: isHexColor(primary) ? primary : undefined,
+          accent: isHexColor(accent) ? accent : undefined,
+          text: isHexColor(text) ? text : undefined,
+        };
+        if (!cancelled) setBrandPalette(next.primary || next.accent || next.text ? next : null);
       } catch {
         // ignore
       }
@@ -2154,6 +2159,11 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
       cancelled = true;
     };
   }, [portalVariant]);
+
+  const brandSwatches = useMemo(() => {
+    if (!brandPalette) return [] as string[];
+    return [brandPalette.primary, brandPalette.accent, brandPalette.text].filter((x): x is string => !!x && isHexColor(x));
+  }, [brandPalette]);
 
   useEffect(() => {
     let cancelled = false;
@@ -2343,7 +2353,8 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
       "#ef4444",
       "#a855f7",
     ];
-    const all = [...documentSwatches, ...brandSwatches, ...defaults].filter((c) => isHexColor(c));
+    // Put brand colors first so they are always easy to find.
+    const all = [...brandSwatches, ...documentSwatches, ...defaults].filter((c) => isHexColor(c));
     return Array.from(new Set(all));
   }, [brandSwatches, documentSwatches]);
 
@@ -3823,6 +3834,51 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                       );
                     })()}
 
+                    <div>
+                      <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-zinc-500">Brand colors</div>
+                      {brandPalette ? (
+                        <div className="grid grid-cols-3 gap-2">
+                          {(
+                            [
+                              { key: "primary", label: "Primary", value: brandPalette.primary },
+                              { key: "accent", label: "Accent", value: brandPalette.accent },
+                              { key: "text", label: "Text", value: brandPalette.text },
+                            ] as const
+                          ).map((it) => (
+                            <button
+                              key={it.key}
+                              type="button"
+                              disabled={!it.value}
+                              onClick={() => {
+                                if (!it.value) return;
+                                try {
+                                  void navigator.clipboard?.writeText?.(it.value);
+                                  toast.success(`${it.label} copied`);
+                                } catch {
+                                  // ignore
+                                }
+                              }}
+                              className={classNames(
+                                "flex items-center gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-left text-xs font-semibold text-zinc-800 hover:bg-zinc-50",
+                                !it.value ? "opacity-50" : "",
+                              )}
+                              title={it.value ? `Click to copy ${it.value}` : "Not set"}
+                            >
+                              <span
+                                className="h-4 w-4 shrink-0 rounded-md border border-zinc-200"
+                                style={{ backgroundColor: it.value || "transparent" }}
+                              />
+                              <span className="min-w-0 flex-1 truncate">{it.value || it.label}</span>
+                            </button>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs text-zinc-700">
+                          Set these in Business Profile to use them as swatches here.
+                        </div>
+                      )}
+                    </div>
+
                     <ColorPickerField
                       label="Page background"
                       value={(pageSettingsBlock as any)?.props?.style?.backgroundColor}
@@ -4937,6 +4993,54 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                       </div>
                     ) : null}
 
+                    {selectedBlock.type === "salesCheckoutButton" ? (
+                      <div className="space-y-2">
+                        <input
+                          value={selectedBlock.props.text ?? ""}
+                          onChange={(e) =>
+                            upsertBlock({
+                              ...selectedBlock,
+                              props: { ...selectedBlock.props, text: e.target.value },
+                            })
+                          }
+                          className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                          placeholder="Button text (e.g. Buy now)"
+                        />
+
+                        <input
+                          value={selectedBlock.props.priceId ?? ""}
+                          onChange={(e) =>
+                            upsertBlock({
+                              ...selectedBlock,
+                              props: { ...selectedBlock.props, priceId: e.target.value.trim() },
+                            })
+                          }
+                          className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-mono"
+                          placeholder="Stripe price id (price_...)"
+                        />
+
+                        <div className="text-[11px] text-zinc-500">Tip: use the other inspector panel to browse products, or paste a Price ID here.</div>
+
+                        <input
+                          type="number"
+                          min={1}
+                          max={20}
+                          value={String(selectedBlock.props.quantity ?? 1)}
+                          onChange={(e) =>
+                            upsertBlock({
+                              ...selectedBlock,
+                              props: {
+                                ...selectedBlock.props,
+                                quantity: Math.max(1, Math.min(20, Number(e.target.value) || 1)),
+                              },
+                            })
+                          }
+                          className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                          placeholder="Quantity"
+                        />
+                      </div>
+                    ) : null}
+
                     {selectedBlock.type === "formLink" ? (
                       <div className="space-y-2">
                         <label className="block">
@@ -5943,6 +6047,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                               selectedBlock.type === "paragraph" ||
                               selectedBlock.type === "button" ||
                               selectedBlock.type === "formLink" ||
+                              selectedBlock.type === "salesCheckoutButton" ||
                               selectedBlock.type === "columns" ||
                               selectedBlock.type === "section"
                             ) ? (
@@ -6165,7 +6270,11 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                               onChange={(v) => updateSelectedBlockStyle({ paddingPx: v })}
                             />
 
-                            {selectedBlock.type === "button" ? (
+                            {(
+                              selectedBlock.type === "button" ||
+                              selectedBlock.type === "formLink" ||
+                              selectedBlock.type === "salesCheckoutButton"
+                            ) ? (
                               <div className="space-y-2">
                                 <ColorPickerField
                                   label="Outline color"
@@ -6215,7 +6324,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                               max={64}
                             />
 
-                            {(selectedBlock.type === "image" || selectedBlock.type === "button") ? (
+                            {(selectedBlock.type === "image" || selectedBlock.type === "button" || selectedBlock.type === "formLink" || selectedBlock.type === "salesCheckoutButton") ? (
                               <MaxWidthPicker
                                 label="Max width"
                                 value={selectedBlock.props.style?.maxWidthPx}

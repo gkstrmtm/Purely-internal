@@ -1,5 +1,6 @@
 "use client";
 
+import type { CSSProperties } from "react";
 import { useCallback, useState } from "react";
 
 function classNames(...xs: Array<string | false | null | undefined>) {
@@ -12,6 +13,7 @@ export function SalesCheckoutButton({
   quantity,
   text,
   className,
+  style,
   disabled,
 }: {
   pageId: string;
@@ -19,6 +21,7 @@ export function SalesCheckoutButton({
   quantity?: number;
   text?: string;
   className?: string;
+  style?: CSSProperties;
   disabled?: boolean;
 }) {
   const [busy, setBusy] = useState(false);
@@ -68,6 +71,7 @@ export function SalesCheckoutButton({
         data-funnel-editor-interactive="true"
         disabled={disabled || busy || !pageId || !priceId}
         onClick={() => void onClick()}
+        style={style}
         className={classNames(
           "inline-flex items-center justify-center rounded-xl bg-[color:var(--color-brand-blue)] px-5 py-3 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60",
           className,

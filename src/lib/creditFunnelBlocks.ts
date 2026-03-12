@@ -945,6 +945,12 @@ export function renderCreditFunnelBlocks({
           upsert({ ...block, props: { ...block.props, text: nextText } } as CreditFunnelBlock);
           return;
         }
+        if (block.type === "formLink") {
+          const nextText = nextTextFromEl(e.currentTarget);
+          if (nextText === currentText) return;
+          upsert({ ...block, props: { ...block.props, text: nextText } } as CreditFunnelBlock);
+          return;
+        }
       },
     };
   };
@@ -962,11 +968,38 @@ export function renderCreditFunnelBlocks({
 
         if (!isEditor && (!pageId || !priceId)) return null;
 
+        const s = (b.props as any)?.style as BlockStyle | undefined;
+        const wrapper: React.CSSProperties = wrapperStyle({
+          align: s?.align,
+          marginTopPx: s?.marginTopPx,
+          marginBottomPx: s?.marginBottomPx,
+          maxWidthPx: s?.maxWidthPx,
+        });
+
+        const borderWidth =
+          typeof s?.borderWidthPx === "number"
+            ? s.borderWidthPx
+            : s?.borderColor
+              ? 1
+              : undefined;
+
+        const btnStyle: React.CSSProperties = {
+          ...textStyle(s),
+          fontFamily: s?.fontFamily,
+          color: s?.textColor,
+          backgroundColor: s?.backgroundColor,
+          borderRadius: typeof s?.borderRadiusPx === "number" ? s.borderRadiusPx : undefined,
+          padding: typeof s?.paddingPx === "number" ? s.paddingPx : undefined,
+          borderWidth: borderWidth,
+          borderStyle: borderWidth !== undefined ? "solid" : undefined,
+          borderColor: borderWidth !== undefined ? (s?.borderColor || "currentColor") : undefined,
+        };
+
         return React.createElement(
           "div",
           {
             key: b.id,
-            style: { ...wrapperStyle((b.props as any)?.style), ...(blockWrapStyle(b.id) || {}) },
+            style: { ...wrapper, ...(blockWrapStyle(b.id) || {}) },
             ...wrapProps(b.id),
           },
           renderMoveControls(b.id),
@@ -976,6 +1009,7 @@ export function renderCreditFunnelBlocks({
             quantity,
             text,
             disabled: isEditor,
+            style: Object.keys(btnStyle).some((k) => (btnStyle as any)[k] !== undefined) ? btnStyle : undefined,
           }),
         );
       }
@@ -1178,6 +1212,7 @@ export function renderCreditFunnelBlocks({
 
         const linkStyle: React.CSSProperties = {
           ...textStyle(s),
+          fontFamily: s?.fontFamily,
           color: s?.textColor,
           backgroundColor: s?.backgroundColor,
           borderRadius: typeof s?.borderRadiusPx === "number" ? s.borderRadiusPx : undefined,
@@ -1270,11 +1305,37 @@ export function renderCreditFunnelBlocks({
       if (b.type === "formLink") {
         const href =
           basePath + "/forms/" + encodeURIComponent(b.props.formSlug || "");
+
+        const s = b.props.style;
+        const wrapper: React.CSSProperties = wrapperStyle({
+          align: s?.align,
+          marginTopPx: s?.marginTopPx,
+          marginBottomPx: s?.marginBottomPx,
+          maxWidthPx: s?.maxWidthPx,
+        });
+
+        const borderWidth =
+          typeof s?.borderWidthPx === "number"
+            ? s.borderWidthPx
+            : s?.borderColor
+              ? 1
+              : undefined;
+
+        const linkStyle: React.CSSProperties = {
+          ...textStyle(s),
+          color: s?.textColor,
+          backgroundColor: s?.backgroundColor,
+          borderRadius: typeof s?.borderRadiusPx === "number" ? s.borderRadiusPx : undefined,
+          padding: typeof s?.paddingPx === "number" ? s.paddingPx : undefined,
+          borderWidth: borderWidth,
+          borderStyle: borderWidth !== undefined ? "solid" : undefined,
+          borderColor: borderWidth !== undefined ? (s?.borderColor || "currentColor") : undefined,
+        };
         return React.createElement(
           "div",
           {
             key: b.id,
-            style: { ...wrapperStyle(b.props.style), ...(blockWrapStyle(b.id) || {}) },
+            style: { ...wrapper, ...(blockWrapStyle(b.id) || {}) },
             ...wrapProps(b.id),
           },
           renderMoveControls(b.id),
@@ -1283,6 +1344,7 @@ export function renderCreditFunnelBlocks({
             {
               href,
               className: buttonClass("primary"),
+              style: Object.keys(linkStyle).some((k) => (linkStyle as any)[k] !== undefined) ? linkStyle : undefined,
               onClick: isEditor
                 ? (e: any) => {
                     e.preventDefault?.();
@@ -1291,7 +1353,13 @@ export function renderCreditFunnelBlocks({
                   }
                 : undefined,
             },
-            b.props.text || "Open form",
+            React.createElement(
+              "span",
+              {
+                ...editableTextProps(b, b.props.text || "Open form"),
+              },
+              b.props.text || "Open form",
+            ),
           ),
         );
       }
