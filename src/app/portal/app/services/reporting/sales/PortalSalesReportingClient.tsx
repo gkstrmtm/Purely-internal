@@ -64,7 +64,7 @@ export function PortalSalesReportingClient() {
   const toast = useToast();
   const searchParams = useSearchParams();
   const from = String(searchParams?.get("from") || "").toLowerCase();
-  const backHref = from === "dashboard" ? "/portal" : "/portal/app/services/reporting";
+  const backHref = from === "dashboard" ? "/portal/app" : "/portal/app/services/reporting";
   const backLabel = from === "dashboard" ? "Back to Dashboard" : "Back to Reporting";
 
   const [status, setStatus] = useState<SalesStatusPayload | null>(null);

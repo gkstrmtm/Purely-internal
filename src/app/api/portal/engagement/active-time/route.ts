@@ -17,6 +17,7 @@ const postSchema = z
 
 const KIND = "portal_active_time";
 const MAX_SECONDS_PER_DAY = 8 * 60 * 60; // 8h/day cap
+const ENGAGEMENT_SERVICE_SLUG = "portal_engagement";
 
 function dayKeyUtc(d: Date): string {
   const y = d.getUTCFullYear();
@@ -42,6 +43,19 @@ export async function POST(req: Request) {
 
   const ownerId = auth.session.user.id;
   const dtSec = Math.max(1, Math.min(60, parsed.data.dtSec));
+
+  // Best-effort: bump "last seen" for any portal activity ping.
+  // Keep it migration-free by storing it in PortalServiceSetup JSON.
+  try {
+    await prisma.portalServiceSetup.upsert({
+      where: { ownerId_serviceSlug: { ownerId, serviceSlug: ENGAGEMENT_SERVICE_SLUG } },
+      create: { ownerId, serviceSlug: ENGAGEMENT_SERVICE_SLUG, status: "COMPLETE", dataJson: { version: 1, lastSeenAtMs: Date.now() } },
+      update: { status: "COMPLETE", dataJson: { version: 1, lastSeenAtMs: Date.now() } },
+      select: { id: true },
+    });
+  } catch {
+    // ignore transient DB errors
+  }
 
   const now = new Date();
   const dayKey = dayKeyUtc(now);

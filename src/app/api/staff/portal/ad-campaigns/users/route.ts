@@ -25,6 +25,8 @@ export async function GET(req: Request) {
   const days = Number.isFinite(daysRaw) ? Math.max(1, Math.min(365, Math.floor(daysRaw))) : 30;
   const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
 
+  const engagementSlug = "portal_engagement";
+
   try {
     const rows = includeAll
       ? await prisma.$queryRaw<
@@ -62,7 +64,11 @@ export async function GET(req: Request) {
             u."id" as "ownerId",
             u."email" as "email",
             bp."businessName" as "businessName",
-            a."lastSeenAt" as "lastSeenAt",
+            CASE
+              WHEN a."lastSeenAt" IS NULL THEN portal."lastSeenAt"
+              WHEN portal."lastSeenAt" IS NULL THEN a."lastSeenAt"
+              ELSE GREATEST(a."lastSeenAt", portal."lastSeenAt")
+            END as "lastSeenAt",
             COALESCE(a."impressions", 0)::int as "impressions",
             COALESCE(a."impressionsMobile", 0)::int as "impressionsMobile",
             COALESCE(a."impressionsDesktop", 0)::int as "impressionsDesktop",
@@ -72,6 +78,18 @@ export async function GET(req: Request) {
           FROM "User" u
           LEFT JOIN "BusinessProfile" bp ON bp."ownerId" = u."id"
           LEFT JOIN agg a ON a."ownerId" = u."id"
+          LEFT JOIN LATERAL (
+            SELECT
+              CASE
+                WHEN ps."dataJson" IS NULL THEN NULL
+                ELSE to_timestamp(
+                  NULLIF(regexp_replace(COALESCE(ps."dataJson"->>'lastSeenAtMs',''), '[^0-9]', '', 'g'), '')::bigint / 1000.0
+                )
+              END as "lastSeenAt"
+            FROM "PortalServiceSetup" ps
+            WHERE ps."ownerId" = u."id" AND ps."serviceSlug" = ${engagementSlug}
+            LIMIT 1
+          ) portal ON true
           WHERE u."role" = 'CLIENT' AND u."active" = true
           ORDER BY "impressions" DESC, "clicks" DESC, "lastSeenAt" DESC NULLS LAST
           LIMIT 500;
@@ -94,7 +112,11 @@ export async function GET(req: Request) {
             e."ownerId" as "ownerId",
             u."email" as "email",
             bp."businessName" as "businessName",
-            MAX(e."createdAt") as "lastSeenAt",
+            CASE
+              WHEN MAX(e."createdAt") IS NULL THEN MAX(portal."lastSeenAt")
+              WHEN MAX(portal."lastSeenAt") IS NULL THEN MAX(e."createdAt")
+              ELSE GREATEST(MAX(e."createdAt"), MAX(portal."lastSeenAt"))
+            END as "lastSeenAt",
             SUM(CASE WHEN COALESCE(e."metaJson"->>'action','IMPRESSION') = 'CLICK' THEN 0 ELSE 1 END)::int as "impressions",
             SUM(CASE WHEN COALESCE(e."metaJson"->>'action','IMPRESSION') <> 'CLICK' AND COALESCE(e."metaJson"->>'device','desktop') = 'mobile' THEN 1 ELSE 0 END)::int as "impressionsMobile",
             SUM(CASE WHEN COALESCE(e."metaJson"->>'action','IMPRESSION') <> 'CLICK' AND COALESCE(e."metaJson"->>'device','desktop') = 'desktop' THEN 1 ELSE 0 END)::int as "impressionsDesktop",
@@ -104,6 +126,18 @@ export async function GET(req: Request) {
           FROM "PortalAdCampaignEvent" e
           JOIN "User" u ON u."id" = e."ownerId"
           LEFT JOIN "BusinessProfile" bp ON bp."ownerId" = e."ownerId"
+          LEFT JOIN LATERAL (
+            SELECT
+              CASE
+                WHEN ps."dataJson" IS NULL THEN NULL
+                ELSE to_timestamp(
+                  NULLIF(regexp_replace(COALESCE(ps."dataJson"->>'lastSeenAtMs',''), '[^0-9]', '', 'g'), '')::bigint / 1000.0
+                )
+              END as "lastSeenAt"
+            FROM "PortalServiceSetup" ps
+            WHERE ps."ownerId" = e."ownerId" AND ps."serviceSlug" = ${engagementSlug}
+            LIMIT 1
+          ) portal ON true
           WHERE
             e."kind" = 'IMPRESSION'
             AND e."createdAt" >= ${since}

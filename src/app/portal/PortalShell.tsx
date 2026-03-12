@@ -197,6 +197,30 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
 
   const [nowMs, setNowMs] = useState(0);
 
+  const lastSeenPingRef = useRef<{ atMs: number; path: string } | null>(null);
+
+  useEffect(() => {
+    const path = typeof pathname === "string" ? pathname : "";
+    const search = searchParams ? searchParams.toString() : "";
+    const fullPath = search ? `${path}?${search}` : path;
+
+    const now = Date.now();
+    const prev = lastSeenPingRef.current;
+    const shouldPing = !prev || prev.path !== fullPath || now - prev.atMs > 30_000;
+    if (!shouldPing) return;
+
+    lastSeenPingRef.current = { atMs: now, path: fullPath };
+
+    void fetch("/api/portal/engagement/ping", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ path: fullPath, source: "portal-shell" }),
+      keepalive: true,
+    }).catch(() => {
+      // ignore
+    });
+  }, [pathname, searchParams]);
+
   useEffect(() => {
     const tick = () => setNowMs(Date.now());
     tick();

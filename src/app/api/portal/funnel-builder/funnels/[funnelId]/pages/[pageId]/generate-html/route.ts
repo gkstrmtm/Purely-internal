@@ -68,6 +68,8 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
     );
   }
 
+  const basePath = auth.variant === "credit" ? "/credit" : "/portal";
+
   const { funnelId: funnelIdRaw, pageId: pageIdRaw } = await ctx.params;
   const funnelId = String(funnelIdRaw || "").trim();
   const pageId = String(pageIdRaw || "").trim();
@@ -111,12 +113,12 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
     "Constraints:",
     "- Use plain HTML + inline <style>. No external JS/CSS, no frameworks.",
     "- Mobile-first, modern, clean styling.",
-    "- Use relative links that keep the user inside /credit.",
+    `- Use relative links that keep the user inside ${basePath}.`,
     "Integration:",
-    `- This page will be hosted at: /credit/f/${page.funnel.slug}`,
-    "- Credit hosted forms are at: /credit/forms/{formSlug}",
-    "- Form submissions happen via POST /api/public/credit/forms/{formSlug}/submit (handled by our hosted form pages)",
-    "- If you need a form, link to /credit/forms/{formSlug} with a clear CTA button.",
+    `- This page will be hosted at: ${basePath}/f/${page.funnel.slug}`,
+    `- Hosted forms are at: ${basePath}/forms/{formSlug}`,
+    `- Form submissions happen via POST /api/public${basePath}/forms/{formSlug}/submit (handled by our hosted form pages)`,
+    `- If you need a form, link to ${basePath}/forms/{formSlug} with a clear CTA button.`,
     "Available forms (slug: name [status]):",
     ...forms.map((f) => `- ${f.slug}: ${f.name} [${f.status}]`),
     "Output rules:",

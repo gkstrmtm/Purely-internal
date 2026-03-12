@@ -341,6 +341,8 @@ export async function POST(req: Request) {
     );
   }
 
+  const basePath = auth.variant === "credit" ? "/credit" : "/portal";
+
   const json = await req.json().catch(() => null);
   const parsed = bodySchema.safeParse(json);
   if (!parsed.success) {
@@ -395,11 +397,11 @@ export async function POST(req: Request) {
     "- No external JS/CSS, no frameworks.",
     "- Prefer semantic HTML and classes; keep it minimal.",
     "- Make it safe to embed inside an existing page.",
-    "- Links should keep the user inside /credit.",
+    `- Links should keep the user inside ${basePath}.`,
     "Integration:",
-    `- This page is hosted at: /credit/f/${page.funnel.slug}`,
-    "- Credit hosted forms are at: /credit/forms/{formSlug}",
-    "- Credit hosted booking is at: /credit/book (or a booking embed block)",
+    `- This page is hosted at: ${basePath}/f/${page.funnel.slug}`,
+    `- Hosted forms are at: ${basePath}/forms/{formSlug}`,
+    "- For booking/scheduling: prefer returning a calendarEmbed block rather than hardcoding a booking URL.",
     "Available forms (slug: name [status]):",
     ...forms.map((f) => `- ${f.slug}: ${f.name} [${f.status}]`),
     "Available calendars (id: title [enabled]):",
@@ -428,7 +430,7 @@ export async function POST(req: Request) {
     "- For other block types, follow the normal props shapes.",
     "- If output='html', set buildPrompt to a concise instruction for the HTML/CSS generator.",
     "Context:",
-    `- Funnel page host path: /credit/f/${page.funnel.slug}`,
+    `- Funnel page host path: ${basePath}/f/${page.funnel.slug}`,
     "Available forms (slug: name [status]):",
     ...forms.map((f) => `- ${f.slug}: ${f.name} [${f.status}]`),
     "Available calendars (id: title [enabled]):",

@@ -8,6 +8,7 @@ import { PortalSettingsSection } from "@/components/PortalSettingsSection";
 import { PortalMediaPickerModal, type PortalMediaPickItem } from "@/components/PortalMediaPickerModal";
 import { ContactTagsEditor, type ContactTag } from "@/components/ContactTagsEditor";
 import { PortalVariablePickerModal } from "@/components/PortalVariablePickerModal";
+import { PortalContactDetailsModal } from "@/components/PortalContactDetailsModal";
 import { useToast } from "@/components/ToastProvider";
 import { PortalBackToOnboardingLink } from "@/components/PortalBackToOnboardingLink";
 import { normalizePhoneForStorage } from "@/lib/phone";
@@ -408,6 +409,10 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
   const [contactPhone, setContactPhone] = useState("");
   const [savingContact, setSavingContact] = useState(false);
 
+  const [peopleContactModalOpen, setPeopleContactModalOpen] = useState(false);
+  const [peopleContactId, setPeopleContactId] = useState<string | null>(null);
+  const [peopleContactThreadId, setPeopleContactThreadId] = useState<string | null>(null);
+
   const smsScrollRef = useRef<HTMLDivElement | null>(null);
   const smsFileRef = useRef<HTMLInputElement | null>(null);
   const emailFileRef = useRef<HTMLInputElement | null>(null);
@@ -432,6 +437,13 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
 
   function openContactModalForActiveThread() {
     if (!activeThread) return;
+
+    if (activeThread.contactId) {
+      setPeopleContactId(activeThread.contactId);
+      setPeopleContactThreadId(activeThread.id);
+      setPeopleContactModalOpen(true);
+      return;
+    }
 
     const existing = activeThread.contact || null;
     const defaultName = existing?.name || displayNameFromAddress(activeThread.peerAddress);
@@ -1046,6 +1058,27 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
           </div>
         </div>
       ) : null}
+
+      <PortalContactDetailsModal
+        open={peopleContactModalOpen}
+        contactId={peopleContactId}
+        onClose={() => {
+          setPeopleContactModalOpen(false);
+          setPeopleContactId(null);
+          setPeopleContactThreadId(null);
+        }}
+        onContactUpdated={(next) => {
+          const threadId = peopleContactThreadId;
+          if (!threadId) return;
+          if (!next.contact?.id) return;
+
+          updateThreadContact(threadId, {
+            contactId: next.contact.id,
+            contact: next.contact,
+            contactTags: Array.isArray(next.tags) ? next.tags : undefined,
+          });
+        }}
+      />
 
       {tab === "sms" && settings && !settings.twilio.configured ? (
         <div className="mt-4 rounded-3xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">

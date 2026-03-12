@@ -4,6 +4,7 @@ import { z } from "zod";
 
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { hasPublicColumn, hasPublicTable } from "@/lib/dbSchema";
 import { MODULE_KEYS, type ModuleKey } from "@/lib/entitlements.shared";
 import { normalizePhoneStrict } from "@/lib/phone";
 import { PORTAL_BILLING_MODEL_OVERRIDE_SETUP_SLUG } from "@/lib/portalBillingModel";
@@ -240,21 +241,52 @@ export async function GET(req: Request) {
     twilioFromByOwner.set(row.ownerId, parseTwilioFromNumberE164(row.dataJson));
   }
 
-  const [refTotalAgg, refVerifiedAgg, refAwardedAgg] = ownerIds.length
-    ? await Promise.all([
-        prisma.portalReferral.groupBy({ by: ["inviterId"], where: { inviterId: { in: ownerIds } }, _count: { _all: true } }),
-        prisma.portalReferral.groupBy({
+  // Schema drift tolerance: the PortalReferral table/columns may not exist in some envs.
+  // The manager UI should still load (invite counters will just show 0).
+  let refTotalAgg: Array<{ inviterId: string; _count: { _all: number } }> = [];
+  let refVerifiedAgg: Array<{ inviterId: string; _count: { _all: number } }> = [];
+  let refAwardedAgg: Array<{ inviterId: string; _count: { _all: number } }> = [];
+  if (ownerIds.length) {
+    const canUseReferralsTable = await hasPublicTable("PortalReferral").catch(() => false);
+    if (canUseReferralsTable) {
+      const hasInvitedVerifiedAt = await hasPublicColumn("PortalReferral", "invitedVerifiedAt").catch(() => false);
+      const hasCreditsAwardedAt = await hasPublicColumn("PortalReferral", "creditsAwardedAt").catch(() => false);
+
+      try {
+        refTotalAgg = await prisma.portalReferral.groupBy({
           by: ["inviterId"],
-          where: { inviterId: { in: ownerIds }, invitedVerifiedAt: { not: null } },
+          where: { inviterId: { in: ownerIds } },
           _count: { _all: true },
-        }),
-        prisma.portalReferral.groupBy({
-          by: ["inviterId"],
-          where: { inviterId: { in: ownerIds }, creditsAwardedAt: { not: null } },
-          _count: { _all: true },
-        }),
-      ])
-    : [[], [], []];
+        });
+      } catch {
+        refTotalAgg = [];
+      }
+
+      if (hasInvitedVerifiedAt) {
+        try {
+          refVerifiedAgg = await prisma.portalReferral.groupBy({
+            by: ["inviterId"],
+            where: { inviterId: { in: ownerIds }, invitedVerifiedAt: { not: null } },
+            _count: { _all: true },
+          });
+        } catch {
+          refVerifiedAgg = [];
+        }
+      }
+
+      if (hasCreditsAwardedAt) {
+        try {
+          refAwardedAgg = await prisma.portalReferral.groupBy({
+            by: ["inviterId"],
+            where: { inviterId: { in: ownerIds }, creditsAwardedAt: { not: null } },
+            _count: { _all: true },
+          });
+        } catch {
+          refAwardedAgg = [];
+        }
+      }
+    }
+  }
 
   const refTotalByOwner = new Map<string, number>(refTotalAgg.map((r) => [r.inviterId, r._count._all]));
   const refVerifiedByOwner = new Map<string, number>(refVerifiedAgg.map((r) => [r.inviterId, r._count._all]));

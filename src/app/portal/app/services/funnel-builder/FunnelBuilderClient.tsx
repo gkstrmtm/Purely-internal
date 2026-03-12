@@ -235,6 +235,9 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
   const [openFunnelMenuId, setOpenFunnelMenuId] = useState<string | null>(null);
   const funnelMenuRootRef = useRef<HTMLDivElement | null>(null);
 
+  const [openFormMenuId, setOpenFormMenuId] = useState<string | null>(null);
+  const formMenuRootRef = useRef<HTMLDivElement | null>(null);
+
   const loadStripeStatus = useCallback(async () => {
     setStripeStatusBusy(true);
     try {
@@ -284,6 +287,34 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
       window.removeEventListener("resize", close);
     };
   }, [openFunnelMenuId]);
+
+  useEffect(() => {
+    if (!openFormMenuId) return;
+
+    const close = () => setOpenFormMenuId(null);
+
+    const onDown = (ev: MouseEvent) => {
+      const root = formMenuRootRef.current;
+      const target = ev.target;
+      if (root && target && target instanceof Node && root.contains(target)) return;
+      close();
+    };
+
+    const onKey = (ev: KeyboardEvent) => {
+      if (ev.key === "Escape") close();
+    };
+
+    window.addEventListener("mousedown", onDown);
+    window.addEventListener("keydown", onKey);
+    window.addEventListener("scroll", close, true);
+    window.addEventListener("resize", close);
+    return () => {
+      window.removeEventListener("mousedown", onDown);
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("scroll", close, true);
+      window.removeEventListener("resize", close);
+    };
+  }, [openFormMenuId]);
 
   const domainsByName = useMemo(() => {
     const m = new Map<string, CreditDomain>();
@@ -1098,40 +1129,71 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                       </span>
                     );
                   })()}
-                  <div className="flex items-center gap-3">
-                    <Link
-                      href={`${basePath}/app/services/funnel-builder/forms/${encodeURIComponent(f.id)}/edit`}
-                      target="_blank"
-                      className="text-sm font-semibold text-brand-ink hover:underline"
-                    >
-                      Edit
-                    </Link>
-                    <Link
-                      href={`${basePath}/app/services/funnel-builder/forms/${encodeURIComponent(f.id)}/responses`}
-                      target="_blank"
-                      className="text-sm font-semibold text-brand-ink hover:underline"
-                    >
-                      Responses
-                    </Link>
-                    <Link
-                      href={getFormLiveHref(f.slug, f.id) || `${formPreviewBase}/${encodeURIComponent(f.slug)}`}
-                      target="_blank"
-                      className="text-sm font-semibold text-[color:var(--color-brand-blue)] hover:underline"
-                    >
-                      Preview
-                    </Link>
+                  <div className="relative">
+                    <div ref={openFormMenuId === f.id ? formMenuRootRef : undefined} className="relative">
+                      <button
+                        type="button"
+                        aria-label="Form actions"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          setOpenFormMenuId((prev) => (prev === f.id ? null : f.id));
+                        }}
+                        className="grid h-9 w-9 place-items-center rounded-xl border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50"
+                      >
+                        <DotsIcon className="h-5 w-5" />
+                      </button>
 
-                    <button
-                      type="button"
-                      disabled={!!formDeleteBusy[f.id]}
-                      onClick={() => {
-                        if (formDeleteBusy[f.id]) return;
-                        setDeleteDialog({ type: "form", id: f.id });
-                      }}
-                      className="text-sm font-semibold text-red-600 hover:underline disabled:opacity-60"
-                    >
-                      Delete
-                    </button>
+                      {openFormMenuId === f.id ? (
+                        <div className="absolute right-0 z-20 mt-2 w-56 overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-xl">
+                          <div className="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-zinc-500">Actions</div>
+                          <div className="px-2 pb-2">
+                            <Link
+                              href={`${basePath}/app/services/funnel-builder/forms/${encodeURIComponent(f.id)}/edit`}
+                              target="_blank"
+                              className="flex w-full items-center rounded-xl px-3 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+                              onClick={() => setOpenFormMenuId(null)}
+                            >
+                              Edit
+                            </Link>
+                            <Link
+                              href={`${basePath}/app/services/funnel-builder/forms/${encodeURIComponent(f.id)}/responses`}
+                              target="_blank"
+                              className="flex w-full items-center rounded-xl px-3 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+                              onClick={() => setOpenFormMenuId(null)}
+                            >
+                              Responses
+                            </Link>
+                            <Link
+                              href={getFormLiveHref(f.slug, f.id) || `${formPreviewBase}/${encodeURIComponent(f.slug)}`}
+                              target="_blank"
+                              className="flex w-full items-center rounded-xl px-3 py-2 text-sm font-semibold text-[color:var(--color-brand-blue)] hover:bg-zinc-50"
+                              onClick={() => setOpenFormMenuId(null)}
+                            >
+                              Preview
+                            </Link>
+
+                            <div className="my-2 h-px bg-zinc-100" />
+
+                            <button
+                              type="button"
+                              disabled={!!formDeleteBusy[f.id]}
+                              onClick={() => {
+                                if (formDeleteBusy[f.id]) return;
+                                setDeleteDialog({ type: "form", id: f.id });
+                                setOpenFormMenuId(null);
+                              }}
+                              className={classNames(
+                                "flex w-full items-center rounded-xl px-3 py-2 text-left text-sm font-semibold text-red-600 hover:bg-zinc-50",
+                                formDeleteBusy[f.id] ? "opacity-60" : "",
+                              )}
+                            >
+                              Delete
+                            </button>
+                          </div>
+                        </div>
+                      ) : null}
+                    </div>
                   </div>
                 </div>
               </div>

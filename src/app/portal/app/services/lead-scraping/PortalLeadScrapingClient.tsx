@@ -206,6 +206,40 @@ function downloadText(filename: string, text: string) {
   URL.revokeObjectURL(url);
 }
 
+function parseCsvFirstColumn(text: string, { maxRows = 2000 }: { maxRows?: number } = {}) {
+  const raw = String(text || "");
+  if (!raw.trim()) return [];
+  const rows = raw.split(/\r?\n/).slice(0, maxRows);
+  const out: string[] = [];
+
+  for (const r of rows) {
+    const line = r.trim();
+    if (!line) continue;
+    if (line.startsWith("#")) continue;
+    const first = line.split(",")[0] ?? "";
+    const v = first.trim().replace(/^"([\s\S]*)"$/, "$1").trim();
+    if (!v) continue;
+    out.push(v);
+  }
+
+  // Common header values.
+  const head = out[0]?.toLowerCase();
+  if (head === "value" || head === "domain" || head === "phone" || head === "name") out.shift();
+
+  return out;
+}
+
+function normalizeDomainForExclusion(raw: string) {
+  let s = String(raw || "").trim().toLowerCase();
+  if (!s) return "";
+  s = s.replace(/^https?:\/\//, "");
+  s = s.replace(/^www\./, "");
+  s = s.split("/")[0] ?? s;
+  s = s.split("?")[0] ?? s;
+  s = s.split("#")[0] ?? s;
+  return s.trim();
+}
+
 function safeFormatDateTime(iso: string) {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "Just now";
@@ -506,6 +540,67 @@ export function PortalLeadScrapingClient() {
   const [excludeNameDraft, setExcludeNameDraft] = useState("");
   const [excludeDomainDraft, setExcludeDomainDraft] = useState("");
   const [excludePhoneDraft, setExcludePhoneDraft] = useState("");
+
+  const [excludeCsvBusy, setExcludeCsvBusy] = useState<{ name: boolean; domain: boolean; phone: boolean }>({
+    name: false,
+    domain: false,
+    phone: false,
+  });
+
+  async function importExclusionsCsv(kind: "name" | "domain" | "phone", file: File) {
+    if (!file) return;
+    if (file.size > 2_000_000) {
+      toast.error("CSV is too large (max 2MB)");
+      return;
+    }
+
+    setExcludeCsvBusy((prev) => ({ ...prev, [kind]: true }));
+    try {
+      const text = await file.text();
+      const values = parseCsvFirstColumn(text).slice(0, 2000);
+
+      const normalized =
+        kind === "domain"
+          ? values.map((v) => normalizeDomainForExclusion(v)).filter(Boolean)
+          : values.map((v) => v.trim()).filter(Boolean);
+
+      if (!normalized.length) {
+        toast.error("No values found in CSV");
+        return;
+      }
+
+      let added = 0;
+      setSettings((prev) => {
+        if (!prev) return prev;
+        const b2b = prev.b2b;
+
+        if (kind === "name") {
+          const existing = b2b.excludeNameContains;
+          const next = Array.from(new Set([...normalized, ...existing])).slice(0, 200);
+          added = Math.max(0, next.length - existing.length);
+          return { ...prev, b2b: { ...b2b, excludeNameContains: next } };
+        }
+
+        if (kind === "domain") {
+          const existing = b2b.excludeDomains.map((x) => String(x || "").toLowerCase());
+          const next = Array.from(new Set([...normalized.map((x) => x.toLowerCase()), ...existing])).slice(0, 200);
+          added = Math.max(0, next.length - existing.length);
+          return { ...prev, b2b: { ...b2b, excludeDomains: next } };
+        }
+
+        const existing = b2b.excludePhones;
+        const next = Array.from(new Set([...normalized, ...existing])).slice(0, 200);
+        added = Math.max(0, next.length - existing.length);
+        return { ...prev, b2b: { ...b2b, excludePhones: next } };
+      });
+
+      toast.success(added > 0 ? `Imported ${added} exclusion${added === 1 ? "" : "s"}` : "Imported (no new exclusions)");
+    } catch {
+      toast.error("Failed to import CSV");
+    } finally {
+      setExcludeCsvBusy((prev) => ({ ...prev, [kind]: false }));
+    }
+  }
 
   const [fallbackNicheDraft, setFallbackNicheDraft] = useState("");
   const [fallbackLocationDraft, setFallbackLocationDraft] = useState("");
@@ -2650,6 +2745,24 @@ export function PortalLeadScrapingClient() {
                             <span>Add</span>
                           </button>
                         </div>
+
+                        <div className="mt-2">
+                          <label className="inline-flex cursor-pointer items-center justify-center rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50">
+                            <input
+                              type="file"
+                              accept=".csv,text/csv"
+                              className="hidden"
+                              disabled={excludeCsvBusy.name}
+                              onChange={(e) => {
+                                const f = e.target.files?.[0];
+                                e.target.value = "";
+                                if (f) void importExclusionsCsv("name", f);
+                              }}
+                            />
+                            {excludeCsvBusy.name ? "Importing…" : "Upload CSV"}
+                          </label>
+                          <div className="mt-1 text-[11px] text-zinc-500">One value per row; first column is used.</div>
+                        </div>
                       </div>
 
                       <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
@@ -2715,6 +2828,24 @@ export function PortalLeadScrapingClient() {
                             <span>Add</span>
                           </button>
                         </div>
+
+                        <div className="mt-2">
+                          <label className="inline-flex cursor-pointer items-center justify-center rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50">
+                            <input
+                              type="file"
+                              accept=".csv,text/csv"
+                              className="hidden"
+                              disabled={excludeCsvBusy.domain}
+                              onChange={(e) => {
+                                const f = e.target.files?.[0];
+                                e.target.value = "";
+                                if (f) void importExclusionsCsv("domain", f);
+                              }}
+                            />
+                            {excludeCsvBusy.domain ? "Importing…" : "Upload CSV"}
+                          </label>
+                          <div className="mt-1 text-[11px] text-zinc-500">One value per row; first column is used.</div>
+                        </div>
                       </div>
 
                       <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
@@ -2779,6 +2910,24 @@ export function PortalLeadScrapingClient() {
                             <span className="text-base leading-none">+</span>
                             <span>Add</span>
                           </button>
+                        </div>
+
+                        <div className="mt-2">
+                          <label className="inline-flex cursor-pointer items-center justify-center rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50">
+                            <input
+                              type="file"
+                              accept=".csv,text/csv"
+                              className="hidden"
+                              disabled={excludeCsvBusy.phone}
+                              onChange={(e) => {
+                                const f = e.target.files?.[0];
+                                e.target.value = "";
+                                if (f) void importExclusionsCsv("phone", f);
+                              }}
+                            />
+                            {excludeCsvBusy.phone ? "Importing…" : "Upload CSV"}
+                          </label>
+                          <div className="mt-1 text-[11px] text-zinc-500">One value per row; first column is used.</div>
                         </div>
                       </div>
                     </div>
