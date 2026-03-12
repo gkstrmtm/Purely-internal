@@ -40,6 +40,8 @@ export type CreditFunnelBlock =
       props: {
         priceId: string;
         quantity?: number;
+        productName?: string;
+        productDescription?: string;
         text?: string;
         style?: BlockStyle;
       };
@@ -340,9 +342,22 @@ function coerceBlocksJsonInternal(value: unknown, depth: number): CreditFunnelBl
     if (type === "salesCheckoutButton") {
       const priceId = typeof props?.priceId === "string" ? props.priceId.trim().slice(0, 128) : "";
       const quantity = clampNum((props as any)?.quantity, 1, 20);
+      const productName = typeof props?.productName === "string" ? props.productName.trim().slice(0, 140) : "";
+      const productDescription = typeof props?.productDescription === "string" ? props.productDescription.trim().slice(0, 320) : "";
       const text = typeof props?.text === "string" ? props.text.slice(0, 120) : "Buy now";
       const style = coerceStyle(props?.style);
-      out.push({ id, type, props: { priceId, ...(quantity ? { quantity } : {}), text, style } });
+      out.push({
+        id,
+        type,
+        props: {
+          priceId,
+          ...(quantity ? { quantity } : {}),
+          ...(productName ? { productName } : {}),
+          ...(productDescription ? { productDescription } : {}),
+          text,
+          style,
+        },
+      });
       continue;
     }
 
@@ -964,6 +979,9 @@ export function renderCreditFunnelBlocks({
         const priceId = String((b.props as any)?.priceId || "").trim();
         const quantityRaw = (b.props as any)?.quantity;
         const quantity = typeof quantityRaw === "number" && Number.isFinite(quantityRaw) ? Math.max(1, Math.min(20, quantityRaw)) : undefined;
+        const productName = typeof (b.props as any)?.productName === "string" ? String((b.props as any).productName).trim() : "";
+        const productDescription =
+          typeof (b.props as any)?.productDescription === "string" ? String((b.props as any).productDescription).trim() : "";
         const text = typeof (b.props as any)?.text === "string" ? String((b.props as any).text) : "Buy now";
 
         if (!isEditor && (!pageId || !priceId)) return null;
@@ -1003,6 +1021,32 @@ export function renderCreditFunnelBlocks({
             ...wrapProps(b.id),
           },
           renderMoveControls(b.id),
+          productName || productDescription
+            ? React.createElement(
+                "div",
+                { className: "mb-3" },
+                productName
+                  ? React.createElement(
+                      "div",
+                      {
+                        className: "text-base font-semibold text-zinc-900",
+                        style: { ...(s?.fontFamily ? { fontFamily: s.fontFamily } : {}) },
+                      },
+                      productName,
+                    )
+                  : null,
+                productDescription
+                  ? React.createElement(
+                      "div",
+                      {
+                        className: "mt-1 text-sm text-zinc-600",
+                        style: { ...(s?.fontFamily ? { fontFamily: s.fontFamily } : {}) },
+                      },
+                      productDescription,
+                    )
+                  : null,
+              )
+            : null,
           React.createElement(SalesCheckoutButton, {
             pageId,
             priceId,

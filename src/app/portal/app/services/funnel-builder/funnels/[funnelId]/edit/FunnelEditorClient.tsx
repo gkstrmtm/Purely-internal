@@ -5087,12 +5087,24 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                           <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Product</div>
                           <PortalListboxDropdown
                             value={selectedBlock.props.priceId ?? ""}
-                            onChange={(priceId) =>
+                            onChange={(nextPriceId) => {
+                              const priceId = String(nextPriceId || "").trim();
+                              const picked = stripeProducts.find((p) => String(p?.defaultPrice?.id || "").trim() === priceId) || null;
+                              const nextProductName = (picked?.name ? String(picked.name) : "").trim();
+                              const nextProductDescription = (picked?.description ? String(picked.description) : "").trim();
+
                               upsertBlock({
                                 ...selectedBlock,
-                                props: { ...selectedBlock.props, priceId: String(priceId || "").trim() },
-                              })
-                            }
+                                props: {
+                                  ...selectedBlock.props,
+                                  priceId,
+                                  productName: priceId ? nextProductName || undefined : undefined,
+                                  productDescription: priceId ? nextProductDescription || undefined : undefined,
+                                  text:
+                                    String((selectedBlock.props as any)?.text || "").trim() || "Buy now",
+                                },
+                              } as any);
+                            }}
                             placeholder={stripeProductsBusy ? "Loading Stripe products…" : "Select a Stripe product"}
                             options={[
                               { value: "", label: "(No product selected)" },
@@ -5109,6 +5121,37 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                             disabled={stripeProductsBusy}
                           />
                           <div className="mt-1 text-[11px] text-zinc-500">Pulled from your connected Stripe account.</div>
+                        </label>
+
+                        <label className="block">
+                          <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Product name</div>
+                          <input
+                            value={(selectedBlock.props as any)?.productName ?? ""}
+                            onChange={(e) =>
+                              upsertBlock({
+                                ...selectedBlock,
+                                props: { ...selectedBlock.props, productName: e.target.value },
+                              } as any)
+                            }
+                            className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                            placeholder="(Auto from Stripe)"
+                          />
+                        </label>
+
+                        <label className="block">
+                          <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Short description</div>
+                          <textarea
+                            rows={3}
+                            value={(selectedBlock.props as any)?.productDescription ?? ""}
+                            onChange={(e) =>
+                              upsertBlock({
+                                ...selectedBlock,
+                                props: { ...selectedBlock.props, productDescription: e.target.value },
+                              } as any)
+                            }
+                            className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                            placeholder="(Auto from Stripe)"
+                          />
                         </label>
 
                         {stripeProductsError ? (
