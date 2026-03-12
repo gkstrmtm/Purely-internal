@@ -1963,6 +1963,28 @@ export function PortalPeopleContactsClient() {
                   <div className="mt-1 text-sm text-zinc-800">{detail?.phone ?? "N/A"}</div>
                 )}
 
+                <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
+                  <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Template variables</div>
+                  <div className="mt-2 space-y-1 text-xs text-zinc-700">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <span className="font-semibold text-zinc-600">Name</span>
+                      <span className="rounded-lg border border-zinc-200 bg-white px-2 py-1 font-mono">{"{contact.name}"}</span>
+                    </div>
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <span className="font-semibold text-zinc-600">First name</span>
+                      <span className="rounded-lg border border-zinc-200 bg-white px-2 py-1 font-mono">{"{contact.firstName}"}</span>
+                    </div>
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <span className="font-semibold text-zinc-600">Email</span>
+                      <span className="rounded-lg border border-zinc-200 bg-white px-2 py-1 font-mono">{"{contact.email}"}</span>
+                    </div>
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <span className="font-semibold text-zinc-600">Phone</span>
+                      <span className="rounded-lg border border-zinc-200 bg-white px-2 py-1 font-mono">{"{contact.phone}"}</span>
+                    </div>
+                  </div>
+                </div>
+
                 <div className="mt-3 text-xs font-semibold text-zinc-600">Custom variables</div>
                 {editingContact ? (
                   <div className="mt-2 space-y-2">
@@ -2029,6 +2051,9 @@ export function PortalPeopleContactsClient() {
                           .map(([k, v]) => (
                             <div key={k} className="text-sm text-zinc-800">
                               <span className="font-semibold">{k}:</span> {String(v)}
+                              <div className="mt-0.5 text-xs text-zinc-500 break-all">
+                                <span className="font-mono">{"{contact.custom."}{normalizePortalContactCustomVarKey(k)}{"}"}</span>
+                              </div>
                             </div>
                           ))}
                       </div>

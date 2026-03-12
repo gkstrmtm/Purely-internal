@@ -308,6 +308,10 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
     return `${customHostedBaseUrl}${customPublicBasePath}`;
   }, [customHostedBaseUrl, customPublicBasePath]);
 
+  const livePublicBaseUrl = useMemo(() => {
+    return customPublicBaseUrl || publicBaseUrl;
+  }, [customPublicBaseUrl, publicBaseUrl]);
+
   const fontOptions = useMemo(() => {
     const base = [
       { value: "brand", label: "Brand" },
@@ -1115,13 +1119,27 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                           <td className="px-4 py-3">
                             <div className="flex flex-wrap items-center justify-end gap-2">
                               {publicPath ? (
-                                <Link
-                                  href={publicPath}
-                                  target="_blank"
-                                  className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
-                                >
-                                  View hosted
-                                </Link>
+                                <>
+                                  <Link
+                                    href={publicPath}
+                                    target="_blank"
+                                    className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
+                                  >
+                                    Preview
+                                  </Link>
+                                  <a
+                                    href={
+                                      customHostedBaseUrl
+                                        ? `${customHostedBaseUrl}${audience === "internal" ? "/internal-newsletters" : "/newsletters"}/${n.slug}`
+                                        : publicPath
+                                    }
+                                    target="_blank"
+                                    rel="noreferrer noopener"
+                                    className="rounded-2xl bg-[color:var(--color-brand-blue)] px-3 py-2 text-xs font-semibold text-white hover:opacity-95"
+                                  >
+                                    Live
+                                  </a>
+                                </>
                               ) : null}
 
                               <button
@@ -2387,7 +2405,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                 {siteHandle ? (
                   <div className="mt-2 flex flex-col gap-2">
                     <div className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-xs text-zinc-700 break-all">
-                      {publicBaseUrl}
+                      <span className="font-semibold text-zinc-600">Preview:</span> {publicBaseUrl}
                     </div>
                     <div className="flex flex-wrap items-center gap-2">
                       <button
@@ -2403,15 +2421,47 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                           }
                         }}
                       >
-                        Copy link
+                        Copy preview
                       </button>
                       <Link
                         href={publicBasePath || "#"}
                         target="_blank"
                         className="rounded-xl bg-brand-ink px-3 py-2 text-xs font-semibold text-white hover:opacity-95"
                       >
-                        Open
+                        Preview
                       </Link>
+                    </div>
+
+                    <div className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-xs text-zinc-700 break-all">
+                      <span className="font-semibold text-zinc-600">Live:</span> {livePublicBaseUrl}
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <button
+                        type="button"
+                        className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
+                        onClick={async () => {
+                          if (!livePublicBaseUrl) return;
+                          try {
+                            await navigator.clipboard.writeText(livePublicBaseUrl);
+                            toast.success("Copied");
+                          } catch {
+                            toast.error("Copy failed");
+                          }
+                        }}
+                      >
+                        Copy live
+                      </button>
+                      <a
+                        href={livePublicBaseUrl || "#"}
+                        target="_blank"
+                        rel="noreferrer noopener"
+                        className={
+                          "rounded-xl bg-[color:var(--color-brand-blue)] px-3 py-2 text-xs font-semibold text-white hover:opacity-95 " +
+                          (!livePublicBaseUrl ? "pointer-events-none opacity-60" : "")
+                        }
+                      >
+                        Live
+                      </a>
                       <button
                         type="button"
                         className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
@@ -2433,37 +2483,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                       </div>
                     ) : null}
 
-                    {customPublicBaseUrl ? (
-                      <>
-                        <div className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-xs text-zinc-700 break-all">
-                          {customPublicBaseUrl}
-                        </div>
-                        <div className="flex flex-wrap items-center gap-2">
-                          <button
-                            type="button"
-                            className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
-                            onClick={async () => {
-                              try {
-                                await navigator.clipboard.writeText(customPublicBaseUrl);
-                                toast.success("Copied");
-                              } catch {
-                                toast.error("Copy failed");
-                              }
-                            }}
-                          >
-                            Copy custom link
-                          </button>
-                          <a
-                            href={customPublicBaseUrl}
-                            target="_blank"
-                            rel="noreferrer noopener"
-                            className="rounded-xl bg-[color:var(--color-brand-blue)] px-3 py-2 text-xs font-semibold text-white hover:opacity-95"
-                          >
-                            Open custom domain
-                          </a>
-                        </div>
-                      </>
-                    ) : null}
+                    {/* Live falls back to Preview until a custom domain is VERIFIED. */}
                   </div>
                 ) : (
                   <div className="mt-2">

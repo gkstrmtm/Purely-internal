@@ -71,6 +71,40 @@ type Booking = {
   canceledAt?: string | null;
 };
 
+type FunnelDomain = {
+  id: string;
+  domain: string;
+  status: "PENDING" | "VERIFIED";
+};
+
+type HostedSite = {
+  id: string;
+  primaryDomain: string | null;
+  verifiedAt: string | null;
+  verificationToken?: string;
+};
+
+type BookingCalendar = {
+  id: string;
+  enabled: boolean;
+  title: string;
+  durationMinutes?: number | null;
+  meetingLocation?: string | null;
+  meetingDetails?: string | null;
+  notificationEmails?: string[] | null;
+};
+
+type AvailabilityBlock = {
+  id?: string;
+  startAt: string;
+  endAt: string;
+};
+
+type Slot = {
+  startAt: string;
+  endAt?: string;
+};
+
 type EmailAttachmentRef = {
   mediaItemId: string;
   fileName: string;
@@ -116,129 +150,8 @@ type AppointmentReminderEvent = {
 
   status: "SENT" | "SKIPPED" | "FAILED";
   reason?: string;
-  smsMessageSid?: string;
   error?: string;
-
-  createdAtIso: string;
 };
-
-type Slot = { startAt: string; endAt: string };
-
-type AvailabilityBlock = { id: string; startAt: string; endAt: string };
-
-type BookingCalendar = {
-  id: string;
-  enabled: boolean;
-  title: string;
-  description?: string;
-  durationMinutes?: number;
-  meetingLocation?: string;
-  meetingDetails?: string;
-  notificationEmails?: string[];
-};
-
-type FunnelDomain = { domain: string; status: string };
-
-type HostedSite = {
-  id: string;
-  name: string;
-  slug?: string | null;
-  primaryDomain: string | null;
-  verifiedAt: string | null;
-  verificationToken?: string | null;
-  updatedAt?: string;
-};
-
-function getPurelyConnectJoinUrl(notes?: string | null): string | null {
-  if (!notes) return null;
-  const lines = String(notes || "").split(/\r?\n/);
-  if (!lines.length) return null;
-  if (lines[0].trim() !== "[Purely Connect Meeting]") return null;
-  const url = (lines[1] || "").trim();
-  if (!url) return null;
-  if (!/^https?:\/\//i.test(url)) return null;
-  return url;
-}
-
-function apexDomain(value: string) {
-  const v = String(value || "").trim().toLowerCase();
-  return v.startsWith("www.") ? v.slice(4) : v;
-}
-
-function pad2(n: number) {
-  return String(n).padStart(2, "0");
-}
-
-function toLocalDateTimeInputValue(d: Date) {
-  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}T${pad2(d.getHours())}:${pad2(
-    d.getMinutes(),
-  )}`;
-}
-function startOfMonth(d: Date) {
-  const out = new Date(d);
-  out.setDate(1);
-  out.setHours(0, 0, 0, 0);
-  return out;
-}
-
-function addMonths(d: Date, delta: number) {
-  const out = new Date(d);
-  out.setMonth(out.getMonth() + delta);
-  return startOfMonth(out);
-}
-
-function monthLabel(d: Date) {
-  return d.toLocaleDateString(undefined, { month: "long", year: "numeric" });
-}
-
-function toYmd(d: Date) {
-  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
-}
-
-function startOfDay(d: Date) {
-  const out = new Date(d);
-  out.setHours(0, 0, 0, 0);
-  return out;
-}
-
-function addDays(d: Date, delta: number) {
-  const out = new Date(d);
-  out.setDate(out.getDate() + delta);
-  return out;
-}
-
-function startOfWeek(d: Date) {
-  const day = startOfDay(d);
-  // Keep consistent with the month grid: 0=Sun.
-  return addDays(day, -day.getDay());
-}
-
-function makeMonthGrid(month: Date) {
-  const first = startOfMonth(month);
-  const startDow = first.getDay(); // 0=Sun
-  const gridStart = new Date(first);
-  gridStart.setDate(first.getDate() - startDow);
-  const days: Date[] = [];
-  for (let i = 0; i < 42; i += 1) {
-    const d = new Date(gridStart);
-    d.setDate(gridStart.getDate() + i);
-    d.setHours(0, 0, 0, 0);
-    days.push(d);
-  }
-  return days;
-}
-
-function makeClientId(prefix: string) {
-  try {
-    const bytes = new Uint8Array(6);
-    crypto.getRandomValues(bytes);
-    return `${prefix}${Array.from(bytes)
-      .map((b) => b.toString(16).padStart(2, "0"))
-      .join("")}`;
-  } catch {
-    return `${prefix}${Math.random().toString(16).slice(2, 10)}`;
-  }
-}
 
 function getApiError(body: unknown): string | undefined {
   if (!body || typeof body !== "object") return undefined;
@@ -292,6 +205,95 @@ function ToggleSwitch({
 const BOOKING_PATH_SUFFIX = "/app/services/booking";
 const AVAILABILITY_PATH_SUFFIX = "/app/services/booking/availability";
 
+function startOfMonth(d: Date): Date {
+  return new Date(d.getFullYear(), d.getMonth(), 1);
+}
+
+function addDays(d: Date, days: number): Date {
+  const next = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  next.setDate(next.getDate() + days);
+  return next;
+}
+
+function addMonths(d: Date, months: number): Date {
+  const next = new Date(d.getFullYear(), d.getMonth(), 1);
+  next.setMonth(next.getMonth() + months);
+  return next;
+}
+
+function startOfWeek(d: Date): Date {
+  const next = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  const day = next.getDay(); // 0 = Sunday
+  next.setDate(next.getDate() - day);
+  next.setHours(0, 0, 0, 0);
+  return next;
+}
+
+function toYmd(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+function makeClientId(prefix: string): string {
+  try {
+    if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
+      const uuid = (crypto as any).randomUUID() as string;
+      return `${prefix}${uuid.replace(/-/g, "")}`;
+    }
+  } catch {
+    // ignore
+  }
+  return `${prefix}${Math.random().toString(36).slice(2)}${Date.now().toString(36)}`;
+}
+
+function apexDomain(raw: string): string {
+  const host = String(raw || "")
+    .trim()
+    .toLowerCase()
+    .replace(/^https?:\/\//, "")
+    .split("/")[0]
+    .split(":")[0];
+
+  const parts = host.split(".").filter(Boolean);
+  if (parts.length <= 2) return host;
+  return parts.slice(-2).join(".");
+}
+
+function monthLabel(d: Date): string {
+  const dt = new Date(d.getFullYear(), d.getMonth(), 1);
+  return dt.toLocaleString(undefined, { month: "long", year: "numeric" });
+}
+
+function makeMonthGrid(month: Date): Date[] {
+  const start = startOfWeek(startOfMonth(month));
+  return Array.from({ length: 42 }, (_, i) => addDays(start, i));
+}
+
+function startOfDay(d: Date): Date {
+  const next = new Date(d.getTime());
+  next.setHours(0, 0, 0, 0);
+  return next;
+}
+
+function getPurelyConnectJoinUrl(notes: string | null | undefined): string | null {
+  const text = String(notes || "").trim();
+  if (!text) return null;
+  const match = text.match(/https:\/\/[^\s)\]]+/i);
+  return match?.[0] ?? null;
+}
+
+function toLocalDateTimeInputValue(d: Date): string {
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  const hh = String(d.getHours()).padStart(2, "0");
+  const min = String(d.getMinutes()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}T${hh}:${min}`;
+}
+
 function portalBasePrefixFromPathname(pathname: string): "/portal" | "/credit" {
   return pathname.startsWith("/credit/") ? "/credit" : "/portal";
 }
@@ -342,7 +344,6 @@ export function PortalBookingClient() {
 
   const [photoBusy, setPhotoBusy] = useState(false);
   const [photoPickerOpen, setPhotoPickerOpen] = useState(false);
-  const [notificationEmails, setNotificationEmails] = useState<string[]>([]);
   const [notificationEmailSuggestions, setNotificationEmailSuggestions] = useState<string[]>([]);
 
   useEffect(() => {
@@ -376,20 +377,50 @@ export function PortalBookingClient() {
   const [calendars, setCalendars] = useState<BookingCalendar[]>([]);
   const [calSaving, setCalSaving] = useState(false);
 
+  const [selectedCalendarId, setSelectedCalendarId] = useState<string | null>(null);
+  const selectedCalendar = useMemo(() => {
+    if (!selectedCalendarId) return null;
+    return calendars.find((c) => c.id === selectedCalendarId) ?? null;
+  }, [calendars, selectedCalendarId]);
+
+  const [calendarDraftTitle, setCalendarDraftTitle] = useState("");
+  const [calendarDraftDurationMinutes, setCalendarDraftDurationMinutes] = useState<number>(30);
+  const [calendarDraftMeetingLocation, setCalendarDraftMeetingLocation] = useState("");
+  const [calendarDraftMeetingDetails, setCalendarDraftMeetingDetails] = useState("");
+  const [calendarDraftNotificationEmails, setCalendarDraftNotificationEmails] = useState<string[]>([]);
+
+  const selectedCalendarIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    // Default to first calendar for convenience.
+    if (!selectedCalendarId && calendars.length) {
+      setSelectedCalendarId(calendars[0]?.id ?? null);
+    }
+  }, [calendars, selectedCalendarId]);
+
+  useEffect(() => {
+    // Only reset drafts when switching calendars.
+    if (selectedCalendarIdRef.current === selectedCalendarId) return;
+    selectedCalendarIdRef.current = selectedCalendarId;
+
+    if (!selectedCalendar) {
+      setCalendarDraftTitle("");
+      setCalendarDraftDurationMinutes(site?.durationMinutes ?? 30);
+      setCalendarDraftMeetingLocation("");
+      setCalendarDraftMeetingDetails("");
+      setCalendarDraftNotificationEmails([]);
+      return;
+    }
+
+    setCalendarDraftTitle(selectedCalendar.title ?? "");
+    setCalendarDraftDurationMinutes(selectedCalendar.durationMinutes ?? site?.durationMinutes ?? 30);
+    setCalendarDraftMeetingLocation(selectedCalendar.meetingLocation ?? site?.meetingLocation ?? "");
+    setCalendarDraftMeetingDetails(selectedCalendar.meetingDetails ?? site?.meetingDetails ?? "");
+    setCalendarDraftNotificationEmails(Array.isArray(selectedCalendar.notificationEmails) ? selectedCalendar.notificationEmails : Array.isArray(site?.notificationEmails) ? site.notificationEmails : []);
+  }, [selectedCalendar, selectedCalendarId, site?.durationMinutes, site?.meetingDetails, site?.meetingLocation, site?.notificationEmails]);
+
   const [newCalTitle, setNewCalTitle] = useState("");
   const [newCalDuration, setNewCalDuration] = useState<number>(30);
 
-  type CalendarEditDraft = {
-    id: string;
-    title: string;
-    durationMinutes: string;
-    meetingLocation: string;
-    meetingDetails: string;
-    notificationEmails: string;
-  };
-
-  const [calendarEditOpen, setCalendarEditOpen] = useState(false);
-  const [calendarEditDraft, setCalendarEditDraft] = useState<CalendarEditDraft | null>(null);
   const [calendarDeleteId, setCalendarDeleteId] = useState<string | null>(null);
 
   const [blocks, setBlocks] = useState<AvailabilityBlock[]>([]);
@@ -703,26 +734,39 @@ export function PortalBookingClient() {
     setReminderBuiltinVariables((((remindersJson as any)?.builtinVariables as string[]) ?? []).slice(0, 50));
   }
 
-  const bookingUrl = useMemo(() => {
+  const verifiedBookingDomain = useMemo(() => {
+    if (!hostedSite?.primaryDomain) return null;
+    if (hostedSite.verifiedAt) return hostedSite.primaryDomain;
+    const targetApex = apexDomain(hostedSite.primaryDomain);
+    const match = funnelDomains.find((d) => apexDomain(d.domain) === targetApex);
+    if (match?.status === "VERIFIED") return hostedSite.primaryDomain;
+    return null;
+  }, [funnelDomains, hostedSite?.primaryDomain, hostedSite?.verifiedAt]);
+
+  const previewBookingUrl = useMemo(() => {
     if (!site?.slug) return null;
     if (typeof window === "undefined") return `/book/${site.slug}`;
-    const verifiedDomain = (() => {
-      if (!hostedSite?.primaryDomain) return null;
-      if (hostedSite.verifiedAt) return hostedSite.primaryDomain;
-      const targetApex = apexDomain(hostedSite.primaryDomain);
-      const match = funnelDomains.find((d) => apexDomain(d.domain) === targetApex);
-      if (match?.status === "VERIFIED") return hostedSite.primaryDomain;
-      return null;
-    })();
-    if (verifiedDomain) return `https://${verifiedDomain}/book/${encodeURIComponent(site.slug)}`;
-    return `${window.location.origin}/book/${site.slug}`;
-  }, [funnelDomains, hostedSite?.primaryDomain, hostedSite?.verifiedAt, site?.slug]);
+    return `${window.location.origin}/book/${encodeURIComponent(site.slug)}`;
+  }, [site?.slug]);
 
-  const calendarUrlBase = useMemo(() => {
+  const liveBookingUrl = useMemo(() => {
+    if (!site?.slug) return null;
+    if (verifiedBookingDomain) return `https://${verifiedBookingDomain}/book/${encodeURIComponent(site.slug)}`;
+    return previewBookingUrl;
+  }, [previewBookingUrl, site?.slug, verifiedBookingDomain]);
+
+  const previewCalendarUrlBase = useMemo(() => {
     if (!site?.slug) return null;
     if (typeof window === "undefined") return null;
     return `${window.location.origin}/book/${encodeURIComponent(site.slug)}/c`;
   }, [site?.slug]);
+
+  const liveCalendarUrlBase = useMemo(() => {
+    if (!site?.slug) return null;
+    if (!previewCalendarUrlBase) return null;
+    if (verifiedBookingDomain) return `https://${verifiedBookingDomain}/book/${encodeURIComponent(site.slug)}/c`;
+    return previewCalendarUrlBase;
+  }, [previewCalendarUrlBase, site?.slug, verifiedBookingDomain]);
 
   const refreshAll = useCallback(async () => {
     setError(null);
@@ -753,8 +797,6 @@ export function PortalBookingClient() {
     if (settingsRes.ok) {
       const nextSite = (settingsJson as { site: Site }).site;
       setSite(nextSite);
-      const xs = Array.isArray(nextSite?.notificationEmails) ? nextSite.notificationEmails : [];
-      setNotificationEmails(xs);
     }
 
     const bookingsJson = await bookingsRes.json().catch(() => ({}));
@@ -837,6 +879,12 @@ export function PortalBookingClient() {
     setStatus("Saved calendars");
   }
 
+  async function saveSelectedCalendarPatch(patch: Partial<BookingCalendar>) {
+    if (!selectedCalendarId) return;
+    const next = calendars.map((c) => (c.id === selectedCalendarId ? { ...c, ...patch } : c));
+    await saveCalendars(next);
+  }
+
   useEffect(() => {
     let mounted = true;
     (async () => {
@@ -901,10 +949,6 @@ export function PortalBookingClient() {
     }
 
     setSite((body as { site: Site }).site);
-    const nextSite = (body as { site: Site }).site;
-    if (Array.isArray(nextSite?.notificationEmails)) {
-      setNotificationEmails(nextSite.notificationEmails);
-    }
     setStatus("Saved booking settings");
   }
 
@@ -2547,22 +2591,68 @@ export function PortalBookingClient() {
             dotClassName="hidden"
           >
 
-          <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center">
-            <div className="min-w-0 flex-1 rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm text-zinc-800">
-              <div className="truncate">{bookingUrl ?? "…"}</div>
+          <div className="mt-4 flex flex-col gap-3">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+              <div className="min-w-0 flex-1 rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm text-zinc-800">
+                <div className="truncate">
+                  <span className="font-semibold text-zinc-600">Preview:</span> {previewBookingUrl ?? "…"}
+                </div>
+              </div>
+              <button
+                type="button"
+                className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm font-semibold text-brand-ink hover:bg-zinc-50 disabled:opacity-60"
+                disabled={!previewBookingUrl}
+                onClick={async () => {
+                  if (!previewBookingUrl) return;
+                  await navigator.clipboard.writeText(previewBookingUrl);
+                  setStatus("Copied preview booking link");
+                }}
+              >
+                Copy preview
+              </button>
+              <a
+                href={previewBookingUrl ?? "#"}
+                className={
+                  "inline-flex items-center justify-center rounded-2xl bg-brand-ink px-4 py-3 text-sm font-semibold text-white hover:opacity-95 " +
+                  (!previewBookingUrl ? "pointer-events-none opacity-60" : "")
+                }
+                target="_blank"
+                rel="noreferrer"
+              >
+                Preview
+              </a>
             </div>
-            <button
-              type="button"
-              className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-4 py-3 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
-              disabled={!bookingUrl}
-              onClick={async () => {
-                if (!bookingUrl) return;
-                await navigator.clipboard.writeText(bookingUrl);
-                setStatus("Copied booking link");
-              }}
-            >
-              Copy
-            </button>
+
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+              <div className="min-w-0 flex-1 rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm text-zinc-800">
+                <div className="truncate">
+                  <span className="font-semibold text-zinc-600">Live:</span> {liveBookingUrl ?? "…"}
+                </div>
+              </div>
+              <button
+                type="button"
+                className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm font-semibold text-brand-ink hover:bg-zinc-50 disabled:opacity-60"
+                disabled={!liveBookingUrl}
+                onClick={async () => {
+                  if (!liveBookingUrl) return;
+                  await navigator.clipboard.writeText(liveBookingUrl);
+                  setStatus("Copied live booking link");
+                }}
+              >
+                Copy live
+              </button>
+              <a
+                href={liveBookingUrl ?? "#"}
+                className={
+                  "inline-flex items-center justify-center rounded-2xl bg-[color:var(--color-brand-blue)] px-4 py-3 text-sm font-semibold text-white hover:opacity-95 " +
+                  (!liveBookingUrl ? "pointer-events-none opacity-60" : "")
+                }
+                target="_blank"
+                rel="noreferrer"
+              >
+                Live
+              </a>
+            </div>
           </div>
 
           <div className="mt-4 rounded-2xl border border-zinc-200 bg-white p-4">
@@ -2594,7 +2684,7 @@ export function PortalBookingClient() {
 
             {hostedDomainDraft.trim() && site?.slug ? (
               <div className="mt-2 text-xs text-zinc-600">
-                Preview link: <span className="font-mono">https://{hostedDomainDraft.trim()}/book/{site.slug}</span>
+                Live link: <span className="font-mono">https://{hostedDomainDraft.trim()}/book/{site.slug}</span>
                 {(() => {
                   const targetApex = apexDomain(hostedDomainDraft);
                   const match = funnelDomains.find((d) => apexDomain(d.domain) === targetApex);
@@ -2678,14 +2768,30 @@ export function PortalBookingClient() {
               Edit availability
             </button>
             {site?.enabled ? (
-              <a
-                href={bookingUrl ?? "#"}
-                className="inline-flex items-center justify-center rounded-2xl bg-[color:var(--color-brand-blue)] px-5 py-3 text-sm font-semibold text-white hover:opacity-95"
-                target="_blank"
-                rel="noreferrer"
-              >
-                Preview booking page
-              </a>
+              <div className="flex flex-col gap-2 sm:flex-row">
+                <a
+                  href={previewBookingUrl ?? "#"}
+                  className={
+                    "inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-5 py-3 text-sm font-semibold text-brand-ink hover:bg-zinc-50 " +
+                    (!previewBookingUrl ? "pointer-events-none opacity-60" : "")
+                  }
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  Preview booking page
+                </a>
+                <a
+                  href={liveBookingUrl ?? "#"}
+                  className={
+                    "inline-flex items-center justify-center rounded-2xl bg-[color:var(--color-brand-blue)] px-5 py-3 text-sm font-semibold text-white hover:opacity-95 " +
+                    (!liveBookingUrl ? "pointer-events-none opacity-60" : "")
+                  }
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  Live booking page
+                </a>
+              </div>
             ) : null}
           </div>
 
@@ -2753,12 +2859,25 @@ export function PortalBookingClient() {
                 <div key={c.id} className="rounded-2xl border border-zinc-200 p-4">
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
-                      <div className="truncate text-sm font-semibold text-zinc-900">
-                        {c.title} <span className="text-xs font-normal text-zinc-500">({c.durationMinutes ?? site?.durationMinutes ?? 30} min)</span>
-                      </div>
-                      {calendarUrlBase ? (
+                      <button
+                        type="button"
+                        className={
+                          "truncate text-left text-sm font-semibold hover:underline " +
+                          (selectedCalendarId === c.id ? "text-[color:var(--color-brand-blue)]" : "text-zinc-900")
+                        }
+                        onClick={() => setSelectedCalendarId(c.id)}
+                      >
+                        {c.title}{" "}
+                        <span className="text-xs font-normal text-zinc-500">({c.durationMinutes ?? site?.durationMinutes ?? 30} min)</span>
+                      </button>
+                      {previewCalendarUrlBase ? (
                         <div className="mt-1 truncate text-xs text-zinc-500">
-                          {calendarUrlBase}/{c.id}
+                          Preview: {previewCalendarUrlBase}/{c.id}
+                        </div>
+                      ) : null}
+                      {liveCalendarUrlBase ? (
+                        <div className="mt-1 truncate text-xs text-zinc-500">
+                          Live: {liveCalendarUrlBase}/{c.id}
                         </div>
                       ) : null}
                     </div>
@@ -2781,29 +2900,57 @@ export function PortalBookingClient() {
                     <button
                       type="button"
                       className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50"
-                      disabled={!calendarUrlBase}
+                      disabled={!previewCalendarUrlBase}
                       onClick={async () => {
-                        if (!calendarUrlBase) return;
-                        await navigator.clipboard.writeText(`${calendarUrlBase}/${c.id}`);
-                        setStatus("Copied calendar link");
+                        if (!previewCalendarUrlBase) return;
+                        await navigator.clipboard.writeText(`${previewCalendarUrlBase}/${c.id}`);
+                        setStatus("Copied preview calendar link");
                       }}
                     >
-                      Copy link
+                      Copy preview
                     </button>
+                    <button
+                      type="button"
+                      className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50"
+                      disabled={!liveCalendarUrlBase}
+                      onClick={async () => {
+                        if (!liveCalendarUrlBase) return;
+                        await navigator.clipboard.writeText(`${liveCalendarUrlBase}/${c.id}`);
+                        setStatus("Copied live calendar link");
+                      }}
+                    >
+                      Copy live
+                    </button>
+                    <a
+                      href={previewCalendarUrlBase ? `${previewCalendarUrlBase}/${c.id}` : "#"}
+                      target="_blank"
+                      rel="noreferrer"
+                      className={
+                        "rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50 " +
+                        (!previewCalendarUrlBase ? "pointer-events-none opacity-60" : "")
+                      }
+                    >
+                      Preview
+                    </a>
+                    <a
+                      href={liveCalendarUrlBase ? `${liveCalendarUrlBase}/${c.id}` : "#"}
+                      target="_blank"
+                      rel="noreferrer"
+                      className={
+                        "rounded-xl bg-[color:var(--color-brand-blue)] px-3 py-2 text-sm font-semibold text-white hover:opacity-95 " +
+                        (!liveCalendarUrlBase ? "pointer-events-none opacity-60" : "")
+                      }
+                    >
+                      Live
+                    </a>
                     <button
                       type="button"
                       className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50"
                       disabled={calSaving}
                       onClick={() => {
-                        setCalendarEditDraft({
-                          id: c.id,
-                          title: c.title ?? "",
-                          durationMinutes: String(c.durationMinutes ?? site?.durationMinutes ?? 30),
-                          meetingLocation: c.meetingLocation ?? "",
-                          meetingDetails: c.meetingDetails ?? "",
-                          notificationEmails: Array.isArray(c.notificationEmails) ? c.notificationEmails.join(", ") : "",
-                        });
-                        setCalendarEditOpen(true);
+                        setSelectedCalendarId(c.id);
+                        setStatus(`Editing: ${c.title}`);
+                        window.setTimeout(() => setStatus(null), 1200);
                       }}
                     >
                       Edit
@@ -2833,6 +2980,63 @@ export function PortalBookingClient() {
             collapsible={false}
             dotClassName="hidden"
           >
+
+          <div className="mt-4 rounded-2xl border border-zinc-200 bg-white p-4">
+            <div className="text-xs font-semibold text-zinc-600">Calendar settings</div>
+            {calendars.length === 0 ? (
+              <div className="mt-2 text-sm text-zinc-600">Create a calendar to edit per-calendar settings.</div>
+            ) : (
+              <div className="mt-3 grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <label className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm">
+                  <div className="font-medium text-zinc-800">Editing calendar</div>
+                  <div className="mt-2">
+                    <PortalListboxDropdown
+                      value={selectedCalendarId as any}
+                      disabled={calSaving}
+                      options={calendars.map((c) => ({ value: c.id, label: c.title || c.id })) as any}
+                      onChange={(v) => setSelectedCalendarId(String(v || "") || null)}
+                      placeholder="Choose a calendar"
+                    />
+                  </div>
+                </label>
+
+                <label className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm">
+                  <div className="font-medium text-zinc-800">Duration</div>
+                  <PortalSelectDropdown
+                    value={calendarDraftDurationMinutes}
+                    onChange={(v) => {
+                      setCalendarDraftDurationMinutes(v);
+                      void saveSelectedCalendarPatch({ durationMinutes: v });
+                    }}
+                    options={[15, 20, 30, 45, 60, 90].map((m) => ({ value: m, label: `${m} minutes` }))}
+                    className="mt-2 w-full"
+                    buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
+                  />
+                </label>
+
+                <label className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm sm:col-span-2">
+                  <div className="font-medium text-zinc-800">Title</div>
+                  <input
+                    className="mt-2 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                    value={calendarDraftTitle}
+                    onChange={(e) => setCalendarDraftTitle(e.target.value)}
+                    onBlur={() => {
+                      const nextTitle = calendarDraftTitle.trim().slice(0, 80);
+                      if (!selectedCalendarId) return;
+                      if (!nextTitle) {
+                        setCalendarDraftTitle(selectedCalendar?.title ?? "");
+                        return;
+                      }
+                      void saveSelectedCalendarPatch({ title: nextTitle });
+                    }}
+                    placeholder="e.g. Intro call"
+                    disabled={!selectedCalendarId || calSaving}
+                  />
+                  <div className="mt-2 text-xs text-zinc-500">Edits here only affect the selected calendar.</div>
+                </label>
+              </div>
+            )}
+          </div>
 
           <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
             <div className="text-xs font-semibold text-zinc-600">Header photo (optional)</div>
@@ -2930,8 +3134,8 @@ export function PortalBookingClient() {
                     className="accent-brand-ink"
                     checked={site?.meetingPlatform === "PURELY_CONNECT"}
                     onChange={() => {
-                       setSite(prev => prev ? { ...prev, meetingPlatform: "PURELY_CONNECT", meetingLocation: "Purely Connect Video" } : prev);
-                       save({ meetingPlatform: "PURELY_CONNECT", meetingLocation: "Purely Connect Video" });
+                       setSite((prev) => (prev ? { ...prev, meetingPlatform: "PURELY_CONNECT" } : prev));
+                       save({ meetingPlatform: "PURELY_CONNECT" });
                     }}
                   />
                   <span>Purely Connect Video</span>
@@ -2944,8 +3148,8 @@ export function PortalBookingClient() {
                     className="accent-brand-ink"
                     checked={site?.meetingPlatform !== "PURELY_CONNECT"}
                     onChange={() => {
-                       setSite(prev => prev ? { ...prev, meetingPlatform: "OTHER", meetingLocation: "" } : prev);
-                       save({ meetingPlatform: "OTHER", meetingLocation: "" });
+                       setSite((prev) => (prev ? { ...prev, meetingPlatform: "OTHER" } : prev));
+                       save({ meetingPlatform: "OTHER" });
                     }}
                   />
                   <span>Other (Zoom, Phone, In-person)</span>
@@ -2960,9 +3164,13 @@ export function PortalBookingClient() {
                 <textarea
                   className="mt-2 min-h-[44px] w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
                   placeholder="Phone call, Zoom link, in-person address…"
-                  value={site?.meetingLocation ?? ""}
-                  onChange={(e) => setSite((prev) => (prev ? { ...prev, meetingLocation: e.target.value } : prev))}
-                  onBlur={() => save({ meetingLocation: site?.meetingLocation?.trim() ? site.meetingLocation.trim() : null })}
+                  value={calendarDraftMeetingLocation}
+                  onChange={(e) => setCalendarDraftMeetingLocation(e.target.value)}
+                  onBlur={() => {
+                    const next = calendarDraftMeetingLocation.trim().slice(0, 400);
+                    void saveSelectedCalendarPatch({ meetingLocation: next ? next : undefined });
+                  }}
+                  disabled={!selectedCalendarId || calSaving}
                 />
               )}
             </div>
@@ -2972,9 +3180,13 @@ export function PortalBookingClient() {
               <textarea
                 className="mt-2 min-h-[90px] w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
                 placeholder="Anything they should know before the call."
-                value={site?.meetingDetails ?? ""}
-                onChange={(e) => setSite((prev) => (prev ? { ...prev, meetingDetails: e.target.value } : prev))}
-                onBlur={() => save({ meetingDetails: site?.meetingDetails?.trim() ? site.meetingDetails.trim() : null })}
+                value={calendarDraftMeetingDetails}
+                onChange={(e) => setCalendarDraftMeetingDetails(e.target.value)}
+                onBlur={() => {
+                  const next = calendarDraftMeetingDetails.trim().slice(0, 600);
+                  void saveSelectedCalendarPatch({ meetingDetails: next ? next : undefined });
+                }}
+                disabled={!selectedCalendarId || calSaving}
               />
             </label>
 
@@ -3013,37 +3225,45 @@ export function PortalBookingClient() {
             <label className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm sm:col-span-2">
               <div className="font-medium text-zinc-800">Notification emails (optional)</div>
               <div className="mt-2 space-y-2">
-                {notificationEmails.length === 0 ? (
+                {!selectedCalendarId ? (
+                  <div className="rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-600">
+                    Select a calendar above to set its notification recipients.
+                  </div>
+                ) : calendarDraftNotificationEmails.length === 0 ? (
                   <div className="rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-600">
                     Add one or more emails to notify when someone books.
                   </div>
                 ) : null}
 
-                {notificationEmails.map((email, idx) => (
+                {calendarDraftNotificationEmails.map((email, idx) => (
                   <div key={idx} className="flex items-center gap-2">
                     <PortalTypeaheadInput
                       value={email}
                       suggestions={notificationEmailSuggestions}
-                      disabled={saving}
+                      disabled={calSaving || !selectedCalendarId}
                       className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
                       placeholder={idx === 0 ? "you@company.com" : "another@company.com"}
                       onChange={(nextEmail) => {
-                        const next = [...notificationEmails];
+                        const next = [...calendarDraftNotificationEmails];
                         next[idx] = nextEmail;
-                        setNotificationEmails(next);
+                        setCalendarDraftNotificationEmails(next);
                       }}
-                      onBlur={() => save({ notificationEmails: sanitizeNotificationEmails(notificationEmails) })}
+                      onBlur={() => {
+                        const normalized = sanitizeNotificationEmails(calendarDraftNotificationEmails);
+                        void saveSelectedCalendarPatch({ notificationEmails: normalized.length ? normalized : undefined });
+                      }}
                     />
                     <button
                       type="button"
                       className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
                       onClick={() => {
-                        const next = notificationEmails.filter((_, i) => i !== idx);
-                        setNotificationEmails(next);
-                        void save({ notificationEmails: sanitizeNotificationEmails(next) });
+                        const next = calendarDraftNotificationEmails.filter((_, i) => i !== idx);
+                        setCalendarDraftNotificationEmails(next);
+                        const normalized = sanitizeNotificationEmails(next);
+                        void saveSelectedCalendarPatch({ notificationEmails: normalized.length ? normalized : undefined });
                       }}
                       aria-label="Remove email"
-                      disabled={saving}
+                      disabled={calSaving || !selectedCalendarId}
                     >
                       Remove
                     </button>
@@ -3053,12 +3273,13 @@ export function PortalBookingClient() {
                 <button
                   type="button"
                   className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
-                  onClick={() => setNotificationEmails((prev) => [...prev, ""])}
+                  onClick={() => setCalendarDraftNotificationEmails((prev) => [...prev, ""])}
+                  disabled={calSaving || !selectedCalendarId}
                 >
                   + Add email
                 </button>
 
-                <div className="text-xs text-zinc-500">Emails: {sanitizeNotificationEmails(notificationEmails).length}</div>
+                <div className="text-xs text-zinc-500">Emails: {sanitizeNotificationEmails(calendarDraftNotificationEmails).length}</div>
               </div>
             </label>
           </div>
@@ -3503,145 +3724,6 @@ export function PortalBookingClient() {
         }
       >
         <PortalBookingAvailabilityClient variant="modal" />
-      </AppModal>
-
-      <AppModal
-        open={calendarEditOpen}
-        title="Edit calendar"
-        description="Update your calendar title, duration, and booking details."
-        onClose={() => {
-          if (calSaving) return;
-          setCalendarEditOpen(false);
-          setCalendarEditDraft(null);
-        }}
-        widthClassName="w-[min(640px,calc(100vw-32px))]"
-        footer={
-          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-            <button
-              type="button"
-              className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-60"
-              disabled={calSaving}
-              onClick={() => {
-                setCalendarEditOpen(false);
-                setCalendarEditDraft(null);
-              }}
-            >
-              Cancel
-            </button>
-            <button
-              type="button"
-              className="rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
-              disabled={calSaving || !calendarEditDraft?.title.trim()}
-              onClick={() => {
-                if (!calendarEditDraft) return;
-                const titleRaw = calendarEditDraft.title.trim();
-                if (!titleRaw) return;
-
-                const durNum = Number(calendarEditDraft.durationMinutes);
-                const durationMinutes =
-                  Number.isFinite(durNum) && durNum > 0 ? Math.max(10, Math.min(180, Math.round(durNum))) : undefined;
-
-                const emailLike = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
-                const emails = calendarEditDraft.notificationEmails
-                  .split(",")
-                  .map((x) => x.trim().toLowerCase())
-                  .filter((x) => Boolean(x) && emailLike.test(x))
-                  .slice(0, 20);
-                const uniqueEmails = Array.from(new Set(emails));
-
-                const meetingLocation = calendarEditDraft.meetingLocation.trim().slice(0, 400) || undefined;
-                const meetingDetails = calendarEditDraft.meetingDetails.trim().slice(0, 600) || undefined;
-
-                const next = calendars.map((x) =>
-                  x.id === calendarEditDraft.id
-                    ? {
-                        ...x,
-                        title: titleRaw.slice(0, 80),
-                        durationMinutes: durationMinutes ?? x.durationMinutes,
-                        meetingLocation,
-                        meetingDetails,
-                        notificationEmails: uniqueEmails.length ? uniqueEmails : undefined,
-                      }
-                    : x,
-                );
-
-                setCalendarEditOpen(false);
-                setCalendarEditDraft(null);
-                void saveCalendars(next);
-              }}
-            >
-              {calSaving ? "Saving…" : "Save"}
-            </button>
-          </div>
-        }
-      >
-        <div className="space-y-4">
-          <label className="block">
-            <div className="text-xs font-semibold text-zinc-600">Title</div>
-            <input
-              className="mt-2 h-10 w-full rounded-xl border border-zinc-200 bg-white px-3 text-sm"
-              value={calendarEditDraft?.title ?? ""}
-              onChange={(e) =>
-                setCalendarEditDraft((prev) => (prev ? { ...prev, title: e.target.value } : prev))
-              }
-              disabled={calSaving}
-              placeholder="e.g. Intro call"
-            />
-          </label>
-
-          <label className="block">
-            <div className="text-xs font-semibold text-zinc-600">Duration minutes</div>
-            <input
-              type="number"
-              min={10}
-              max={180}
-              className="mt-2 h-10 w-full rounded-xl border border-zinc-200 bg-white px-3 text-sm"
-              value={calendarEditDraft?.durationMinutes ?? ""}
-              onChange={(e) =>
-                setCalendarEditDraft((prev) => (prev ? { ...prev, durationMinutes: e.target.value } : prev))
-              }
-              disabled={calSaving}
-            />
-          </label>
-
-          <label className="block">
-            <div className="text-xs font-semibold text-zinc-600">Meeting location (optional)</div>
-            <textarea
-              className="mt-2 min-h-16 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-              value={calendarEditDraft?.meetingLocation ?? ""}
-              onChange={(e) => setCalendarEditDraft((prev) => (prev ? { ...prev, meetingLocation: e.target.value } : prev))}
-              disabled={calSaving}
-              placeholder="e.g. Zoom link, phone call, or in-person address"
-            />
-          </label>
-
-          <label className="block">
-            <div className="text-xs font-semibold text-zinc-600">Meeting details (optional)</div>
-            <textarea
-              className="mt-2 min-h-24 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-              value={calendarEditDraft?.meetingDetails ?? ""}
-              onChange={(e) =>
-                setCalendarEditDraft((prev) => (prev ? { ...prev, meetingDetails: e.target.value } : prev))
-              }
-              disabled={calSaving}
-              placeholder="e.g. We’ll send you the link after booking."
-            />
-          </label>
-
-          <label className="block">
-            <div className="text-xs font-semibold text-zinc-600">Notification emails (optional)</div>
-            <textarea
-              className="mt-2 min-h-16 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-              value={calendarEditDraft?.notificationEmails ?? ""}
-              onChange={(e) =>
-                setCalendarEditDraft((prev) => (prev ? { ...prev, notificationEmails: e.target.value } : prev))
-              }
-              disabled={calSaving}
-              placeholder="name@domain.com, team@domain.com"
-            />
-            <div className="mt-2 text-xs text-zinc-500">Comma-separated. We’ll ignore invalid emails.</div>
-          </label>
-        </div>
       </AppModal>
 
       <AppConfirmModal

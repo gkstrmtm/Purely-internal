@@ -184,6 +184,12 @@ export function PortalBlogsClient({
   }, [siteDomain]);
 
   const previewBlogsHref = useMemo(() => {
+    // Preview is always the Purely Automation hosted page.
+    return hostedBlogPath;
+  }, [hostedBlogPath]);
+
+  const liveBlogsHref = useMemo(() => {
+    // Live prefers the verified custom domain, otherwise falls back to the hosted preview.
     if (site?.primaryDomain && savedDomainStatus === "VERIFIED") return `https://${site.primaryDomain}/blogs`;
     return hostedBlogPath;
   }, [hostedBlogPath, savedDomainStatus, site?.primaryDomain]);
@@ -199,6 +205,11 @@ export function PortalBlogsClient({
     if (typeof window === "undefined") return `/${handle}/blogs`;
     return `${window.location.origin}/${handle}/blogs`;
   }, [site?.id, site?.slug, siteSlug]);
+
+  const liveBlogUrlPreview = useMemo(() => {
+    if (site?.primaryDomain && savedDomainStatus === "VERIFIED") return `https://${site.primaryDomain}/blogs`;
+    return publicBlogUrlPreview;
+  }, [publicBlogUrlPreview, savedDomainStatus, site?.primaryDomain]);
 
   const autoFrequencyDays = useMemo(() => {
     const unit = autoFrequencyUnit;
@@ -361,18 +372,6 @@ export function PortalBlogsClient({
       const left = Math.max(padding, Math.min(window.innerWidth - menuWidth - padding, rect.right - menuWidth));
       const top = Math.max(padding, rect.bottom + 8);
       return { postId, left, top };
-    });
-  }
-
-  function togglePreviewMenu(el: HTMLElement) {
-    setOpenPreviewMenu((prev) => {
-      if (prev) return null;
-      const rect = el.getBoundingClientRect();
-      const menuWidth = 288; // w-72
-      const padding = 8;
-      const left = Math.max(padding, Math.min(window.innerWidth - menuWidth - padding, rect.right - menuWidth));
-      const top = Math.max(padding, rect.bottom + 8);
-      return { left, top };
     });
   }
 
@@ -585,7 +584,18 @@ export function PortalBlogsClient({
               (!previewBlogsHref ? "pointer-events-none opacity-60" : "")
             }
           >
-            Preview blogs page
+            Preview
+          </a>
+          <a
+            href={liveBlogsHref ?? undefined}
+            target="_blank"
+            rel="noreferrer"
+            className={
+              "inline-flex items-center justify-center rounded-2xl bg-[color:var(--color-brand-blue)] px-4 py-2 text-sm font-semibold text-white hover:opacity-95 " +
+              (!liveBlogsHref ? "pointer-events-none opacity-60" : "")
+            }
+          >
+            Live
           </a>
           <button
             type="button"
@@ -953,36 +963,66 @@ export function PortalBlogsClient({
 
             <div className="mt-5">
               <label className="text-xs font-semibold text-zinc-600">Hosted blog link</label>
-              <div className="mt-1 flex flex-col gap-3 sm:flex-row sm:items-center">
-                <div className="min-w-0 flex-1 rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm text-zinc-800">
-                  <div className="truncate">{publicBlogUrlPreview ?? "Create your blog workspace to get a link."}</div>
+              <div className="mt-1 space-y-3">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+                  <div className="min-w-0 flex-1 rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm text-zinc-800">
+                    <div className="truncate">
+                      <span className="font-semibold text-zinc-600">Preview:</span> {publicBlogUrlPreview ?? "Create your blog workspace to get a link."}
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm font-semibold text-brand-ink hover:bg-zinc-50 disabled:opacity-60"
+                    disabled={!publicBlogUrlPreview}
+                    onClick={async () => {
+                      if (!publicBlogUrlPreview) return;
+                      await navigator.clipboard.writeText(publicBlogUrlPreview);
+                    }}
+                  >
+                    Copy preview
+                  </button>
+                  <a
+                    href={publicBlogUrlPreview ?? undefined}
+                    target="_blank"
+                    rel="noreferrer"
+                    className={
+                      "inline-flex items-center justify-center rounded-2xl bg-brand-ink px-4 py-3 text-sm font-semibold text-white hover:opacity-95 " +
+                      (!publicBlogUrlPreview ? "pointer-events-none opacity-60" : "")
+                    }
+                  >
+                    Preview
+                  </a>
                 </div>
-                <button
-                  type="button"
-                  className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-4 py-3 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
-                  disabled={!publicBlogUrlPreview}
-                  onClick={async () => {
-                    if (!publicBlogUrlPreview) return;
-                    await navigator.clipboard.writeText(publicBlogUrlPreview);
-                  }}
-                >
-                  Copy
-                </button>
-                <button
-                  type="button"
-                  onClick={(e) => togglePreviewMenu(e.currentTarget)}
-                  disabled={
-                    !hostedBlogPath &&
-                    !(site?.primaryDomain && savedDomainStatus === "VERIFIED") &&
-                    !(siteDomain.trim() && domainStatus === "VERIFIED")
-                  }
-                  className={
-                    "inline-flex items-center justify-center gap-2 rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm font-semibold text-brand-ink hover:bg-zinc-50 disabled:opacity-60"
-                  }
-                >
-                  Preview
-                  <span aria-hidden className="text-xs">▾</span>
-                </button>
+
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+                  <div className="min-w-0 flex-1 rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm text-zinc-800">
+                    <div className="truncate">
+                      <span className="font-semibold text-zinc-600">Live:</span> {liveBlogUrlPreview ?? "…"}
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm font-semibold text-brand-ink hover:bg-zinc-50 disabled:opacity-60"
+                    disabled={!liveBlogUrlPreview}
+                    onClick={async () => {
+                      if (!liveBlogUrlPreview) return;
+                      await navigator.clipboard.writeText(liveBlogUrlPreview);
+                    }}
+                  >
+                    Copy live
+                  </button>
+                  <a
+                    href={liveBlogUrlPreview ?? undefined}
+                    target="_blank"
+                    rel="noreferrer"
+                    className={
+                      "inline-flex items-center justify-center rounded-2xl bg-[color:var(--color-brand-blue)] px-4 py-3 text-sm font-semibold text-white hover:opacity-95 " +
+                      (!liveBlogUrlPreview ? "pointer-events-none opacity-60" : "")
+                    }
+                  >
+                    Live
+                  </a>
+                </div>
               </div>
               <div className="mt-1 text-xs text-zinc-500">
                 This is your public blog hosted on Purely Automation. If you also want to publish elsewhere, use “Export Markdown”.
@@ -1040,7 +1080,7 @@ export function PortalBlogsClient({
                 </div>
 
                 <div>
-                  <label className="text-xs font-semibold text-zinc-600">Custom domain preview</label>
+                  <label className="text-xs font-semibold text-zinc-600">Custom domain (Live)</label>
                   <div className="mt-1 flex flex-col gap-2 sm:flex-row sm:items-center">
                     <div className="min-w-0 flex-1 rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm text-zinc-800">
                       <div className="truncate">{customBlogUrl ?? "Select a domain"}</div>
@@ -1054,7 +1094,7 @@ export function PortalBlogsClient({
                         (site?.primaryDomain && savedDomainStatus === "VERIFIED" ? "" : "pointer-events-none opacity-60")
                       }
                     >
-                      Preview
+                      Live
                     </a>
                   </div>
                   {site?.primaryDomain && savedDomainStatus === "PENDING" ? (
