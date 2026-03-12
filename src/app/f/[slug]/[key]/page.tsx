@@ -199,7 +199,12 @@ export default async function HostedFunnelWithKeyPage({
               {renderCreditFunnelBlocks({
                 blocks: blockBlocks,
                 basePath: "",
-                context: { bookingOwnerId: funnel.ownerId, funnelPageId: page.id },
+                context: {
+                  bookingOwnerId: funnel.ownerId,
+                  funnelPageId: page.id,
+                  funnelSlug: s,
+                  funnelPathBase: `/f/${encodeURIComponent(s)}/${encodeURIComponent(k)}`,
+                },
               })}
             </div>
           ) : (

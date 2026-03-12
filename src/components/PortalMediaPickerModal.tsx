@@ -43,6 +43,7 @@ export function PortalMediaPickerModal({
   title,
   confirmLabel,
   variant,
+  accept,
 }: {
   open: boolean;
   onClose: () => void;
@@ -50,6 +51,7 @@ export function PortalMediaPickerModal({
   title?: string;
   confirmLabel?: string;
   variant?: PortalVariant;
+  accept?: "any" | "image" | "video";
 }) {
   const [mounted, setMounted] = useState(false);
   const [q, setQ] = useState("");
@@ -87,6 +89,13 @@ export function PortalMediaPickerModal({
     setLoading(false);
   }, [variant]);
 
+  const filteredItems = useMemo(() => {
+    const mode = accept || "any";
+    if (mode === "any") return items;
+    const prefix = mode === "image" ? "image/" : "video/";
+    return items.filter((it) => String(it.mimeType || "").startsWith(prefix));
+  }, [accept, items]);
+
   useEffect(() => {
     if (!open) return;
     void load("");
@@ -100,7 +109,7 @@ export function PortalMediaPickerModal({
 
   const body = useMemo(() => {
     return (
-      <div className="fixed inset-0 z-[80]" aria-hidden>
+      <div className="fixed inset-0 z-80" aria-hidden>
         <div
           className="absolute inset-0 bg-black/30"
           onMouseDown={onClose}
@@ -108,15 +117,20 @@ export function PortalMediaPickerModal({
         />
 
         <div
-          className="fixed left-1/2 top-1/2 z-[90] w-[min(720px,calc(100vw-32px))] -translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-3xl border border-zinc-200 bg-white shadow-xl"
+          className="fixed left-1/2 top-1/2 z-90 w-[min(720px,calc(100vw-32px))] -translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-3xl border border-zinc-200 bg-white shadow-xl"
+          role="dialog"
+          aria-modal="true"
           onMouseDown={(e) => e.stopPropagation()}
           onTouchStart={(e) => e.stopPropagation()}
         >
           <div className="flex items-start justify-between gap-4 border-b border-zinc-100 p-5">
-            <div>
-              <div className="text-base font-semibold text-zinc-900">{title || "Attach from media library"}</div>
-              <div className="mt-1 text-sm text-zinc-600">Pick a file to attach.</div>
+            <div className="min-w-0">
+              <div className="text-sm font-semibold text-zinc-900">{title || "Media library"}</div>
+              <div className="mt-1 text-xs text-zinc-500">
+                {accept === "video" ? "Videos" : accept === "image" ? "Images" : "Files"} from your media library.
+              </div>
             </div>
+
             <button
               type="button"
               className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
@@ -141,16 +155,21 @@ export function PortalMediaPickerModal({
             <div className="mt-4 max-h-[55vh] overflow-auto">
               {loading ? (
                 <div className="text-sm text-zinc-600">Loading…</div>
-              ) : items.length ? (
+              ) : filteredItems.length ? (
                 <div className="space-y-2">
-                  {items.map((it) => {
+                  {filteredItems.map((it) => {
                     const isImg = it.mimeType.startsWith("image/");
+                    const isVideo = it.mimeType.startsWith("video/");
                     return (
                       <div key={it.id} className="flex items-center justify-between gap-3 rounded-2xl border border-zinc-200 bg-white p-3">
                         <div className="flex min-w-0 items-center gap-3">
                           {isImg && it.previewUrl ? (
                             /* eslint-disable-next-line @next/next/no-img-element */
                             <img src={it.previewUrl} alt={it.fileName} className="h-10 w-10 rounded-2xl object-cover" />
+                          ) : isVideo ? (
+                            <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-zinc-100 text-[10px] font-semibold text-zinc-700">
+                              VIDEO
+                            </div>
                           ) : (
                             <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-zinc-100 text-[10px] font-semibold text-zinc-700">
                               FILE
@@ -198,7 +217,7 @@ export function PortalMediaPickerModal({
         </div>
       </div>
     );
-  }, [busy, confirmLabel, error, items, loading, onClose, onPick, q, title]);
+  }, [accept, busy, confirmLabel, error, filteredItems, loading, onClose, onPick, q, title]);
 
   if (!open || !mounted || typeof document === "undefined") return null;
   return createPortal(body, document.body);

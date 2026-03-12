@@ -15,6 +15,7 @@ import { AppConfirmModal, AppModal } from "@/components/AppModal";
 import { AiSparkIcon } from "@/components/AiSparkIcon";
 import { LinkUrlModal } from "@/components/LinkUrlModal";
 import { PortalListboxDropdown } from "@/components/PortalListboxDropdown";
+import PortalImageCropModal from "@/components/PortalImageCropModal";
 import {
   PortalMediaPickerModal,
   type PortalMediaPickItem,
@@ -1065,6 +1066,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                             { type: "salesCheckoutButton", label: "Checkout" },
                             { type: "formLink", label: "Form link" },
                             { type: "image", label: "Image" },
+                            { type: "video", label: "Video" },
                             { type: "spacer", label: "Spacer" },
                           ] as const
                         ).map((b) => (
@@ -1349,9 +1351,9 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                                       className="hidden"
                                       disabled={busy || uploadingImageBlockId === selectedBlock.id}
                                       onChange={(e) => {
-                                        const files = e.target.files;
+                                        const files = Array.from(e.target.files || []);
                                         e.currentTarget.value = "";
-                                        if (!files || files.length === 0) return;
+                                        if (files.length === 0) return;
                                         if (!selectedBlock || selectedBlock.type !== "image") return;
                                         setUploadingImageBlockId(selectedBlock.id);
                                         setError(null);
@@ -1390,6 +1392,15 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                                   >
                                     Clear
                                   </button>
+
+                                  <button
+                                    type="button"
+                                    disabled={busy || !selectedBlock.props.src}
+                                    onClick={() => setImageCropTarget({ blockId: selectedBlock.id, src: selectedBlock.props.src })}
+                                    className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-60"
+                                  >
+                                    Edit image
+                                  </button>
                                 </div>
 
                                 {selectedBlock.props.src ? (
@@ -1406,6 +1417,93 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                                   className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
                                   placeholder="Alt text"
                                 />
+                              </div>
+                            ) : null}
+
+                            {selectedBlock.type === "video" ? (
+                              <div className="space-y-2">
+                                <div className="flex flex-wrap gap-2">
+                                  <button
+                                    type="button"
+                                    disabled={busy}
+                                    onClick={() => {
+                                      setMediaPickerTarget({ type: "video-block", blockId: selectedBlock.id });
+                                      setMediaPickerOpen(true);
+                                    }}
+                                    className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-60"
+                                  >
+                                    Choose from media
+                                  </button>
+
+                                  <label
+                                    className={classNames(
+                                      "cursor-pointer rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50",
+                                      uploadingImageBlockId === selectedBlock.id ? "opacity-60" : "",
+                                    )}
+                                  >
+                                    {uploadingImageBlockId === selectedBlock.id ? "Uploading…" : "Upload video"}
+                                    <input
+                                      type="file"
+                                      accept="video/*"
+                                      className="hidden"
+                                      disabled={busy || uploadingImageBlockId === selectedBlock.id}
+                                      onChange={(e) => {
+                                        const files = Array.from(e.target.files || []);
+                                        e.currentTarget.value = "";
+                                        if (files.length === 0) return;
+                                        if (!selectedBlock || selectedBlock.type !== "video") return;
+                                        setUploadingImageBlockId(selectedBlock.id);
+                                        setError(null);
+                                        void (async () => {
+                                          try {
+                                            const created = await uploadToMediaLibrary(files, { maxFiles: 1 });
+                                            const it = created[0];
+                                            if (!it) return;
+                                            const nextSrc = String((it as any).shareUrl || (it as any).openUrl || (it as any).downloadUrl || "").trim();
+                                            if (!nextSrc) return;
+                                            upsertBlock({
+                                              ...selectedBlock,
+                                              props: {
+                                                ...(selectedBlock.props as any),
+                                                src: nextSrc,
+                                              },
+                                            } as any);
+                                            toast.success("Video uploaded and selected");
+                                          } catch (err) {
+                                            const msg = (err as any)?.message ? String((err as any).message) : "Upload failed";
+                                            setError(msg);
+                                            toast.error(msg);
+                                          } finally {
+                                            setUploadingImageBlockId(null);
+                                          }
+                                        })();
+                                      }}
+                                    />
+                                  </label>
+
+                                  <button
+                                    type="button"
+                                    disabled={busy || !String((selectedBlock.props as any).src || "").trim()}
+                                    onClick={() =>
+                                      upsertBlock({
+                                        ...selectedBlock,
+                                        props: { ...(selectedBlock.props as any), src: "" },
+                                      } as any)
+                                    }
+                                    className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-60"
+                                  >
+                                    Clear
+                                  </button>
+                                </div>
+
+                                {String((selectedBlock.props as any).src || "").trim() ? (
+                                  <div className="rounded-xl border border-zinc-200 bg-white px-3 py-2">
+                                    <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Selected video</div>
+                                    <div className="mt-1 break-all font-mono text-xs text-zinc-700">{String((selectedBlock.props as any).src || "").trim()}</div>
+                                  </div>
+                                ) : (
+                                  <div className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-600">No video selected.</div>
+                                )}
                               </div>
                             ) : null}
 
@@ -1921,7 +2019,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
 
   const [previewDevice, setPreviewDevice] = useState<"desktop" | "mobile">("desktop");
   const [sidebarPanel, setSidebarPanel] = useState<
-    "presets" | "text" | "layout" | "forms" | "media" | "ai" | "page" | "selected"
+    "presets" | "text" | "layout" | "forms" | "media" | "header" | "shop" | "ai" | "page" | "selected"
   >("presets");
 
   const [dialog, setDialog] = useState<FunnelEditorDialog>(null);
@@ -1978,10 +2076,14 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
     | null
     | { type: "ai" }
     | { type: "image-block"; blockId: string }
+    | { type: "video-block"; blockId: string }
     | { type: "section-background"; blockId: string }
+    | { type: "section-background-video"; blockId: string }
     | { type: "chatbot-launcher"; blockId: string }
   >(null);
   const [aiAttachments, setAiAttachments] = useState<AiAttachment[]>([]);
+
+  const [imageCropTarget, setImageCropTarget] = useState<null | { blockId: string; src: string }>(null);
 
   const selectedPage = useMemo(
     () => (pages || []).find((p) => p.id === selectedPageId) || null,
@@ -2856,6 +2958,64 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
   const saveCurrentPage = async () => {
     if (!selectedPage) return;
     if (selectedPage.editorMode === "BLOCKS") {
+      const findGlobalHeader = (blocks: CreditFunnelBlock[]): CreditFunnelBlock | null => {
+        const walk = (arr: CreditFunnelBlock[]): CreditFunnelBlock | null => {
+          for (const b of arr) {
+            if (!b) continue;
+            if (b.type === "headerNav" && (b.props as any)?.isGlobal === true) return b;
+            if (b.type === "section") {
+              const props: any = b.props;
+              const keys = ["children", "leftChildren", "rightChildren"] as const;
+              for (const key of keys) {
+                const nested = Array.isArray(props?.[key]) ? (props[key] as CreditFunnelBlock[]) : [];
+                const found = walk(nested);
+                if (found) return found;
+              }
+            }
+            if (b.type === "columns") {
+              const props: any = b.props;
+              const cols = Array.isArray(props?.columns) ? (props.columns as any[]) : [];
+              for (const c of cols) {
+                const nested = Array.isArray(c?.children) ? (c.children as CreditFunnelBlock[]) : [];
+                const found = walk(nested);
+                if (found) return found;
+              }
+            }
+          }
+          return null;
+        };
+
+        return walk(blocks.filter((b) => b.type !== "page"));
+      };
+
+      const globalHeader = findGlobalHeader(saveableBlocks);
+      if (globalHeader) {
+        setBusy(true);
+        setError(null);
+        try {
+          const res = await fetch(
+            `/api/portal/funnel-builder/funnels/${encodeURIComponent(funnelId)}/pages/global-header`,
+            {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({ mode: "apply", headerBlock: globalHeader }),
+            },
+          );
+          const json = (await res.json().catch(() => null)) as any;
+          if (!res.ok || !json || json.ok !== true) throw new Error(json?.error || "Failed to apply global header");
+          await load();
+          toast.success("Global header updated");
+          return;
+        } catch (e) {
+          const msg = (e as any)?.message ? String((e as any).message) : "Failed to apply global header";
+          setError(msg);
+          toast.error(msg);
+          return;
+        } finally {
+          setBusy(false);
+        }
+      }
+
       await savePage({ editorMode: "BLOCKS", blocksJson: saveableBlocks });
       return;
     }
@@ -2941,7 +3101,31 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
     if (!selectedPage) return;
     const id = newId();
     const base: CreditFunnelBlock =
-      type === "heading"
+      type === "headerNav"
+        ? {
+            id,
+            type,
+            props: {
+              isGlobal: false,
+              sticky: true,
+              transparent: false,
+              mobileMode: "dropdown",
+              logoUrl: "",
+              logoAlt: "",
+              logoHref: "",
+              items: [{ id: newId(), label: "Home", kind: "page", pageSlug: "" }],
+            } as any,
+          }
+        : type === "anchor"
+          ? {
+              id,
+              type,
+              props: {
+                anchorId: `section-${Date.now().toString(36)}`,
+                label: "Section",
+              } as any,
+            }
+          : type === "heading"
         ? { id, type, props: { text: "Headline", level: 2 } }
         : type === "paragraph"
           ? { id, type, props: { text: "Write something compelling here." } }
@@ -2965,8 +3149,28 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                   quantity: 1,
                 },
               }
+            : type === "addToCartButton"
+              ? {
+                  id,
+                  type,
+                  props: {
+                    text: "Add to cart",
+                    priceId: "",
+                    quantity: 1,
+                  },
+                }
+              : type === "cartButton"
+                ? {
+                    id,
+                    type,
+                    props: {
+                      text: "Cart",
+                    },
+                  }
             : type === "image"
               ? { id, type, props: { src: "", alt: "" } }
+              : type === "video"
+                ? { id, type, props: { src: "", controls: true } as any }
               : type === "formLink"
                 ? { id, type, props: { formSlug: "", text: "Open form" } }
                 : type === "formEmbed"
@@ -3027,6 +3231,11 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
 
     const selectedContainer = selectedBlockId ? findContainerForBlock(editableBlocks, selectedBlockId) : null;
     const nextEditable = (() => {
+      if (type === "headerNav") {
+        const next = [base, ...editableBlocks.filter((b) => b.id !== base.id)];
+        return next;
+      }
+
       if (selectedBlock && selectedBlock.type === "section") {
         const section = selectedBlock as any;
         const key: BlockContainerKey =
@@ -3180,7 +3389,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
       const productCard = (label: string): CreditFunnelBlock[] => [
         { id: newId(), type: "heading", props: { text: label, level: 3 } },
         { id: newId(), type: "paragraph", props: { text: "Short description (optional)." } },
-        { id: newId(), type: "salesCheckoutButton", props: { text: "Buy now", priceId: "", quantity: 1 } },
+        { id: newId(), type: "addToCartButton", props: { text: "Add to cart", priceId: "", quantity: 1 } as any },
       ];
 
       blocks.push({
@@ -3194,9 +3403,10 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
               id: newId(),
               type: "paragraph",
               props: {
-                text: "Add products and connect each Buy button to a Stripe price. (Use the Checkout block settings to pick a product.)",
+                text: "Connect products to Stripe and let customers add multiple items before checkout.",
               },
             },
+            { id: newId(), type: "cartButton", props: { text: "Cart" } as any },
             {
               id: newId(),
               type: "columns",
@@ -3420,6 +3630,13 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
           setMediaPickerTarget(null);
         }}
         variant={portalVariant}
+        accept={
+          mediaPickerTarget?.type === "video-block" || mediaPickerTarget?.type === "section-background-video"
+            ? "video"
+            : mediaPickerTarget?.type === "ai"
+              ? "any"
+              : "image"
+        }
         onPick={async (it) => {
           const target = mediaPickerTarget;
           setMediaPickerOpen(false);
@@ -3445,6 +3662,21 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
             return;
           }
 
+          if (target.type === "video-block") {
+            const block = findBlockInTree(editableBlocks, target.blockId)?.block;
+            if (!block || block.type !== "video") return;
+            const nextSrc = String(it.shareUrl || it.downloadUrl || "").trim();
+            if (!nextSrc) return;
+            upsertBlock({
+              ...block,
+              props: {
+                ...(block.props as any),
+                src: nextSrc,
+              },
+            } as any);
+            return;
+          }
+
           if (target.type === "section-background") {
             const block = findBlockInTree(editableBlocks, target.blockId)?.block;
             if (!block || block.type !== "section") return;
@@ -3455,6 +3687,21 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
               props: {
                 ...(block.props as any),
                 style: applyStylePatch((block.props as any)?.style, { backgroundImageUrl: nextUrl }),
+              },
+            } as any);
+            return;
+          }
+
+          if (target.type === "section-background-video") {
+            const block = findBlockInTree(editableBlocks, target.blockId)?.block;
+            if (!block || block.type !== "section") return;
+            const nextUrl = String(it.shareUrl || it.downloadUrl || "").trim();
+            if (!nextUrl) return;
+            upsertBlock({
+              ...block,
+              props: {
+                ...(block.props as any),
+                style: applyStylePatch((block.props as any)?.style, { backgroundVideoUrl: nextUrl }),
               },
             } as any);
             return;
@@ -3472,6 +3719,40 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                 launcherImageUrl: nextUrl,
               },
             } as any);
+          }
+        }}
+      />
+
+      <PortalImageCropModal
+        open={!!imageCropTarget}
+        imageUrl={imageCropTarget?.src ?? null}
+        onClose={() => setImageCropTarget(null)}
+        onSave={async (file) => {
+          const target = imageCropTarget;
+          if (!target) return;
+
+          try {
+            const created = await uploadToMediaLibrary([file], { maxFiles: 1 });
+            const it = created[0];
+            if (!it) return;
+            const nextSrc = String((it as any).shareUrl || (it as any).previewUrl || (it as any).openUrl || (it as any).downloadUrl || "").trim();
+            if (!nextSrc) return;
+
+            const block = findBlockInTree(editableBlocks, target.blockId)?.block;
+            if (!block || block.type !== "image") return;
+            upsertBlock({
+              ...block,
+              props: {
+                ...block.props,
+                src: nextSrc,
+              },
+            });
+            toast.success("Cropped image saved as a copy");
+            setImageCropTarget(null);
+          } catch (err) {
+            const msg = (err as any)?.message ? String((err as any).message) : "Crop upload failed";
+            setError(msg);
+            toast.error(msg);
           }
         }}
       />
@@ -3808,6 +4089,8 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                     { key: "layout", label: "Layout" },
                     { key: "forms", label: "Forms" },
                     { key: "media", label: "Media" },
+                    { key: "header", label: "Header" },
+                    { key: "shop", label: "Shop" },
                     { key: "ai", label: "AI" },
                     { key: "page", label: "Theme" },
                     { key: "selected", label: "Selected" },
@@ -4252,7 +4535,12 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                 <div className="mt-4 rounded-2xl border border-zinc-200 bg-white p-4">
                   <div className="text-sm font-semibold text-zinc-900">Media</div>
                   <div className="mt-3 grid grid-cols-2 gap-2">
-                    {([{ type: "image", label: "Image" }] as const).map((b) => (
+                    {(
+                      [
+                        { type: "image", label: "Image" },
+                        { type: "video", label: "Video" },
+                      ] as const
+                    ).map((b) => (
                       <button
                         key={b.type}
                         type="button"
@@ -4269,6 +4557,71 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                         {b.label}
                       </button>
                     ))}
+                  </div>
+                </div>
+              ) : null}
+
+              {sidebarPanel === "header" ? (
+                <div className="mt-4 rounded-2xl border border-zinc-200 bg-white p-4">
+                  <div className="text-sm font-semibold text-zinc-900">Header</div>
+                  <div className="mt-3 grid grid-cols-2 gap-2">
+                    {(
+                      [
+                        { type: "headerNav", label: "Header / Menu" },
+                        { type: "anchor", label: "Anchor" },
+                      ] as const
+                    ).map((b) => (
+                      <button
+                        key={b.type}
+                        type="button"
+                        disabled={busy}
+                        draggable
+                        onDragStart={(e) => {
+                          e.dataTransfer.setData("text/x-block-type", b.type);
+                          e.dataTransfer.effectAllowed = "copy";
+                        }}
+                        onClick={() => addBlock(b.type as any)}
+                        className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-left text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+                        title="Drag into preview or click to add"
+                      >
+                        {b.label}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="mt-2 text-xs text-zinc-500">Anchors can be used for menu links like “#pricing”.</div>
+                </div>
+              ) : null}
+
+              {sidebarPanel === "shop" ? (
+                <div className="mt-4 rounded-2xl border border-zinc-200 bg-white p-4">
+                  <div className="text-sm font-semibold text-zinc-900">Shop</div>
+                  <div className="mt-3 grid grid-cols-2 gap-2">
+                    {(
+                      [
+                        { type: "addToCartButton", label: "Add to cart" },
+                        { type: "cartButton", label: "Cart button" },
+                        { type: "salesCheckoutButton", label: "Checkout (single)" },
+                      ] as const
+                    ).map((b) => (
+                      <button
+                        key={b.type}
+                        type="button"
+                        disabled={busy}
+                        draggable
+                        onDragStart={(e) => {
+                          e.dataTransfer.setData("text/x-block-type", b.type);
+                          e.dataTransfer.effectAllowed = "copy";
+                        }}
+                        onClick={() => addBlock(b.type as any)}
+                        className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-left text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+                        title="Drag into preview or click to add"
+                      >
+                        {b.label}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="mt-2 text-xs text-zinc-500">
+                    Use <span className="font-semibold">Add to cart</span> + <span className="font-semibold">Cart</span> for multi-item Stripe checkout.
                   </div>
                 </div>
               ) : null}
@@ -4990,9 +5343,9 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                                   className="hidden"
                                   disabled={busy || uploadingImageBlockId === selectedBlock.id}
                                   onChange={(e) => {
-                                    const files = e.target.files;
+                                    const files = Array.from(e.target.files || []);
                                     e.currentTarget.value = "";
-                                    if (!files || files.length === 0) return;
+                                    if (files.length === 0) return;
                                     if (!selectedBlock || selectedBlock.type !== "chatbot") return;
                                     setUploadingImageBlockId(selectedBlock.id);
                                     setError(null);
@@ -5194,6 +5547,528 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                       </div>
                     ) : null}
 
+                    {selectedBlock.type === "addToCartButton" ? (
+                      <div className="space-y-2">
+                        <input
+                          value={(selectedBlock.props as any).text ?? ""}
+                          onChange={(e) =>
+                            upsertBlock({
+                              ...selectedBlock,
+                              props: { ...selectedBlock.props, text: e.target.value },
+                            } as any)
+                          }
+                          className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                          placeholder="Button text (e.g. Add to cart)"
+                        />
+
+                        <label className="block">
+                          <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Product</div>
+                          <PortalListboxDropdown
+                            value={(selectedBlock.props as any).priceId ?? ""}
+                            onChange={(nextPriceId) => {
+                              const priceId = String(nextPriceId || "").trim();
+                              const picked = stripeProducts.find((p) => String(p?.defaultPrice?.id || "").trim() === priceId) || null;
+                              const nextProductName = (picked?.name ? String(picked.name) : "").trim();
+                              const nextProductDescription = (picked?.description ? String(picked.description) : "").trim();
+
+                              upsertBlock({
+                                ...selectedBlock,
+                                props: {
+                                  ...selectedBlock.props,
+                                  priceId,
+                                  productName: priceId ? nextProductName || undefined : undefined,
+                                  productDescription: priceId ? nextProductDescription || undefined : undefined,
+                                  text: String((selectedBlock.props as any)?.text || "").trim() || "Add to cart",
+                                },
+                              } as any);
+                            }}
+                            placeholder={stripeProductsBusy ? "Loading Stripe products…" : "Select a Stripe product"}
+                            options={[
+                              { value: "", label: "(No product selected)" },
+                              ...stripeProducts
+                                .filter((p) => p && p.defaultPrice && p.defaultPrice.id)
+                                .map((p) => ({
+                                  value: p.defaultPrice!.id,
+                                  label: p.name || "Product",
+                                  hint: formatMoney(p.defaultPrice!.unitAmount, p.defaultPrice!.currency) || "",
+                                })),
+                            ]}
+                            className="w-full"
+                            buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
+                            disabled={stripeProductsBusy}
+                          />
+                          <div className="mt-1 text-[11px] text-zinc-500">Pulled from your connected Stripe account.</div>
+                        </label>
+
+                        <label className="block">
+                          <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Product name</div>
+                          <input
+                            value={(selectedBlock.props as any)?.productName ?? ""}
+                            onChange={(e) =>
+                              upsertBlock({
+                                ...selectedBlock,
+                                props: { ...selectedBlock.props, productName: e.target.value },
+                              } as any)
+                            }
+                            className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                            placeholder="(Auto from Stripe)"
+                          />
+                        </label>
+
+                        <label className="block">
+                          <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Short description</div>
+                          <textarea
+                            rows={3}
+                            value={(selectedBlock.props as any)?.productDescription ?? ""}
+                            onChange={(e) =>
+                              upsertBlock({
+                                ...selectedBlock,
+                                props: { ...selectedBlock.props, productDescription: e.target.value },
+                              } as any)
+                            }
+                            className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                            placeholder="(Auto from Stripe)"
+                          />
+                        </label>
+
+                        {stripeProductsError ? (
+                          <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+                            {stripeProductsError}
+                          </div>
+                        ) : null}
+
+                        {stripeProductsError ? (
+                          <button
+                            type="button"
+                            disabled={stripeProductsBusy}
+                            onClick={() => void loadStripeProducts()}
+                            className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-60"
+                          >
+                            Retry loading Stripe products
+                          </button>
+                        ) : null}
+
+                        <label className="block">
+                          <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Quantity</div>
+                          <input
+                            type="number"
+                            min={1}
+                            max={20}
+                            value={String((selectedBlock.props as any).quantity ?? 1)}
+                            onChange={(e) =>
+                              upsertBlock({
+                                ...selectedBlock,
+                                props: {
+                                  ...selectedBlock.props,
+                                  quantity: Math.max(1, Math.min(20, Number(e.target.value) || 1)),
+                                },
+                              } as any)
+                            }
+                            className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                            placeholder="1"
+                          />
+                        </label>
+                      </div>
+                    ) : null}
+
+                    {selectedBlock.type === "cartButton" ? (
+                      <div className="space-y-2">
+                        <label className="block">
+                          <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Button text</div>
+                          <input
+                            value={(selectedBlock.props as any).text ?? ""}
+                            onChange={(e) =>
+                              upsertBlock({
+                                ...selectedBlock,
+                                props: { ...selectedBlock.props, text: e.target.value },
+                              } as any)
+                            }
+                            className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                            placeholder="Cart"
+                          />
+                        </label>
+                        <div className="rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs text-zinc-700">
+                          Cart is stored in the visitor’s browser and is scoped to this page.
+                        </div>
+                      </div>
+                    ) : null}
+
+                    {selectedBlock.type === "headerNav" ? (
+                      <div className="space-y-3">
+                        <label className="flex items-center gap-2">
+                          <input
+                            type="checkbox"
+                            checked={Boolean((selectedBlock.props as any)?.isGlobal)}
+                            onChange={(e) => {
+                              const checked = e.target.checked;
+                              const next = {
+                                ...selectedBlock,
+                                props: { ...selectedBlock.props, isGlobal: checked },
+                              } as any;
+                              upsertBlock(next);
+
+                              if (!selectedPage) return;
+                              setBusy(true);
+                              setError(null);
+                              void (async () => {
+                                try {
+                                  const res = await fetch(
+                                    `/api/portal/funnel-builder/funnels/${encodeURIComponent(funnelId)}/pages/global-header`,
+                                    {
+                                      method: "POST",
+                                      headers: { "content-type": "application/json" },
+                                      body: JSON.stringify(
+                                        checked
+                                          ? { mode: "apply", headerBlock: next }
+                                          : { mode: "unset", keepOnPageId: selectedPage.id, localHeaderBlock: next },
+                                      ),
+                                    },
+                                  );
+                                  const json = (await res.json().catch(() => null)) as any;
+                                  if (!res.ok || !json || json.ok !== true) {
+                                    throw new Error(json?.error || "Failed to update global header");
+                                  }
+                                  await load();
+                                  toast.success(checked ? "Global header enabled" : "Global header disabled");
+                                } catch (err) {
+                                  const msg = (err as any)?.message ? String((err as any).message) : "Failed to update global header";
+                                  setError(msg);
+                                  toast.error(msg);
+                                } finally {
+                                  setBusy(false);
+                                }
+                              })();
+                            }}
+                            className="h-4 w-4 rounded border-zinc-300"
+                          />
+                          <span className="text-sm font-semibold text-zinc-900">Make this the global header</span>
+                        </label>
+
+                        {Boolean((selectedBlock.props as any)?.isGlobal) ? (
+                          <div className="rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs text-zinc-700">
+                            Changes to a global header apply when you click <span className="font-semibold">Save</span>.
+                          </div>
+                        ) : null}
+
+                        <div className="grid grid-cols-2 gap-2">
+                          <label className="flex items-center gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm">
+                            <input
+                              type="checkbox"
+                              checked={Boolean((selectedBlock.props as any)?.sticky)}
+                              onChange={(e) =>
+                                upsertBlock({
+                                  ...selectedBlock,
+                                  props: { ...selectedBlock.props, sticky: e.target.checked },
+                                } as any)
+                              }
+                              className="h-4 w-4 rounded border-zinc-300"
+                            />
+                            <span className="font-semibold text-zinc-900">Sticky</span>
+                          </label>
+
+                          <label className="flex items-center gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm">
+                            <input
+                              type="checkbox"
+                              checked={Boolean((selectedBlock.props as any)?.transparent)}
+                              onChange={(e) =>
+                                upsertBlock({
+                                  ...selectedBlock,
+                                  props: { ...selectedBlock.props, transparent: e.target.checked },
+                                } as any)
+                              }
+                              className="h-4 w-4 rounded border-zinc-300"
+                            />
+                            <span className="font-semibold text-zinc-900">Transparent</span>
+                          </label>
+                        </div>
+
+                        <label className="block">
+                          <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Mobile menu</div>
+                          <PortalListboxDropdown
+                            value={String((selectedBlock.props as any)?.mobileMode || "dropdown")}
+                            onChange={(v) =>
+                              upsertBlock({
+                                ...selectedBlock,
+                                props: { ...selectedBlock.props, mobileMode: String(v || "dropdown") },
+                              } as any)
+                            }
+                            options={[
+                              { value: "dropdown", label: "Dropdown" },
+                              { value: "slideover", label: "Slide-over" },
+                            ]}
+                            className="w-full"
+                            buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
+                          />
+                        </label>
+
+                        <label className="block">
+                          <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Logo image URL</div>
+                          <input
+                            value={String((selectedBlock.props as any)?.logoUrl || "")}
+                            onChange={(e) =>
+                              upsertBlock({
+                                ...selectedBlock,
+                                props: { ...selectedBlock.props, logoUrl: e.target.value },
+                              } as any)
+                            }
+                            className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                            placeholder="https://…"
+                          />
+                        </label>
+
+                        <label className="block">
+                          <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Logo link (optional)</div>
+                          <input
+                            value={String((selectedBlock.props as any)?.logoHref || "")}
+                            onChange={(e) =>
+                              upsertBlock({
+                                ...selectedBlock,
+                                props: { ...selectedBlock.props, logoHref: e.target.value },
+                              } as any)
+                            }
+                            className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                            placeholder="Leave blank to link to funnel home"
+                          />
+                        </label>
+
+                        <div className="rounded-2xl border border-zinc-200 bg-white p-3">
+                          <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Menu items</div>
+                          <div className="mt-2 space-y-2">
+                            {(() => {
+                              const items = Array.isArray((selectedBlock.props as any)?.items)
+                                ? (((selectedBlock.props as any).items as any[]) || [])
+                                : [];
+
+                              const collectAnchors = (): Array<{ value: string; label: string }> => {
+                                const out: Array<{ value: string; label: string }> = [];
+                                const walk = (arr: CreditFunnelBlock[]) => {
+                                  for (const b of arr) {
+                                    if (!b) continue;
+                                    if (b.type === "anchor") {
+                                      const id = String((b.props as any)?.anchorId || "").trim();
+                                      const label = String((b.props as any)?.label || "").trim();
+                                      if (id) out.push({ value: id, label: label ? `${label} (#${id})` : `#${id}` });
+                                      continue;
+                                    }
+                                    if (b.type === "section") {
+                                      const props: any = b.props;
+                                      ["children", "leftChildren", "rightChildren"].forEach((k) => {
+                                        const nested = Array.isArray(props?.[k]) ? (props[k] as CreditFunnelBlock[]) : [];
+                                        walk(nested);
+                                      });
+                                    }
+                                    if (b.type === "columns") {
+                                      const props: any = b.props;
+                                      const cols = Array.isArray(props?.columns) ? (props.columns as any[]) : [];
+                                      cols.forEach((c) => {
+                                        const nested = Array.isArray(c?.children) ? (c.children as CreditFunnelBlock[]) : [];
+                                        walk(nested);
+                                      });
+                                    }
+                                  }
+                                };
+                                walk(editableBlocks);
+                                const unique = new Map<string, string>();
+                                for (const a of out) {
+                                  if (!unique.has(a.value)) unique.set(a.value, a.label);
+                                }
+                                return Array.from(unique.entries()).map(([value, label]) => ({ value, label }));
+                              };
+
+                              const anchorOptions = collectAnchors();
+
+                              const updateItems = (nextItems: any[]) =>
+                                upsertBlock({
+                                  ...selectedBlock,
+                                  props: { ...selectedBlock.props, items: nextItems },
+                                } as any);
+
+                              return (
+                                <>
+                                  {items.map((it: any) => {
+                                    const itemId = String(it?.id || "");
+                                    const label = String(it?.label || "");
+                                    const kind = it?.kind === "page" || it?.kind === "anchor" ? String(it.kind) : "url";
+
+                                    return (
+                                      <div key={itemId} className="rounded-xl border border-zinc-200 bg-white p-3">
+                                        <div className="flex items-start justify-between gap-2">
+                                          <div className="min-w-0 flex-1 space-y-2">
+                                            <input
+                                              value={label}
+                                              onChange={(e) => {
+                                                const next = items.map((x: any) => (x?.id === itemId ? { ...x, label: e.target.value } : x));
+                                                updateItems(next);
+                                              }}
+                                              className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                                              placeholder="Label"
+                                            />
+
+                                            <PortalListboxDropdown
+                                              value={kind}
+                                              onChange={(v) => {
+                                                const nextKind = String(v || "url");
+                                                const next = items.map((x: any) => {
+                                                  if (x?.id !== itemId) return x;
+                                                  const base = { ...x, kind: nextKind };
+                                                  if (nextKind === "url") return { ...base, url: String(base.url || "").trim(), pageSlug: undefined, anchorId: undefined };
+                                                  if (nextKind === "page") return { ...base, pageSlug: String(base.pageSlug || ""), url: undefined, anchorId: undefined };
+                                                  return { ...base, anchorId: String(base.anchorId || ""), url: undefined, pageSlug: undefined };
+                                                });
+                                                updateItems(next);
+                                              }}
+                                              options={[
+                                                { value: "url", label: "External URL" },
+                                                { value: "page", label: "Funnel page" },
+                                                { value: "anchor", label: "On-page anchor" },
+                                              ]}
+                                              className="w-full"
+                                              buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
+                                            />
+
+                                            {kind === "url" ? (
+                                              <>
+                                                <input
+                                                  value={String(it?.url || "")}
+                                                  onChange={(e) => {
+                                                    const next = items.map((x: any) => (x?.id === itemId ? { ...x, url: e.target.value } : x));
+                                                    updateItems(next);
+                                                  }}
+                                                  className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                                                  placeholder="https://…"
+                                                />
+                                                <label className="flex items-center gap-2">
+                                                  <input
+                                                    type="checkbox"
+                                                    checked={Boolean(it?.newTab)}
+                                                    onChange={(e) => {
+                                                      const next = items.map((x: any) => (x?.id === itemId ? { ...x, newTab: e.target.checked } : x));
+                                                      updateItems(next);
+                                                    }}
+                                                    className="h-4 w-4 rounded border-zinc-300"
+                                                  />
+                                                  <span className="text-sm font-semibold text-zinc-900">Open in new tab</span>
+                                                </label>
+                                              </>
+                                            ) : null}
+
+                                            {kind === "page" ? (
+                                              <PortalListboxDropdown
+                                                value={String(it?.pageSlug || "")}
+                                                onChange={(v) => {
+                                                  const next = items.map((x: any) => (x?.id === itemId ? { ...x, pageSlug: String(v || "") } : x));
+                                                  updateItems(next);
+                                                }}
+                                                options={[
+                                                  { value: "", label: "(Home / first page)" },
+                                                  ...(pages || []).map((p) => ({ value: p.slug, label: p.title })),
+                                                ]}
+                                                className="w-full"
+                                                buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
+                                              />
+                                            ) : null}
+
+                                            {kind === "anchor" ? (
+                                              <>
+                                                <PortalListboxDropdown
+                                                  value={String(it?.anchorId || "")}
+                                                  onChange={(v) => {
+                                                    const next = items.map((x: any) => (x?.id === itemId ? { ...x, anchorId: String(v || "") } : x));
+                                                    updateItems(next);
+                                                  }}
+                                                  options={[
+                                                    { value: "", label: "Select an anchor…" },
+                                                    ...anchorOptions,
+                                                  ]}
+                                                  className="w-full"
+                                                  buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
+                                                />
+                                                <input
+                                                  value={String(it?.anchorId || "")}
+                                                  onChange={(e) => {
+                                                    const next = items.map((x: any) => (x?.id === itemId ? { ...x, anchorId: e.target.value } : x));
+                                                    updateItems(next);
+                                                  }}
+                                                  className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                                                  placeholder="anchor-id"
+                                                />
+                                              </>
+                                            ) : null}
+                                          </div>
+
+                                          <button
+                                            type="button"
+                                            disabled={busy}
+                                            onClick={() => {
+                                              const next = items.filter((x: any) => x?.id !== itemId);
+                                              updateItems(next);
+                                            }}
+                                            className="shrink-0 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-60"
+                                          >
+                                            Remove
+                                          </button>
+                                        </div>
+                                      </div>
+                                    );
+                                  })}
+
+                                  <button
+                                    type="button"
+                                    disabled={busy}
+                                    onClick={() => {
+                                      const next = [
+                                        ...items,
+                                        { id: newId(), label: "Link", kind: "url", url: "" },
+                                      ];
+                                      updateItems(next);
+                                    }}
+                                    className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-60"
+                                  >
+                                    + Add menu item
+                                  </button>
+                                </>
+                              );
+                            })()}
+                          </div>
+                        </div>
+                      </div>
+                    ) : null}
+
+                    {selectedBlock.type === "anchor" ? (
+                      <div className="space-y-2">
+                        <label className="block">
+                          <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Anchor ID</div>
+                          <input
+                            value={String((selectedBlock.props as any)?.anchorId || "")}
+                            onChange={(e) =>
+                              upsertBlock({
+                                ...selectedBlock,
+                                props: { ...selectedBlock.props, anchorId: e.target.value },
+                              } as any)
+                            }
+                            className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                            placeholder="pricing"
+                          />
+                          <div className="mt-1 text-xs text-zinc-500">Menu links will use this like “#pricing”.</div>
+                        </label>
+
+                        <label className="block">
+                          <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Label (editor only)</div>
+                          <input
+                            value={String((selectedBlock.props as any)?.label || "")}
+                            onChange={(e) =>
+                              upsertBlock({
+                                ...selectedBlock,
+                                props: { ...selectedBlock.props, label: e.target.value },
+                              } as any)
+                            }
+                            className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                            placeholder="Pricing"
+                          />
+                        </label>
+                      </div>
+                    ) : null}
+
                     {selectedBlock.type === "formLink" ? (
                       <div className="space-y-2">
                         <label className="block">
@@ -5282,9 +6157,9 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                               className="hidden"
                               disabled={busy || uploadingImageBlockId === selectedBlock.id}
                               onChange={(e) => {
-                                const files = e.target.files;
+                                const files = Array.from(e.target.files || []);
                                 e.currentTarget.value = "";
-                                if (!files || files.length === 0) return;
+                                if (files.length === 0) return;
                                 if (!selectedBlock || selectedBlock.type !== "image") return;
                                 setUploadingImageBlockId(selectedBlock.id);
                                 setError(null);
@@ -5328,6 +6203,15 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                           >
                             Clear
                           </button>
+
+                          <button
+                            type="button"
+                            disabled={busy || !selectedBlock.props.src}
+                            onClick={() => setImageCropTarget({ blockId: selectedBlock.id, src: selectedBlock.props.src })}
+                            className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-60"
+                          >
+                            Edit image
+                          </button>
                         </div>
 
                         {selectedBlock.props.src ? (
@@ -5349,6 +6233,91 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                           className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
                           placeholder="Alt text"
                         />
+                      </div>
+                    ) : null}
+
+                    {selectedBlock.type === "video" ? (
+                      <div className="space-y-2">
+                        <div className="flex flex-wrap gap-2">
+                          <button
+                            type="button"
+                            disabled={busy}
+                            onClick={() => {
+                              setMediaPickerTarget({ type: "video-block", blockId: selectedBlock.id });
+                              setMediaPickerOpen(true);
+                            }}
+                            className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
+                          >
+                            Choose from media
+                          </button>
+                          <label
+                            className={classNames(
+                              "cursor-pointer rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50",
+                              uploadingImageBlockId === selectedBlock.id ? "opacity-60" : "",
+                            )}
+                          >
+                            {uploadingImageBlockId === selectedBlock.id ? "Uploading…" : "Upload video"}
+                            <input
+                              type="file"
+                              accept="video/*"
+                              className="hidden"
+                              disabled={busy || uploadingImageBlockId === selectedBlock.id}
+                              onChange={(e) => {
+                                const files = Array.from(e.target.files || []);
+                                e.currentTarget.value = "";
+                                if (files.length === 0) return;
+                                if (!selectedBlock || selectedBlock.type !== "video") return;
+                                setUploadingImageBlockId(selectedBlock.id);
+                                setError(null);
+                                void (async () => {
+                                  try {
+                                    const created = await uploadToMediaLibrary(files, { maxFiles: 1 });
+                                    const it = created[0];
+                                    if (!it) return;
+                                    const nextSrc = String((it as any).shareUrl || (it as any).openUrl || (it as any).downloadUrl || "").trim();
+                                    if (!nextSrc) return;
+                                    upsertBlock({
+                                      ...selectedBlock,
+                                      props: {
+                                        ...(selectedBlock.props as any),
+                                        src: nextSrc,
+                                      },
+                                    } as any);
+                                    toast.success("Video uploaded and selected");
+                                  } catch (err) {
+                                    const msg = (err as any)?.message ? String((err as any).message) : "Upload failed";
+                                    setError(msg);
+                                    toast.error(msg);
+                                  } finally {
+                                    setUploadingImageBlockId(null);
+                                  }
+                                })();
+                              }}
+                            />
+                          </label>
+                          <button
+                            type="button"
+                            disabled={busy || !String((selectedBlock.props as any).src || "").trim()}
+                            onClick={() =>
+                              upsertBlock({
+                                ...selectedBlock,
+                                props: { ...(selectedBlock.props as any), src: "" },
+                              } as any)
+                            }
+                            className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-60"
+                          >
+                            Clear
+                          </button>
+                        </div>
+
+                        {String((selectedBlock.props as any).src || "").trim() ? (
+                          <div className="rounded-xl border border-zinc-200 bg-white px-3 py-2">
+                            <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Selected video</div>
+                            <div className="mt-1 break-all font-mono text-xs text-zinc-700">{String((selectedBlock.props as any).src || "").trim()}</div>
+                          </div>
+                        ) : (
+                          <div className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-600">No video selected.</div>
+                        )}
                       </div>
                     ) : null}
 
@@ -5626,6 +6595,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                                     { t: "paragraph", label: "+ Text" },
                                     { t: "button", label: "+ Button" },
                                     { t: "image", label: "+ Image" },
+                                    { t: "video", label: "+ Video" },
                                     { t: "spacer", label: "+ Spacer" },
                                   ] as const
                                 ).map((b) => (
@@ -5648,6 +6618,8 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                                                 }
                                               : b.t === "image"
                                                 ? { id, type: "image", props: { src: "", alt: "" } }
+                                                : b.t === "video"
+                                                  ? { id, type: "video", props: { src: "", controls: true } as any }
                                                 : { id, type: "spacer", props: { height: 24 } };
                                       const cols = [...(selectedBlock.props.columns || [])];
                                       const nextCol = { ...(cols[colIdx] || { markdown: "" }) } as any;
@@ -6201,6 +7173,9 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                               selectedBlock.type === "button" ||
                               selectedBlock.type === "formLink" ||
                               selectedBlock.type === "salesCheckoutButton" ||
+                              selectedBlock.type === "addToCartButton" ||
+                              selectedBlock.type === "cartButton" ||
+                              selectedBlock.type === "headerNav" ||
                               selectedBlock.type === "columns" ||
                               selectedBlock.type === "section"
                             ) ? (
@@ -6251,9 +7226,9 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                                       className="hidden"
                                       disabled={busy || uploadingImageBlockId === selectedBlock.id}
                                       onChange={(e) => {
-                                        const files = e.target.files;
+                                        const files = Array.from(e.target.files || []);
                                         e.currentTarget.value = "";
-                                        if (!files || files.length === 0) return;
+                                        if (files.length === 0) return;
                                         if (!selectedBlock || selectedBlock.type !== "section") return;
                                         setUploadingImageBlockId(selectedBlock.id);
                                         setError(null);
@@ -6311,6 +7286,84 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                               </label>
                             ) : null}
 
+                            {selectedBlock.type === "section" ? (
+                              <label className="block">
+                                <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-zinc-500">Background video</div>
+                                <div className="flex flex-wrap gap-2">
+                                  <button
+                                    type="button"
+                                    disabled={busy}
+                                    onClick={() => {
+                                      setMediaPickerTarget({ type: "section-background-video", blockId: selectedBlock.id });
+                                      setMediaPickerOpen(true);
+                                    }}
+                                    className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-60"
+                                  >
+                                    Choose from media
+                                  </button>
+                                  <label
+                                    className={classNames(
+                                      "cursor-pointer rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50",
+                                      uploadingImageBlockId === selectedBlock.id ? "opacity-60" : "",
+                                    )}
+                                  >
+                                    {uploadingImageBlockId === selectedBlock.id ? "Uploading…" : "Upload video"}
+                                    <input
+                                      type="file"
+                                      accept="video/*"
+                                      className="hidden"
+                                      disabled={busy || uploadingImageBlockId === selectedBlock.id}
+                                      onChange={(e) => {
+                                        const files = Array.from(e.target.files || []);
+                                        e.currentTarget.value = "";
+                                        if (files.length === 0) return;
+                                        if (!selectedBlock || selectedBlock.type !== "section") return;
+                                        setUploadingImageBlockId(selectedBlock.id);
+                                        setError(null);
+                                        void (async () => {
+                                          try {
+                                            const created = await uploadToMediaLibrary(files, { maxFiles: 1 });
+                                            const it = created[0];
+                                            if (!it) return;
+                                            const nextUrl = String((it as any).shareUrl || (it as any).openUrl || (it as any).downloadUrl || "").trim();
+                                            if (!nextUrl) return;
+                                            updateSelectedBlockStyle({ backgroundVideoUrl: nextUrl });
+                                            toast.success("Background video uploaded and selected");
+                                          } catch (err) {
+                                            const msg = (err as any)?.message ? String((err as any).message) : "Upload failed";
+                                            setError(msg);
+                                            toast.error(msg);
+                                          } finally {
+                                            setUploadingImageBlockId(null);
+                                          }
+                                        })();
+                                      }}
+                                    />
+                                  </label>
+                                  <button
+                                    type="button"
+                                    disabled={busy || !selectedBlock.props.style?.backgroundVideoUrl}
+                                    onClick={() => updateSelectedBlockStyle({ backgroundVideoUrl: undefined })}
+                                    className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-60"
+                                  >
+                                    Clear
+                                  </button>
+                                </div>
+
+                                {selectedBlock.props.style?.backgroundVideoUrl ? (
+                                  <div className="mt-2 rounded-xl border border-zinc-200 bg-white p-3">
+                                    <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Selected background video</div>
+                                    <div className="mt-1 break-all font-mono text-xs text-zinc-700">
+                                      {selectedBlock.props.style.backgroundVideoUrl}
+                                    </div>
+                                    <div className="mt-1 text-xs text-zinc-500">Renders as an autoplaying, muted, looping cover video on hosted pages.</div>
+                                  </div>
+                                ) : (
+                                  <div className="mt-1 text-xs text-zinc-500">No background video selected.</div>
+                                )}
+                              </label>
+                            ) : null}
+
                             {(selectedBlock.type === "heading" || selectedBlock.type === "paragraph") ? (
                               <label className="block">
                                 <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-zinc-500">Font size (px)</div>
@@ -6334,6 +7387,9 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                               selectedBlock.type === "button" ||
                               selectedBlock.type === "formLink" ||
                               selectedBlock.type === "salesCheckoutButton" ||
+                              selectedBlock.type === "addToCartButton" ||
+                              selectedBlock.type === "cartButton" ||
+                              selectedBlock.type === "headerNav" ||
                               selectedBlock.type === "columns" ||
                               selectedBlock.type === "section"
                             )
@@ -6428,7 +7484,9 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                             {(
                               selectedBlock.type === "button" ||
                               selectedBlock.type === "formLink" ||
-                              selectedBlock.type === "salesCheckoutButton"
+                              selectedBlock.type === "salesCheckoutButton" ||
+                              selectedBlock.type === "addToCartButton" ||
+                              selectedBlock.type === "cartButton"
                             ) ? (
                               <div className="space-y-2">
                                 <ColorPickerField
@@ -6479,7 +7537,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                               max={64}
                             />
 
-                            {(selectedBlock.type === "image" || selectedBlock.type === "button" || selectedBlock.type === "formLink" || selectedBlock.type === "salesCheckoutButton") ? (
+                            {(selectedBlock.type === "image" || selectedBlock.type === "button" || selectedBlock.type === "formLink" || selectedBlock.type === "salesCheckoutButton" || selectedBlock.type === "addToCartButton" || selectedBlock.type === "cartButton") ? (
                               <MaxWidthPicker
                                 label="Max width"
                                 value={selectedBlock.props.style?.maxWidthPx}
@@ -6607,9 +7665,9 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                       className="hidden"
                       disabled={busy || uploadingAi}
                       onChange={(e) => {
-                        const files = e.target.files;
+                        const files = Array.from(e.target.files || []);
                         e.currentTarget.value = "";
-                        if (!files || files.length === 0) return;
+                        if (files.length === 0) return;
                         setUploadingAi(true);
                         setError(null);
                         void (async () => {

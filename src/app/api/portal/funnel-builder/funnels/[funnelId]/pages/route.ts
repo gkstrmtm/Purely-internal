@@ -1,7 +1,30 @@
 import { NextResponse } from "next/server";
 
 import { prisma } from "@/lib/db";
+import { coerceBlocksJson, type CreditFunnelBlock } from "@/lib/creditFunnelBlocks";
 import { requireFunnelBuilderSession } from "@/lib/funnelBuilderAccess";
+
+const GLOBAL_HEADER_KEY = "__global_header__";
+
+function getGlobalHeaderBlockFromPages(pages: Array<{ blocksJson: unknown }>): CreditFunnelBlock | null {
+  for (const p of pages) {
+    const blocks = coerceBlocksJson(p.blocksJson);
+    for (const b of blocks) {
+      if (b.type !== "headerNav") continue;
+      const key = typeof (b.props as any)?.globalKey === "string" ? String((b.props as any).globalKey) : "";
+      if (key !== GLOBAL_HEADER_KEY) continue;
+      return {
+        ...b,
+        props: {
+          ...(b.props as any),
+          isGlobal: true,
+          globalKey: GLOBAL_HEADER_KEY,
+        },
+      } as CreditFunnelBlock;
+    }
+  }
+  return null;
+}
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -65,6 +88,12 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
   });
   if (!funnel) return NextResponse.json({ ok: false, error: "Not found" }, { status: 404 });
 
+  const pagesForHeader = await prisma.creditFunnelPage.findMany({
+    where: { funnelId },
+    select: { blocksJson: true },
+  });
+  const globalHeaderBlock = getGlobalHeaderBlockFromPages(pagesForHeader);
+
   const body = (await req.json().catch(() => null)) as any;
   const slug = typeof body?.slug === "string" ? body.slug.trim().toLowerCase() : "";
   const title = typeof body?.title === "string" ? body.title.trim() : "";
@@ -87,6 +116,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
       title: title || normalizedSlug,
       contentMarkdown,
       sortOrder,
+      ...(globalHeaderBlock ? { blocksJson: [globalHeaderBlock] as any } : {}),
     },
     select: {
       id: true,

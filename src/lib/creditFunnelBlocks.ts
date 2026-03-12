@@ -1,6 +1,9 @@
 import React from "react";
 
 import { ConvaiChatWidget } from "@/components/ConvaiChatWidget";
+import { AddToCartButton } from "@/components/funnel/AddToCartButton";
+import { CartButton } from "@/components/funnel/CartButton";
+import { FunnelHeaderNav, type FunnelHeaderNavItem } from "@/components/funnel/FunnelHeaderNav";
 import { SalesCheckoutButton } from "@/components/funnel/SalesCheckoutButton";
 import { inlineMarkdownToHtmlSafe, parseBlogContent } from "@/lib/blog";
 import { coerceFontFamily, coerceGoogleFamily, googleFontImportCss } from "@/lib/fontPresets";
@@ -9,6 +12,8 @@ export type BlockStyle = {
   textColor?: string;
   backgroundColor?: string;
   backgroundImageUrl?: string;
+  backgroundVideoUrl?: string;
+  backgroundVideoPosterUrl?: string;
   fontSizePx?: number;
   fontFamily?: string;
   fontGoogleFamily?: string;
@@ -36,12 +41,57 @@ export type CreditFunnelBlock =
     }
   | {
       id: string;
+      type: "headerNav";
+      props: {
+        isGlobal?: boolean;
+        globalKey?: string;
+        sticky?: boolean;
+        transparent?: boolean;
+        mobileMode?: "dropdown" | "slideover";
+        logoUrl?: string;
+        logoAlt?: string;
+        logoHref?: string;
+        items?: FunnelHeaderNavItem[];
+        style?: BlockStyle;
+      };
+    }
+  | {
+      id: string;
+      type: "anchor";
+      props: {
+        anchorId: string;
+        label?: string;
+        style?: BlockStyle;
+      };
+    }
+  | {
+      id: string;
       type: "salesCheckoutButton";
       props: {
         priceId: string;
         quantity?: number;
         productName?: string;
         productDescription?: string;
+        text?: string;
+        style?: BlockStyle;
+      };
+    }
+  | {
+      id: string;
+      type: "addToCartButton";
+      props: {
+        priceId: string;
+        quantity?: number;
+        productName?: string;
+        productDescription?: string;
+        text?: string;
+        style?: BlockStyle;
+      };
+    }
+  | {
+      id: string;
+      type: "cartButton";
+      props: {
         text?: string;
         style?: BlockStyle;
       };
@@ -88,6 +138,19 @@ export type CreditFunnelBlock =
       id: string;
       type: "image";
       props: { src: string; alt?: string; style?: BlockStyle };
+    }
+  | {
+      id: string;
+      type: "video";
+      props: {
+        src: string;
+        posterUrl?: string;
+        controls?: boolean;
+        autoplay?: boolean;
+        loop?: boolean;
+        muted?: boolean;
+        style?: BlockStyle;
+      };
     }
   | {
       id: string;
@@ -189,6 +252,68 @@ function sanitizeHref(raw: string | undefined): string | undefined {
   if (lower.startsWith("mailto:") || lower.startsWith("tel:")) return s;
   if (s.startsWith("/") || s.startsWith("#")) return s;
   return undefined;
+}
+
+function coerceBool(v: unknown): boolean | undefined {
+  if (v === true) return true;
+  if (v === false) return false;
+  return undefined;
+}
+
+function coerceHeaderMobileMode(v: unknown): "dropdown" | "slideover" | undefined {
+  if (v === "slideover") return "slideover";
+  if (v === "dropdown") return "dropdown";
+  return undefined;
+}
+
+function coerceAnchorId(v: unknown): string {
+  const s = typeof v === "string" ? v.trim() : "";
+  if (!s) return "";
+  const cleaned = s
+    .replace(/\s+/g, "-")
+    .replace(/[^a-zA-Z0-9_-]/g, "")
+    .slice(0, 64);
+  return cleaned;
+}
+
+function coerceHeaderItems(v: unknown): FunnelHeaderNavItem[] | undefined {
+  if (!Array.isArray(v)) return undefined;
+  const out: FunnelHeaderNavItem[] = [];
+
+  for (const raw of v) {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) continue;
+    const r: any = raw;
+    const id = typeof r.id === "string" ? r.id.trim().slice(0, 80) : "";
+    if (!id) continue;
+    const label = typeof r.label === "string" ? r.label.trim().slice(0, 60) : "";
+    const kind = r.kind === "url" || r.kind === "page" || r.kind === "anchor" ? (r.kind as any) : "url";
+    const newTab = r.newTab === true;
+
+    const url = kind === "url" ? sanitizeHref(typeof r.url === "string" ? r.url : undefined) : undefined;
+    const pageSlug =
+      kind === "page" && typeof r.pageSlug === "string"
+        ? r.pageSlug
+            .trim()
+            .toLowerCase()
+            .replace(/[^a-z0-9-]/g, "-")
+            .replace(/-+/g, "-")
+            .replace(/^-|-$/g, "")
+            .slice(0, 64)
+        : undefined;
+    const anchorId = kind === "anchor" ? coerceAnchorId(r.anchorId) : "";
+
+    out.push({
+      id,
+      label: label || "Link",
+      kind,
+      ...(url ? { url } : {}),
+      ...(pageSlug !== undefined ? { pageSlug } : {}),
+      ...(anchorId ? { anchorId } : {}),
+      ...(newTab ? { newTab: true } : {}),
+    });
+  }
+
+  return out.length ? out.slice(0, 20) : undefined;
 }
 
 function extractAttr(tagBody: string, attr: string): string | undefined {
@@ -304,6 +429,8 @@ function coerceStyle(raw: unknown): BlockStyle | undefined {
     textColor: coerceCssColor(r.textColor),
     backgroundColor: coerceCssColor(r.backgroundColor),
     backgroundImageUrl: coerceCssUrl(r.backgroundImageUrl),
+    backgroundVideoUrl: coerceCssUrl(r.backgroundVideoUrl),
+    backgroundVideoPosterUrl: coerceCssUrl(r.backgroundVideoPosterUrl),
     fontSizePx: clampNum(r.fontSizePx, 8, 120),
     fontFamily: coerceFontFamily(r.fontFamily),
     fontGoogleFamily: coerceGoogleFamily(r.fontGoogleFamily),
@@ -339,6 +466,54 @@ function coerceBlocksJsonInternal(value: unknown, depth: number): CreditFunnelBl
       continue;
     }
 
+    if (type === "headerNav") {
+      const style = coerceStyle(props?.style);
+      const isGlobal = coerceBool((props as any)?.isGlobal);
+      const globalKey = typeof (props as any)?.globalKey === "string" ? String((props as any).globalKey).trim().slice(0, 80) : "";
+      const sticky = coerceBool((props as any)?.sticky);
+      const transparent = coerceBool((props as any)?.transparent);
+      const mobileMode = coerceHeaderMobileMode((props as any)?.mobileMode);
+      const logoUrl = coerceCssUrl((props as any)?.logoUrl);
+      const logoAlt = typeof (props as any)?.logoAlt === "string" ? String((props as any).logoAlt).trim().slice(0, 80) : "";
+      const logoHref = sanitizeHref(typeof (props as any)?.logoHref === "string" ? (props as any).logoHref : undefined);
+      const items = coerceHeaderItems((props as any)?.items);
+
+      out.push({
+        id,
+        type,
+        props: {
+          ...(isGlobal !== undefined ? { isGlobal } : {}),
+          ...(globalKey ? { globalKey } : {}),
+          ...(sticky !== undefined ? { sticky } : {}),
+          ...(transparent !== undefined ? { transparent } : {}),
+          ...(mobileMode ? { mobileMode } : {}),
+          ...(logoUrl ? { logoUrl } : {}),
+          ...(logoAlt ? { logoAlt } : {}),
+          ...(logoHref ? { logoHref } : {}),
+          ...(items ? { items } : {}),
+          style,
+        },
+      });
+      continue;
+    }
+
+    if (type === "anchor") {
+      const anchorId = coerceAnchorId((props as any)?.anchorId);
+      const label = typeof (props as any)?.label === "string" ? String((props as any).label).trim().slice(0, 80) : "";
+      const style = coerceStyle((props as any)?.style);
+      if (!anchorId) continue;
+      out.push({
+        id,
+        type,
+        props: {
+          anchorId,
+          ...(label ? { label } : {}),
+          style,
+        },
+      });
+      continue;
+    }
+
     if (type === "salesCheckoutButton") {
       const priceId = typeof props?.priceId === "string" ? props.priceId.trim().slice(0, 128) : "";
       const quantity = clampNum((props as any)?.quantity, 1, 20);
@@ -358,6 +533,35 @@ function coerceBlocksJsonInternal(value: unknown, depth: number): CreditFunnelBl
           style,
         },
       });
+      continue;
+    }
+
+    if (type === "addToCartButton") {
+      const priceId = typeof props?.priceId === "string" ? props.priceId.trim().slice(0, 128) : "";
+      const quantity = clampNum((props as any)?.quantity, 1, 20);
+      const productName = typeof props?.productName === "string" ? props.productName.trim().slice(0, 140) : "";
+      const productDescription = typeof props?.productDescription === "string" ? props.productDescription.trim().slice(0, 320) : "";
+      const text = typeof props?.text === "string" ? props.text.slice(0, 120) : "Add to cart";
+      const style = coerceStyle(props?.style);
+      out.push({
+        id,
+        type,
+        props: {
+          priceId,
+          ...(quantity ? { quantity } : {}),
+          ...(productName ? { productName } : {}),
+          ...(productDescription ? { productDescription } : {}),
+          text,
+          style,
+        },
+      });
+      continue;
+    }
+
+    if (type === "cartButton") {
+      const text = typeof props?.text === "string" ? props.text.slice(0, 120) : "Cart";
+      const style = coerceStyle(props?.style);
+      out.push({ id, type, props: { text, style } });
       continue;
     }
 
@@ -445,6 +649,30 @@ function coerceBlocksJsonInternal(value: unknown, depth: number): CreditFunnelBl
       const alt = typeof props?.alt === "string" ? props.alt : "";
       const style = coerceStyle(props?.style);
       out.push({ id, type, props: { src, alt, style } });
+      continue;
+    }
+
+    if (type === "video") {
+      const src = typeof props?.src === "string" ? props.src : "";
+      const posterUrl = coerceCssUrl((props as any)?.posterUrl);
+      const controls = coerceBool((props as any)?.controls);
+      const autoplay = coerceBool((props as any)?.autoplay);
+      const loop = coerceBool((props as any)?.loop);
+      const muted = coerceBool((props as any)?.muted);
+      const style = coerceStyle(props?.style);
+      out.push({
+        id,
+        type,
+        props: {
+          src,
+          ...(posterUrl ? { posterUrl } : {}),
+          ...(controls !== undefined ? { controls } : {}),
+          ...(autoplay !== undefined ? { autoplay } : {}),
+          ...(loop !== undefined ? { loop } : {}),
+          ...(muted !== undefined ? { muted } : {}),
+          style,
+        },
+      });
       continue;
     }
 
@@ -623,6 +851,26 @@ function wrapperStyle(style?: BlockStyle): React.CSSProperties {
   return out;
 }
 
+function backgroundVideoNode(style?: BlockStyle): React.ReactNode {
+  const src = String(style?.backgroundVideoUrl || "").trim();
+  if (!src) return null;
+  const poster = String(style?.backgroundVideoPosterUrl || "").trim();
+
+  return React.createElement("video", {
+    className: "absolute inset-0 h-full w-full object-cover",
+    src,
+    ...(poster ? { poster } : null),
+    autoPlay: true,
+    muted: true,
+    loop: true,
+    playsInline: true,
+    controls: false,
+    preload: "metadata",
+    "aria-hidden": true,
+    tabIndex: -1,
+  } as any);
+}
+
 function textStyle(style?: BlockStyle): React.CSSProperties {
   const s = style;
   const out: React.CSSProperties = {};
@@ -695,6 +943,9 @@ export function renderCreditFunnelBlocks({
     bookingSiteSlug?: string;
     bookingOwnerId?: string;
     funnelPageId?: string;
+    funnelSlug?: string;
+    funnelPathBase?: string;
+    funnelPageSlug?: string;
   };
   editor?: {
     enabled?: boolean;
@@ -1058,6 +1309,222 @@ export function renderCreditFunnelBlocks({
         );
       }
 
+      if (b.type === "headerNav") {
+        const s = (b.props as any)?.style as BlockStyle | undefined;
+        const items = Array.isArray((b.props as any)?.items) ? ((b.props as any).items as FunnelHeaderNavItem[]) : [];
+        const logoUrl = typeof (b.props as any)?.logoUrl === "string" ? String((b.props as any).logoUrl).trim() : "";
+        const logoAlt = typeof (b.props as any)?.logoAlt === "string" ? String((b.props as any).logoAlt).trim() : "";
+        const logoHref = typeof (b.props as any)?.logoHref === "string" ? String((b.props as any).logoHref).trim() : "";
+        const sticky = (b.props as any)?.sticky === true;
+        const transparent = (b.props as any)?.transparent === true;
+        const mobileMode = (b.props as any)?.mobileMode === "slideover" ? "slideover" : "dropdown";
+
+        const wrapper: React.CSSProperties = {
+          ...wrapperStyle({
+            align: s?.align,
+            marginTopPx: s?.marginTopPx,
+            marginBottomPx: s?.marginBottomPx,
+            maxWidthPx: s?.maxWidthPx,
+          }),
+        };
+
+        const headerStyle: React.CSSProperties = {
+          fontFamily: s?.fontFamily,
+          color: s?.textColor,
+          backgroundColor: transparent ? "transparent" : s?.backgroundColor,
+        };
+
+        return React.createElement(
+          "div",
+          {
+            key: b.id,
+            style: { ...wrapper, ...(blockWrapStyle(b.id) || {}) },
+            ...wrapProps(b.id),
+          },
+          renderMoveControls(b.id),
+          React.createElement(FunnelHeaderNav, {
+            logoUrl: logoUrl || undefined,
+            logoAlt: logoAlt || undefined,
+            logoHref: logoHref || undefined,
+            items,
+            sticky,
+            transparent,
+            mobileMode,
+            disabled: isEditor,
+            funnelPathBase: typeof context?.funnelPathBase === "string" ? context.funnelPathBase : undefined,
+            style: Object.keys(headerStyle).some((k) => (headerStyle as any)[k] !== undefined) ? headerStyle : undefined,
+          }),
+        );
+      }
+
+      if (b.type === "anchor") {
+        const anchorId = String((b.props as any)?.anchorId || "").trim();
+        const label = typeof (b.props as any)?.label === "string" ? String((b.props as any).label).trim() : "";
+        const s = (b.props as any)?.style as BlockStyle | undefined;
+        const wrapper: React.CSSProperties = wrapperStyle({
+          align: s?.align,
+          marginTopPx: s?.marginTopPx,
+          marginBottomPx: s?.marginBottomPx,
+          maxWidthPx: s?.maxWidthPx,
+        });
+
+        return React.createElement(
+          "div",
+          {
+            key: b.id,
+            id: anchorId || undefined,
+            style: { ...wrapper, ...(blockWrapStyle(b.id) || {}) },
+            ...wrapProps(b.id),
+          },
+          renderMoveControls(b.id),
+          isEditor
+            ? React.createElement(
+                "div",
+                {
+                  className: "rounded-xl border border-dashed border-zinc-300 bg-zinc-50 px-3 py-2 text-xs font-semibold text-zinc-700",
+                },
+                `Anchor: ${label || anchorId}`,
+              )
+            : React.createElement("div", { style: { height: 1 } }),
+        );
+      }
+
+      if (b.type === "addToCartButton") {
+        const pageId = typeof context?.funnelPageId === "string" ? context.funnelPageId : "";
+        const priceId = String((b.props as any)?.priceId || "").trim();
+        const quantityRaw = (b.props as any)?.quantity;
+        const quantity = typeof quantityRaw === "number" && Number.isFinite(quantityRaw) ? Math.max(1, Math.min(20, quantityRaw)) : undefined;
+        const productName = typeof (b.props as any)?.productName === "string" ? String((b.props as any).productName).trim() : "";
+        const productDescription =
+          typeof (b.props as any)?.productDescription === "string" ? String((b.props as any).productDescription).trim() : "";
+        const text = typeof (b.props as any)?.text === "string" ? String((b.props as any).text) : "Add to cart";
+
+        if (!isEditor && (!pageId || !priceId)) return null;
+
+        const s = (b.props as any)?.style as BlockStyle | undefined;
+        const wrapper: React.CSSProperties = wrapperStyle({
+          align: s?.align,
+          marginTopPx: s?.marginTopPx,
+          marginBottomPx: s?.marginBottomPx,
+          maxWidthPx: s?.maxWidthPx,
+        });
+
+        const borderWidth =
+          typeof s?.borderWidthPx === "number"
+            ? s.borderWidthPx
+            : s?.borderColor
+              ? 1
+              : undefined;
+
+        const btnStyle: React.CSSProperties = {
+          ...textStyle(s),
+          fontFamily: s?.fontFamily,
+          color: s?.textColor,
+          backgroundColor: s?.backgroundColor,
+          borderRadius: typeof s?.borderRadiusPx === "number" ? s.borderRadiusPx : undefined,
+          padding: typeof s?.paddingPx === "number" ? s.paddingPx : undefined,
+          borderWidth: borderWidth,
+          borderStyle: borderWidth !== undefined ? "solid" : undefined,
+          borderColor: borderWidth !== undefined ? (s?.borderColor || "currentColor") : undefined,
+        };
+
+        return React.createElement(
+          "div",
+          {
+            key: b.id,
+            style: { ...wrapper, ...(blockWrapStyle(b.id) || {}) },
+            ...wrapProps(b.id),
+          },
+          renderMoveControls(b.id),
+          productName || productDescription
+            ? React.createElement(
+                "div",
+                { className: "mb-3" },
+                productName
+                  ? React.createElement(
+                      "div",
+                      {
+                        className: "text-base font-semibold text-zinc-900",
+                        style: { ...(s?.fontFamily ? { fontFamily: s.fontFamily } : {}) },
+                      },
+                      productName,
+                    )
+                  : null,
+                productDescription
+                  ? React.createElement(
+                      "div",
+                      {
+                        className: "mt-1 text-sm text-zinc-600",
+                        style: { ...(s?.fontFamily ? { fontFamily: s.fontFamily } : {}) },
+                      },
+                      productDescription,
+                    )
+                  : null,
+              )
+            : null,
+          React.createElement(AddToCartButton, {
+            pageId,
+            priceId,
+            quantity,
+            productName,
+            productDescription,
+            text,
+            disabled: isEditor,
+            style: Object.keys(btnStyle).some((k) => (btnStyle as any)[k] !== undefined) ? btnStyle : undefined,
+          }),
+        );
+      }
+
+      if (b.type === "cartButton") {
+        const pageId = typeof context?.funnelPageId === "string" ? context.funnelPageId : "";
+        const text = typeof (b.props as any)?.text === "string" ? String((b.props as any).text) : "Cart";
+
+        if (!isEditor && !pageId) return null;
+
+        const s = (b.props as any)?.style as BlockStyle | undefined;
+        const wrapper: React.CSSProperties = wrapperStyle({
+          align: s?.align,
+          marginTopPx: s?.marginTopPx,
+          marginBottomPx: s?.marginBottomPx,
+          maxWidthPx: s?.maxWidthPx,
+        });
+
+        const borderWidth =
+          typeof s?.borderWidthPx === "number"
+            ? s.borderWidthPx
+            : s?.borderColor
+              ? 1
+              : undefined;
+
+        const btnStyle: React.CSSProperties = {
+          ...textStyle(s),
+          fontFamily: s?.fontFamily,
+          color: s?.textColor,
+          backgroundColor: s?.backgroundColor,
+          borderRadius: typeof s?.borderRadiusPx === "number" ? s.borderRadiusPx : undefined,
+          padding: typeof s?.paddingPx === "number" ? s.paddingPx : undefined,
+          borderWidth: borderWidth,
+          borderStyle: borderWidth !== undefined ? "solid" : undefined,
+          borderColor: borderWidth !== undefined ? (s?.borderColor || "currentColor") : undefined,
+        };
+
+        return React.createElement(
+          "div",
+          {
+            key: b.id,
+            style: { ...wrapper, ...(blockWrapStyle(b.id) || {}) },
+            ...wrapProps(b.id),
+          },
+          renderMoveControls(b.id),
+          React.createElement(CartButton, {
+            pageId,
+            text,
+            disabled: isEditor,
+            style: Object.keys(btnStyle).some((k) => (btnStyle as any)[k] !== undefined) ? btnStyle : undefined,
+          }),
+        );
+      }
+
       if (b.type === "customCode") {
         const html = String(b.props.html || "");
         const css = String(b.props.css || "");
@@ -1331,6 +1798,56 @@ export function renderCreditFunnelBlocks({
               className: "h-auto w-full",
             }),
           ),
+        );
+      }
+
+      if (b.type === "video") {
+        if (!b.props.src) {
+          if (!isEditor) return null;
+          return React.createElement(
+            "div",
+            {
+              key: b.id,
+              style: { ...wrapperStyle(b.props.style), ...(blockWrapStyle(b.id) || {}) },
+              ...wrapProps(b.id),
+            },
+            renderMoveControls(b.id),
+            React.createElement(
+              "div",
+              {
+                className:
+                  "rounded-2xl border border-dashed border-zinc-300 bg-zinc-50 px-4 py-10 text-center text-sm text-zinc-600",
+              },
+              "Video block: select it to choose a video.",
+            ),
+          );
+        }
+
+        const controls = (b.props as any)?.controls !== false;
+        const autoplay = Boolean((b.props as any)?.autoplay);
+        const loop = Boolean((b.props as any)?.loop);
+        const muted = Boolean((b.props as any)?.muted);
+        const posterUrl = String((b.props as any)?.posterUrl || "").trim();
+
+        return React.createElement(
+          "div",
+          {
+            key: b.id,
+            style: { ...wrapperStyle(b.props.style), ...(blockWrapStyle(b.id) || {}) },
+            ...wrapProps(b.id),
+          },
+          renderMoveControls(b.id),
+          React.createElement("video", {
+            src: b.props.src,
+            ...(posterUrl ? { poster: posterUrl } : null),
+            controls,
+            autoPlay: autoplay,
+            loop,
+            muted,
+            playsInline: true,
+            preload: "metadata",
+            className: "w-full overflow-hidden rounded-2xl border border-zinc-200 bg-zinc-50",
+          } as any),
         );
       }
 
@@ -1616,6 +2133,7 @@ export function renderCreditFunnelBlocks({
         const layout = b.props.layout === "two" ? "two" : "one";
         const gapPx = typeof b.props.gapPx === "number" ? b.props.gapPx : 24;
         const stack = b.props.stackOnMobile !== false;
+        const hasBgVideo = Boolean(String((b.props.style as any)?.backgroundVideoUrl || "").trim());
         if (layout === "two") {
           const leftContent: React.ReactNode = b.props.leftChildren?.length
             ? React.createElement(
@@ -1635,13 +2153,23 @@ export function renderCreditFunnelBlocks({
             "section",
             {
               key: b.id,
-              style: { ...wrapperStyle(b.props.style), ...(blockWrapStyle(b.id) || {}) },
+              style: {
+                ...wrapperStyle(b.props.style),
+                ...(blockWrapStyle(b.id) || {}),
+                ...(hasBgVideo ? { position: "relative", overflow: "hidden" } : null),
+              },
               ...wrapProps(b.id),
             },
             renderMoveControls(b.id),
+            hasBgVideo ? backgroundVideoNode(b.props.style) : null,
             React.createElement(
               "div",
               {
+                className: hasBgVideo ? "relative z-10" : undefined,
+              },
+              React.createElement(
+                "div",
+                {
                 className: stack ? "grid grid-cols-1 sm:grid-cols-2" : "grid grid-cols-2",
                 style: { gap: gapPx },
               },
@@ -1655,7 +2183,8 @@ export function renderCreditFunnelBlocks({
                 { style: wrapperStyle(b.props.rightStyle) },
                 rightContent,
               ),
-            ),
+                ),
+              ),
           );
         }
 
@@ -1663,17 +2192,26 @@ export function renderCreditFunnelBlocks({
           "section",
           {
             key: b.id,
-            style: { ...wrapperStyle(b.props.style), ...(blockWrapStyle(b.id) || {}) },
+            style: {
+              ...wrapperStyle(b.props.style),
+              ...(blockWrapStyle(b.id) || {}),
+              ...(hasBgVideo ? { position: "relative", overflow: "hidden" } : null),
+            },
             ...wrapProps(b.id),
           },
           renderMoveControls(b.id),
-          b.props.children?.length
-            ? React.createElement(
-                "div",
-                { className: "space-y-4" },
-                renderBlocksInner(b.props.children),
-              )
-            : renderMarkdown(b.props.markdown || ""),
+          hasBgVideo ? backgroundVideoNode(b.props.style) : null,
+          React.createElement(
+            "div",
+            { className: hasBgVideo ? "relative z-10" : undefined },
+            b.props.children?.length
+              ? React.createElement(
+                  "div",
+                  { className: "space-y-4" },
+                  renderBlocksInner(b.props.children),
+                )
+              : renderMarkdown(b.props.markdown || ""),
+          ),
         );
       }
 
@@ -1687,9 +2225,18 @@ export function renderCreditFunnelBlocks({
     React.createElement(
       "div",
       {
-        className: "relative space-y-4",
-        style: { ...wrapperStyle(pageStyleBlock?.props.style), width: "100%", minHeight: "100vh" },
+        className:
+          pageStyleBlock?.props?.style?.textColor
+            ? "relative space-y-4"
+            : "relative space-y-4 text-zinc-900",
+        style: {
+          ...wrapperStyle(pageStyleBlock?.props.style),
+          width: "100%",
+          minHeight: "100vh",
+          ...(pageStyleBlock?.props?.style?.backgroundVideoUrl ? { position: "relative", overflow: "hidden" } : null),
+        },
       },
+      pageStyleBlock?.props?.style?.backgroundVideoUrl ? backgroundVideoNode(pageStyleBlock?.props.style) : null,
       renderBlocksInner(renderBlocks),
       isEditor && chatbotBlocks.length
         ? React.createElement(

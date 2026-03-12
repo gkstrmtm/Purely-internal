@@ -320,9 +320,10 @@ async function renderFunnel(
   slug: string,
   funnelDomains: Record<string, string>,
   allowedDomains: Set<string>,
-  opts?: { pageSlug?: string | null },
+  opts: { funnelPathBase: string; pageSlug?: string | null },
 ) {
   const pageSlug = opts?.pageSlug || null;
+  const funnelPathBase = opts.funnelPathBase;
 
   const funnel = await prisma.creditFunnel
     .findFirst({
@@ -383,14 +384,19 @@ async function renderFunnel(
               title={page.title}
               sandbox="allow-forms allow-popups allow-scripts"
               srcDoc={page.customHtml || ""}
-              className="h-[100vh] w-full bg-white"
+              className="h-screen w-full bg-white"
             />
           ) : page.editorMode === "BLOCKS" ? (
             <div>
               {renderCreditFunnelBlocks({
                 blocks: blockBlocks,
                 basePath: "",
-                context: { bookingOwnerId: funnel.ownerId, funnelPageId: page.id },
+                context: {
+                  bookingOwnerId: funnel.ownerId,
+                  funnelPageId: page.id,
+                  funnelSlug: slug,
+                  funnelPathBase,
+                },
               })}
             </div>
           ) : (
@@ -413,7 +419,7 @@ async function renderFunnel(
             rel="noopener noreferrer"
             className="pointer-events-auto inline-flex items-center gap-1.5 rounded-full border border-zinc-200 bg-white/75 px-3 py-1 text-[11px] font-semibold text-zinc-700 shadow-sm backdrop-blur hover:bg-white hover:text-zinc-900"
           >
-            <AiSparkIcon className="h-3.5 w-3.5 text-[color:var(--color-brand-blue)]" />
+            <AiSparkIcon className="h-3.5 w-3.5 text-(--color-brand-blue)" />
             Powered by Purely Automation
           </a>
         </div>
@@ -588,7 +594,10 @@ export default async function CustomDomainCatchallPage({
     const funnelPageSlug = safeSlug(segments[2]);
     if (!funnelSlug) notFound();
     if (segments.length !== 2 && segments.length !== 3) notFound();
-    return renderFunnel(mapping.ownerId, funnelSlug, funnelDomains, allowedDomains, { pageSlug: funnelPageSlug });
+    return renderFunnel(mapping.ownerId, funnelSlug, funnelDomains, allowedDomains, {
+      funnelPathBase: `/f/${encodeURIComponent(funnelSlug)}`,
+      pageSlug: funnelPageSlug,
+    });
   }
 
   // /forms/<slug>
@@ -622,7 +631,9 @@ export default async function CustomDomainCatchallPage({
   if (segments.length === 1) {
     const funnelSlug = safeSlug(segments[0]);
     if (!funnelSlug) notFound();
-    return renderFunnel(mapping.ownerId, funnelSlug, funnelDomains, allowedDomains);
+    return renderFunnel(mapping.ownerId, funnelSlug, funnelDomains, allowedDomains, {
+      funnelPathBase: `/${encodeURIComponent(funnelSlug)}`,
+    });
   }
 
   // /<funnelSlug>/<pageSlug>
@@ -630,7 +641,10 @@ export default async function CustomDomainCatchallPage({
     const funnelSlug = safeSlug(segments[0]);
     const funnelPageSlug = safeSlug(segments[1]);
     if (!funnelSlug || !funnelPageSlug) notFound();
-    return renderFunnel(mapping.ownerId, funnelSlug, funnelDomains, allowedDomains, { pageSlug: funnelPageSlug });
+    return renderFunnel(mapping.ownerId, funnelSlug, funnelDomains, allowedDomains, {
+      funnelPathBase: `/${encodeURIComponent(funnelSlug)}`,
+      pageSlug: funnelPageSlug,
+    });
   }
 
   notFound();

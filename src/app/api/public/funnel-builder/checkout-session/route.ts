@@ -10,11 +10,30 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-const postSchema = z.object({
-  pageId: z.string().trim().min(1).max(64),
-  priceId: z.string().trim().min(1).max(128),
-  quantity: z.number().int().min(1).max(20).optional(),
-});
+const postSchema = z
+  .object({
+    pageId: z.string().trim().min(1).max(64),
+    // legacy single-item
+    priceId: z.string().trim().min(1).max(128).optional(),
+    quantity: z.number().int().min(1).max(20).optional(),
+    // cart
+    items: z
+      .array(
+        z.object({
+          priceId: z.string().trim().min(1).max(128),
+          quantity: z.number().int().min(1).max(20).optional(),
+        }),
+      )
+      .max(25)
+      .optional(),
+  })
+  .superRefine((v, ctx) => {
+    const hasItems = Array.isArray(v.items) && v.items.length > 0;
+    const hasSingle = typeof v.priceId === "string" && v.priceId.trim().length > 0;
+    if (!hasItems && !hasSingle) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Missing priceId or items" });
+    }
+  });
 
 function collectAllowedPriceIds(blocks: CreditFunnelBlock[]): Set<string> {
   const out = new Set<string>();
@@ -24,6 +43,12 @@ function collectAllowedPriceIds(blocks: CreditFunnelBlock[]): Set<string> {
       if (!b || typeof b !== "object") continue;
 
       if (b.type === "salesCheckoutButton") {
+        const priceId = typeof (b.props as any)?.priceId === "string" ? String((b.props as any).priceId).trim() : "";
+        if (priceId) out.add(priceId);
+        continue;
+      }
+
+      if (b.type === "addToCartButton") {
         const priceId = typeof (b.props as any)?.priceId === "string" ? String((b.props as any).priceId).trim() : "";
         if (priceId) out.add(priceId);
         continue;
@@ -70,71 +95,106 @@ function returnUrlFromRequest(req: Request): URL {
 type StripeCheckoutSession = { id: string; url: string | null };
 
 export async function POST(req: Request) {
-  const body = await req.json().catch(() => null);
-  const parsed = postSchema.safeParse(body);
-  if (!parsed.success) {
-    return NextResponse.json({ ok: false, error: "Invalid payload" }, { status: 400 });
+  try {
+    const body = await req.json().catch(() => null);
+    const parsed = postSchema.safeParse(body);
+    if (!parsed.success) {
+      return NextResponse.json({ ok: false, error: "Invalid payload" }, { status: 400 });
+    }
+
+    const page = await prisma.creditFunnelPage
+      .findUnique({
+        where: { id: parsed.data.pageId },
+        select: {
+          id: true,
+          blocksJson: true,
+          funnelId: true,
+          funnel: { select: { ownerId: true } },
+        },
+      })
+      .catch(() => null);
+
+    if (!page) {
+      return NextResponse.json({ ok: false, error: "Not found" }, { status: 404 });
+    }
+
+    const blocks = coerceBlocksJson(page.blocksJson);
+    const allowed = collectAllowedPriceIds(blocks);
+
+    const requestedItemsRaw =
+      Array.isArray((parsed.data as any).items) && (parsed.data as any).items.length
+        ? ((parsed.data as any).items as Array<{ priceId: string; quantity?: number }>).filter(Boolean)
+        : null;
+
+    const requestedItems = requestedItemsRaw
+      ? requestedItemsRaw
+          .map((it) => ({
+            priceId: String(it.priceId || "").trim(),
+            quantity: typeof it.quantity === "number" && Number.isFinite(it.quantity) ? Math.max(1, Math.min(20, it.quantity)) : 1,
+          }))
+          .filter((it) => it.priceId)
+          .slice(0, 25)
+      : [
+          {
+            priceId: String((parsed.data as any).priceId || "").trim(),
+            quantity: typeof (parsed.data as any).quantity === "number" ? (parsed.data as any).quantity : 1,
+          },
+        ].filter((it) => it.priceId);
+
+    if (!requestedItems.length) {
+      return NextResponse.json({ ok: false, error: "No items" }, { status: 400 });
+    }
+
+    for (const it of requestedItems) {
+      if (!allowed.has(it.priceId)) {
+        return NextResponse.json({ ok: false, error: "This product is not enabled on this page" }, { status: 400 });
+      }
+    }
+
+    const ownerId = page.funnel?.ownerId || "";
+    if (!ownerId) {
+      return NextResponse.json({ ok: false, error: "Invalid funnel" }, { status: 400 });
+    }
+
+    const secretKey = await getStripeSecretKeyForOwner(ownerId).catch(() => null);
+    if (!secretKey) {
+      return NextResponse.json({ ok: false, error: "Stripe is not connected" }, { status: 400 });
+    }
+
+    const baseReturn = returnUrlFromRequest(req);
+
+    const successUrl = new URL(baseReturn.toString());
+    successUrl.searchParams.set("checkout", "success");
+    successUrl.searchParams.set("session_id", "{CHECKOUT_SESSION_ID}");
+
+    const cancelUrl = new URL(baseReturn.toString());
+    cancelUrl.searchParams.set("checkout", "cancel");
+
+    const stripeParams: Record<string, unknown> = {
+      mode: "payment",
+      success_url: successUrl.toString(),
+      cancel_url: cancelUrl.toString(),
+      client_reference_id: page.id,
+      "metadata[funnel_page_id]": page.id,
+      "metadata[funnel_id]": page.funnelId,
+      "metadata[source]": "credit_funnel",
+    };
+
+    requestedItems.forEach((it, idx) => {
+      stripeParams[`line_items[${idx}][price]`] = it.priceId;
+      stripeParams[`line_items[${idx}][quantity]`] = it.quantity;
+    });
+
+    const session = await stripePostWithKey<StripeCheckoutSession>(secretKey, "/v1/checkout/sessions", stripeParams);
+
+    const url = session?.url ? String(session.url) : "";
+    if (!url) {
+      return NextResponse.json({ ok: false, error: "Stripe did not return a checkout URL" }, { status: 502 });
+    }
+
+    return NextResponse.json({ ok: true, url });
+  } catch (e) {
+    const msg = e && typeof e === "object" && "message" in e ? String((e as any).message) : "Unable to start checkout";
+    return NextResponse.json({ ok: false, error: msg || "Unable to start checkout" }, { status: 500 });
   }
-
-  const page = await prisma.creditFunnelPage
-    .findUnique({
-      where: { id: parsed.data.pageId },
-      select: {
-        id: true,
-        blocksJson: true,
-        funnelId: true,
-        funnel: { select: { ownerId: true } },
-      },
-    })
-    .catch(() => null);
-
-  if (!page) {
-    return NextResponse.json({ ok: false, error: "Not found" }, { status: 404 });
-  }
-
-  const blocks = coerceBlocksJson(page.blocksJson);
-  const allowed = collectAllowedPriceIds(blocks);
-  if (!allowed.has(parsed.data.priceId)) {
-    return NextResponse.json({ ok: false, error: "This product is not enabled on this page" }, { status: 400 });
-  }
-
-  const ownerId = page.funnel?.ownerId || "";
-  if (!ownerId) {
-    return NextResponse.json({ ok: false, error: "Invalid funnel" }, { status: 400 });
-  }
-
-  const secretKey = await getStripeSecretKeyForOwner(ownerId).catch(() => null);
-  if (!secretKey) {
-    return NextResponse.json({ ok: false, error: "Stripe is not connected" }, { status: 400 });
-  }
-
-  const baseReturn = returnUrlFromRequest(req);
-
-  const successUrl = new URL(baseReturn.toString());
-  successUrl.searchParams.set("checkout", "success");
-  successUrl.searchParams.set("session_id", "{CHECKOUT_SESSION_ID}");
-
-  const cancelUrl = new URL(baseReturn.toString());
-  cancelUrl.searchParams.set("checkout", "cancel");
-
-  const quantity = parsed.data.quantity ?? 1;
-
-  const session = await stripePostWithKey<StripeCheckoutSession>(secretKey, "/v1/checkout/sessions", {
-    mode: "payment",
-    success_url: successUrl.toString(),
-    cancel_url: cancelUrl.toString(),
-    "line_items[0][price]": parsed.data.priceId,
-    "line_items[0][quantity]": quantity,
-    client_reference_id: page.id,
-    "metadata[funnel_page_id]": page.id,
-    "metadata[funnel_id]": page.funnelId,
-    "metadata[source]": "credit_funnel",
-  });
-
-  const url = session?.url ? String(session.url) : "";
-  if (!url) {
-    return NextResponse.json({ ok: false, error: "Stripe did not return a checkout URL" }, { status: 502 });
-  }
-
-  return NextResponse.json({ ok: true, url });
 }

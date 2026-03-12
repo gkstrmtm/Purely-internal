@@ -40,9 +40,15 @@ export function SalesCheckoutButton({
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ pageId, priceId, quantity: quantity ?? 1 }),
       });
-      const json = (await res.json().catch(() => null)) as any;
+      const contentType = (res.headers.get("content-type") || "").toLowerCase();
+      const isJson = contentType.includes("application/json");
+      const json = isJson ? (((await res.json().catch(() => null)) as any) ?? null) : null;
+
       if (!res.ok || !json || json.ok !== true || typeof json.url !== "string") {
-        const msg = (json && typeof json.error === "string" && json.error) || "Unable to start checkout";
+        const fallbackText = !isJson ? (await res.text().catch(() => "")) : "";
+        const msg =
+          (json && typeof json.error === "string" && json.error) ||
+          (fallbackText.trim() ? fallbackText.trim().slice(0, 240) : "Unable to start checkout");
         setError(msg);
         return;
       }
@@ -73,7 +79,7 @@ export function SalesCheckoutButton({
         onClick={() => void onClick()}
         style={style}
         className={classNames(
-          "inline-flex items-center justify-center rounded-xl bg-[color:var(--color-brand-blue)] px-5 py-3 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60",
+          "inline-flex items-center justify-center rounded-xl bg-(--color-brand-blue) px-5 py-3 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60",
           className,
         )}
       >
