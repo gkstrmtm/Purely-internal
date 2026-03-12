@@ -137,66 +137,120 @@ export async function GET(req: Request) {
   const takeParsed = takeRaw ? Number(takeRaw) : undefined;
   const take = Math.max(1, Math.min(200, Number.isFinite(takeParsed as number) ? (takeParsed as number) : 100));
 
-  const users = await prisma.user.findMany({
-    where: {
-      role: "CLIENT",
-      ...(q
-        ? {
-            OR: [
-              { email: { contains: q, mode: "insensitive" } },
-              { name: { contains: q, mode: "insensitive" } },
-              { businessProfile: { businessName: { contains: q, mode: "insensitive" } } },
-            ],
-          }
-        : {}),
-    },
-    orderBy: { createdAt: "desc" },
-    take,
-    select: {
-      id: true,
-      email: true,
-      name: true,
-      active: true,
-      createdAt: true,
-      businessProfile: { select: { businessName: true } },
-      portalMailboxAddress: { select: { emailAddress: true } },
-    },
-  });
+  const safeFindMany = async <T,>(fn: () => Promise<T>, fallback: T): Promise<T> => {
+    try {
+      return await fn();
+    } catch {
+      return fallback;
+    }
+  };
+
+  const safeHasTable = async (tableName: string) => {
+    try {
+      return await hasPublicTable(tableName);
+    } catch {
+      return false;
+    }
+  };
+
+  // Schema drift tolerance: older/stale DBs might not have BusinessProfile/PortalMailboxAddress,
+  // and relation filters/selects can throw and break the whole page.
+  const canUseBusinessProfile = q ? await safeHasTable("BusinessProfile") : false;
+  const matchedOwnerIdsFromBusinessName = q && canUseBusinessProfile
+    ? await safeFindMany(
+        async () =>
+          prisma.businessProfile.findMany({
+            where: { businessName: { contains: q, mode: "insensitive" } },
+            select: { ownerId: true },
+            take: 500,
+          }),
+        [],
+      )
+    : [];
+  const matchedOwnerIds = new Set<string>(matchedOwnerIdsFromBusinessName.map((r) => r.ownerId));
+
+  const users = await safeFindMany(
+    async () =>
+      prisma.user.findMany({
+        where: {
+          role: "CLIENT",
+          ...(q
+            ? {
+                OR: [
+                  { email: { contains: q, mode: "insensitive" } },
+                  { name: { contains: q, mode: "insensitive" } },
+                  ...(matchedOwnerIds.size ? [{ id: { in: Array.from(matchedOwnerIds) } }] : []),
+                ],
+              }
+            : {}),
+        },
+        orderBy: { createdAt: "desc" },
+        take,
+        select: {
+          id: true,
+          email: true,
+          name: true,
+          active: true,
+          createdAt: true,
+        },
+      }),
+    [],
+  );
 
   const ownerIds = users.map((u) => u.id);
   const rows = ownerIds.length
-    ? await prisma.portalServiceSetup.findMany({
-        where: { ownerId: { in: ownerIds }, serviceSlug: OVERRIDES_SETUP_SLUG },
-        select: { ownerId: true, dataJson: true },
-      })
+    ? await safeFindMany(
+        async () =>
+          prisma.portalServiceSetup.findMany({
+            where: { ownerId: { in: ownerIds }, serviceSlug: OVERRIDES_SETUP_SLUG },
+            select: { ownerId: true, dataJson: true },
+          }),
+        [],
+      )
     : [];
 
   const billingModelRows = ownerIds.length
-    ? await prisma.portalServiceSetup.findMany({
-        where: { ownerId: { in: ownerIds }, serviceSlug: BILLING_MODEL_SETUP_SLUG },
-        select: { ownerId: true, dataJson: true },
-      })
+    ? await safeFindMany(
+        async () =>
+          prisma.portalServiceSetup.findMany({
+            where: { ownerId: { in: ownerIds }, serviceSlug: BILLING_MODEL_SETUP_SLUG },
+            select: { ownerId: true, dataJson: true },
+          }),
+        [],
+      )
     : [];
 
   const creditRows = ownerIds.length
-    ? await prisma.portalServiceSetup.findMany({
-        where: { ownerId: { in: ownerIds }, serviceSlug: CREDITS_SETUP_SLUG },
-        select: { ownerId: true, dataJson: true },
-      })
+    ? await safeFindMany(
+        async () =>
+          prisma.portalServiceSetup.findMany({
+            where: { ownerId: { in: ownerIds }, serviceSlug: CREDITS_SETUP_SLUG },
+            select: { ownerId: true, dataJson: true },
+          }),
+        [],
+      )
     : [];
 
   const profileRows = ownerIds.length
-    ? await prisma.portalServiceSetup.findMany({
-        where: { ownerId: { in: ownerIds }, serviceSlug: PROFILE_SETUP_SLUG },
-        select: { ownerId: true, dataJson: true },
-      })
+    ? await safeFindMany(
+        async () =>
+          prisma.portalServiceSetup.findMany({
+            where: { ownerId: { in: ownerIds }, serviceSlug: PROFILE_SETUP_SLUG },
+            select: { ownerId: true, dataJson: true },
+          }),
+        [],
+      )
     : [];
 
   const integrationsRows = ownerIds.length
-    ? await prisma.portalServiceSetup.findMany({
-        where: { ownerId: { in: ownerIds }, serviceSlug: INTEGRATIONS_SETUP_SLUG },
-        select: { ownerId: true, dataJson: true },
-      })
+    ? await safeFindMany(
+        async () =>
+          prisma.portalServiceSetup.findMany({
+            where: { ownerId: { in: ownerIds }, serviceSlug: INTEGRATIONS_SETUP_SLUG },
+            select: { ownerId: true, dataJson: true },
+          }),
+        [],
+      )
     : [];
 
   const byOwner = new Map<string, Set<ModuleKey>>();
@@ -225,10 +279,14 @@ export async function GET(req: Request) {
   }
 
   const receptionistRows = ownerIds.length
-    ? await prisma.portalServiceSetup.findMany({
-        where: { ownerId: { in: ownerIds }, serviceSlug: AI_RECEPTIONIST_SETUP_SLUG },
-        select: { ownerId: true, dataJson: true },
-      })
+    ? await safeFindMany(
+        async () =>
+          prisma.portalServiceSetup.findMany({
+            where: { ownerId: { in: ownerIds }, serviceSlug: AI_RECEPTIONIST_SETUP_SLUG },
+            select: { ownerId: true, dataJson: true },
+          }),
+        [],
+      )
     : [];
 
   const receptionistVoiceAgentByOwner = new Map<string, string | null>();
@@ -239,6 +297,38 @@ export async function GET(req: Request) {
   const twilioFromByOwner = new Map<string, string | null>();
   for (const row of integrationsRows) {
     twilioFromByOwner.set(row.ownerId, parseTwilioFromNumberE164(row.dataJson));
+  }
+
+  // Best-effort enrichment (never required for correctness)
+  const businessNameByOwner = new Map<string, string | null>();
+  const businessEmailByOwner = new Map<string, string | null>();
+
+  if (ownerIds.length) {
+    const canReadBusinessProfiles = await safeHasTable("BusinessProfile");
+    if (canReadBusinessProfiles) {
+      const profiles = await safeFindMany(
+        async () =>
+          prisma.businessProfile.findMany({
+            where: { ownerId: { in: ownerIds } },
+            select: { ownerId: true, businessName: true },
+          }),
+        [],
+      );
+      for (const p of profiles) businessNameByOwner.set(p.ownerId, p.businessName);
+    }
+
+    const canReadMailbox = await safeHasTable("PortalMailboxAddress");
+    if (canReadMailbox) {
+      const mailboxes = await safeFindMany(
+        async () =>
+          prisma.portalMailboxAddress.findMany({
+            where: { ownerId: { in: ownerIds } },
+            select: { ownerId: true, emailAddress: true },
+          }),
+        [],
+      );
+      for (const m of mailboxes) businessEmailByOwner.set(m.ownerId, m.emailAddress);
+    }
   }
 
   // Schema drift tolerance: the PortalReferral table/columns may not exist in some envs.
@@ -306,8 +396,8 @@ export async function GET(req: Request) {
       creditsOnlyOverride: creditsOnlyByOwner.get(u.id) ?? false,
       creditsBalance: creditsByOwner.get(u.id) ?? 0,
       phone: phoneByOwner.get(u.id) ?? null,
-      businessName: u.businessProfile?.businessName ?? null,
-      businessEmail: u.portalMailboxAddress?.emailAddress ?? null,
+      businessName: businessNameByOwner.get(u.id) ?? null,
+      businessEmail: businessEmailByOwner.get(u.id) ?? null,
       twilio: {
         configured: Boolean(twilioFromByOwner.get(u.id)),
         fromNumberE164: twilioFromByOwner.get(u.id) ?? null,
