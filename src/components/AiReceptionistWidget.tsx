@@ -334,6 +334,18 @@ export function AiReceptionistWidget() {
   // Customer-facing widget:
   // - show on marketing pages and /portal
   // - never show inside /portal/app (portal app has its own Chat + Report tools)
+  const hiddenByPublicBusinessPath = useMemo(() => {
+    // Hide on platform-hosted business public pages like:
+    // - /{siteSlug}/blogs
+    // - /{siteSlug}/newsletters
+    // - /{siteSlug}/internal-newsletters
+    // - /{siteSlug}/reviews
+    const parts = pathname.split("/").filter(Boolean);
+    if (parts.length < 2) return false;
+    const section = parts[1] || "";
+    return ["blogs", "newsletters", "internal-newsletters", "reviews"].includes(section);
+  }, [pathname]);
+
   const hiddenByPath =
     pathname === "/app" ||
     pathname.startsWith("/app/") ||
@@ -347,7 +359,10 @@ export function AiReceptionistWidget() {
     pathname.startsWith("/credit/f/") ||
     pathname === "/login" ||
     pathname === "/ads/login" ||
-    pathname.startsWith("/ads/app");
+    pathname.startsWith("/ads/app") ||
+    pathname === "/book" ||
+    pathname.startsWith("/book/") ||
+    hiddenByPublicBusinessPath;
 
   // Never show the Purely marketing chat widget on customer custom-domain pages.
   const hidden = hiddenByPath || !isPlatformHost;

@@ -257,6 +257,57 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
     return `${window.location.origin}${publicBasePath}`;
   }, [publicBasePath]);
 
+  const normalizedPrimaryDomain = useMemo(() => {
+    const raw = String(site?.primaryDomain || "")
+      .trim()
+      .toLowerCase()
+      .replace(/^https?:\/\//, "")
+      .split("/")[0]
+      ?.replace(/:\d+$/, "")
+      ?.replace(/\.$/, "");
+    return raw ? raw : null;
+  }, [site?.primaryDomain]);
+
+  const normalizedDomainApex = useCallback((raw: string) => {
+    const v = String(raw || "")
+      .trim()
+      .toLowerCase()
+      .replace(/^https?:\/\//, "")
+      .split("/")[0]
+      ?.replace(/:\d+$/, "")
+      ?.replace(/\.$/, "");
+    if (!v) return "";
+    return v.startsWith("www.") ? v.slice(4) : v;
+  }, []);
+
+  const primaryDomainStatus = useMemo(() => {
+    if (!normalizedPrimaryDomain) return null;
+
+    const apex = normalizedDomainApex(normalizedPrimaryDomain);
+    const match = (funnelDomains || []).find((d) => normalizedDomainApex(d.domain) === apex);
+    if (match) return match.status;
+
+    // Fallback for older blog-style verification.
+    if (site?.verifiedAt) return "VERIFIED";
+    return null;
+  }, [funnelDomains, normalizedDomainApex, normalizedPrimaryDomain, site?.verifiedAt]);
+
+  const customHostedBaseUrl = useMemo(() => {
+    if (!normalizedPrimaryDomain) return null;
+    if (primaryDomainStatus !== "VERIFIED") return null;
+    return `https://${normalizedPrimaryDomain}`;
+  }, [normalizedPrimaryDomain, primaryDomainStatus]);
+
+  const customPublicBasePath = useMemo(() => {
+    // Hosted pages exist for both external and internal newsletters.
+    return audience === "internal" ? "/internal-newsletters" : "/newsletters";
+  }, [audience]);
+
+  const customPublicBaseUrl = useMemo(() => {
+    if (!customHostedBaseUrl || !customPublicBasePath) return null;
+    return `${customHostedBaseUrl}${customPublicBasePath}`;
+  }, [customHostedBaseUrl, customPublicBasePath]);
+
   const fontOptions = useMemo(() => {
     const base = [
       { value: "brand", label: "Brand" },
@@ -2343,6 +2394,45 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                         Open
                       </Link>
                     </div>
+
+                    {normalizedPrimaryDomain && primaryDomainStatus !== "VERIFIED" ? (
+                      <div className="rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                        Custom domain saved: <span className="font-semibold">{normalizedPrimaryDomain}</span>
+                        {primaryDomainStatus ? ` (${primaryDomainStatus.toLowerCase()})` : ""}
+                      </div>
+                    ) : null}
+
+                    {customPublicBaseUrl ? (
+                      <>
+                        <div className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-xs text-zinc-700 break-all">
+                          {customPublicBaseUrl}
+                        </div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <button
+                            type="button"
+                            className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
+                            onClick={async () => {
+                              try {
+                                await navigator.clipboard.writeText(customPublicBaseUrl);
+                                toast.success("Copied");
+                              } catch {
+                                toast.error("Copy failed");
+                              }
+                            }}
+                          >
+                            Copy custom link
+                          </button>
+                          <a
+                            href={customPublicBaseUrl}
+                            target="_blank"
+                            rel="noreferrer noopener"
+                            className="rounded-xl bg-[color:var(--color-brand-blue)] px-3 py-2 text-xs font-semibold text-white hover:opacity-95"
+                          >
+                            Open custom domain
+                          </a>
+                        </div>
+                      </>
+                    ) : null}
                   </div>
                 ) : (
                   <div className="mt-2">
@@ -2569,13 +2659,24 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
 
                   <div className="mt-4 flex flex-wrap items-center justify-end gap-2">
                     {siteHandle && draftSlug ? (
-                      <Link
-                        href={`${audience === "internal" ? `/${siteHandle}/internal-newsletters` : `/${siteHandle}/newsletters`}/${draftSlug}`}
-                        target="_blank"
-                        className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
-                      >
-                        Open hosted
-                      </Link>
+                      customHostedBaseUrl ? (
+                        <a
+                          href={`${customHostedBaseUrl}${audience === "internal" ? "/internal-newsletters" : "/newsletters"}/${draftSlug}`}
+                          target="_blank"
+                          rel="noreferrer noopener"
+                          className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
+                        >
+                          Open hosted
+                        </a>
+                      ) : (
+                        <Link
+                          href={`${audience === "internal" ? `/${siteHandle}/internal-newsletters` : `/${siteHandle}/newsletters`}/${draftSlug}`}
+                          target="_blank"
+                          className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
+                        >
+                          Open hosted
+                        </Link>
+                      )
                     ) : null}
                     <button
                       type="button"
@@ -2605,9 +2706,11 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                     <div className="mt-3 rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
                       <div className="text-xs font-semibold text-zinc-700">Hosted link</div>
                       <div className="mt-1 text-xs text-zinc-700 break-all">
-                        {typeof window === "undefined"
-                          ? `${audience === "internal" ? `/${siteHandle}/internal-newsletters` : `/${siteHandle}/newsletters`}/${draftSlug}`
-                          : `${window.location.origin}${audience === "internal" ? `/${siteHandle}/internal-newsletters` : `/${siteHandle}/newsletters`}/${draftSlug}`}
+                        {customHostedBaseUrl
+                          ? `${customHostedBaseUrl}${audience === "internal" ? "/internal-newsletters" : "/newsletters"}/${draftSlug}`
+                          : typeof window === "undefined"
+                            ? `${audience === "internal" ? `/${siteHandle}/internal-newsletters` : `/${siteHandle}/newsletters`}/${draftSlug}`
+                            : `${window.location.origin}${audience === "internal" ? `/${siteHandle}/internal-newsletters` : `/${siteHandle}/newsletters`}/${draftSlug}`}
                       </div>
                     </div>
                   ) : null}
@@ -2629,7 +2732,9 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                           link:
                             typeof window === "undefined" || !siteHandle || !draftSlug
                               ? "(hosted link)"
-                              : `${window.location.origin}${audience === "internal" ? `/${siteHandle}/internal-newsletters` : `/${siteHandle}/newsletters`}/${draftSlug}`,
+                              : customHostedBaseUrl
+                                ? `${customHostedBaseUrl}${audience === "internal" ? "/internal-newsletters" : "/newsletters"}/${draftSlug}`
+                                : `${window.location.origin}${audience === "internal" ? `/${siteHandle}/internal-newsletters` : `/${siteHandle}/newsletters`}/${draftSlug}`,
                         })}
                       </pre>
                     </div>
@@ -2644,7 +2749,9 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                           link:
                             typeof window === "undefined" || !siteHandle || !draftSlug
                               ? "(hosted link)"
-                              : `${window.location.origin}${audience === "internal" ? `/${siteHandle}/internal-newsletters` : `/${siteHandle}/newsletters`}/${draftSlug}`,
+                              : customHostedBaseUrl
+                                ? `${customHostedBaseUrl}${audience === "internal" ? "/internal-newsletters" : "/newsletters"}/${draftSlug}`
+                                : `${window.location.origin}${audience === "internal" ? `/${siteHandle}/internal-newsletters` : `/${siteHandle}/newsletters`}/${draftSlug}`,
                         })}
                       </pre>
                     </div>

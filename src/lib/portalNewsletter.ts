@@ -112,6 +112,38 @@ export function publicNewsletterPath(siteHandle: string, kind: NewsletterKind, n
   return `/${siteHandle}/${base}/${newsletterSlug}`;
 }
 
+function normalizeDomain(raw: unknown): string | null {
+  const v = String(raw || "")
+    .trim()
+    .toLowerCase()
+    .replace(/^https?:\/\//, "")
+    .split("/")[0]
+    ?.replace(/:\d+$/, "")
+    ?.replace(/\.$/, "");
+  return v ? v : null;
+}
+
+async function resolveVerifiedNewsletterCustomDomain(ownerId: string): Promise<string | null> {
+  const site = await (prisma.clientBlogSite as any)
+    .findUnique({ where: { ownerId }, select: { primaryDomain: true, verifiedAt: true } })
+    .catch(() => null);
+
+  const primary = normalizeDomain(site?.primaryDomain);
+  if (!primary) return null;
+
+  // Blog-style verification.
+  if (site?.verifiedAt) return primary;
+
+  // Funnel-domain verification (domains come from Funnel Builder settings).
+  const candidates = primary.startsWith("www.") ? [primary, primary.slice(4)] : [primary, `www.${primary}`];
+
+  const credit = await prisma.creditCustomDomain
+    .findFirst({ where: { ownerId, domain: { in: candidates }, status: "VERIFIED" }, select: { domain: true } })
+    .catch(() => null);
+
+  return credit?.domain ? String(credit.domain).trim().toLowerCase() : null;
+}
+
 export function publicNewsletterUrl(req: Request | undefined, siteHandle: string, kind: NewsletterKind, newsletterSlug: string) {
   return `${baseUrlFromRequest(req)}${publicNewsletterPath(siteHandle, kind, newsletterSlug)}`;
 }
@@ -128,7 +160,11 @@ export async function sendNewsletterToAudience(opts: {
 }) {
   const { emailTo, smsTo } = await resolveNewsletterRecipients(opts.ownerId, opts.kind, opts.audience);
 
-  const link = publicNewsletterUrl(opts.req, opts.siteHandle, opts.kind, opts.newsletter.slug);
+  const customDomain = await resolveVerifiedNewsletterCustomDomain(opts.ownerId);
+  const customPathBase = opts.kind === "INTERNAL" ? "internal-newsletters" : "newsletters";
+  const link = customDomain
+    ? `https://${customDomain}/${customPathBase}/${opts.newsletter.slug}`
+    : publicNewsletterUrl(opts.req, opts.siteHandle, opts.kind, opts.newsletter.slug);
 
   const emailResults: Array<{ to: string; ok: boolean; error?: string }> = [];
   const smsResults: Array<{ to: string; ok: boolean; error?: string }> = [];
