@@ -333,9 +333,20 @@ export async function GET(req: Request) {
 
   // Schema drift tolerance: the PortalReferral table/columns may not exist in some envs.
   // The manager UI should still load (invite counters will just show 0).
-  let refTotalAgg: Array<{ inviterId: string; _count: { _all: number } }> = [];
-  let refVerifiedAgg: Array<{ inviterId: string; _count: { _all: number } }> = [];
-  let refAwardedAgg: Array<{ inviterId: string; _count: { _all: number } }> = [];
+  type ReferralCountRow = { inviterId: string; count: unknown };
+  const toCount = (v: unknown) => {
+    if (typeof v === "number") return Number.isFinite(v) ? Math.max(0, Math.floor(v)) : 0;
+    if (typeof v === "bigint") return Number(v);
+    if (typeof v === "string") {
+      const n = Number(v);
+      return Number.isFinite(n) ? Math.max(0, Math.floor(n)) : 0;
+    }
+    return 0;
+  };
+
+  let refTotalAgg: Array<{ inviterId: string; count: number }> = [];
+  let refVerifiedAgg: Array<{ inviterId: string; count: number }> = [];
+  let refAwardedAgg: Array<{ inviterId: string; count: number }> = [];
   if (ownerIds.length) {
     const canUseReferralsTable = await hasPublicTable("PortalReferral").catch(() => false);
     if (canUseReferralsTable) {
@@ -343,22 +354,27 @@ export async function GET(req: Request) {
       const hasCreditsAwardedAt = await hasPublicColumn("PortalReferral", "creditsAwardedAt").catch(() => false);
 
       try {
-        refTotalAgg = await prisma.portalReferral.groupBy({
-          by: ["inviterId"],
-          where: { inviterId: { in: ownerIds } },
-          _count: { _all: true },
-        });
+        const rows = await prisma.$queryRaw<ReferralCountRow[]>`
+          select "inviterId", count(*) as "count"
+          from "PortalReferral"
+          where "inviterId" = any(${ownerIds})
+          group by "inviterId";
+        `;
+        refTotalAgg = (rows ?? []).map((r) => ({ inviterId: r.inviterId, count: toCount(r.count) }));
       } catch {
         refTotalAgg = [];
       }
 
       if (hasInvitedVerifiedAt) {
         try {
-          refVerifiedAgg = await prisma.portalReferral.groupBy({
-            by: ["inviterId"],
-            where: { inviterId: { in: ownerIds }, invitedVerifiedAt: { not: null } },
-            _count: { _all: true },
-          });
+          const rows = await prisma.$queryRaw<ReferralCountRow[]>`
+            select "inviterId", count(*) as "count"
+            from "PortalReferral"
+            where "inviterId" = any(${ownerIds})
+              and "invitedVerifiedAt" is not null
+            group by "inviterId";
+          `;
+          refVerifiedAgg = (rows ?? []).map((r) => ({ inviterId: r.inviterId, count: toCount(r.count) }));
         } catch {
           refVerifiedAgg = [];
         }
@@ -366,11 +382,14 @@ export async function GET(req: Request) {
 
       if (hasCreditsAwardedAt) {
         try {
-          refAwardedAgg = await prisma.portalReferral.groupBy({
-            by: ["inviterId"],
-            where: { inviterId: { in: ownerIds }, creditsAwardedAt: { not: null } },
-            _count: { _all: true },
-          });
+          const rows = await prisma.$queryRaw<ReferralCountRow[]>`
+            select "inviterId", count(*) as "count"
+            from "PortalReferral"
+            where "inviterId" = any(${ownerIds})
+              and "creditsAwardedAt" is not null
+            group by "inviterId";
+          `;
+          refAwardedAgg = (rows ?? []).map((r) => ({ inviterId: r.inviterId, count: toCount(r.count) }));
         } catch {
           refAwardedAgg = [];
         }
@@ -378,9 +397,9 @@ export async function GET(req: Request) {
     }
   }
 
-  const refTotalByOwner = new Map<string, number>(refTotalAgg.map((r) => [r.inviterId, r._count._all]));
-  const refVerifiedByOwner = new Map<string, number>(refVerifiedAgg.map((r) => [r.inviterId, r._count._all]));
-  const refAwardedByOwner = new Map<string, number>(refAwardedAgg.map((r) => [r.inviterId, r._count._all]));
+  const refTotalByOwner = new Map<string, number>(refTotalAgg.map((r) => [r.inviterId, r.count]));
+  const refVerifiedByOwner = new Map<string, number>(refVerifiedAgg.map((r) => [r.inviterId, r.count]));
+  const refAwardedByOwner = new Map<string, number>(refAwardedAgg.map((r) => [r.inviterId, r.count]));
 
   return NextResponse.json({
     users: users.map((u) => ({
