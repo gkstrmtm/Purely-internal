@@ -144,6 +144,16 @@ type ReviewRequestsSettings = {
 
 type JsonResult<T> = { ok: true; data: T } | { ok: false; error: string; status?: number };
 
+type HostedSite = {
+  id: string;
+  name: string;
+  slug: string | null;
+  primaryDomain: string | null;
+  verifiedAt: string | null;
+  verificationToken?: string | null;
+  updatedAt?: string | null;
+};
+
 type ReviewRequestEvent = {
   id: string;
   kind?: "booking" | "contact";
@@ -312,6 +322,13 @@ export default function PortalReviewsClient() {
   const lastSavedSettingsJsonRef = useRef<string>(JSON.stringify(DEFAULT_SETTINGS));
 
   const [publicSiteSlug, setPublicSiteSlug] = useState<string | null>(null);
+  const [site, setSite] = useState<HostedSite | null>(null);
+
+  const [funnelDomains, setFunnelDomains] = useState<Array<{ domain: string; status: string }>>([]);
+  const [funnelDomainsBusy, setFunnelDomainsBusy] = useState(false);
+
+  const [siteDomainDraft, setSiteDomainDraft] = useState<string>("");
+  const [siteDomainBusy, setSiteDomainBusy] = useState(false);
 
   const uploadsInputRef = useRef<HTMLInputElement | null>(null);
   const [publicPhotosPickerOpen, setPublicPhotosPickerOpen] = useState(false);
@@ -395,12 +412,60 @@ export default function PortalReviewsClient() {
   const [newDestUrl, setNewDestUrl] = useState("");
 
   const previewLink = useMemo(() => {
+    const verifiedDomain = (() => {
+      if (!site?.primaryDomain) return null;
+      if (site.verifiedAt) return site.primaryDomain;
+      const apex = (v: string) => {
+        const s = String(v || "").trim().toLowerCase();
+        return s.startsWith("www.") ? s.slice(4) : s;
+      };
+      const targetApex = apex(site.primaryDomain);
+      const match = funnelDomains.find((d) => apex(d.domain) === targetApex);
+      if (match?.status === "VERIFIED") return site.primaryDomain;
+      return null;
+    })();
+    if (settings.publicPage.enabled && verifiedDomain) return `https://${verifiedDomain}/reviews`;
     if (settings.publicPage.enabled && publicSiteSlug) return `/${publicSiteSlug}/reviews`;
     const preferred = settings.defaultDestinationId
       ? settings.destinations.find((d) => d.id === settings.defaultDestinationId)
       : null;
     return preferred?.url || settings.destinations[0]?.url || "";
-  }, [publicSiteSlug, settings.defaultDestinationId, settings.destinations, settings.publicPage.enabled]);
+  }, [funnelDomains, publicSiteSlug, settings.defaultDestinationId, settings.destinations, settings.publicPage.enabled, site?.primaryDomain, site?.verifiedAt]);
+
+  useEffect(() => {
+    setSiteDomainDraft(site?.primaryDomain || "");
+  }, [site?.primaryDomain]);
+
+  useEffect(() => {
+    if (tab !== "settings") return;
+    let mounted = true;
+    (async () => {
+      setFunnelDomainsBusy(true);
+      try {
+        const res = await fetch("/api/portal/funnel-builder/domains", { cache: "no-store" });
+        const json = (await res.json().catch(() => ({}))) as any;
+        if (!mounted) return;
+        if (!res.ok || json?.ok !== true || !Array.isArray(json.domains)) {
+          setFunnelDomains([]);
+          return;
+        }
+        setFunnelDomains(
+          json.domains
+            .map((d: any) => ({ domain: String(d?.domain || "").trim(), status: String(d?.status || "").trim() }))
+            .filter((d: any) => d.domain),
+        );
+      } catch {
+        if (!mounted) return;
+        setFunnelDomains([]);
+      } finally {
+        if (!mounted) return;
+        setFunnelDomainsBusy(false);
+      }
+    })();
+    return () => {
+      mounted = false;
+    };
+  }, [tab]);
 
   const previewBody = useMemo(() => {
     const business = "{business}";
@@ -437,10 +502,11 @@ export default function PortalReviewsClient() {
     setLoading(true);
     setError(null);
     try {
-      const [s, e, handle, cals, inbox, qa, tags] = await Promise.all([
+      const [s, e, handle, siteRes, cals, inbox, qa, tags] = await Promise.all([
         fetch("/api/portal/reviews/settings", { cache: "no-store" }).then((r) => readJsonSafe<any>(r)),
         fetch("/api/portal/reviews/events?limit=50", { cache: "no-store" }).then((r) => readJsonSafe<any>(r)),
         fetch("/api/portal/reviews/handle", { cache: "no-store" }).then((r) => readJsonSafe<any>(r)).catch(() => null),
+        fetch("/api/portal/reviews/site", { cache: "no-store" }).then((r) => readJsonSafe<any>(r)).catch(() => null),
         fetch("/api/portal/booking/calendars", { cache: "no-store" })
           .then((r) => readJsonSafe<any>(r))
           .catch(() => null),
@@ -494,6 +560,13 @@ export default function PortalReviewsClient() {
       const slug = typeof handleData?.handle === "string" ? handleData.handle : null;
       setPublicSiteSlug(slug || null);
 
+      const siteJson = siteRes && (siteRes as any).ok ? (siteRes as any).data : null;
+      if (siteJson?.ok && siteJson?.site) {
+        setSite(siteJson.site as HostedSite);
+      } else {
+        setSite(null);
+      }
+
       const calsData = cals && (cals as any).ok ? (cals as any).data : null;
       const list = Array.isArray(calsData?.config?.calendars) ? calsData.config.calendars : [];
       setCalendars(
@@ -514,6 +587,32 @@ export default function PortalReviewsClient() {
       setLoading(false);
     }
   }, [readJsonSafe]);
+
+  const saveHostedSiteDomain = useCallback(async () => {
+    const primaryDomain = String(siteDomainDraft || "")
+      .trim()
+      .slice(0, 253);
+
+    setSiteDomainBusy(true);
+    try {
+      const res = await fetch("/api/portal/reviews/site", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ primaryDomain }),
+      });
+      const json = (await res.json().catch(() => ({}))) as any;
+      if (!res.ok || !json?.ok || !json?.site) {
+        toast.error(String(json?.error || "Failed to save"));
+        return;
+      }
+      setSite(json.site as HostedSite);
+      toast.success("Saved");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to save");
+    } finally {
+      setSiteDomainBusy(false);
+    }
+  }, [siteDomainDraft, toast]);
 
   const contactTagOptions = useMemo(() => {
     const q = tagSearch.trim().toLowerCase();
@@ -1432,6 +1531,67 @@ export default function PortalReviewsClient() {
                     Public URL: <span className="font-mono">/{publicSiteSlug}/reviews</span>
                   </div>
                 ) : null}
+
+                <div className="mt-3 rounded-2xl border border-zinc-200 bg-white p-4">
+                  <div className="text-xs font-semibold text-zinc-600">Custom domain (optional)</div>
+                  <div className="mt-1">
+                    <PortalListboxDropdown
+                      value={siteDomainDraft as any}
+                      disabled={siteDomainBusy || funnelDomainsBusy}
+                      options={
+                        [
+                          { value: "", label: "No custom domain" },
+                          ...funnelDomains.map((d) => ({
+                            value: d.domain,
+                            label: d.domain,
+                            hint: d.status === "PENDING" ? "Pending DNS verification" : undefined,
+                          })),
+                        ] as any
+                      }
+                      onChange={(v) => setSiteDomainDraft(String(v || ""))}
+                      placeholder={funnelDomainsBusy ? "Loading domains…" : funnelDomains.length ? "Choose a domain" : "No domains yet"}
+                    />
+                  </div>
+
+                  {siteDomainDraft.trim() ? (
+                    <div className="mt-2 text-xs text-zinc-600">
+                      Preview link: <span className="font-mono">https://{siteDomainDraft.trim()}/reviews</span>
+                      {(() => {
+                        const apex = (v: string) => {
+                          const s = String(v || "").trim().toLowerCase();
+                          return s.startsWith("www.") ? s.slice(4) : s;
+                        };
+                        const targetApex = apex(siteDomainDraft);
+                        const match = funnelDomains.find((d) => apex(d.domain) === targetApex);
+                        const verified = Boolean(site?.verifiedAt) || match?.status === "VERIFIED";
+                        if (verified) return <span className="ml-1 text-emerald-700">(verified)</span>;
+                        if (match?.status === "PENDING") return <span className="ml-1 text-amber-700">(pending verification)</span>;
+                        return null;
+                      })()}
+                    </div>
+                  ) : null}
+
+                  <div className="mt-2 flex flex-col items-start justify-between gap-2 sm:flex-row sm:items-center">
+                    <div className="text-xs text-zinc-500">Domains come from Funnel Builder → Settings → Custom domains.</div>
+                    <a
+                      href="/portal/app/services/funnel-builder/settings"
+                      className="text-xs font-semibold text-[color:var(--color-brand-blue)] hover:underline"
+                    >
+                      Add / manage domains
+                    </a>
+                  </div>
+
+                  <div className="mt-3 flex items-center justify-end">
+                    <button
+                      type="button"
+                      className="rounded-xl bg-[color:var(--color-brand-blue)] px-4 py-2 text-xs font-semibold text-white shadow-sm hover:opacity-95 disabled:opacity-60"
+                      disabled={siteDomainBusy}
+                      onClick={saveHostedSiteDomain}
+                    >
+                      {siteDomainBusy ? "Saving…" : "Save custom domain"}
+                    </button>
+                  </div>
+                </div>
 
                 <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
                   <label className="flex items-center justify-between gap-4 rounded-2xl border border-zinc-200 bg-white px-4 py-3">

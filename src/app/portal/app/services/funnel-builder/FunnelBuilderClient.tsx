@@ -49,6 +49,12 @@ type VercelVerificationRecord = {
   value: string;
 };
 
+type StripeIntegrationStatus = {
+  configured: boolean;
+  accountId: string | null;
+  connectedAtIso: string | null;
+};
+
 function classNames(...xs: Array<string | false | null | undefined>) {
   return xs.filter(Boolean).join(" ");
 }
@@ -217,6 +223,9 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
   const [domainVerifyBusy, setDomainVerifyBusy] = useState<Record<string, boolean>>({});
   const [domainVerifyError, setDomainVerifyError] = useState<Record<string, string | null>>({});
 
+  const [stripeStatus, setStripeStatus] = useState<StripeIntegrationStatus | null>(null);
+  const [stripeStatusBusy, setStripeStatusBusy] = useState(false);
+
   const [funnelDomainBusy, setFunnelDomainBusy] = useState<Record<string, boolean>>({});
   const [funnelDomainError, setFunnelDomainError] = useState<Record<string, string | null>>({});
 
@@ -225,6 +234,28 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
 
   const [openFunnelMenuId, setOpenFunnelMenuId] = useState<string | null>(null);
   const funnelMenuRootRef = useRef<HTMLDivElement | null>(null);
+
+  const loadStripeStatus = useCallback(async () => {
+    setStripeStatusBusy(true);
+    try {
+      const res = await fetch("/api/portal/integrations/stripe", { cache: "no-store" }).catch(() => null as any);
+      if (!res?.ok) return;
+      const json = (await res.json().catch(() => null)) as any;
+      if (!json || json.ok !== true || !json.stripe) return;
+      setStripeStatus({
+        configured: Boolean(json.stripe.configured),
+        accountId: json.stripe.accountId ? String(json.stripe.accountId) : null,
+        connectedAtIso: json.stripe.connectedAtIso ? String(json.stripe.connectedAtIso) : null,
+      });
+    } finally {
+      setStripeStatusBusy(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (tab !== "settings") return;
+    void loadStripeStatus();
+  }, [tab, loadStripeStatus]);
 
   useEffect(() => {
     if (!openFunnelMenuId) return;
@@ -1118,6 +1149,55 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
       {tab === "settings" ? (
         <section className="mt-6">
           <div className="rounded-3xl border border-zinc-200 bg-white p-6">
+            <div className="text-base font-semibold text-brand-ink">Payments (Stripe)</div>
+            <p className="mt-1 text-sm text-zinc-600">Connect Stripe to use the Checkout block and sell inside funnels.</p>
+
+            <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="text-sm text-zinc-700">
+                {stripeStatusBusy ? (
+                  <span className="text-zinc-500">Checking Stripe status…</span>
+                ) : stripeStatus?.configured ? (
+                  <span>
+                    Connected
+                    {stripeStatus.accountId ? (
+                      <span className="ml-2 text-xs text-zinc-500">
+                        Account: <span className="font-mono text-zinc-800">{stripeStatus.accountId}</span>
+                      </span>
+                    ) : null}
+                  </span>
+                ) : (
+                  <span className="text-zinc-500">Not connected</span>
+                )}
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2">
+                <Link
+                  href={`${basePath}/app/profile`}
+                  className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+                >
+                  Stripe settings
+                </Link>
+                {!stripeStatusBusy && !stripeStatus?.configured ? (
+                  <Link
+                    href={`${basePath}/app/profile`}
+                    className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95"
+                  >
+                    Connect Stripe
+                  </Link>
+                ) : null}
+                <button
+                  type="button"
+                  onClick={() => void loadStripeStatus()}
+                  className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50 disabled:opacity-60"
+                  disabled={stripeStatusBusy}
+                >
+                  {stripeStatusBusy ? "Refreshing…" : "Refresh"}
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div className="mt-4 rounded-3xl border border-zinc-200 bg-white p-6">
             <div className="text-base font-semibold text-brand-ink">Custom domains</div>
             <p className="mt-1 text-sm text-zinc-600">
               Save the domain you want to use for funnels/forms. DNS verification + automatic provisioning is the next step.

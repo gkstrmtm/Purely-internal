@@ -379,7 +379,7 @@ export function PublicBookingClient({ target }: { target: PublicBookingTarget })
               {new Date(success.startAt).toLocaleString()} ({site.durationMinutes} minutes)
             </p>
             {site.meetingLocation ? (
-              <div className="mt-2 text-sm text-zinc-600">Location: {site.meetingLocation}</div>
+              <div className="mt-2 whitespace-pre-line text-sm text-zinc-600">Location: {site.meetingLocation}</div>
             ) : null}
             {site.meetingDetails ? <div className="mt-1 text-sm text-zinc-600">{site.meetingDetails}</div> : null}
             <div className="mt-6 text-sm text-zinc-700">
@@ -443,7 +443,7 @@ export function PublicBookingClient({ target }: { target: PublicBookingTarget })
             {site?.description ? <p className="mt-2 text-sm text-zinc-600">{site.description}</p> : null}
             <div className="mt-2 text-xs text-zinc-600">Meeting length: {site?.durationMinutes ?? 30} minutes</div>
             {site?.meetingLocation ? (
-              <div className="mt-1 text-xs text-zinc-600">Location: {site.meetingLocation}</div>
+              <div className="mt-1 whitespace-pre-line text-xs text-zinc-600">Location: {site.meetingLocation}</div>
             ) : null}
             {site?.meetingDetails ? (
               <div className="mt-1 text-xs text-zinc-600">{site.meetingDetails}</div>

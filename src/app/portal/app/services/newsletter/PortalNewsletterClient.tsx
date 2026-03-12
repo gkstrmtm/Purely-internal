@@ -327,7 +327,17 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
   const refresh = useCallback(async () => {
     setLoading(true);
 
-    const [siteRes, settingsExternalRes, settingsInternalRes, tagsRes, creditsRes, usageRes, listExternalRes, listInternalRes] = await Promise.all([
+    const [
+      siteRes,
+      settingsExternalRes,
+      settingsInternalRes,
+      tagsRes,
+      creditsRes,
+      usageRes,
+      listExternalRes,
+      listInternalRes,
+      funnelDomainsRes,
+    ] = await Promise.all([
       fetch("/api/portal/newsletter/site", { cache: "no-store" }),
       fetch("/api/portal/newsletter/automation/settings?kind=external", { cache: "no-store" }),
       fetch("/api/portal/newsletter/automation/settings?kind=internal", { cache: "no-store" }),
@@ -336,6 +346,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
       fetch("/api/portal/newsletter/usage?range=30d", { cache: "no-store" }),
       fetch("/api/portal/newsletter/newsletters?kind=external&take=100", { cache: "no-store" }),
       fetch("/api/portal/newsletter/newsletters?kind=internal&take=100", { cache: "no-store" }),
+      fetch("/api/portal/funnel-builder/domains", { cache: "no-store" }).catch(() => null as any),
     ]);
 
     const siteJson = (await siteRes.json().catch(() => ({}))) as any;
@@ -346,6 +357,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
     const usageJson = (await usageRes.json().catch(() => ({}))) as any;
     const listExternalJson = (await listExternalRes.json().catch(() => ({}))) as any;
     const listInternalJson = (await listInternalRes.json().catch(() => ({}))) as any;
+    const funnelDomainsJson = funnelDomainsRes ? (((await funnelDomainsRes.json().catch(() => ({}))) as any) ?? {}) : {};
 
     if (!siteRes.ok) toast.error(siteJson?.error ?? "Unable to load newsletter site");
     if (!settingsExternalRes.ok) toast.error(settingsExternalJson?.error ?? "Unable to load newsletter settings");
@@ -353,6 +365,12 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
     if (!tagsRes.ok) toast.error(tagsJson?.error ?? "Unable to load contact tags");
 
     setSite(siteJson?.site ?? null);
+
+    if (funnelDomainsRes && funnelDomainsRes.ok && funnelDomainsJson?.ok === true) {
+      setFunnelDomains(Array.isArray(funnelDomainsJson.domains) ? (funnelDomainsJson.domains as FunnelBuilderDomain[]) : []);
+    } else {
+      setFunnelDomains((prev) => (prev === null ? [] : prev));
+    }
 
     const nextSettingsCache = {
       external: settingsExternalRes.ok && settingsExternalJson?.settings ? (settingsExternalJson.settings as Settings) : null,
@@ -406,6 +424,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
 
   useEffect(() => {
     if (!siteConfigOpen) return;
+    if (funnelDomains && funnelDomains.length) return;
     let mounted = true;
 
     (async () => {
@@ -431,7 +450,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
     return () => {
       mounted = false;
     };
-  }, [siteConfigOpen]);
+  }, [funnelDomains, siteConfigOpen]);
 
   useEffect(() => {
     const days = Math.max(1, Math.floor(Number(settings?.frequencyDays) || 7));
@@ -2393,6 +2412,18 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                       >
                         Open
                       </Link>
+                      <button
+                        type="button"
+                        className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
+                        onClick={() => {
+                          setSiteConfigName(site?.name || "Newsletter site");
+                          setSiteConfigSlug(site?.slug || "");
+                          setSiteConfigDomain(site?.primaryDomain || "");
+                          setSiteConfigOpen(true);
+                        }}
+                      >
+                        Edit hosted pages
+                      </button>
                     </div>
 
                     {normalizedPrimaryDomain && primaryDomainStatus !== "VERIFIED" ? (

@@ -171,6 +171,16 @@ export async function POST(req: Request) {
     const name = parsed.data.name.trim();
     const primaryDomain = normalizeDomain(parsed.data.primaryDomain);
 
+    const currentPrimaryDomain = normalizeDomain((existing as any)?.primaryDomain);
+    const domainChanged = primaryDomain !== currentPrimaryDomain;
+    const tokenMissing = Boolean(primaryDomain) && !String((existing as any)?.verificationToken || "").trim();
+    const nextVerificationToken =
+      domainChanged && primaryDomain
+        ? crypto.randomBytes(18).toString("hex")
+        : tokenMissing
+          ? crypto.randomBytes(18).toString("hex")
+          : (existing as any)?.verificationToken;
+
     let nextSlug: string | undefined = undefined;
     if (canUseSlugColumn && slugFieldProvided) {
       nextSlug = requestedSlug ? requestedSlug : await ensurePublicSlug(ownerId, name, true);
@@ -192,6 +202,8 @@ export async function POST(req: Request) {
       data: {
         name,
         primaryDomain,
+        ...(domainChanged ? { verifiedAt: null, verificationToken: nextVerificationToken } : tokenMissing ? { verificationToken: nextVerificationToken } : {}),
+        ...(primaryDomain ? {} : domainChanged ? { verifiedAt: null } : {}),
         ...(canUseSlugColumn && nextSlug !== undefined ? { slug: nextSlug } : {}),
       },
       select: {

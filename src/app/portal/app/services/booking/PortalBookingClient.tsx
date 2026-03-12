@@ -137,6 +137,18 @@ type BookingCalendar = {
   notificationEmails?: string[];
 };
 
+type FunnelDomain = { domain: string; status: string };
+
+type HostedSite = {
+  id: string;
+  name: string;
+  slug?: string | null;
+  primaryDomain: string | null;
+  verifiedAt: string | null;
+  verificationToken?: string | null;
+  updatedAt?: string;
+};
+
 function getPurelyConnectJoinUrl(notes?: string | null): string | null {
   if (!notes) return null;
   const lines = String(notes || "").split(/\r?\n/);
@@ -146,6 +158,11 @@ function getPurelyConnectJoinUrl(notes?: string | null): string | null {
   if (!url) return null;
   if (!/^https?:\/\//i.test(url)) return null;
   return url;
+}
+
+function apexDomain(value: string) {
+  const v = String(value || "").trim().toLowerCase();
+  return v.startsWith("www.") ? v.slice(4) : v;
 }
 
 function pad2(n: number) {
@@ -349,6 +366,12 @@ export function PortalBookingClient() {
 
   const [form, setForm] = useState<BookingFormConfig | null>(null);
   const [formSaving, setFormSaving] = useState(false);
+
+  const [funnelDomains, setFunnelDomains] = useState<FunnelDomain[]>([]);
+  const [funnelDomainsBusy, setFunnelDomainsBusy] = useState(false);
+  const [hostedSite, setHostedSite] = useState<HostedSite | null>(null);
+  const [hostedSiteBusy, setHostedSiteBusy] = useState(false);
+  const [hostedDomainDraft, setHostedDomainDraft] = useState("");
 
   const [calendars, setCalendars] = useState<BookingCalendar[]>([]);
   const [calSaving, setCalSaving] = useState(false);
@@ -683,8 +706,17 @@ export function PortalBookingClient() {
   const bookingUrl = useMemo(() => {
     if (!site?.slug) return null;
     if (typeof window === "undefined") return `/book/${site.slug}`;
+    const verifiedDomain = (() => {
+      if (!hostedSite?.primaryDomain) return null;
+      if (hostedSite.verifiedAt) return hostedSite.primaryDomain;
+      const targetApex = apexDomain(hostedSite.primaryDomain);
+      const match = funnelDomains.find((d) => apexDomain(d.domain) === targetApex);
+      if (match?.status === "VERIFIED") return hostedSite.primaryDomain;
+      return null;
+    })();
+    if (verifiedDomain) return `https://${verifiedDomain}/book/${encodeURIComponent(site.slug)}`;
     return `${window.location.origin}/book/${site.slug}`;
-  }, [site?.slug]);
+  }, [funnelDomains, hostedSite?.primaryDomain, hostedSite?.verifiedAt, site?.slug]);
 
   const calendarUrlBase = useMemo(() => {
     if (!site?.slug) return null;
@@ -694,21 +726,25 @@ export function PortalBookingClient() {
 
   const refreshAll = useCallback(async () => {
     setError(null);
-    const [meRes, settingsRes, bookingsRes, formRes, calendarsRes, blocksRes, remindersRes] = await Promise.all([
-      fetch("/api/customer/me", {
-        cache: "no-store",
-        headers: {
-          "x-pa-app": "portal",
-          "x-portal-variant": typeof window !== "undefined" && window.location.pathname.startsWith("/credit") ? "credit" : "portal",
-        },
-      }),
-      fetch("/api/portal/booking/settings", { cache: "no-store" }),
-      fetch("/api/portal/booking/bookings", { cache: "no-store" }),
-      fetch("/api/portal/booking/form", { cache: "no-store" }),
-      fetch("/api/portal/booking/calendars", { cache: "no-store" }),
-      fetch("/api/availability", { cache: "no-store" }),
-      fetch(remindersUrl(reminderCalendarIdRef.current), { cache: "no-store" }),
-    ]);
+    setFunnelDomainsBusy(true);
+    try {
+      const [meRes, settingsRes, bookingsRes, formRes, calendarsRes, blocksRes, remindersRes, hostedSiteRes, funnelDomainsRes] = await Promise.all([
+        fetch("/api/customer/me", {
+          cache: "no-store",
+          headers: {
+            "x-pa-app": "portal",
+            "x-portal-variant": typeof window !== "undefined" && window.location.pathname.startsWith("/credit") ? "credit" : "portal",
+          },
+        }),
+        fetch("/api/portal/booking/settings", { cache: "no-store" }),
+        fetch("/api/portal/booking/bookings", { cache: "no-store" }),
+        fetch("/api/portal/booking/form", { cache: "no-store" }),
+        fetch("/api/portal/booking/calendars", { cache: "no-store" }),
+        fetch("/api/availability", { cache: "no-store" }),
+        fetch(remindersUrl(reminderCalendarIdRef.current), { cache: "no-store" }),
+        fetch("/api/portal/booking/site", { cache: "no-store" }).catch(() => null as any),
+        fetch("/api/portal/funnel-builder/domains", { cache: "no-store" }).catch(() => null as any),
+      ]);
 
     const meJson = await meRes.json().catch(() => ({}));
     if (meRes.ok) setMe(meJson as Me);
@@ -737,6 +773,20 @@ export function PortalBookingClient() {
       setCalendars(((calendarsJson as any)?.config?.calendars as BookingCalendar[]) ?? []);
     }
 
+    const hostedSiteJson = hostedSiteRes ? await hostedSiteRes.json().catch(() => ({})) : null;
+    if (hostedSiteRes && hostedSiteRes.ok && (hostedSiteJson as any)?.ok) {
+      setHostedSite(((hostedSiteJson as any)?.site as HostedSite) ?? null);
+    }
+
+    const funnelDomainsJson = funnelDomainsRes ? await funnelDomainsRes.json().catch(() => ({})) : null;
+    if (funnelDomainsRes && funnelDomainsRes.ok && (funnelDomainsJson as any)?.ok === true && Array.isArray((funnelDomainsJson as any)?.domains)) {
+      setFunnelDomains(
+        (funnelDomainsJson as any).domains
+          .map((d: any) => ({ domain: String(d?.domain || "").trim(), status: String(d?.status || "").trim() }))
+          .filter((d: any) => d.domain),
+      );
+    }
+
     const blocksJson = await blocksRes.json().catch(() => ({}));
     if (blocksRes.ok) {
       setBlocks(((blocksJson as any)?.blocks as AvailabilityBlock[]) ?? []);
@@ -751,17 +801,20 @@ export function PortalBookingClient() {
       setReminderBuiltinVariables((((remindersJson as any)?.builtinVariables as string[]) ?? []).slice(0, 50));
     }
 
-    if (!meRes.ok || !settingsRes.ok || !bookingsRes.ok || !formRes.ok || !calendarsRes.ok || !blocksRes.ok || !remindersRes.ok) {
-      setError(
-        getApiError(meJson) ??
-          getApiError(settingsJson) ??
-          getApiError(bookingsJson) ??
-          getApiError(formJson) ??
-          getApiError(calendarsJson) ??
-          getApiError(blocksJson) ??
-          getApiError(remindersJson) ??
-          "Failed to load booking automation",
-      );
+      if (!meRes.ok || !settingsRes.ok || !bookingsRes.ok || !formRes.ok || !calendarsRes.ok || !blocksRes.ok || !remindersRes.ok) {
+        setError(
+          getApiError(meJson) ??
+            getApiError(settingsJson) ??
+            getApiError(bookingsJson) ??
+            getApiError(formJson) ??
+            getApiError(calendarsJson) ??
+            getApiError(blocksJson) ??
+            getApiError(remindersJson) ??
+            "Failed to load booking automation",
+        );
+      }
+    } finally {
+      setFunnelDomainsBusy(false);
     }
   }, [remindersUrl]);
 
@@ -801,6 +854,32 @@ export function PortalBookingClient() {
     if (topTab !== "appointments") return;
     setCalSelectedYmd((prev) => prev ?? toYmd(new Date()));
   }, [topTab]);
+
+  useEffect(() => {
+    setHostedDomainDraft(hostedSite?.primaryDomain || "");
+  }, [hostedSite?.primaryDomain]);
+
+  async function saveHostedBookingDomain() {
+    setHostedSiteBusy(true);
+    setError(null);
+    setStatus(null);
+    try {
+      const res = await fetch("/api/portal/booking/site", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ primaryDomain: hostedDomainDraft }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok || !(body as any)?.ok) {
+        setError(getApiError(body) ?? "Failed to save custom domain");
+        return;
+      }
+      setHostedSite(((body as any)?.site as HostedSite) ?? null);
+      setStatus("Saved custom domain");
+    } finally {
+      setHostedSiteBusy(false);
+    }
+  }
 
   async function save(partial: Partial<Site>) {
     if (!site) return;
@@ -2486,6 +2565,66 @@ export function PortalBookingClient() {
             </button>
           </div>
 
+          <div className="mt-4 rounded-2xl border border-zinc-200 bg-white p-4">
+            <div className="text-xs font-semibold text-zinc-600">Custom domain (optional)</div>
+            <div className="mt-1">
+              <PortalListboxDropdown
+                value={hostedDomainDraft as any}
+                disabled={loading || hostedSiteBusy || funnelDomainsBusy}
+                options={
+                  [
+                    { value: "", label: "No custom domain" },
+                    ...funnelDomains.map((d) => ({
+                      value: d.domain,
+                      label: d.domain,
+                      hint: d.status === "PENDING" ? "Pending DNS verification" : undefined,
+                    })),
+                  ] as any
+                }
+                onChange={(v) => setHostedDomainDraft(String(v || ""))}
+                placeholder={
+                  funnelDomainsBusy
+                    ? "Loading domains…"
+                    : funnelDomains.length
+                      ? "Choose a domain"
+                      : "No domains yet"
+                }
+              />
+            </div>
+
+            {hostedDomainDraft.trim() && site?.slug ? (
+              <div className="mt-2 text-xs text-zinc-600">
+                Preview link: <span className="font-mono">https://{hostedDomainDraft.trim()}/book/{site.slug}</span>
+                {(() => {
+                  const targetApex = apexDomain(hostedDomainDraft);
+                  const match = funnelDomains.find((d) => apexDomain(d.domain) === targetApex);
+                  const verified = Boolean(hostedSite?.verifiedAt) || match?.status === "VERIFIED";
+                  if (verified) return <span className="ml-1 text-emerald-700">(verified)</span>;
+                  if (match?.status === "PENDING") return <span className="ml-1 text-amber-700">(pending verification)</span>;
+                  return null;
+                })()}
+              </div>
+            ) : null}
+
+            <div className="mt-2 flex flex-col items-start justify-between gap-2 sm:flex-row sm:items-center">
+              <div className="text-xs text-zinc-500">Domains come from Funnel Builder → Settings → Custom domains.</div>
+              <a href="/portal/app/services/funnel-builder/settings" className="text-xs font-semibold text-[color:var(--color-brand-blue)] hover:underline">
+                Add / manage domains
+              </a>
+            </div>
+
+            <div className="mt-3 flex items-center justify-end">
+              <button
+                type="button"
+                className="rounded-xl bg-[color:var(--color-brand-blue)] px-4 py-2 text-xs font-semibold text-white shadow-sm hover:opacity-95 disabled:opacity-60"
+                disabled={hostedSiteBusy}
+                onClick={saveHostedBookingDomain}
+              >
+                {hostedSiteBusy ? "Saving…" : "Save custom domain"}
+              </button>
+            </div>
+          </div>
+
           <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div className="flex items-center justify-between gap-3 rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm">
               <span className="font-medium text-zinc-800">Booking</span>
@@ -2818,8 +2957,8 @@ export function PortalBookingClient() {
                   <p>Guests will receive a secure video meeting link automatically. Zero-latency HD video powered by Purely Connect.</p>
                 </div>
               ) : (
-                <input
-                  className="mt-2 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                <textarea
+                  className="mt-2 min-h-[44px] w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
                   placeholder="Phone call, Zoom link, in-person address…"
                   value={site?.meetingLocation ?? ""}
                   onChange={(e) => setSite((prev) => (prev ? { ...prev, meetingLocation: e.target.value } : prev))}
@@ -3410,7 +3549,7 @@ export function PortalBookingClient() {
                   .slice(0, 20);
                 const uniqueEmails = Array.from(new Set(emails));
 
-                const meetingLocation = calendarEditDraft.meetingLocation.trim().slice(0, 120) || undefined;
+                const meetingLocation = calendarEditDraft.meetingLocation.trim().slice(0, 400) || undefined;
                 const meetingDetails = calendarEditDraft.meetingDetails.trim().slice(0, 600) || undefined;
 
                 const next = calendars.map((x) =>
@@ -3467,14 +3606,12 @@ export function PortalBookingClient() {
 
           <label className="block">
             <div className="text-xs font-semibold text-zinc-600">Meeting location (optional)</div>
-            <input
-              className="mt-2 h-10 w-full rounded-xl border border-zinc-200 bg-white px-3 text-sm"
+            <textarea
+              className="mt-2 min-h-16 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
               value={calendarEditDraft?.meetingLocation ?? ""}
-              onChange={(e) =>
-                setCalendarEditDraft((prev) => (prev ? { ...prev, meetingLocation: e.target.value } : prev))
-              }
+              onChange={(e) => setCalendarEditDraft((prev) => (prev ? { ...prev, meetingLocation: e.target.value } : prev))}
               disabled={calSaving}
-              placeholder="e.g. Zoom / Phone / In person"
+              placeholder="e.g. Zoom link, phone call, or in-person address"
             />
           </label>
 

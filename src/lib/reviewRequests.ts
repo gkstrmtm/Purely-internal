@@ -20,6 +20,38 @@ const MAX_DESTINATIONS = 10;
 let canUseBlogSlugColumnCache: boolean | null = null;
 let canUsePortalBookingCalendarIdColumnCache: boolean | null = null;
 
+function normalizeDomain(raw: unknown): string | null {
+  const v = String(raw || "")
+    .trim()
+    .toLowerCase()
+    .replace(/^https?:\/\//, "")
+    .split("/")[0]
+    ?.replace(/:\d+$/, "")
+    ?.replace(/\.$/, "");
+  return v ? v : null;
+}
+
+async function resolveVerifiedReviewsCustomDomain(ownerId: string): Promise<string | null> {
+  const site = await (prisma.clientBlogSite as any)
+    .findUnique({ where: { ownerId }, select: { primaryDomain: true, verifiedAt: true } })
+    .catch(() => null);
+
+  const primary = normalizeDomain(site?.primaryDomain);
+  if (!primary) return null;
+
+  // Blog-style verification.
+  if (site?.verifiedAt) return primary;
+
+  // Funnel-domain verification (domains come from Funnel Builder settings).
+  const candidates = primary.startsWith("www.") ? [primary, primary.slice(4)] : [primary, `www.${primary}`];
+
+  const credit = await prisma.creditCustomDomain
+    .findFirst({ where: { ownerId, domain: { in: candidates }, status: "VERIFIED" }, select: { domain: true } })
+    .catch(() => null);
+
+  return credit?.domain ? String(credit.domain).trim().toLowerCase() : null;
+}
+
 function getBasePublicUrl() {
   const raw = process.env.NEXTAUTH_URL ?? process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
   return raw.replace(/\/+$/, "");
@@ -63,6 +95,15 @@ async function resolvePrimarySendLink(
   settings: ReviewRequestsSettings,
 ): Promise<{ destinationId: string; destinationLabel: string; destinationUrl: string } | null> {
   if (settings.publicPage.enabled) {
+    const customDomain = await resolveVerifiedReviewsCustomDomain(ownerId);
+    if (customDomain) {
+      return {
+        destinationId: "hosted",
+        destinationLabel: "Reviews page",
+        destinationUrl: `https://${customDomain}/reviews`,
+      };
+    }
+
     const handle = await getOwnerPublicSiteHandle(ownerId);
     if (handle) {
       return {
