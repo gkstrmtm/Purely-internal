@@ -341,25 +341,46 @@ function FunnelMarkdown({ blocks }: { blocks: any[] }) {
   );
 }
 
-async function renderFunnel(ownerId: string, slug: string, funnelDomains: Record<string, string>, allowedDomains: Set<string>) {
+async function renderFunnel(
+  ownerId: string,
+  slug: string,
+  funnelDomains: Record<string, string>,
+  allowedDomains: Set<string>,
+  opts?: { pageSlug?: string | null },
+) {
+  const pageSlug = opts?.pageSlug || null;
+
   const funnel = await prisma.creditFunnel
     .findFirst({
       where: { ownerId, slug, status: "ACTIVE" },
       select: {
         id: true,
         ownerId: true,
-        pages: {
-          orderBy: [{ sortOrder: "asc" }, { id: "asc" }],
-          take: 1,
-          select: {
-            id: true,
-            title: true,
-            contentMarkdown: true,
-            editorMode: true,
-            blocksJson: true,
-            customHtml: true,
-          },
-        },
+        pages: pageSlug
+          ? {
+              where: { slug: pageSlug },
+              take: 1,
+              select: {
+                id: true,
+                title: true,
+                contentMarkdown: true,
+                editorMode: true,
+                blocksJson: true,
+                customHtml: true,
+              },
+            }
+          : {
+              orderBy: [{ sortOrder: "asc" }, { id: "asc" }],
+              take: 1,
+              select: {
+                id: true,
+                title: true,
+                contentMarkdown: true,
+                editorMode: true,
+                blocksJson: true,
+                customHtml: true,
+              },
+            },
       },
     })
     .catch(() => null);
@@ -375,6 +396,7 @@ async function renderFunnel(ownerId: string, slug: string, funnelDomains: Record
   if (assignedDomain && !allowedDomains.has(assignedDomain)) notFound();
 
   const page = funnel.pages[0] || null;
+  if (pageSlug && !page) notFound();
   const markdownBlocks = page ? parseBlogContent(page.contentMarkdown) : [];
   const blockBlocks = page ? coerceBlocksJson(page.blocksJson) : [];
 
@@ -589,8 +611,10 @@ export default async function CustomDomainCatchallPage({
   // /f/<slug>
   if (segments[0] === "f") {
     const funnelSlug = safeSlug(segments[1]);
-    if (!funnelSlug || segments.length > 2) notFound();
-    return renderFunnel(mapping.ownerId, funnelSlug, funnelDomains, allowedDomains);
+    const funnelPageSlug = safeSlug(segments[2]);
+    if (!funnelSlug) notFound();
+    if (segments.length !== 2 && segments.length !== 3) notFound();
+    return renderFunnel(mapping.ownerId, funnelSlug, funnelDomains, allowedDomains, { pageSlug: funnelPageSlug });
   }
 
   // /forms/<slug>
@@ -625,6 +649,14 @@ export default async function CustomDomainCatchallPage({
     const funnelSlug = safeSlug(segments[0]);
     if (!funnelSlug) notFound();
     return renderFunnel(mapping.ownerId, funnelSlug, funnelDomains, allowedDomains);
+  }
+
+  // /<funnelSlug>/<pageSlug>
+  if (segments.length === 2) {
+    const funnelSlug = safeSlug(segments[0]);
+    const funnelPageSlug = safeSlug(segments[1]);
+    if (!funnelSlug || !funnelPageSlug) notFound();
+    return renderFunnel(mapping.ownerId, funnelSlug, funnelDomains, allowedDomains, { pageSlug: funnelPageSlug });
   }
 
   notFound();
