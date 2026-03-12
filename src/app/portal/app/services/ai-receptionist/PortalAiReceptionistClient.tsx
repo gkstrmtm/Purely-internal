@@ -1078,9 +1078,7 @@ export function PortalAiReceptionistClient() {
                 </label>
               ) : null}
             </div>
-                <div className="mt-8 rounded-2xl border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-700">
-                  Agent provisioning is handled automatically.
-                </div>
+                <div className="mt-8" />
               </>
             ) : (
               <>
@@ -1287,9 +1285,7 @@ export function PortalAiReceptionistClient() {
                   </div>
                 </div>
 
-                <div className="mt-8 rounded-2xl border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-700">
-                  Messaging agent provisioning is handled automatically when you Save.
-                </div>
+                <div className="mt-8" />
               </>
             )}
 

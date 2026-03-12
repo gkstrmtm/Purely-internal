@@ -39,6 +39,7 @@ export function PortalPeopleContactDuplicatesClient() {
   const [groups, setGroups] = useState<DuplicateGroup[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [busyKey, setBusyKey] = useState<string | null>(null);
+  const [lastLoadedAt, setLastLoadedAt] = useState<number>(0);
 
   // For conflict resolution UI
   const [primaryByPhoneKey, setPrimaryByPhoneKey] = useState<Record<string, string>>({});
@@ -52,6 +53,7 @@ export function PortalPeopleContactDuplicatesClient() {
       const body = await readJsonBody(res);
       if (!res.ok || !body?.ok) throw new Error(body?.error || "Failed to load duplicates");
       setGroups(Array.isArray(body.groups) ? body.groups : []);
+      setLastLoadedAt(Date.now());
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e ?? "Unknown error"));
     } finally {
@@ -62,6 +64,25 @@ export function PortalPeopleContactDuplicatesClient() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    function maybeRefresh() {
+      if (loading || busyKey) return;
+      if (Date.now() - lastLoadedAt < 30_000) return;
+      void load();
+    }
+
+    function onVisibility() {
+      if (document.visibilityState === "visible") maybeRefresh();
+    }
+
+    window.addEventListener("focus", maybeRefresh);
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      window.removeEventListener("focus", maybeRefresh);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, [busyKey, lastLoadedAt, load, loading]);
 
   const safeGroups = useMemo(() => groups.filter((g) => !g.needsEmailChoice), [groups]);
   const conflictGroups = useMemo(() => groups.filter((g) => g.needsEmailChoice), [groups]);
@@ -137,13 +158,6 @@ export function PortalPeopleContactDuplicatesClient() {
           >
             Back to contacts
           </Link>
-          <button
-            type="button"
-            onClick={() => void load()}
-            className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
-          >
-            Refresh
-          </button>
         </div>
       </div>
 

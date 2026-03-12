@@ -6,9 +6,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { PortalPeopleTabs } from "@/app/portal/app/people/PortalPeopleTabs";
 import { PortalListboxDropdown } from "@/components/PortalListboxDropdown";
 import { PortalSelectDropdown } from "@/components/PortalSelectDropdown";
+import { PortalVariablePickerModal } from "@/components/PortalVariablePickerModal";
 import { useToast } from "@/components/ToastProvider";
 import { parseCsv } from "@/lib/csv";
+import { normalizePortalContactCustomVarKey, type TemplateVariable } from "@/lib/portalTemplateVars";
 import { DEFAULT_TAG_COLORS } from "@/lib/tagColors.shared";
+
+const DEFAULT_CONTACT_CUSTOM_VAR_KEYS = ["business_name", "city", "state", "website", "niche", "location"];
 
 type ContactTag = { id: string; name: string; color: string | null };
 
@@ -244,6 +248,8 @@ async function readJsonBody(res: Response): Promise<any | null> {
 export function PortalPeopleContactsClient() {
   const toast = useToast();
   const router = useRouter();
+  const lastLoadedAtRef = useRef<number>(0);
+  const createdCustomVarRef = useRef<{ key: string; value: string } | null>(null);
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState<ContactsPayload | null>(null);
   const [q, setQ] = useState("");
@@ -268,6 +274,9 @@ export function PortalPeopleContactsClient() {
   const [manualCreateTagBusy, setManualCreateTagBusy] = useState(false);
   const [manualCustomVarRows, setManualCustomVarRows] = useState<CustomVarRow[]>([]);
   const [knownCustomVarKeys, setKnownCustomVarKeys] = useState<string[]>([]);
+
+  const [customVarPickerOpen, setCustomVarPickerOpen] = useState(false);
+  const [customVarPickerMode, setCustomVarPickerMode] = useState<"manual" | "edit">("manual");
   const [importHeaders, setImportHeaders] = useState<string[]>([]);
   const [importRows, setImportRows] = useState<string[][]>([]);
   const [importDupesOpen, setImportDupesOpen] = useState(false);
@@ -398,11 +407,32 @@ export function PortalPeopleContactsClient() {
         if (/unauthorized|forbidden|\b401\b|\b403\b/i.test(msg)) toast.error(msg);
         return false;
       } finally {
+        lastLoadedAtRef.current = Date.now();
         setLoading(false);
       }
     },
     [toast]
   );
+
+  useEffect(() => {
+    function maybeRefresh() {
+      if (loading) return;
+      if (detailOpen || importOpen || leadModalOpen) return;
+      if (Date.now() - lastLoadedAtRef.current < 30_000) return;
+      void load();
+    }
+
+    function onVisibility() {
+      if (document.visibilityState === "visible") maybeRefresh();
+    }
+
+    window.addEventListener("focus", maybeRefresh);
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      window.removeEventListener("focus", maybeRefresh);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, [detailOpen, importOpen, leadModalOpen, load, loading]);
 
   const openImportModal = useCallback(() => {
     setImportOpen(true);
@@ -885,6 +915,70 @@ export function PortalPeopleContactsClient() {
     });
   }, [data?.unlinkedLeads, q]);
 
+  const customVarPickerKeys = useMemo(() => {
+    const seen = new Set<string>();
+    const out: string[] = [];
+
+    function add(raw: string) {
+      const key = normalizePortalContactCustomVarKey(raw);
+      if (!key) return;
+      if (seen.has(key)) return;
+      seen.add(key);
+      out.push(key);
+    }
+
+    for (const k of DEFAULT_CONTACT_CUSTOM_VAR_KEYS) add(k);
+    for (const k of knownCustomVarKeys) add(k);
+
+    const rows = customVarPickerMode === "manual" ? manualCustomVarRows : editCustomVarRows;
+    for (const r of rows || []) add(r.key);
+
+    out.sort((a, b) => a.localeCompare(b));
+    return out.slice(0, 200);
+  }, [customVarPickerMode, editCustomVarRows, knownCustomVarKeys, manualCustomVarRows]);
+
+  const customVarPickerVariables: TemplateVariable[] = useMemo(() => {
+    return customVarPickerKeys.map((k) => ({ key: k, label: k, group: "Custom", appliesTo: "Contact" }));
+  }, [customVarPickerKeys]);
+
+  const applyPickedCustomVarKey = useCallback(
+    (rawKey: string) => {
+      const stableKey = normalizePortalContactCustomVarKey(rawKey);
+      if (!stableKey) return;
+
+      const created = createdCustomVarRef.current;
+      const createdKey = created ? normalizePortalContactCustomVarKey(created.key) : "";
+      const createdValue = createdKey && createdKey === stableKey ? String(created?.value ?? "") : "";
+      createdCustomVarRef.current = null;
+
+      function upsert(prev: CustomVarRow[]) {
+        const next = [...(prev || [])];
+        const idx = next.findIndex((r) => normalizePortalContactCustomVarKey(r.key) === stableKey);
+        if (idx >= 0) {
+          if (createdValue && !String(next[idx].value || "").trim()) {
+            next[idx] = { ...next[idx], value: createdValue };
+          }
+          return next;
+        }
+        if (next.length >= 25) return next;
+        return [...next, { key: stableKey, value: createdValue }];
+      }
+
+      if (customVarPickerMode === "manual") {
+        setManualCustomVarRows(upsert);
+      } else {
+        setEditCustomVarRows(upsert);
+      }
+
+      setKnownCustomVarKeys((prev) => {
+        const set = new Set((prev || []).map((x) => normalizePortalContactCustomVarKey(String(x || ""))).filter(Boolean));
+        set.add(stableKey);
+        return Array.from(set).sort((a, b) => a.localeCompare(b)).slice(0, 50);
+      });
+    },
+    [customVarPickerMode],
+  );
+
   return (
     <div className="mx-auto w-full max-w-6xl">
       <div className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-end">
@@ -893,20 +987,29 @@ export function PortalPeopleContactsClient() {
           <p className="mt-2 text-sm text-zinc-600">Contacts and leads across your portal.</p>
           <PortalPeopleTabs />
         </div>
-        <button
-          type="button"
-          onClick={() => {
-            setContactsCursor(null);
-            setLeadsCursor(null);
-            setContactsCursorStack([null]);
-            setLeadsCursorStack([null]);
-            void load({ contactsCursor: null, leadsCursor: null });
-          }}
-          className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
-        >
-          Refresh
-        </button>
       </div>
+
+      <PortalVariablePickerModal
+        open={customVarPickerOpen}
+        title="Add variable"
+        subtitle="Pick an existing variable or create a new one."
+        variables={customVarPickerVariables}
+        createCustom={{
+          enabled: true,
+          existingKeys: customVarPickerKeys,
+          onCreate: (key, value) => {
+            const stableKey = normalizePortalContactCustomVarKey(key);
+            if (!stableKey) throw new Error("Invalid variable name.");
+            if (customVarPickerKeys.includes(stableKey)) throw new Error("That variable already exists.");
+            createdCustomVarRef.current = { key: stableKey, value: String(value ?? "") };
+          },
+        }}
+        onPick={(key) => applyPickedCustomVarKey(key)}
+        onClose={() => {
+          setCustomVarPickerOpen(false);
+          createdCustomVarRef.current = null;
+        }}
+      />
 
       <div className="mt-4 rounded-3xl border border-zinc-200 bg-white p-4">
         <div className="text-xs font-semibold text-zinc-700">Search</div>
@@ -1390,7 +1493,10 @@ export function PortalPeopleContactsClient() {
                     <button
                       type="button"
                       className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
-                      onClick={() => setManualCustomVarRows((prev) => [...prev, { key: "", value: "" }])}
+                      onClick={() => {
+                        setCustomVarPickerMode("manual");
+                        setCustomVarPickerOpen(true);
+                      }}
                     >
                       Add variable
                     </button>
@@ -1905,7 +2011,10 @@ export function PortalPeopleContactsClient() {
                     <button
                       type="button"
                       className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
-                      onClick={() => setEditCustomVarRows((prev) => [...prev, { key: "", value: "" }])}
+                      onClick={() => {
+                        setCustomVarPickerMode("edit");
+                        setCustomVarPickerOpen(true);
+                      }}
                     >
                       Add variable
                     </button>

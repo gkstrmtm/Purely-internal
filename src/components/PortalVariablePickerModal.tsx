@@ -34,6 +34,7 @@ function groupOrder(group: TemplateVariable["group"]) {
 export function PortalVariablePickerModal(props: {
   open: boolean;
   title?: string;
+  subtitle?: string;
   variables: TemplateVariable[];
   onPick: (variableKey: string) => void;
   onClose: () => void;
@@ -45,7 +46,7 @@ export function PortalVariablePickerModal(props: {
     onCreate?: (key: string, value: string, contactId: string) => void | Promise<void>;
   };
 }) {
-  const { open, title, variables, onPick, onClose, createCustom } = props;
+  const { open, title, subtitle, variables, onPick, onClose, createCustom } = props;
   const [query, setQuery] = useState("");
   const [mode, setMode] = useState<"pick" | "create">("pick");
   const [newKey, setNewKey] = useState("");
@@ -244,7 +245,7 @@ export function PortalVariablePickerModal(props: {
           <div className="flex items-start justify-between gap-3 border-b border-zinc-100 p-4">
             <div className="min-w-0">
               <div className="truncate text-sm font-semibold text-zinc-900">{title || "Insert variable"}</div>
-              <div className="mt-1 text-xs text-zinc-500">Click to insert into your message.</div>
+              <div className="mt-1 text-xs text-zinc-500">{subtitle || "Click to insert into your message."}</div>
             </div>
             <div className="flex items-center gap-2">
               {canCreateCustom ? (

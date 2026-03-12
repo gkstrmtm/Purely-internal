@@ -51,6 +51,33 @@ export async function getOrCreatePortalReferralCode(opts: { ownerId: string; req
   throw new Error("Unable to generate referral code");
 }
 
+export async function rotatePortalReferralCode(opts: { ownerId: string; req?: Request | null }) {
+  const ip = opts.req ? getRequestIp(opts.req) : null;
+
+  for (let i = 0; i < 5; i++) {
+    const code = newCode();
+    try {
+      const updated = await prisma.user.update({
+        where: { id: opts.ownerId },
+        data: {
+          portalReferralCode: code,
+          portalReferralCodeCreatedAt: new Date(),
+          portalReferralCodeCreatedIp: ip,
+        },
+        select: { portalReferralCode: true },
+      });
+      const final = safeCode(updated.portalReferralCode ?? "");
+      if (final) return { code: final };
+    } catch (e) {
+      const prismaCode = typeof (e as any)?.code === "string" ? String((e as any).code) : null;
+      if (prismaCode === "P2002") continue;
+      throw e;
+    }
+  }
+
+  throw new Error("Unable to rotate referral code");
+}
+
 export async function getPortalReferralStats(inviterId: string): Promise<{
   total: number;
   verified: number;

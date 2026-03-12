@@ -149,6 +149,31 @@ export function PortalBillingClient() {
     }
   }, []);
 
+  const rotateReferral = useCallback(async () => {
+    setReferralLoading(true);
+    try {
+      const res = await fetch("/api/portal/referrals/link", { method: "POST", cache: "no-store" });
+      const json = (await res.json().catch(() => ({}))) as unknown;
+      const okJson = json && typeof json === "object" && !Array.isArray(json) ? (json as any) : null;
+      if (!res.ok || !okJson?.ok || !okJson?.url) return null;
+
+      const next = {
+        url: String(okJson.url || ""),
+        code: String(okJson.code || ""),
+        stats: {
+          total: Number(okJson?.stats?.total ?? 0) || 0,
+          verified: Number(okJson?.stats?.verified ?? 0) || 0,
+          awarded: Number(okJson?.stats?.awarded ?? 0) || 0,
+        },
+      };
+
+      setReferral(next);
+      return next;
+    } finally {
+      setReferralLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     void loadReferral();
   }, [loadReferral]);
@@ -1121,17 +1146,9 @@ export function PortalBillingClient() {
             <div>
               <div className="text-sm font-semibold text-zinc-900">Refer for free credits</div>
               <div className="mt-1 text-xs text-zinc-500">
-                Earn 100 credits when someone signs up with your link and verifies their email.
+                Earn 100 credits when someone signs up with your link.
               </div>
             </div>
-            <button
-              type="button"
-              className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-60"
-              onClick={() => void loadReferral()}
-              disabled={referralLoading}
-            >
-              {referralLoading ? "Refreshing…" : "Refresh"}
-            </button>
           </div>
 
           <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center">
@@ -1139,20 +1156,27 @@ export function PortalBillingClient() {
               className="w-full flex-1 rounded-2xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm text-zinc-700"
               readOnly
               value={referral?.url ?? ""}
-              placeholder={referralLoading ? "Loading your link…" : "Unable to load your referral link"}
+              placeholder={referralLoading ? "Loading your link…" : ""}
               aria-label="Your referral link"
             />
             <button
               type="button"
               className="rounded-2xl bg-[color:var(--color-brand-blue)] px-4 py-2 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
-              disabled={!referral?.url}
-              onClick={() => {
-                const url = referral?.url;
-                if (!url) return;
-                void navigator.clipboard
-                  .writeText(url)
-                  .then(() => toast.success("Referral link copied"))
-                  .catch(() => toast.error("Unable to copy link"));
+              disabled={referralLoading}
+              onClick={async () => {
+                // Always rotate to a fresh link on copy.
+                const next = await rotateReferral();
+                const url = next?.url || referral?.url;
+                if (!url) {
+                  toast.error("Unable to generate referral link");
+                  return;
+                }
+                try {
+                  await navigator.clipboard.writeText(url);
+                  toast.success("Referral link copied");
+                } catch {
+                  toast.error("Unable to copy link");
+                }
               }}
             >
               Copy link
@@ -1167,9 +1191,6 @@ export function PortalBillingClient() {
             </div>
           ) : null}
 
-          <div className="mt-2 text-[11px] text-zinc-500">
-            Credits are awarded after the invited user verifies their email, and only when the signup is from a different email and IP.
-          </div>
         </div>
       </div>
 
