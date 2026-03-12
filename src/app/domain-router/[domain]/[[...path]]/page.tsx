@@ -352,13 +352,13 @@ async function renderFunnel(
 
   const funnel = await prisma.creditFunnel
     .findFirst({
-      where: { ownerId, slug, status: "ACTIVE" },
+      where: { ownerId, slug: { equals: slug, mode: "insensitive" }, status: "ACTIVE" },
       select: {
         id: true,
         ownerId: true,
         pages: pageSlug
           ? {
-              where: { slug: pageSlug },
+              where: { slug: { equals: pageSlug, mode: "insensitive" } },
               take: 1,
               select: {
                 id: true,
