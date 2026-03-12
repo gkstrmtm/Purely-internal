@@ -7,6 +7,8 @@ import crypto from "crypto";
 import { authOptions } from "@/lib/auth";
 import { mirrorUploadToMediaLibrary } from "@/lib/portalMediaUploads";
 
+const MAX_BYTES = 250 * 1024 * 1024; // 250MB
+
 function safeFilename(name: string) {
   return name
     .replace(/[^a-zA-Z0-9._-]/g, "-")
@@ -24,6 +26,13 @@ export async function POST(req: Request) {
   const file = form.get("file");
   if (!(file instanceof File)) {
     return NextResponse.json({ error: "Missing file" }, { status: 400 });
+  }
+
+  if (typeof file.size === "number" && file.size > MAX_BYTES) {
+    return NextResponse.json(
+      { error: `"${file.name || "file"}" is too large (max ${Math.floor(MAX_BYTES / (1024 * 1024))}MB)` },
+      { status: 400 },
+    );
   }
 
   const arrayBuffer = await file.arrayBuffer();

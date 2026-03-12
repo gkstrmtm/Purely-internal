@@ -3,7 +3,12 @@ import React from "react";
 import { ConvaiChatWidget } from "@/components/ConvaiChatWidget";
 import { AddToCartButton } from "@/components/funnel/AddToCartButton";
 import { CartButton } from "@/components/funnel/CartButton";
-import { FunnelHeaderNav, type FunnelHeaderNavItem } from "@/components/funnel/FunnelHeaderNav";
+import {
+  FunnelHeaderNav,
+  type FunnelHeaderMobileTrigger,
+  type FunnelHeaderNavItem,
+  type FunnelHeaderSize,
+} from "@/components/funnel/FunnelHeaderNav";
 import { SalesCheckoutButton } from "@/components/funnel/SalesCheckoutButton";
 import { inlineMarkdownToHtmlSafe, parseBlogContent } from "@/lib/blog";
 import { coerceFontFamily, coerceGoogleFamily, googleFontImportCss } from "@/lib/fontPresets";
@@ -48,6 +53,9 @@ export type CreditFunnelBlock =
         sticky?: boolean;
         transparent?: boolean;
         mobileMode?: "dropdown" | "slideover";
+        size?: FunnelHeaderSize;
+        mobileTrigger?: FunnelHeaderMobileTrigger;
+        mobileTriggerLabel?: string;
         logoUrl?: string;
         logoAlt?: string;
         logoHref?: string;
@@ -186,6 +194,8 @@ export type CreditFunnelBlock =
       id: string;
       type: "section";
       props: {
+        anchorId?: string;
+        anchorLabel?: string;
         layout?: "one" | "two";
         children?: CreditFunnelBlock[];
         leftChildren?: CreditFunnelBlock[];
@@ -263,6 +273,19 @@ function coerceBool(v: unknown): boolean | undefined {
 function coerceHeaderMobileMode(v: unknown): "dropdown" | "slideover" | undefined {
   if (v === "slideover") return "slideover";
   if (v === "dropdown") return "dropdown";
+  return undefined;
+}
+
+function coerceHeaderSize(v: unknown): FunnelHeaderSize | undefined {
+  if (v === "sm") return "sm";
+  if (v === "md") return "md";
+  if (v === "lg") return "lg";
+  return undefined;
+}
+
+function coerceHeaderMobileTrigger(v: unknown): FunnelHeaderMobileTrigger | undefined {
+  if (v === "hamburger") return "hamburger";
+  if (v === "directory") return "directory";
   return undefined;
 }
 
@@ -473,6 +496,10 @@ function coerceBlocksJsonInternal(value: unknown, depth: number): CreditFunnelBl
       const sticky = coerceBool((props as any)?.sticky);
       const transparent = coerceBool((props as any)?.transparent);
       const mobileMode = coerceHeaderMobileMode((props as any)?.mobileMode);
+      const size = coerceHeaderSize((props as any)?.size);
+      const mobileTrigger = coerceHeaderMobileTrigger((props as any)?.mobileTrigger);
+      const mobileTriggerLabel =
+        typeof (props as any)?.mobileTriggerLabel === "string" ? String((props as any).mobileTriggerLabel).trim().slice(0, 40) : "";
       const logoUrl = coerceCssUrl((props as any)?.logoUrl);
       const logoAlt = typeof (props as any)?.logoAlt === "string" ? String((props as any).logoAlt).trim().slice(0, 80) : "";
       const logoHref = sanitizeHref(typeof (props as any)?.logoHref === "string" ? (props as any).logoHref : undefined);
@@ -487,6 +514,9 @@ function coerceBlocksJsonInternal(value: unknown, depth: number): CreditFunnelBl
           ...(sticky !== undefined ? { sticky } : {}),
           ...(transparent !== undefined ? { transparent } : {}),
           ...(mobileMode ? { mobileMode } : {}),
+          ...(size ? { size } : {}),
+          ...(mobileTrigger ? { mobileTrigger } : {}),
+          ...(mobileTriggerLabel ? { mobileTriggerLabel } : {}),
           ...(logoUrl ? { logoUrl } : {}),
           ...(logoAlt ? { logoAlt } : {}),
           ...(logoHref ? { logoHref } : {}),
@@ -765,6 +795,8 @@ function coerceBlocksJsonInternal(value: unknown, depth: number): CreditFunnelBl
     }
 
     if (type === "section") {
+      const anchorId = coerceAnchorId((props as any)?.anchorId);
+      const anchorLabel = typeof (props as any)?.anchorLabel === "string" ? String((props as any).anchorLabel).trim().slice(0, 80) : "";
       const layout = props?.layout === "two" ? "two" : "one";
       const children = coerceBlocksJsonInternal(props?.children, depth + 1).filter((b) => b.type !== "page");
       const leftChildren = coerceBlocksJsonInternal(props?.leftChildren, depth + 1).filter((b) => b.type !== "page");
@@ -781,6 +813,8 @@ function coerceBlocksJsonInternal(value: unknown, depth: number): CreditFunnelBl
         id,
         type,
         props: {
+          ...(anchorId ? { anchorId } : {}),
+          ...(anchorLabel ? { anchorLabel } : {}),
           layout,
           children: children.length ? children : undefined,
           leftChildren: leftChildren.length ? leftChildren : undefined,
@@ -1012,6 +1046,82 @@ export function renderCreditFunnelBlocks({
 
   const isEditor = Boolean(editor?.enabled);
 
+  const renderCornerResizeHandle = (block: CreditFunnelBlock): React.ReactNode => {
+    if (!isEditor) return null;
+    if (!editor?.onUpsertBlock) return null;
+    if (block.type !== "image" && block.type !== "video") return null;
+
+    const selected = editor?.selectedBlockId === block.id;
+    const hovered = editor?.hoveredBlockId === block.id;
+    if (!selected && !hovered) return null;
+
+    const MIN_W = 80;
+    const MAX_W = 1600;
+
+    return React.createElement("div", {
+      key: `${block.id}_resize_handle`,
+      "data-funnel-editor-interactive": "true",
+      className:
+        "absolute bottom-2 right-2 z-10 h-5 w-5 cursor-se-resize rounded-md border border-zinc-200 bg-white shadow-sm hover:bg-zinc-50",
+      title: "Drag to resize",
+      onPointerDown: (e: any) => {
+        e.preventDefault?.();
+        e.stopPropagation?.();
+
+        const target = e.currentTarget as HTMLElement | null;
+        const wrapper = (target?.parentElement || target) as HTMLElement | null;
+        const rect = wrapper?.getBoundingClientRect?.();
+        const startWidth = rect && Number.isFinite(rect.width) ? rect.width : 0;
+        const startX = typeof e.clientX === "number" ? e.clientX : 0;
+
+        const startMaxWidthPxRaw = (block.props as any)?.style?.maxWidthPx;
+        const startMaxWidthPx =
+          typeof startMaxWidthPxRaw === "number" && Number.isFinite(startMaxWidthPxRaw) && startMaxWidthPxRaw > 0
+            ? startMaxWidthPxRaw
+            : startWidth;
+
+        const upsert = editor.onUpsertBlock!;
+        let raf = 0;
+        let lastWidth = startMaxWidthPx;
+
+        const clampWidth = (w: number) => Math.max(MIN_W, Math.min(MAX_W, w));
+        const commit = (nextW: number) => {
+          const nextWidth = clampWidth(nextW);
+          if (Math.abs(nextWidth - lastWidth) < 1) return;
+          lastWidth = nextWidth;
+          const prevStyle = ((block.props as any)?.style || {}) as any;
+          upsert({
+            ...block,
+            props: {
+              ...(block.props as any),
+              style: {
+                ...prevStyle,
+                maxWidthPx: Math.round(nextWidth),
+              },
+            },
+          } as any);
+        };
+
+        const onMove = (ev: any) => {
+          const x = typeof ev.clientX === "number" ? ev.clientX : startX;
+          const dx = x - startX;
+          const next = startMaxWidthPx + dx;
+          if (raf) cancelAnimationFrame(raf);
+          raf = requestAnimationFrame(() => commit(next));
+        };
+
+        const onUp = () => {
+          window.removeEventListener("pointermove", onMove);
+          window.removeEventListener("pointerup", onUp);
+          if (raf) cancelAnimationFrame(raf);
+        };
+
+        window.addEventListener("pointermove", onMove);
+        window.addEventListener("pointerup", onUp);
+      },
+    });
+  };
+
   const collectChatbotBlocks = (xs: CreditFunnelBlock[]): CreditFunnelBlock[] => {
     const out: CreditFunnelBlock[] = [];
     const walk = (arr: CreditFunnelBlock[]) => {
@@ -1041,6 +1151,11 @@ export function renderCreditFunnelBlocks({
   };
 
   const chatbotBlocks = isEditor ? collectChatbotBlocks(renderBlocks) : [];
+
+  const pageCss = [
+    // Tailwind's `space-y-4` adds margin-top between siblings; this removes the default gap directly after a header block.
+    ".funnel-page > .funnel-header-block + :not([hidden]){margin-top:0!important;}",
+  ].join("\n");
 
   const renderMoveControls = (id: string): React.ReactNode => {
     if (!isEditor) return null;
@@ -1318,6 +1433,10 @@ export function renderCreditFunnelBlocks({
         const sticky = (b.props as any)?.sticky === true;
         const transparent = (b.props as any)?.transparent === true;
         const mobileMode = (b.props as any)?.mobileMode === "slideover" ? "slideover" : "dropdown";
+        const size = (b.props as any)?.size === "lg" ? "lg" : (b.props as any)?.size === "sm" ? "sm" : "md";
+        const mobileTrigger = (b.props as any)?.mobileTrigger === "directory" ? "directory" : "hamburger";
+        const mobileTriggerLabel =
+          typeof (b.props as any)?.mobileTriggerLabel === "string" ? String((b.props as any).mobileTriggerLabel).trim() : "";
 
         const wrapper: React.CSSProperties = {
           ...wrapperStyle({
@@ -1339,7 +1458,13 @@ export function renderCreditFunnelBlocks({
           {
             key: b.id,
             style: { ...wrapper, ...(blockWrapStyle(b.id) || {}) },
-            ...wrapProps(b.id),
+            ...(() => {
+              const wp = wrapProps(b.id);
+              return {
+                ...wp,
+                className: [wp.className, "funnel-header-block"].filter(Boolean).join(" "),
+              };
+            })(),
           },
           renderMoveControls(b.id),
           React.createElement(FunnelHeaderNav, {
@@ -1350,6 +1475,9 @@ export function renderCreditFunnelBlocks({
             sticky,
             transparent,
             mobileMode,
+            size,
+            mobileTrigger,
+            mobileTriggerLabel: mobileTriggerLabel || undefined,
             disabled: isEditor,
             funnelPathBase: typeof context?.funnelPathBase === "string" ? context.funnelPathBase : undefined,
             style: Object.keys(headerStyle).some((k) => (headerStyle as any)[k] !== undefined) ? headerStyle : undefined,
@@ -1789,6 +1917,7 @@ export function renderCreditFunnelBlocks({
             ...wrapProps(b.id),
           },
           renderMoveControls(b.id),
+          renderCornerResizeHandle(b),
           React.createElement(
             "div",
             { className: cls },
@@ -1837,6 +1966,7 @@ export function renderCreditFunnelBlocks({
             ...wrapProps(b.id),
           },
           renderMoveControls(b.id),
+          renderCornerResizeHandle(b),
           React.createElement("video", {
             src: b.props.src,
             ...(posterUrl ? { poster: posterUrl } : null),
@@ -2130,29 +2260,51 @@ export function renderCreditFunnelBlocks({
       }
 
       if (b.type === "section") {
+        const sectionAnchorIdRaw = typeof (b.props as any)?.anchorId === "string" ? String((b.props as any).anchorId).trim() : "";
+        const sectionAnchorId = sectionAnchorIdRaw || `section-${b.id}`;
         const layout = b.props.layout === "two" ? "two" : "one";
         const gapPx = typeof b.props.gapPx === "number" ? b.props.gapPx : 24;
         const stack = b.props.stackOnMobile !== false;
         const hasBgVideo = Boolean(String((b.props.style as any)?.backgroundVideoUrl || "").trim());
         if (layout === "two") {
+          const leftEmpty = !b.props.leftChildren?.length && !String(b.props.leftMarkdown || "").trim();
+          const rightEmpty = !b.props.rightChildren?.length && !String(b.props.rightMarkdown || "").trim();
+          const placeholder = (side: "Left" | "Right") =>
+            isEditor
+              ? React.createElement(
+                  "div",
+                  {
+                    className:
+                      "rounded-2xl border border-dashed border-zinc-300 bg-zinc-50 px-4 py-6 text-center text-xs font-semibold text-zinc-600",
+                  },
+                  `${side} column: drop blocks here`,
+                )
+              : null;
+
           const leftContent: React.ReactNode = b.props.leftChildren?.length
             ? React.createElement(
                 "div",
                 { className: "space-y-4" },
                 renderBlocksInner(b.props.leftChildren),
               )
-            : renderMarkdown(b.props.leftMarkdown || "");
+            : leftEmpty
+              ? placeholder("Left")
+              : renderMarkdown(b.props.leftMarkdown || "");
+
           const rightContent: React.ReactNode = b.props.rightChildren?.length
             ? React.createElement(
                 "div",
                 { className: "space-y-4" },
                 renderBlocksInner(b.props.rightChildren),
               )
-            : renderMarkdown(b.props.rightMarkdown || "");
+            : rightEmpty
+              ? placeholder("Right")
+              : renderMarkdown(b.props.rightMarkdown || "");
           return React.createElement(
             "section",
             {
               key: b.id,
+              id: sectionAnchorId,
               style: {
                 ...wrapperStyle(b.props.style),
                 ...(blockWrapStyle(b.id) || {}),
@@ -2192,6 +2344,7 @@ export function renderCreditFunnelBlocks({
           "section",
           {
             key: b.id,
+            id: sectionAnchorId,
             style: {
               ...wrapperStyle(b.props.style),
               ...(blockWrapStyle(b.id) || {}),
@@ -2210,7 +2363,18 @@ export function renderCreditFunnelBlocks({
                   { className: "space-y-4" },
                   renderBlocksInner(b.props.children),
                 )
-              : renderMarkdown(b.props.markdown || ""),
+              : String(b.props.markdown || "").trim()
+                ? renderMarkdown(b.props.markdown || "")
+                : isEditor
+                  ? React.createElement(
+                      "div",
+                      {
+                        className:
+                          "rounded-2xl border border-dashed border-zinc-300 bg-zinc-50 px-4 py-6 text-center text-xs font-semibold text-zinc-600",
+                      },
+                      "Empty section: drop blocks here",
+                    )
+                  : null,
           ),
         );
       }
@@ -2221,19 +2385,19 @@ export function renderCreditFunnelBlocks({
   return React.createElement(
     React.Fragment,
     null,
-    googleCss ? React.createElement("style", null, googleCss) : null,
+    googleCss || pageCss ? React.createElement("style", null, [googleCss, pageCss].filter(Boolean).join("\n")) : null,
     React.createElement(
       "div",
       {
         className:
           pageStyleBlock?.props?.style?.textColor
-            ? "relative space-y-4"
-            : "relative space-y-4 text-zinc-900",
+            ? "relative space-y-4 funnel-page"
+            : "relative space-y-4 text-zinc-900 funnel-page",
         style: {
           ...wrapperStyle(pageStyleBlock?.props.style),
           width: "100%",
           minHeight: "100vh",
-          ...(pageStyleBlock?.props?.style?.backgroundVideoUrl ? { position: "relative", overflow: "hidden" } : null),
+          ...(pageStyleBlock?.props?.style?.backgroundVideoUrl ? { position: "relative" } : null),
         },
       },
       pageStyleBlock?.props?.style?.backgroundVideoUrl ? backgroundVideoNode(pageStyleBlock?.props.style) : null,

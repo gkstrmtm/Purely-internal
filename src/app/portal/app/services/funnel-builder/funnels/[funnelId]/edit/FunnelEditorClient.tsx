@@ -147,6 +147,8 @@ function rgbToHex(r: number, g: number, b: number) {
 function parseCssColor(value: string | undefined | null): { hex: string; alpha: number } {
   const v = String(value || "").trim();
   if (!v) return { hex: "#000000", alpha: 1 };
+
+  if (v.toLowerCase() === "transparent") return { hex: "#ffffff", alpha: 0 };
   if (isHexColor(v)) return { hex: v, alpha: 1 };
 
   const rgba = v.match(/^rgba\((\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(0|0?\.\d+|1|1\.0)\)\s*$/i);
@@ -1215,12 +1217,25 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
 
                                 <PortalListboxDropdown
                                   value={selectedBlock.props.priceId ?? ""}
-                                  onChange={(priceId) =>
+                                  onChange={(nextPriceId) => {
+                                    const priceId = String(nextPriceId || "").trim();
+                                    const picked = stripeProducts.find((p) => String(p?.defaultPrice?.id || "").trim() === priceId) || null;
+                                    const nextProductName = (picked?.name ? String(picked.name) : "").trim();
+                                    const nextProductDescription = (picked?.description ? String(picked.description) : "").trim();
+
+                                    const prevName = String((selectedBlock.props as any)?.productName || "").trim();
+                                    const prevDesc = String((selectedBlock.props as any)?.productDescription || "").trim();
+
                                     upsertBlock({
                                       ...selectedBlock,
-                                      props: { ...selectedBlock.props, priceId: String(priceId || "").trim() },
-                                    })
-                                  }
+                                      props: {
+                                        ...selectedBlock.props,
+                                        priceId,
+                                        ...(priceId && !prevName && nextProductName ? { productName: nextProductName } : null),
+                                        ...(priceId && !prevDesc && nextProductDescription ? { productDescription: nextProductDescription } : null),
+                                      },
+                                    });
+                                  }}
                                   placeholder={stripeProductsBusy ? "Loading Stripe products…" : "Select a Stripe product"}
                                   options={(
                                     [
@@ -1375,7 +1390,6 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                                             toast.success("Image uploaded and selected");
                                           } catch (err) {
                                             const msg = (err as any)?.message ? String((err as any).message) : "Upload failed";
-                                            setError(msg);
                                             toast.error(msg);
                                           } finally {
                                             setUploadingImageBlockId(null);
@@ -1452,14 +1466,14 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                                         e.currentTarget.value = "";
                                         if (files.length === 0) return;
                                         if (!selectedBlock || selectedBlock.type !== "video") return;
+                                        const file = files[0];
+                                        if (!file) return;
                                         setUploadingImageBlockId(selectedBlock.id);
                                         setError(null);
                                         void (async () => {
                                           try {
-                                            const created = await uploadToMediaLibrary(files, { maxFiles: 1 });
-                                            const it = created[0];
-                                            if (!it) return;
-                                            const nextSrc = String((it as any).shareUrl || (it as any).openUrl || (it as any).downloadUrl || "").trim();
+                                            const uploaded = await uploadToUploads(file);
+                                            const nextSrc = String(uploaded.mediaItem?.shareUrl || uploaded.url || "").trim();
                                             if (!nextSrc) return;
                                             upsertBlock({
                                               ...selectedBlock,
@@ -1471,7 +1485,6 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                                             toast.success("Video uploaded and selected");
                                           } catch (err) {
                                             const msg = (err as any)?.message ? String((err as any).message) : "Upload failed";
-                                            setError(msg);
                                             toast.error(msg);
                                           } finally {
                                             setUploadingImageBlockId(null);
@@ -1711,8 +1724,8 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                       ) : selectedPage.editorMode === "CUSTOM_HTML" ? (
                         <div
                           className={classNames(
-                            "mx-auto w-full overflow-hidden rounded-3xl border border-zinc-200 bg-white",
-                            previewDevice === "mobile" ? "max-w-[420px]" : "max-w-5xl",
+                            "mx-auto w-full overflow-hidden border border-zinc-200 bg-white",
+                            previewDevice === "mobile" ? "max-w-[420px] rounded-3xl" : "max-w-5xl rounded-none",
                           )}
                         >
                           <iframe
@@ -1725,8 +1738,8 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                       ) : (
                         <div
                           className={classNames(
-                            "mx-auto w-full overflow-hidden rounded-3xl border border-zinc-200",
-                            previewDevice === "mobile" ? "max-w-[420px]" : "max-w-5xl",
+                            "mx-auto w-full overflow-hidden border border-zinc-200",
+                            previewDevice === "mobile" ? "max-w-[420px] rounded-3xl" : "max-w-5xl rounded-none",
                           )}
                         >
                           {previewMode === "preview" ? (
@@ -1986,8 +1999,32 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
       if (!res.ok || !json || json.ok !== true) {
         throw new Error((json && typeof json.error === "string" && json.error) || "Unable to load Stripe products");
       }
-      const items = Array.isArray(json.products) ? (json.products as StripeProductLite[]) : [];
-      setStripeProducts(items.filter(Boolean));
+      const items = Array.isArray(json.products) ? (json.products as any[]) : [];
+      const coerced: StripeProductLite[] = items
+        .filter((p) => p && typeof p === "object")
+        .map((p) => {
+          const defaultPriceRaw = (p as any).defaultPrice;
+          const defaultPrice =
+            defaultPriceRaw && typeof defaultPriceRaw === "object"
+              ? {
+                  id: typeof defaultPriceRaw.id === "string" ? String(defaultPriceRaw.id) : "",
+                  unitAmount:
+                    typeof defaultPriceRaw.unitAmount === "number" && Number.isFinite(defaultPriceRaw.unitAmount)
+                      ? defaultPriceRaw.unitAmount
+                      : null,
+                  currency: typeof defaultPriceRaw.currency === "string" ? String(defaultPriceRaw.currency) : "usd",
+                }
+              : null;
+
+          return {
+            id: typeof (p as any).id === "string" ? String((p as any).id) : "",
+            name: typeof (p as any).name === "string" ? String((p as any).name) : "",
+            description: typeof (p as any).description === "string" ? String((p as any).description) : null,
+            defaultPrice: defaultPrice && defaultPrice.id ? defaultPrice : null,
+          };
+        })
+        .filter((p) => p.id && p.name);
+      setStripeProducts(coerced);
     } catch (e) {
       const msg = e && typeof e === "object" && "message" in e ? String((e as any).message) : "Unable to load Stripe products";
       setStripeProductsError(msg || "Unable to load Stripe products");
@@ -2015,6 +2052,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
   const [seoError, setSeoError] = useState<string | null>(null);
 
   const [uploadingImageBlockId, setUploadingImageBlockId] = useState<string | null>(null);
+  const [uploadingHeaderLogoBlockId, setUploadingHeaderLogoBlockId] = useState<string | null>(null);
   const [uploadingAi, setUploadingAi] = useState(false);
 
   const [previewDevice, setPreviewDevice] = useState<"desktop" | "mobile">("desktop");
@@ -2077,6 +2115,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
     | { type: "ai" }
     | { type: "image-block"; blockId: string }
     | { type: "video-block"; blockId: string }
+    | { type: "header-logo"; blockId: string }
     | { type: "section-background"; blockId: string }
     | { type: "section-background-video"; blockId: string }
     | { type: "chatbot-launcher"; blockId: string }
@@ -2372,10 +2411,18 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
     });
   };
 
+  const MAX_MEDIA_LIBRARY_BYTES = 25 * 1024 * 1024; // 25MB per file (DB-backed)
+  const MAX_UPLOADS_BYTES = 250 * 1024 * 1024; // 250MB per file (disk-backed)
+
   const uploadToMediaLibrary = async (files: FileList | File[], opts?: { maxFiles?: number }) => {
     const maxFiles = Math.max(1, Math.min(20, Math.floor(opts?.maxFiles ?? 20)));
     const list = Array.from(files || []).filter(Boolean).slice(0, maxFiles);
     if (!list.length) return [] as PortalMediaPickItem[];
+
+    const tooLarge = list.find((f) => f.size > MAX_MEDIA_LIBRARY_BYTES);
+    if (tooLarge) {
+      throw new Error(`"${tooLarge.name}" is too large (max ${Math.floor(MAX_MEDIA_LIBRARY_BYTES / (1024 * 1024))}MB)`);
+    }
 
     const form = new FormData();
     for (const f of list) form.append("files", f);
@@ -2390,6 +2437,27 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
       throw new Error(typeof json?.error === "string" ? json.error : "Failed to upload media");
     }
     return Array.isArray(json.items) ? (json.items as PortalMediaPickItem[]) : [];
+  };
+
+  const uploadToUploads = async (file: File): Promise<{ url: string; mediaItem?: PortalMediaPickItem | null }> => {
+    if (!file) throw new Error("Missing file");
+    if (file.size > MAX_UPLOADS_BYTES) {
+      throw new Error(`"${file.name}" is too large (max ${Math.floor(MAX_UPLOADS_BYTES / (1024 * 1024))}MB)`);
+    }
+
+    const form = new FormData();
+    form.append("file", file);
+
+    const res = await fetch("/api/uploads", { method: "POST", body: form });
+    const json = (await res.json().catch(() => null)) as any;
+    if (!res.ok || !json || typeof json.url !== "string" || !json.url.trim()) {
+      throw new Error(typeof json?.error === "string" ? json.error : "Failed to upload");
+    }
+
+    return {
+      url: String(json.url || "").trim(),
+      mediaItem: json.mediaItem && typeof json.mediaItem === "object" ? (json.mediaItem as PortalMediaPickItem) : null,
+    };
   };
 
   const closeDialog = () => {
@@ -2651,12 +2719,12 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
     return findBlockInTree(editableBlocks, selectedBlockId)?.block || null;
   }, [editableBlocks, selectedBlockId, findBlockInTree]);
 
-  const pageHasSalesCheckoutButton = useMemo(() => {
+  const pageHasStripeProductButtons = useMemo(() => {
     const visit = (blocks: CreditFunnelBlock[] | undefined): boolean => {
       if (!blocks || blocks.length === 0) return false;
       for (const b of blocks) {
         if (!b) continue;
-        if (b.type === "salesCheckoutButton") return true;
+        if (b.type === "salesCheckoutButton" || b.type === "addToCartButton") return true;
         if (b.type === "section") {
           const props: any = b.props;
           const keys = ["children", "leftChildren", "rightChildren"] as const;
@@ -2683,7 +2751,9 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
   const stripeProductsAutoLoadAttemptedRef = useRef(false);
   useEffect(() => {
     if (stripeProductsAutoLoadAttemptedRef.current) return;
-    if (!pageHasSalesCheckoutButton && (!selectedBlock || selectedBlock.type !== "salesCheckoutButton")) return;
+    const selectedNeedsStripeProducts =
+      selectedBlock?.type === "salesCheckoutButton" || selectedBlock?.type === "addToCartButton";
+    if (!pageHasStripeProductButtons && !selectedNeedsStripeProducts) return;
     if (stripeProductsBusy) return;
     if (stripeProducts.length > 0) {
       stripeProductsAutoLoadAttemptedRef.current = true;
@@ -2692,7 +2762,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
 
     stripeProductsAutoLoadAttemptedRef.current = true;
     void loadStripeProducts();
-  }, [loadStripeProducts, pageHasSalesCheckoutButton, selectedBlock, stripeProducts.length, stripeProductsBusy]);
+  }, [loadStripeProducts, pageHasStripeProductButtons, selectedBlock, stripeProducts.length, stripeProductsBusy]);
 
   const newId = () => {
     try {
@@ -3662,6 +3732,23 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
             return;
           }
 
+          if (target.type === "header-logo") {
+            const block = findBlockInTree(editableBlocks, target.blockId)?.block;
+            if (!block || block.type !== "headerNav") return;
+            const nextUrl = String(it.shareUrl || it.previewUrl || "").trim();
+            if (!nextUrl) return;
+            const prevAlt = String((block.props as any)?.logoAlt || "").trim();
+            upsertBlock({
+              ...block,
+              props: {
+                ...(block.props as any),
+                logoUrl: nextUrl,
+                ...(prevAlt ? null : { logoAlt: it.fileName }),
+              },
+            } as any);
+            return;
+          }
+
           if (target.type === "video-block") {
             const block = findBlockInTree(editableBlocks, target.blockId)?.block;
             if (!block || block.type !== "video") return;
@@ -3751,7 +3838,6 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
             setImageCropTarget(null);
           } catch (err) {
             const msg = (err as any)?.message ? String((err as any).message) : "Crop upload failed";
-            setError(msg);
             toast.error(msg);
           }
         }}
@@ -5366,7 +5452,6 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                                         toast.success("Launcher image uploaded and selected");
                                       } catch (err) {
                                         const msg = (err as any)?.message ? String((err as any).message) : "Upload failed";
-                                        setError(msg);
                                         toast.error(msg);
                                       } finally {
                                         setUploadingImageBlockId(null);
@@ -5446,13 +5531,20 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                               const nextProductName = (picked?.name ? String(picked.name) : "").trim();
                               const nextProductDescription = (picked?.description ? String(picked.description) : "").trim();
 
+                              const prevName = String((selectedBlock.props as any)?.productName || "").trim();
+                              const prevDesc = String((selectedBlock.props as any)?.productDescription || "").trim();
+
                               upsertBlock({
                                 ...selectedBlock,
                                 props: {
                                   ...selectedBlock.props,
                                   priceId,
-                                  productName: priceId ? nextProductName || undefined : undefined,
-                                  productDescription: priceId ? nextProductDescription || undefined : undefined,
+                                  productName: priceId
+                                    ? (prevName ? prevName : nextProductName || undefined)
+                                    : undefined,
+                                  productDescription: priceId
+                                    ? (prevDesc ? prevDesc : nextProductDescription || undefined)
+                                    : undefined,
                                   text:
                                     String((selectedBlock.props as any)?.text || "").trim() || "Buy now",
                                 },
@@ -5571,13 +5663,20 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                               const nextProductName = (picked?.name ? String(picked.name) : "").trim();
                               const nextProductDescription = (picked?.description ? String(picked.description) : "").trim();
 
+                              const prevName = String((selectedBlock.props as any)?.productName || "").trim();
+                              const prevDesc = String((selectedBlock.props as any)?.productDescription || "").trim();
+
                               upsertBlock({
                                 ...selectedBlock,
                                 props: {
                                   ...selectedBlock.props,
                                   priceId,
-                                  productName: priceId ? nextProductName || undefined : undefined,
-                                  productDescription: priceId ? nextProductDescription || undefined : undefined,
+                                  productName: priceId
+                                    ? (prevName ? prevName : nextProductName || undefined)
+                                    : undefined,
+                                  productDescription: priceId
+                                    ? (prevDesc ? prevDesc : nextProductDescription || undefined)
+                                    : undefined,
                                   text: String((selectedBlock.props as any)?.text || "").trim() || "Add to cart",
                                 },
                               } as any);
@@ -5802,18 +5901,150 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                         </label>
 
                         <label className="block">
-                          <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Logo image URL</div>
-                          <input
-                            value={String((selectedBlock.props as any)?.logoUrl || "")}
-                            onChange={(e) =>
+                          <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Header size</div>
+                          <PortalListboxDropdown
+                            value={String((selectedBlock.props as any)?.size || "md")}
+                            onChange={(v) =>
                               upsertBlock({
                                 ...selectedBlock,
-                                props: { ...selectedBlock.props, logoUrl: e.target.value },
+                                props: { ...selectedBlock.props, size: String(v || "md") },
                               } as any)
                             }
-                            className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                            placeholder="https://…"
+                            options={[
+                              { value: "sm", label: "Small" },
+                              { value: "md", label: "Medium" },
+                              { value: "lg", label: "Large" },
+                            ]}
+                            className="w-full"
+                            buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
                           />
+                        </label>
+
+                        <label className="block">
+                          <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Mobile trigger</div>
+                          <PortalListboxDropdown
+                            value={String((selectedBlock.props as any)?.mobileTrigger || "hamburger")}
+                            onChange={(v) =>
+                              upsertBlock({
+                                ...selectedBlock,
+                                props: { ...selectedBlock.props, mobileTrigger: String(v || "hamburger") },
+                              } as any)
+                            }
+                            options={[
+                              { value: "hamburger", label: "Hamburger" },
+                              { value: "directory", label: "Directory button" },
+                            ]}
+                            className="w-full"
+                            buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
+                          />
+                        </label>
+
+                        {String((selectedBlock.props as any)?.mobileTrigger || "hamburger") === "directory" ? (
+                          <label className="block">
+                            <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Directory label</div>
+                            <input
+                              value={String((selectedBlock.props as any)?.mobileTriggerLabel || "")}
+                              onChange={(e) =>
+                                upsertBlock({
+                                  ...selectedBlock,
+                                  props: { ...selectedBlock.props, mobileTriggerLabel: e.target.value.slice(0, 40) },
+                                } as any)
+                              }
+                              className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                              placeholder="Directory"
+                            />
+                          </label>
+                        ) : null}
+
+                        <label className="block">
+                          <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Logo image</div>
+                          <div className="flex flex-wrap gap-2">
+                            <button
+                              type="button"
+                              disabled={busy}
+                              onClick={() => {
+                                setMediaPickerTarget({ type: "header-logo", blockId: selectedBlock.id });
+                                setMediaPickerOpen(true);
+                              }}
+                              className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-60"
+                            >
+                              Choose from media
+                            </button>
+
+                            <label
+                              className={classNames(
+                                "cursor-pointer rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50",
+                                uploadingHeaderLogoBlockId === selectedBlock.id ? "opacity-60" : "",
+                              )}
+                            >
+                              {uploadingHeaderLogoBlockId === selectedBlock.id ? "Uploading…" : "Upload image"}
+                              <input
+                                type="file"
+                                accept="image/*"
+                                className="hidden"
+                                disabled={busy || uploadingHeaderLogoBlockId === selectedBlock.id}
+                                onChange={(e) => {
+                                  const files = Array.from(e.target.files || []);
+                                  e.currentTarget.value = "";
+                                  if (files.length === 0) return;
+                                  if (!selectedBlock || selectedBlock.type !== "headerNav") return;
+                                  setUploadingHeaderLogoBlockId(selectedBlock.id);
+                                  setError(null);
+                                  void (async () => {
+                                    try {
+                                      const created = await uploadToMediaLibrary(files, { maxFiles: 1 });
+                                      const it = created[0];
+                                      if (!it) return;
+                                      const nextUrl = String(
+                                        (it as any).shareUrl || (it as any).previewUrl || (it as any).openUrl || (it as any).downloadUrl || "",
+                                      ).trim();
+                                      if (!nextUrl) return;
+                                      const prevAlt = String((selectedBlock.props as any)?.logoAlt || "").trim();
+                                      upsertBlock({
+                                        ...selectedBlock,
+                                        props: {
+                                          ...(selectedBlock.props as any),
+                                          logoUrl: nextUrl,
+                                          ...(prevAlt ? null : { logoAlt: it.fileName }),
+                                        },
+                                      } as any);
+                                      toast.success("Logo uploaded and selected");
+                                    } catch (err) {
+                                      const msg = (err as any)?.message ? String((err as any).message) : "Upload failed";
+                                      toast.error(msg);
+                                    } finally {
+                                      setUploadingHeaderLogoBlockId(null);
+                                    }
+                                  })();
+                                }}
+                              />
+                            </label>
+
+                            <button
+                              type="button"
+                              disabled={busy || !String((selectedBlock.props as any)?.logoUrl || "").trim()}
+                              onClick={() =>
+                                upsertBlock({
+                                  ...selectedBlock,
+                                  props: { ...selectedBlock.props, logoUrl: "" },
+                                } as any)
+                              }
+                              className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-60"
+                            >
+                              Clear
+                            </button>
+                          </div>
+
+                          {String((selectedBlock.props as any)?.logoUrl || "").trim() ? (
+                            <div className="mt-2 rounded-xl border border-zinc-200 bg-white px-3 py-2">
+                              <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Selected logo</div>
+                              <div className="mt-1 break-all font-mono text-xs text-zinc-700">
+                                {String((selectedBlock.props as any)?.logoUrl || "").trim()}
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="mt-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-600">No logo selected.</div>
+                          )}
                         </label>
 
                         <label className="block">
@@ -5852,6 +6083,10 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                                     }
                                     if (b.type === "section") {
                                       const props: any = b.props;
+                                      const rawId = String(props?.anchorId || "").trim();
+                                      const id = rawId || `section-${b.id}`;
+                                      const label = String(props?.anchorLabel || "").trim();
+                                      if (id) out.push({ value: id, label: label ? `${label} (#${id})` : `Section (#${id})` });
                                       ["children", "leftChildren", "rightChildren"].forEach((k) => {
                                         const nested = Array.isArray(props?.[k]) ? (props[k] as CreditFunnelBlock[]) : [];
                                         walk(nested);
@@ -6181,7 +6416,6 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                                     toast.success("Image uploaded and selected");
                                   } catch (err) {
                                     const msg = (err as any)?.message ? String((err as any).message) : "Upload failed";
-                                    setError(msg);
                                     toast.error(msg);
                                   } finally {
                                     setUploadingImageBlockId(null);
@@ -6267,14 +6501,14 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                                 e.currentTarget.value = "";
                                 if (files.length === 0) return;
                                 if (!selectedBlock || selectedBlock.type !== "video") return;
+                                const file = files[0];
+                                if (!file) return;
                                 setUploadingImageBlockId(selectedBlock.id);
                                 setError(null);
                                 void (async () => {
                                   try {
-                                    const created = await uploadToMediaLibrary(files, { maxFiles: 1 });
-                                    const it = created[0];
-                                    if (!it) return;
-                                    const nextSrc = String((it as any).shareUrl || (it as any).openUrl || (it as any).downloadUrl || "").trim();
+                                    const uploaded = await uploadToUploads(file);
+                                    const nextSrc = String(uploaded.mediaItem?.shareUrl || uploaded.url || "").trim();
                                     if (!nextSrc) return;
                                     upsertBlock({
                                       ...selectedBlock,
@@ -6286,7 +6520,6 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                                     toast.success("Video uploaded and selected");
                                   } catch (err) {
                                     const msg = (err as any)?.message ? String((err as any).message) : "Upload failed";
-                                    setError(msg);
                                     toast.error(msg);
                                   } finally {
                                     setUploadingImageBlockId(null);
@@ -6750,6 +6983,46 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                           className="w-full"
                           buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
                         />
+
+                        <div className="rounded-xl border border-zinc-200 bg-white p-3">
+                          <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Section anchor</div>
+                          <div className="mt-2 space-y-2">
+                            <label className="block">
+                              <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Anchor ID (optional)</div>
+                              <input
+                                value={String((selectedBlock.props as any)?.anchorId || "")}
+                                onChange={(e) => {
+                                  const cleaned = String(e.target.value || "")
+                                    .replace(/\s+/g, "-")
+                                    .replace(/[^a-zA-Z0-9_-]/g, "")
+                                    .slice(0, 64);
+                                  upsertBlock({
+                                    ...selectedBlock,
+                                    props: { ...selectedBlock.props, anchorId: cleaned },
+                                  } as any);
+                                }}
+                                className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                                placeholder={`section-${selectedBlock.id}`}
+                              />
+                              <div className="mt-1 text-[11px] text-zinc-500">Menu links will use this like “#pricing”.</div>
+                            </label>
+
+                            <label className="block">
+                              <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Menu label (optional)</div>
+                              <input
+                                value={String((selectedBlock.props as any)?.anchorLabel || "")}
+                                onChange={(e) =>
+                                  upsertBlock({
+                                    ...selectedBlock,
+                                    props: { ...selectedBlock.props, anchorLabel: e.target.value.slice(0, 80) },
+                                  } as any)
+                                }
+                                className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                                placeholder="Pricing"
+                              />
+                            </label>
+                          </div>
+                        </div>
 
                         {selectedBlock.props.layout === "two" ? (
                           <>
@@ -7243,7 +7516,6 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                                             toast.success("Background image uploaded and selected");
                                           } catch (err) {
                                             const msg = (err as any)?.message ? String((err as any).message) : "Upload failed";
-                                            setError(msg);
                                             toast.error(msg);
                                           } finally {
                                             setUploadingImageBlockId(null);
@@ -7318,20 +7590,19 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                                         e.currentTarget.value = "";
                                         if (files.length === 0) return;
                                         if (!selectedBlock || selectedBlock.type !== "section") return;
+                                        const file = files[0];
+                                        if (!file) return;
                                         setUploadingImageBlockId(selectedBlock.id);
                                         setError(null);
                                         void (async () => {
                                           try {
-                                            const created = await uploadToMediaLibrary(files, { maxFiles: 1 });
-                                            const it = created[0];
-                                            if (!it) return;
-                                            const nextUrl = String((it as any).shareUrl || (it as any).openUrl || (it as any).downloadUrl || "").trim();
+                                            const uploaded = await uploadToUploads(file);
+                                            const nextUrl = String(uploaded.mediaItem?.shareUrl || uploaded.url || "").trim();
                                             if (!nextUrl) return;
                                             updateSelectedBlockStyle({ backgroundVideoUrl: nextUrl });
                                             toast.success("Background video uploaded and selected");
                                           } catch (err) {
                                             const msg = (err as any)?.message ? String((err as any).message) : "Upload failed";
-                                            setError(msg);
                                             toast.error(msg);
                                           } finally {
                                             setUploadingImageBlockId(null);
@@ -7677,7 +7948,6 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                             toast.success(`Uploaded ${created.length} file${created.length === 1 ? "" : "s"}`);
                           } catch (err) {
                             const msg = (err as any)?.message ? String((err as any).message) : "Upload failed";
-                            setError(msg);
                             toast.error(msg);
                           } finally {
                             setUploadingAi(false);

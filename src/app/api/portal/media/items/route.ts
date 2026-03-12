@@ -86,6 +86,13 @@ export async function POST(req: Request) {
   const created: any[] = [];
 
   for (const file of files) {
+    if (typeof file.size === "number" && file.size > MAX_BYTES) {
+      return NextResponse.json(
+        { ok: false, error: `"${file.name}" is too large (max ${Math.floor(MAX_BYTES / (1024 * 1024))}MB)` },
+        { status: 400 },
+      );
+    }
+
     const arrayBuffer = await file.arrayBuffer();
     const buffer = Buffer.from(arrayBuffer);
 

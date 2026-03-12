@@ -13,6 +13,9 @@ export type FunnelHeaderNavItem = {
   newTab?: boolean;
 };
 
+export type FunnelHeaderSize = "sm" | "md" | "lg";
+export type FunnelHeaderMobileTrigger = "hamburger" | "directory";
+
 function classNames(...xs: Array<string | false | null | undefined>) {
   return xs.filter(Boolean).join(" ");
 }
@@ -51,6 +54,9 @@ export function FunnelHeaderNav({
   sticky,
   transparent,
   mobileMode,
+  size,
+  mobileTrigger,
+  mobileTriggerLabel,
   className,
   style,
   funnelPathBase,
@@ -63,6 +69,9 @@ export function FunnelHeaderNav({
   sticky?: boolean;
   transparent?: boolean;
   mobileMode?: "dropdown" | "slideover";
+  size?: FunnelHeaderSize;
+  mobileTrigger?: FunnelHeaderMobileTrigger;
+  mobileTriggerLabel?: string;
   className?: string;
   style?: CSSProperties;
   funnelPathBase?: string;
@@ -101,6 +110,13 @@ export function FunnelHeaderNav({
   );
 
   const mode: "dropdown" | "slideover" = mobileMode === "slideover" ? "slideover" : "dropdown";
+  const headerSize: FunnelHeaderSize = size === "lg" ? "lg" : size === "sm" ? "sm" : "md";
+  const trigger: FunnelHeaderMobileTrigger = mobileTrigger === "directory" ? "directory" : "hamburger";
+  const triggerLabel = (mobileTriggerLabel || "Directory").trim() || "Directory";
+
+  const paddingYClass = headerSize === "lg" ? "py-4" : headerSize === "sm" ? "py-2" : "py-3";
+  const logoClass = headerSize === "lg" ? "h-10" : headerSize === "sm" ? "h-7" : "h-8";
+  const iconBtnClass = headerSize === "lg" ? "h-11 w-11" : headerSize === "sm" ? "h-9 w-9" : "h-10 w-10";
 
   return (
     <header
@@ -108,12 +124,12 @@ export function FunnelHeaderNav({
         sticky ? "sticky top-0 z-40" : "relative",
         "w-full",
         transparent ? "bg-transparent" : "bg-white/90 backdrop-blur supports-[backdrop-filter]:bg-white/70",
-        "border-b border-zinc-200",
+        transparent ? "border-b border-transparent" : "border-b border-zinc-200",
         className,
       )}
       style={style}
     >
-      <div className="mx-auto flex w-full max-w-6xl items-center justify-between gap-3 px-4 py-3">
+      <div className={classNames("mx-auto flex w-full max-w-6xl items-center justify-between gap-3 px-4", paddingYClass)}>
         <a
           href={resolvedLogoHref}
           onClick={(e) => {
@@ -125,7 +141,7 @@ export function FunnelHeaderNav({
         >
           {logoUrl ? (
             // eslint-disable-next-line @next/next/no-img-element
-            <img src={logoUrl} alt={logoAlt || "Logo"} className="h-8 w-auto" />
+            <img src={logoUrl} alt={logoAlt || "Logo"} className={classNames(logoClass, "w-auto")} />
           ) : (
             <div className="rounded-lg border border-zinc-200 bg-white px-2 py-1 text-xs font-semibold text-zinc-700">Logo</div>
           )}
@@ -157,18 +173,42 @@ export function FunnelHeaderNav({
         </nav>
 
         {/* Mobile toggle */}
-        <button
-          type="button"
-          data-funnel-editor-interactive="true"
-          className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-zinc-200 bg-white text-zinc-800 hover:bg-zinc-50 sm:hidden"
-          aria-label="Open menu"
-          onClick={() => {
-            if (disabled) return;
-            setOpen((v) => !v);
-          }}
-        >
-          <span className="text-lg font-bold">≡</span>
-        </button>
+        {trigger === "directory" ? (
+          <button
+            type="button"
+            data-funnel-editor-interactive="true"
+            className={classNames(
+              "inline-flex items-center justify-center gap-2 rounded-full border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50 sm:hidden",
+              disabled ? "opacity-60" : "",
+            )}
+            aria-label="Open menu"
+            aria-expanded={open}
+            onClick={() => {
+              if (disabled) return;
+              setOpen((v) => !v);
+            }}
+          >
+            <span>{triggerLabel}</span>
+            <span className="text-base">▾</span>
+          </button>
+        ) : (
+          <button
+            type="button"
+            data-funnel-editor-interactive="true"
+            className={classNames(
+              "inline-flex items-center justify-center rounded-xl border border-zinc-200 bg-white text-zinc-800 hover:bg-zinc-50 sm:hidden",
+              iconBtnClass,
+            )}
+            aria-label="Open menu"
+            aria-expanded={open}
+            onClick={() => {
+              if (disabled) return;
+              setOpen((v) => !v);
+            }}
+          >
+            <span className="text-lg font-bold">≡</span>
+          </button>
+        )}
       </div>
 
       {/* Mobile menu */}
