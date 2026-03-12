@@ -127,13 +127,28 @@ export async function proxy(req: NextRequest) {
   if (!isBypassPath(path) && !path.startsWith("/domain-router/")) {
     const debugDomains = process.env.DEBUG_DOMAIN_ROUTER_PROXY === "1";
 
-    // Prefer the canonical Host header. Some proxy/CDN setups can provide a misleading
-    // x-forwarded-host (or multiple values) that would cause us to skip custom-domain routing.
+    // Host detection can be tricky behind proxies.
+    //
+    // In a perfect world, `host` is always the customer domain. In practice, some setups
+    // can surface a platform hostname (e.g. *.vercel.app) as `host` while placing the real
+    // customer domain in `x-forwarded-host` or `x-original-host`. If we blindly trust `host`
+    // in that case, we will skip custom-domain routing and customers will see 404s.
     const rawHost = req.headers.get("host");
     const rawForwardedHost = req.headers.get("x-forwarded-host");
     const rawOriginalHost = req.headers.get("x-original-host");
+
+    const hostFromHost = hostnameFromHeader(rawHost);
+    const hostFromForwarded = hostnameFromHeader(rawForwardedHost);
+    const hostFromOriginal = hostnameFromHeader(rawOriginalHost);
+
     const host =
-      hostnameFromHeader(rawHost) ?? hostnameFromHeader(rawForwardedHost) ?? hostnameFromHeader(rawOriginalHost);
+      (hostFromHost && !PLATFORM_HOSTNAMES.has(hostFromHost)
+        ? hostFromHost
+        : hostFromForwarded && !PLATFORM_HOSTNAMES.has(hostFromForwarded)
+          ? hostFromForwarded
+          : hostFromOriginal && !PLATFORM_HOSTNAMES.has(hostFromOriginal)
+            ? hostFromOriginal
+            : hostFromHost ?? hostFromForwarded ?? hostFromOriginal) || null;
 
     if (debugDomains && (path === "/" || path.startsWith("/testing") || path.startsWith("/domain-router"))) {
       console.log(
@@ -143,6 +158,9 @@ export async function proxy(req: NextRequest) {
           rawHost,
           rawForwardedHost,
           rawOriginalHost,
+          hostFromHost,
+          hostFromForwarded,
+          hostFromOriginal,
           host,
           isPlatform: !!(host && PLATFORM_HOSTNAMES.has(host)),
         })
