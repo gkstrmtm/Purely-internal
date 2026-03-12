@@ -126,7 +126,8 @@ export default async function HostedFormWithKeyPage({
     .catch(() => null);
 
   if (!form) notFound();
-  if (publicKeyFromId(form.id) !== k) notFound();
+  // Backward compatible: accept older links that used a different short-key length.
+  if (publicKeyFromId(form.id, k.length) !== k) notFound();
 
   const fields = parseFields(form.schemaJson);
   const style = parseStyle(form.schemaJson);

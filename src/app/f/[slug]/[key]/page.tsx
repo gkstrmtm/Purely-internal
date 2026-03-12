@@ -113,7 +113,9 @@ async function fetchFunnel(slug: string, key: string) {
     .catch(() => null);
 
   if (!funnel) return null;
-  if (publicKeyFromId(funnel.id) !== k) return null;
+  // Backward compatible: accept older links that used a different short-key length.
+  // The DB lookup uses `endsWith` but we also validate the derived key for safety.
+  if (publicKeyFromId(funnel.id, k.length) !== k) return null;
 
   const settings = await prisma.creditFunnelBuilderSettings
     .findUnique({ where: { ownerId: funnel.ownerId }, select: { dataJson: true } })

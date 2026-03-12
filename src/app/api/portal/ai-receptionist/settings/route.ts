@@ -456,12 +456,12 @@ export async function PUT(req: Request) {
   // Sync agent config (first message + prompt) to ElevenLabs at save-time.
   // Do not attempt per-call overrides during the Twilio webhook.
   const profileAgentId = await getProfileVoiceAgentId(ownerId).catch(() => null);
-  const agentId = String(next.voiceAgentId || "").trim() || String(profileAgentId || "").trim();
+  let agentId = String(next.voiceAgentId || "").trim() || String(profileAgentId || "").trim();
   const apiKeyFromProfile = (await getProfileVoiceAgentApiKey(ownerId).catch(() => null)) || "";
   const apiKeyLegacy = typeof (next as any)?.voiceAgentApiKey === "string" ? String((next as any).voiceAgentApiKey).trim() : "";
   const apiKey = apiKeyFromProfile.trim() || apiKeyLegacy.trim();
 
-  if (apiKey && agentId) {
+  if (apiKey) {
     const profilePhone = await getOwnerProfilePhoneE164(ownerId).catch(() => null);
     const transferTo = (next.aiCanTransferToHuman ? (next.forwardToPhoneE164 || profilePhone) : null) || null;
 
@@ -491,17 +491,44 @@ export async function PUT(req: Request) {
       }
     }
 
-    const patched = await patchElevenLabsAgent({
-      apiKey,
-      agentId,
-      firstMessage: firstMessage || undefined,
-      prompt: prompt || undefined,
-      toolIds: toolIds.length ? toolIds : undefined,
-    });
+    if (!agentId) {
+      const businessName = String(next.businessName || "").trim();
+      const name = (businessName ? `${businessName} — AI Receptionist (Calls)` : "AI Receptionist (Calls)").slice(0, 160);
+      const created = await createElevenLabsAgent({
+        apiKey,
+        name,
+        firstMessage: firstMessage || undefined,
+        prompt: prompt || undefined,
+        toolIds: toolIds.length ? toolIds : undefined,
+      });
 
-    if (!patched.ok) {
-      await setAiReceptionistSettings(ownerId, current.settings).catch(() => null);
-      return NextResponse.json({ ok: false, error: patched.error }, { status: patched.status || 502 });
+      if (!created.ok) {
+        await setAiReceptionistSettings(ownerId, current.settings).catch(() => null);
+        return NextResponse.json({ ok: false, error: created.error }, { status: created.status || 502 });
+      }
+
+      agentId = created.agentId;
+      try {
+        next = await setAiReceptionistSettings(ownerId, { ...next, voiceAgentId: agentId });
+      } catch {
+        await setAiReceptionistSettings(ownerId, current.settings).catch(() => null);
+        return NextResponse.json({ ok: false, error: "Failed to persist voice agent ID" }, { status: 500 });
+      }
+    }
+
+    if (agentId) {
+      const patched = await patchElevenLabsAgent({
+        apiKey,
+        agentId,
+        firstMessage: firstMessage || undefined,
+        prompt: prompt || undefined,
+        toolIds: toolIds.length ? toolIds : undefined,
+      });
+
+      if (!patched.ok) {
+        await setAiReceptionistSettings(ownerId, current.settings).catch(() => null);
+        return NextResponse.json({ ok: false, error: patched.error }, { status: patched.status || 502 });
+      }
     }
   }
 
@@ -511,7 +538,7 @@ export async function PUT(req: Request) {
     if (!apiKey) {
       await setAiReceptionistSettings(ownerId, current.settings).catch(() => null);
       return NextResponse.json(
-        { ok: false, error: "Missing API key. Add it in Portal → Profile." },
+        { ok: false, error: "Missing API key." },
         { status: 400 },
       );
     }

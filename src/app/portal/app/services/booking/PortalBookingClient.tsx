@@ -5,7 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { PortalFollowUpClient } from "@/app/portal/app/services/follow-up/PortalFollowUpClient";
 import { PortalBookingAvailabilityClient } from "@/app/portal/app/services/booking/availability/PortalBookingAvailabilityClient";
-import { AppModal } from "@/components/AppModal";
+import { AppConfirmModal, AppModal } from "@/components/AppModal";
 import { PortalListboxDropdown } from "@/components/PortalListboxDropdown";
 import { PortalMediaPickerModal, type PortalMediaPickItem } from "@/components/PortalMediaPickerModal";
 import { PortalSelectDropdown } from "@/components/PortalSelectDropdown";
@@ -132,6 +132,9 @@ type BookingCalendar = {
   title: string;
   description?: string;
   durationMinutes?: number;
+  meetingLocation?: string;
+  meetingDetails?: string;
+  notificationEmails?: string[];
 };
 
 function getPurelyConnectJoinUrl(notes?: string | null): string | null {
@@ -352,6 +355,19 @@ export function PortalBookingClient() {
 
   const [newCalTitle, setNewCalTitle] = useState("");
   const [newCalDuration, setNewCalDuration] = useState<number>(30);
+
+  type CalendarEditDraft = {
+    id: string;
+    title: string;
+    durationMinutes: string;
+    meetingLocation: string;
+    meetingDetails: string;
+    notificationEmails: string;
+  };
+
+  const [calendarEditOpen, setCalendarEditOpen] = useState(false);
+  const [calendarEditDraft, setCalendarEditDraft] = useState<CalendarEditDraft | null>(null);
+  const [calendarDeleteId, setCalendarDeleteId] = useState<string | null>(null);
 
   const [blocks, setBlocks] = useState<AvailabilityBlock[]>([]);
 
@@ -2640,44 +2656,15 @@ export function PortalBookingClient() {
                       className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50"
                       disabled={calSaving}
                       onClick={() => {
-                        const title = window.prompt("Calendar title", c.title) ?? c.title;
-                        const durRaw = window.prompt("Duration minutes", String(c.durationMinutes ?? site?.durationMinutes ?? 30));
-                        const dur = durRaw ? Number(durRaw) : c.durationMinutes;
-
-                        const meetingLocation =
-                          window.prompt("Meeting location (optional)", (c as any).meetingLocation ?? "") ??
-                          ((c as any).meetingLocation ?? "");
-                        const meetingDetails =
-                          window.prompt("Meeting details (optional)", (c as any).meetingDetails ?? "") ??
-                          ((c as any).meetingDetails ?? "");
-                        const notifyRaw =
-                          window.prompt(
-                            "Notification emails (comma-separated, optional)",
-                            Array.isArray((c as any).notificationEmails) ? ((c as any).notificationEmails as string[]).join(", ") : "",
-                          ) ??
-                          (Array.isArray((c as any).notificationEmails) ? ((c as any).notificationEmails as string[]).join(", ") : "");
-                        const notificationEmails = notifyRaw
-                          .split(",")
-                          .map((x) => x.trim().toLowerCase())
-                          .filter(Boolean)
-                          .slice(0, 20);
-
-                        const next = calendars.map((x) =>
-                          x.id === c.id
-                            ? {
-                                ...x,
-                                title: String(title || c.title).slice(0, 80),
-                                durationMinutes:
-                                  typeof dur === "number" && Number.isFinite(dur)
-                                    ? Math.max(10, Math.min(180, Math.round(dur)))
-                                    : x.durationMinutes,
-                                meetingLocation: String(meetingLocation || "").trim().slice(0, 120) || undefined,
-                                meetingDetails: String(meetingDetails || "").trim().slice(0, 600) || undefined,
-                                notificationEmails: notificationEmails.length ? notificationEmails : undefined,
-                              }
-                            : x,
-                        );
-                        void saveCalendars(next);
+                        setCalendarEditDraft({
+                          id: c.id,
+                          title: c.title ?? "",
+                          durationMinutes: String(c.durationMinutes ?? site?.durationMinutes ?? 30),
+                          meetingLocation: c.meetingLocation ?? "",
+                          meetingDetails: c.meetingDetails ?? "",
+                          notificationEmails: Array.isArray(c.notificationEmails) ? c.notificationEmails.join(", ") : "",
+                        });
+                        setCalendarEditOpen(true);
                       }}
                     >
                       Edit
@@ -2687,9 +2674,7 @@ export function PortalBookingClient() {
                       className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50"
                       disabled={calSaving}
                       onClick={() => {
-                        if (!window.confirm("Delete this calendar?")) return;
-                        const next = calendars.filter((x) => x.id !== c.id);
-                        void saveCalendars(next);
+                        setCalendarDeleteId(c.id);
                       }}
                     >
                       Delete
@@ -3380,6 +3365,167 @@ export function PortalBookingClient() {
       >
         <PortalBookingAvailabilityClient variant="modal" />
       </AppModal>
+
+      <AppModal
+        open={calendarEditOpen}
+        title="Edit calendar"
+        description="Update your calendar title, duration, and booking details."
+        onClose={() => {
+          if (calSaving) return;
+          setCalendarEditOpen(false);
+          setCalendarEditDraft(null);
+        }}
+        widthClassName="w-[min(640px,calc(100vw-32px))]"
+        footer={
+          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+            <button
+              type="button"
+              className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-60"
+              disabled={calSaving}
+              onClick={() => {
+                setCalendarEditOpen(false);
+                setCalendarEditDraft(null);
+              }}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              className="rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
+              disabled={calSaving || !calendarEditDraft?.title.trim()}
+              onClick={() => {
+                if (!calendarEditDraft) return;
+                const titleRaw = calendarEditDraft.title.trim();
+                if (!titleRaw) return;
+
+                const durNum = Number(calendarEditDraft.durationMinutes);
+                const durationMinutes =
+                  Number.isFinite(durNum) && durNum > 0 ? Math.max(10, Math.min(180, Math.round(durNum))) : undefined;
+
+                const emailLike = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
+                const emails = calendarEditDraft.notificationEmails
+                  .split(",")
+                  .map((x) => x.trim().toLowerCase())
+                  .filter((x) => Boolean(x) && emailLike.test(x))
+                  .slice(0, 20);
+                const uniqueEmails = Array.from(new Set(emails));
+
+                const meetingLocation = calendarEditDraft.meetingLocation.trim().slice(0, 120) || undefined;
+                const meetingDetails = calendarEditDraft.meetingDetails.trim().slice(0, 600) || undefined;
+
+                const next = calendars.map((x) =>
+                  x.id === calendarEditDraft.id
+                    ? {
+                        ...x,
+                        title: titleRaw.slice(0, 80),
+                        durationMinutes: durationMinutes ?? x.durationMinutes,
+                        meetingLocation,
+                        meetingDetails,
+                        notificationEmails: uniqueEmails.length ? uniqueEmails : undefined,
+                      }
+                    : x,
+                );
+
+                setCalendarEditOpen(false);
+                setCalendarEditDraft(null);
+                void saveCalendars(next);
+              }}
+            >
+              {calSaving ? "Saving…" : "Save"}
+            </button>
+          </div>
+        }
+      >
+        <div className="space-y-4">
+          <label className="block">
+            <div className="text-xs font-semibold text-zinc-600">Title</div>
+            <input
+              className="mt-2 h-10 w-full rounded-xl border border-zinc-200 bg-white px-3 text-sm"
+              value={calendarEditDraft?.title ?? ""}
+              onChange={(e) =>
+                setCalendarEditDraft((prev) => (prev ? { ...prev, title: e.target.value } : prev))
+              }
+              disabled={calSaving}
+              placeholder="e.g. Intro call"
+            />
+          </label>
+
+          <label className="block">
+            <div className="text-xs font-semibold text-zinc-600">Duration minutes</div>
+            <input
+              type="number"
+              min={10}
+              max={180}
+              className="mt-2 h-10 w-full rounded-xl border border-zinc-200 bg-white px-3 text-sm"
+              value={calendarEditDraft?.durationMinutes ?? ""}
+              onChange={(e) =>
+                setCalendarEditDraft((prev) => (prev ? { ...prev, durationMinutes: e.target.value } : prev))
+              }
+              disabled={calSaving}
+            />
+          </label>
+
+          <label className="block">
+            <div className="text-xs font-semibold text-zinc-600">Meeting location (optional)</div>
+            <input
+              className="mt-2 h-10 w-full rounded-xl border border-zinc-200 bg-white px-3 text-sm"
+              value={calendarEditDraft?.meetingLocation ?? ""}
+              onChange={(e) =>
+                setCalendarEditDraft((prev) => (prev ? { ...prev, meetingLocation: e.target.value } : prev))
+              }
+              disabled={calSaving}
+              placeholder="e.g. Zoom / Phone / In person"
+            />
+          </label>
+
+          <label className="block">
+            <div className="text-xs font-semibold text-zinc-600">Meeting details (optional)</div>
+            <textarea
+              className="mt-2 min-h-24 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+              value={calendarEditDraft?.meetingDetails ?? ""}
+              onChange={(e) =>
+                setCalendarEditDraft((prev) => (prev ? { ...prev, meetingDetails: e.target.value } : prev))
+              }
+              disabled={calSaving}
+              placeholder="e.g. We’ll send you the link after booking."
+            />
+          </label>
+
+          <label className="block">
+            <div className="text-xs font-semibold text-zinc-600">Notification emails (optional)</div>
+            <textarea
+              className="mt-2 min-h-16 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+              value={calendarEditDraft?.notificationEmails ?? ""}
+              onChange={(e) =>
+                setCalendarEditDraft((prev) => (prev ? { ...prev, notificationEmails: e.target.value } : prev))
+              }
+              disabled={calSaving}
+              placeholder="name@domain.com, team@domain.com"
+            />
+            <div className="mt-2 text-xs text-zinc-500">Comma-separated. We’ll ignore invalid emails.</div>
+          </label>
+        </div>
+      </AppModal>
+
+      <AppConfirmModal
+        open={Boolean(calendarDeleteId)}
+        title="Delete calendar"
+        message="Delete this calendar? This cannot be undone."
+        confirmLabel={calSaving ? "Deleting…" : "Delete"}
+        cancelLabel="Cancel"
+        destructive
+        onClose={() => {
+          if (calSaving) return;
+          setCalendarDeleteId(null);
+        }}
+        onConfirm={() => {
+          if (!calendarDeleteId) return;
+          const id = calendarDeleteId;
+          setCalendarDeleteId(null);
+          const next = calendars.filter((x) => x.id !== id);
+          void saveCalendars(next);
+        }}
+      />
     </div>
   );
 }

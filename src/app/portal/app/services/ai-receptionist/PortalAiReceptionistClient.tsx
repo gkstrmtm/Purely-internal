@@ -1078,33 +1078,8 @@ export function PortalAiReceptionistClient() {
                 </label>
               ) : null}
             </div>
-                <div className="mt-8 text-sm font-semibold text-zinc-900">Agent (optional)</div>
-                <div className="mt-2 grid grid-cols-1 gap-4 sm:grid-cols-2">
-                  <label className="rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm">
-                    <div className="text-xs font-semibold text-zinc-600">Agent ID</div>
-                    <input
-                      className="mt-2 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                      value={settings?.voiceAgentId ?? ""}
-                      onChange={(e) => settings && setSettings({ ...settings, voiceAgentId: e.target.value })}
-                      placeholder="agent_..."
-                    />
-                    <div className="mt-2 text-xs text-zinc-600">Used for inbound/outbound calls.</div>
-                  </label>
-
-                  <div className="rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm">
-                    <div className="flex items-center justify-between">
-                      <div className="text-xs font-semibold text-zinc-600">API key</div>
-                      <Link
-                        href="/portal/profile"
-                        className="rounded-lg border border-zinc-200 bg-white px-2 py-1 text-xs font-semibold text-brand-ink hover:bg-zinc-50"
-                      >
-                        Open Profile
-                      </Link>
-                    </div>
-                    <div className="mt-2 text-xs text-zinc-600">
-                      This key is managed in your Profile settings so AI services can share it.
-                    </div>
-                  </div>
+                <div className="mt-8 rounded-2xl border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-700">
+                  Agent provisioning is handled automatically.
                 </div>
               </>
             ) : (
@@ -1312,35 +1287,8 @@ export function PortalAiReceptionistClient() {
                   </div>
                 </div>
 
-                <div className="mt-8 text-sm font-semibold text-zinc-900">Messaging agent (optional)</div>
-                <div className="mt-2 grid grid-cols-1 gap-4 sm:grid-cols-2">
-                  <label className="rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm">
-                    <div className="text-xs font-semibold text-zinc-600">Messaging agent ID</div>
-                    <input
-                      className="mt-2 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                      value={settings?.chatAgentId ?? ""}
-                      onChange={(e) => settings && setSettings({ ...settings, chatAgentId: e.target.value })}
-                      placeholder="agent_..."
-                    />
-                    <div className="mt-2 text-xs text-zinc-600">
-                      When you click Save, we’ll create/sync a messaging agent and store its ID here.
-                    </div>
-                  </label>
-
-                  <div className="rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm">
-                    <div className="flex items-center justify-between">
-                      <div className="text-xs font-semibold text-zinc-600">API key</div>
-                      <Link
-                        href="/portal/profile"
-                        className="rounded-lg border border-zinc-200 bg-white px-2 py-1 text-xs font-semibold text-brand-ink hover:bg-zinc-50"
-                      >
-                        Open Profile
-                      </Link>
-                    </div>
-                    <div className="mt-2 text-xs text-zinc-600">
-                      This key is managed in your Profile settings so AI services can share it.
-                    </div>
-                  </div>
+                <div className="mt-8 rounded-2xl border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-700">
+                  Messaging agent provisioning is handled automatically when you Save.
                 </div>
               </>
             )}
@@ -1372,10 +1320,7 @@ export function PortalAiReceptionistClient() {
           <div className="text-sm font-semibold text-zinc-900">Testing</div>
 
           <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
-            <div className="text-xs font-semibold text-zinc-600">Agent ID</div>
-            <div className="mt-2 break-all font-mono text-xs text-zinc-800">
-              {settings?.voiceAgentId?.trim() ? settings.voiceAgentId.trim() : "N/A"}
-            </div>
+            <div className="text-xs font-semibold text-zinc-600">Calls agent</div>
             <div className="mt-3">
               <InlineElevenLabsAgentTester agentId={settings?.voiceAgentId} />
             </div>

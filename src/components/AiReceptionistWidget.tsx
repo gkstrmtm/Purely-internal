@@ -290,10 +290,51 @@ function renderMarkdownish(text: string): React.ReactNode {
 export function AiReceptionistWidget() {
   const pathname = usePathname() || "";
 
+  const [hostname, setHostname] = useState<string>("");
+  useEffect(() => {
+    try {
+      setHostname(String(window.location.hostname || "").trim().toLowerCase());
+    } catch {
+      setHostname("");
+    }
+  }, []);
+
+  const allowedHosts = useMemo(() => {
+    const out = new Set<string>();
+
+    const add = (raw: unknown) => {
+      const s = typeof raw === "string" ? raw.trim() : "";
+      if (!s) return;
+      try {
+        const u = new URL(s);
+        const h = u.hostname.trim().toLowerCase();
+        if (h) out.add(h);
+      } catch {
+        // ignore
+      }
+    };
+
+    add(process.env.NEXT_PUBLIC_APP_CANONICAL_URL);
+    add(process.env.NEXT_PUBLIC_APP_URL);
+    out.add("purelyautomation.com");
+    out.add("www.purelyautomation.com");
+    out.add("localhost");
+    out.add("127.0.0.1");
+    return out;
+  }, []);
+
+  const isPlatformHost = useMemo(() => {
+    if (!hostname) return true; // avoid flicker: assume platform until we know
+    if (allowedHosts.has(hostname)) return true;
+    // Allow Vercel preview domains for internal testing.
+    if (hostname.endsWith(".vercel.app")) return true;
+    return false;
+  }, [allowedHosts, hostname]);
+
   // Customer-facing widget:
   // - show on marketing pages and /portal
   // - never show inside /portal/app (portal app has its own Chat + Report tools)
-  const hidden =
+  const hiddenByPath =
     pathname === "/app" ||
     pathname.startsWith("/app/") ||
     pathname.startsWith("/portal/app") ||
@@ -307,6 +348,9 @@ export function AiReceptionistWidget() {
     pathname === "/login" ||
     pathname === "/ads/login" ||
     pathname.startsWith("/ads/app");
+
+  // Never show the Purely marketing chat widget on customer custom-domain pages.
+  const hidden = hiddenByPath || !isPlatformHost;
 
   const phone = process.env.NEXT_PUBLIC_AI_RECEPTIONIST_PHONE || "980-238-3381";
   const telHref = useMemo(() => toTelHref(phone), [phone]);

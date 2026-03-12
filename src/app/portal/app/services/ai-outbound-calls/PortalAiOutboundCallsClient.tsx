@@ -2505,10 +2505,7 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
 
                     {settingsTab === "calls" && !voiceToolsApiKeyConfigured ? (
                       <div className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-800">
-                        Add your voice API key in Profile to load tools and sync the calls agent.
-                        <Link href="/portal/profile" className="ml-2 font-semibold underline underline-offset-2">
-                          Go to Profile
-                        </Link>
+                        Calls agent sync is not available for this account.
                       </div>
                     ) : null}
                   </div>
@@ -2566,9 +2563,7 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
                                   : "bg-[color:var(--color-brand-blue)] text-white hover:opacity-95",
                               )}
                               title={
-                                voiceToolsApiKeyConfigured
-                                  ? "Sync calls agent"
-                                  : "Sync calls agent (requires voice API key in Profile)"
+                                "Sync calls agent"
                               }
                             >
                               {busy ? "Syncing…" : "Sync calls agent"}
@@ -2621,25 +2616,6 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
                         </div>
 
                         <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
-                          <div>
-                            <div className="text-xs font-semibold text-zinc-700">Agent ID</div>
-                            <div className="mt-1 text-[11px] text-zinc-500">
-                              Optional campaign override. Leave blank to let Purely create one on Sync.
-                            </div>
-                            <input
-                              value={selected.voiceAgentId ?? ""}
-                              onChange={(e) => {
-                                const voiceAgentId = e.target.value;
-                                setCampaigns((prev) =>
-                                  prev.map((c) => (c.id === selected.id ? { ...c, voiceAgentId } : c)),
-                                );
-                              }}
-                              onBlur={() => updateCampaign({ voiceAgentId: (selected.voiceAgentId ?? "").trim() })}
-                              placeholder="agent_... (optional)"
-                              className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                            />
-                          </div>
-
                           <div>
                             <div className="text-xs font-semibold text-zinc-700">Tools</div>
                             <div className="mt-1 rounded-2xl border border-zinc-200 bg-white p-3">
@@ -2932,7 +2908,7 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
                             </div>
                           ) : (
                             <div className="mt-3 text-xs text-zinc-600">
-                              No calls agent ID yet. Click “Sync calls agent” to create it, then test here.
+                              No calls agent yet. Click “Sync calls agent” to create it, then test here.
                             </div>
                           )}
                         </div>

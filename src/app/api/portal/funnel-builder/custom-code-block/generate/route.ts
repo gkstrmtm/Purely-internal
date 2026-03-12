@@ -5,6 +5,7 @@ import { prisma } from "@/lib/db";
 import { requireFunnelBuilderSession } from "@/lib/funnelBuilderAccess";
 import { generateText } from "@/lib/ai";
 import { getBusinessProfileAiContext } from "@/lib/businessProfileAiContext.server";
+import { getBookingCalendarsConfig } from "@/lib/bookingCalendars";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -181,6 +182,86 @@ const aiActionsPayloadSchema = z
   })
   .strip();
 
+const aiFormPickSchema = z
+  .object({
+    pick: z.enum(["default", "bySlug", "byName"]),
+    value: z.string().trim().max(120).optional(),
+  })
+  .strip();
+
+const aiCalendarPickSchema = z
+  .object({
+    pick: z.enum(["default", "byId", "byTitle"]),
+    value: z.string().trim().max(120).optional(),
+  })
+  .strip();
+
+const aiAnalysisFormLinkBlockSchema = z
+  .object({
+    type: z.literal("formLink"),
+    props: z
+      .object({
+        form: aiFormPickSchema,
+        text: z.string().trim().max(120).optional(),
+        style: blockStyleSchema.optional(),
+      })
+      .strip(),
+  })
+  .strip();
+
+const aiAnalysisFormEmbedBlockSchema = z
+  .object({
+    type: z.literal("formEmbed"),
+    props: z
+      .object({
+        form: aiFormPickSchema,
+        height: z.number().finite().min(120).max(1600).optional(),
+        style: blockStyleSchema.optional(),
+      })
+      .strip(),
+  })
+  .strip();
+
+const aiAnalysisCalendarEmbedBlockSchema = z
+  .object({
+    type: z.literal("calendarEmbed"),
+    props: z
+      .object({
+        calendar: aiCalendarPickSchema,
+        height: z.number().finite().min(120).max(1600).optional(),
+        style: blockStyleSchema.optional(),
+      })
+      .strip(),
+  })
+  .strip();
+
+const aiAnalysisInsertableBlockSchema = z.discriminatedUnion("type", [
+  chatbotBlockSchema,
+  imageBlockSchema,
+  headingBlockSchema,
+  paragraphBlockSchema,
+  buttonBlockSchema,
+  spacerBlockSchema,
+  aiAnalysisFormLinkBlockSchema,
+  aiAnalysisFormEmbedBlockSchema,
+  aiAnalysisCalendarEmbedBlockSchema,
+]);
+
+const aiAnalysisActionSchema = z
+  .object({
+    type: z.literal("insertAfter"),
+    block: aiAnalysisInsertableBlockSchema,
+  })
+  .strip();
+
+const aiAnalysisPayloadSchema = z
+  .object({
+    output: z.enum(["actions", "html"]),
+    actions: z.array(aiAnalysisActionSchema).min(1).max(6).optional(),
+    buildPrompt: z.string().trim().min(1).max(4000).optional(),
+  })
+  .strip();
+
 function clampText(s: string, maxLen: number) {
   const text = String(s || "");
   if (text.length <= maxLen) return text;
@@ -191,6 +272,64 @@ function extractFence(text: string, lang: string): string {
   const re = new RegExp("```" + lang + "\\s*([\\s\\S]*?)\\s*```", "i");
   const m = String(text || "").match(re);
   return m?.[1] ? m[1].trim() : "";
+}
+
+function pickDefaultFormSlug(forms: Array<{ slug: string; name: string; status: string }>): string {
+  const active = forms.find((f) => String(f.status).toUpperCase() === "ACTIVE");
+  return (active ?? forms[0])?.slug ?? "";
+}
+
+function resolveFormSlug(
+  pick: z.infer<typeof aiFormPickSchema>,
+  forms: Array<{ slug: string; name: string; status: string }>,
+): string {
+  const fallback = pickDefaultFormSlug(forms);
+  if (!forms.length) return "";
+
+  if (pick.pick === "default") return fallback;
+  const value = (pick.value ?? "").trim();
+  if (!value) return fallback;
+
+  if (pick.pick === "bySlug") {
+    const found = forms.find((f) => f.slug.toLowerCase() === value.toLowerCase());
+    return found?.slug ?? fallback;
+  }
+
+  // byName
+  const needle = value.toLowerCase();
+  const found = forms.find((f) => (f.name ?? "").toLowerCase() === needle);
+  if (found) return found.slug;
+  const fuzzy = forms.find((f) => (f.name ?? "").toLowerCase().includes(needle));
+  return fuzzy?.slug ?? fallback;
+}
+
+function pickDefaultCalendarId(calendars: Array<{ id: string; enabled: boolean; title: string }>): string {
+  const enabled = calendars.find((c) => c.enabled);
+  return (enabled ?? calendars[0])?.id ?? "";
+}
+
+function resolveCalendarId(
+  pick: z.infer<typeof aiCalendarPickSchema>,
+  calendars: Array<{ id: string; enabled: boolean; title: string }>,
+): string {
+  const fallback = pickDefaultCalendarId(calendars);
+  if (!calendars.length) return "";
+
+  if (pick.pick === "default") return fallback;
+  const value = (pick.value ?? "").trim();
+  if (!value) return fallback;
+
+  if (pick.pick === "byId") {
+    const found = calendars.find((c) => c.id.toLowerCase() === value.toLowerCase());
+    return found?.id ?? fallback;
+  }
+
+  // byTitle
+  const needle = value.toLowerCase();
+  const found = calendars.find((c) => (c.title ?? "").toLowerCase() === needle);
+  if (found) return found.id;
+  const fuzzy = calendars.find((c) => (c.title ?? "").toLowerCase().includes(needle));
+  return fuzzy?.id ?? fallback;
 }
 
 export async function POST(req: Request) {
@@ -234,9 +373,14 @@ export async function POST(req: Request) {
     select: { slug: true, name: true, status: true },
   });
 
+  const calendarsConfig = await getBookingCalendarsConfig(ownerId).catch(() => ({ version: 1 as const, calendars: [] }));
+  const calendars = (calendarsConfig as any)?.calendars && Array.isArray((calendarsConfig as any).calendars)
+    ? ((calendarsConfig as any).calendars as Array<{ id: string; enabled: boolean; title: string }>)
+    : ([] as Array<{ id: string; enabled: boolean; title: string }>);
+
   const hasCurrent = Boolean(currentHtml.trim() || currentCss.trim());
 
-  const system = [
+  const buildSystem = [
     "You generate HTML + CSS for a *custom code block* inside a funnel page.",
     "Return ONLY code fences, no explanation.",
     "Output options (choose ONE):",
@@ -255,14 +399,43 @@ export async function POST(req: Request) {
     "Integration:",
     `- This page is hosted at: /credit/f/${page.funnel.slug}`,
     "- Credit hosted forms are at: /credit/forms/{formSlug}",
+    "- Credit hosted booking is at: /credit/book (or a booking embed block)",
     "Available forms (slug: name [status]):",
     ...forms.map((f) => `- ${f.slug}: ${f.name} [${f.status}]`),
+    "Available calendars (id: title [enabled]):",
+    ...calendars.map((c) => `- ${c.id}: ${c.title} [${c.enabled ? "enabled" : "disabled"}]`),
     hasCurrent
       ? "Editing mode: you will receive CURRENT_HTML and CURRENT_CSS. Apply the user's instruction as a minimal change and return the full updated fragment + CSS."
       : "Generation mode: create a new fragment + CSS from the user's instruction.",
   ].join("\n");
 
-  const user = [
+  const analysisSystem = [
+    "You are an intent + asset selector for a funnel builder custom code assistant.",
+    "Return ONLY a single ```json fenced block, no other text.",
+    "Your job: decide whether to return structured funnel block actions or request an HTML/CSS build.",
+    "Output schema:",
+    "{",
+    "  output: 'actions' | 'html',",
+    "  actions?: [{ type: 'insertAfter', block: { type, props } }],",
+    "  buildPrompt?: string",
+    "}",
+    "Rules:",
+    "- If user says 'embed my calendar' or anything about booking/scheduling, prefer output='actions' with a calendarEmbed block.",
+    "- If user says 'embed my form' or anything about forms, prefer output='actions' with a formEmbed (or formLink if they want a link).",
+    "- For calendarEmbed, props must include { calendar: { pick: 'default'|'byId'|'byTitle', value? }, height?, style? }.",
+    "- For formEmbed/formLink, props must include { form: { pick: 'default'|'bySlug'|'byName', value? }, ... }.",
+    "- Use pick='default' for 'my calendar'/'my form' when no specific name/slug is provided.",
+    "- For other block types, follow the normal props shapes.",
+    "- If output='html', set buildPrompt to a concise instruction for the HTML/CSS generator.",
+    "Context:",
+    `- Funnel page host path: /credit/f/${page.funnel.slug}`,
+    "Available forms (slug: name [status]):",
+    ...forms.map((f) => `- ${f.slug}: ${f.name} [${f.status}]`),
+    "Available calendars (id: title [enabled]):",
+    ...calendars.map((c) => `- ${c.id}: ${c.title} [${c.enabled ? "enabled" : "disabled"}]`),
+  ].join("\n");
+
+  const baseUser = [
     businessContext ? businessContext : "",
     `Funnel: ${page.funnel.name} (slug: ${page.funnel.slug})`,
     `Page: ${page.title} (slug: ${page.slug})`,
@@ -286,9 +459,71 @@ export async function POST(req: Request) {
     .filter(Boolean)
     .join("\n");
 
-  let raw = "";
+  // Step 1: analyze intent and select assets.
+  let analysisRaw = "";
   try {
-    raw = await generateText({ system, user });
+    analysisRaw = await generateText({ system: analysisSystem, user: baseUser });
+  } catch {
+    analysisRaw = "";
+  }
+
+  const analysisJsonFence = extractFence(analysisRaw, "json");
+  const analysisParsed = analysisJsonFence.trim()
+    ? aiAnalysisPayloadSchema.safeParse((() => {
+        try {
+          return JSON.parse(analysisJsonFence) as unknown;
+        } catch {
+          return null;
+        }
+      })())
+    : { success: false as const };
+
+  if (analysisParsed.success && analysisParsed.data.output === "actions" && analysisParsed.data.actions?.length) {
+    // Resolve asset picks into concrete props.
+    const resolvedActions = analysisParsed.data.actions
+      .map((a) => {
+        const block = a.block as any;
+        if (block.type === "formLink" || block.type === "formEmbed") {
+          const formSlug = resolveFormSlug(block.props.form, forms);
+          const nextProps = { ...block.props };
+          delete (nextProps as any).form;
+          (nextProps as any).formSlug = formSlug;
+          return { type: "insertAfter" as const, block: { type: block.type, props: nextProps } };
+        }
+        if (block.type === "calendarEmbed") {
+          const calendarId = resolveCalendarId(block.props.calendar, calendars);
+          const nextProps = { ...block.props };
+          delete (nextProps as any).calendar;
+          (nextProps as any).calendarId = calendarId;
+          return { type: "insertAfter" as const, block: { type: block.type, props: nextProps } };
+        }
+        return a as any;
+      })
+      .filter(Boolean);
+
+    const validated = aiActionsPayloadSchema.safeParse({ actions: resolvedActions });
+    if (validated.success) {
+      return NextResponse.json({ ok: true, actions: validated.data.actions });
+    }
+  }
+
+  // Step 2: build HTML/CSS (fallback to the original prompt if analysis is missing).
+  const buildPrompt = analysisParsed.success && analysisParsed.data.output === "html" && analysisParsed.data.buildPrompt
+    ? analysisParsed.data.buildPrompt
+    : prompt;
+
+  const buildUser = [
+    baseUser,
+    "",
+    "BUILD_INSTRUCTION:",
+    buildPrompt,
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+  let buildRaw = "";
+  try {
+    buildRaw = await generateText({ system: buildSystem, user: buildUser });
   } catch (e) {
     return NextResponse.json(
       { ok: false, error: (e as any)?.message ? String((e as any).message) : "AI generation failed" },
@@ -296,10 +531,10 @@ export async function POST(req: Request) {
     );
   }
 
-  const jsonFence = extractFence(raw, "json");
-  if (jsonFence.trim()) {
+  const buildJsonFence = extractFence(buildRaw, "json");
+  if (buildJsonFence.trim()) {
     try {
-      const payload = JSON.parse(jsonFence) as unknown;
+      const payload = JSON.parse(buildJsonFence) as unknown;
       const parsedActions = aiActionsPayloadSchema.safeParse(payload);
       if (parsedActions.success) {
         return NextResponse.json({ ok: true, actions: parsedActions.data.actions });
@@ -309,8 +544,8 @@ export async function POST(req: Request) {
     }
   }
 
-  const html = extractFence(raw, "html");
-  const css = extractFence(raw, "css");
+  const html = extractFence(buildRaw, "html");
+  const css = extractFence(buildRaw, "css");
 
   if (!html.trim()) {
     return NextResponse.json({ ok: false, error: "AI returned empty HTML" }, { status: 502 });
