@@ -17,6 +17,10 @@ const postSchema = z
 
 const SERVICE_SLUG = "portal_engagement";
 
+function readObj(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+}
+
 export async function POST(req: Request) {
   const auth = await requireClientSession();
   if (!auth.ok) {
@@ -40,27 +44,33 @@ export async function POST(req: Request) {
   // Migration-free: keep engagement state in PortalServiceSetup JSON.
   // (This is also tenant-safe because it's keyed by the logged-in ownerId.)
   try {
+    const existing = await prisma.portalServiceSetup
+      .findUnique({
+        where: { ownerId_serviceSlug: { ownerId, serviceSlug: SERVICE_SLUG } },
+        select: { dataJson: true },
+      })
+      .catch(() => null);
+
+    const prev = readObj(existing?.dataJson);
+    const next = {
+      ...prev,
+      version: 2,
+      lastSeenAtMs: nowMs,
+      ...(typeof path === "string" ? { lastSeenPath: path.slice(0, 512) } : {}),
+      ...(typeof source === "string" ? { lastSeenSource: source.slice(0, 64) } : {}),
+    };
+
     await prisma.portalServiceSetup.upsert({
       where: { ownerId_serviceSlug: { ownerId, serviceSlug: SERVICE_SLUG } },
       create: {
         ownerId,
         serviceSlug: SERVICE_SLUG,
         status: "COMPLETE",
-        dataJson: {
-          version: 1,
-          lastSeenAtMs: nowMs,
-          lastSeenPath: typeof path === "string" ? path.slice(0, 512) : undefined,
-          lastSeenSource: typeof source === "string" ? source.slice(0, 64) : undefined,
-        },
+        dataJson: next,
       },
       update: {
         status: "COMPLETE",
-        dataJson: {
-          version: 1,
-          lastSeenAtMs: nowMs,
-          lastSeenPath: typeof path === "string" ? path.slice(0, 512) : undefined,
-          lastSeenSource: typeof source === "string" ? source.slice(0, 64) : undefined,
-        },
+        dataJson: next,
       },
       select: { id: true },
     });

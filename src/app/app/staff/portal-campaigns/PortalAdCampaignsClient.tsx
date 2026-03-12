@@ -166,6 +166,8 @@ type CampaignUserAnalyticsRow = {
   email: string;
   businessName: string | null;
   lastSeenAt: string | null;
+  topServiceSlug?: string | null;
+  topServiceSec?: number | null;
   impressions: number;
   impressionsMobile: number;
   impressionsDesktop: number;
@@ -388,6 +390,8 @@ export default function PortalAdCampaignsClient() {
           email: String(r.email || ""),
           businessName: r.businessName ? String(r.businessName) : null,
           lastSeenAt: r.lastSeenAt ? String(r.lastSeenAt) : null,
+          topServiceSlug: r.topServiceSlug ? String(r.topServiceSlug) : null,
+          topServiceSec: Number.isFinite(Number(r.topServiceSec)) ? Number(r.topServiceSec) : null,
           impressions: Number(r.impressions || 0),
           impressionsMobile: Number(r.impressionsMobile || 0),
           impressionsDesktop: Number(r.impressionsDesktop || 0),
@@ -1308,6 +1312,7 @@ export default function PortalAdCampaignsClient() {
               <thead>
                 <tr className="border-b border-zinc-200 text-xs font-semibold uppercase tracking-wide text-zinc-500">
                   <th className="py-2 pr-4">User</th>
+                  <th className="py-2 pr-4">Top service</th>
                   <th className="py-2 pr-4">Device</th>
                   <th className="py-2 pr-4">Impressions</th>
                   <th className="py-2 pr-4">Clicks</th>
@@ -1335,11 +1340,23 @@ export default function PortalAdCampaignsClient() {
                     const mobilePct = Math.round((mobile / denom) * 100);
                     const desktopPct = 100 - mobilePct;
                     const ctr = impressions ? (clicks / impressions) * 100 : 0;
+                    const topServiceSlug = String(r.topServiceSlug || "").trim();
+                    const topServiceSec = Number.isFinite(Number(r.topServiceSec)) ? Math.max(0, Math.floor(Number(r.topServiceSec))) : 0;
+                    const topServiceLabel = topServiceSlug ? topServiceSlug.replace(/-/g, " ") : "n/a";
+                    const topServiceTimeLabel = topServiceSlug
+                      ? topServiceSec >= 60
+                        ? `${Math.round(topServiceSec / 60)}m`
+                        : `${topServiceSec}s`
+                      : "";
                     return (
                       <tr key={r.ownerId} className="border-b border-zinc-100">
                         <td className="py-3 pr-4">
                           <div className="font-semibold text-zinc-900">{r.email}</div>
                           <div className="text-xs text-zinc-500">{r.businessName || r.ownerId}</div>
+                        </td>
+                        <td className="py-3 pr-4 text-zinc-700">
+                          <div className="font-semibold text-zinc-900">{topServiceLabel}</div>
+                          {topServiceTimeLabel ? <div className="text-xs text-zinc-500">{topServiceTimeLabel} active time</div> : null}
                         </td>
                         <td className="py-3 pr-4">
                           <div className="text-xs text-zinc-600">Desktop {desktopPct}% • Mobile {mobilePct}%</div>
@@ -1359,7 +1376,7 @@ export default function PortalAdCampaignsClient() {
 
                 {!usersLoading && (!usersRows || usersRows.length === 0) ? (
                   <tr>
-                    <td colSpan={6} className="py-6 text-center text-sm text-zinc-500">
+                    <td colSpan={7} className="py-6 text-center text-sm text-zinc-500">
                       No analytics yet.
                     </td>
                   </tr>

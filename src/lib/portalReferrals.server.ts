@@ -207,6 +207,54 @@ export async function getPortalReferralStats(inviterId: string): Promise<{
   return { total, verified, awarded };
 }
 
+export async function findInviterByReferralCode(codeRaw: string): Promise<null | {
+  id: string;
+  email: string;
+  role: string;
+  referralCodeCreatedIp: string | null;
+}> {
+  const code = safeCode(codeRaw);
+  if (!code) return null;
+
+  if (await canUseUserReferralColumns()) {
+    const row = await prisma.user
+      .findUnique({
+        where: { portalReferralCode: code },
+        select: { id: true, email: true, role: true, portalReferralCodeCreatedIp: true },
+      })
+      .catch(() => null);
+    if (!row) return null;
+    return {
+      id: row.id,
+      email: row.email,
+      role: row.role,
+      referralCodeCreatedIp: row.portalReferralCodeCreatedIp ? String(row.portalReferralCodeCreatedIp) : null,
+    };
+  }
+
+  const setup = await prisma.portalServiceSetup
+    .findFirst({
+      where: {
+        serviceSlug: SERVICE_SLUG,
+        // Prisma JSON path filters are supported on Postgres; keep as any for portability.
+        dataJson: { path: ["code"], equals: code } as any,
+      },
+      select: { ownerId: true, dataJson: true },
+    })
+    .catch(() => null);
+
+  if (!setup?.ownerId) return null;
+
+  const user = await prisma.user
+    .findUnique({ where: { id: setup.ownerId }, select: { id: true, email: true, role: true } })
+    .catch(() => null);
+  if (!user) return null;
+
+  const parsed = parseReferralSetupConfig(setup.dataJson);
+  const createdIp = typeof parsed.createdIp === "string" ? parsed.createdIp : null;
+  return { id: user.id, email: user.email, role: user.role, referralCodeCreatedIp: createdIp };
+}
+
 export function readReferralCodeFromUnknown(value: unknown): string | null {
   const code = safeCode(typeof value === "string" ? value : "");
   return code ? code : null;

@@ -21,7 +21,7 @@ import {
 import { CORE_INCLUDED_SERVICE_SLUGS, planById } from "@/lib/portalOnboardingWizardCatalog";
 import { PORTAL_BILLING_MODEL_OVERRIDE_SETUP_SLUG } from "@/lib/portalBillingModel";
 import { getRequestIp } from "@/lib/requestIp";
-import { readReferralCodeFromUnknown } from "@/lib/portalReferrals.server";
+import { findInviterByReferralCode, readReferralCodeFromUnknown } from "@/lib/portalReferrals.server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -186,6 +186,7 @@ export async function POST(req: Request) {
   const email = parsed.data.email.toLowerCase();
   const invitedIp = getRequestIp(req);
   const referralCode = readReferralCodeFromUnknown(parsed.data.referralCode);
+  const inviter = referralCode ? await findInviterByReferralCode(referralCode).catch(() => null) : null;
 
   const goalIds = normalizeGoalIds(parsed.data.goalIds);
   const recommendedServiceSlugs = recommendPortalServiceSlugs(goalIds);
@@ -238,12 +239,7 @@ export async function POST(req: Request) {
       });
 
       if (referralCode) {
-        const inviter = await tx.user.findUnique({
-          where: { portalReferralCode: referralCode },
-          select: { id: true, email: true, portalReferralCodeCreatedIp: true, role: true },
-        });
-
-        const inviterIp = String(inviter?.portalReferralCodeCreatedIp || "").trim();
+        const inviterIp = String(inviter?.referralCodeCreatedIp || "").trim();
         const isValidInviter = inviter && inviter.role === "CLIENT" && inviter.email.toLowerCase() !== email;
 
         const ipOk = !inviterIp || !invitedIp || inviterIp !== invitedIp;

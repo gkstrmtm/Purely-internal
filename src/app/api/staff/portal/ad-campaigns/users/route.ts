@@ -35,6 +35,8 @@ export async function GET(req: Request) {
             email: string;
             businessName: string | null;
             lastSeenAt: Date | null;
+            topServiceSlug: string | null;
+            topServiceSec: number | null;
             impressions: number;
             impressionsMobile: number;
             impressionsDesktop: number;
@@ -69,6 +71,8 @@ export async function GET(req: Request) {
               WHEN portal."lastSeenAt" IS NULL THEN a."lastSeenAt"
               ELSE GREATEST(a."lastSeenAt", portal."lastSeenAt")
             END as "lastSeenAt",
+            portal."topServiceSlug" as "topServiceSlug",
+            portal."topServiceSec"::int as "topServiceSec",
             COALESCE(a."impressions", 0)::int as "impressions",
             COALESCE(a."impressionsMobile", 0)::int as "impressionsMobile",
             COALESCE(a."impressionsDesktop", 0)::int as "impressionsDesktop",
@@ -86,7 +90,17 @@ export async function GET(req: Request) {
                   NULLIF(regexp_replace(COALESCE(ps."dataJson"->>'lastSeenAtMs',''), '[^0-9]', '', 'g'), '')::bigint / 1000.0
                 )
               END as "lastSeenAt"
+              , top."topServiceSlug" as "topServiceSlug",
+              top."topServiceSec" as "topServiceSec"
             FROM "PortalServiceSetup" ps
+            LEFT JOIN LATERAL (
+              SELECT
+                kv.key::text as "topServiceSlug",
+                NULLIF(regexp_replace(kv.value::text, '[^0-9]', '', 'g'), '')::bigint as "topServiceSec"
+              FROM jsonb_each(COALESCE(ps."dataJson"->'serviceTimeSec', '{}'::jsonb)) as kv(key, value)
+              ORDER BY NULLIF(regexp_replace(kv.value::text, '[^0-9]', '', 'g'), '')::bigint DESC NULLS LAST
+              LIMIT 1
+            ) top ON true
             WHERE ps."ownerId" = u."id" AND ps."serviceSlug" = ${engagementSlug}
             LIMIT 1
           ) portal ON true
@@ -100,6 +114,8 @@ export async function GET(req: Request) {
             email: string;
             businessName: string | null;
             lastSeenAt: Date | null;
+            topServiceSlug: string | null;
+            topServiceSec: number | null;
             impressions: number;
             impressionsMobile: number;
             impressionsDesktop: number;
@@ -117,6 +133,8 @@ export async function GET(req: Request) {
               WHEN MAX(portal."lastSeenAt") IS NULL THEN MAX(e."createdAt")
               ELSE GREATEST(MAX(e."createdAt"), MAX(portal."lastSeenAt"))
             END as "lastSeenAt",
+              MAX(portal."topServiceSlug") as "topServiceSlug",
+              MAX(portal."topServiceSec")::int as "topServiceSec",
             SUM(CASE WHEN COALESCE(e."metaJson"->>'action','IMPRESSION') = 'CLICK' THEN 0 ELSE 1 END)::int as "impressions",
             SUM(CASE WHEN COALESCE(e."metaJson"->>'action','IMPRESSION') <> 'CLICK' AND COALESCE(e."metaJson"->>'device','desktop') = 'mobile' THEN 1 ELSE 0 END)::int as "impressionsMobile",
             SUM(CASE WHEN COALESCE(e."metaJson"->>'action','IMPRESSION') <> 'CLICK' AND COALESCE(e."metaJson"->>'device','desktop') = 'desktop' THEN 1 ELSE 0 END)::int as "impressionsDesktop",
@@ -134,7 +152,17 @@ export async function GET(req: Request) {
                   NULLIF(regexp_replace(COALESCE(ps."dataJson"->>'lastSeenAtMs',''), '[^0-9]', '', 'g'), '')::bigint / 1000.0
                 )
               END as "lastSeenAt"
+              , top."topServiceSlug" as "topServiceSlug",
+              top."topServiceSec" as "topServiceSec"
             FROM "PortalServiceSetup" ps
+            LEFT JOIN LATERAL (
+              SELECT
+                kv.key::text as "topServiceSlug",
+                NULLIF(regexp_replace(kv.value::text, '[^0-9]', '', 'g'), '')::bigint as "topServiceSec"
+              FROM jsonb_each(COALESCE(ps."dataJson"->'serviceTimeSec', '{}'::jsonb)) as kv(key, value)
+              ORDER BY NULLIF(regexp_replace(kv.value::text, '[^0-9]', '', 'g'), '')::bigint DESC NULLS LAST
+              LIMIT 1
+            ) top ON true
             WHERE ps."ownerId" = e."ownerId" AND ps."serviceSlug" = ${engagementSlug}
             LIMIT 1
           ) portal ON true
