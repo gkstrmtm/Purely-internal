@@ -3,6 +3,9 @@
 import { createPortal } from "react-dom";
 import { type MouseEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import type { PutBlobResult } from "@vercel/blob";
+import { upload as uploadToVercelBlob } from "@vercel/blob/client";
+
 import { PortalListboxDropdown } from "@/components/PortalListboxDropdown";
 import { useToast } from "@/components/ToastProvider";
 
@@ -192,9 +195,51 @@ export function PortalMediaLibraryClient() {
     setError(null);
 
     try {
+      const list = Array.from(files);
+      const totalBytes = list.reduce((sum, f) => sum + (typeof f.size === "number" ? f.size : 0), 0);
+      const wantsBlobUpload =
+        totalBytes > 4 * 1024 * 1024 ||
+        list.some((f) => (typeof f.size === "number" ? f.size : 0) > 4 * 1024 * 1024) ||
+        list.some((f) => String(f.type || "").toLowerCase().startsWith("video/"));
+
+      if (wantsBlobUpload) {
+        for (const f of list) {
+          let blob: PutBlobResult;
+          try {
+            blob = await uploadToVercelBlob(f.name || "upload.bin", f, {
+              access: "public",
+              handleUploadUrl: "/api/portal/media/blob-upload",
+            });
+          } catch (err) {
+            const msg = (err as any)?.message ? String((err as any).message) : "Upload failed";
+            throw new Error(msg);
+          }
+
+          const finalizeRes = await fetch("/api/portal/media/items/from-blob", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+              url: blob.url,
+              fileName: f.name || blob.pathname || "upload.bin",
+              mimeType: f.type || blob.contentType || "application/octet-stream",
+              fileSize: Number.isFinite(f.size) ? f.size : 0,
+              folderId: folderId || null,
+            }),
+          });
+          const finalizeJson = (await finalizeRes.json().catch(() => null)) as any;
+          if (!finalizeRes.ok || !finalizeJson || finalizeJson.ok !== true) {
+            throw new Error(typeof finalizeJson?.error === "string" ? finalizeJson.error : "Upload failed");
+          }
+        }
+
+        setUploading(false);
+        await load(folderId);
+        return;
+      }
+
       const form = new FormData();
       if (folderId) form.append("folderId", folderId);
-      Array.from(files).forEach((f) => form.append("files", f));
+      list.forEach((f) => form.append("files", f));
 
       const res = await fetch("/api/portal/media/items", {
         method: "POST",

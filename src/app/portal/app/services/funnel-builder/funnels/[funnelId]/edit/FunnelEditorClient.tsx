@@ -4,6 +4,9 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import type { PutBlobResult } from "@vercel/blob";
+import { upload as uploadToVercelBlob } from "@vercel/blob/client";
+
 import {
   coerceBlocksJson,
   renderCreditFunnelBlocks,
@@ -112,6 +115,106 @@ function normalizeSlug(raw: string) {
 
 function isHexColor(value: string) {
   return /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(value.trim());
+}
+
+function migrateLegacyAnchorBlocksIntoSections(blocks: CreditFunnelBlock[]): CreditFunnelBlock[] {
+  let changed = false;
+
+  const walkArray = (arr: CreditFunnelBlock[]): CreditFunnelBlock[] => {
+    let pending: { anchorId: string; label?: string } | null = null;
+    const out: CreditFunnelBlock[] = [];
+
+    for (const b of arr) {
+      if (!b) continue;
+      if (b.type === "anchor") {
+        const anchorId = String((b.props as any)?.anchorId || "").trim();
+        const label = String((b.props as any)?.label || "").trim();
+        changed = true;
+        pending = anchorId ? { anchorId, ...(label ? { label } : null) } : null;
+        continue;
+      }
+
+      if (b.type === "section") {
+        const prevProps: any = b.props || {};
+        let nextProps: any = prevProps;
+        let propsChanged = false;
+
+        if (pending?.anchorId) {
+          const existingAnchorId = String(prevProps.anchorId || "").trim();
+          const existingLabel = String(prevProps.anchorLabel || "").trim();
+          if (!existingAnchorId) {
+            nextProps = nextProps === prevProps ? { ...prevProps } : nextProps;
+            nextProps.anchorId = pending.anchorId;
+            propsChanged = true;
+          }
+          if (!existingLabel && pending.label) {
+            nextProps = nextProps === prevProps ? { ...prevProps } : nextProps;
+            nextProps.anchorLabel = pending.label;
+            propsChanged = true;
+          }
+          pending = null;
+        }
+
+        ("children,leftChildren,rightChildren".split(",") as Array<"children" | "leftChildren" | "rightChildren">).forEach((k) => {
+          const rawNested = Array.isArray(prevProps[k]) ? (prevProps[k] as CreditFunnelBlock[]) : null;
+          if (!rawNested) return;
+          const nextNested = walkArray(rawNested);
+          if (nextNested !== rawNested) {
+            nextProps = nextProps === prevProps ? { ...prevProps } : nextProps;
+            nextProps[k] = nextNested;
+            propsChanged = true;
+          }
+        });
+
+        if (propsChanged) {
+          changed = true;
+          out.push({ ...b, props: nextProps } as CreditFunnelBlock);
+        } else {
+          out.push(b);
+        }
+        continue;
+      }
+
+      if (b.type === "columns") {
+        const prevProps: any = b.props || {};
+        const cols = Array.isArray(prevProps.columns) ? (prevProps.columns as any[]) : null;
+        if (!cols) {
+          out.push(b);
+          continue;
+        }
+
+        let colsChanged = false;
+        const nextCols = cols.map((c) => {
+          if (!c || typeof c !== "object") return c;
+          const rawChildren = Array.isArray((c as any).children) ? ((c as any).children as CreditFunnelBlock[]) : null;
+          if (!rawChildren) return c;
+          const nextChildren = walkArray(rawChildren);
+          if (nextChildren === rawChildren) return c;
+          colsChanged = true;
+          return { ...c, children: nextChildren };
+        });
+
+        if (colsChanged) {
+          changed = true;
+          out.push({ ...b, props: { ...prevProps, columns: nextCols } } as CreditFunnelBlock);
+        } else {
+          out.push(b);
+        }
+        continue;
+      }
+
+      out.push(b);
+    }
+
+    // If a legacy anchor wasn't attached to a following section, we drop it.
+    // This is intentional: anchors are now section-based.
+    if (pending) changed = true;
+
+    return out;
+  };
+
+  const next = walkArray(blocks);
+  return changed ? next : blocks;
 }
 
 function normalizeHexInput(value: string) {
@@ -1626,7 +1729,12 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                 </aside>
 
                 <main className="flex-1 overflow-auto bg-zinc-100 p-3 sm:p-4 lg:min-h-0 lg:overflow-hidden">
-                  <div className="flex h-full flex-col overflow-hidden rounded-2xl border border-zinc-200 bg-white">
+                  <div
+                    className={classNames(
+                      "flex h-full flex-col overflow-hidden border border-zinc-200 bg-white",
+                      previewDevice === "mobile" ? "rounded-2xl" : "rounded-none",
+                    )}
+                  >
                     <div className="flex items-center justify-between border-b border-zinc-200 bg-white px-4 py-2">
                       <div className="min-w-0">
                         <div className="truncate text-sm font-semibold text-zinc-900">{selectedPage?.title || "Preview"}</div>
@@ -1747,7 +1855,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                               {renderCreditFunnelBlocks({
                                 blocks: selectedBlocks,
                                 basePath,
-                                context: { funnelPageId: selectedPage?.id || "" },
+                                context: { funnelPageId: selectedPage?.id || "", previewDevice },
                               })}
                             </div>
                           ) : (
@@ -1788,7 +1896,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                                         {renderCreditFunnelBlocks({
                                           blocks: [b],
                                           basePath,
-                                          context: { funnelPageId: selectedPage?.id || "" },
+                                          context: { funnelPageId: selectedPage?.id || "", previewDevice },
                                           editor: {
                                             enabled: true,
                                             selectedBlockId,
@@ -1868,7 +1976,12 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                 </aside>
 
                 <main className="flex-1 overflow-hidden bg-zinc-100 p-4 lg:min-h-0">
-                  <div className="flex h-full flex-col overflow-hidden rounded-2xl border border-zinc-200 bg-white">
+                  <div
+                    className={classNames(
+                      "flex h-full flex-col overflow-hidden border border-zinc-200 bg-white",
+                      previewDevice === "mobile" ? "rounded-2xl" : "rounded-none",
+                    )}
+                  >
                     <div className="flex items-center justify-between border-b border-zinc-200 bg-white px-4 py-2">
                       <div className="min-w-0">
                         <div className="truncate text-sm font-semibold text-zinc-900">{selectedPage?.title || "Preview"}</div>
@@ -1915,7 +2028,12 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                       {!selectedPage ? (
                         <div className="text-sm text-zinc-600">Select a page to preview.</div>
                       ) : selectedPage.editorMode === "CUSTOM_HTML" ? (
-                        <div className="h-[78vh] overflow-hidden rounded-2xl border border-zinc-200 bg-white">
+                        <div
+                          className={classNames(
+                            "h-[78vh] overflow-hidden border border-zinc-200 bg-white",
+                            previewDevice === "mobile" ? "rounded-2xl" : "rounded-none",
+                          )}
+                        >
                           <iframe
                             title={selectedPage.title}
                             sandbox="allow-forms allow-popups allow-scripts"
@@ -1924,7 +2042,12 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                           />
                         </div>
                       ) : (
-                        <div className="mx-auto w-full max-w-4xl rounded-3xl border border-zinc-200 bg-white p-8">
+                        <div
+                          className={classNames(
+                            "mx-auto w-full border border-zinc-200 bg-white p-8",
+                            previewDevice === "mobile" ? "max-w-[420px] rounded-3xl" : "max-w-4xl rounded-none",
+                          )}
+                        >
                           {selectedBlocks.length === 0 ? (
                             <div className="rounded-xl border border-dashed border-zinc-300 p-6 text-sm text-zinc-600">
                               Drag a block from the left, or click a block to add.
@@ -2413,6 +2536,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
 
   const MAX_MEDIA_LIBRARY_BYTES = 25 * 1024 * 1024; // 25MB per file (DB-backed)
   const MAX_UPLOADS_BYTES = 250 * 1024 * 1024; // 250MB per file (disk-backed)
+  const VERCEL_SERVERLESS_BODY_LIMIT_BYTES = 4 * 1024 * 1024; // ~4MB (Vercel limit is ~4.5MB)
 
   const uploadToMediaLibrary = async (files: FileList | File[], opts?: { maxFiles?: number }) => {
     const maxFiles = Math.max(1, Math.min(20, Math.floor(opts?.maxFiles ?? 20)));
@@ -2443,6 +2567,47 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
     if (!file) throw new Error("Missing file");
     if (file.size > MAX_UPLOADS_BYTES) {
       throw new Error(`"${file.name}" is too large (max ${Math.floor(MAX_UPLOADS_BYTES / (1024 * 1024))}MB)`);
+    }
+
+    const wantsBlobUpload =
+      file.size > VERCEL_SERVERLESS_BODY_LIMIT_BYTES || String(file.type || "").toLowerCase().startsWith("video/");
+
+    if (wantsBlobUpload) {
+      let blob: PutBlobResult;
+      try {
+        blob = await uploadToVercelBlob(file.name || "upload.bin", file, {
+          access: "public",
+          handleUploadUrl: "/api/portal/media/blob-upload",
+        });
+      } catch (e) {
+        const msg = e && typeof e === "object" && "message" in e ? String((e as any).message) : "Blob upload failed";
+        throw new Error(msg || "Blob upload failed");
+      }
+
+      // Create a media library item that points to the blob.
+      const finalizeRes = await fetch("/api/portal/media/items/from-blob", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          [PORTAL_VARIANT_HEADER]: portalVariant,
+        },
+        body: JSON.stringify({
+          url: blob.url,
+          fileName: file.name || blob.pathname || "upload.bin",
+          mimeType: file.type || blob.contentType || "application/octet-stream",
+          fileSize: Number.isFinite(file.size) ? file.size : 0,
+          folderId: null,
+        }),
+      });
+      const finalizeJson = (await finalizeRes.json().catch(() => null)) as any;
+      if (!finalizeRes.ok || !finalizeJson || finalizeJson.ok !== true || !finalizeJson.item) {
+        throw new Error(typeof finalizeJson?.error === "string" ? finalizeJson.error : "Upload succeeded, but could not add to media library");
+      }
+
+      const mediaItem = finalizeJson.item as PortalMediaPickItem;
+      const nextUrl = String(mediaItem.shareUrl || blob.url || "").trim();
+      if (!nextUrl) throw new Error("Upload did not return a URL");
+      return { url: nextUrl, mediaItem };
     }
 
     const form = new FormData();
@@ -2519,7 +2684,8 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
 
   const selectedBlocks = useMemo(() => {
     if (!selectedPage) return [];
-    return coerceBlocksJson(selectedPage.blocksJson);
+    const raw = coerceBlocksJson(selectedPage.blocksJson);
+    return migrateLegacyAnchorBlocksIntoSections(raw);
   }, [selectedPage]);
 
   const pageSettingsBlock = useMemo(() => {
@@ -3167,7 +3333,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
     });
   };
 
-  const addBlock = (type: Exclude<CreditFunnelBlock["type"], "page">) => {
+  const addBlock = (type: Exclude<CreditFunnelBlock["type"], "page" | "anchor">) => {
     if (!selectedPage) return;
     const id = newId();
     const base: CreditFunnelBlock =
@@ -3186,16 +3352,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
               items: [{ id: newId(), label: "Home", kind: "page", pageSlug: "" }],
             } as any,
           }
-        : type === "anchor"
-          ? {
-              id,
-              type,
-              props: {
-                anchorId: `section-${Date.now().toString(36)}`,
-                label: "Section",
-              } as any,
-            }
-          : type === "heading"
+        : type === "heading"
         ? { id, type, props: { text: "Headline", level: 2 } }
         : type === "paragraph"
           ? { id, type, props: { text: "Write something compelling here." } }
@@ -4654,7 +4811,6 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                     {(
                       [
                         { type: "headerNav", label: "Header / Menu" },
-                        { type: "anchor", label: "Anchor" },
                       ] as const
                     ).map((b) => (
                       <button
@@ -4674,7 +4830,9 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                       </button>
                     ))}
                   </div>
-                  <div className="mt-2 text-xs text-zinc-500">Anchors can be used for menu links like “#pricing”.</div>
+                  <div className="mt-2 text-xs text-zinc-500">
+                    Tip: sections automatically have anchors you can link to (for example, “Section (#section-…)”).
+                  </div>
                 </div>
               ) : null}
 
@@ -5921,7 +6079,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                         </label>
 
                         <label className="block">
-                          <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Mobile trigger</div>
+                          <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Menu trigger</div>
                           <PortalListboxDropdown
                             value={String((selectedBlock.props as any)?.mobileTrigger || "hamburger")}
                             onChange={(v) =>
@@ -6075,12 +6233,6 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                                 const walk = (arr: CreditFunnelBlock[]) => {
                                   for (const b of arr) {
                                     if (!b) continue;
-                                    if (b.type === "anchor") {
-                                      const id = String((b.props as any)?.anchorId || "").trim();
-                                      const label = String((b.props as any)?.label || "").trim();
-                                      if (id) out.push({ value: id, label: label ? `${label} (#${id})` : `#${id}` });
-                                      continue;
-                                    }
                                     if (b.type === "section") {
                                       const props: any = b.props;
                                       const rawId = String(props?.anchorId || "").trim();
@@ -6152,11 +6304,11 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                                                 });
                                                 updateItems(next);
                                               }}
-                                              options={[
-                                                { value: "url", label: "External URL" },
-                                                { value: "page", label: "Funnel page" },
-                                                { value: "anchor", label: "On-page anchor" },
-                                              ]}
+                                                  options={[
+                                                    { value: "url", label: "External URL" },
+                                                    { value: "page", label: "Funnel page" },
+                                                    { value: "anchor", label: "Section (scroll)" },
+                                                  ]}
                                               className="w-full"
                                               buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
                                             />
@@ -6266,41 +6418,6 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                             })()}
                           </div>
                         </div>
-                      </div>
-                    ) : null}
-
-                    {selectedBlock.type === "anchor" ? (
-                      <div className="space-y-2">
-                        <label className="block">
-                          <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Anchor ID</div>
-                          <input
-                            value={String((selectedBlock.props as any)?.anchorId || "")}
-                            onChange={(e) =>
-                              upsertBlock({
-                                ...selectedBlock,
-                                props: { ...selectedBlock.props, anchorId: e.target.value },
-                              } as any)
-                            }
-                            className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                            placeholder="pricing"
-                          />
-                          <div className="mt-1 text-xs text-zinc-500">Menu links will use this like “#pricing”.</div>
-                        </label>
-
-                        <label className="block">
-                          <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Label (editor only)</div>
-                          <input
-                            value={String((selectedBlock.props as any)?.label || "")}
-                            onChange={(e) =>
-                              upsertBlock({
-                                ...selectedBlock,
-                                props: { ...selectedBlock.props, label: e.target.value },
-                              } as any)
-                            }
-                            className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                            placeholder="Pricing"
-                          />
-                        </label>
                       </div>
                     ) : null}
 
@@ -8016,7 +8133,12 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
         </aside>
 
                 <main className="flex-1 overflow-auto bg-zinc-100 p-3 sm:p-4 lg:min-h-0 lg:overflow-hidden">
-          <div className="flex h-full flex-col overflow-hidden rounded-2xl border border-zinc-200 bg-white">
+          <div
+            className={classNames(
+              "flex h-full flex-col overflow-hidden border border-zinc-200 bg-white",
+              previewDevice === "mobile" ? "rounded-2xl" : "rounded-none",
+            )}
+          >
             <div className="flex items-center justify-between border-b border-zinc-200 bg-white px-4 py-2">
               <div className="min-w-0">
                 <div className="truncate text-sm font-semibold text-zinc-900">{selectedPage?.title || "Preview"}</div>
@@ -8095,8 +8217,8 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
               ) : selectedPage.editorMode === "CUSTOM_HTML" ? (
                 <div
                   className={classNames(
-                    "mx-auto w-full overflow-hidden rounded-3xl border border-zinc-200 bg-white",
-                    previewDevice === "mobile" ? "max-w-[420px]" : "max-w-5xl",
+                    "mx-auto w-full overflow-hidden border border-zinc-200 bg-white",
+                    previewDevice === "mobile" ? "max-w-[420px] rounded-3xl" : "max-w-5xl rounded-none",
                   )}
                 >
                   <iframe
@@ -8109,8 +8231,8 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
               ) : (
                 <div
                   className={classNames(
-                    "mx-auto w-full overflow-hidden rounded-3xl border border-zinc-200",
-                    previewDevice === "mobile" ? "max-w-[420px]" : "max-w-5xl",
+                    "mx-auto w-full overflow-hidden border border-zinc-200",
+                    previewDevice === "mobile" ? "max-w-[420px] rounded-3xl" : "max-w-5xl rounded-none",
                   )}
                 >
                   <div className="min-h-[70vh]">
@@ -8124,7 +8246,11 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                       renderCreditFunnelBlocks({
                         blocks: pageSettingsBlock ? [pageSettingsBlock, ...editableBlocks] : editableBlocks,
                         basePath,
-                        context: { bookingSiteSlug: bookingSiteSlug || undefined, funnelPageId: selectedPage.id },
+                        context: {
+                          bookingSiteSlug: bookingSiteSlug || undefined,
+                          funnelPageId: selectedPage.id,
+                          previewDevice,
+                        },
                         editor: {
                           enabled: true,
                           selectedBlockId,

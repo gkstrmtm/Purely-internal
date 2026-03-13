@@ -1557,7 +1557,7 @@ export async function processDueFollowUps(opts: { limit: number }): Promise<{ pr
             const ids = attachmentRefs.map((a) => a.mediaItemId).filter(Boolean).slice(0, 10);
             const media = await prisma.portalMediaItem.findMany({
               where: { ownerId: row.ownerId, id: { in: ids } },
-              select: { id: true, fileName: true, mimeType: true, bytes: true },
+              select: { id: true, fileName: true, mimeType: true, bytes: true, storageUrl: true },
             });
             const byId = new Map(media.map((m) => [m.id, m] as const));
             const missing = ids.filter((id) => !byId.has(id));
@@ -1573,12 +1573,28 @@ export async function processDueFollowUps(opts: { limit: number }): Promise<{ pr
               continue;
             }
 
+            const blobOnlyAll = ids.map((id) => byId.get(id)!).filter((m) => !m.bytes);
+            const blobOnly = blobOnlyAll.slice(0, 3);
+            if (blobOnly.length) {
+              failed++;
+              nextQueue[idx] = {
+                ...nextQueue[idx]!,
+                status: "FAILED",
+                attempts: msg.attempts + 1,
+                lastError: `Attachment(s) stored externally can't be attached yet: ${blobOnly
+                  .map((m) => m.fileName || m.id)
+                  .join(", ")}${blobOnlyAll.length > 3 ? "…" : ""}`,
+              };
+              changed = true;
+              continue;
+            }
+
             const attachments = attachmentRefs
               .map((ref) => byId.get(ref.mediaItemId)!)
               .map((m) => ({
                 fileName: m.fileName,
                 mimeType: m.mimeType,
-                bytes: Buffer.from(m.bytes),
+                bytes: Buffer.from(m.bytes!),
               }));
 
             try {

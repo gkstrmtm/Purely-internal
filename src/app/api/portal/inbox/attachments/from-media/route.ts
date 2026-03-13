@@ -25,10 +25,20 @@ export async function POST(req: Request) {
 
   const media = await (prisma as any).portalMediaItem.findFirst({
     where: { id: mediaItemId, ownerId },
-    select: { fileName: true, mimeType: true, fileSize: true, bytes: true },
+    select: { fileName: true, mimeType: true, fileSize: true, bytes: true, storageUrl: true },
   });
 
   if (!media) return NextResponse.json({ ok: false, error: "Not found" }, { status: 404 });
+
+  if (!media.bytes) {
+    return NextResponse.json(
+      {
+        ok: false,
+        error: "This media item is stored externally and can't be attached from the media library yet.",
+      },
+      { status: 400 },
+    );
+  }
 
   const publicToken = crypto.randomUUID().replace(/-/g, "");
   const row = await (prisma as any).portalInboxAttachment.create({

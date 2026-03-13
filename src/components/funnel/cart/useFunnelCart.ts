@@ -21,14 +21,22 @@ function storageKey(pageId: string): string {
   return `credit_funnel_cart:${pageId}`;
 }
 
-function readCart(pageId: string): FunnelCartItem[] {
-  if (typeof window === "undefined") return [];
-  if (!pageId) return [];
+function readCartRaw(pageId: string): string {
+  if (typeof window === "undefined") return "";
+  if (!pageId) return "";
+  try {
+    return window.localStorage.getItem(storageKey(pageId)) || "";
+  } catch {
+    return "";
+  }
+}
+
+function parseCartRaw(raw: string): FunnelCartItem[] {
+  const text = String(raw || "");
+  if (!text) return [];
 
   try {
-    const raw = window.localStorage.getItem(storageKey(pageId));
-    if (!raw) return [];
-    const parsed = JSON.parse(raw) as any;
+    const parsed = JSON.parse(text) as any;
     const itemsRaw = Array.isArray(parsed?.items) ? parsed.items : [];
     const items: FunnelCartItem[] = [];
 
@@ -51,6 +59,10 @@ function readCart(pageId: string): FunnelCartItem[] {
   } catch {
     return [];
   }
+}
+
+function readCart(pageId: string): FunnelCartItem[] {
+  return parseCartRaw(readCartRaw(pageId));
 }
 
 function writeCart(pageId: string, items: FunnelCartItem[]): void {
@@ -96,11 +108,17 @@ function subscribe(pageId: string, cb: () => void): () => void {
 }
 
 export function useFunnelCart(pageId: string) {
-  const items = useSyncExternalStore(
+  // IMPORTANT: `useSyncExternalStore` requires `getSnapshot` to return a
+  // referentially-stable value when the store hasn't changed. Returning a
+  // freshly-allocated array each time can trigger React's "maximum update depth"
+  // error in production.
+  const raw = useSyncExternalStore(
     useCallback((cb) => subscribe(pageId, cb), [pageId]),
-    useCallback(() => readCart(pageId), [pageId]),
-    useCallback(() => [], []),
+    useCallback(() => readCartRaw(pageId), [pageId]),
+    useCallback(() => "", []),
   );
+
+  const items = useMemo(() => parseCartRaw(raw), [raw]);
 
   const totalQuantity = useMemo(() => items.reduce((sum, it) => sum + (it.quantity || 0), 0), [items]);
 

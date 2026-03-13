@@ -980,6 +980,7 @@ export function renderCreditFunnelBlocks({
     funnelSlug?: string;
     funnelPathBase?: string;
     funnelPageSlug?: string;
+    previewDevice?: "desktop" | "mobile";
   };
   editor?: {
     enabled?: boolean;
@@ -1478,6 +1479,7 @@ export function renderCreditFunnelBlocks({
             size,
             mobileTrigger,
             mobileTriggerLabel: mobileTriggerLabel || undefined,
+            forceTriggerOnDesktop: context?.previewDevice === "desktop",
             disabled: isEditor,
             funnelPathBase: typeof context?.funnelPathBase === "string" ? context.funnelPathBase : undefined,
             style: Object.keys(headerStyle).some((k) => (headerStyle as any)[k] !== undefined) ? headerStyle : undefined,
@@ -1487,7 +1489,6 @@ export function renderCreditFunnelBlocks({
 
       if (b.type === "anchor") {
         const anchorId = String((b.props as any)?.anchorId || "").trim();
-        const label = typeof (b.props as any)?.label === "string" ? String((b.props as any).label).trim() : "";
         const s = (b.props as any)?.style as BlockStyle | undefined;
         const wrapper: React.CSSProperties = wrapperStyle({
           align: s?.align,
@@ -1505,15 +1506,7 @@ export function renderCreditFunnelBlocks({
             ...wrapProps(b.id),
           },
           renderMoveControls(b.id),
-          isEditor
-            ? React.createElement(
-                "div",
-                {
-                  className: "rounded-xl border border-dashed border-zinc-300 bg-zinc-50 px-3 py-2 text-xs font-semibold text-zinc-700",
-                },
-                `Anchor: ${label || anchorId}`,
-              )
-            : React.createElement("div", { style: { height: 1 } }),
+          React.createElement("div", { style: { height: 1 } }),
         );
       }
 

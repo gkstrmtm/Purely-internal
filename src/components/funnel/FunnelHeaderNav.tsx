@@ -27,14 +27,20 @@ function normalizePathBase(input: string): string {
   return noTrailing || "";
 }
 
+function normalizeAnchorId(input: string): string {
+  const s = String(input || "").trim();
+  if (!s) return "";
+  return s.startsWith("#") ? s.slice(1) : s;
+}
+
 function buildHref(args: {
   item: FunnelHeaderNavItem;
   funnelPathBase?: string;
 }): string {
   const { item } = args;
   if (item.kind === "anchor") {
-    const a = String(item.anchorId || "").trim();
-    return a ? `#${encodeURIComponent(a)}` : "#";
+    const a = normalizeAnchorId(item.anchorId || "");
+    return a ? `#${a}` : "#";
   }
   if (item.kind === "url") {
     return String(item.url || "").trim() || "#";
@@ -57,6 +63,7 @@ export function FunnelHeaderNav({
   size,
   mobileTrigger,
   mobileTriggerLabel,
+  forceTriggerOnDesktop,
   className,
   style,
   funnelPathBase,
@@ -72,12 +79,33 @@ export function FunnelHeaderNav({
   size?: FunnelHeaderSize;
   mobileTrigger?: FunnelHeaderMobileTrigger;
   mobileTriggerLabel?: string;
+  forceTriggerOnDesktop?: boolean;
   className?: string;
   style?: CSSProperties;
   funnelPathBase?: string;
   disabled?: boolean;
 }) {
   const [open, setOpen] = useState(false);
+
+  const scrollToAnchor = useCallback((rawAnchorId: string) => {
+    const id = normalizeAnchorId(rawAnchorId);
+    if (!id) return false;
+
+    try {
+      const el = document.getElementById(id);
+      if (!el) return false;
+
+      el.scrollIntoView({ behavior: "smooth", block: "start" });
+      try {
+        window.history.pushState(null, "", `#${id}`);
+      } catch {
+        // ignore
+      }
+      return true;
+    } catch {
+      return false;
+    }
+  }, []);
 
   useEffect(() => {
     if (!open) return;
@@ -113,6 +141,7 @@ export function FunnelHeaderNav({
   const headerSize: FunnelHeaderSize = size === "lg" ? "lg" : size === "sm" ? "sm" : "md";
   const trigger: FunnelHeaderMobileTrigger = mobileTrigger === "directory" ? "directory" : "hamburger";
   const triggerLabel = (mobileTriggerLabel || "Directory").trim() || "Directory";
+  const forceTrigger = forceTriggerOnDesktop === true;
 
   const paddingYClass = headerSize === "lg" ? "py-4" : headerSize === "sm" ? "py-2" : "py-3";
   const logoClass = headerSize === "lg" ? "h-10" : headerSize === "sm" ? "h-7" : "h-8";
@@ -123,7 +152,7 @@ export function FunnelHeaderNav({
       className={classNames(
         sticky ? "sticky top-0 z-40" : "relative",
         "w-full",
-        transparent ? "bg-transparent" : "bg-white/90 backdrop-blur supports-[backdrop-filter]:bg-white/70",
+        transparent ? "bg-transparent" : "bg-white/90 backdrop-blur supports-backdrop-filter:bg-white/70",
         transparent ? "border-b border-transparent" : "border-b border-zinc-200",
         className,
       )}
@@ -148,7 +177,7 @@ export function FunnelHeaderNav({
         </a>
 
         {/* Desktop nav */}
-        <nav className="hidden items-center gap-4 sm:flex" aria-label="Primary">
+        <nav className={classNames(forceTrigger ? "hidden" : "hidden sm:flex", "items-center gap-4")} aria-label="Primary">
           {normalizedItems.map((it) => {
             const href = buildHref({ item: it, funnelPathBase });
             const label = (it.label || "Link").trim() || "Link";
@@ -159,6 +188,19 @@ export function FunnelHeaderNav({
                 href={href}
                 onClick={(e) => {
                   if (disabled) return onNavClick(e);
+                  if (it.kind === "anchor") {
+                    e.preventDefault();
+                    setOpen(false);
+                    const ok = scrollToAnchor(String(it.anchorId || ""));
+                    if (!ok) {
+                      try {
+                        window.location.hash = normalizeAnchorId(String(it.anchorId || ""));
+                      } catch {
+                        // ignore
+                      }
+                    }
+                    return;
+                  }
                   setOpen(false);
                 }}
                 target={newTab ? "_blank" : undefined}
@@ -178,7 +220,8 @@ export function FunnelHeaderNav({
             type="button"
             data-funnel-editor-interactive="true"
             className={classNames(
-              "inline-flex items-center justify-center gap-2 rounded-full border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50 sm:hidden",
+              "inline-flex items-center justify-center gap-2 rounded-full border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50",
+              forceTrigger ? "" : "sm:hidden",
               disabled ? "opacity-60" : "",
             )}
             aria-label="Open menu"
@@ -196,7 +239,8 @@ export function FunnelHeaderNav({
             type="button"
             data-funnel-editor-interactive="true"
             className={classNames(
-              "inline-flex items-center justify-center rounded-xl border border-zinc-200 bg-white text-zinc-800 hover:bg-zinc-50 sm:hidden",
+              "inline-flex items-center justify-center rounded-xl border border-zinc-200 bg-white text-zinc-800 hover:bg-zinc-50",
+              forceTrigger ? "" : "sm:hidden",
               iconBtnClass,
             )}
             aria-label="Open menu"
@@ -213,7 +257,7 @@ export function FunnelHeaderNav({
 
       {/* Mobile menu */}
       {mode === "dropdown" ? (
-        <div className={classNames("sm:hidden", open ? "block" : "hidden")}>
+        <div className={classNames(forceTrigger ? "" : "sm:hidden", open ? "block" : "hidden")}>
           <div className="space-y-1 border-t border-zinc-200 bg-white px-4 py-3">
             {normalizedItems.map((it) => {
               const href = buildHref({ item: it, funnelPathBase });
@@ -225,6 +269,19 @@ export function FunnelHeaderNav({
                   href={href}
                   onClick={(e) => {
                     if (disabled) return onNavClick(e);
+                    if (it.kind === "anchor") {
+                      e.preventDefault();
+                      setOpen(false);
+                      const ok = scrollToAnchor(String(it.anchorId || ""));
+                      if (!ok) {
+                        try {
+                          window.location.hash = normalizeAnchorId(String(it.anchorId || ""));
+                        } catch {
+                          // ignore
+                        }
+                      }
+                      return;
+                    }
                     setOpen(false);
                   }}
                   target={newTab ? "_blank" : undefined}
@@ -239,7 +296,7 @@ export function FunnelHeaderNav({
           </div>
         </div>
       ) : (
-        <div className={classNames("sm:hidden", open ? "block" : "hidden")}>
+        <div className={classNames(forceTrigger ? "" : "sm:hidden", open ? "block" : "hidden")}>
           <div
             className="fixed inset-0 z-40 bg-black/30"
             onClick={() => {
@@ -274,6 +331,19 @@ export function FunnelHeaderNav({
                     href={href}
                     onClick={(e) => {
                       if (disabled) return onNavClick(e);
+                      if (it.kind === "anchor") {
+                        e.preventDefault();
+                        setOpen(false);
+                        const ok = scrollToAnchor(String(it.anchorId || ""));
+                        if (!ok) {
+                          try {
+                            window.location.hash = normalizeAnchorId(String(it.anchorId || ""));
+                          } catch {
+                            // ignore
+                          }
+                        }
+                        return;
+                      }
                       setOpen(false);
                     }}
                     target={newTab ? "_blank" : undefined}

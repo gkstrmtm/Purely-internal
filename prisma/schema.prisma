@@ -702,7 +702,10 @@ model PortalMediaItem {
   fileName String
   mimeType String
   fileSize Int
-  bytes    Bytes
+  // For small files we store bytes directly in the DB.
+  // For larger files (e.g. videos) we store an external URL (e.g. Vercel Blob).
+  bytes      Bytes?
+  storageUrl String?
 
   // Short per-owner tag you can reference elsewhere.
   tag String

@@ -961,7 +961,7 @@ export async function processDueAppointmentReminders(opts?: { ownersLimit?: numb
                   const ids = attachmentRefs.map((a) => a.mediaItemId).filter(Boolean).slice(0, 10);
                   const media = await prisma.portalMediaItem.findMany({
                     where: { ownerId, id: { in: ids } },
-                    select: { id: true, fileName: true, mimeType: true, bytes: true },
+                    select: { id: true, fileName: true, mimeType: true, bytes: true, storageUrl: true },
                   });
                   const byId = new Map(media.map((m) => [m.id, m] as const));
                   const missing = ids.filter((id) => !byId.has(id));
@@ -973,6 +973,11 @@ export async function processDueAppointmentReminders(opts?: { ownersLimit?: numb
 
                   attachments = attachmentRefs.map((ref) => {
                     const m = byId.get(ref.mediaItemId)!;
+                    if (!m.bytes) {
+                      throw new Error(
+                        `Attachment "${m.fileName || m.id}" is stored externally and can't be attached yet. Please re-upload it as a file attachment.`,
+                      );
+                    }
                     return {
                       fileName: m.fileName,
                       mimeType: m.mimeType,
