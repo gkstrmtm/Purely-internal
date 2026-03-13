@@ -23,6 +23,7 @@ import {
   PortalMediaPickerModal,
   type PortalMediaPickItem,
 } from "@/components/PortalMediaPickerModal";
+import { PortalFontDropdown } from "@/components/PortalFontDropdown";
 import { PortalSelectDropdown } from "@/components/PortalSelectDropdown";
 import { useToast } from "@/components/ToastProvider";
 import { PORTAL_VARIANT_HEADER, type PortalVariant } from "@/lib/portalVariant";
@@ -1545,19 +1546,35 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                                 </div>
 
                                 {selectedBlock.props.src ? (
-                                  <div className="rounded-xl border border-zinc-200 bg-white px-3 py-2">
-                                    <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Selected image</div>
-                                    <div className="mt-1 break-all font-mono text-xs text-zinc-700">{selectedBlock.props.src}</div>
-                                  </div>
+                                  <div className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-600">Image selected.</div>
                                 ) : (
                                   <div className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-600">No image selected.</div>
                                 )}
-                                <input
-                                  value={selectedBlock.props.alt ?? ""}
-                                  onChange={(e) => upsertBlock({ ...selectedBlock, props: { ...selectedBlock.props, alt: e.target.value } })}
-                                  className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                                  placeholder="Alt text"
-                                />
+
+                                <label className="block">
+                                  <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-zinc-500">Image name</div>
+                                  <input
+                                    value={selectedBlock.props.alt ?? ""}
+                                    onChange={(e) => upsertBlock({ ...selectedBlock, props: { ...selectedBlock.props, alt: e.target.value } })}
+                                    className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                                    placeholder="e.g. hero-image.png"
+                                  />
+                                  <div className="mt-1 text-xs text-zinc-500">Saved as the image alt text.</div>
+                                </label>
+
+                                <label className="flex items-center justify-between gap-4 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm">
+                                  <span className="font-semibold text-zinc-900">Show frame</span>
+                                  <ToggleSwitch
+                                    checked={(selectedBlock.props as any)?.showFrame !== false}
+                                    disabled={busy}
+                                    onChange={(checked) =>
+                                      upsertBlock({
+                                        ...selectedBlock,
+                                        props: { ...(selectedBlock.props as any), showFrame: checked },
+                                      } as any)
+                                    }
+                                  />
+                                </label>
                               </div>
                             ) : null}
 
@@ -1602,11 +1619,13 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                                             const uploaded = await uploadToUploads(file);
                                             const nextSrc = String(uploaded.mediaItem?.shareUrl || uploaded.url || "").trim();
                                             if (!nextSrc) return;
+                                            const prevName = String((selectedBlock.props as any)?.name || "").trim();
                                             upsertBlock({
                                               ...selectedBlock,
                                               props: {
                                                 ...(selectedBlock.props as any),
                                                 src: nextSrc,
+                                                ...(prevName ? null : { name: uploaded.mediaItem?.fileName || file.name }),
                                               },
                                             } as any);
                                             toast.success("Video uploaded and selected");
@@ -1648,13 +1667,25 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                                 </div>
 
                                 {String((selectedBlock.props as any).src || "").trim() ? (
-                                  <div className="rounded-xl border border-zinc-200 bg-white px-3 py-2">
-                                    <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Selected video</div>
-                                    <div className="mt-1 break-all font-mono text-xs text-zinc-700">{String((selectedBlock.props as any).src || "").trim()}</div>
-                                  </div>
+                                  <div className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-600">Video selected.</div>
                                 ) : (
                                   <div className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-600">No video selected.</div>
                                 )}
+
+                                <label className="block">
+                                  <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-zinc-500">Video name</div>
+                                  <input
+                                    value={String((selectedBlock.props as any)?.name || "")}
+                                    onChange={(e) =>
+                                      upsertBlock({
+                                        ...selectedBlock,
+                                        props: { ...(selectedBlock.props as any), name: e.target.value.slice(0, 200) },
+                                      } as any)
+                                    }
+                                    className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                                    placeholder="e.g. intro-video.mp4"
+                                  />
+                                </label>
 
                                 {videoSettingsBlockId === selectedBlock.id ? (
                                   <div className="space-y-2 rounded-xl border border-zinc-200 bg-white p-3">
@@ -4164,11 +4195,13 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
             if (!block || block.type !== "video") return;
             const nextSrc = String(it.shareUrl || it.downloadUrl || "").trim();
             if (!nextSrc) return;
+            const prevName = String((block.props as any)?.name || "").trim();
             upsertBlock({
               ...block,
               props: {
                 ...(block.props as any),
                 src: nextSrc,
+                ...(prevName ? null : { name: it.fileName }),
               },
             } as any);
             return;
@@ -4649,7 +4682,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                       return (
                         <div>
                           <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-zinc-500">Font</div>
-                          <PortalListboxDropdown
+                          <PortalFontDropdown
                             value={presetKey}
                             onChange={(k) => {
                               const next = applyFontPresetToStyle(String(k || "default"));
@@ -4658,28 +4691,9 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                                 fontGoogleFamily: next.fontGoogleFamily,
                               } as any);
                             }}
-                            options={[
-                              { value: "default", label: "Default (app font)" },
-                              ...FONT_PRESETS.filter((p) => p.key !== "default").map((p) => ({ value: p.key, label: p.label })),
-                              { value: "custom", label: "Custom…" },
-                            ]}
-                            getOptionStyle={(o) => {
-                              if (o.value === "custom") {
-                                const fam = String((pageStyle as any)?.fontFamily || "").trim();
-                                return fam ? { fontFamily: fam } : undefined;
-                              }
-                              const preset = FONT_PRESETS.find((p) => p.key === o.value);
-                              return preset?.fontFamily ? { fontFamily: preset.fontFamily } : undefined;
-                            }}
-                            getButtonLabelStyle={(o) => {
-                              if (!o) return undefined;
-                              if (o.value === "custom") {
-                                const fam = String((pageStyle as any)?.fontFamily || "").trim();
-                                return fam ? { fontFamily: fam } : undefined;
-                              }
-                              const preset = FONT_PRESETS.find((p) => p.key === o.value);
-                              return preset?.fontFamily ? { fontFamily: preset.fontFamily } : undefined;
-                            }}
+                            includeCustom
+                            customFontFamily={String((pageStyle as any)?.fontFamily || "").trim()}
+                            extraOptions={[{ value: "default", label: "Default (app font)" }]}
                             className="mt-1 w-full"
                             buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
                           />
@@ -6876,24 +6890,40 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                         </div>
 
                         {selectedBlock.props.src ? (
-                          <div className="rounded-xl border border-zinc-200 bg-white px-3 py-2">
-                            <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Selected image</div>
-                            <div className="mt-1 break-all font-mono text-xs text-zinc-700">{selectedBlock.props.src}</div>
-                          </div>
+                          <div className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-600">Image selected.</div>
                         ) : (
                           <div className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-600">No image selected.</div>
                         )}
-                        <input
-                          value={selectedBlock.props.alt ?? ""}
-                          onChange={(e) =>
-                            upsertBlock({
-                              ...selectedBlock,
-                              props: { ...selectedBlock.props, alt: e.target.value },
-                            })
-                          }
-                          className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                          placeholder="Alt text"
-                        />
+
+                        <label className="block">
+                          <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-zinc-500">Image name</div>
+                          <input
+                            value={selectedBlock.props.alt ?? ""}
+                            onChange={(e) =>
+                              upsertBlock({
+                                ...selectedBlock,
+                                props: { ...selectedBlock.props, alt: e.target.value },
+                              })
+                            }
+                            className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                            placeholder="e.g. hero-image.png"
+                          />
+                          <div className="mt-1 text-xs text-zinc-500">Saved as the image alt text.</div>
+                        </label>
+
+                        <label className="flex items-center justify-between gap-4 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm">
+                          <span className="font-semibold text-zinc-900">Show frame</span>
+                          <ToggleSwitch
+                            checked={(selectedBlock.props as any)?.showFrame !== false}
+                            disabled={busy}
+                            onChange={(checked) =>
+                              upsertBlock({
+                                ...selectedBlock,
+                                props: { ...(selectedBlock.props as any), showFrame: checked },
+                              } as any)
+                            }
+                          />
+                        </label>
                       </div>
                     ) : null}
 
@@ -6937,11 +6967,13 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                                     const uploaded = await uploadToUploads(file);
                                     const nextSrc = String(uploaded.mediaItem?.shareUrl || uploaded.url || "").trim();
                                     if (!nextSrc) return;
+                                    const prevName = String((selectedBlock.props as any)?.name || "").trim();
                                     upsertBlock({
                                       ...selectedBlock,
                                       props: {
                                         ...(selectedBlock.props as any),
                                         src: nextSrc,
+                                        ...(prevName ? null : { name: uploaded.mediaItem?.fileName || file.name }),
                                       },
                                     } as any);
                                     toast.success("Video uploaded and selected");
@@ -6980,13 +7012,25 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                         </div>
 
                         {String((selectedBlock.props as any).src || "").trim() ? (
-                          <div className="rounded-xl border border-zinc-200 bg-white px-3 py-2">
-                            <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Selected video</div>
-                            <div className="mt-1 break-all font-mono text-xs text-zinc-700">{String((selectedBlock.props as any).src || "").trim()}</div>
-                          </div>
+                          <div className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-600">Video selected.</div>
                         ) : (
                           <div className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-600">No video selected.</div>
                         )}
+
+                        <label className="block">
+                          <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-zinc-500">Video name</div>
+                          <input
+                            value={String((selectedBlock.props as any)?.name || "")}
+                            onChange={(e) =>
+                              upsertBlock({
+                                ...selectedBlock,
+                                props: { ...(selectedBlock.props as any), name: e.target.value.slice(0, 200) },
+                              } as any)
+                            }
+                            className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                            placeholder="e.g. intro-video.mp4"
+                          />
+                        </label>
 
                         {videoSettingsBlockId === selectedBlock.id ? (
                           <div className="space-y-2 rounded-xl border border-zinc-200 bg-white p-3">
@@ -8123,8 +8167,8 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                                   return (
                                     <div>
                                       <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-zinc-500">Font</div>
-                                      <PortalListboxDropdown
-                                        value={presetKey as any}
+                                      <PortalFontDropdown
+                                        value={presetKey}
                                         onChange={(k) => {
                                           const next = applyFontPresetToStyle(String(k || "default"));
                                           updateSelectedBlockStyle({
@@ -8132,22 +8176,9 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                                             fontGoogleFamily: next.fontGoogleFamily,
                                           } as any);
                                         }}
-                                        options={[
-                                          { value: "default", label: "Default (theme)" },
-                                          ...FONT_PRESETS.filter((p) => p.key !== "default").map((p) => ({ value: p.key, label: p.label })),
-                                          { value: "custom", label: "Custom…" },
-                                        ] as any}
-                                        getOptionStyle={(o: any) => {
-                                          if (o.value === "custom") return customFontFamily ? { fontFamily: customFontFamily } : undefined;
-                                          const preset = FONT_PRESETS.find((p) => p.key === o.value);
-                                          return preset?.fontFamily ? { fontFamily: preset.fontFamily } : undefined;
-                                        }}
-                                        getButtonLabelStyle={(o: any) => {
-                                          if (!o) return undefined;
-                                          if (o.value === "custom") return customFontFamily ? { fontFamily: customFontFamily } : undefined;
-                                          const preset = FONT_PRESETS.find((p) => p.key === o.value);
-                                          return preset?.fontFamily ? { fontFamily: preset.fontFamily } : undefined;
-                                        }}
+                                        includeCustom
+                                        customFontFamily={customFontFamily}
+                                        extraOptions={[{ value: "default", label: "Default (theme)" }]}
                                         className="w-full"
                                         buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
                                       />

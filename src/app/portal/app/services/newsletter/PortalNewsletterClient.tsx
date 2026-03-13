@@ -8,8 +8,8 @@ import { DEFAULT_TAG_COLORS } from "@/lib/tagColors.shared";
 import { RichTextMarkdownEditor } from "@/components/RichTextMarkdownEditor";
 import { PortalMediaPickerModal } from "@/components/PortalMediaPickerModal";
 import { ContactTagsEditor, type ContactTag } from "@/components/ContactTagsEditor";
+import { PortalFontDropdown } from "@/components/PortalFontDropdown";
 import { PortalListboxDropdown } from "@/components/PortalListboxDropdown";
-import { FONT_PRESETS } from "@/lib/fontPresets";
 
 type AudienceTab = "external" | "internal";
 
@@ -311,22 +311,6 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
   const livePublicBaseUrl = useMemo(() => {
     return customPublicBaseUrl || publicBaseUrl;
   }, [customPublicBaseUrl, publicBaseUrl]);
-
-  const fontOptions = useMemo(() => {
-    const base = [
-      { value: "brand", label: "Brand" },
-      { value: "sans", label: "Sans" },
-      { value: "mono", label: "Mono" },
-    ];
-
-    const presetOptions = FONT_PRESETS.filter((p) => !base.some((b) => b.value === p.key)).map((p) => ({
-      value: p.key,
-      label: p.label,
-      hint: p.googleFamily ? "Google font" : p.fontFamily ? "System font" : undefined,
-    }));
-
-    return [...base, ...presetOptions];
-  }, []);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -1816,10 +1800,16 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                     <div className="rounded-2xl border border-zinc-200 bg-zinc-50 px-3 py-2">
                       <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Font (hosted page)</div>
                       <div className="mt-2">
-                        <PortalListboxDropdown
-                          value={(settings?.fontKey ?? "brand") as any}
-                          options={fontOptions as any}
-                          onChange={(v) => setSettings((prev) => (prev ? { ...prev, fontKey: v as any } : prev))}
+                        <PortalFontDropdown
+                          value={String(settings?.fontKey ?? "brand")}
+                          onChange={(v) => setSettings((prev) => (prev ? { ...prev, fontKey: v } : prev))}
+                          extraOptions={[
+                            { value: "brand", label: "Brand" },
+                            { value: "sans", label: "Sans" },
+                            { value: "mono", label: "Mono" },
+                          ]}
+                          className="w-full"
+                          buttonClassName="flex w-full items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
                           placeholder="Font"
                         />
                       </div>

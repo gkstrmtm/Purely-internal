@@ -148,13 +148,14 @@ export type CreditFunnelBlock =
   | {
       id: string;
       type: "image";
-      props: { src: string; alt?: string; style?: BlockStyle };
+      props: { src: string; alt?: string; showFrame?: boolean; style?: BlockStyle };
     }
   | {
       id: string;
       type: "video";
       props: {
         src: string;
+        name?: string;
         posterUrl?: string;
         controls?: boolean;
         showControls?: boolean;
@@ -242,6 +243,14 @@ function coerceCssUrl(v: unknown): string | undefined {
   if (lower.startsWith("data:")) return undefined;
   if (lower.startsWith("http://") || lower.startsWith("https://") || lower.startsWith("/")) return s;
   return undefined;
+}
+
+function coerceMediaName(v: unknown): string | undefined {
+  if (typeof v !== "string") return undefined;
+  const s = v.replace(/\s+/g, " ").trim();
+  if (!s) return undefined;
+  if (s.length > 200) return undefined;
+  return s;
 }
 
 function coerceVideoAspectRatio(v: unknown): "auto" | "16:9" | "9:16" | "4:3" | "1:1" | undefined {
@@ -714,13 +723,24 @@ function coerceBlocksJsonInternal(value: unknown, depth: number): CreditFunnelBl
     if (type === "image") {
       const src = typeof props?.src === "string" ? props.src : "";
       const alt = typeof props?.alt === "string" ? props.alt : "";
+      const showFrame = coerceBool((props as any)?.showFrame);
       const style = coerceStyle(props?.style);
-      out.push({ id, type, props: { src, alt, style } });
+      out.push({
+        id,
+        type,
+        props: {
+          src,
+          alt,
+          ...(showFrame !== undefined ? { showFrame } : {}),
+          style,
+        },
+      });
       continue;
     }
 
     if (type === "video") {
       const src = typeof props?.src === "string" ? props.src : "";
+      const name = coerceMediaName((props as any)?.name);
       const posterUrl = coerceCssUrl((props as any)?.posterUrl);
       const controls = coerceBool((props as any)?.controls);
       const showControls = coerceBool((props as any)?.showControls);
@@ -736,6 +756,7 @@ function coerceBlocksJsonInternal(value: unknown, depth: number): CreditFunnelBl
         type,
         props: {
           src,
+          ...(name ? { name } : {}),
           ...(posterUrl ? { posterUrl } : {}),
           ...(controls !== undefined ? { controls } : {}),
           ...(showControls !== undefined ? { showControls } : {}),
@@ -1956,10 +1977,13 @@ export function renderCreditFunnelBlocks({
             ),
           );
         }
+        const showFrame = (b.props as any)?.showFrame !== false;
         const cls = [
-          "overflow-hidden rounded-2xl",
-          "border border-zinc-200 bg-zinc-50",
-        ].join(" ");
+          "w-full overflow-hidden rounded-2xl",
+          showFrame ? "border border-zinc-200 bg-zinc-50" : "",
+        ]
+          .filter(Boolean)
+          .join(" ");
         return React.createElement(
           "div",
           {
@@ -2059,6 +2083,7 @@ export function renderCreditFunnelBlocks({
             React.createElement("video", {
               src: b.props.src,
               ...(posterUrl ? { poster: posterUrl } : null),
+              ...(String((b.props as any)?.name || "").trim() ? { title: String((b.props as any).name).trim() } : null),
               controls,
               autoPlay: autoplay,
               loop,

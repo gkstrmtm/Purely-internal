@@ -4,6 +4,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import Cropper, { type Area } from "react-easy-crop";
 
 import { AppModal } from "@/components/AppModal";
+import { PortalListboxDropdown } from "@/components/PortalListboxDropdown";
 
 type AspectPreset = "original" | "1:1" | "16:9" | "4:3" | "3:4";
 
@@ -141,7 +142,7 @@ export default function PortalImageCropModal({
     <AppModal
       open={open}
       title={title}
-      description="Drag to reposition, scroll/zoom to frame, then save a copy."
+      description="Drag to reposition, scroll/zoom to frame, then save."
       onClose={onClose}
       widthClassName="w-[min(880px,calc(100vw-32px))]"
       footer={
@@ -170,7 +171,7 @@ export default function PortalImageCropModal({
               }
             }}
           >
-            Save copy
+            Save
           </button>
         </div>
       }
@@ -179,17 +180,21 @@ export default function PortalImageCropModal({
         <div className="flex flex-wrap items-end gap-4">
           <label className="block">
             <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-zinc-500">Aspect</div>
-            <select
+            <PortalListboxDropdown<AspectPreset>
               value={aspectPreset}
-              onChange={(e) => setAspectPreset(e.target.value as AspectPreset)}
-              className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-            >
-              <option value="original">Original</option>
-              <option value="1:1">1:1</option>
-              <option value="16:9">16:9</option>
-              <option value="4:3">4:3</option>
-              <option value="3:4">3:4</option>
-            </select>
+              onChange={setAspectPreset}
+              options={[
+                { value: "original", label: "Original" },
+                { value: "1:1", label: "1:1" },
+                { value: "16:9", label: "16:9" },
+                { value: "4:3", label: "4:3" },
+                { value: "3:4", label: "3:4" },
+              ]}
+              portal
+              className="min-w-45"
+              buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
+              disabled={loading}
+            />
           </label>
 
           <label className="block flex-1">

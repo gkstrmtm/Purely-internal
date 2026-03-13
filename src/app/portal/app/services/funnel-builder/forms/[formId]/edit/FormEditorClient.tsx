@@ -4,8 +4,9 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
 import { AppConfirmModal, AppModal } from "@/components/AppModal";
+import { PortalFontDropdown } from "@/components/PortalFontDropdown";
 import { PortalListboxDropdown } from "@/components/PortalListboxDropdown";
-import { FONT_PRESETS, applyFontPresetToStyle, fontPresetKeyFromStyle, googleFontImportCss } from "@/lib/fontPresets";
+import { applyFontPresetToStyle, fontPresetKeyFromStyle, googleFontImportCss } from "@/lib/fontPresets";
 import { hostedFormPath } from "@/lib/publicHostedKeys";
 
 type Form = {
@@ -1074,7 +1075,7 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
                     <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
                       <label className="block sm:col-span-2">
                         <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Font</div>
-                        <PortalListboxDropdown
+                        <PortalFontDropdown
                           value={fontPresetKey}
                           onChange={(k) => {
                             const next = applyFontPresetToStyle(String(k || "default"));
@@ -1084,11 +1085,9 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
                               fontGoogleFamily: next.fontGoogleFamily,
                             }));
                           }}
-                          options={[
-                            { value: "default", label: "Default (app font)" },
-                            ...FONT_PRESETS.filter((p) => p.key !== "default").map((p) => ({ value: p.key, label: p.label })),
-                            { value: "custom", label: "Custom…" },
-                          ]}
+                          includeCustom
+                          customFontFamily={style.fontFamily || ""}
+                          extraOptions={[{ value: "default", label: "Default (app font)" }]}
                           className="mt-1 w-full"
                           buttonClassName="flex w-full items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm text-zinc-900 hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
                         />
