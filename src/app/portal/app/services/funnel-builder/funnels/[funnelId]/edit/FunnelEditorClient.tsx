@@ -2560,7 +2560,6 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
 
   const MAX_MEDIA_LIBRARY_BYTES = 25 * 1024 * 1024; // 25MB per file (DB-backed)
   const MAX_UPLOADS_BYTES = 250 * 1024 * 1024; // 250MB per file (disk-backed)
-  const VERCEL_SERVERLESS_BODY_LIMIT_BYTES = 4 * 1024 * 1024; // ~4MB (Vercel limit is ~4.5MB)
 
   const uploadToMediaLibrary = async (files: FileList | File[], opts?: { maxFiles?: number }) => {
     const maxFiles = Math.max(1, Math.min(20, Math.floor(opts?.maxFiles ?? 20)));
@@ -2593,62 +2592,57 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
       throw new Error(`"${file.name}" is too large (max ${Math.floor(MAX_UPLOADS_BYTES / (1024 * 1024))}MB)`);
     }
 
-    // Only force Vercel Blob when the payload is likely to exceed serverless limits.
-    // Small videos should upload like photos (no Blob token required).
-    const wantsBlobUpload = file.size > VERCEL_SERVERLESS_BODY_LIMIT_BYTES;
+    // Prefer the DB-backed media library for any file within its size limit.
+    // This works for small videos too and avoids relying on /api/uploads (filesystem) or Blob.
+    if (file.size <= MAX_MEDIA_LIBRARY_BYTES) {
+      const items = await uploadToMediaLibrary([file], { maxFiles: 1 });
+      const first = items[0];
+      const nextUrl = String(first?.shareUrl || "").trim();
+      if (!nextUrl) throw new Error("Upload succeeded, but did not return a URL");
+      return { url: nextUrl, mediaItem: first ?? null };
+    }
 
-    if (wantsBlobUpload) {
-      let blob: PutBlobResult;
-      try {
-        blob = await uploadToVercelBlob(file.name || "upload.bin", file, {
-          access: "public",
-          handleUploadUrl: "/api/portal/media/blob-upload",
-          headers: { [PORTAL_VARIANT_HEADER]: portalVariant },
-        });
-      } catch (e) {
-        const msg = e && typeof e === "object" && "message" in e ? String((e as any).message) : "Blob upload failed";
-        throw new Error(msg || "Blob upload failed");
-      }
-
-      // Create a media library item that points to the blob.
-      const finalizeRes = await fetch("/api/portal/media/items/from-blob", {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          [PORTAL_VARIANT_HEADER]: portalVariant,
-        },
-        body: JSON.stringify({
-          url: blob.url,
-          fileName: file.name || blob.pathname || "upload.bin",
-          mimeType: file.type || blob.contentType || "application/octet-stream",
-          fileSize: Number.isFinite(file.size) ? file.size : 0,
-          folderId: null,
-        }),
+    // At this point, the file is bigger than we allow storing in the DB. Upload via Blob.
+    let blob: PutBlobResult;
+    try {
+      blob = await uploadToVercelBlob(file.name || "upload.bin", file, {
+        access: "public",
+        handleUploadUrl: "/api/portal/media/blob-upload",
+        headers: { [PORTAL_VARIANT_HEADER]: portalVariant },
       });
-      const finalizeJson = (await finalizeRes.json().catch(() => null)) as any;
-      if (!finalizeRes.ok || !finalizeJson || finalizeJson.ok !== true || !finalizeJson.item) {
-        throw new Error(typeof finalizeJson?.error === "string" ? finalizeJson.error : "Upload succeeded, but could not add to media library");
-      }
-
-      const mediaItem = finalizeJson.item as PortalMediaPickItem;
-      const nextUrl = String(mediaItem.shareUrl || blob.url || "").trim();
-      if (!nextUrl) throw new Error("Upload did not return a URL");
-      return { url: nextUrl, mediaItem };
+    } catch (e) {
+      const msg = e && typeof e === "object" && "message" in e ? String((e as any).message) : "Blob upload failed";
+      throw new Error(msg || "Blob upload failed");
     }
 
-    const form = new FormData();
-    form.append("file", file);
-
-    const res = await fetch("/api/uploads", { method: "POST", body: form });
-    const json = (await res.json().catch(() => null)) as any;
-    if (!res.ok || !json || typeof json.url !== "string" || !json.url.trim()) {
-      throw new Error(typeof json?.error === "string" ? json.error : "Failed to upload");
+    // Create a media library item that points to the blob.
+    const finalizeRes = await fetch("/api/portal/media/items/from-blob", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        [PORTAL_VARIANT_HEADER]: portalVariant,
+      },
+      body: JSON.stringify({
+        url: blob.url,
+        fileName: file.name || blob.pathname || "upload.bin",
+        mimeType: file.type || blob.contentType || "application/octet-stream",
+        fileSize: Number.isFinite(file.size) ? file.size : 0,
+        folderId: null,
+      }),
+    });
+    const finalizeJson = (await finalizeRes.json().catch(() => null)) as any;
+    if (!finalizeRes.ok || !finalizeJson || finalizeJson.ok !== true || !finalizeJson.item) {
+      throw new Error(
+        typeof finalizeJson?.error === "string"
+          ? finalizeJson.error
+          : "Upload succeeded, but could not add to media library",
+      );
     }
 
-    return {
-      url: String(json.url || "").trim(),
-      mediaItem: json.mediaItem && typeof json.mediaItem === "object" ? (json.mediaItem as PortalMediaPickItem) : null,
-    };
+    const mediaItem = finalizeJson.item as PortalMediaPickItem;
+    const nextUrl = String(mediaItem.shareUrl || blob.url || "").trim();
+    if (!nextUrl) throw new Error("Upload did not return a URL");
+    return { url: nextUrl, mediaItem };
   };
 
   const closeDialog = () => {

@@ -7,18 +7,26 @@ import crypto from "crypto";
 import { authOptions } from "@/lib/auth";
 import { mirrorUploadToMediaLibrary } from "@/lib/portalMediaUploads";
 
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 const MAX_BYTES = 250 * 1024 * 1024; // 250MB
 
 function safeFilename(name: string) {
-  return name
+  return (name || "")
     .replace(/[^a-zA-Z0-9._-]/g, "-")
     .replace(/-+/g, "-")
-    .slice(0, 200);
+    .slice(0, 200) || "upload.bin";
 }
 
 export async function POST(req: Request) {
   const session = await getServerSession(authOptions);
-  if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const ownerIdRaw = session?.user?.id;
+  if (typeof ownerIdRaw !== "string" || !ownerIdRaw.trim()) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+  const ownerId = ownerIdRaw;
 
   const form = await req.formData().catch(() => null);
   if (!form) return NextResponse.json({ error: "Invalid form" }, { status: 400 });
@@ -27,54 +35,82 @@ export async function POST(req: Request) {
   if (!(file instanceof File)) {
     return NextResponse.json({ error: "Missing file" }, { status: 400 });
   }
+  const uploadFile: File = file;
 
-  if (typeof file.size === "number" && file.size > MAX_BYTES) {
+  if (typeof uploadFile.size === "number" && uploadFile.size > MAX_BYTES) {
     return NextResponse.json(
-      { error: `"${file.name || "file"}" is too large (max ${Math.floor(MAX_BYTES / (1024 * 1024))}MB)` },
+      { error: `"${uploadFile.name || "file"}" is too large (max ${Math.floor(MAX_BYTES / (1024 * 1024))}MB)` },
       { status: 400 },
     );
   }
 
-  const arrayBuffer = await file.arrayBuffer();
+  const arrayBuffer = await uploadFile.arrayBuffer();
   const buffer = Buffer.from(arrayBuffer);
 
   // Best-effort: keep the media library in sync with any uploads.
   // Cap mirrored bytes to avoid exploding the DB if this endpoint is used for large assets.
   const MAX_MIRROR_BYTES = 25 * 1024 * 1024; // 25MB
-  let mirrored: any = null;
-  if (buffer.length <= MAX_MIRROR_BYTES) {
+  async function tryMirror() {
+    if (buffer.length > MAX_MIRROR_BYTES) return null;
     try {
-      mirrored = await mirrorUploadToMediaLibrary({
-        ownerId: session.user.id,
-        fileName: file.name || "upload.bin",
-        mimeType: file.type || "application/octet-stream",
+      return await mirrorUploadToMediaLibrary({
+        ownerId,
+        fileName: uploadFile.name || "upload.bin",
+        mimeType: uploadFile.type || "application/octet-stream",
         bytes: buffer,
       });
     } catch {
-      // ignore
+      return null;
     }
   }
+
+  const mirrored: any = await tryMirror();
 
   const now = new Date();
   const day = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(
     now.getDate(),
   ).padStart(2, "0")}`;
 
-  const original = safeFilename(file.name || "upload.bin");
+  const original = safeFilename(uploadFile.name || "upload.bin");
   const id = crypto.randomUUID();
   const relDir = path.posix.join("uploads", day);
   const relPath = path.posix.join(relDir, `${id}-${original}`);
 
   // Write into public/ so Next can serve it at /uploads/...
-  const absDir = path.join(process.cwd(), "public", relDir);
-  const absPath = path.join(process.cwd(), "public", relPath);
-  await mkdir(absDir, { recursive: true });
-  await writeFile(absPath, buffer);
+  // NOTE: On serverless platforms (e.g., Vercel) this filesystem is often read-only.
+  // If the write fails, fall back to returning the DB-backed media item URL (when possible).
+  try {
+    const absDir = path.join(process.cwd(), "public", relDir);
+    const absPath = path.join(process.cwd(), "public", relPath);
+    await mkdir(absDir, { recursive: true });
+    await writeFile(absPath, buffer);
+  } catch {
+    const fallback = mirrored ?? (await tryMirror());
+    if (fallback?.shareUrl) {
+      return NextResponse.json({
+        url: String(fallback.shareUrl),
+        fileName: original,
+        mimeType: file.type || "application/octet-stream",
+        fileSize: buffer.length,
+        storagePath: null,
+        mediaItem: fallback,
+        note: "Stored in media library.",
+      });
+    }
+
+    return NextResponse.json(
+      {
+        error:
+          "Upload storage is not available on this server. Configure external storage for large uploads or use the media library.",
+      },
+      { status: 500 },
+    );
+  }
 
   return NextResponse.json({
     url: `/${relPath}`,
     fileName: original,
-    mimeType: file.type || "application/octet-stream",
+    mimeType: uploadFile.type || "application/octet-stream",
     fileSize: buffer.length,
     storagePath: relPath,
     mediaItem: mirrored,
