@@ -63,8 +63,19 @@ export async function GET(
       where: { id: String(id), publicToken: String(token) },
       select: { bytes: true, storageUrl: true, mimeType: true, fileName: true, fileSize: true, createdAt: true },
     });
-  } catch {
-    return NextResponse.json({ ok: false, error: "Database error" }, { status: 500 });
+  } catch (err) {
+    const prismaCode = typeof (err as any)?.code === "string" ? (err as any).code : undefined;
+    const diagnosticsEnabled = process.env.PUBLIC_MEDIA_DIAGNOSTICS === "1";
+
+    console.error("[public-media] database error", {
+      prismaCode,
+      id: String(id),
+    });
+
+    return NextResponse.json(
+      diagnosticsEnabled ? { ok: false, error: "Database error", code: prismaCode } : { ok: false, error: "Database error" },
+      { status: 500 },
+    );
   }
 
   if (!row) return NextResponse.json({ ok: false, error: "Not found" }, { status: 404 });

@@ -53,6 +53,18 @@ if (forceMigrations) {
       "[prebuild] prisma migrate deploy failed (likely DB unreachable). Continuing build; set RUN_PRISMA_MIGRATIONS=1 to fail hard.",
     );
   }
+} else if (isVercel && databaseUrl) {
+  console.log("[prebuild] DIRECT_URL not set on Vercel; attempting prisma migrate deploy using DATABASE_URL...");
+  const res = run("npx", ["prisma", "migrate", "deploy"], {
+    timeoutMs: 120_000,
+    env: process.env,
+    allowFailure: true,
+  });
+  if (res.status !== 0) {
+    console.log(
+      "[prebuild] prisma migrate deploy failed using DATABASE_URL (likely pooler/DB unreachable). Continuing build; set RUN_PRISMA_MIGRATIONS=1 to fail hard.",
+    );
+  }
 } else if (isVercel) {
   console.log("[prebuild] DIRECT_URL not set on Vercel; skipping prisma migrate deploy to avoid long builds.");
 } else {
