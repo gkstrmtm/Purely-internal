@@ -5,6 +5,7 @@ import { mkdir, writeFile } from "fs/promises";
 import crypto from "crypto";
 
 import { authOptions } from "@/lib/auth";
+import { prisma } from "@/lib/db";
 import { mirrorUploadToMediaLibrary } from "@/lib/portalMediaUploads";
 
 export const runtime = "nodejs";
@@ -75,6 +76,21 @@ export async function POST(req: Request) {
   const id = crypto.randomUUID();
   const relDir = path.posix.join("uploads", day);
   const relPath = path.posix.join(relDir, `${id}-${original}`);
+
+  // If we mirrored into the DB, store the legacy /uploads path on the row.
+  // This allows the /uploads/* app route to serve bytes even when the
+  // serverless filesystem cannot persist public/uploads.
+  if (mirrored?.id) {
+    try {
+      await (prisma as any).portalMediaItem.update({
+        where: { id: String(mirrored.id) },
+        data: { storageUrl: `/${relPath}` },
+        select: { id: true },
+      });
+    } catch {
+      // best-effort
+    }
+  }
 
   // Write into public/ so Next can serve it at /uploads/...
   // NOTE: On serverless platforms (e.g., Vercel) this filesystem is often read-only.
