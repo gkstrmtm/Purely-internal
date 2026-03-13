@@ -15,6 +15,7 @@ export type FunnelHeaderNavItem = {
 
 export type FunnelHeaderSize = "sm" | "md" | "lg";
 export type FunnelHeaderMobileTrigger = "hamburger" | "directory";
+export type FunnelHeaderDesktopMode = "inline" | "dropdown" | "slideover";
 
 function classNames(...xs: Array<string | false | null | undefined>) {
   return xs.filter(Boolean).join(" ");
@@ -60,11 +61,11 @@ export function FunnelHeaderNav({
   sticky,
   transparent,
   mobileMode,
+  desktopMode,
   size,
   sizeScale,
   mobileTrigger,
   mobileTriggerLabel,
-  forceTriggerOnDesktop,
   className,
   style,
   funnelPathBase,
@@ -77,11 +78,11 @@ export function FunnelHeaderNav({
   sticky?: boolean;
   transparent?: boolean;
   mobileMode?: "dropdown" | "slideover";
+  desktopMode?: FunnelHeaderDesktopMode;
   size?: FunnelHeaderSize;
   sizeScale?: number;
   mobileTrigger?: FunnelHeaderMobileTrigger;
   mobileTriggerLabel?: string;
-  forceTriggerOnDesktop?: boolean;
   className?: string;
   style?: CSSProperties;
   funnelPathBase?: string;
@@ -140,10 +141,12 @@ export function FunnelHeaderNav({
   );
 
   const mode: "dropdown" | "slideover" = mobileMode === "slideover" ? "slideover" : "dropdown";
+  const desktopMenuMode: FunnelHeaderDesktopMode =
+    desktopMode === "slideover" ? "slideover" : desktopMode === "dropdown" ? "dropdown" : "inline";
   const headerSize: FunnelHeaderSize = size === "lg" ? "lg" : size === "sm" ? "sm" : "md";
   const trigger: FunnelHeaderMobileTrigger = mobileTrigger === "directory" ? "directory" : "hamburger";
   const triggerLabel = (mobileTriggerLabel || "Directory").trim() || "Directory";
-  const forceTrigger = forceTriggerOnDesktop === true;
+  const desktopUsesTrigger = desktopMenuMode !== "inline";
 
   const resolvedScale = (() => {
     const raw = typeof sizeScale === "number" && Number.isFinite(sizeScale) ? sizeScale : undefined;
@@ -194,7 +197,7 @@ export function FunnelHeaderNav({
         </a>
 
         {/* Desktop nav */}
-        <nav className={classNames(forceTrigger ? "hidden" : "hidden sm:flex", "items-center gap-4")} aria-label="Primary">
+        <nav className={classNames(desktopUsesTrigger ? "hidden" : "hidden sm:flex", "items-center gap-4")} aria-label="Primary">
           {normalizedItems.map((it) => {
             const href = buildHref({ item: it, funnelPathBase });
             const label = (it.label || "Link").trim() || "Link";
@@ -238,7 +241,7 @@ export function FunnelHeaderNav({
             data-funnel-editor-interactive="true"
             className={classNames(
               "inline-flex items-center justify-center gap-2 rounded-full border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50",
-              forceTrigger ? "" : "sm:hidden",
+              desktopUsesTrigger ? "" : "sm:hidden",
               disabled ? "opacity-60" : "",
             )}
             aria-label="Open menu"
@@ -257,7 +260,7 @@ export function FunnelHeaderNav({
             data-funnel-editor-interactive="true"
             className={classNames(
               "inline-flex items-center justify-center rounded-xl border border-zinc-200 bg-white text-zinc-800 hover:bg-zinc-50",
-              forceTrigger ? "" : "sm:hidden",
+              desktopUsesTrigger ? "" : "sm:hidden",
             )}
             style={{ height: iconBtnSizePx, width: iconBtnSizePx }}
             aria-label="Open menu"
@@ -274,7 +277,7 @@ export function FunnelHeaderNav({
 
       {/* Mobile menu */}
       {mode === "dropdown" ? (
-        <div className={classNames(forceTrigger ? "" : "sm:hidden", open ? "block" : "hidden")}>
+        <div className={classNames("sm:hidden", open ? "block" : "hidden")}>
           <div className="space-y-1 border-t border-zinc-200 bg-white px-4 py-3">
             {normalizedItems.map((it) => {
               const href = buildHref({ item: it, funnelPathBase });
@@ -313,7 +316,7 @@ export function FunnelHeaderNav({
           </div>
         </div>
       ) : (
-        <div className={classNames(forceTrigger ? "" : "sm:hidden", open ? "block" : "hidden")}>
+        <div className={classNames("sm:hidden", open ? "block" : "hidden")}>
           <div
             className="fixed inset-0 z-40 bg-black/30"
             onClick={() => {
@@ -376,6 +379,113 @@ export function FunnelHeaderNav({
           </div>
         </div>
       )}
+
+      {/* Desktop menu (optional) */}
+      {desktopMenuMode === "dropdown" ? (
+        <div className={classNames("hidden sm:block", open ? "block" : "hidden")}>
+          <div className="space-y-1 border-t border-zinc-200 bg-white px-4 py-3">
+            {normalizedItems.map((it) => {
+              const href = buildHref({ item: it, funnelPathBase });
+              const label = (it.label || "Link").trim() || "Link";
+              const newTab = it.newTab === true && it.kind === "url";
+              return (
+                <a
+                  key={it.id}
+                  href={href}
+                  onClick={(e) => {
+                    if (disabled) return onNavClick(e);
+                    if (it.kind === "anchor") {
+                      e.preventDefault();
+                      setOpen(false);
+                      const ok = scrollToAnchor(String(it.anchorId || ""));
+                      if (!ok) {
+                        try {
+                          window.location.hash = normalizeAnchorId(String(it.anchorId || ""));
+                        } catch {
+                          // ignore
+                        }
+                      }
+                      return;
+                    }
+                    setOpen(false);
+                  }}
+                  target={newTab ? "_blank" : undefined}
+                  rel={newTab ? "noopener noreferrer" : undefined}
+                  className="block rounded-xl px-3 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
+                  data-funnel-editor-interactive="true"
+                >
+                  {label}
+                </a>
+              );
+            })}
+          </div>
+        </div>
+      ) : null}
+
+      {desktopMenuMode === "slideover" ? (
+        <div className={classNames("hidden sm:block", open ? "block" : "hidden")}>
+          <div
+            className="fixed inset-0 z-40 bg-black/30"
+            onClick={() => {
+              if (disabled) return;
+              setOpen(false);
+            }}
+          />
+          <div className="fixed inset-y-0 right-0 z-50 w-[min(85vw,340px)] bg-white shadow-xl">
+            <div className="flex items-center justify-between border-b border-zinc-200 px-4 py-3">
+              <div className="text-sm font-semibold text-zinc-900">Menu</div>
+              <button
+                type="button"
+                data-funnel-editor-interactive="true"
+                className="h-10 w-10 rounded-xl border border-zinc-200 bg-white text-zinc-800 hover:bg-zinc-50"
+                onClick={() => {
+                  if (disabled) return;
+                  setOpen(false);
+                }}
+                aria-label="Close menu"
+              >
+                ×
+              </button>
+            </div>
+            <div className="space-y-1 px-4 py-3">
+              {normalizedItems.map((it) => {
+                const href = buildHref({ item: it, funnelPathBase });
+                const label = (it.label || "Link").trim() || "Link";
+                const newTab = it.newTab === true && it.kind === "url";
+                return (
+                  <a
+                    key={it.id}
+                    href={href}
+                    onClick={(e) => {
+                      if (disabled) return onNavClick(e);
+                      if (it.kind === "anchor") {
+                        e.preventDefault();
+                        setOpen(false);
+                        const ok = scrollToAnchor(String(it.anchorId || ""));
+                        if (!ok) {
+                          try {
+                            window.location.hash = normalizeAnchorId(String(it.anchorId || ""));
+                          } catch {
+                            // ignore
+                          }
+                        }
+                        return;
+                      }
+                      setOpen(false);
+                    }}
+                    target={newTab ? "_blank" : undefined}
+                    rel={newTab ? "noopener noreferrer" : undefined}
+                    className="block rounded-xl px-3 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
+                    data-funnel-editor-interactive="true"
+                  >
+                    {label}
+                  </a>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      ) : null}
     </header>
   );
 }

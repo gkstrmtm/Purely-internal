@@ -3,7 +3,7 @@ import { z } from "zod";
 
 import { requireClientSessionForService } from "@/lib/portalAccess";
 import { prisma } from "@/lib/db";
-import { newPublicToken, newTag, safeFilename } from "@/lib/portalMedia";
+import { isLikelyImageMimeType, newPublicToken, newTag, normalizeMimeType, safeFilename } from "@/lib/portalMedia";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -27,11 +27,11 @@ function isAllowedBlobUrl(url: string): boolean {
   }
 }
 
-function mediaItemUrls(row: { id: string; publicToken: string; mimeType: string }) {
+function mediaItemUrls(row: { id: string; publicToken: string; mimeType: string; fileName: string }) {
   const openUrl = `/api/public/media/item/${row.id}/${row.publicToken}`;
   const downloadUrl = `${openUrl}?download=1`;
   const shareUrl = openUrl;
-  const previewUrl = String(row.mimeType || "").startsWith("image/") ? openUrl : undefined;
+  const previewUrl = isLikelyImageMimeType(row.mimeType, row.fileName) ? openUrl : undefined;
   return { openUrl, downloadUrl, shareUrl, previewUrl };
 }
 
@@ -50,7 +50,7 @@ export async function POST(req: Request) {
   }
 
   const fileName = safeFilename(parsed.data.fileName || "upload.bin");
-  const mimeType = String(parsed.data.mimeType || "application/octet-stream").slice(0, 120);
+  const mimeType = normalizeMimeType(parsed.data.mimeType, fileName);
   const fileSize = Number.isFinite(parsed.data.fileSize) ? parsed.data.fileSize : 0;
 
   // Prevent accidental gigantic rows/entries.

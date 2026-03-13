@@ -2,16 +2,17 @@ import { NextResponse } from "next/server";
 
 import { requireClientSessionForService } from "@/lib/portalAccess";
 import { prisma } from "@/lib/db";
+import { isLikelyImageMimeType } from "@/lib/portalMedia";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-function mediaItemUrls(row: { id: string; publicToken: string; mimeType: string }) {
+function mediaItemUrls(row: { id: string; publicToken: string; mimeType: string; fileName: string }) {
   const openUrl = `/api/public/media/item/${row.id}/${row.publicToken}`;
   const downloadUrl = `/api/public/media/item/${row.id}/${row.publicToken}?download=1`;
   // For files, "share" should be the raw file URL (easy to embed on websites).
   const shareUrl = openUrl;
-  const previewUrl = String(row.mimeType || "").startsWith("image/") ? openUrl : undefined;
+  const previewUrl = isLikelyImageMimeType(row.mimeType, row.fileName) ? openUrl : undefined;
   return { openUrl, downloadUrl, shareUrl, previewUrl };
 }
 

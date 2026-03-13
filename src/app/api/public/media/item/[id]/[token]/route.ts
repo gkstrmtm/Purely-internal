@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { prisma } from "@/lib/db";
+import { normalizeMimeType } from "@/lib/portalMedia";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -40,7 +41,7 @@ export async function GET(
   }
 
   const headers = new Headers();
-  headers.set("content-type", String(row.mimeType || "application/octet-stream"));
+  headers.set("content-type", normalizeMimeType(row.mimeType, row.fileName));
   headers.set(
     "content-disposition",
     shouldDownload ? contentDispositionAttachment(row.fileName) : contentDispositionInline(row.fileName),

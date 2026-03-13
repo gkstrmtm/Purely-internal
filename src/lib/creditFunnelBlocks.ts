@@ -5,6 +5,7 @@ import { AddToCartButton } from "@/components/funnel/AddToCartButton";
 import { CartButton } from "@/components/funnel/CartButton";
 import {
   FunnelHeaderNav,
+  type FunnelHeaderDesktopMode,
   type FunnelHeaderMobileTrigger,
   type FunnelHeaderNavItem,
   type FunnelHeaderSize,
@@ -53,6 +54,7 @@ export type CreditFunnelBlock =
         sticky?: boolean;
         transparent?: boolean;
         mobileMode?: "dropdown" | "slideover";
+        desktopMode?: FunnelHeaderDesktopMode;
         size?: FunnelHeaderSize;
         sizeScale?: number;
         mobileTrigger?: FunnelHeaderMobileTrigger;
@@ -274,6 +276,13 @@ function coerceBool(v: unknown): boolean | undefined {
 function coerceHeaderMobileMode(v: unknown): "dropdown" | "slideover" | undefined {
   if (v === "slideover") return "slideover";
   if (v === "dropdown") return "dropdown";
+  return undefined;
+}
+
+function coerceHeaderDesktopMode(v: unknown): "inline" | "dropdown" | "slideover" | undefined {
+  if (v === "inline") return "inline";
+  if (v === "dropdown") return "dropdown";
+  if (v === "slideover") return "slideover";
   return undefined;
 }
 
@@ -504,6 +513,7 @@ function coerceBlocksJsonInternal(value: unknown, depth: number): CreditFunnelBl
       const sticky = coerceBool((props as any)?.sticky);
       const transparent = coerceBool((props as any)?.transparent);
       const mobileMode = coerceHeaderMobileMode((props as any)?.mobileMode);
+      const desktopMode = coerceHeaderDesktopMode((props as any)?.desktopMode);
       const size = coerceHeaderSize((props as any)?.size);
       const sizeScale = coerceHeaderSizeScale((props as any)?.sizeScale);
       const mobileTrigger = coerceHeaderMobileTrigger((props as any)?.mobileTrigger);
@@ -518,6 +528,7 @@ function coerceBlocksJsonInternal(value: unknown, depth: number): CreditFunnelBl
         id,
         type,
         props: {
+          desktopMode,
           ...(isGlobal !== undefined ? { isGlobal } : {}),
           ...(globalKey ? { globalKey } : {}),
           ...(sticky !== undefined ? { sticky } : {}),
@@ -1163,6 +1174,9 @@ export function renderCreditFunnelBlocks({
 
   const chatbotBlocks = isEditor ? collectChatbotBlocks(renderBlocks) : [];
 
+  const leadingHeader = renderBlocks[0]?.type === "headerNav" ? (renderBlocks[0] as CreditFunnelBlock) : null;
+  const bodyBlocks = leadingHeader ? renderBlocks.slice(1) : renderBlocks;
+
   const pageCss = [
     // Tailwind's `space-y-4` adds margin-top between siblings; remove the default gap directly after a header block.
     ".funnel-blocks > .funnel-header-block + :not([hidden]){margin-top:0!important;}",
@@ -1445,6 +1459,12 @@ export function renderCreditFunnelBlocks({
         const sticky = (b.props as any)?.sticky === true;
         const transparent = (b.props as any)?.transparent === true;
         const mobileMode = (b.props as any)?.mobileMode === "slideover" ? "slideover" : "dropdown";
+        const desktopMode =
+          (b.props as any)?.desktopMode === "slideover"
+            ? "slideover"
+            : (b.props as any)?.desktopMode === "dropdown"
+              ? "dropdown"
+              : "inline";
         const size = (b.props as any)?.size === "lg" ? "lg" : (b.props as any)?.size === "sm" ? "sm" : "md";
         const sizeScaleRaw = (b.props as any)?.sizeScale;
         const sizeScale = typeof sizeScaleRaw === "number" && Number.isFinite(sizeScaleRaw) ? sizeScaleRaw : undefined;
@@ -1489,11 +1509,11 @@ export function renderCreditFunnelBlocks({
             sticky,
             transparent,
             mobileMode,
+            desktopMode,
             size,
             sizeScale,
             mobileTrigger,
             mobileTriggerLabel: mobileTriggerLabel || undefined,
-            forceTriggerOnDesktop: context?.previewDevice === "desktop",
             disabled: isEditor,
             funnelPathBase: typeof context?.funnelPathBase === "string" ? context.funnelPathBase : undefined,
             style: Object.keys(headerStyle).some((k) => (headerStyle as any)[k] !== undefined) ? headerStyle : undefined,
@@ -2411,9 +2431,16 @@ export function renderCreditFunnelBlocks({
       React.createElement(
         "div",
         {
-          className: pageStyleBlock?.props?.style?.backgroundVideoUrl ? "relative z-10 space-y-4 funnel-blocks" : "space-y-4 funnel-blocks",
+          className: pageStyleBlock?.props?.style?.backgroundVideoUrl ? "relative z-10" : undefined,
         },
-        renderBlocksInner(renderBlocks),
+        leadingHeader ? renderBlocksInner([leadingHeader]) : null,
+        React.createElement(
+          "div",
+          {
+            className: pageStyleBlock?.props?.style?.backgroundVideoUrl ? "space-y-4 funnel-blocks" : "space-y-4 funnel-blocks",
+          },
+          renderBlocksInner(bodyBlocks),
+        ),
       ),
       isEditor && chatbotBlocks.length
         ? React.createElement(

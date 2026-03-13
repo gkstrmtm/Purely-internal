@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 
 import { requireClientSessionForService } from "@/lib/portalAccess";
 import { prisma } from "@/lib/db";
-import { newPublicToken, newTag, safeFilename } from "@/lib/portalMedia";
+import { isLikelyImageMimeType, newPublicToken, newTag, normalizeMimeType, safeFilename } from "@/lib/portalMedia";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -10,11 +10,11 @@ export const revalidate = 0;
 const MAX_FILES = 20;
 const MAX_BYTES = 25 * 1024 * 1024; // 25MB per file
 
-function mediaItemUrls(row: { id: string; publicToken: string; mimeType: string }) {
+function mediaItemUrls(row: { id: string; publicToken: string; mimeType: string; fileName: string }) {
   const openUrl = `/api/public/media/item/${row.id}/${row.publicToken}`;
   const downloadUrl = `/api/public/media/item/${row.id}/${row.publicToken}?download=1`;
   const shareUrl = openUrl;
-  const previewUrl = String(row.mimeType || "").startsWith("image/") ? openUrl : undefined;
+  const previewUrl = isLikelyImageMimeType(row.mimeType, row.fileName) ? openUrl : undefined;
   return { openUrl, downloadUrl, shareUrl, previewUrl };
 }
 
@@ -104,6 +104,9 @@ export async function POST(req: Request) {
     }
 
     // Generate a tag that is unique per owner.
+    const fileName = safeFilename(file.name || "upload.bin");
+    const mimeType = normalizeMimeType(file.type, fileName);
+
     let tag = newTag();
     for (let i = 0; i < 5; i++) {
       const exists = await (prisma as any).portalMediaItem.findFirst({ where: { ownerId, tag }, select: { id: true } });
@@ -114,8 +117,8 @@ export async function POST(req: Request) {
       data: {
         ownerId,
         folderId,
-        fileName: safeFilename(file.name || "upload.bin"),
-        mimeType: String(file.type || "application/octet-stream").slice(0, 120),
+        fileName,
+        mimeType,
         fileSize: buffer.length,
         bytes: buffer,
         tag,

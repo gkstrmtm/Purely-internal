@@ -8,6 +8,7 @@ import { upload as uploadToVercelBlob } from "@vercel/blob/client";
 
 import { PortalListboxDropdown } from "@/components/PortalListboxDropdown";
 import { useToast } from "@/components/ToastProvider";
+import { PORTAL_VARIANT_HEADER, portalVariantFromPathname } from "@/lib/portalVariant";
 
 type Folder = {
   id: string;
@@ -66,6 +67,10 @@ function formatBytes(n: number) {
 
 export function PortalMediaLibraryClient() {
   const toastNotify = useToast();
+  const portalVariant = useMemo(() => {
+    if (typeof window === "undefined") return "portal" as const;
+    return portalVariantFromPathname(window.location.pathname);
+  }, []);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -209,6 +214,7 @@ export function PortalMediaLibraryClient() {
             blob = await uploadToVercelBlob(f.name || "upload.bin", f, {
               access: "public",
               handleUploadUrl: "/api/portal/media/blob-upload",
+              headers: { [PORTAL_VARIANT_HEADER]: portalVariant },
             });
           } catch (err) {
             const msg = (err as any)?.message ? String((err as any).message) : "Upload failed";
@@ -217,7 +223,7 @@ export function PortalMediaLibraryClient() {
 
           const finalizeRes = await fetch("/api/portal/media/items/from-blob", {
             method: "POST",
-            headers: { "content-type": "application/json" },
+            headers: { "content-type": "application/json", [PORTAL_VARIANT_HEADER]: portalVariant },
             body: JSON.stringify({
               url: blob.url,
               fileName: f.name || blob.pathname || "upload.bin",
