@@ -2463,21 +2463,36 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
 
   const [aiContextOpen, setAiContextOpen] = useState(false);
   const [aiContextKeys, setAiContextKeys] = useState<string[]>([]);
+  const [aiContextMedia, setAiContextMedia] = useState<Array<{ url: string; fileName?: string; mimeType?: string }>>([]);
 
   const aiContextOptions = useMemo(
     () =>
       [
-        { key: "layout:header", label: "Header", description: "Navigation, logo, CTA button" },
-        { key: "layout:hero", label: "Hero", description: "Headline, subheadline, primary CTA" },
-        { key: "layout:footer", label: "Footer", description: "Links, contact, socials" },
-        { key: "content:features", label: "Features", description: "Benefits + feature list" },
-        { key: "content:testimonials", label: "Testimonials", description: "Reviews, social proof" },
-        { key: "content:pricing", label: "Pricing", description: "Plans/prices, comparison" },
-        { key: "forms:lead_capture", label: "Lead capture", description: "Email/name form, thank-you" },
-        { key: "cta:book_call", label: "Book a call", description: "Scheduling CTA" },
-        { key: "shop:add_to_cart", label: "Add to cart", description: "Add-to-cart buttons" },
-        { key: "shop:cart", label: "Cart", description: "Cart summary + edit quantities" },
-        { key: "shop:checkout", label: "Checkout", description: "Checkout step + payment" },
+        { key: "preset:hero", label: "Preset: Hero", description: "Hero section preset" },
+        { key: "preset:body", label: "Preset: Body", description: "Body/content section preset" },
+        { key: "preset:form", label: "Preset: Form", description: "Form capture preset" },
+        { key: "preset:shop", label: "Preset: Shop", description: "Shop preset (Stripe-connected)" },
+
+        { key: "block:headerNav", label: "Block: Header/Menu", description: "Navigation, logo, CTA" },
+        { key: "block:section", label: "Block: Section", description: "Section wrapper + background" },
+        { key: "block:columns", label: "Block: Columns", description: "Two-column layouts" },
+        { key: "block:heading", label: "Block: Heading", description: "Headlines + section titles" },
+        { key: "block:paragraph", label: "Block: Text", description: "Paragraph/rich text" },
+        { key: "block:button", label: "Block: Button", description: "CTA buttons" },
+        { key: "block:spacer", label: "Block: Spacer", description: "Spacing between sections" },
+
+        { key: "block:formLink", label: "Block: Form link", description: "Link to hosted form" },
+        { key: "block:formEmbed", label: "Block: Form embed", description: "Embedded hosted form" },
+        { key: "block:calendarEmbed", label: "Block: Calendar embed", description: "Embedded booking calendar" },
+
+        { key: "block:image", label: "Block: Image", description: "Image blocks" },
+        { key: "block:video", label: "Block: Video", description: "Video blocks" },
+
+        { key: "block:addToCartButton", label: "Shop: Add to cart", description: "Add-to-cart button" },
+        { key: "block:cartButton", label: "Shop: Cart", description: "Cart button" },
+        { key: "block:salesCheckoutButton", label: "Shop: Checkout", description: "Checkout button" },
+
+        { key: "block:chatbot", label: "Block: AI chatbot", description: "Chatbot widget" },
       ] as const,
     [],
   );
@@ -2539,6 +2554,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
   const [mediaPickerOpen, setMediaPickerOpen] = useState(false);
   const [mediaPickerTarget, setMediaPickerTarget] = useState<
     | null
+    | { type: "ai-context" }
     | { type: "image-block"; blockId: string }
     | { type: "video-block"; blockId: string }
     | { type: "video-poster"; blockId: string }
@@ -4135,6 +4151,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
             prompt: promptText,
             currentHtml: selectedPage.customHtml || "",
             contextKeys: aiContextKeys,
+            contextMedia: aiContextMedia,
           }),
         },
       );
@@ -4168,15 +4185,31 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
         }}
         variant={portalVariant}
         accept={
-          mediaPickerTarget?.type === "video-block" || mediaPickerTarget?.type === "section-background-video"
-            ? "video"
-            : "image"
+          mediaPickerTarget?.type === "ai-context"
+            ? "any"
+            : mediaPickerTarget?.type === "video-block" || mediaPickerTarget?.type === "section-background-video"
+              ? "video"
+              : "image"
         }
         onPick={async (it) => {
           const target = mediaPickerTarget;
           setMediaPickerOpen(false);
           setMediaPickerTarget(null);
           if (!target) return;
+
+          if (target.type === "ai-context") {
+            const url = String(it.shareUrl || it.previewUrl || it.downloadUrl || "").trim();
+            if (!url) return;
+            setAiContextMedia((prev) => {
+              const next = Array.isArray(prev) ? [...prev] : [];
+              if (!next.some((m) => String(m.url || "").trim() === url)) {
+                next.unshift({ url, fileName: it.fileName, mimeType: it.mimeType });
+              }
+              return next.slice(0, 24);
+            });
+            return;
+          }
+
           if (target.type === "image-block") {
             const block = findBlockInTree(editableBlocks, target.blockId)?.block;
             if (!block || block.type !== "image") return;
@@ -4474,7 +4507,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
       <AppModal
         open={aiContextOpen}
         title="Add context"
-        description="Select reusable blocks/presets to guide the AI. Multi-select is supported."
+        description="Select all that apply. These options help the AI match your editor blocks and presets."
         onClose={() => setAiContextOpen(false)}
         widthClassName="w-[min(720px,calc(100vw-32px))]"
         footer={
@@ -4482,7 +4515,10 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
             <button
               type="button"
               className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
-              onClick={() => setAiContextKeys([])}
+              onClick={() => {
+                setAiContextKeys([]);
+                setAiContextMedia([]);
+              }}
               disabled={busy}
             >
               Clear selection
@@ -4503,40 +4539,92 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
       >
         <div className="space-y-3">
           <div className="text-sm text-zinc-600">
-            Pick what the AI should include (e.g. shop/cart/checkout). If you’re not sure, leave this blank.
+            Select all that apply. If you’re not sure, leave this blank.
           </div>
           <div className="space-y-2">
             {aiContextOptions.map((opt) => {
               const checked = aiContextKeys.includes(opt.key);
               return (
-                <label
+                <div
                   key={opt.key}
                   className={classNames(
                     "flex cursor-pointer items-start gap-3 rounded-2xl border bg-white p-3",
                     checked ? "border-blue-200 ring-1 ring-blue-100" : "border-zinc-200",
                   )}
                 >
-                  <input
-                    type="checkbox"
-                    className="mt-1 h-4 w-4"
+                  <button
+                    type="button"
+                    className="min-w-0 flex-1 text-left"
+                    disabled={busy}
+                    onClick={() => {
+                      setAiContextKeys((prev) => {
+                        const has = (prev || []).includes(opt.key);
+                        if (has) return (prev || []).filter((k) => k !== opt.key);
+                        return Array.from(new Set([...(prev || []), opt.key]));
+                      });
+                    }}
+                  >
+                    <div className="text-sm font-semibold text-zinc-900">{opt.label}</div>
+                    <div className="mt-1 text-xs text-zinc-600">{opt.description}</div>
+                    <div className="mt-1 text-[11px] text-zinc-500">Key: {opt.key}</div>
+                  </button>
+
+                  <ToggleSwitch
                     checked={checked}
-                    onChange={(e) => {
-                      const next = e.currentTarget.checked;
+                    disabled={busy}
+                    onChange={(next) => {
                       setAiContextKeys((prev) => {
                         if (next) return Array.from(new Set([...(prev || []), opt.key]));
                         return (prev || []).filter((k) => k !== opt.key);
                       });
                     }}
-                    disabled={busy}
                   />
-                  <div className="min-w-0">
-                    <div className="text-sm font-semibold text-zinc-900">{opt.label}</div>
-                    <div className="mt-1 text-xs text-zinc-600">{opt.description}</div>
-                    <div className="mt-1 text-[11px] text-zinc-500">Key: {opt.key}</div>
-                  </div>
-                </label>
+                </div>
               );
             })}
+          </div>
+
+          <div className="mt-4 rounded-2xl border border-zinc-200 bg-white p-3">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <div className="text-sm font-semibold text-zinc-900">Media library</div>
+                <div className="mt-1 text-xs text-zinc-600">Optional: add images/videos the AI can reference.</div>
+              </div>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => {
+                  setMediaPickerTarget({ type: "ai-context" });
+                  setMediaPickerOpen(true);
+                }}
+                className="shrink-0 rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
+              >
+                Add media
+              </button>
+            </div>
+
+            {aiContextMedia.length ? (
+              <div className="mt-3 flex flex-wrap gap-2">
+                {aiContextMedia.map((m) => {
+                  const label = (m.fileName || "").trim() || "Media";
+                  return (
+                    <button
+                      key={m.url}
+                      type="button"
+                      disabled={busy}
+                      onClick={() => setAiContextMedia((prev) => (prev || []).filter((x) => x.url !== m.url))}
+                      className="inline-flex items-center gap-2 rounded-full border border-zinc-200 bg-white px-3 py-1.5 text-sm text-zinc-800 hover:bg-zinc-50"
+                      title="Click to remove"
+                    >
+                      <span className="font-semibold">{label}</span>
+                      <span className="text-zinc-400">×</span>
+                    </button>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="mt-3 text-sm text-zinc-600">No media selected.</div>
+            )}
           </div>
         </div>
       </AppModal>
@@ -5440,6 +5528,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                                           currentHtml: String((selectedBlock.props as any).html || ""),
                                           currentCss: String((selectedBlock.props as any).css || ""),
                                           contextKeys: aiContextKeys,
+                                          contextMedia: aiContextMedia,
                                         }),
                                       });
                                       const json = (await res.json().catch(() => null)) as any;
@@ -8720,7 +8809,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                 <div className="flex items-center justify-between gap-3">
                   <div>
                     <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Context</div>
-                    <div className="mt-1 text-xs text-zinc-500">Optional: add reusable blocks/presets to guide the AI output.</div>
+                    <div className="mt-1 text-xs text-zinc-500">Optional: add blocks/presets and media to guide the AI output.</div>
                   </div>
                   <button
                     type="button"
@@ -8732,7 +8821,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                   </button>
                 </div>
 
-                {aiContextKeys.length ? (
+                {aiContextKeys.length || aiContextMedia.length ? (
                   <div className="flex flex-wrap gap-2">
                     {aiContextKeys.map((k) => {
                       const opt = aiContextOptions.find((o) => o.key === k);
@@ -8743,6 +8832,23 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                           type="button"
                           disabled={busy}
                           onClick={() => setAiContextKeys((prev) => (prev || []).filter((x) => x !== k))}
+                          className="inline-flex items-center gap-2 rounded-full border border-zinc-200 bg-white px-3 py-1.5 text-sm text-zinc-800 hover:bg-zinc-50"
+                          title="Click to remove"
+                        >
+                          <span className="font-semibold">{label}</span>
+                          <span className="text-zinc-400">×</span>
+                        </button>
+                      );
+                    })}
+
+                    {aiContextMedia.map((m) => {
+                      const label = (m.fileName || "").trim() || "Media";
+                      return (
+                        <button
+                          key={m.url}
+                          type="button"
+                          disabled={busy}
+                          onClick={() => setAiContextMedia((prev) => (prev || []).filter((x) => x.url !== m.url))}
                           className="inline-flex items-center gap-2 rounded-full border border-zinc-200 bg-white px-3 py-1.5 text-sm text-zinc-800 hover:bg-zinc-50"
                           title="Click to remove"
                         >

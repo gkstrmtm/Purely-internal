@@ -12,6 +12,8 @@ type ProfileColumnFlags = {
   brandPrimaryHex: boolean;
   brandAccentHex: boolean;
   brandTextHex: boolean;
+  brandFontFamily: boolean;
+  brandFontGoogleFamily: boolean;
 };
 
 let flagsPromise: Promise<ProfileColumnFlags> | null = null;
@@ -29,6 +31,8 @@ async function getProfileColumnFlags(): Promise<ProfileColumnFlags> {
       hasPublicColumn("BusinessProfile", "brandPrimaryHex"),
       hasPublicColumn("BusinessProfile", "brandAccentHex"),
       hasPublicColumn("BusinessProfile", "brandTextHex"),
+      hasPublicColumn("BusinessProfile", "brandFontFamily"),
+      hasPublicColumn("BusinessProfile", "brandFontGoogleFamily"),
     ]).then(
       ([
         websiteUrl,
@@ -41,6 +45,8 @@ async function getProfileColumnFlags(): Promise<ProfileColumnFlags> {
         brandPrimaryHex,
         brandAccentHex,
         brandTextHex,
+        brandFontFamily,
+        brandFontGoogleFamily,
       ]) => ({
         websiteUrl,
         industry,
@@ -52,6 +58,8 @@ async function getProfileColumnFlags(): Promise<ProfileColumnFlags> {
         brandPrimaryHex,
         brandAccentHex,
         brandTextHex,
+        brandFontFamily,
+        brandFontGoogleFamily,
       }),
     );
   }
@@ -100,6 +108,8 @@ export async function getBusinessProfileTemplateVars(ownerId: string): Promise<R
   if (flags.brandPrimaryHex) select.brandPrimaryHex = true;
   if (flags.brandAccentHex) select.brandAccentHex = true;
   if (flags.brandTextHex) select.brandTextHex = true;
+  if (flags.brandFontFamily) select.brandFontFamily = true;
+  if (flags.brandFontGoogleFamily) select.brandFontGoogleFamily = true;
 
   const profile = await prisma.businessProfile.findUnique({ where: { ownerId: id }, select: select as any }).catch(() => null);
   if (!profile) return {};
@@ -114,6 +124,8 @@ export async function getBusinessProfileTemplateVars(ownerId: string): Promise<R
   const brandPrimaryHex = flags.brandPrimaryHex ? safeLine((profile as any).brandPrimaryHex, 16) : "";
   const brandAccentHex = flags.brandAccentHex ? safeLine((profile as any).brandAccentHex, 16) : "";
   const brandTextHex = flags.brandTextHex ? safeLine((profile as any).brandTextHex, 16) : "";
+  const brandFontFamily = flags.brandFontFamily ? safeLine((profile as any).brandFontFamily, 120) : "";
+  const brandFontGoogleFamily = flags.brandFontGoogleFamily ? safeLine((profile as any).brandFontGoogleFamily, 160) : "";
 
   const vars: Record<string, string> = {
     // Canonical / dotted
@@ -127,6 +139,8 @@ export async function getBusinessProfileTemplateVars(ownerId: string): Promise<R
     "business.brandPrimaryHex": brandPrimaryHex,
     "business.brandAccentHex": brandAccentHex,
     "business.brandTextHex": brandTextHex,
+    "business.brandFontFamily": brandFontFamily,
+    "business.brandFontGoogleFamily": brandFontGoogleFamily,
 
     // Common aliases (legacy + UI)
     businessName,
@@ -147,6 +161,10 @@ export async function getBusinessProfileTemplateVars(ownerId: string): Promise<R
     brand_accent_hex: brandAccentHex,
     brandTextHex,
     brand_text_hex: brandTextHex,
+    brandFontFamily,
+    brand_font_family: brandFontFamily,
+    brandFontGoogleFamily,
+    brand_font_google_family: brandFontGoogleFamily,
   };
 
   return vars;
@@ -171,6 +189,8 @@ export async function getBusinessProfileAiContext(ownerId: string): Promise<stri
   if (flags.brandPrimaryHex) select.brandPrimaryHex = true;
   if (flags.brandAccentHex) select.brandAccentHex = true;
   if (flags.brandTextHex) select.brandTextHex = true;
+  if (flags.brandFontFamily) select.brandFontFamily = true;
+  if (flags.brandFontGoogleFamily) select.brandFontGoogleFamily = true;
 
   const profile = await prisma.businessProfile.findUnique({ where: { ownerId: id }, select: select as any });
   if (!profile) return "";
@@ -188,6 +208,8 @@ export async function getBusinessProfileAiContext(ownerId: string): Promise<stri
   const brandPrimaryHex = flags.brandPrimaryHex ? safeLine((profile as any).brandPrimaryHex, 16) : "";
   const brandAccentHex = flags.brandAccentHex ? safeLine((profile as any).brandAccentHex, 16) : "";
   const brandTextHex = flags.brandTextHex ? safeLine((profile as any).brandTextHex, 16) : "";
+  const brandFontFamily = flags.brandFontFamily ? safeLine((profile as any).brandFontFamily, 120) : "";
+  const brandFontGoogleFamily = flags.brandFontGoogleFamily ? safeLine((profile as any).brandFontGoogleFamily, 160) : "";
 
   const lines = [
     "BUSINESS_PROFILE (use as context; do not invent missing details):",
@@ -202,6 +224,8 @@ export async function getBusinessProfileAiContext(ownerId: string): Promise<stri
     brandPrimaryHex ? `- Brand primary: ${brandPrimaryHex}` : "",
     brandAccentHex ? `- Brand accent: ${brandAccentHex}` : "",
     brandTextHex ? `- Brand text: ${brandTextHex}` : "",
+    brandFontFamily ? `- Brand font family: ${brandFontFamily}` : "",
+    brandFontGoogleFamily ? `- Brand font (Google family): ${brandFontGoogleFamily}` : "",
   ]
     .filter(Boolean)
     .join("\n");

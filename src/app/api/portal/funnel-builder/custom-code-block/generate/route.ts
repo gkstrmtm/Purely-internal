@@ -3,10 +3,13 @@ import { z } from "zod";
 
 import { prisma } from "@/lib/db";
 import { requireFunnelBuilderSession } from "@/lib/funnelBuilderAccess";
-import { generateText } from "@/lib/ai";
+import { generateText, generateTextWithImages } from "@/lib/ai";
 import { getBusinessProfileAiContext } from "@/lib/businessProfileAiContext.server";
 import { getBookingCalendarsConfig } from "@/lib/bookingCalendars";
+import { getStripeSecretKeyForOwner } from "@/lib/stripeIntegration.server";
+import { stripeGetWithKey } from "@/lib/stripeFetchWithKey.server";
 
+export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
@@ -17,6 +20,19 @@ const bodySchema = z.object({
   currentHtml: z.string().optional().default(""),
   currentCss: z.string().optional().default(""),
   contextKeys: z.array(z.string().trim().min(1).max(80)).max(30).optional().default([]),
+  contextMedia: z
+    .array(
+      z
+        .object({
+          url: z.string().trim().min(1).max(800),
+          fileName: z.string().trim().max(200).optional(),
+          mimeType: z.string().trim().max(120).optional(),
+        })
+        .strip(),
+    )
+    .max(24)
+    .optional()
+    .default([]),
 });
 
 const blockStyleSchema = z
@@ -384,6 +400,61 @@ function resolveCalendarId(
   return fuzzy?.id ?? fallback;
 }
 
+type StripePrice = {
+  id: string;
+  unit_amount: number | null;
+  currency: string;
+  type?: string;
+  recurring?: unknown;
+};
+
+type StripeProduct = {
+  id: string;
+  name: string;
+  description: string | null;
+  images: string[];
+  active: boolean;
+  default_price?: StripePrice | string | null;
+};
+
+type StripeList<T> = { data: T[] };
+
+async function getStripeProductsForOwner(ownerId: string) {
+  const secretKey = await getStripeSecretKeyForOwner(ownerId).catch(() => null);
+  if (!secretKey) {
+    return {
+      ok: false as const,
+      products: [] as Array<{ id: string; name: string; description: string | null; images: string[]; defaultPriceId: string; unitAmount: number | null; currency: string }>,
+    };
+  }
+
+  const list = await stripeGetWithKey<StripeList<StripeProduct>>(secretKey, "/v1/products", {
+    limit: 100,
+    active: true,
+    "expand[]": ["data.default_price"],
+  }).catch(() => null);
+
+  const products = Array.isArray(list?.data)
+    ? list!.data
+        .filter((p) => p && typeof p === "object" && (p as any).active)
+        .map((p) => {
+          const dp = p.default_price && typeof p.default_price === "object" ? (p.default_price as StripePrice) : null;
+          return {
+            id: String(p.id || "").trim(),
+            name: String(p.name || "").trim(),
+            description: p.description ? String(p.description) : null,
+            images: Array.isArray(p.images) ? p.images.map((s) => String(s)).filter(Boolean).slice(0, 4) : [],
+            defaultPriceId: dp?.id ? String(dp.id).trim() : "",
+            unitAmount: typeof dp?.unit_amount === "number" ? dp.unit_amount : null,
+            currency: String(dp?.currency || "usd").toLowerCase() || "usd",
+          };
+        })
+        .filter((p) => p.id && p.name)
+    : [];
+
+  return { ok: true as const, products };
+}
+
 export async function POST(req: Request) {
   const auth = await requireFunnelBuilderSession();
   if (!auth.ok) {
@@ -401,7 +472,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: "Invalid request" }, { status: 400 });
   }
 
-  const { funnelId, pageId, prompt, contextKeys } = parsed.data;
+  const { funnelId, pageId, prompt, contextKeys, contextMedia } = parsed.data;
   const currentHtml = String(parsed.data.currentHtml || "");
   const currentCss = String(parsed.data.currentCss || "");
 
@@ -419,6 +490,7 @@ export async function POST(req: Request) {
 
   const ownerId = auth.session.user.id;
   const businessContext = await getBusinessProfileAiContext(ownerId).catch(() => "");
+  const stripeProducts = await getStripeProductsForOwner(ownerId).catch(() => ({ ok: false as const, products: [] as any[] }));
 
   const forms = await prisma.creditForm.findMany({
     where: { ownerId },
@@ -442,6 +514,32 @@ export async function POST(req: Request) {
         "",
       ].join("\n")
     : "";
+
+  const contextMediaBlock = contextMedia.length
+    ? [
+        "",
+        "SELECTED_MEDIA (use these assets if relevant):",
+        ...contextMedia.map((m) => {
+          const name = m.fileName ? ` ${m.fileName}` : "";
+          const mime = m.mimeType ? ` (${m.mimeType})` : "";
+          return `- ${name}${mime}: ${m.url}`.trim();
+        }),
+        "",
+      ].join("\n")
+    : "";
+
+  const stripeProductsBlock = stripeProducts.ok && stripeProducts.products.length
+    ? [
+        "",
+        "STRIPE_PRODUCTS (already connected; do not ask what they sell):",
+        ...stripeProducts.products.slice(0, 60).map((p: any) => {
+          const price = p.defaultPriceId ? ` default_price=${p.defaultPriceId}` : "";
+          const amt = typeof p.unitAmount === "number" ? ` ${p.unitAmount} ${p.currency}` : "";
+          return `- ${p.name} (product=${p.id}${price}${amt})`;
+        }),
+        "",
+      ].join("\n")
+    : "\n\nSTRIPE_PRODUCTS: (none found or Stripe not connected)\n";
 
   const buildSystem = [
     "You generate HTML + CSS for a *custom code block* inside a funnel page.",
@@ -471,6 +569,7 @@ export async function POST(req: Request) {
     `- Hosted forms are at: ${basePath}/forms/{formSlug}`,
     "- For booking/scheduling: prefer returning a calendarEmbed block rather than hardcoding a booking URL.",
     "- If the user asks for a shop/store/product list, prefer insertPresetAfter with preset='shop'.",
+    "- If STRIPE_PRODUCTS are provided, assume Stripe is connected and avoid asking 'what do you sell?'.",
     "Available forms (slug: name [status]):",
     ...forms.map((f) => `- ${f.slug}: ${f.name} [${f.status}]`),
     "Available calendars (id: title [enabled]):",
@@ -503,7 +602,8 @@ export async function POST(req: Request) {
     "- Use pick='default' for 'my calendar'/'my form' when no specific name/slug is provided.",
     "- For other block types, follow the normal props shapes.",
     "- If output='html', set buildPrompt to a concise instruction for the HTML/CSS generator.",
-    "- If key info is missing (e.g., user asks for a shop but doesn't say what they're selling), output='question' and ask ONE question.",
+    "- If key info is missing, output='question' and ask ONE question.",
+    "- IMPORTANT: If STRIPE_PRODUCTS are present, do NOT ask what they sell. At most ask which products to feature (if needed).",
     "Context:",
     `- Funnel page host path: ${basePath}/f/${page.funnel.slug}`,
     "Available forms (slug: name [status]):",
@@ -514,10 +614,12 @@ export async function POST(req: Request) {
 
   const baseUser = [
     businessContext ? businessContext : "",
+    stripeProductsBlock,
     `Funnel: ${page.funnel.name} (slug: ${page.funnel.slug})`,
     `Page: ${page.title} (slug: ${page.slug})`,
     "",
     contextBlock,
+    contextMediaBlock,
     hasCurrent
       ? [
           "CURRENT_HTML:",
@@ -607,9 +709,20 @@ export async function POST(req: Request) {
     .filter(Boolean)
     .join("\n");
 
+  const imageUrls = Array.from(
+    new Set(
+      contextMedia
+        .map((m) => String(m?.url || "").trim())
+        .filter(Boolean)
+        .slice(0, 8),
+    ),
+  ).slice(0, 6);
+
   let buildRaw = "";
   try {
-    buildRaw = await generateText({ system: buildSystem, user: buildUser });
+    buildRaw = imageUrls.length
+      ? await generateTextWithImages({ system: buildSystem, user: buildUser, imageUrls })
+      : await generateText({ system: buildSystem, user: buildUser });
   } catch (e) {
     return NextResponse.json(
       { ok: false, error: (e as any)?.message ? String((e as any).message) : "AI generation failed" },

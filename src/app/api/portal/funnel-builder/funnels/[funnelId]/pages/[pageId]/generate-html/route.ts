@@ -4,7 +4,10 @@ import { prisma } from "@/lib/db";
 import { requireFunnelBuilderSession } from "@/lib/funnelBuilderAccess";
 import { generateText, generateTextWithImages } from "@/lib/ai";
 import { getBusinessProfileAiContext } from "@/lib/businessProfileAiContext.server";
+import { getStripeSecretKeyForOwner } from "@/lib/stripeIntegration.server";
+import { stripeGetWithKey } from "@/lib/stripeFetchWithKey.server";
 
+export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
@@ -57,6 +60,12 @@ type AiAttachment = {
   mimeType?: string;
 };
 
+type ContextMedia = {
+  url: string;
+  fileName?: string;
+  mimeType?: string;
+};
+
 function coerceAttachments(raw: unknown): AiAttachment[] {
   if (!Array.isArray(raw)) return [];
   const out: AiAttachment[] = [];
@@ -70,6 +79,71 @@ function coerceAttachments(raw: unknown): AiAttachment[] {
     if (out.length >= 12) break;
   }
   return out;
+}
+
+function coerceContextMedia(raw: unknown): ContextMedia[] {
+  if (!Array.isArray(raw)) return [];
+  const out: ContextMedia[] = [];
+  for (const it of raw) {
+    if (!it || typeof it !== "object") continue;
+    const url = typeof (it as any).url === "string" ? (it as any).url.trim() : "";
+    if (!url) continue;
+    const fileName = typeof (it as any).fileName === "string" ? (it as any).fileName.trim() : undefined;
+    const mimeType = typeof (it as any).mimeType === "string" ? (it as any).mimeType.trim() : undefined;
+    out.push({ url, fileName, mimeType });
+    if (out.length >= 24) break;
+  }
+  return out;
+}
+
+type StripePrice = {
+  id: string;
+  unit_amount: number | null;
+  currency: string;
+  type?: string;
+  recurring?: unknown;
+};
+
+type StripeProduct = {
+  id: string;
+  name: string;
+  description: string | null;
+  images: string[];
+  active: boolean;
+  default_price?: StripePrice | string | null;
+};
+
+type StripeList<T> = { data: T[] };
+
+async function getStripeProductsForOwner(ownerId: string) {
+  const secretKey = await getStripeSecretKeyForOwner(ownerId).catch(() => null);
+  if (!secretKey) return { ok: false as const, products: [] as Array<{ id: string; name: string; description: string | null; images: string[]; defaultPriceId: string; unitAmount: number | null; currency: string }> };
+
+  const list = await stripeGetWithKey<StripeList<StripeProduct>>(secretKey, "/v1/products", {
+    limit: 100,
+    active: true,
+    "expand[]": ["data.default_price"],
+  }).catch(() => null);
+
+  const products = Array.isArray(list?.data)
+    ? list!.data
+        .filter((p) => p && typeof p === "object" && (p as any).active)
+        .map((p) => {
+          const dp = p.default_price && typeof p.default_price === "object" ? (p.default_price as StripePrice) : null;
+          return {
+            id: String(p.id || "").trim(),
+            name: String(p.name || "").trim(),
+            description: p.description ? String(p.description) : null,
+            images: Array.isArray(p.images) ? p.images.map((s) => String(s)).filter(Boolean).slice(0, 4) : [],
+            defaultPriceId: dp?.id ? String(dp.id).trim() : "",
+            unitAmount: typeof dp?.unit_amount === "number" ? dp.unit_amount : null,
+            currency: String(dp?.currency || "usd").toLowerCase() || "usd",
+          };
+        })
+        .filter((p) => p.id && p.name)
+    : [];
+
+  return { ok: true as const, products };
 }
 
 function toAbsoluteUrl(req: Request, url: string): string {
@@ -118,6 +192,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
   const currentHtmlFromClient = typeof body?.currentHtml === "string" ? body.currentHtml : null;
   const attachments = coerceAttachments(body?.attachments);
   const contextKeys = coerceContextKeys(body?.contextKeys);
+  const contextMedia = coerceContextMedia(body?.contextMedia);
 
   const page = await prisma.creditFunnelPage.findFirst({
     where: { id: pageId, funnelId, funnel: { ownerId: auth.session.user.id } },
@@ -134,6 +209,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
 
   const ownerId = auth.session.user.id;
   const businessContext = await getBusinessProfileAiContext(ownerId).catch(() => "");
+  const stripeProducts = await getStripeProductsForOwner(ownerId).catch(() => ({ ok: false as const, products: [] as any[] }));
 
   const forms = await prisma.creditForm.findMany({
     where: { ownerId: auth.session.user.id },
@@ -160,7 +236,9 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
     `- If you need a form, link to ${basePath}/forms/{formSlug} with a clear CTA button.`,
     "Rules:",
     "- Do not invent form slugs. Only reference a form if the user explicitly asks to embed/link a form, or if they clearly asked for a lead-capture form.",
-    "- If the user asks for a shop/store but provides no product info, ask what they sell (and how many products).",
+    "- If the user asks for a shop/store, use STRIPE_PRODUCTS if available.",
+    "- If STRIPE_PRODUCTS is present, do NOT ask what products they sell.",
+    "- If STRIPE_PRODUCTS is empty and the user asks for a shop/store, ask ONE question: whether they want to connect Stripe or describe their products.",
     "Available forms (slug: name [status]):",
     ...forms.map((f) => `- ${f.slug}: ${f.name} [${f.status}]`),
     "Output rules:",
@@ -202,7 +280,35 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
         "",
       ].join("\n")
     : "";
-  const userMsg = { role: "user", content: `${prompt}${attachmentsBlock}`, at: new Date().toISOString() };
+
+  const contextMediaBlock = contextMedia.length
+    ? [
+        "",
+        "SELECTED_MEDIA (use these assets if relevant):",
+        ...contextMedia.map((m) => {
+          const name = m.fileName ? ` ${m.fileName}` : "";
+          const mime = m.mimeType ? ` (${m.mimeType})` : "";
+          const url = toAbsoluteUrl(req, m.url);
+          return `- ${name}${mime}: ${url}`.trim();
+        }),
+        "",
+      ].join("\n")
+    : "";
+
+  const stripeProductsBlock = stripeProducts.ok && stripeProducts.products.length
+    ? [
+        "",
+        "STRIPE_PRODUCTS (already connected; do not ask what they sell):",
+        ...stripeProducts.products.slice(0, 60).map((p: any) => {
+          const price = p.defaultPriceId ? ` default_price=${p.defaultPriceId}` : "";
+          const amt = typeof p.unitAmount === "number" ? ` ${p.unitAmount} ${p.currency}` : "";
+          return `- ${p.name} (product=${p.id}${price}${amt})`;
+        }),
+        "",
+      ].join("\n")
+    : "\n\nSTRIPE_PRODUCTS: (none found or Stripe not connected)\n";
+
+  const userMsg = { role: "user", content: `${prompt}`, at: new Date().toISOString() };
 
   let html = "";
   let question: string | null = null;
@@ -217,20 +323,27 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
         ].join("\n")
       : "";
 
-    const imageUrls = attachments
-      .filter((a) => String(a.mimeType || "").toLowerCase().startsWith("image/"))
-      .map((a) => toAbsoluteUrl(req, a.url))
+    const imageUrls = [
+      ...attachments
+        .filter((a) => String(a.mimeType || "").toLowerCase().startsWith("image/"))
+        .map((a) => toAbsoluteUrl(req, a.url)),
+      ...contextMedia
+        .filter((m) => String(m.mimeType || "").toLowerCase().startsWith("image/"))
+        .map((m) => toAbsoluteUrl(req, m.url)),
+    ]
       .filter(Boolean)
-      .slice(0, 6);
+      .slice(0, 8);
 
     const userText = [
       businessContext ? businessContext : "",
+      stripeProductsBlock,
       `Funnel: ${page.funnel.name} (slug: ${page.funnel.slug})`,
       `Page: ${page.title} (slug: ${page.slug})`,
       "",
       currentHtmlBlock,
       prompt,
       contextBlock,
+      contextMediaBlock,
       attachmentsBlock,
     ].join("\n");
 
