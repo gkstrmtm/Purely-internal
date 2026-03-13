@@ -1766,7 +1766,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                                     <label className="flex items-center justify-between gap-4 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm">
                                       <span className="font-semibold text-zinc-900">Show frame</span>
                                       <ToggleSwitch
-                                        checked={Boolean((selectedBlock.props as any)?.showFrame)}
+                                        checked={(selectedBlock.props as any)?.showFrame !== false}
                                         disabled={busy}
                                         onChange={(checked) =>
                                           upsertBlock({
@@ -1777,20 +1777,88 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                                       />
                                     </label>
 
-                                    <label className="block">
-                                      <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-zinc-500">Poster image URL (optional)</div>
-                                      <input
-                                        value={String((selectedBlock.props as any)?.posterUrl || "")}
-                                        onChange={(e) =>
-                                          upsertBlock({
-                                            ...selectedBlock,
-                                            props: { ...(selectedBlock.props as any), posterUrl: e.target.value },
-                                          } as any)
-                                        }
-                                        className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                                        placeholder="https://..."
-                                      />
-                                    </label>
+                                    <div className="space-y-2">
+                                      <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Poster image</div>
+                                      <div className="flex flex-wrap gap-2">
+                                        <button
+                                          type="button"
+                                          disabled={busy}
+                                          onClick={() => {
+                                            setMediaPickerTarget({ type: "video-poster", blockId: selectedBlock.id });
+                                            setMediaPickerOpen(true);
+                                          }}
+                                          className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-60"
+                                        >
+                                          Choose from media
+                                        </button>
+
+                                        <label
+                                          className={classNames(
+                                            "cursor-pointer rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50",
+                                            uploadingImageBlockId === selectedBlock.id ? "opacity-60" : "",
+                                          )}
+                                        >
+                                          {uploadingImageBlockId === selectedBlock.id ? "Uploading…" : "Upload poster"}
+                                          <input
+                                            type="file"
+                                            accept="image/*"
+                                            className="hidden"
+                                            disabled={busy || uploadingImageBlockId === selectedBlock.id}
+                                            onChange={(e) => {
+                                              const files = Array.from(e.target.files || []);
+                                              e.currentTarget.value = "";
+                                              if (files.length === 0) return;
+                                              if (!selectedBlock || selectedBlock.type !== "video") return;
+                                              const file = files[0];
+                                              if (!file) return;
+                                              setUploadingImageBlockId(selectedBlock.id);
+                                              setError(null);
+                                              void (async () => {
+                                                try {
+                                                  const created = await uploadToMediaLibrary([file], { maxFiles: 1 });
+                                                  const it = created[0];
+                                                  const nextPoster = String(it?.shareUrl || it?.previewUrl || "").trim();
+                                                  if (!nextPoster) return;
+                                                  upsertBlock({
+                                                    ...selectedBlock,
+                                                    props: { ...(selectedBlock.props as any), posterUrl: nextPoster },
+                                                  } as any);
+                                                  toast.success("Poster uploaded and selected");
+                                                } catch (err) {
+                                                  const msg = (err as any)?.message ? String((err as any).message) : "Upload failed";
+                                                  toast.error(msg);
+                                                } finally {
+                                                  setUploadingImageBlockId(null);
+                                                }
+                                              })();
+                                            }}
+                                          />
+                                        </label>
+
+                                        <button
+                                          type="button"
+                                          disabled={busy || !String((selectedBlock.props as any)?.posterUrl || "").trim()}
+                                          onClick={() =>
+                                            upsertBlock({
+                                              ...selectedBlock,
+                                              props: { ...(selectedBlock.props as any), posterUrl: "" },
+                                            } as any)
+                                          }
+                                          className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-60"
+                                        >
+                                          Clear
+                                        </button>
+                                      </div>
+
+                                      {String((selectedBlock.props as any)?.posterUrl || "").trim() ? (
+                                        <div className="rounded-xl border border-zinc-200 bg-white p-3">
+                                          <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Selected poster</div>
+                                          <div className="mt-1 break-all font-mono text-xs text-zinc-700">{String((selectedBlock.props as any)?.posterUrl || "").trim()}</div>
+                                        </div>
+                                      ) : (
+                                        <div className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-600">No poster selected.</div>
+                                      )}
+                                    </div>
                                   </div>
                                 ) : null}
                               </div>
@@ -2411,6 +2479,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
     | { type: "ai" }
     | { type: "image-block"; blockId: string }
     | { type: "video-block"; blockId: string }
+    | { type: "video-poster"; blockId: string }
     | { type: "header-logo"; blockId: string }
     | { type: "section-background"; blockId: string }
     | { type: "section-background-video"; blockId: string }
@@ -4100,6 +4169,21 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
               props: {
                 ...(block.props as any),
                 src: nextSrc,
+              },
+            } as any);
+            return;
+          }
+
+          if (target.type === "video-poster") {
+            const block = findBlockInTree(editableBlocks, target.blockId)?.block;
+            if (!block || block.type !== "video") return;
+            const nextPoster = String(it.shareUrl || it.previewUrl || "").trim();
+            if (!nextPoster) return;
+            upsertBlock({
+              ...block,
+              props: {
+                ...(block.props as any),
+                posterUrl: nextPoster,
               },
             } as any);
             return;
@@ -7014,7 +7098,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                             <label className="flex items-center justify-between gap-4 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm">
                               <span className="font-semibold text-zinc-900">Show frame</span>
                               <ToggleSwitch
-                                checked={Boolean((selectedBlock.props as any)?.showFrame)}
+                                checked={(selectedBlock.props as any)?.showFrame !== false}
                                 disabled={busy}
                                 onChange={(checked) =>
                                   upsertBlock({
@@ -7025,20 +7109,88 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                               />
                             </label>
 
-                            <label className="block">
-                              <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-zinc-500">Poster image URL (optional)</div>
-                              <input
-                                value={String((selectedBlock.props as any)?.posterUrl || "")}
-                                onChange={(e) =>
-                                  upsertBlock({
-                                    ...selectedBlock,
-                                    props: { ...(selectedBlock.props as any), posterUrl: e.target.value },
-                                  } as any)
-                                }
-                                className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                                placeholder="https://..."
-                              />
-                            </label>
+                            <div className="space-y-2">
+                              <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Poster image</div>
+                              <div className="flex flex-wrap gap-2">
+                                <button
+                                  type="button"
+                                  disabled={busy}
+                                  onClick={() => {
+                                    setMediaPickerTarget({ type: "video-poster", blockId: selectedBlock.id });
+                                    setMediaPickerOpen(true);
+                                  }}
+                                  className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-60"
+                                >
+                                  Choose from media
+                                </button>
+
+                                <label
+                                  className={classNames(
+                                    "cursor-pointer rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50",
+                                    uploadingImageBlockId === selectedBlock.id ? "opacity-60" : "",
+                                  )}
+                                >
+                                  {uploadingImageBlockId === selectedBlock.id ? "Uploading…" : "Upload poster"}
+                                  <input
+                                    type="file"
+                                    accept="image/*"
+                                    className="hidden"
+                                    disabled={busy || uploadingImageBlockId === selectedBlock.id}
+                                    onChange={(e) => {
+                                      const files = Array.from(e.target.files || []);
+                                      e.currentTarget.value = "";
+                                      if (files.length === 0) return;
+                                      if (!selectedBlock || selectedBlock.type !== "video") return;
+                                      const file = files[0];
+                                      if (!file) return;
+                                      setUploadingImageBlockId(selectedBlock.id);
+                                      setError(null);
+                                      void (async () => {
+                                        try {
+                                          const created = await uploadToMediaLibrary([file], { maxFiles: 1 });
+                                          const it = created[0];
+                                          const nextPoster = String(it?.shareUrl || it?.previewUrl || "").trim();
+                                          if (!nextPoster) return;
+                                          upsertBlock({
+                                            ...selectedBlock,
+                                            props: { ...(selectedBlock.props as any), posterUrl: nextPoster },
+                                          } as any);
+                                          toast.success("Poster uploaded and selected");
+                                        } catch (err) {
+                                          const msg = (err as any)?.message ? String((err as any).message) : "Upload failed";
+                                          toast.error(msg);
+                                        } finally {
+                                          setUploadingImageBlockId(null);
+                                        }
+                                      })();
+                                    }}
+                                  />
+                                </label>
+
+                                <button
+                                  type="button"
+                                  disabled={busy || !String((selectedBlock.props as any)?.posterUrl || "").trim()}
+                                  onClick={() =>
+                                    upsertBlock({
+                                      ...selectedBlock,
+                                      props: { ...(selectedBlock.props as any), posterUrl: "" },
+                                    } as any)
+                                  }
+                                  className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-60"
+                                >
+                                  Clear
+                                </button>
+                              </div>
+
+                              {String((selectedBlock.props as any)?.posterUrl || "").trim() ? (
+                                <div className="rounded-xl border border-zinc-200 bg-white p-3">
+                                  <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Selected poster</div>
+                                  <div className="mt-1 break-all font-mono text-xs text-zinc-700">{String((selectedBlock.props as any)?.posterUrl || "").trim()}</div>
+                                </div>
+                              ) : (
+                                <div className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-600">No poster selected.</div>
+                              )}
+                            </div>
                           </div>
                         ) : null}
                       </div>
