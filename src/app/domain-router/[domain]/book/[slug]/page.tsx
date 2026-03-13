@@ -3,6 +3,7 @@ import type { Metadata } from "next";
 
 import { prisma } from "@/lib/db";
 import { resolveCustomDomain } from "@/lib/customDomainResolver";
+import { getHostedBrandFont } from "@/lib/hostedBrandFont";
 
 import { PublicBookingClient } from "@/app/book/[slug]/PublicBookingClient";
 
@@ -60,5 +61,12 @@ export default async function CustomDomainBookingPage({
   if (!bookingSite) notFound();
   if (String(bookingSite.ownerId) !== String(mapping.ownerId)) notFound();
 
-  return <PublicBookingClient target={{ kind: "slug", slug: bookingSlug }} />;
+  const hostedBrandFont = await getHostedBrandFont(mapping.ownerId);
+
+  return (
+    <div style={{ ...(hostedBrandFont.styleVars as any), ...hostedBrandFont.globalStyle } as any}>
+      {hostedBrandFont.googleCss ? <style>{hostedBrandFont.googleCss}</style> : null}
+      <PublicBookingClient target={{ kind: "slug", slug: bookingSlug }} />
+    </div>
+  );
 }

@@ -7,6 +7,7 @@ import { prisma } from "@/lib/db";
 import { formatBlogDate } from "@/lib/blog";
 import { hasPublicColumn } from "@/lib/dbSchema";
 import { resolveCustomDomain } from "@/lib/customDomainResolver";
+import { getHostedBrandFont } from "@/lib/hostedBrandFont";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -97,6 +98,8 @@ export default async function CustomDomainBlogsIndexPage({
     .findUnique({ where: { ownerId: site.ownerId }, select: profileSelect as any })
     .catch(() => null);
 
+  const hostedBrandFont = await getHostedBrandFont(site.ownerId);
+
   const brandPrimary = normalizeHex((profile as any)?.brandPrimaryHex) ?? "#1d4ed8";
   const brandAccent = normalizeHex((profile as any)?.brandAccentHex) ?? "#f472b6";
   const brandText = normalizeHex((profile as any)?.brandTextHex) ?? "#18181b";
@@ -121,7 +124,8 @@ export default async function CustomDomainBlogsIndexPage({
   const coralCta = "#fb7185";
 
   return (
-    <div className="min-h-screen bg-white" style={themeStyle}>
+    <div className="min-h-screen bg-white" style={{ ...(themeStyle as any), ...hostedBrandFont.styleVars, ...hostedBrandFont.globalStyle } as any}>
+      {hostedBrandFont.googleCss ? <style>{hostedBrandFont.googleCss}</style> : null}
       <header className="border-b border-zinc-200 bg-white/80 backdrop-blur">
         <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-4">
           <Link href="/blogs" className="flex items-center gap-3">

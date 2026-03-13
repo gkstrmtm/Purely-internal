@@ -7,6 +7,7 @@ import { prisma } from "@/lib/db";
 import { hasPublicColumn } from "@/lib/dbSchema";
 import { resolveCustomDomain } from "@/lib/customDomainResolver";
 import { resolveNewsletterHostedFont } from "@/lib/portalNewsletterFonts";
+import { getHostedBrandFont } from "@/lib/hostedBrandFont";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -118,6 +119,7 @@ export default async function CustomDomainInternalNewslettersIndexPage({
     })
     .catch(() => null);
   const hostedFont = resolveNewsletterHostedFont((setup?.dataJson as any)?.internal?.fontKey);
+  const hostedBrandFont = await getHostedBrandFont(site.ownerId);
 
   const newsletters = await prisma.clientNewsletter.findMany({
     where: { siteId: site.id, kind: "INTERNAL", status: "SENT" },
@@ -129,8 +131,9 @@ export default async function CustomDomainInternalNewslettersIndexPage({
   return (
     <div
       className={"min-h-screen bg-white " + (hostedFont.className || "")}
-      style={{ ...(themeStyle as any), ...(hostedFont.style || {}) } as any}
+      style={{ ...(themeStyle as any), ...hostedBrandFont.styleVars, ...(hostedFont.style || {}) } as any}
     >
+      {hostedBrandFont.googleCss ? <style>{hostedBrandFont.googleCss}</style> : null}
       {hostedFont.googleImportCss ? <style>{hostedFont.googleImportCss}</style> : null}
       <header className="border-b border-zinc-200 bg-white/80 backdrop-blur">
         <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-4">
