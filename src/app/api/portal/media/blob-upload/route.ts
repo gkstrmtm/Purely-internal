@@ -7,15 +7,40 @@ export const dynamic = "force-dynamic";
 export const revalidate = 0;
 export const runtime = "nodejs";
 
-function resolveBlobReadWriteToken(): string | null {
-  const token =
-    process.env.BLOB_READ_WRITE_TOKEN ||
-    process.env.VERCEL_BLOB_READ_WRITE_TOKEN ||
-    process.env.VERCEL_BLOB_TOKEN ||
-    process.env.BLOB_RW_TOKEN ||
-    process.env.BLOB_TOKEN ||
-    null;
-  return token && token.trim() ? token.trim() : null;
+const TOKEN_ENV_CANDIDATES = [
+  "BLOB_READ_WRITE_TOKEN",
+  "VERCEL_BLOB_READ_WRITE_TOKEN",
+  "VERCEL_BLOB_TOKEN",
+  "BLOB_RW_TOKEN",
+  "BLOB_TOKEN",
+] as const;
+
+function getTokenDiagnostics() {
+  const present: Record<string, boolean> = {};
+  for (const key of TOKEN_ENV_CANDIDATES) {
+    present[key] = Boolean((process.env as any)?.[key] && String((process.env as any)[key]).trim());
+  }
+
+  return {
+    present,
+    vercel: {
+      deploymentId: process.env.VERCEL_DEPLOYMENT_ID ?? null,
+      commitSha: process.env.VERCEL_GIT_COMMIT_SHA ?? null,
+      commitRef: process.env.VERCEL_GIT_COMMIT_REF ?? null,
+      region: process.env.VERCEL_REGION ?? null,
+    },
+    nodeEnv: process.env.NODE_ENV ?? null,
+  };
+}
+
+function resolveBlobReadWriteToken(): { token: string; source: (typeof TOKEN_ENV_CANDIDATES)[number] } | null {
+  for (const key of TOKEN_ENV_CANDIDATES) {
+    const raw = (process.env as any)?.[key];
+    if (!raw) continue;
+    const token = String(raw).trim();
+    if (token) return { token, source: key };
+  }
+  return null;
 }
 
 // This route is used by `@vercel/blob/client` to securely generate client upload
@@ -35,14 +60,15 @@ export async function POST(request: Request): Promise<NextResponse> {
     return NextResponse.json({ error: "Invalid request" }, { status: 400 });
   }
 
-  const token = resolveBlobReadWriteToken();
-  if (!token) {
+  const resolved = resolveBlobReadWriteToken();
+  if (!resolved) {
     // The client SDK surfaces any non-2xx from this endpoint as “Failed to retrieve the client token”.
     // Return a clear error so it’s obvious what’s missing.
     return NextResponse.json(
       {
         error: "Video uploads require an external storage provider (Vercel Blob) for large files.",
         hint: "Enable Vercel Blob for this deployment (sets BLOB_READ_WRITE_TOKEN / VERCEL_BLOB_READ_WRITE_TOKEN).",
+        diagnostics: getTokenDiagnostics(),
       },
       { status: 400 },
     );
@@ -50,7 +76,7 @@ export async function POST(request: Request): Promise<NextResponse> {
 
   try {
     const jsonResponse = await handleUpload({
-      token,
+      token: resolved.token,
       body,
       request,
       onBeforeGenerateToken: async () => {
@@ -103,6 +129,15 @@ export async function POST(request: Request): Promise<NextResponse> {
     return NextResponse.json(jsonResponse);
   } catch (error) {
     const message = (error as any)?.message ? String((error as any).message) : "Blob upload token failed";
-    return NextResponse.json({ error: message }, { status: 400 });
+    return NextResponse.json(
+      {
+        error: message,
+        hint:
+          "If the token is set but uploads still fail, the token may be invalid/expired or set on a different Vercel project/environment.",
+        tokenSource: resolved.source,
+        diagnostics: getTokenDiagnostics(),
+      },
+      { status: 400 },
+    );
   }
 }
