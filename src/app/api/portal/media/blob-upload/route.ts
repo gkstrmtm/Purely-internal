@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { handleUpload, type HandleUploadBody } from "@vercel/blob/client";
 
-import { requireClientSessionForService } from "@/lib/portalAccess";
+import { requireClientSession } from "@/lib/apiAuth";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -12,7 +12,10 @@ export const revalidate = 0;
 // Why: Vercel serverless functions have a ~4.5MB request body limit; videos will
 // fail if uploaded through our own POST endpoints.
 export async function POST(request: Request): Promise<NextResponse> {
-  const auth = await requireClientSessionForService("media");
+  // IMPORTANT: This route is used by Funnel Builder uploads (e.g. videos) as well as the media library.
+  // Do NOT gate token generation behind the "media" module entitlement, otherwise users can be blocked
+  // from uploading funnel assets even when they have access to Funnel Builder.
+  const auth = await requireClientSession();
   if (!auth.ok) return NextResponse.json({ error: "Unauthorized" }, { status: auth.status });
 
   const body = (await request.json().catch(() => null)) as HandleUploadBody | null;
@@ -29,31 +32,11 @@ export async function POST(request: Request): Promise<NextResponse> {
           access: "public",
           addRandomSuffix: true,
           allowedContentTypes: [
-            // images
-            "image/jpeg",
-            "image/png",
-            "image/webp",
-            "image/gif",
-            "image/svg+xml",
-            // videos
-            "video/mp4",
-            "video/quicktime", // .mov
-            "video/webm",
-            "video/ogg",
-            "video/mpeg",
-            "video/x-m4v",
-            "video/x-msvideo", // .avi
-            "video/x-ms-wmv",
-            "video/3gpp",
-            "video/3gpp2",
-            "video/x-matroska", // .mkv
-            // audio
-            "audio/mpeg",
-            "audio/mp4",
-            "audio/x-m4a",
-            "audio/ogg",
-            "audio/wav",
-            // docs
+            // Wildcards are supported by Vercel Blob (e.g. "video/*").
+            // Keep this broad so uploads don't break on browser/device MIME quirks.
+            "image/*",
+            "video/*",
+            "audio/*",
             "application/pdf",
             // fallback (some browsers/devices report this even for videos)
             "application/octet-stream",
