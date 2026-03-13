@@ -7,6 +7,7 @@ import { requireClientSessionForService } from "@/lib/portalAccess";
 import { hasPublicColumn } from "@/lib/dbSchema";
 import { getAiReceptionistServiceData, setAiReceptionistSettings } from "@/lib/aiReceptionist";
 import { getOrCreateOwnerMailboxAddress } from "@/lib/portalMailbox";
+import { coerceFontFamily, coerceGoogleFamily } from "@/lib/fontPresets";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -39,6 +40,9 @@ const upsertSchema = z.object({
     .regex(/^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/, "Text color must be a hex code like #0f172a")
     .optional()
     .or(z.literal("")),
+
+  brandFontFamily: z.string().trim().max(200).optional().or(z.literal("")),
+  brandFontGoogleFamily: z.string().trim().max(80).optional().or(z.literal("")),
 });
 
 function emptyToNull(value: string | undefined) {
@@ -57,6 +61,8 @@ type ProfileColumnFlags = {
   brandPrimaryHex: boolean;
   brandAccentHex: boolean;
   brandTextHex: boolean;
+  brandFontFamily: boolean;
+  brandFontGoogleFamily: boolean;
   updatedAt: boolean;
 };
 
@@ -72,6 +78,8 @@ async function getProfileColumnFlags(): Promise<ProfileColumnFlags> {
     brandPrimaryHex,
     brandAccentHex,
     brandTextHex,
+    brandFontFamily,
+    brandFontGoogleFamily,
     updatedAt,
   ] = await Promise.all([
     hasPublicColumn("BusinessProfile", "websiteUrl"),
@@ -84,6 +92,8 @@ async function getProfileColumnFlags(): Promise<ProfileColumnFlags> {
     hasPublicColumn("BusinessProfile", "brandPrimaryHex"),
     hasPublicColumn("BusinessProfile", "brandAccentHex"),
     hasPublicColumn("BusinessProfile", "brandTextHex"),
+    hasPublicColumn("BusinessProfile", "brandFontFamily"),
+    hasPublicColumn("BusinessProfile", "brandFontGoogleFamily"),
     hasPublicColumn("BusinessProfile", "updatedAt"),
   ]);
 
@@ -98,6 +108,8 @@ async function getProfileColumnFlags(): Promise<ProfileColumnFlags> {
     brandPrimaryHex,
     brandAccentHex,
     brandTextHex,
+    brandFontFamily,
+    brandFontGoogleFamily,
     updatedAt,
   };
 }
@@ -117,6 +129,8 @@ function profileSelect(flags: ProfileColumnFlags) {
   if (flags.brandPrimaryHex) select.brandPrimaryHex = true;
   if (flags.brandAccentHex) select.brandAccentHex = true;
   if (flags.brandTextHex) select.brandTextHex = true;
+  if (flags.brandFontFamily) select.brandFontFamily = true;
+  if (flags.brandFontGoogleFamily) select.brandFontGoogleFamily = true;
   if (flags.updatedAt) select.updatedAt = true;
 
   return select as any;
@@ -135,6 +149,8 @@ function normalizeProfile(row: any, flags: ProfileColumnFlags) {
     brandPrimaryHex: flags.brandPrimaryHex ? (row.brandPrimaryHex ?? null) : null,
     brandAccentHex: flags.brandAccentHex ? (row.brandAccentHex ?? null) : null,
     brandTextHex: flags.brandTextHex ? (row.brandTextHex ?? null) : null,
+    brandFontFamily: flags.brandFontFamily ? (row.brandFontFamily ?? null) : null,
+    brandFontGoogleFamily: flags.brandFontGoogleFamily ? (row.brandFontGoogleFamily ?? null) : null,
     updatedAt: flags.updatedAt ? row.updatedAt : null,
   };
 }
@@ -201,6 +217,8 @@ export async function PUT(req: Request) {
   if (flags.brandPrimaryHex) baseData.brandPrimaryHex = emptyToNull(parsed.data.brandPrimaryHex);
   if (flags.brandAccentHex) baseData.brandAccentHex = emptyToNull(parsed.data.brandAccentHex);
   if (flags.brandTextHex) baseData.brandTextHex = emptyToNull(parsed.data.brandTextHex);
+  if (flags.brandFontFamily) baseData.brandFontFamily = coerceFontFamily(parsed.data.brandFontFamily) ?? null;
+  if (flags.brandFontGoogleFamily) baseData.brandFontGoogleFamily = coerceGoogleFamily(parsed.data.brandFontGoogleFamily) ?? null;
 
   const updateData: Record<string, unknown> = {
     businessName: parsed.data.businessName.trim(),
@@ -217,6 +235,8 @@ export async function PUT(req: Request) {
   if (flags.brandPrimaryHex) updateData.brandPrimaryHex = emptyToNull(parsed.data.brandPrimaryHex);
   if (flags.brandAccentHex) updateData.brandAccentHex = emptyToNull(parsed.data.brandAccentHex);
   if (flags.brandTextHex) updateData.brandTextHex = emptyToNull(parsed.data.brandTextHex);
+  if (flags.brandFontFamily) updateData.brandFontFamily = coerceFontFamily(parsed.data.brandFontFamily) ?? null;
+  if (flags.brandFontGoogleFamily) updateData.brandFontGoogleFamily = coerceGoogleFamily(parsed.data.brandFontGoogleFamily) ?? null;
 
   const row = await prisma.businessProfile.upsert({
     where: { ownerId },

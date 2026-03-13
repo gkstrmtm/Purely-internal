@@ -29,6 +29,26 @@ function getGlobalHeaderBlockFromPages(pages: Array<{ blocksJson: unknown }>): C
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
+type FunnelPageSeo = {
+  faviconUrl?: string;
+};
+
+function readFunnelPageSeo(settingsJson: unknown, pageId: string): FunnelPageSeo | null {
+  if (!pageId) return null;
+  if (!settingsJson || typeof settingsJson !== "object" || Array.isArray(settingsJson)) return null;
+  const raw = (settingsJson as any).funnelPageSeo;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const row = (raw as any)[pageId];
+  if (!row || typeof row !== "object" || Array.isArray(row)) return null;
+
+  const faviconUrl =
+    typeof (row as any).faviconUrl === "string" ? String((row as any).faviconUrl).trim().slice(0, 500) : "";
+
+  const out: FunnelPageSeo = {};
+  if (faviconUrl) out.faviconUrl = faviconUrl;
+  return Object.keys(out).length ? out : null;
+}
+
 export async function GET(_req: Request, ctx: { params: Promise<{ funnelId: string }> }) {
   const auth = await requireFunnelBuilderSession();
   if (!auth.ok) {
@@ -66,7 +86,16 @@ export async function GET(_req: Request, ctx: { params: Promise<{ funnelId: stri
     },
   });
 
-  return NextResponse.json({ ok: true, pages });
+  const settings = await prisma.creditFunnelBuilderSettings
+    .findUnique({ where: { ownerId: auth.session.user.id }, select: { dataJson: true } })
+    .catch(() => null);
+
+  const pagesWithSeo = pages.map((p) => ({
+    ...p,
+    seo: readFunnelPageSeo(settings?.dataJson ?? null, p.id),
+  }));
+
+  return NextResponse.json({ ok: true, pages: pagesWithSeo });
 }
 
 export async function POST(req: Request, ctx: { params: Promise<{ funnelId: string }> }) {

@@ -78,6 +78,7 @@ type Page = {
   slug: string;
   title: string;
   sortOrder: number;
+  seo?: { faviconUrl?: string } | null;
   contentMarkdown: string;
   editorMode: "MARKDOWN" | "BLOCKS" | "CUSTOM_HTML";
   blocksJson: unknown;
@@ -2522,6 +2523,8 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
 
   const [videoSettingsBlockId, setVideoSettingsBlockId] = useState<string | null>(null);
 
+  const [pageFaviconPickerOpen, setPageFaviconPickerOpen] = useState(false);
+
   const selectedPage = useMemo(
     () => (pages || []).find((p) => p.id === selectedPageId) || null,
     [pages, selectedPageId],
@@ -3246,7 +3249,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
     );
   }, [pushUndoSnapshot, selectedPage]);
 
-  const load = async () => {
+  const load = useCallback(async () => {
     setError(null);
     const [fRes, pRes, formsRes, bookingCalendarsRes, bookingSettingsRes] = await Promise.all([
       fetch(`/api/portal/funnel-builder/funnels/${encodeURIComponent(funnelId)}`, {
@@ -3308,7 +3311,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
     } else {
       setBookingSiteSlug(null);
     }
-  };
+  }, [funnelId, portalVariant]);
 
   useEffect(() => {
     setSeoDirty(false);
@@ -3350,46 +3353,63 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
     return () => {
       cancelled = true;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [funnelId, funnel, pages]);
+  }, [funnel, load, pages]);
 
-  const savePage = async (
-    patch: Partial<
-      Pick<
-        Page,
-        | "title"
-        | "slug"
-        | "sortOrder"
-        | "contentMarkdown"
-        | "editorMode"
-        | "blocksJson"
-        | "customHtml"
-        | "customChatJson"
-      >
-    >,
-  ) => {
-    if (!selectedPage) return;
-    setBusy(true);
-    setError(null);
-    try {
-      const res = await fetch(
-        `/api/portal/funnel-builder/funnels/${encodeURIComponent(funnelId)}/pages/${encodeURIComponent(selectedPage.id)}`,
-        {
-          method: "PATCH",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify(patch),
-        },
-      );
-      const json = (await res.json().catch(() => null)) as any;
-      if (!res.ok || !json || json.ok !== true) throw new Error(json?.error || "Failed to save");
-      await load();
-      setSelectedPageId(json.page?.id || selectedPage.id);
-    } catch (e) {
-      setError((e as any)?.message ? String((e as any).message) : "Failed to save");
-    } finally {
-      setBusy(false);
-    }
-  };
+  const savePage = useCallback(
+    async (
+      patch: Partial<
+        Pick<
+          Page,
+          | "title"
+          | "slug"
+          | "sortOrder"
+          | "seo"
+          | "contentMarkdown"
+          | "editorMode"
+          | "blocksJson"
+          | "customHtml"
+          | "customChatJson"
+        >
+      >,
+    ) => {
+      if (!selectedPage) return;
+      setBusy(true);
+      setError(null);
+      try {
+        const res = await fetch(
+          `/api/portal/funnel-builder/funnels/${encodeURIComponent(funnelId)}/pages/${encodeURIComponent(selectedPage.id)}`,
+          {
+            method: "PATCH",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify(patch),
+          },
+        );
+        const json = (await res.json().catch(() => null)) as any;
+        if (!res.ok || !json || json.ok !== true) throw new Error(json?.error || "Failed to save");
+        await load();
+        setSelectedPageId(json.page?.id || selectedPage.id);
+      } catch (e) {
+        setError((e as any)?.message ? String((e as any).message) : "Failed to save");
+      } finally {
+        setBusy(false);
+      }
+    },
+    [funnelId, load, selectedPage],
+  );
+
+  const setPageFaviconUrl = useCallback(
+    async (nextUrlRaw: string) => {
+      if (!selectedPage) return;
+      const nextUrl = String(nextUrlRaw || "")
+        .trim()
+        .slice(0, 500);
+
+      const nextSeo = nextUrl ? { ...(selectedPage.seo || {}), faviconUrl: nextUrl } : null;
+      setSelectedPageLocal({ seo: nextSeo });
+      await savePage({ seo: nextSeo });
+    },
+    [savePage, selectedPage, setSelectedPageLocal],
+  );
 
   const createPage = () => {
     setDialogError(null);
@@ -4853,6 +4873,55 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                           />
                         </label>
 
+                        <div className="rounded-xl border border-zinc-200 bg-white px-3 py-2">
+                          <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-zinc-500">Tab icon (favicon) — this page</div>
+                          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                            <div className="flex min-w-0 flex-1 items-center gap-3">
+                              <div className="h-9 w-9 overflow-hidden rounded-xl border border-zinc-200 bg-zinc-50">
+                                {selectedPage?.seo?.faviconUrl ? (
+                                  // eslint-disable-next-line @next/next/no-img-element
+                                  <img src={selectedPage.seo.faviconUrl} alt="Favicon" className="h-full w-full object-cover" />
+                                ) : null}
+                              </div>
+                              <input
+                                value={String(selectedPage?.seo?.faviconUrl || "")}
+                                onChange={(e) => {
+                                  const v = e.target.value.slice(0, 500);
+                                  setSelectedPageLocal({
+                                    seo: v.trim() ? { ...(selectedPage?.seo || {}), faviconUrl: v } : null,
+                                  });
+                                }}
+                                onBlur={(e) => {
+                                  void setPageFaviconUrl(e.target.value);
+                                }}
+                                placeholder="https://… (32×32 or 64×64 recommended)"
+                                className="min-w-0 flex-1 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                              />
+                            </div>
+
+                            <div className="flex shrink-0 items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={() => setPageFaviconPickerOpen(true)}
+                                className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+                              >
+                                Choose
+                              </button>
+                              <button
+                                type="button"
+                                disabled={!selectedPage?.seo?.faviconUrl}
+                                onClick={() => void setPageFaviconUrl("")}
+                                className={classNames(
+                                  "rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50",
+                                  !selectedPage?.seo?.faviconUrl ? "opacity-50" : "",
+                                )}
+                              >
+                                Clear
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+
                         <label className="flex items-center justify-between gap-4 rounded-xl border border-zinc-200 bg-white px-3 py-2">
                           <span className="text-sm font-semibold text-zinc-900">Discourage indexing (noindex)</span>
                           <ToggleSwitch
@@ -4890,6 +4959,17 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                         </div>
                       </div>
                     </div>
+
+                    <PortalMediaPickerModal
+                      open={pageFaviconPickerOpen}
+                      title="Choose a tab icon"
+                      confirmLabel="Use"
+                      onClose={() => setPageFaviconPickerOpen(false)}
+                      onPick={(item) => {
+                        setPageFaviconPickerOpen(false);
+                        void setPageFaviconUrl(item.shareUrl);
+                      }}
+                    />
                   </div>
                 </div>
               ) : null}

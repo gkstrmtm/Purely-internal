@@ -6,6 +6,51 @@ import { requireFunnelBuilderSession } from "@/lib/funnelBuilderAccess";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
+type FunnelPageSeo = {
+  faviconUrl?: string;
+};
+
+function readFunnelPageSeo(settingsJson: unknown, pageId: string): FunnelPageSeo | null {
+  if (!pageId) return null;
+  if (!settingsJson || typeof settingsJson !== "object" || Array.isArray(settingsJson)) return null;
+  const raw = (settingsJson as any).funnelPageSeo;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const row = (raw as any)[pageId];
+  if (!row || typeof row !== "object" || Array.isArray(row)) return null;
+
+  const faviconUrl =
+    typeof (row as any).faviconUrl === "string" ? String((row as any).faviconUrl).trim().slice(0, 500) : "";
+
+  const out: FunnelPageSeo = {};
+  if (faviconUrl) out.faviconUrl = faviconUrl;
+  return Object.keys(out).length ? out : null;
+}
+
+function safePageSeo(raw: unknown): FunnelPageSeo | null {
+  if (raw === null) return null;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+
+  const faviconUrl = typeof (raw as any).faviconUrl === "string" ? String((raw as any).faviconUrl).trim().slice(0, 500) : "";
+
+  const out: FunnelPageSeo = {};
+  if (faviconUrl) out.faviconUrl = faviconUrl;
+  return out;
+}
+
+function writeFunnelPageSeo(settingsJson: unknown, pageId: string, seo: FunnelPageSeo | null) {
+  const base = settingsJson && typeof settingsJson === "object" && !Array.isArray(settingsJson) ? { ...(settingsJson as any) } : {};
+  const funnelPageSeo =
+    base.funnelPageSeo && typeof base.funnelPageSeo === "object" && !Array.isArray(base.funnelPageSeo)
+      ? { ...(base.funnelPageSeo as any) }
+      : {};
+
+  if (seo === null) delete funnelPageSeo[pageId];
+  else funnelPageSeo[pageId] = seo;
+
+  base.funnelPageSeo = funnelPageSeo;
+  return base;
+}
+
 export async function PATCH(req: Request, ctx: { params: Promise<{ funnelId: string; pageId: string }> }) {
   const auth = await requireFunnelBuilderSession();
   if (!auth.ok) {
@@ -29,6 +74,13 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ funnelId: str
   if (!page) return NextResponse.json({ ok: false, error: "Not found" }, { status: 404 });
 
   const body = (await req.json().catch(() => null)) as any;
+
+  const wantsSeoUpdate = Object.prototype.hasOwnProperty.call(body ?? {}, "seo");
+  const requestedSeoRaw = wantsSeoUpdate ? (body as any).seo : undefined;
+  const requestedSeo = wantsSeoUpdate ? (requestedSeoRaw === null ? null : safePageSeo(requestedSeoRaw)) : undefined;
+  if (wantsSeoUpdate && requestedSeoRaw !== null && requestedSeo == null) {
+    return NextResponse.json({ ok: false, error: "Invalid seo" }, { status: 400 });
+  }
 
   const data: any = {};
   if (typeof body?.title === "string") data.title = body.title.trim();
@@ -58,25 +110,64 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ funnelId: str
     data.slug = slug;
   }
 
-  const updated = await prisma.creditFunnelPage.update({
-    where: { id: pageId },
-    data,
-    select: {
-      id: true,
-      slug: true,
-      title: true,
-      sortOrder: true,
-      contentMarkdown: true,
-      editorMode: true,
-      blocksJson: true,
-      customHtml: true,
-      customChatJson: true,
-      createdAt: true,
-      updatedAt: true,
-    },
-  });
+  const updated = Object.keys(data).length
+    ? await prisma.creditFunnelPage.update({
+        where: { id: pageId },
+        data,
+        select: {
+          id: true,
+          slug: true,
+          title: true,
+          sortOrder: true,
+          contentMarkdown: true,
+          editorMode: true,
+          blocksJson: true,
+          customHtml: true,
+          customChatJson: true,
+          createdAt: true,
+          updatedAt: true,
+        },
+      })
+    : await prisma.creditFunnelPage.findUniqueOrThrow({
+        where: { id: pageId },
+        select: {
+          id: true,
+          slug: true,
+          title: true,
+          sortOrder: true,
+          contentMarkdown: true,
+          editorMode: true,
+          blocksJson: true,
+          customHtml: true,
+          customChatJson: true,
+          createdAt: true,
+          updatedAt: true,
+        },
+      });
 
-  return NextResponse.json({ ok: true, page: updated });
+  let nextSeo: FunnelPageSeo | null = null;
+  if (wantsSeoUpdate) {
+    const existingSettings = await prisma.creditFunnelBuilderSettings
+      .findUnique({ where: { ownerId: auth.session.user.id }, select: { dataJson: true } })
+      .catch(() => null);
+    const nextJson = writeFunnelPageSeo(existingSettings?.dataJson ?? null, pageId, (requestedSeo as any) ?? null);
+
+    await prisma.creditFunnelBuilderSettings.upsert({
+      where: { ownerId: auth.session.user.id },
+      update: { dataJson: nextJson as any },
+      create: { ownerId: auth.session.user.id, dataJson: nextJson as any },
+      select: { ownerId: true },
+    });
+
+    nextSeo = readFunnelPageSeo(nextJson, pageId);
+  } else {
+    const existingSettings = await prisma.creditFunnelBuilderSettings
+      .findUnique({ where: { ownerId: auth.session.user.id }, select: { dataJson: true } })
+      .catch(() => null);
+    nextSeo = readFunnelPageSeo(existingSettings?.dataJson ?? null, pageId);
+  }
+
+  return NextResponse.json({ ok: true, page: { ...updated, seo: nextSeo } });
 }
 
 export async function DELETE(_req: Request, ctx: { params: Promise<{ funnelId: string; pageId: string }> }) {
@@ -100,6 +191,23 @@ export async function DELETE(_req: Request, ctx: { params: Promise<{ funnelId: s
     select: { id: true },
   });
   if (!page) return NextResponse.json({ ok: false, error: "Not found" }, { status: 404 });
+
+  // Best-effort: clean up any stored page SEO.
+  try {
+    const existingSettings = await prisma.creditFunnelBuilderSettings
+      .findUnique({ where: { ownerId: auth.session.user.id }, select: { dataJson: true } })
+      .catch(() => null);
+    if (existingSettings?.dataJson != null) {
+      const nextJson = writeFunnelPageSeo(existingSettings.dataJson, pageId, null);
+      await prisma.creditFunnelBuilderSettings.update({
+        where: { ownerId: auth.session.user.id },
+        data: { dataJson: nextJson as any },
+        select: { ownerId: true },
+      });
+    }
+  } catch {
+    // ignore
+  }
 
   await prisma.creditFunnelPage.delete({ where: { id: pageId } });
   return NextResponse.json({ ok: true });

@@ -88,6 +88,24 @@ type FunnelSeo = {
   noIndex?: boolean;
 };
 
+type FunnelPageSeo = {
+  faviconUrl?: string;
+};
+
+function readFunnelPageSeo(settingsJson: unknown, pageId: string): FunnelPageSeo | null {
+  if (!pageId) return null;
+  if (!settingsJson || typeof settingsJson !== "object" || Array.isArray(settingsJson)) return null;
+  const raw = (settingsJson as any).funnelPageSeo;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const row = (raw as any)[pageId];
+  if (!row || typeof row !== "object" || Array.isArray(row)) return null;
+
+  const faviconUrl = typeof (row as any).faviconUrl === "string" ? String((row as any).faviconUrl).trim().slice(0, 500) : "";
+  const out: FunnelPageSeo = {};
+  if (faviconUrl) out.faviconUrl = faviconUrl;
+  return Object.keys(out).length ? out : null;
+}
+
 function readFunnelSeo(settingsJson: unknown, funnelId: string): FunnelSeo | null {
   if (!settingsJson || typeof settingsJson !== "object" || Array.isArray(settingsJson)) return null;
   const raw = (settingsJson as any).funnelSeo;
@@ -445,11 +463,14 @@ export async function generateMetadata({
   const segments = normalizeSegments(path);
   const first = segments[0] || "";
   const second = segments[1] || "";
+  const third = segments[2] || "";
 
   // Only handle funnel metadata for /{slug} and /f/{slug}.
   if (!first || first === "forms" || first === "form" || first === "api") return { title: host };
   const funnelSlug = first === "f" && second ? second : first;
   if (!funnelSlug) return { title: host };
+
+  const funnelPageSlug = first === "f" ? safeSlug(third) : null;
 
   const settingsRow = await prisma.creditFunnelBuilderSettings
     .findUnique({ where: { ownerId: mapping.ownerId }, select: { dataJson: true } })
@@ -464,9 +485,10 @@ export async function generateMetadata({
       select: {
         id: true,
         pages: {
-          orderBy: [{ sortOrder: "asc" }, { id: "asc" }],
-          take: 1,
-          select: { title: true, editorMode: true, customHtml: true },
+          ...(funnelPageSlug
+            ? { where: { slug: { equals: funnelPageSlug, mode: "insensitive" } }, take: 1 }
+            : { orderBy: [{ sortOrder: "asc" }, { id: "asc" }], take: 1 }),
+          select: { id: true, title: true, editorMode: true, customHtml: true },
         },
       },
     })
@@ -481,6 +503,10 @@ export async function generateMetadata({
   const seoFromCustomHtml = page?.editorMode === "CUSTOM_HTML" ? extractSeoFromCustomHtml(page.customHtml || "") : null;
   const seo = mergeSeo(seoSettings, seoFromCustomHtml);
 
+  const pageId = (page as any)?.id ? String((page as any).id) : "";
+  const pageSeo = pageId ? readFunnelPageSeo(settingsJson, pageId) : null;
+  const faviconUrl = typeof pageSeo?.faviconUrl === "string" ? pageSeo.faviconUrl : "";
+
   const title = seo?.title || page?.title || "";
   const description = seo?.description || "";
 
@@ -494,6 +520,7 @@ export async function generateMetadata({
           images: [{ url: seo.imageUrl }],
         }
       : undefined,
+    icons: faviconUrl ? { icon: faviconUrl, shortcut: faviconUrl } : undefined,
     robots: seo?.noIndex ? { index: false, follow: true } : undefined,
   };
 }

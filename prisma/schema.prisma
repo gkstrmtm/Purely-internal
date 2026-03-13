@@ -1833,6 +1833,9 @@ model BusinessProfile {
   brandAccentHex  String?
   brandTextHex    String?
 
+  brandFontFamily       String?
+  brandFontGoogleFamily String?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 

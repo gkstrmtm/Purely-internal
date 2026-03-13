@@ -3,6 +3,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { PortalMediaPickerModal } from "@/components/PortalMediaPickerModal";
 import { useToast } from "@/components/ToastProvider";
+import { PortalFontDropdown } from "@/components/PortalFontDropdown";
+import { applyFontPresetToStyle, fontPresetKeyFromStyle } from "@/lib/fontPresets";
 
 type BusinessProfile = {
   businessName: string;
@@ -17,6 +19,9 @@ type BusinessProfile = {
   brandPrimaryHex?: string | null;
   brandAccentHex?: string | null;
   brandTextHex?: string | null;
+
+  brandFontFamily?: string | null;
+  brandFontGoogleFamily?: string | null;
   updatedAt?: string;
 };
 
@@ -80,8 +85,15 @@ export function BusinessProfileForm({
   const [brandPrimaryHex, setBrandPrimaryHex] = useState("");
   const [brandAccentHex, setBrandAccentHex] = useState("");
   const [brandTextHex, setBrandTextHex] = useState("");
+  const [brandFontFamily, setBrandFontFamily] = useState("");
+  const [brandFontGoogleFamily, setBrandFontGoogleFamily] = useState("");
   const [logoBusy, setLogoBusy] = useState(false);
   const [logoPickerOpen, setLogoPickerOpen] = useState(false);
+
+  const brandFontPresetKey = useMemo(
+    () => fontPresetKeyFromStyle({ fontFamily: brandFontFamily, fontGoogleFamily: brandFontGoogleFamily }),
+    [brandFontFamily, brandFontGoogleFamily],
+  );
 
   const canSave = useMemo(() => !readOnly && businessName.trim().length >= 2, [businessName, readOnly]);
 
@@ -113,6 +125,9 @@ export function BusinessProfileForm({
         setBrandPrimaryHex(p.brandPrimaryHex ?? "");
         setBrandAccentHex(p.brandAccentHex ?? "");
         setBrandTextHex(p.brandTextHex ?? "");
+
+        setBrandFontFamily(p.brandFontFamily ?? "");
+        setBrandFontGoogleFamily(p.brandFontGoogleFamily ?? "");
       }
 
       setLoading(false);
@@ -143,6 +158,9 @@ export function BusinessProfileForm({
         brandPrimaryHex,
         brandAccentHex,
         brandTextHex,
+
+        brandFontFamily,
+        brandFontGoogleFamily,
       }),
     });
 
@@ -363,6 +381,50 @@ export function BusinessProfileForm({
             className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300"
             placeholder="Professional, friendly, short paragraphs"
           />
+        </div>
+
+        <div className="sm:col-span-2">
+          <label className="text-xs font-semibold text-zinc-600">Business font</label>
+          <div className="mt-1">
+            <PortalFontDropdown
+              value={brandFontPresetKey}
+              onChange={(k) => {
+                if (readOnly) return;
+                const key = String(k || "default");
+                if (key === "custom") {
+                  setBrandFontGoogleFamily("");
+                  return;
+                }
+                const next = applyFontPresetToStyle(key);
+                setBrandFontFamily(next.fontFamily || "");
+                setBrandFontGoogleFamily(next.fontGoogleFamily || "");
+              }}
+              includeCustom
+              customFontFamily={brandFontFamily}
+              extraOptions={[{ value: "default", label: "Default (app font)" }]}
+              className="w-full"
+              buttonClassName="flex w-full items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-900 hover:bg-zinc-50"
+              disabled={Boolean(readOnly)}
+            />
+          </div>
+
+          {brandFontPresetKey === "custom" ? (
+            <div className="mt-2">
+              <label className="text-xs font-semibold text-zinc-600">Custom font-family</label>
+              <input
+                value={brandFontFamily}
+                onChange={(e) => {
+                  const v = e.target.value.replace(/[\r\n\t]/g, " ").slice(0, 200);
+                  setBrandFontFamily(v);
+                  setBrandFontGoogleFamily("");
+                }}
+                disabled={Boolean(readOnly)}
+                className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300"
+                placeholder='e.g. ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial'
+              />
+            </div>
+          ) : null}
+          <div className="mt-1 text-xs text-zinc-500">Used for hosted page styling and templates.</div>
         </div>
 
         <div>
