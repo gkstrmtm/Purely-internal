@@ -40,13 +40,23 @@ export async function POST(request: Request): Promise<NextResponse> {
             "video/quicktime", // .mov
             "video/webm",
             "video/ogg",
+            "video/mpeg",
+            "video/x-m4v",
+            "video/x-msvideo", // .avi
+            "video/x-ms-wmv",
+            "video/3gpp",
+            "video/3gpp2",
+            "video/x-matroska", // .mkv
             // audio
             "audio/mpeg",
             "audio/mp4",
+            "audio/x-m4a",
             "audio/ogg",
             "audio/wav",
             // docs
             "application/pdf",
+            // fallback (some browsers/devices report this even for videos)
+            "application/octet-stream",
           ],
           tokenPayload: JSON.stringify({ ownerId: auth.session.user.id }),
         };

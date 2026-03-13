@@ -102,6 +102,30 @@ function classNames(...xs: Array<string | false | null | undefined>) {
   return xs.filter(Boolean).join(" ");
 }
 
+function ToggleSwitch({
+  checked,
+  disabled,
+  onChange,
+}: {
+  checked: boolean;
+  disabled?: boolean;
+  onChange: (next: boolean) => void;
+}) {
+  return (
+    <span className="relative inline-flex h-6 w-11 shrink-0 items-center">
+      <input
+        type="checkbox"
+        className="peer sr-only"
+        checked={checked}
+        disabled={disabled}
+        onChange={(e) => onChange(e.target.checked)}
+      />
+      <span className="h-6 w-11 rounded-full bg-zinc-200 transition peer-checked:bg-(--color-brand-blue) peer-focus-visible:ring-2 peer-focus-visible:ring-brand-ink/40 peer-focus-visible:ring-offset-2 peer-focus-visible:ring-offset-white peer-disabled:opacity-60" />
+      <span className="pointer-events-none absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow-sm transition peer-checked:translate-x-5" />
+    </span>
+  );
+}
+
 function normalizeSlug(raw: string) {
   const cleaned = raw
     .trim()
@@ -1846,7 +1870,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                       ) : (
                         <div
                           className={classNames(
-                            "mx-auto w-full overflow-hidden border border-zinc-200",
+                            "mx-auto w-full border border-zinc-200",
                             previewDevice === "mobile" ? "max-w-[420px] rounded-3xl" : "max-w-5xl rounded-none",
                           )}
                         >
@@ -2569,8 +2593,15 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
       throw new Error(`"${file.name}" is too large (max ${Math.floor(MAX_UPLOADS_BYTES / (1024 * 1024))}MB)`);
     }
 
-    const wantsBlobUpload =
-      file.size > VERCEL_SERVERLESS_BODY_LIMIT_BYTES || String(file.type || "").toLowerCase().startsWith("video/");
+    const isLikelyVideo = (() => {
+      const t = String(file.type || "").toLowerCase();
+      if (t.startsWith("video/")) return true;
+      const n = String(file.name || "").trim().toLowerCase();
+      const ext = n.includes(".") ? n.split(".").pop() || "" : "";
+      return ["mp4", "mov", "webm", "mkv", "m4v", "ogv", "avi", "wmv", "mpeg", "mpg", "3gp", "3g2"].includes(ext);
+    })();
+
+    const wantsBlobUpload = file.size > VERCEL_SERVERLESS_BODY_LIMIT_BYTES || isLikelyVideo;
 
     if (wantsBlobUpload) {
       let blob: PutBlobResult;
@@ -4571,12 +4602,11 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                           />
                         </label>
 
-                        <label className="flex items-center gap-2">
-                          <input
-                            type="checkbox"
+                        <label className="flex items-center justify-between gap-4 rounded-xl border border-zinc-200 bg-white px-3 py-2">
+                          <span className="text-sm font-semibold text-zinc-900">Discourage indexing (noindex)</span>
+                          <ToggleSwitch
                             checked={!!funnel?.seo?.noIndex}
-                            onChange={(e) => {
-                              const checked = e.target.checked;
+                            onChange={(checked) => {
                               setSeoDirty(true);
                               setSeoError(null);
                               setFunnel((prev) => {
@@ -4585,9 +4615,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                                 return { ...prev, seo: nextSeo };
                               });
                             }}
-                            className="h-4 w-4 rounded border-zinc-300"
                           />
-                          <span className="text-sm font-semibold text-zinc-900">Discourage indexing (noindex)</span>
                         </label>
 
                         <div className="flex items-center gap-2">
@@ -5952,12 +5980,12 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
 
                     {selectedBlock.type === "headerNav" ? (
                       <div className="space-y-3">
-                        <label className="flex items-center gap-2">
-                          <input
-                            type="checkbox"
+                        <label className="flex items-center justify-between gap-4 rounded-xl border border-zinc-200 bg-white px-3 py-2">
+                          <span className="text-sm font-semibold text-zinc-900">Make this the global header</span>
+                          <ToggleSwitch
                             checked={Boolean((selectedBlock.props as any)?.isGlobal)}
-                            onChange={(e) => {
-                              const checked = e.target.checked;
+                            disabled={busy}
+                            onChange={(checked) => {
                               const next = {
                                 ...selectedBlock,
                                 props: { ...selectedBlock.props, isGlobal: checked },
@@ -5996,9 +6024,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                                 }
                               })();
                             }}
-                            className="h-4 w-4 rounded border-zinc-300"
                           />
-                          <span className="text-sm font-semibold text-zinc-900">Make this the global header</span>
                         </label>
 
                         {Boolean((selectedBlock.props as any)?.isGlobal) ? (
@@ -6008,34 +6034,32 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                         ) : null}
 
                         <div className="grid grid-cols-2 gap-2">
-                          <label className="flex items-center gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm">
-                            <input
-                              type="checkbox"
+                          <label className="flex items-center justify-between gap-4 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm">
+                            <span className="font-semibold text-zinc-900">Sticky</span>
+                            <ToggleSwitch
                               checked={Boolean((selectedBlock.props as any)?.sticky)}
-                              onChange={(e) =>
+                              disabled={busy}
+                              onChange={(checked) =>
                                 upsertBlock({
                                   ...selectedBlock,
-                                  props: { ...selectedBlock.props, sticky: e.target.checked },
+                                  props: { ...selectedBlock.props, sticky: checked },
                                 } as any)
                               }
-                              className="h-4 w-4 rounded border-zinc-300"
                             />
-                            <span className="font-semibold text-zinc-900">Sticky</span>
                           </label>
 
-                          <label className="flex items-center gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm">
-                            <input
-                              type="checkbox"
+                          <label className="flex items-center justify-between gap-4 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm">
+                            <span className="font-semibold text-zinc-900">Transparent</span>
+                            <ToggleSwitch
                               checked={Boolean((selectedBlock.props as any)?.transparent)}
-                              onChange={(e) =>
+                              disabled={busy}
+                              onChange={(checked) =>
                                 upsertBlock({
                                   ...selectedBlock,
-                                  props: { ...selectedBlock.props, transparent: e.target.checked },
+                                  props: { ...selectedBlock.props, transparent: checked },
                                 } as any)
                               }
-                              className="h-4 w-4 rounded border-zinc-300"
                             />
-                            <span className="font-semibold text-zinc-900">Transparent</span>
                           </label>
                         </div>
 
@@ -6060,22 +6084,52 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
 
                         <label className="block">
                           <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Header size</div>
-                          <PortalListboxDropdown
-                            value={String((selectedBlock.props as any)?.size || "md")}
-                            onChange={(v) =>
-                              upsertBlock({
-                                ...selectedBlock,
-                                props: { ...selectedBlock.props, size: String(v || "md") },
-                              } as any)
-                            }
-                            options={[
-                              { value: "sm", label: "Small" },
-                              { value: "md", label: "Medium" },
-                              { value: "lg", label: "Large" },
-                            ]}
-                            className="w-full"
-                            buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
-                          />
+                          {(() => {
+                            const rawScale = (selectedBlock.props as any)?.sizeScale;
+                            const parsedScale = typeof rawScale === "number" && Number.isFinite(rawScale) ? rawScale : undefined;
+                            const legacySize = String((selectedBlock.props as any)?.size || "md");
+                            const legacyScale = legacySize === "lg" ? 1.15 : legacySize === "sm" ? 0.9 : 1;
+                            const scale = Math.max(0.75, Math.min(1.5, parsedScale ?? legacyScale));
+                            const pct = Math.round(scale * 100);
+
+                            return (
+                              <div className="rounded-xl border border-zinc-200 bg-white px-3 py-2">
+                                <div className="flex items-center justify-between gap-3">
+                                  <div className="text-sm font-semibold text-zinc-900">{pct}%</div>
+                                  <button
+                                    type="button"
+                                    disabled={busy}
+                                    onClick={() =>
+                                      upsertBlock({
+                                        ...selectedBlock,
+                                        props: { ...selectedBlock.props, sizeScale: 1, size: undefined },
+                                      } as any)
+                                    }
+                                    className="rounded-lg border border-zinc-200 bg-white px-2 py-1 text-xs font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-60"
+                                  >
+                                    Reset
+                                  </button>
+                                </div>
+                                <input
+                                  type="range"
+                                  min={75}
+                                  max={150}
+                                  step={1}
+                                  value={pct}
+                                  disabled={busy}
+                                  onChange={(e) => {
+                                    const nextPct = Math.max(75, Math.min(150, Number(e.target.value) || 100));
+                                    upsertBlock({
+                                      ...selectedBlock,
+                                      props: { ...selectedBlock.props, sizeScale: nextPct / 100, size: undefined },
+                                    } as any);
+                                  }}
+                                  className="mt-2 w-full"
+                                />
+                                <div className="mt-1 text-[11px] text-zinc-500">Adjusts padding/logo/button sizing.</div>
+                              </div>
+                            );
+                          })()}
                         </label>
 
                         <label className="block">
@@ -6114,7 +6168,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                           </label>
                         ) : null}
 
-                        <label className="block">
+                        <div className="block">
                           <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Logo image</div>
                           <div className="flex flex-wrap gap-2">
                             <button
@@ -6203,7 +6257,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                           ) : (
                             <div className="mt-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-600">No logo selected.</div>
                           )}
-                        </label>
+                        </div>
 
                         <label className="block">
                           <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Logo link (optional)</div>
@@ -6324,17 +6378,16 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                                                   className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
                                                   placeholder="https://…"
                                                 />
-                                                <label className="flex items-center gap-2">
-                                                  <input
-                                                    type="checkbox"
+                                                <label className="flex items-center justify-between gap-4 rounded-xl border border-zinc-200 bg-white px-3 py-2">
+                                                  <span className="text-sm font-semibold text-zinc-900">Open in new tab</span>
+                                                  <ToggleSwitch
                                                     checked={Boolean(it?.newTab)}
-                                                    onChange={(e) => {
-                                                      const next = items.map((x: any) => (x?.id === itemId ? { ...x, newTab: e.target.checked } : x));
+                                                    disabled={busy}
+                                                    onChange={(checked) => {
+                                                      const next = items.map((x: any) => (x?.id === itemId ? { ...x, newTab: checked } : x));
                                                       updateItems(next);
                                                     }}
-                                                    className="h-4 w-4 rounded border-zinc-300"
                                                   />
-                                                  <span className="text-sm font-semibold text-zinc-900">Open in new tab</span>
                                                 </label>
                                               </>
                                             ) : null}
@@ -6900,18 +6953,18 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                               className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
                             />
                           </label>
-                          <label className="col-span-2 flex items-center gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm">
-                            <input
-                              type="checkbox"
+                          <label className="col-span-2 flex items-center justify-between gap-4 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm">
+                            <span className="font-semibold text-zinc-900">Stack on mobile</span>
+                            <ToggleSwitch
                               checked={selectedBlock.props.stackOnMobile !== false}
-                              onChange={(e) =>
+                              disabled={busy}
+                              onChange={(checked) =>
                                 upsertBlock({
                                   ...selectedBlock,
-                                  props: { ...selectedBlock.props, stackOnMobile: e.target.checked },
+                                  props: { ...selectedBlock.props, stackOnMobile: checked },
                                 })
                               }
                             />
-                            Stack on mobile
                           </label>
                         </div>
 
@@ -7159,17 +7212,17 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                                 />
                               </label>
                               <label className="flex items-center gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm">
-                                <input
-                                  type="checkbox"
+                                <span className="min-w-0 flex-1 font-semibold text-zinc-900">Stack on mobile</span>
+                                <ToggleSwitch
                                   checked={selectedBlock.props.stackOnMobile !== false}
-                                  onChange={(e) =>
+                                  disabled={busy}
+                                  onChange={(checked) =>
                                     upsertBlock({
                                       ...selectedBlock,
-                                      props: { ...selectedBlock.props, stackOnMobile: e.target.checked },
+                                      props: { ...selectedBlock.props, stackOnMobile: checked },
                                     })
                                   }
                                 />
-                                Stack on mobile
                               </label>
                             </div>
 
@@ -7557,6 +7610,96 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                           </div>
                         ) : (
                           <>
+                            {(selectedBlock.type === "heading" || selectedBlock.type === "paragraph") ? (
+                              <label className="block">
+                                <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-zinc-500">Font size (px)</div>
+                                <input
+                                  type="number"
+                                  value={selectedBlock.props.style?.fontSizePx ?? ""}
+                                  onChange={(e) =>
+                                    updateSelectedBlockStyle({
+                                      fontSizePx: e.target.value === "" ? undefined : Number(e.target.value) || undefined,
+                                    })
+                                  }
+                                  className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                                  placeholder="16"
+                                />
+                              </label>
+                            ) : null}
+
+                            {(
+                              selectedBlock.type === "heading" ||
+                              selectedBlock.type === "paragraph" ||
+                              selectedBlock.type === "button" ||
+                              selectedBlock.type === "formLink" ||
+                              selectedBlock.type === "salesCheckoutButton" ||
+                              selectedBlock.type === "addToCartButton" ||
+                              selectedBlock.type === "cartButton" ||
+                              selectedBlock.type === "headerNav" ||
+                              selectedBlock.type === "columns" ||
+                              selectedBlock.type === "section"
+                            )
+                              ? (() => {
+                                  const blockStyle = selectedBlock.props.style as any;
+                                  const presetKey = fontPresetKeyFromStyle({
+                                    fontFamily: blockStyle?.fontFamily,
+                                    fontGoogleFamily: blockStyle?.fontGoogleFamily,
+                                  });
+
+                                  const customFontFamily = String(blockStyle?.fontFamily || "").trim();
+
+                                  return (
+                                    <div>
+                                      <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-zinc-500">Font</div>
+                                      <PortalListboxDropdown
+                                        value={presetKey as any}
+                                        onChange={(k) => {
+                                          const next = applyFontPresetToStyle(String(k || "default"));
+                                          updateSelectedBlockStyle({
+                                            fontFamily: next.fontFamily,
+                                            fontGoogleFamily: next.fontGoogleFamily,
+                                          } as any);
+                                        }}
+                                        options={[
+                                          { value: "default", label: "Default (theme)" },
+                                          ...FONT_PRESETS.filter((p) => p.key !== "default").map((p) => ({ value: p.key, label: p.label })),
+                                          { value: "custom", label: "Custom…" },
+                                        ] as any}
+                                        getOptionStyle={(o: any) => {
+                                          if (o.value === "custom") return customFontFamily ? { fontFamily: customFontFamily } : undefined;
+                                          const preset = FONT_PRESETS.find((p) => p.key === o.value);
+                                          return preset?.fontFamily ? { fontFamily: preset.fontFamily } : undefined;
+                                        }}
+                                        getButtonLabelStyle={(o: any) => {
+                                          if (!o) return undefined;
+                                          if (o.value === "custom") return customFontFamily ? { fontFamily: customFontFamily } : undefined;
+                                          const preset = FONT_PRESETS.find((p) => p.key === o.value);
+                                          return preset?.fontFamily ? { fontFamily: preset.fontFamily } : undefined;
+                                        }}
+                                        className="w-full"
+                                        buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
+                                      />
+                                      {presetKey === "custom" ? (
+                                        <label className="mt-2 block">
+                                          <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-zinc-500">Custom font-family</div>
+                                          <input
+                                            value={customFontFamily}
+                                            onChange={(e) =>
+                                              updateSelectedBlockStyle({
+                                                fontFamily: e.target.value.replace(/[\r\n\t]/g, " ").slice(0, 200) || undefined,
+                                                fontGoogleFamily: undefined,
+                                              } as any)
+                                            }
+                                            className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                                            placeholder='e.g. ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial'
+                                          />
+                                        </label>
+                                      ) : null}
+                                    </div>
+                                  );
+                                })()
+                              : null}
+
                             {(
                               selectedBlock.type === "heading" ||
                               selectedBlock.type === "paragraph" ||
@@ -7751,96 +7894,6 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                                 )}
                               </label>
                             ) : null}
-
-                            {(selectedBlock.type === "heading" || selectedBlock.type === "paragraph") ? (
-                              <label className="block">
-                                <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-zinc-500">Font size (px)</div>
-                                <input
-                                  type="number"
-                                  value={selectedBlock.props.style?.fontSizePx ?? ""}
-                                  onChange={(e) =>
-                                    updateSelectedBlockStyle({
-                                      fontSizePx: e.target.value === "" ? undefined : Number(e.target.value) || undefined,
-                                    })
-                                  }
-                                  className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                                  placeholder="16"
-                                />
-                              </label>
-                            ) : null}
-
-                            {(
-                              selectedBlock.type === "heading" ||
-                              selectedBlock.type === "paragraph" ||
-                              selectedBlock.type === "button" ||
-                              selectedBlock.type === "formLink" ||
-                              selectedBlock.type === "salesCheckoutButton" ||
-                              selectedBlock.type === "addToCartButton" ||
-                              selectedBlock.type === "cartButton" ||
-                              selectedBlock.type === "headerNav" ||
-                              selectedBlock.type === "columns" ||
-                              selectedBlock.type === "section"
-                            )
-                              ? (() => {
-                                  const blockStyle = selectedBlock.props.style as any;
-                                  const presetKey = fontPresetKeyFromStyle({
-                                    fontFamily: blockStyle?.fontFamily,
-                                    fontGoogleFamily: blockStyle?.fontGoogleFamily,
-                                  });
-
-                                  const customFontFamily = String(blockStyle?.fontFamily || "").trim();
-
-                                  return (
-                                    <div>
-                                      <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-zinc-500">Font</div>
-                                      <PortalListboxDropdown
-                                        value={presetKey as any}
-                                        onChange={(k) => {
-                                          const next = applyFontPresetToStyle(String(k || "default"));
-                                          updateSelectedBlockStyle({
-                                            fontFamily: next.fontFamily,
-                                            fontGoogleFamily: next.fontGoogleFamily,
-                                          } as any);
-                                        }}
-                                        options={[
-                                          { value: "default", label: "Default (theme)" },
-                                          ...FONT_PRESETS.filter((p) => p.key !== "default").map((p) => ({ value: p.key, label: p.label })),
-                                          { value: "custom", label: "Custom…" },
-                                        ] as any}
-                                        getOptionStyle={(o: any) => {
-                                          if (o.value === "custom") return customFontFamily ? { fontFamily: customFontFamily } : undefined;
-                                          const preset = FONT_PRESETS.find((p) => p.key === o.value);
-                                          return preset?.fontFamily ? { fontFamily: preset.fontFamily } : undefined;
-                                        }}
-                                        getButtonLabelStyle={(o: any) => {
-                                          if (!o) return undefined;
-                                          if (o.value === "custom") return customFontFamily ? { fontFamily: customFontFamily } : undefined;
-                                          const preset = FONT_PRESETS.find((p) => p.key === o.value);
-                                          return preset?.fontFamily ? { fontFamily: preset.fontFamily } : undefined;
-                                        }}
-                                        className="w-full"
-                                        buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
-                                      />
-                                      {presetKey === "custom" ? (
-                                        <label className="mt-2 block">
-                                          <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-zinc-500">Custom font-family</div>
-                                          <input
-                                            value={customFontFamily}
-                                            onChange={(e) =>
-                                              updateSelectedBlockStyle({
-                                                fontFamily: e.target.value.replace(/[\r\n\t]/g, " ").slice(0, 200) || undefined,
-                                                fontGoogleFamily: undefined,
-                                              } as any)
-                                            }
-                                            className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                                            placeholder='e.g. ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial'
-                                          />
-                                        </label>
-                                      ) : null}
-                                    </div>
-                                  );
-                                })()
-                              : null}
 
                             {selectedBlock.type !== "customCode" ? (
                               <AlignPicker
@@ -8231,7 +8284,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
               ) : (
                 <div
                   className={classNames(
-                    "mx-auto w-full overflow-hidden border border-zinc-200",
+                    "mx-auto w-full border border-zinc-200",
                     previewDevice === "mobile" ? "max-w-[420px] rounded-3xl" : "max-w-5xl rounded-none",
                   )}
                 >

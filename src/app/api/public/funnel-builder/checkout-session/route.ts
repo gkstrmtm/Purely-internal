@@ -4,6 +4,7 @@ import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { coerceBlocksJson, type CreditFunnelBlock } from "@/lib/creditFunnelBlocks";
 import { getStripeSecretKeyForOwner } from "@/lib/stripeIntegration.server";
+import { stripeGetWithKey } from "@/lib/stripeFetchWithKey.server";
 import { stripePostWithKey } from "@/lib/stripeFetchWithKey.server";
 
 export const runtime = "nodejs";
@@ -94,6 +95,31 @@ function returnUrlFromRequest(req: Request): URL {
 
 type StripeCheckoutSession = { id: string; url: string | null };
 
+type StripePrice = {
+  id: string;
+  type?: "one_time" | "recurring" | string;
+  recurring?: unknown;
+};
+
+async function inferCheckoutModeFromPrices(secretKey: string, priceIds: string[]): Promise<"payment" | "subscription"> {
+  const uniq = Array.from(new Set(priceIds.map((p) => String(p || "").trim()).filter(Boolean)));
+  if (!uniq.length) return "payment";
+
+  const prices = await Promise.all(
+    uniq.map((id) => stripeGetWithKey<StripePrice>(secretKey, `/v1/prices/${encodeURIComponent(id)}`)),
+  );
+
+  const isRecurring = (p: StripePrice) => p?.type === "recurring" || Boolean(p?.recurring);
+  const hasRecurring = prices.some(isRecurring);
+  const hasOneTime = prices.some((p) => !isRecurring(p));
+
+  if (hasRecurring && hasOneTime) {
+    throw new Error("This cart mixes one-time and subscription items. Please remove one type and try again.");
+  }
+
+  return hasRecurring ? "subscription" : "payment";
+}
+
 export async function POST(req: Request) {
   try {
     const body = await req.json().catch(() => null);
@@ -170,8 +196,16 @@ export async function POST(req: Request) {
     const cancelUrl = new URL(baseReturn.toString());
     cancelUrl.searchParams.set("checkout", "cancel");
 
+    let mode: "payment" | "subscription" = "payment";
+    try {
+      mode = await inferCheckoutModeFromPrices(secretKey, requestedItems.map((it) => it.priceId));
+    } catch (e) {
+      const msg = e && typeof e === "object" && "message" in e ? String((e as any).message) : "Invalid cart";
+      return NextResponse.json({ ok: false, error: msg || "Invalid cart" }, { status: 400 });
+    }
+
     const stripeParams: Record<string, unknown> = {
-      mode: "payment",
+      mode,
       success_url: successUrl.toString(),
       cancel_url: cancelUrl.toString(),
       client_reference_id: page.id,

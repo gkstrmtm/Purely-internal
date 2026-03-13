@@ -61,6 +61,7 @@ export function FunnelHeaderNav({
   transparent,
   mobileMode,
   size,
+  sizeScale,
   mobileTrigger,
   mobileTriggerLabel,
   forceTriggerOnDesktop,
@@ -77,6 +78,7 @@ export function FunnelHeaderNav({
   transparent?: boolean;
   mobileMode?: "dropdown" | "slideover";
   size?: FunnelHeaderSize;
+  sizeScale?: number;
   mobileTrigger?: FunnelHeaderMobileTrigger;
   mobileTriggerLabel?: string;
   forceTriggerOnDesktop?: boolean;
@@ -143,9 +145,16 @@ export function FunnelHeaderNav({
   const triggerLabel = (mobileTriggerLabel || "Directory").trim() || "Directory";
   const forceTrigger = forceTriggerOnDesktop === true;
 
-  const paddingYClass = headerSize === "lg" ? "py-4" : headerSize === "sm" ? "py-2" : "py-3";
-  const logoClass = headerSize === "lg" ? "h-10" : headerSize === "sm" ? "h-7" : "h-8";
-  const iconBtnClass = headerSize === "lg" ? "h-11 w-11" : headerSize === "sm" ? "h-9 w-9" : "h-10 w-10";
+  const resolvedScale = (() => {
+    const raw = typeof sizeScale === "number" && Number.isFinite(sizeScale) ? sizeScale : undefined;
+    const legacy = headerSize === "lg" ? 1.15 : headerSize === "sm" ? 0.9 : 1;
+    const v = raw ?? legacy;
+    return Math.max(0.75, Math.min(1.5, v));
+  })();
+
+  const paddingY = Math.round(12 * resolvedScale); // md: 12px
+  const logoHeightPx = Math.round(32 * resolvedScale); // md: 32px
+  const iconBtnSizePx = Math.round(40 * resolvedScale); // md: 40px
 
   return (
     <header
@@ -158,7 +167,10 @@ export function FunnelHeaderNav({
       )}
       style={style}
     >
-      <div className={classNames("mx-auto flex w-full max-w-6xl items-center justify-between gap-3 px-4", paddingYClass)}>
+      <div
+        className={classNames("mx-auto flex w-full max-w-6xl items-center justify-between gap-3 px-4")}
+        style={{ paddingTop: paddingY, paddingBottom: paddingY }}
+      >
         <a
           href={resolvedLogoHref}
           onClick={(e) => {
@@ -170,9 +182,14 @@ export function FunnelHeaderNav({
         >
           {logoUrl ? (
             // eslint-disable-next-line @next/next/no-img-element
-            <img src={logoUrl} alt={logoAlt || "Logo"} className={classNames(logoClass, "w-auto")} />
+            <img src={logoUrl} alt={logoAlt || "Logo"} className="w-auto" style={{ height: logoHeightPx }} />
           ) : (
-            <div className="rounded-lg border border-zinc-200 bg-white px-2 py-1 text-xs font-semibold text-zinc-700">Logo</div>
+            <div
+              className="flex items-center rounded-lg border border-zinc-200 bg-white px-2 py-1 text-xs font-semibold text-zinc-700"
+              style={{ height: logoHeightPx }}
+            >
+              Logo
+            </div>
           )}
         </a>
 
@@ -241,8 +258,8 @@ export function FunnelHeaderNav({
             className={classNames(
               "inline-flex items-center justify-center rounded-xl border border-zinc-200 bg-white text-zinc-800 hover:bg-zinc-50",
               forceTrigger ? "" : "sm:hidden",
-              iconBtnClass,
             )}
+            style={{ height: iconBtnSizePx, width: iconBtnSizePx }}
             aria-label="Open menu"
             aria-expanded={open}
             onClick={() => {

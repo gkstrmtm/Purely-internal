@@ -54,6 +54,7 @@ export type CreditFunnelBlock =
         transparent?: boolean;
         mobileMode?: "dropdown" | "slideover";
         size?: FunnelHeaderSize;
+        sizeScale?: number;
         mobileTrigger?: FunnelHeaderMobileTrigger;
         mobileTriggerLabel?: string;
         logoUrl?: string;
@@ -283,6 +284,13 @@ function coerceHeaderSize(v: unknown): FunnelHeaderSize | undefined {
   return undefined;
 }
 
+function coerceHeaderSizeScale(v: unknown): number | undefined {
+  const n = typeof v === "number" && Number.isFinite(v) ? v : typeof v === "string" ? Number(v) : NaN;
+  if (!Number.isFinite(n)) return undefined;
+  const clamped = Math.max(0.75, Math.min(1.5, n));
+  return clamped;
+}
+
 function coerceHeaderMobileTrigger(v: unknown): FunnelHeaderMobileTrigger | undefined {
   if (v === "hamburger") return "hamburger";
   if (v === "directory") return "directory";
@@ -497,6 +505,7 @@ function coerceBlocksJsonInternal(value: unknown, depth: number): CreditFunnelBl
       const transparent = coerceBool((props as any)?.transparent);
       const mobileMode = coerceHeaderMobileMode((props as any)?.mobileMode);
       const size = coerceHeaderSize((props as any)?.size);
+      const sizeScale = coerceHeaderSizeScale((props as any)?.sizeScale);
       const mobileTrigger = coerceHeaderMobileTrigger((props as any)?.mobileTrigger);
       const mobileTriggerLabel =
         typeof (props as any)?.mobileTriggerLabel === "string" ? String((props as any).mobileTriggerLabel).trim().slice(0, 40) : "";
@@ -515,6 +524,7 @@ function coerceBlocksJsonInternal(value: unknown, depth: number): CreditFunnelBl
           ...(transparent !== undefined ? { transparent } : {}),
           ...(mobileMode ? { mobileMode } : {}),
           ...(size ? { size } : {}),
+          ...(sizeScale !== undefined ? { sizeScale } : {}),
           ...(mobileTrigger ? { mobileTrigger } : {}),
           ...(mobileTriggerLabel ? { mobileTriggerLabel } : {}),
           ...(logoUrl ? { logoUrl } : {}),
@@ -1154,8 +1164,9 @@ export function renderCreditFunnelBlocks({
   const chatbotBlocks = isEditor ? collectChatbotBlocks(renderBlocks) : [];
 
   const pageCss = [
-    // Tailwind's `space-y-4` adds margin-top between siblings; this removes the default gap directly after a header block.
-    ".funnel-page > .funnel-header-block + :not([hidden]){margin-top:0!important;}",
+    // Tailwind's `space-y-4` adds margin-top between siblings; remove the default gap directly after a header block.
+    ".funnel-blocks > .funnel-header-block + :not([hidden]){margin-top:0!important;}",
+    ".space-y-4 > .funnel-header-block + :not([hidden]){margin-top:0!important;}",
   ].join("\n");
 
   const renderMoveControls = (id: string): React.ReactNode => {
@@ -1172,7 +1183,7 @@ export function renderCreditFunnelBlocks({
       "div",
       {
         key: `${id}_move_controls`,
-        className: "absolute right-2 top-2 z-10 flex flex-col gap-1",
+        className: "absolute right-2 top-2 z-[45] flex flex-col gap-1",
       },
       React.createElement(
         "button",
@@ -1435,6 +1446,8 @@ export function renderCreditFunnelBlocks({
         const transparent = (b.props as any)?.transparent === true;
         const mobileMode = (b.props as any)?.mobileMode === "slideover" ? "slideover" : "dropdown";
         const size = (b.props as any)?.size === "lg" ? "lg" : (b.props as any)?.size === "sm" ? "sm" : "md";
+        const sizeScaleRaw = (b.props as any)?.sizeScale;
+        const sizeScale = typeof sizeScaleRaw === "number" && Number.isFinite(sizeScaleRaw) ? sizeScaleRaw : undefined;
         const mobileTrigger = (b.props as any)?.mobileTrigger === "directory" ? "directory" : "hamburger";
         const mobileTriggerLabel =
           typeof (b.props as any)?.mobileTriggerLabel === "string" ? String((b.props as any).mobileTriggerLabel).trim() : "";
@@ -1477,6 +1490,7 @@ export function renderCreditFunnelBlocks({
             transparent,
             mobileMode,
             size,
+            sizeScale,
             mobileTrigger,
             mobileTriggerLabel: mobileTriggerLabel || undefined,
             forceTriggerOnDesktop: context?.previewDevice === "desktop",
@@ -2384,8 +2398,8 @@ export function renderCreditFunnelBlocks({
       {
         className:
           pageStyleBlock?.props?.style?.textColor
-            ? "relative space-y-4 funnel-page"
-            : "relative space-y-4 text-zinc-900 funnel-page",
+            ? "relative funnel-page"
+            : "relative text-zinc-900 funnel-page",
         style: {
           ...wrapperStyle(pageStyleBlock?.props.style),
           width: "100%",
@@ -2394,7 +2408,13 @@ export function renderCreditFunnelBlocks({
         },
       },
       pageStyleBlock?.props?.style?.backgroundVideoUrl ? backgroundVideoNode(pageStyleBlock?.props.style) : null,
-      renderBlocksInner(renderBlocks),
+      React.createElement(
+        "div",
+        {
+          className: pageStyleBlock?.props?.style?.backgroundVideoUrl ? "relative z-10 space-y-4 funnel-blocks" : "space-y-4 funnel-blocks",
+        },
+        renderBlocksInner(renderBlocks),
+      ),
       isEditor && chatbotBlocks.length
         ? React.createElement(
             "div",
