@@ -5,6 +5,18 @@ import { requireClientSession } from "@/lib/apiAuth";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
+export const runtime = "nodejs";
+
+function resolveBlobReadWriteToken(): string | null {
+  const token =
+    process.env.BLOB_READ_WRITE_TOKEN ||
+    process.env.VERCEL_BLOB_READ_WRITE_TOKEN ||
+    process.env.VERCEL_BLOB_TOKEN ||
+    process.env.BLOB_RW_TOKEN ||
+    process.env.BLOB_TOKEN ||
+    null;
+  return token && token.trim() ? token.trim() : null;
+}
 
 // This route is used by `@vercel/blob/client` to securely generate client upload
 // tokens so files can be uploaded directly from the browser to Vercel Blob.
@@ -19,10 +31,25 @@ export async function POST(request: Request): Promise<NextResponse> {
   if (!auth.ok) return NextResponse.json({ error: "Unauthorized" }, { status: auth.status });
 
   const body = (await request.json().catch(() => null)) as HandleUploadBody | null;
-  if (!body) return NextResponse.json({ error: "Invalid request" }, { status: 400 });
+  if (!body || typeof (body as any)?.type !== "string") {
+    return NextResponse.json({ error: "Invalid request" }, { status: 400 });
+  }
+
+  const token = resolveBlobReadWriteToken();
+  if (!token) {
+    // If this happens in production, the Vercel project is missing Blob read/write configuration.
+    return NextResponse.json(
+      {
+        error: "Vercel Blob is not configured on the server.",
+        hint: "Set BLOB_READ_WRITE_TOKEN (recommended) or VERCEL_BLOB_READ_WRITE_TOKEN in the deployment environment.",
+      },
+      { status: 500 },
+    );
+  }
 
   try {
     const jsonResponse = await handleUpload({
+      token,
       body,
       request,
       onBeforeGenerateToken: async () => {
@@ -32,11 +59,32 @@ export async function POST(request: Request): Promise<NextResponse> {
           access: "public",
           addRandomSuffix: true,
           allowedContentTypes: [
-            // Wildcards are supported by Vercel Blob (e.g. "video/*").
-            // Keep this broad so uploads don't break on browser/device MIME quirks.
-            "image/*",
-            "video/*",
-            "audio/*",
+            // images
+            "image/jpeg",
+            "image/png",
+            "image/webp",
+            "image/gif",
+            "image/svg+xml",
+            "image/avif",
+            // videos
+            "video/mp4",
+            "video/quicktime", // .mov
+            "video/webm",
+            "video/ogg",
+            "video/mpeg",
+            "video/x-m4v",
+            "video/x-msvideo", // .avi
+            "video/x-ms-wmv",
+            "video/3gpp",
+            "video/3gpp2",
+            "video/x-matroska", // .mkv
+            // audio
+            "audio/mpeg",
+            "audio/mp4",
+            "audio/x-m4a",
+            "audio/ogg",
+            "audio/wav",
+            // docs
             "application/pdf",
             // fallback (some browsers/devices report this even for videos)
             "application/octet-stream",
@@ -53,6 +101,7 @@ export async function POST(request: Request): Promise<NextResponse> {
 
     return NextResponse.json(jsonResponse);
   } catch (error) {
-    return NextResponse.json({ error: (error as Error).message }, { status: 400 });
+    const message = (error as any)?.message ? String((error as any).message) : "Blob upload token failed";
+    return NextResponse.json({ error: message }, { status: 400 });
   }
 }
