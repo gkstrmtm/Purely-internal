@@ -204,8 +204,7 @@ export function PortalMediaLibraryClient() {
       const totalBytes = list.reduce((sum, f) => sum + (typeof f.size === "number" ? f.size : 0), 0);
       const wantsBlobUpload =
         totalBytes > 4 * 1024 * 1024 ||
-        list.some((f) => (typeof f.size === "number" ? f.size : 0) > 4 * 1024 * 1024) ||
-        list.some((f) => String(f.type || "").toLowerCase().startsWith("video/"));
+        list.some((f) => (typeof f.size === "number" ? f.size : 0) > 4 * 1024 * 1024);
 
       if (wantsBlobUpload) {
         for (const f of list) {

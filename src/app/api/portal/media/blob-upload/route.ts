@@ -37,13 +37,14 @@ export async function POST(request: Request): Promise<NextResponse> {
 
   const token = resolveBlobReadWriteToken();
   if (!token) {
-    // If this happens in production, the Vercel project is missing Blob read/write configuration.
+    // The client SDK surfaces any non-2xx from this endpoint as “Failed to retrieve the client token”.
+    // Return a clear error so it’s obvious what’s missing.
     return NextResponse.json(
       {
-        error: "Vercel Blob is not configured on the server.",
-        hint: "Set BLOB_READ_WRITE_TOKEN (recommended) or VERCEL_BLOB_READ_WRITE_TOKEN in the deployment environment.",
+        error: "Video uploads require an external storage provider (Vercel Blob) for large files.",
+        hint: "Enable Vercel Blob for this deployment (sets BLOB_READ_WRITE_TOKEN / VERCEL_BLOB_READ_WRITE_TOKEN).",
       },
-      { status: 500 },
+      { status: 400 },
     );
   }
 

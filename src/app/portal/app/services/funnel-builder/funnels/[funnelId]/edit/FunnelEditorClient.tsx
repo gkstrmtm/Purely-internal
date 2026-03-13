@@ -2593,15 +2593,9 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
       throw new Error(`"${file.name}" is too large (max ${Math.floor(MAX_UPLOADS_BYTES / (1024 * 1024))}MB)`);
     }
 
-    const isLikelyVideo = (() => {
-      const t = String(file.type || "").toLowerCase();
-      if (t.startsWith("video/")) return true;
-      const n = String(file.name || "").trim().toLowerCase();
-      const ext = n.includes(".") ? n.split(".").pop() || "" : "";
-      return ["mp4", "mov", "webm", "mkv", "m4v", "ogv", "avi", "wmv", "mpeg", "mpg", "3gp", "3g2"].includes(ext);
-    })();
-
-    const wantsBlobUpload = file.size > VERCEL_SERVERLESS_BODY_LIMIT_BYTES || isLikelyVideo;
+    // Only force Vercel Blob when the payload is likely to exceed serverless limits.
+    // Small videos should upload like photos (no Blob token required).
+    const wantsBlobUpload = file.size > VERCEL_SERVERLESS_BODY_LIMIT_BYTES;
 
     if (wantsBlobUpload) {
       let blob: PutBlobResult;

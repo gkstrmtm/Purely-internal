@@ -5,6 +5,7 @@ import { normalizeMimeType } from "@/lib/portalMedia";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
+export const runtime = "nodejs";
 
 function contentDispositionInline(fileName: string) {
   const safe = String(fileName || "file").replace(/[\r\n"]/g, "").slice(0, 200);
@@ -24,10 +25,17 @@ export async function GET(
   const { searchParams } = new URL(req.url);
   const shouldDownload = searchParams.get("download") === "1";
 
-  const row = await (prisma as any).portalMediaItem.findFirst({
-    where: { id: String(id), publicToken: String(token) },
-    select: { bytes: true, storageUrl: true, mimeType: true, fileName: true, fileSize: true, createdAt: true },
-  });
+  const mediaItemDelegate = (prisma as any)?.portalMediaItem;
+  if (!mediaItemDelegate?.findFirst) {
+    return NextResponse.json({ ok: false, error: "Media library is not available on this server." }, { status: 500 });
+  }
+
+  const row = await mediaItemDelegate
+    .findFirst({
+      where: { id: String(id), publicToken: String(token) },
+      select: { bytes: true, storageUrl: true, mimeType: true, fileName: true, fileSize: true, createdAt: true },
+    })
+    .catch(() => null);
 
   if (!row) return NextResponse.json({ ok: false, error: "Not found" }, { status: 404 });
 
@@ -37,7 +45,10 @@ export async function GET(
   if (!hasBytes && storageUrl) {
     // Blob URLs are already content-addressed/unique; safe to cache.
     // Use a redirect so we don't proxy large payloads through our server.
-    return NextResponse.redirect(storageUrl, { status: 302 });
+    const target = storageUrl.startsWith("http://") || storageUrl.startsWith("https://")
+      ? storageUrl
+      : new URL(storageUrl, req.url).toString();
+    return NextResponse.redirect(target, { status: 302 });
   }
 
   const headers = new Headers();
