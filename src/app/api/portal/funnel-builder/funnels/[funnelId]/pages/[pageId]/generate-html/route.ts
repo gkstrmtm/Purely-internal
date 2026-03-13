@@ -26,6 +26,27 @@ function extractHtml(raw: string): string {
   return text;
 }
 
+function extractJson(raw: string): unknown {
+  const text = String(raw ?? "").trim();
+  if (!text) return null;
+  const fenced = text.match(/```json\s*([\s\S]*?)\s*```/i);
+  const candidate = fenced?.[1] ? fenced[1].trim() : "";
+  if (!candidate) return null;
+  try {
+    return JSON.parse(candidate) as unknown;
+  } catch {
+    return null;
+  }
+}
+
+function extractAiQuestion(raw: string): string | null {
+  const parsed = extractJson(raw);
+  if (!parsed || typeof parsed !== "object") return null;
+  const q = typeof (parsed as any).question === "string" ? String((parsed as any).question).trim() : "";
+  if (!q) return null;
+  return q.slice(0, 800);
+}
+
 function escapeHtml(s: string) {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/\"/g, "&quot;");
 }
@@ -59,6 +80,19 @@ function toAbsoluteUrl(req: Request, url: string): string {
   return new URL(u, origin).toString();
 }
 
+function coerceContextKeys(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  const out: string[] = [];
+  for (const v of raw) {
+    if (typeof v !== "string") continue;
+    const s = v.trim();
+    if (!s) continue;
+    out.push(s.slice(0, 80));
+    if (out.length >= 30) break;
+  }
+  return out;
+}
+
 export async function POST(req: Request, ctx: { params: Promise<{ funnelId: string; pageId: string }> }) {
   const auth = await requireFunnelBuilderSession();
   if (!auth.ok) {
@@ -83,6 +117,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
 
   const currentHtmlFromClient = typeof body?.currentHtml === "string" ? body.currentHtml : null;
   const attachments = coerceAttachments(body?.attachments);
+  const contextKeys = coerceContextKeys(body?.contextKeys);
 
   const page = await prisma.creditFunnelPage.findFirst({
     where: { id: pageId, funnelId, funnel: { ownerId: auth.session.user.id } },
@@ -108,8 +143,12 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
   });
 
   const baseSystem = [
-    "You generate a single self-contained HTML document for a credit repair funnel page.",
-    "Return ONLY HTML (no explanation).",
+    "You generate a single self-contained HTML document for a marketing funnel page for the user's business.",
+    "If the request is ambiguous or missing key details, ask ONE concise follow-up question instead of guessing.",
+    "Return EITHER:",
+    "- A single ```html fenced block containing the full HTML document, OR",
+    "- A single ```json fenced block: { \"question\": \"...\" }",
+    "Do NOT output anything else.",
     "Constraints:",
     "- Use plain HTML + inline <style>. No external JS/CSS, no frameworks.",
     "- Mobile-first, modern, clean styling.",
@@ -119,6 +158,9 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
     `- Hosted forms are at: ${basePath}/forms/{formSlug}`,
     `- Form submissions happen via POST /api/public${basePath}/forms/{formSlug}/submit (handled by our hosted form pages)`,
     `- If you need a form, link to ${basePath}/forms/{formSlug} with a clear CTA button.`,
+    "Rules:",
+    "- Do not invent form slugs. Only reference a form if the user explicitly asks to embed/link a form, or if they clearly asked for a lead-capture form.",
+    "- If the user asks for a shop/store but provides no product info, ask what they sell (and how many products).",
     "Available forms (slug: name [status]):",
     ...forms.map((f) => `- ${f.slug}: ${f.name} [${f.status}]`),
     "Output rules:",
@@ -151,9 +193,19 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
         "",
       ].join("\n")
     : "";
+
+  const contextBlock = contextKeys.length
+    ? [
+        "",
+        "SELECTED_CONTEXT (use these elements if relevant):",
+        ...contextKeys.map((k) => `- ${k}`),
+        "",
+      ].join("\n")
+    : "";
   const userMsg = { role: "user", content: `${prompt}${attachmentsBlock}`, at: new Date().toISOString() };
 
   let html = "";
+  let question: string | null = null;
   try {
     const currentHtmlBlock = hasCurrentHtml
       ? [
@@ -178,18 +230,47 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
       "",
       currentHtmlBlock,
       prompt,
+      contextBlock,
       attachmentsBlock,
     ].join("\n");
 
     const aiRaw = imageUrls.length
       ? await generateTextWithImages({ system, user: userText, imageUrls })
       : await generateText({ system, user: userText });
-    html = extractHtml(aiRaw);
+
+    question = extractAiQuestion(aiRaw);
+    if (!question) {
+      html = extractHtml(aiRaw);
+    }
   } catch (e) {
     return NextResponse.json(
       { ok: false, error: (e as any)?.message ? String((e as any).message) : "AI generation failed" },
       { status: 500 },
     );
+  }
+
+  if (question) {
+    const assistantMsg = { role: "assistant", content: question, at: new Date().toISOString() };
+    const nextChat = [...prevChat, userMsg, assistantMsg].slice(-40);
+
+    const updated = await prisma.creditFunnelPage.update({
+      where: { id: page.id },
+      data: {
+        editorMode: "CUSTOM_HTML",
+        customChatJson: nextChat,
+      },
+      select: {
+        id: true,
+        slug: true,
+        title: true,
+        editorMode: true,
+        customHtml: true,
+        customChatJson: true,
+        updatedAt: true,
+      },
+    });
+
+    return NextResponse.json({ ok: true, question, page: updated });
   }
 
   if (!html) return NextResponse.json({ ok: false, error: "AI returned empty HTML" }, { status: 502 });
@@ -211,7 +292,11 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
     ].join("\n");
   }
 
-  const assistantMsg = { role: "assistant", content: html, at: new Date().toISOString() };
+  const assistantMsg = {
+    role: "assistant",
+    content: "OK — I updated your page. Check the preview and tell me what you want changed.",
+    at: new Date().toISOString(),
+  };
   const nextChat = [...prevChat, userMsg, assistantMsg].slice(-40);
 
   const updated = await prisma.creditFunnelPage.update({

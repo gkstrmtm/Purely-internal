@@ -16,6 +16,7 @@ const bodySchema = z.object({
   prompt: z.string().trim().min(1).max(4000),
   currentHtml: z.string().optional().default(""),
   currentCss: z.string().optional().default(""),
+  contextKeys: z.array(z.string().trim().min(1).max(80)).max(30).optional().default([]),
 });
 
 const blockStyleSchema = z
@@ -306,9 +307,10 @@ const aiAnalysisActionSchema = z.union([aiAnalysisInsertAfterActionSchema, aiAna
 
 const aiAnalysisPayloadSchema = z
   .object({
-    output: z.enum(["actions", "html"]),
+    output: z.enum(["actions", "html", "question"]),
     actions: z.array(aiAnalysisActionSchema).min(1).max(6).optional(),
     buildPrompt: z.string().trim().min(1).max(4000).optional(),
+    question: z.string().trim().min(1).max(800).optional(),
   })
   .strip();
 
@@ -399,7 +401,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: "Invalid request" }, { status: 400 });
   }
 
-  const { funnelId, pageId, prompt } = parsed.data;
+  const { funnelId, pageId, prompt, contextKeys } = parsed.data;
   const currentHtml = String(parsed.data.currentHtml || "");
   const currentCss = String(parsed.data.currentCss || "");
 
@@ -432,13 +434,26 @@ export async function POST(req: Request) {
 
   const hasCurrent = Boolean(currentHtml.trim() || currentCss.trim());
 
+  const contextBlock = contextKeys.length
+    ? [
+        "",
+        "SELECTED_CONTEXT (prefer these building blocks/presets when relevant):",
+        ...contextKeys.map((k) => `- ${k}`),
+        "",
+      ].join("\n")
+    : "";
+
   const buildSystem = [
     "You generate HTML + CSS for a *custom code block* inside a funnel page.",
+    "If the request is ambiguous or missing key details, ask ONE concise follow-up question instead of guessing.",
     "Return ONLY code fences, no explanation.",
     "Output options (choose ONE):",
     "A) HTML/CSS (default):",
     "- A single ```html fenced block containing an HTML fragment (no <html>, no <head>).",
     "- Optionally a ```css fenced block for styles used by that fragment.",
+    "OR",
+    "C) Clarifying question:",
+    "- A single ```json fenced block: { \"question\": \"...\" }",
     "B) Funnel blocks (when the request is better represented as built-in blocks like chatbot or images):",
     "- A single ```json fenced block with shape: { actions: [...] }",
     "- Action types:",
@@ -471,12 +486,13 @@ export async function POST(req: Request) {
     "Your job: decide whether to return structured funnel block actions or request an HTML/CSS build.",
     "Output schema:",
     "{",
-    "  output: 'actions' | 'html',",
+    "  output: 'actions' | 'html' | 'question',",
     "  actions?: [",
     "    { type: 'insertAfter', block: { type, props } },",
     "    { type: 'insertPresetAfter', preset: 'hero'|'body'|'form'|'shop' }",
     "  ],",
-    "  buildPrompt?: string",
+    "  buildPrompt?: string,",
+    "  question?: string",
     "}",
     "Rules:",
     "- If user says 'embed my calendar' or anything about booking/scheduling, prefer output='actions' with a calendarEmbed block.",
@@ -487,6 +503,7 @@ export async function POST(req: Request) {
     "- Use pick='default' for 'my calendar'/'my form' when no specific name/slug is provided.",
     "- For other block types, follow the normal props shapes.",
     "- If output='html', set buildPrompt to a concise instruction for the HTML/CSS generator.",
+    "- If key info is missing (e.g., user asks for a shop but doesn't say what they're selling), output='question' and ask ONE question.",
     "Context:",
     `- Funnel page host path: ${basePath}/f/${page.funnel.slug}`,
     "Available forms (slug: name [status]):",
@@ -500,6 +517,7 @@ export async function POST(req: Request) {
     `Funnel: ${page.funnel.name} (slug: ${page.funnel.slug})`,
     `Page: ${page.title} (slug: ${page.slug})`,
     "",
+    contextBlock,
     hasCurrent
       ? [
           "CURRENT_HTML:",
@@ -537,6 +555,13 @@ export async function POST(req: Request) {
         }
       })())
     : { success: false as const };
+
+  if (analysisParsed.success && analysisParsed.data.output === "question") {
+    const q = (analysisParsed.data.question || "").trim();
+    if (q) {
+      return NextResponse.json({ ok: true, question: q.slice(0, 800) });
+    }
+  }
 
   if (analysisParsed.success && analysisParsed.data.output === "actions" && analysisParsed.data.actions?.length) {
     // Resolve asset picks into concrete props.
@@ -590,6 +615,21 @@ export async function POST(req: Request) {
       { ok: false, error: (e as any)?.message ? String((e as any).message) : "AI generation failed" },
       { status: 500 },
     );
+  }
+
+  const buildQuestion = (() => {
+    const qFence = extractFence(buildRaw, "json");
+    if (!qFence.trim()) return "";
+    try {
+      const parsed = JSON.parse(qFence) as any;
+      return typeof parsed?.question === "string" ? String(parsed.question).trim().slice(0, 800) : "";
+    } catch {
+      return "";
+    }
+  })();
+
+  if (buildQuestion) {
+    return NextResponse.json({ ok: true, question: buildQuestion });
   }
 
   const buildJsonFence = extractFence(buildRaw, "json");

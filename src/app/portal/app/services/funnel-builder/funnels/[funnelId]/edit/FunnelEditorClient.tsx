@@ -92,16 +92,27 @@ type ChatMessage = { role: "user" | "assistant"; content: string; at?: string };
 
 type BlockChatMessage = { role: "user" | "assistant"; content: string; at?: string };
 
-type AiAttachment = {
-  id: string;
-  fileName: string;
-  mimeType: string;
-  url: string;
-  previewUrl?: string;
-};
-
 function classNames(...xs: Array<string | false | null | undefined>) {
   return xs.filter(Boolean).join(" ");
+}
+
+function chatDisplayContent(m: { role: "user" | "assistant"; content: string }) {
+  const raw = typeof m.content === "string" ? m.content : String(m.content ?? "");
+  if (m.role !== "assistant") return raw;
+
+  const t = raw.trim();
+  const looksLikeHtml =
+    t.startsWith("<") &&
+    (t.toLowerCase().includes("<!doctype") ||
+      t.toLowerCase().includes("<html") ||
+      t.toLowerCase().includes("<div") ||
+      t.toLowerCase().includes("</"));
+  if (looksLikeHtml) return "(HTML output hidden — see the HTML editor pane.)";
+
+  const looksLikeCodeFence = t.startsWith("```") && (t.includes("```html") || t.includes("```css") || t.includes("```json"));
+  if (looksLikeCodeFence) return "(Code output hidden — use the editor fields.)";
+
+  return raw;
 }
 
 function ToggleSwitch({
@@ -2449,7 +2460,27 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
 
   const [uploadingImageBlockId, setUploadingImageBlockId] = useState<string | null>(null);
   const [uploadingHeaderLogoBlockId, setUploadingHeaderLogoBlockId] = useState<string | null>(null);
-  const [uploadingAi, setUploadingAi] = useState(false);
+
+  const [aiContextOpen, setAiContextOpen] = useState(false);
+  const [aiContextKeys, setAiContextKeys] = useState<string[]>([]);
+
+  const aiContextOptions = useMemo(
+    () =>
+      [
+        { key: "layout:header", label: "Header", description: "Navigation, logo, CTA button" },
+        { key: "layout:hero", label: "Hero", description: "Headline, subheadline, primary CTA" },
+        { key: "layout:footer", label: "Footer", description: "Links, contact, socials" },
+        { key: "content:features", label: "Features", description: "Benefits + feature list" },
+        { key: "content:testimonials", label: "Testimonials", description: "Reviews, social proof" },
+        { key: "content:pricing", label: "Pricing", description: "Plans/prices, comparison" },
+        { key: "forms:lead_capture", label: "Lead capture", description: "Email/name form, thank-you" },
+        { key: "cta:book_call", label: "Book a call", description: "Scheduling CTA" },
+        { key: "shop:add_to_cart", label: "Add to cart", description: "Add-to-cart buttons" },
+        { key: "shop:cart", label: "Cart", description: "Cart summary + edit quantities" },
+        { key: "shop:checkout", label: "Checkout", description: "Checkout step + payment" },
+      ] as const,
+    [],
+  );
 
   const [previewDevice, setPreviewDevice] = useState<"desktop" | "mobile">("desktop");
   const [sidebarPanel, setSidebarPanel] = useState<
@@ -2508,7 +2539,6 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
   const [mediaPickerOpen, setMediaPickerOpen] = useState(false);
   const [mediaPickerTarget, setMediaPickerTarget] = useState<
     | null
-    | { type: "ai" }
     | { type: "image-block"; blockId: string }
     | { type: "video-block"; blockId: string }
     | { type: "video-poster"; blockId: string }
@@ -2517,7 +2547,6 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
     | { type: "section-background-video"; blockId: string }
     | { type: "chatbot-launcher"; blockId: string }
   >(null);
-  const [aiAttachments, setAiAttachments] = useState<AiAttachment[]>([]);
 
   const [imageCropTarget, setImageCropTarget] = useState<null | { blockId: string; src: string }>(null);
 
@@ -2793,24 +2822,6 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
       cancelled = true;
     };
   }, [portalVariant]);
-
-  const addAiAttachment = (it: PortalMediaPickItem) => {
-    const url = String(it.shareUrl || "").trim();
-    if (!url) return;
-    setAiAttachments((prev) => {
-      if (prev.some((a) => a.id === it.id)) return prev;
-      return [
-        ...prev,
-        {
-          id: it.id,
-          fileName: it.fileName,
-          mimeType: it.mimeType,
-          url,
-          previewUrl: it.previewUrl,
-        },
-      ];
-    });
-  };
 
   // NOTE: While the DB schema supports larger rows, many serverless hosts (incl. Vercel)
   // impose a relatively small request-body limit for function invocations. In practice,
@@ -4123,11 +4134,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
           body: JSON.stringify({
             prompt: promptText,
             currentHtml: selectedPage.customHtml || "",
-            attachments: aiAttachments.map((a) => ({
-              url: a.url,
-              fileName: a.fileName,
-              mimeType: a.mimeType,
-            })),
+            contextKeys: aiContextKeys,
           }),
         },
       );
@@ -4135,7 +4142,6 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
       if (!res.ok || !json || json.ok !== true) throw new Error(json?.error || "Failed to generate HTML");
 
       setChatInput("");
-      setAiAttachments([]);
       const page = json.page as Partial<Page> | undefined;
       if (page?.id) {
         setPages((prev) => (prev || []).map((p) => (p.id === page.id ? ({ ...p, ...page } as Page) : p)));
@@ -4164,19 +4170,13 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
         accept={
           mediaPickerTarget?.type === "video-block" || mediaPickerTarget?.type === "section-background-video"
             ? "video"
-            : mediaPickerTarget?.type === "ai"
-              ? "any"
-              : "image"
+            : "image"
         }
         onPick={async (it) => {
           const target = mediaPickerTarget;
           setMediaPickerOpen(false);
           setMediaPickerTarget(null);
           if (!target) return;
-          if (target.type === "ai") {
-            addAiAttachment(it);
-            return;
-          }
           if (target.type === "image-block") {
             const block = findBlockInTree(editableBlocks, target.blockId)?.block;
             if (!block || block.type !== "image") return;
@@ -4470,6 +4470,76 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
           void performDeletePage();
         }}
       />
+
+      <AppModal
+        open={aiContextOpen}
+        title="Add context"
+        description="Select reusable blocks/presets to guide the AI. Multi-select is supported."
+        onClose={() => setAiContextOpen(false)}
+        widthClassName="w-[min(720px,calc(100vw-32px))]"
+        footer={
+          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-between">
+            <button
+              type="button"
+              className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
+              onClick={() => setAiContextKeys([])}
+              disabled={busy}
+            >
+              Clear selection
+            </button>
+            <button
+              type="button"
+              className={classNames(
+                "rounded-2xl bg-[color:var(--color-brand-blue)] px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700",
+                busy ? "opacity-60" : "",
+              )}
+              onClick={() => setAiContextOpen(false)}
+              disabled={busy}
+            >
+              Done
+            </button>
+          </div>
+        }
+      >
+        <div className="space-y-3">
+          <div className="text-sm text-zinc-600">
+            Pick what the AI should include (e.g. shop/cart/checkout). If you’re not sure, leave this blank.
+          </div>
+          <div className="space-y-2">
+            {aiContextOptions.map((opt) => {
+              const checked = aiContextKeys.includes(opt.key);
+              return (
+                <label
+                  key={opt.key}
+                  className={classNames(
+                    "flex cursor-pointer items-start gap-3 rounded-2xl border bg-white p-3",
+                    checked ? "border-blue-200 ring-1 ring-blue-100" : "border-zinc-200",
+                  )}
+                >
+                  <input
+                    type="checkbox"
+                    className="mt-1 h-4 w-4"
+                    checked={checked}
+                    onChange={(e) => {
+                      const next = e.currentTarget.checked;
+                      setAiContextKeys((prev) => {
+                        if (next) return Array.from(new Set([...(prev || []), opt.key]));
+                        return (prev || []).filter((k) => k !== opt.key);
+                      });
+                    }}
+                    disabled={busy}
+                  />
+                  <div className="min-w-0">
+                    <div className="text-sm font-semibold text-zinc-900">{opt.label}</div>
+                    <div className="mt-1 text-xs text-zinc-600">{opt.description}</div>
+                    <div className="mt-1 text-[11px] text-zinc-500">Key: {opt.key}</div>
+                  </div>
+                </label>
+              );
+            })}
+          </div>
+        </div>
+      </AppModal>
 
       <header className="sticky top-0 z-20 border-b border-zinc-200 bg-white/85 backdrop-blur">
         <div className="flex flex-col gap-2 px-4 py-3 lg:flex-row lg:items-center lg:justify-between">
@@ -5331,7 +5401,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                                     )}
                                   >
                                     <div className="text-[10px] font-semibold uppercase tracking-wide text-zinc-500">{m.role}</div>
-                                    <div className="mt-1 whitespace-pre-wrap break-words">{m.content}</div>
+                                    <div className="mt-1 whitespace-pre-wrap break-words">{chatDisplayContent(m)}</div>
                                   </div>
                                 ))
                               ) : (
@@ -5369,13 +5439,14 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                                           prompt,
                                           currentHtml: String((selectedBlock.props as any).html || ""),
                                           currentCss: String((selectedBlock.props as any).css || ""),
+                                          contextKeys: aiContextKeys,
                                         }),
                                       });
                                       const json = (await res.json().catch(() => null)) as any;
                                       if (!res.ok || !json || json.ok !== true) throw new Error(json?.error || "Failed to generate code");
 
-                                      const actions = Array.isArray(json?.actions) ? (json.actions as any[]) : [];
-                                      if (actions.length) {
+                                      const question = typeof json?.question === "string" ? String(json.question).trim() : "";
+                                      if (question) {
                                         const prevChat = Array.isArray((selectedBlock.props as any).chatJson)
                                           ? ((selectedBlock.props as any).chatJson as BlockChatMessage[])
                                           : [];
@@ -5383,22 +5454,51 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                                         const userMsg: BlockChatMessage = { role: "user", content: prompt, at: new Date().toISOString() };
                                         const assistantMsg: BlockChatMessage = {
                                           role: "assistant",
+                                          content: question,
+                                          at: new Date().toISOString(),
+                                        };
+
+                                        const nextChat = [...prevChat, userMsg, assistantMsg].slice(-40);
+                                        upsertBlock({
+                                          ...selectedBlock,
+                                          props: {
+                                            ...(selectedBlock.props as any),
+                                            chatJson: nextChat,
+                                          },
+                                        } as any);
+                                        setCustomCodeBlockPrompt("");
+                                        return;
+                                      }
+
+                                      const actions = Array.isArray(json?.actions) ? (json.actions as any[]) : [];
+                                      if (actions.length) {
+                                        const prevChat = Array.isArray((selectedBlock.props as any).chatJson)
+                                          ? ((selectedBlock.props as any).chatJson as BlockChatMessage[])
+                                          : [];
+
+                                        const actionSummaries = actions.slice(0, 6).map((a) => {
+                                          if (!a || typeof a !== "object") return null;
+                                          const t = typeof (a as any).type === "string" ? String((a as any).type) : "";
+                                          if (t === "insertPresetAfter") {
+                                            const preset = typeof (a as any).preset === "string" ? String((a as any).preset) : "";
+                                            return preset ? `- Insert preset: ${preset}` : "- Insert preset";
+                                          }
+                                          if (t === "insertAfter") {
+                                            const blockType = typeof (a as any)?.block?.type === "string" ? String((a as any).block.type) : "";
+                                            return blockType ? `- Insert block: ${blockType}` : "- Insert block";
+                                          }
+                                          return t ? `- ${t}` : null;
+                                        });
+
+                                        const userMsg: BlockChatMessage = { role: "user", content: prompt, at: new Date().toISOString() };
+                                        const assistantMsg: BlockChatMessage = {
+                                          role: "assistant",
                                           content: [
-                                            "```json\n" +
-                                              JSON.stringify(
-                                                {
-                                                  actions: actions.slice(0, 6).map((a) => ({
-                                                    type: typeof a?.type === "string" ? a.type : "",
-                                                    ...(a?.type === "insertAfter" ? { block: a?.block } : {}),
-                                                    ...(a?.type === "insertPresetAfter" ? { preset: a?.preset } : {}),
-                                                  })),
-                                                },
-                                                null,
-                                                2,
-                                              ) +
-                                              "\n```",
-                                            "\n\n(Inserted blocks into the page.)",
-                                          ].join(""),
+                                            "I added blocks to the page.",
+                                            actionSummaries.filter(Boolean).join("\n"),
+                                          ]
+                                            .filter(Boolean)
+                                            .join("\n"),
                                           at: new Date().toISOString(),
                                         };
 
@@ -5644,12 +5744,10 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                                       const userMsg: BlockChatMessage = { role: "user", content: prompt, at: new Date().toISOString() };
                                       const assistantMsg: BlockChatMessage = {
                                         role: "assistant",
-                                        content: [
-                                          nextHtml ? "```html\n" + nextHtml + "\n```" : "(no html)",
-                                          nextCss ? "```css\n" + nextCss + "\n```" : "",
-                                        ]
-                                          .filter(Boolean)
-                                          .join("\n\n"),
+                                        content:
+                                          nextHtml || nextCss
+                                            ? `Updated this custom code block${nextCss ? " (HTML + CSS)." : " (HTML)."}`
+                                            : "No changes returned.",
                                         at: new Date().toISOString(),
                                       };
 
@@ -8605,7 +8703,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                       )}
                     >
                       <div className="text-[10px] font-semibold uppercase tracking-wide text-zinc-500">{m.role}</div>
-                      <div className="mt-1 whitespace-pre-wrap wrap-break-word">{m.content}</div>
+                        <div className="mt-1 whitespace-pre-wrap wrap-break-word">{chatDisplayContent(m)}</div>
                     </div>
                   ))
                 )}
@@ -8619,101 +8717,44 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
               />
 
               <div className="mt-3 space-y-2">
-                {aiAttachments.length ? (
-                  <div className="flex flex-col gap-2">
-                    <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Attachments</div>
-                    <div className="space-y-2">
-                      {aiAttachments.map((a) => {
-                        const isImg = a.mimeType.startsWith("image/");
-                        return (
-                          <div
-                            key={a.id}
-                            className="flex items-center justify-between gap-3 rounded-2xl border border-zinc-200 bg-white p-3"
-                          >
-                            <div className="flex min-w-0 items-center gap-3">
-                              {isImg && a.previewUrl ? (
-                                /* eslint-disable-next-line @next/next/no-img-element */
-                                <img
-                                  src={a.previewUrl}
-                                  alt={a.fileName}
-                                  className="h-10 w-10 rounded-2xl object-cover"
-                                />
-                              ) : (
-                                <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-zinc-100 text-[10px] font-semibold text-zinc-700">
-                                  FILE
-                                </div>
-                              )}
-                              <div className="min-w-0">
-                                <div className="truncate text-sm font-semibold text-zinc-900">{a.fileName}</div>
-                                <div className="mt-1 truncate text-[11px] text-zinc-500">{a.mimeType}</div>
-                              </div>
-                            </div>
-                            <button
-                              type="button"
-                              disabled={busy}
-                              onClick={() => setAiAttachments((prev) => prev.filter((x) => x.id !== a.id))}
-                              className="shrink-0 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
-                            >
-                              Remove
-                            </button>
-                          </div>
-                        );
-                      })}
-                    </div>
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Context</div>
+                    <div className="mt-1 text-xs text-zinc-500">Optional: add reusable blocks/presets to guide the AI output.</div>
                   </div>
-                ) : null}
-
-                <div className="flex flex-wrap gap-2">
                   <button
                     type="button"
                     disabled={busy}
-                    onClick={() => {
-                      setMediaPickerTarget({ type: "ai" });
-                      setMediaPickerOpen(true);
-                    }}
+                    onClick={() => setAiContextOpen(true)}
                     className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
                   >
-                    Attach from media
+                    Add context
                   </button>
-
-                  <label
-                    className={classNames(
-                      "cursor-pointer rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50",
-                      uploadingAi ? "opacity-60" : "",
-                    )}
-                  >
-                    {uploadingAi ? "Uploading…" : "Upload files"}
-                    <input
-                      type="file"
-                      multiple
-                      className="hidden"
-                      disabled={busy || uploadingAi}
-                      onChange={(e) => {
-                        const files = Array.from(e.target.files || []);
-                        e.currentTarget.value = "";
-                        if (files.length === 0) return;
-                        setUploadingAi(true);
-                        setError(null);
-                        void (async () => {
-                          try {
-                            const created = await uploadToMediaLibrary(files, { maxFiles: 10 });
-                            for (const it of created) addAiAttachment(it);
-                            toast.success(`Uploaded ${created.length} file${created.length === 1 ? "" : "s"}`);
-                          } catch (err) {
-                            const msg = (err as any)?.message ? String((err as any).message) : "Upload failed";
-                            toast.error(msg);
-                          } finally {
-                            setUploadingAi(false);
-                          }
-                        })();
-                      }}
-                    />
-                  </label>
                 </div>
 
-                <div className="text-xs text-zinc-500">
-                  Images are sent to the AI for visual context. Other file types are included as links.
-                </div>
+                {aiContextKeys.length ? (
+                  <div className="flex flex-wrap gap-2">
+                    {aiContextKeys.map((k) => {
+                      const opt = aiContextOptions.find((o) => o.key === k);
+                      const label = opt?.label || k;
+                      return (
+                        <button
+                          key={k}
+                          type="button"
+                          disabled={busy}
+                          onClick={() => setAiContextKeys((prev) => (prev || []).filter((x) => x !== k))}
+                          className="inline-flex items-center gap-2 rounded-full border border-zinc-200 bg-white px-3 py-1.5 text-sm text-zinc-800 hover:bg-zinc-50"
+                          title="Click to remove"
+                        >
+                          <span className="font-semibold">{label}</span>
+                          <span className="text-zinc-400">×</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className="text-sm text-zinc-600">No context selected.</div>
+                )}
               </div>
 
               <div className="mt-3 flex gap-2">
