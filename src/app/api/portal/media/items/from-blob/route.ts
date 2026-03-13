@@ -7,6 +7,7 @@ import { isLikelyImageMimeType, newPublicToken, newTag, normalizeMimeType, safeF
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
+export const runtime = "nodejs";
 
 const postSchema = z.object({
   url: z.string().url(),

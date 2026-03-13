@@ -6,6 +6,7 @@ import { isLikelyImageMimeType } from "@/lib/portalMedia";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
+export const runtime = "nodejs";
 
 function mediaItemUrls(row: { id: string; publicToken: string; mimeType: string; fileName: string }) {
   const openUrl = `/api/public/media/item/${row.id}/${row.publicToken}`;
