@@ -5,7 +5,8 @@ import type { Metadata } from "next";
 import { prisma } from "@/lib/db";
 import { inlineMarkdownToHtmlSafe, parseBlogContent } from "@/lib/blog";
 import { coerceBlocksJson, renderCreditFunnelBlocks } from "@/lib/creditFunnelBlocks";
-import { coerceFontFamily, coerceGoogleFamily } from "@/lib/fontPresets";
+import { hasPublicColumn } from "@/lib/dbSchema";
+import { coerceFontFamily, coerceGoogleFamily, googleFontImportCss } from "@/lib/fontPresets";
 import { isCreditsOnlyBilling } from "@/lib/portalBillingModel";
 import { getPortalBillingModelForOwner } from "@/lib/portalBillingModel.server";
 import { resolveCustomDomain } from "@/lib/customDomainResolver";
@@ -393,15 +394,60 @@ async function renderFunnel(
   const markdownBlocks = page ? parseBlogContent(page.contentMarkdown) : [];
   const blockBlocks = page ? coerceBlocksJson(page.blocksJson) : [];
 
+  const [hasBrandFontFamily, hasBrandFontGoogleFamily] = await Promise.all([
+    hasPublicColumn("BusinessProfile", "brandFontFamily"),
+    hasPublicColumn("BusinessProfile", "brandFontGoogleFamily"),
+  ]);
+
+  const profileSelect: Record<string, boolean> = {};
+  if (hasBrandFontFamily) profileSelect.brandFontFamily = true;
+  if (hasBrandFontGoogleFamily) profileSelect.brandFontGoogleFamily = true;
+
+  const profile = Object.keys(profileSelect).length
+    ? await prisma.businessProfile
+        .findUnique({ where: { ownerId }, select: profileSelect as any })
+        .catch(() => null)
+    : null;
+
+  const brandFontFamily = coerceFontFamily((profile as any)?.brandFontFamily);
+  const brandFontGoogleFamily = coerceGoogleFamily((profile as any)?.brandFontGoogleFamily);
+  const brandGoogleCss = brandFontGoogleFamily ? googleFontImportCss(brandFontGoogleFamily) : null;
+  const brandFontStyle = brandFontFamily ? ({ fontFamily: brandFontFamily } as const) : undefined;
+
+  const customHtmlSrcDoc = (() => {
+    if (!page || page.editorMode !== "CUSTOM_HTML") return null;
+    if (!brandGoogleCss && !brandFontFamily) return page.customHtml || "";
+
+    const cssLines = [
+      brandGoogleCss,
+      brandFontFamily ? `html, body { font-family: ${brandFontFamily}; }` : null,
+    ]
+      .filter(Boolean)
+      .join("\n");
+
+    const injection = cssLines ? `<style>${cssLines}</style>` : "";
+    const html = String(page.customHtml || "");
+    if (!injection) return html;
+
+    const headClose = html.match(/<\/head\s*>/i);
+    if (headClose?.index !== undefined) {
+      const idx = headClose.index;
+      return `${html.slice(0, idx)}${injection}${html.slice(idx)}`;
+    }
+
+    return `<!doctype html><html><head><meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />${injection}</head><body>${html}</body></html>`;
+  })();
+
   return (
-    <main className="w-full min-h-screen">
+    <main className="w-full min-h-screen" style={brandFontStyle}>
+      {brandGoogleCss ? <style>{brandGoogleCss}</style> : null}
       {page ? (
         <>
           {page.editorMode === "CUSTOM_HTML" ? (
             <iframe
               title={page.title}
               sandbox="allow-forms allow-popups allow-scripts"
-              srcDoc={page.customHtml || ""}
+              srcDoc={customHtmlSrcDoc ?? (page.customHtml || "")}
               className="h-screen w-full bg-white"
             />
           ) : page.editorMode === "BLOCKS" ? (
