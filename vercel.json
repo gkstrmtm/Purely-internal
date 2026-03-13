@@ -5,63 +5,63 @@
   "crons": [
     {
       "path": "/api/blogs/cron",
-      "schedule": "0 * * * *"
+      "schedule": "0 0 * * *"
     },
     {
       "path": "/api/portal/blogs/automation/cron",
-      "schedule": "5 * * * *"
+      "schedule": "5 0 * * *"
     },
     {
       "path": "/api/portal/newsletter/automation/cron",
-      "schedule": "7 * * * *"
+      "schedule": "7 0 * * *"
     },
     {
       "path": "/api/portal/lead-scraping/cron",
-      "schedule": "12 * * * *"
+      "schedule": "12 0 * * *"
     },
     {
       "path": "/api/portal/automations/cron",
-      "schedule": "*/5 * * * *"
+      "schedule": "0 1 * * *"
     },
     {
       "path": "/api/portal/follow-up/cron",
-      "schedule": "*/5 * * * *"
+      "schedule": "5 1 * * *"
     },
     {
       "path": "/api/portal/nurture/cron",
-      "schedule": "*/5 * * * *"
+      "schedule": "10 1 * * *"
     },
     {
       "path": "/api/portal/ai-outbound-calls/cron",
-      "schedule": "*/5 * * * *"
+      "schedule": "15 1 * * *"
     },
     {
       "path": "/api/marketing/cron",
-      "schedule": "*/5 * * * *"
+      "schedule": "20 1 * * *"
     },
     {
       "path": "/api/portal/booking/reminders/cron",
-      "schedule": "*/5 * * * *"
+      "schedule": "25 1 * * *"
     },
     {
       "path": "/api/appointments/meeting-reminders/cron",
-      "schedule": "*/5 * * * *"
+      "schedule": "30 1 * * *"
     },
     {
       "path": "/api/portal/reviews/cron",
-      "schedule": "*/5 * * * *"
+      "schedule": "35 1 * * *"
     },
     {
       "path": "/api/portal/billing/monthly-credits/cron",
-      "schedule": "22 * * * *"
+      "schedule": "0 22 * * *"
     },
     {
       "path": "/api/hr/follow-ups/cron",
-      "schedule": "*/5 * * * *"
+      "schedule": "45 1 * * *"
     },
     {
       "path": "/api/portal/auth/verification-email/cron",
-      "schedule": "*/5 * * * *"
+      "schedule": "50 1 * * *"
     }
   ]
 }
