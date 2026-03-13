@@ -157,9 +157,13 @@ export type CreditFunnelBlock =
         src: string;
         posterUrl?: string;
         controls?: boolean;
+        showControls?: boolean;
         autoplay?: boolean;
         loop?: boolean;
         muted?: boolean;
+        aspectRatio?: "auto" | "16:9" | "9:16" | "4:3" | "1:1";
+        fit?: "contain" | "cover";
+        showFrame?: boolean;
         style?: BlockStyle;
       };
     }
@@ -237,6 +241,18 @@ function coerceCssUrl(v: unknown): string | undefined {
   if (lower.startsWith("javascript:")) return undefined;
   if (lower.startsWith("data:")) return undefined;
   if (lower.startsWith("http://") || lower.startsWith("https://") || lower.startsWith("/")) return s;
+  return undefined;
+}
+
+function coerceVideoAspectRatio(v: unknown): "auto" | "16:9" | "9:16" | "4:3" | "1:1" | undefined {
+  if (typeof v !== "string") return undefined;
+  const s = v.trim();
+  if (s === "auto" || s === "16:9" || s === "9:16" || s === "4:3" || s === "1:1") return s;
+  return undefined;
+}
+
+function coerceVideoFit(v: unknown): "contain" | "cover" | undefined {
+  if (v === "contain" || v === "cover") return v;
   return undefined;
 }
 
@@ -707,9 +723,13 @@ function coerceBlocksJsonInternal(value: unknown, depth: number): CreditFunnelBl
       const src = typeof props?.src === "string" ? props.src : "";
       const posterUrl = coerceCssUrl((props as any)?.posterUrl);
       const controls = coerceBool((props as any)?.controls);
+      const showControls = coerceBool((props as any)?.showControls);
       const autoplay = coerceBool((props as any)?.autoplay);
       const loop = coerceBool((props as any)?.loop);
       const muted = coerceBool((props as any)?.muted);
+      const aspectRatio = coerceVideoAspectRatio((props as any)?.aspectRatio);
+      const fit = coerceVideoFit((props as any)?.fit);
+      const showFrame = coerceBool((props as any)?.showFrame);
       const style = coerceStyle(props?.style);
       out.push({
         id,
@@ -718,9 +738,13 @@ function coerceBlocksJsonInternal(value: unknown, depth: number): CreditFunnelBl
           src,
           ...(posterUrl ? { posterUrl } : {}),
           ...(controls !== undefined ? { controls } : {}),
+          ...(showControls !== undefined ? { showControls } : {}),
           ...(autoplay !== undefined ? { autoplay } : {}),
           ...(loop !== undefined ? { loop } : {}),
           ...(muted !== undefined ? { muted } : {}),
+          ...(aspectRatio ? { aspectRatio } : {}),
+          ...(fit ? { fit } : {}),
+          ...(showFrame !== undefined ? { showFrame } : {}),
           style,
         },
       });
@@ -1979,11 +2003,43 @@ export function renderCreditFunnelBlocks({
           );
         }
 
-        const controls = (b.props as any)?.controls !== false;
+        const controlsRaw = (b.props as any)?.controls;
+        const showControlsRaw = (b.props as any)?.showControls;
+        const controls =
+          typeof controlsRaw === "boolean"
+            ? controlsRaw
+            : typeof showControlsRaw === "boolean"
+              ? showControlsRaw
+              : true;
         const autoplay = Boolean((b.props as any)?.autoplay);
         const loop = Boolean((b.props as any)?.loop);
         const muted = Boolean((b.props as any)?.muted);
         const posterUrl = String((b.props as any)?.posterUrl || "").trim();
+
+        const aspectRatioPreset = String((b.props as any)?.aspectRatio || "").trim();
+        const aspectRatioCss = (() => {
+          if (!aspectRatioPreset || aspectRatioPreset === "auto") return undefined;
+          const m = aspectRatioPreset.match(/^(\d+)\s*:\s*(\d+)$/);
+          if (!m) return undefined;
+          const a = Number(m[1]);
+          const b = Number(m[2]);
+          if (!Number.isFinite(a) || !Number.isFinite(b) || a <= 0 || b <= 0) return undefined;
+          return `${a} / ${b}`;
+        })();
+
+        const fit = (b.props as any)?.fit === "cover" ? "cover" : "contain";
+        const showFrame = (b.props as any)?.showFrame !== false;
+        const frameClassName = [
+          "w-full overflow-hidden rounded-2xl",
+          showFrame ? "border border-zinc-200 bg-zinc-50" : "",
+        ]
+          .filter(Boolean)
+          .join(" ");
+
+        const videoClassName = [
+          aspectRatioCss ? "h-full w-full" : "h-auto w-full",
+          fit === "cover" ? "object-cover" : "object-contain",
+        ].join(" ");
 
         return React.createElement(
           "div",
@@ -1994,17 +2050,24 @@ export function renderCreditFunnelBlocks({
           },
           renderMoveControls(b.id),
           renderCornerResizeHandle(b),
-          React.createElement("video", {
-            src: b.props.src,
-            ...(posterUrl ? { poster: posterUrl } : null),
-            controls,
-            autoPlay: autoplay,
-            loop,
-            muted,
-            playsInline: true,
-            preload: "metadata",
-            className: "w-full overflow-hidden rounded-2xl border border-zinc-200 bg-zinc-50",
-          } as any),
+          React.createElement(
+            "div",
+            {
+              className: frameClassName,
+              style: aspectRatioCss ? ({ aspectRatio: aspectRatioCss } as any) : undefined,
+            },
+            React.createElement("video", {
+              src: b.props.src,
+              ...(posterUrl ? { poster: posterUrl } : null),
+              controls,
+              autoPlay: autoplay,
+              loop,
+              muted,
+              playsInline: true,
+              preload: "metadata",
+              className: videoClassName,
+            } as any),
+          ),
         );
       }
 

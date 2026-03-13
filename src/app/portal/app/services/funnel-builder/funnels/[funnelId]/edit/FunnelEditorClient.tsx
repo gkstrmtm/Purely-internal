@@ -1634,6 +1634,17 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                                   >
                                     Clear
                                   </button>
+
+                                  <button
+                                    type="button"
+                                    disabled={busy}
+                                    onClick={() =>
+                                      setVideoSettingsBlockId((prev) => (prev === selectedBlock.id ? null : selectedBlock.id))
+                                    }
+                                    className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-60"
+                                  >
+                                    {videoSettingsBlockId === selectedBlock.id ? "Hide settings" : "Edit video"}
+                                  </button>
                                 </div>
 
                                 {String((selectedBlock.props as any).src || "").trim() ? (
@@ -1644,6 +1655,144 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                                 ) : (
                                   <div className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-600">No video selected.</div>
                                 )}
+
+                                {videoSettingsBlockId === selectedBlock.id ? (
+                                  <div className="space-y-2 rounded-xl border border-zinc-200 bg-white p-3">
+                                    <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Video settings</div>
+
+                                    <label className="flex items-center justify-between gap-4 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm">
+                                      <span className="font-semibold text-zinc-900">Show controls</span>
+                                      <ToggleSwitch
+                                        checked={(selectedBlock.props as any)?.controls !== false}
+                                        disabled={busy}
+                                        onChange={(checked) =>
+                                          upsertBlock({
+                                            ...selectedBlock,
+                                            props: { ...(selectedBlock.props as any), controls: checked },
+                                          } as any)
+                                        }
+                                      />
+                                    </label>
+
+                                    <label className="flex items-center justify-between gap-4 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm">
+                                      <span className="font-semibold text-zinc-900">Autoplay</span>
+                                      <ToggleSwitch
+                                        checked={Boolean((selectedBlock.props as any)?.autoplay)}
+                                        disabled={busy}
+                                        onChange={(checked) =>
+                                          upsertBlock({
+                                            ...selectedBlock,
+                                            props: {
+                                              ...(selectedBlock.props as any),
+                                              autoplay: checked,
+                                              muted: checked ? true : (selectedBlock.props as any)?.muted,
+                                            },
+                                          } as any)
+                                        }
+                                      />
+                                    </label>
+
+                                    <div className="grid grid-cols-2 gap-2">
+                                      <label className="flex items-center justify-between gap-4 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm">
+                                        <span className="font-semibold text-zinc-900">Loop</span>
+                                        <ToggleSwitch
+                                          checked={Boolean((selectedBlock.props as any)?.loop)}
+                                          disabled={busy}
+                                          onChange={(checked) =>
+                                            upsertBlock({
+                                              ...selectedBlock,
+                                              props: { ...(selectedBlock.props as any), loop: checked },
+                                            } as any)
+                                          }
+                                        />
+                                      </label>
+
+                                      <label className="flex items-center justify-between gap-4 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm">
+                                        <span className="font-semibold text-zinc-900">Muted</span>
+                                        <ToggleSwitch
+                                          checked={Boolean((selectedBlock.props as any)?.muted)}
+                                          disabled={busy}
+                                          onChange={(checked) =>
+                                            upsertBlock({
+                                              ...selectedBlock,
+                                              props: { ...(selectedBlock.props as any), muted: checked },
+                                            } as any)
+                                          }
+                                        />
+                                      </label>
+                                    </div>
+
+                                    <label className="block">
+                                      <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-zinc-500">Fit</div>
+                                      <PortalListboxDropdown
+                                        value={String((selectedBlock.props as any)?.fit || "contain")}
+                                        onChange={(fit) =>
+                                          upsertBlock({
+                                            ...selectedBlock,
+                                            props: { ...(selectedBlock.props as any), fit: String(fit || "contain") },
+                                          } as any)
+                                        }
+                                        options={[
+                                          { value: "contain", label: "Contain (no crop)" },
+                                          { value: "cover", label: "Cover (crop to fill)" },
+                                        ]}
+                                        className="w-full"
+                                        buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
+                                      />
+                                    </label>
+
+                                    <label className="block">
+                                      <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-zinc-500">Aspect ratio</div>
+                                      <PortalListboxDropdown
+                                        value={String((selectedBlock.props as any)?.aspectRatio || "auto")}
+                                        onChange={(aspectRatio) =>
+                                          upsertBlock({
+                                            ...selectedBlock,
+                                            props: { ...(selectedBlock.props as any), aspectRatio: String(aspectRatio || "auto") },
+                                          } as any)
+                                        }
+                                        options={[
+                                          { value: "auto", label: "Auto" },
+                                          { value: "16:9", label: "16:9" },
+                                          { value: "9:16", label: "9:16" },
+                                          { value: "4:3", label: "4:3" },
+                                          { value: "1:1", label: "1:1" },
+                                        ]}
+                                        className="w-full"
+                                        buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
+                                      />
+                                    </label>
+
+                                    <label className="flex items-center justify-between gap-4 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm">
+                                      <span className="font-semibold text-zinc-900">Show frame</span>
+                                      <ToggleSwitch
+                                        checked={Boolean((selectedBlock.props as any)?.showFrame)}
+                                        disabled={busy}
+                                        onChange={(checked) =>
+                                          upsertBlock({
+                                            ...selectedBlock,
+                                            props: { ...(selectedBlock.props as any), showFrame: checked },
+                                          } as any)
+                                        }
+                                      />
+                                    </label>
+
+                                    <label className="block">
+                                      <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-zinc-500">Poster image URL (optional)</div>
+                                      <input
+                                        value={String((selectedBlock.props as any)?.posterUrl || "")}
+                                        onChange={(e) =>
+                                          upsertBlock({
+                                            ...selectedBlock,
+                                            props: { ...(selectedBlock.props as any), posterUrl: e.target.value },
+                                          } as any)
+                                        }
+                                        className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                                        placeholder="https://..."
+                                      />
+                                    </label>
+                                  </div>
+                                ) : null}
                               </div>
                             ) : null}
 
@@ -2271,6 +2420,8 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
 
   const [imageCropTarget, setImageCropTarget] = useState<null | { blockId: string; src: string }>(null);
 
+  const [videoSettingsBlockId, setVideoSettingsBlockId] = useState<string | null>(null);
+
   const selectedPage = useMemo(
     () => (pages || []).find((p) => p.id === selectedPageId) || null,
     [pages, selectedPageId],
@@ -2558,7 +2709,10 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
     });
   };
 
-  const MAX_MEDIA_LIBRARY_BYTES = 25 * 1024 * 1024; // 25MB per file (DB-backed)
+  // NOTE: While the DB schema supports larger rows, many serverless hosts (incl. Vercel)
+  // impose a relatively small request-body limit for function invocations. In practice,
+  // uploads above a few MB may never reach our handler.
+  const MAX_MEDIA_LIBRARY_BYTES = 4 * 1024 * 1024; // ~4MB per file (direct-to-API)
   const MAX_UPLOADS_BYTES = 250 * 1024 * 1024; // 250MB per file (disk-backed)
 
   const uploadToMediaLibrary = async (files: FileList | File[], opts?: { maxFiles?: number }) => {
@@ -2579,10 +2733,19 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
       headers: { [PORTAL_VARIANT_HEADER]: portalVariant },
       body: form,
     });
-    const json = (await res.json().catch(() => null)) as any;
-    if (!res.ok || !json || json.ok !== true) {
+    const contentType = String(res.headers.get("content-type") || "").toLowerCase();
+    const json = contentType.includes("application/json") ? ((await res.json().catch(() => null)) as any) : null;
+
+    if (!res.ok) {
+      if (res.status === 413) {
+        throw new Error(
+          `This file is too large to upload directly. Try a smaller file or configure external storage for larger uploads.`,
+        );
+      }
       throw new Error(typeof json?.error === "string" ? json.error : "Failed to upload media");
     }
+
+    if (!json || json.ok !== true) throw new Error("Failed to upload media");
     return Array.isArray(json.items) ? (json.items as PortalMediaPickItem[]) : [];
   };
 
@@ -6721,6 +6884,15 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                           >
                             Clear
                           </button>
+
+                          <button
+                            type="button"
+                            disabled={busy}
+                            onClick={() => setVideoSettingsBlockId((prev) => (prev === selectedBlock.id ? null : selectedBlock.id))}
+                            className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
+                          >
+                            {videoSettingsBlockId === selectedBlock.id ? "Hide settings" : "Edit video"}
+                          </button>
                         </div>
 
                         {String((selectedBlock.props as any).src || "").trim() ? (
@@ -6731,6 +6903,144 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                         ) : (
                           <div className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-600">No video selected.</div>
                         )}
+
+                        {videoSettingsBlockId === selectedBlock.id ? (
+                          <div className="space-y-2 rounded-xl border border-zinc-200 bg-white p-3">
+                            <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Video settings</div>
+
+                            <label className="flex items-center justify-between gap-4 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm">
+                              <span className="font-semibold text-zinc-900">Show controls</span>
+                              <ToggleSwitch
+                                checked={(selectedBlock.props as any)?.controls !== false}
+                                disabled={busy}
+                                onChange={(checked) =>
+                                  upsertBlock({
+                                    ...selectedBlock,
+                                    props: { ...(selectedBlock.props as any), controls: checked },
+                                  } as any)
+                                }
+                              />
+                            </label>
+
+                            <label className="flex items-center justify-between gap-4 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm">
+                              <span className="font-semibold text-zinc-900">Autoplay</span>
+                              <ToggleSwitch
+                                checked={Boolean((selectedBlock.props as any)?.autoplay)}
+                                disabled={busy}
+                                onChange={(checked) =>
+                                  upsertBlock({
+                                    ...selectedBlock,
+                                    props: {
+                                      ...(selectedBlock.props as any),
+                                      autoplay: checked,
+                                      muted: checked ? true : (selectedBlock.props as any)?.muted,
+                                    },
+                                  } as any)
+                                }
+                              />
+                            </label>
+
+                            <div className="grid grid-cols-2 gap-2">
+                              <label className="flex items-center justify-between gap-4 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm">
+                                <span className="font-semibold text-zinc-900">Loop</span>
+                                <ToggleSwitch
+                                  checked={Boolean((selectedBlock.props as any)?.loop)}
+                                  disabled={busy}
+                                  onChange={(checked) =>
+                                    upsertBlock({
+                                      ...selectedBlock,
+                                      props: { ...(selectedBlock.props as any), loop: checked },
+                                    } as any)
+                                  }
+                                />
+                              </label>
+
+                              <label className="flex items-center justify-between gap-4 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm">
+                                <span className="font-semibold text-zinc-900">Muted</span>
+                                <ToggleSwitch
+                                  checked={Boolean((selectedBlock.props as any)?.muted)}
+                                  disabled={busy}
+                                  onChange={(checked) =>
+                                    upsertBlock({
+                                      ...selectedBlock,
+                                      props: { ...(selectedBlock.props as any), muted: checked },
+                                    } as any)
+                                  }
+                                />
+                              </label>
+                            </div>
+
+                            <label className="block">
+                              <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-zinc-500">Fit</div>
+                              <PortalListboxDropdown
+                                value={String((selectedBlock.props as any)?.fit || "contain")}
+                                onChange={(fit) =>
+                                  upsertBlock({
+                                    ...selectedBlock,
+                                    props: { ...(selectedBlock.props as any), fit: String(fit || "contain") },
+                                  } as any)
+                                }
+                                options={[
+                                  { value: "contain", label: "Contain (no crop)" },
+                                  { value: "cover", label: "Cover (crop to fill)" },
+                                ]}
+                                className="w-full"
+                                buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
+                              />
+                            </label>
+
+                            <label className="block">
+                              <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-zinc-500">Aspect ratio</div>
+                              <PortalListboxDropdown
+                                value={String((selectedBlock.props as any)?.aspectRatio || "auto")}
+                                onChange={(aspectRatio) =>
+                                  upsertBlock({
+                                    ...selectedBlock,
+                                    props: { ...(selectedBlock.props as any), aspectRatio: String(aspectRatio || "auto") },
+                                  } as any)
+                                }
+                                options={[
+                                  { value: "auto", label: "Auto" },
+                                  { value: "16:9", label: "16:9" },
+                                  { value: "9:16", label: "9:16" },
+                                  { value: "4:3", label: "4:3" },
+                                  { value: "1:1", label: "1:1" },
+                                ]}
+                                className="w-full"
+                                buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
+                              />
+                            </label>
+
+                            <label className="flex items-center justify-between gap-4 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm">
+                              <span className="font-semibold text-zinc-900">Show frame</span>
+                              <ToggleSwitch
+                                checked={Boolean((selectedBlock.props as any)?.showFrame)}
+                                disabled={busy}
+                                onChange={(checked) =>
+                                  upsertBlock({
+                                    ...selectedBlock,
+                                    props: { ...(selectedBlock.props as any), showFrame: checked },
+                                  } as any)
+                                }
+                              />
+                            </label>
+
+                            <label className="block">
+                              <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-zinc-500">Poster image URL (optional)</div>
+                              <input
+                                value={String((selectedBlock.props as any)?.posterUrl || "")}
+                                onChange={(e) =>
+                                  upsertBlock({
+                                    ...selectedBlock,
+                                    props: { ...(selectedBlock.props as any), posterUrl: e.target.value },
+                                  } as any)
+                                }
+                                className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                                placeholder="https://..."
+                              />
+                            </label>
+                          </div>
+                        ) : null}
                       </div>
                     ) : null}
 
@@ -6812,7 +7122,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                                   },
                                 });
                               }}
-                              className="min-w-[180px] flex-1 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                              className="min-w-45 flex-1 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
                               placeholder="Default: 760"
                             />
                             <button
@@ -6903,7 +7213,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                                   },
                                 } as any);
                               }}
-                              className="min-w-[180px] flex-1 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                              className="min-w-45 flex-1 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
                               placeholder="Default: 760"
                             />
                             <button
@@ -7032,7 +7342,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                                               : b.t === "image"
                                                 ? { id, type: "image", props: { src: "", alt: "" } }
                                                 : b.t === "video"
-                                                  ? { id, type: "video", props: { src: "", controls: true } as any }
+                                                  ? { id, type: "video", props: { src: "", controls: true, aspectRatio: "16:9", fit: "contain", showFrame: false } as any }
                                                 : { id, type: "spacer", props: { height: 24 } };
                                       const cols = [...(selectedBlock.props.columns || [])];
                                       const nextCol = { ...(cols[colIdx] || { markdown: "" }) } as any;
@@ -7059,7 +7369,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                                       className={classNames(
                                         "flex items-center justify-between gap-2 rounded-xl border px-3 py-2",
                                         selectedBlockId === c.id
-                                          ? "border-[color:var(--color-brand-blue)] bg-blue-50"
+                                          ? "border-(--color-brand-blue) bg-blue-50"
                                           : "border-zinc-200 bg-white",
                                       )}
                                     >
@@ -7091,7 +7401,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                                     cols[colIdx] = { ...(cols[colIdx] || { markdown: "" }), markdown: e.target.value } as any;
                                     upsertBlock({ ...selectedBlock, props: { ...selectedBlock.props, columns: cols } } as any);
                                   }}
-                                  className="min-h-[100px] w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                                  className="min-h-25 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
                                   placeholder={`Column ${colIdx + 1} (markdown)`}
                                 />
                                 <div className="mt-1 text-[11px] text-zinc-500">Used only when the column has no blocks.</div>
@@ -7321,7 +7631,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                                       className={classNames(
                                         "flex items-center justify-between gap-2 rounded-xl border px-3 py-2",
                                         selectedBlockId === c.id
-                                          ? "border-[color:var(--color-brand-blue)] bg-blue-50"
+                                          ? "border-(--color-brand-blue) bg-blue-50"
                                           : "border-zinc-200 bg-white",
                                       )}
                                     >
@@ -7431,7 +7741,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                                       className={classNames(
                                         "flex items-center justify-between gap-2 rounded-xl border px-3 py-2",
                                         selectedBlockId === c.id
-                                          ? "border-[color:var(--color-brand-blue)] bg-blue-50"
+                                          ? "border-(--color-brand-blue) bg-blue-50"
                                           : "border-zinc-200 bg-white",
                                       )}
                                     >
@@ -7567,7 +7877,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                                       className={classNames(
                                         "flex items-center justify-between gap-2 rounded-xl border px-3 py-2",
                                         selectedBlockId === c.id
-                                          ? "border-[color:var(--color-brand-blue)] bg-blue-50"
+                                          ? "border-(--color-brand-blue) bg-blue-50"
                                           : "border-zinc-200 bg-white",
                                       )}
                                     >
@@ -7602,7 +7912,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                                       props: { ...selectedBlock.props, markdown: e.target.value },
                                     })
                                   }
-                                  className="min-h-[120px] w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                                  className="min-h-30 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
                                   placeholder="Legacy markdown content"
                                 />
                               </CollapsibleGroup>
@@ -7956,7 +8266,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                                       max={12}
                                       value={Math.round(selectedBlock.props.style?.borderWidthPx ?? 0)}
                                       onChange={(e) => updateSelectedBlockStyle({ borderWidthPx: Number(e.target.value) || 0 })}
-                                      className="min-w-[160px] flex-1"
+                                      className="min-w-40 flex-1"
                                     />
                                     <input
                                       type="number"
@@ -7988,7 +8298,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                               max={64}
                             />
 
-                            {(selectedBlock.type === "image" || selectedBlock.type === "button" || selectedBlock.type === "formLink" || selectedBlock.type === "salesCheckoutButton" || selectedBlock.type === "addToCartButton" || selectedBlock.type === "cartButton") ? (
+                            {(selectedBlock.type === "image" || selectedBlock.type === "video" || selectedBlock.type === "button" || selectedBlock.type === "formLink" || selectedBlock.type === "salesCheckoutButton" || selectedBlock.type === "addToCartButton" || selectedBlock.type === "cartButton") ? (
                               <MaxWidthPicker
                                 label="Max width"
                                 value={selectedBlock.props.style?.maxWidthPx}
@@ -8032,7 +8342,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                       )}
                     >
                       <div className="text-[10px] font-semibold uppercase tracking-wide text-zinc-500">{m.role}</div>
-                      <div className="mt-1 whitespace-pre-wrap break-words">{m.content}</div>
+                      <div className="mt-1 whitespace-pre-wrap wrap-break-word">{m.content}</div>
                     </div>
                   ))
                 )}
@@ -8041,7 +8351,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
               <textarea
                 value={chatInput}
                 onChange={(e) => setChatInput(e.target.value)}
-                className="mt-3 min-h-[110px] w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                className="mt-3 min-h-27.5 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
                 placeholder="Describe what to build or change…"
               />
 
@@ -8150,7 +8460,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                   onClick={() => void runAi()}
                   className={classNames(
                     "flex-1 inline-flex items-center justify-center gap-2 rounded-2xl px-4 py-2 text-sm font-semibold text-white",
-                    busy || !chatInput.trim() ? "bg-zinc-400" : "bg-linear-to-r from-[color:var(--color-brand-blue)] via-violet-500 to-[color:var(--color-brand-pink)] hover:opacity-90 shadow-sm",
+                    busy || !chatInput.trim() ? "bg-zinc-400" : "bg-linear-to-r from-(--color-brand-blue) via-violet-500 to-(--color-brand-pink) hover:opacity-90 shadow-sm",
                   )}
                 >
                   <svg
@@ -8186,7 +8496,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                 <textarea
                   value={selectedPage.customHtml || ""}
                   onChange={(e) => setSelectedPageLocal({ customHtml: e.target.value })}
-                  className="mt-2 min-h-[240px] w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 font-mono text-xs"
+                  className="mt-2 min-h-60 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 font-mono text-xs"
                   placeholder="<!doctype html>…"
                 />
                 <div className="mt-2 text-xs text-zinc-500">Use Save in the top bar to persist changes.</div>
@@ -8281,7 +8591,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                 <div
                   className={classNames(
                     "mx-auto w-full overflow-hidden border border-zinc-200 bg-white",
-                    previewDevice === "mobile" ? "max-w-[420px] rounded-3xl" : "max-w-5xl rounded-none",
+                    previewDevice === "mobile" ? "max-w-105 rounded-3xl" : "max-w-5xl rounded-none",
                   )}
                 >
                   <iframe
@@ -8295,7 +8605,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                 <div
                   className={classNames(
                     "mx-auto w-full border border-zinc-200",
-                    previewDevice === "mobile" ? "max-w-[420px] rounded-3xl" : "max-w-5xl rounded-none",
+                    previewDevice === "mobile" ? "max-w-105 rounded-3xl" : "max-w-5xl rounded-none",
                   )}
                 >
                   <div className="min-h-[70vh]">
