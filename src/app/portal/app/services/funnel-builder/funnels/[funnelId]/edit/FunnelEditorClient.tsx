@@ -96,6 +96,37 @@ function classNames(...xs: Array<string | false | null | undefined>) {
   return xs.filter(Boolean).join(" ");
 }
 
+function pickRandom<T>(items: T[]): T {
+  if (!Array.isArray(items) || items.length === 0) throw new Error("pickRandom called with empty array");
+  return items[Math.floor(Math.random() * items.length)]!;
+}
+
+const AI_BLOCK_UPDATED_VARIANTS = [
+  "OK — I updated this block. Check the preview and tell me what you want changed.",
+  "Done — block updated. Preview it and tell me what to tweak.",
+  "Updated this block. Check it in preview and tell me what you want adjusted.",
+  "All set — changes applied to this block. Preview and tell me what to refine.",
+  "Block updated. If anything feels off, tell me what to change next.",
+  "Update complete for this block. Preview it and call out what to refine.",
+  "Applied the changes to this block. Tell me what you want changed next.",
+  "Done — block updated. Tell me what you want improved after you preview.",
+  "Updated. Preview this block and tell me what to adjust (spacing, copy, colors, etc.).",
+  "Change applied to this block. Check preview and tell me what you want changed.",
+];
+
+const AI_BLOCK_ACTIONS_VARIANTS = [
+  "I added blocks to the page.",
+  "Added some blocks to the page.",
+  "Inserted blocks into the page.",
+  "Dropped in a few blocks.",
+  "Blocks added.",
+  "I updated the layout with new blocks.",
+  "I added the requested blocks.",
+  "Built those pieces as blocks on the page.",
+  "Added blocks where they fit best.",
+  "I placed new blocks into the page.",
+];
+
 function chatDisplayContent(m: { role: "user" | "assistant"; content: string }) {
   const raw = typeof m.content === "string" ? m.content : String(m.content ?? "");
   if (m.role !== "assistant") return raw;
@@ -128,7 +159,7 @@ function ToggleSwitch({
     <span className="relative inline-flex h-6 w-11 shrink-0 items-center">
       <input
         type="checkbox"
-        className="peer sr-only"
+        className="peer absolute inset-0 z-10 h-full w-full cursor-pointer opacity-0 disabled:cursor-not-allowed"
         checked={checked}
         disabled={disabled}
         onChange={(e) => onChange(e.target.checked)}
@@ -5583,7 +5614,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                                         const assistantMsg: BlockChatMessage = {
                                           role: "assistant",
                                           content: [
-                                            "I added blocks to the page.",
+                                            pickRandom(AI_BLOCK_ACTIONS_VARIANTS),
                                             actionSummaries.filter(Boolean).join("\n"),
                                           ]
                                             .filter(Boolean)
@@ -5833,10 +5864,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                                       const userMsg: BlockChatMessage = { role: "user", content: prompt, at: new Date().toISOString() };
                                       const assistantMsg: BlockChatMessage = {
                                         role: "assistant",
-                                        content:
-                                          nextHtml || nextCss
-                                            ? `Updated this custom code block${nextCss ? " (HTML + CSS)." : " (HTML)."}`
-                                            : "No changes returned.",
+                                        content: nextHtml || nextCss ? pickRandom(AI_BLOCK_UPDATED_VARIANTS) : "No changes returned.",
                                         at: new Date().toISOString(),
                                       };
 

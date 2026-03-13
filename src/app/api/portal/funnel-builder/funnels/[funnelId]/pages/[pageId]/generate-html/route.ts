@@ -54,6 +54,24 @@ function escapeHtml(s: string) {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/\"/g, "&quot;");
 }
 
+function pickRandom<T>(items: T[]): T {
+  if (!Array.isArray(items) || items.length === 0) throw new Error("pickRandom called with empty array");
+  return items[Math.floor(Math.random() * items.length)]!;
+}
+
+const PAGE_UPDATED_VARIANTS = [
+  "OK — I updated your page. Check the preview and tell me what you want changed.",
+  "Done — page updated. Take a look in preview and tell me what to tweak.",
+  "Updated. Open the preview and tell me what you want different.",
+  "All set — changes applied. Preview it and tell me what you want adjusted.",
+  "Page updated. If anything feels off, tell me what to change next.",
+  "Update complete. Check the preview and call out what to refine.",
+  "Applied the changes. Preview it and tell me what you want changed next.",
+  "Done — I made the update. Tell me what you want improved after you preview.",
+  "Updated the page. Preview it and tell me what to adjust (copy, layout, colors, etc.).",
+  "Change applied. Check preview and tell me what you want changed.",
+];
+
 type AiAttachment = {
   url: string;
   fileName?: string;
@@ -407,7 +425,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
 
   const assistantMsg = {
     role: "assistant",
-    content: "OK — I updated your page. Check the preview and tell me what you want changed.",
+    content: pickRandom(PAGE_UPDATED_VARIANTS),
     at: new Date().toISOString(),
   };
   const nextChat = [...prevChat, userMsg, assistantMsg].slice(-40);

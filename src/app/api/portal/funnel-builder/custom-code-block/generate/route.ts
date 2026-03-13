@@ -342,6 +342,14 @@ function extractFence(text: string, lang: string): string {
   return m?.[1] ? m[1].trim() : "";
 }
 
+function toAbsoluteUrl(req: Request, url: string): string {
+  const u = String(url || "").trim();
+  if (!u) return "";
+  if (/^https?:\/\//i.test(u)) return u;
+  const origin = new URL(req.url).origin;
+  return new URL(u, origin).toString();
+}
+
 function pickDefaultFormSlug(forms: Array<{ slug: string; name: string; status: string }>): string {
   const active = forms.find((f) => String(f.status).toUpperCase() === "ACTIVE");
   return (active ?? forms[0])?.slug ?? "";
@@ -522,7 +530,7 @@ export async function POST(req: Request) {
         ...contextMedia.map((m) => {
           const name = m.fileName ? ` ${m.fileName}` : "";
           const mime = m.mimeType ? ` (${m.mimeType})` : "";
-          return `- ${name}${mime}: ${m.url}`.trim();
+          return `- ${name}${mime}: ${toAbsoluteUrl(req, m.url)}`.trim();
         }),
         "",
       ].join("\n")
@@ -712,7 +720,7 @@ export async function POST(req: Request) {
   const imageUrls = Array.from(
     new Set(
       contextMedia
-        .map((m) => String(m?.url || "").trim())
+        .map((m) => toAbsoluteUrl(req, String(m?.url || "").trim()))
         .filter(Boolean)
         .slice(0, 8),
     ),
