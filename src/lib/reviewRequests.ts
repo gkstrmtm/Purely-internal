@@ -8,6 +8,7 @@ import { renderTextTemplate } from "@/lib/textTemplate";
 import { upsertHoursSavedEvent } from "@/lib/hoursSaved";
 import { addContactTagAssignment } from "@/lib/portalContactTags";
 import { findOrCreatePortalContact } from "@/lib/portalContacts";
+import { normalizeHostedFontKey } from "@/lib/portalHostedFonts";
 import type { Prisma } from "@prisma/client";
 
 const SERVICE_SLUG = "reviews";
@@ -173,6 +174,7 @@ export type ReviewsPublicFormConfig = {
 export type ReviewsPublicPageSettings = {
   enabled: boolean;
   galleryEnabled: boolean;
+  fontKey: string;
   title: string;
   description: string;
   thankYouMessage: string;
@@ -325,6 +327,7 @@ export function parseReviewRequestsSettings(raw: unknown): ReviewRequestsSetting
     publicPage: {
       enabled: true,
       galleryEnabled: true,
+      fontKey: "brand",
       title: "Reviews",
       description: "We’d love to hear about your experience.",
       thankYouMessage: "Thanks! Your review was submitted.",
@@ -470,6 +473,7 @@ export function parseReviewRequestsSettings(raw: unknown): ReviewRequestsSetting
     enabled: typeof publicRaw?.enabled === "boolean" ? publicRaw.enabled : base.publicPage.enabled,
     galleryEnabled:
       typeof publicRaw?.galleryEnabled === "boolean" ? publicRaw.galleryEnabled : base.publicPage.galleryEnabled,
+    fontKey: normalizeHostedFontKey(publicRaw?.fontKey),
     title: normalizeString(publicRaw?.title, 60, base.publicPage.title) || base.publicPage.title,
     description: normalizeString(publicRaw?.description, 220, base.publicPage.description) || base.publicPage.description,
     thankYouMessage: normalizeString(publicRaw?.thankYouMessage, 220, base.publicPage.thankYouMessage) || base.publicPage.thankYouMessage,

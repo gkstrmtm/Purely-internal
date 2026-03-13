@@ -6,7 +6,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { LocalDateTimePicker } from "@/components/LocalDateTimePicker";
 import { RichTextMarkdownEditor } from "@/components/RichTextMarkdownEditor";
 import { PortalMediaPickerModal } from "@/components/PortalMediaPickerModal";
+import { PortalListboxDropdown, type PortalListboxOption } from "@/components/PortalListboxDropdown";
 import { useToast } from "@/components/ToastProvider";
+import { buildFontDropdownOptions } from "@/lib/portalHostedFonts";
 
 type Post = {
   id: string;
@@ -22,6 +24,13 @@ type Post = {
 };
 
 type ConfirmKind = "publishUnsaved" | "generateOverwrite" | "delete" | "leave";
+
+type BlogAppearance = {
+  version: 1;
+  useBrandFont: boolean;
+  titleFontKey: string;
+  bodyFontKey: string;
+};
 
 function confirmTitle(kind: ConfirmKind) {
   switch (kind) {
@@ -167,6 +176,14 @@ export function PortalBlogPostClient({ postId }: { postId: string }) {
   const [error, setError] = useState<string | null>(null);
   const [billingCta, setBillingCta] = useState<string | null>(null);
 
+  const [appearance, setAppearance] = useState<BlogAppearance>({
+    version: 1,
+    useBrandFont: true,
+    titleFontKey: "brand",
+    bodyFontKey: "brand",
+  });
+  const [appearanceSaving, setAppearanceSaving] = useState(false);
+
   const generateAbortRef = useRef<AbortController | null>(null);
 
   const contentRef = useRef<HTMLTextAreaElement | null>(null);
@@ -192,9 +209,48 @@ export function PortalBlogPostClient({ postId }: { postId: string }) {
 
   const [confirmKind, setConfirmKind] = useState<ConfirmKind | null>(null);
 
+  const fontOptions = useMemo(() => {
+    return buildFontDropdownOptions() as PortalListboxOption<string>[];
+  }, []);
+
   useEffect(() => {
     if (error) toast.error(error);
   }, [error, toast]);
+
+  const loadAppearance = useCallback(async () => {
+    try {
+      const res = await fetch("/api/portal/blogs/appearance", { cache: "no-store" });
+      const json = (await res.json().catch(() => ({}))) as { ok?: boolean; appearance?: BlogAppearance };
+      if (res.ok && json.ok && json.appearance) {
+        setAppearance(json.appearance);
+      }
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  const saveAppearance = useCallback(
+    async (next: Partial<BlogAppearance>) => {
+      if (appearanceSaving) return;
+      setAppearanceSaving(true);
+      try {
+        const res = await fetch("/api/portal/blogs/appearance", {
+          method: "PUT",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(next),
+        });
+        const json = (await res.json().catch(() => ({}))) as { ok?: boolean; appearance?: BlogAppearance; error?: string };
+        if (!res.ok || !json.ok || !json.appearance) {
+          toast.error(json.error ?? "Unable to save blog fonts");
+          return;
+        }
+        setAppearance(json.appearance);
+      } finally {
+        setAppearanceSaving(false);
+      }
+    },
+    [appearanceSaving, toast],
+  );
 
   useEffect(() => {
     if (!confirmKind) return;
@@ -283,8 +339,9 @@ export function PortalBlogPostClient({ postId }: { postId: string }) {
   }
 
   useEffect(() => {
+    void loadAppearance();
     void refresh();
-  }, [refresh]);
+  }, [loadAppearance, refresh]);
 
   async function saveInternal(): Promise<Post | null> {
     if (!title.trim()) {
@@ -649,7 +706,7 @@ export function PortalBlogPostClient({ postId }: { postId: string }) {
               void generateWithAi();
             }}
             disabled={working !== null}
-            className="inline-flex items-center justify-center gap-2 rounded-2xl px-4 py-2 text-sm font-semibold text-white bg-linear-to-r from-[color:var(--color-brand-blue)] via-violet-500 to-[color:var(--color-brand-pink)] shadow-sm hover:opacity-90 disabled:bg-zinc-400 disabled:opacity-60"
+            className="inline-flex items-center justify-center gap-2 rounded-2xl px-4 py-2 text-sm font-semibold text-white bg-linear-to-r from-(--color-brand-blue) via-violet-500 to-(--color-brand-pink) shadow-sm hover:opacity-90 disabled:bg-zinc-400 disabled:opacity-60"
           >
             <svg
               aria-hidden="true"
@@ -691,7 +748,7 @@ export function PortalBlogPostClient({ postId }: { postId: string }) {
             type="button"
             onClick={publish}
             disabled={publishDisabled}
-            className="inline-flex items-center justify-center rounded-2xl bg-[color:var(--color-brand-blue)] px-4 py-2 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
+            className="inline-flex items-center justify-center rounded-2xl bg-(--color-brand-blue) px-4 py-2 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
           >
             {working === "publish" ? "Publishing…" : publishLabel}
           </button>
@@ -729,7 +786,7 @@ export function PortalBlogPostClient({ postId }: { postId: string }) {
                   </button>
                   <button
                     type="button"
-                    className="inline-flex items-center justify-center rounded-2xl bg-[color:var(--color-brand-blue)] px-4 py-2 text-sm font-semibold text-white hover:opacity-95"
+                    className="inline-flex items-center justify-center rounded-2xl bg-(--color-brand-blue) px-4 py-2 text-sm font-semibold text-white hover:opacity-95"
                     onClick={async () => {
                       setConfirmKind(null);
                       const saved = await saveInternal();
@@ -820,7 +877,7 @@ export function PortalBlogPostClient({ postId }: { postId: string }) {
               <textarea
                 value={aiPrompt}
                 onChange={(e) => setAiPrompt(e.target.value)}
-                className="mt-3 min-h-[90px] w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300"
+                className="mt-3 min-h-22.5 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300"
                 placeholder="Example: Write a helpful post for homeowners about how to choose the right HVAC filter, with a friendly professional tone."
               />
               <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
@@ -864,7 +921,7 @@ export function PortalBlogPostClient({ postId }: { postId: string }) {
               <textarea
                 value={excerpt}
                 onChange={(e) => setExcerpt(e.target.value)}
-                className="mt-1 min-h-[90px] w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300"
+                className="mt-1 min-h-22.5 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300"
                 placeholder="A short summary for preview cards"
               />
             </div>
@@ -913,12 +970,69 @@ export function PortalBlogPostClient({ postId }: { postId: string }) {
           <div className="text-sm font-semibold text-zinc-900">SEO</div>
           <div className="mt-2 text-sm text-zinc-600">Optional keywords for internal targeting.</div>
 
+          <div className="mt-6 border-t border-zinc-200 pt-4">
+            <div className="text-sm font-semibold text-zinc-900">Fonts</div>
+            <div className="mt-2 text-sm text-zinc-600">Sets fonts for your hosted blog pages.</div>
+
+            <div className="mt-3 flex items-center justify-between gap-3 rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3">
+              <div className="min-w-0">
+                <div className="text-sm font-semibold text-zinc-800">Use brand font</div>
+                <div className="mt-0.5 text-xs text-zinc-500">Uses your Business font from Profile → Business info.</div>
+              </div>
+              <input
+                type="checkbox"
+                className="h-5 w-5"
+                disabled={appearanceSaving}
+                checked={Boolean(appearance.useBrandFont)}
+                onChange={(e) => {
+                  const useBrandFont = e.target.checked;
+                  setAppearance((prev) => ({ ...prev, useBrandFont }));
+                  void saveAppearance({ useBrandFont });
+                }}
+              />
+            </div>
+
+            <div className="mt-3 grid grid-cols-1 gap-3">
+              <div>
+                <label className="text-xs font-semibold text-zinc-600">Title font</label>
+                <div className="mt-1">
+                  <PortalListboxDropdown<string>
+                    value={appearance.titleFontKey}
+                    options={fontOptions}
+                    disabled={appearanceSaving || appearance.useBrandFont}
+                    onChange={(v) => {
+                      const titleFontKey = String(v || "brand");
+                      setAppearance((prev) => ({ ...prev, titleFontKey }));
+                      void saveAppearance({ titleFontKey });
+                    }}
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="text-xs font-semibold text-zinc-600">Body font</label>
+                <div className="mt-1">
+                  <PortalListboxDropdown<string>
+                    value={appearance.bodyFontKey}
+                    options={fontOptions}
+                    disabled={appearanceSaving || appearance.useBrandFont}
+                    onChange={(v) => {
+                      const bodyFontKey = String(v || "brand");
+                      setAppearance((prev) => ({ ...prev, bodyFontKey }));
+                      void saveAppearance({ bodyFontKey });
+                    }}
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+
           <div className="mt-4">
             <label className="text-xs font-semibold text-zinc-600">Keywords (one per line)</label>
             <textarea
               value={keywordsText}
               onChange={(e) => setKeywordsText(e.target.value)}
-              className="mt-1 min-h-[180px] w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300"
+              className="mt-1 min-h-45 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300"
               placeholder="roofing\nlead generation\nlocal SEO"
             />
             <div className="mt-1 text-xs text-zinc-500">Parsed keywords: {keywords.length}</div>
@@ -936,16 +1050,6 @@ export function PortalBlogPostClient({ postId }: { postId: string }) {
                   onChange={(e) => setImageAlt(e.target.value)}
                   className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300"
                   placeholder="Team photo, product screenshot, etc."
-                />
-              </div>
-
-              <div>
-                <label className="text-xs font-semibold text-zinc-600">Image URL (optional)</label>
-                <input
-                  value={imageUrl ?? ""}
-                  onChange={(e) => setImageUrl(e.target.value.trim() ? e.target.value : null)}
-                  className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300"
-                  placeholder="https://…"
                 />
               </div>
 
@@ -1075,7 +1179,7 @@ export function PortalBlogPostClient({ postId }: { postId: string }) {
                         </div>
                         <div className="mt-2 text-xs text-zinc-600">
                           <div className="font-semibold text-zinc-800">Alt:</div>
-                          <div className="break-words">{img.alt || "(none)"}</div>
+                          <div className="wrap-break-word">{img.alt || "(none)"}</div>
                         </div>
                         <div className="mt-2 text-xs text-zinc-600">
                           <div className="font-semibold text-zinc-800">URL:</div>

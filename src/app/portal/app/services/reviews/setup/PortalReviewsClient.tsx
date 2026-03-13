@@ -10,6 +10,7 @@ import { PortalBackToOnboardingLink } from "@/components/PortalBackToOnboardingL
 import { useToast } from "@/components/ToastProvider";
 import { DEFAULT_TAG_COLORS } from "@/lib/tagColors.shared";
 import type { TemplateVariable } from "@/lib/portalTemplateVars";
+import { buildFontDropdownOptions } from "@/lib/portalHostedFonts";
 
 type ReviewDelayUnit = "minutes" | "hours" | "days" | "weeks";
 
@@ -26,10 +27,10 @@ function ToggleSwitch({
 }) {
   const checkedBgClass =
     accent === "pink"
-      ? "peer-checked:bg-[color:var(--color-brand-pink)]"
+      ? "peer-checked:bg-(--color-brand-pink)"
       : accent === "ink"
         ? "peer-checked:bg-brand-ink"
-        : "peer-checked:bg-[color:var(--color-brand-blue)]";
+        : "peer-checked:bg-(--color-brand-blue)";
 
   return (
     <span className="relative inline-flex h-6 w-11 shrink-0 items-center">
@@ -119,6 +120,7 @@ type ReviewsPublicPageSettings = {
   title: string;
   description: string;
   thankYouMessage: string;
+  fontKey: string;
   form: ReviewsPublicFormConfig;
   photoUrls: string[];
 };
@@ -208,6 +210,7 @@ const DEFAULT_SETTINGS: ReviewRequestsSettings = {
     title: "Reviews",
     description: "We’d love to hear about your experience.",
     thankYouMessage: "Thanks! Your review was submitted.",
+    fontKey: "brand",
     form: {
       version: 1,
       email: { enabled: false, required: false },
@@ -483,6 +486,8 @@ export default function PortalReviewsClient() {
     if (unit === "hours") return 24 * 14;
     return 60 * 24 * 14;
   }, [settings.sendAfter.unit]);
+
+  const fontOptions = useMemo(() => buildFontDropdownOptions(), []);
 
   const readJsonSafe = useCallback(async <T,>(res: Response): Promise<JsonResult<T>> => {
     const status = res.status;
@@ -1068,7 +1073,7 @@ export default function PortalReviewsClient() {
           className={
             "flex-1 min-w-40 rounded-2xl border px-4 py-2.5 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
             (tab === "reviews"
-              ? "border-[color:var(--color-brand-blue)] bg-[color:var(--color-brand-blue)] text-white shadow-sm"
+              ? "border-(--color-brand-blue) bg-(--color-brand-blue) text-white shadow-sm"
               : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
           }
         >
@@ -1081,7 +1086,7 @@ export default function PortalReviewsClient() {
           className={
             "flex-1 min-w-50 rounded-2xl border px-4 py-2.5 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
             (tab === "settings"
-              ? "border-[color:var(--color-brand-pink)] bg-[color:var(--color-brand-pink)] text-white shadow-sm"
+              ? "border-(--color-brand-pink) bg-(--color-brand-pink) text-white shadow-sm"
               : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
           }
         >
@@ -1218,7 +1223,7 @@ export default function PortalReviewsClient() {
                           {!showCreateTag ? (
                             <button
                               type="button"
-                              className="mt-2 text-xs font-semibold text-[color:var(--color-brand-blue)] hover:underline"
+                              className="mt-2 text-xs font-semibold text-(--color-brand-blue) hover:underline"
                               onClick={() => {
                                 const suggestion = tagSearch.trim().slice(0, 60);
                                 if (suggestion && !createTagName.trim()) setCreateTagName(suggestion);
@@ -1487,7 +1492,7 @@ export default function PortalReviewsClient() {
                     onChange={(e) => setNewDestUrl(e.target.value)}
                   />
                   <button
-                    className="inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-[color:var(--color-brand-blue)] px-4 text-sm font-semibold text-white hover:opacity-95"
+                    className="inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-(--color-brand-blue) px-4 text-sm font-semibold text-white hover:opacity-95"
                     onClick={addDestination}
                     type="button"
                   >
@@ -1575,7 +1580,7 @@ export default function PortalReviewsClient() {
                     <div className="text-xs text-zinc-500">Domains come from Funnel Builder → Settings → Custom domains.</div>
                     <a
                       href="/portal/app/services/funnel-builder/settings"
-                      className="text-xs font-semibold text-[color:var(--color-brand-blue)] hover:underline"
+                      className="text-xs font-semibold text-(--color-brand-blue) hover:underline"
                     >
                       Add / manage domains
                     </a>
@@ -1584,7 +1589,7 @@ export default function PortalReviewsClient() {
                   <div className="mt-3 flex items-center justify-end">
                     <button
                       type="button"
-                      className="rounded-xl bg-[color:var(--color-brand-blue)] px-4 py-2 text-xs font-semibold text-white shadow-sm hover:opacity-95 disabled:opacity-60"
+                      className="rounded-xl bg-(--color-brand-blue) px-4 py-2 text-xs font-semibold text-white shadow-sm hover:opacity-95 disabled:opacity-60"
                       disabled={siteDomainBusy}
                       onClick={saveHostedSiteDomain}
                     >
@@ -1622,6 +1627,24 @@ export default function PortalReviewsClient() {
                       }
                     />
                   </label>
+                </div>
+
+                <div className="mt-3">
+                  <div className="text-xs font-semibold text-zinc-700">Font</div>
+                  <div className="mt-1">
+                    <PortalListboxDropdown
+                      value={String((settings.publicPage as any).fontKey || "brand") as any}
+                      options={fontOptions as any}
+                      onChange={(v) =>
+                        setSettings({
+                          ...settings,
+                          publicPage: { ...settings.publicPage, fontKey: String(v || "brand") },
+                        })
+                      }
+                      placeholder="Choose a font"
+                    />
+                  </div>
+                  <div className="mt-1 text-xs text-zinc-500">Controls the typography for your hosted reviews page.</div>
                 </div>
 
                 <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">

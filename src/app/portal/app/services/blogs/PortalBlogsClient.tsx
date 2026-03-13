@@ -8,6 +8,7 @@ import { PortalSettingsSection } from "@/components/PortalSettingsSection";
 import { PortalListboxDropdown, type PortalListboxOption } from "@/components/PortalListboxDropdown";
 import { useToast } from "@/components/ToastProvider";
 import { PortalBackToOnboardingLink } from "@/components/PortalBackToOnboardingLink";
+import { buildFontDropdownOptions } from "@/lib/portalHostedFonts";
 
 export type BlogsTab = "posts" | "automation" | "settings";
 type FrequencyUnit = "days" | "weeks" | "months";
@@ -52,6 +53,13 @@ type AutomationSettings = {
   lastGeneratedAt: string | null;
   nextDueAt: string | null;
   lastRunAt?: string | null;
+};
+
+type BlogAppearance = {
+  version: 1;
+  useBrandFont: boolean;
+  titleFontKey: string;
+  bodyFontKey: string;
 };
 
 type PostConfirm =
@@ -121,6 +129,9 @@ export function PortalBlogsClient({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  const [appearance, setAppearance] = useState<BlogAppearance | null>(null);
+  const [appearanceSaving, setAppearanceSaving] = useState(false);
+
   const [funnelDomains, setFunnelDomains] = useState<FunnelBuilderDomain[] | null>(null);
   const [funnelDomainsBusy, setFunnelDomainsBusy] = useState(false);
 
@@ -171,6 +182,10 @@ export function PortalBlogsClient({
     }));
     return [...base, ...items];
   }, [funnelDomains]);
+
+  const fontOptions = useMemo(() => {
+    return buildFontDropdownOptions() as PortalListboxOption<string>[];
+  }, []);
 
   const entitled = Boolean(me?.entitlements?.blog);
 
@@ -230,7 +245,7 @@ export function PortalBlogsClient({
     setError(null);
     setFunnelDomainsBusy(true);
     try {
-      const [meRes, siteRes, postsRes, autoRes, creditsRes, usageRes, domainsRes] = await Promise.all([
+      const [meRes, siteRes, postsRes, autoRes, creditsRes, usageRes, domainsRes, appearanceRes] = await Promise.all([
         fetch("/api/customer/me", {
           cache: "no-store",
           headers: {
@@ -244,6 +259,7 @@ export function PortalBlogsClient({
         fetch("/api/portal/credits", { cache: "no-store" }),
         fetch("/api/portal/blogs/usage?range=30d", { cache: "no-store" }),
         fetch("/api/portal/funnel-builder/domains", { cache: "no-store" }),
+        fetch("/api/portal/blogs/appearance", { cache: "no-store" }),
       ]);
 
       const meJson = (await meRes.json().catch(() => ({}))) as Partial<Me>;
@@ -256,6 +272,11 @@ export function PortalBlogsClient({
         generations?: { range?: number };
       };
       const domainsJson = (await domainsRes.json().catch(() => ({}))) as { domains?: FunnelBuilderDomain[] };
+      const appearanceJson = (await appearanceRes.json().catch(() => ({}))) as {
+        ok?: boolean;
+        appearance?: BlogAppearance;
+        error?: string;
+      };
 
       if (!meRes.ok) {
         setError((meJson as { error?: string })?.error ?? "Unable to load account");
@@ -282,6 +303,12 @@ export function PortalBlogsClient({
 
       setPosts(Array.isArray(postsJson.posts) ? postsJson.posts : []);
 
+      if (appearanceRes.ok && appearanceJson.ok && appearanceJson.appearance) {
+        setAppearance(appearanceJson.appearance);
+      } else {
+        setAppearance((prev) => prev ?? { version: 1, useBrandFont: true, titleFontKey: "brand", bodyFontKey: "brand" });
+      }
+
       if (creditsRes.ok) {
         setCredits(typeof creditsJson.credits === "number" && Number.isFinite(creditsJson.credits) ? creditsJson.credits : 0);
       }
@@ -307,6 +334,29 @@ export function PortalBlogsClient({
       setLoading(false);
     }
   }, []);
+
+  const saveAppearance = useCallback(
+    async (next: Partial<BlogAppearance>) => {
+      if (appearanceSaving) return;
+      setAppearanceSaving(true);
+      try {
+        const res = await fetch("/api/portal/blogs/appearance", {
+          method: "PUT",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(next),
+        });
+        const json = (await res.json().catch(() => ({}))) as { ok?: boolean; appearance?: BlogAppearance; error?: string };
+        if (!res.ok || !json.ok || !json.appearance) {
+          toast.error(json.error ?? "Unable to save blog fonts");
+          return;
+        }
+        setAppearance(json.appearance);
+      } finally {
+        setAppearanceSaving(false);
+      }
+    },
+    [appearanceSaving, toast],
+  );
 
   useEffect(() => {
     void refreshAll();
@@ -548,7 +598,7 @@ export function PortalBlogsClient({
           <div className="mt-6 flex flex-col gap-3 sm:flex-row">
             <Link
               href={withFromOnboarding("/portal/app/billing?buy=blog&autostart=1")}
-              className="inline-flex items-center justify-center rounded-2xl bg-[color:var(--color-brand-blue)] px-5 py-3 text-sm font-semibold text-white hover:opacity-95"
+              className="inline-flex items-center justify-center rounded-2xl bg-(--color-brand-blue) px-5 py-3 text-sm font-semibold text-white hover:opacity-95"
             >
               Unlock in Billing
             </Link>
@@ -591,7 +641,7 @@ export function PortalBlogsClient({
             target="_blank"
             rel="noreferrer"
             className={
-              "inline-flex items-center justify-center rounded-2xl bg-[color:var(--color-brand-blue)] px-4 py-2 text-sm font-semibold text-white hover:opacity-95 " +
+              "inline-flex items-center justify-center rounded-2xl bg-(--color-brand-blue) px-4 py-2 text-sm font-semibold text-white hover:opacity-95 " +
               (!liveBlogsHref ? "pointer-events-none opacity-60" : "")
             }
           >
@@ -615,9 +665,9 @@ export function PortalBlogsClient({
           onClick={() => onTabChange("posts")}
           aria-current={routeTab === "posts" ? "page" : undefined}
           className={
-            "flex-1 min-w-[140px] rounded-2xl border px-4 py-2.5 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
+            "flex-1 min-w-35 rounded-2xl border px-4 py-2.5 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
             (routeTab === "posts"
-              ? "border-[color:var(--color-brand-blue)] bg-[color:var(--color-brand-blue)] text-white shadow-sm"
+              ? "border-(--color-brand-blue) bg-(--color-brand-blue) text-white shadow-sm"
               : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
           }
         >
@@ -628,9 +678,9 @@ export function PortalBlogsClient({
           onClick={() => onTabChange("automation")}
           aria-current={routeTab === "automation" ? "page" : undefined}
           className={
-            "flex-1 min-w-[140px] rounded-2xl border px-4 py-2.5 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
+            "flex-1 min-w-35 rounded-2xl border px-4 py-2.5 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
             (routeTab === "automation"
-              ? "border-[color:var(--color-brand-pink)] bg-[color:var(--color-brand-pink)] text-white shadow-sm"
+              ? "border-(--color-brand-pink) bg-(--color-brand-pink) text-white shadow-sm"
               : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
           }
         >
@@ -641,7 +691,7 @@ export function PortalBlogsClient({
           onClick={() => onTabChange("settings")}
           aria-current={routeTab === "settings" ? "page" : undefined}
           className={
-            "flex-1 min-w-[140px] rounded-2xl border px-4 py-2.5 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
+            "flex-1 min-w-35 rounded-2xl border px-4 py-2.5 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
             (routeTab === "settings"
               ? "border-brand-ink bg-brand-ink text-white shadow-sm"
               : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
@@ -662,11 +712,11 @@ export function PortalBlogsClient({
             </div>
 
             <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <div className="rounded-2xl border border-zinc-200 bg-gradient-to-br from-zinc-50 to-white p-4 shadow-sm">
+              <div className="rounded-2xl border border-zinc-200 bg-linear-to-br from-zinc-50 to-white p-4 shadow-sm">
                 <div className="text-xs font-semibold text-zinc-600">Total credits</div>
                 <div className="mt-2 text-2xl font-bold text-brand-ink">{credits === null ? "N/A" : credits.toLocaleString()}</div>
               </div>
-              <div className="rounded-2xl border border-zinc-200 bg-gradient-to-br from-zinc-50 to-white p-4 shadow-sm">
+              <div className="rounded-2xl border border-zinc-200 bg-linear-to-br from-zinc-50 to-white p-4 shadow-sm">
                 <div className="text-xs font-semibold text-zinc-600">Blog credits used</div>
                 <div className="mt-2 text-2xl font-bold text-brand-ink">
                   {blogCreditsUsed30d === null ? "N/A" : blogCreditsUsed30d.toLocaleString()}
@@ -864,7 +914,7 @@ export function PortalBlogsClient({
                 type="button"
                 onClick={saveAutomation}
                 disabled={autoSaving}
-                className="inline-flex w-full items-center justify-center rounded-2xl bg-[color:var(--color-brand-blue)] px-5 py-3 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
+                className="inline-flex w-full items-center justify-center rounded-2xl bg-(--color-brand-blue) px-5 py-3 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
               >
                 {autoSaving ? "Saving…" : "Save automation"}
               </button>
@@ -899,7 +949,7 @@ export function PortalBlogsClient({
 
                   window.location.href = `/portal/app/services/blogs/${json.postId}`;
                 }}
-                className="inline-flex w-full items-center justify-center rounded-2xl bg-gradient-to-r from-[color:var(--color-brand-blue)] to-[color:var(--color-brand-pink)] px-5 py-3 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
+                className="inline-flex w-full items-center justify-center rounded-2xl bg-linear-to-r from-(--color-brand-blue) to-(--color-brand-pink) px-5 py-3 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
               >
                 {generatingNow ? "Generating…" : "Generate next post now"}
               </button>
@@ -1016,7 +1066,7 @@ export function PortalBlogsClient({
                     target="_blank"
                     rel="noreferrer"
                     className={
-                      "inline-flex items-center justify-center rounded-2xl bg-[color:var(--color-brand-blue)] px-4 py-3 text-sm font-semibold text-white hover:opacity-95 " +
+                      "inline-flex items-center justify-center rounded-2xl bg-(--color-brand-blue) px-4 py-3 text-sm font-semibold text-white hover:opacity-95 " +
                       (!liveBlogUrlPreview ? "pointer-events-none opacity-60" : "")
                     }
                   >
@@ -1033,6 +1083,78 @@ export function PortalBlogsClient({
               <div className="flex flex-col items-start justify-between gap-2 sm:flex-row sm:items-center">
                 <div>
                   <div className="text-sm font-semibold text-zinc-900">Custom domain (optional)</div>
+
+              <div className="mt-8 border-t border-zinc-200 pt-6">
+                <div className="text-sm font-semibold text-zinc-900">Typography</div>
+                <div className="mt-2 text-sm text-zinc-600">Choose fonts for your hosted blog titles and body.</div>
+
+                <div className="mt-4 flex items-center justify-between gap-3 rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3">
+                  <div className="min-w-0">
+                    <div className="text-sm font-semibold text-zinc-800">Use brand font</div>
+                    <div className="mt-0.5 text-xs text-zinc-500">Uses your Business font from Profile → Business info.</div>
+                  </div>
+                  <input
+                    type="checkbox"
+                    className="h-5 w-5"
+                    disabled={appearanceSaving}
+                    checked={Boolean(appearance?.useBrandFont ?? true)}
+                    onChange={(e) => {
+                      const useBrandFont = e.target.checked;
+                      setAppearance((prev) => ({
+                        version: 1,
+                        useBrandFont,
+                        titleFontKey: prev?.titleFontKey ?? "brand",
+                        bodyFontKey: prev?.bodyFontKey ?? "brand",
+                      }));
+                      void saveAppearance({ useBrandFont });
+                    }}
+                  />
+                </div>
+
+                <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
+                  <div>
+                    <label className="text-xs font-semibold text-zinc-600">Title font</label>
+                    <div className="mt-1">
+                      <PortalListboxDropdown<string>
+                        value={appearance?.titleFontKey ?? "brand"}
+                        options={fontOptions}
+                        disabled={appearanceSaving || Boolean(appearance?.useBrandFont ?? true)}
+                        onChange={(v) => {
+                          const titleFontKey = String(v || "brand");
+                          setAppearance((prev) => ({
+                            version: 1,
+                            useBrandFont: Boolean(prev?.useBrandFont ?? true),
+                            titleFontKey,
+                            bodyFontKey: prev?.bodyFontKey ?? "brand",
+                          }));
+                          void saveAppearance({ titleFontKey });
+                        }}
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="text-xs font-semibold text-zinc-600">Body font</label>
+                    <div className="mt-1">
+                      <PortalListboxDropdown<string>
+                        value={appearance?.bodyFontKey ?? "brand"}
+                        options={fontOptions}
+                        disabled={appearanceSaving || Boolean(appearance?.useBrandFont ?? true)}
+                        onChange={(v) => {
+                          const bodyFontKey = String(v || "brand");
+                          setAppearance((prev) => ({
+                            version: 1,
+                            useBrandFont: Boolean(prev?.useBrandFont ?? true),
+                            titleFontKey: prev?.titleFontKey ?? "brand",
+                            bodyFontKey,
+                          }));
+                          void saveAppearance({ bodyFontKey });
+                        }}
+                      />
+                    </div>
+                  </div>
+                </div>
+              </div>
                   <div className="mt-1 text-xs text-zinc-500">Pulls from Funnel Builder → Settings → Custom domains.</div>
                 </div>
                 {siteDomain.trim() ? (
@@ -1072,7 +1194,7 @@ export function PortalBlogsClient({
                     </div>
                     <Link
                       href="/portal/app/services/funnel-builder/settings"
-                      className="text-xs font-semibold text-[color:var(--color-brand-blue)] hover:underline"
+                      className="text-xs font-semibold text-(--color-brand-blue) hover:underline"
                     >
                       Add / manage domains
                     </Link>
@@ -1198,7 +1320,7 @@ export function PortalBlogsClient({
             <div className="fixed inset-0 z-50" aria-hidden>
               <div className="absolute inset-0" onMouseDown={() => setOpenPostMenu(null)} onTouchStart={() => setOpenPostMenu(null)} />
               <div
-                className="fixed z-[60] w-56 overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-lg"
+                className="fixed z-60 w-56 overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-lg"
                 style={{ left: openPostMenu.left, top: openPostMenu.top }}
                 onMouseDown={(e) => e.stopPropagation()}
                 onTouchStart={(e) => e.stopPropagation()}
@@ -1281,7 +1403,7 @@ export function PortalBlogsClient({
             <div className="fixed inset-0 z-50" aria-hidden>
               <div className="absolute inset-0" onMouseDown={() => setOpenPreviewMenu(null)} onTouchStart={() => setOpenPreviewMenu(null)} />
               <div
-                className="fixed z-[60] w-72 overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-lg"
+                className="fixed z-60 w-72 overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-lg"
                 style={{ left: openPreviewMenu.left, top: openPreviewMenu.top }}
                 onMouseDown={(e) => e.stopPropagation()}
                 onTouchStart={(e) => e.stopPropagation()}

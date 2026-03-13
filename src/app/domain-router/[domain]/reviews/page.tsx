@@ -9,6 +9,7 @@ import { hasPublicColumn } from "@/lib/dbSchema";
 import { getReviewRequestsServiceData } from "@/lib/reviewRequests";
 import { resolveCustomDomain } from "@/lib/customDomainResolver";
 import { getHostedBrandFont } from "@/lib/hostedBrandFont";
+import { resolveHostedFont } from "@/lib/portalHostedFonts";
 import { PublicReviewsClient } from "@/app/[siteSlug]/reviews/PublicReviewsClient";
 
 export const dynamic = "force-dynamic";
@@ -118,6 +119,14 @@ export default async function CustomDomainReviewsPage({
 
   const hostedBrandFont = await getHostedBrandFont(ownerId);
 
+  const hostedFont = resolveHostedFont({
+    rawFontKey: (settings.publicPage as any)?.fontKey,
+    brandFontFamily: hostedBrandFont.fontFamily,
+    brandGoogleImportCss: hostedBrandFont.googleCss,
+  });
+
+  const pageFontStyle = hostedFont.fontFamily ? ({ fontFamily: hostedFont.fontFamily } as CSSProperties) : null;
+
   const [hasBusinessReply, hasBusinessReplyAt, hasQaTable] = await Promise.all([
     hasPublicColumn("PortalReview", "businessReply"),
     hasPublicColumn("PortalReview", "businessReplyAt"),
@@ -177,9 +186,9 @@ export default async function CustomDomainReviewsPage({
   return (
     <div
       className="min-h-screen bg-white text-zinc-900"
-      style={{ ...(themeStyle as any), ...hostedBrandFont.styleVars, ...hostedBrandFont.globalStyle } as any}
+      style={{ ...(themeStyle as any), ...(pageFontStyle as any), ...hostedBrandFont.styleVars } as any}
     >
-      {hostedBrandFont.googleCss ? <style>{hostedBrandFont.googleCss}</style> : null}
+      {hostedFont.googleImportCss ? <style>{hostedFont.googleImportCss}</style> : null}
       <header className="border-b border-zinc-200 bg-white/80 backdrop-blur">
         <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-6 py-4">
           <Link href="/reviews" className="flex items-center gap-3">

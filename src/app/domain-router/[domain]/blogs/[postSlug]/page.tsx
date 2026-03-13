@@ -8,6 +8,8 @@ import { formatBlogDate, inlineMarkdownToHtmlSafe, parseBlogContent } from "@/li
 import { hasPublicColumn } from "@/lib/dbSchema";
 import { resolveCustomDomain } from "@/lib/customDomainResolver";
 import { getHostedBrandFont } from "@/lib/hostedBrandFont";
+import { getBlogAppearance } from "@/lib/blogAppearance";
+import { resolveHostedFont } from "@/lib/portalHostedFonts";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -93,7 +95,36 @@ export default async function CustomDomainBlogPostPage({
     .findUnique({ where: { ownerId: site.ownerId }, select: profileSelect as any })
     .catch(() => null);
 
-  const hostedBrandFont = await getHostedBrandFont(site.ownerId);
+  const [hostedBrandFont, appearance] = await Promise.all([
+    getHostedBrandFont(site.ownerId),
+    getBlogAppearance(site.ownerId),
+  ]);
+
+  const titleFont = resolveHostedFont({
+    rawFontKey: appearance.useBrandFont ? "brand" : appearance.titleFontKey,
+    brandFontFamily: hostedBrandFont.fontFamily,
+    brandGoogleImportCss: hostedBrandFont.googleCss,
+  });
+  const bodyFont = resolveHostedFont({
+    rawFontKey: appearance.useBrandFont ? "brand" : appearance.bodyFontKey,
+    brandFontFamily: hostedBrandFont.fontFamily,
+    brandGoogleImportCss: hostedBrandFont.googleCss,
+  });
+
+  const fontCss = (() => {
+    const imports = new Set<string>();
+    if (titleFont.googleImportCss) imports.add(titleFont.googleImportCss);
+    if (bodyFont.googleImportCss) imports.add(bodyFont.googleImportCss);
+
+    const rules: string[] = [];
+    if (bodyFont.fontFamily) rules.push(`.pa-blog-root{font-family:${bodyFont.fontFamily};}`);
+    if (titleFont.fontFamily) rules.push(`.pa-blog-root .font-brand{font-family:${titleFont.fontFamily};}`);
+
+    const header = Array.from(imports.values()).join("\n");
+    const body = rules.join("\n");
+    const merged = [header, body].filter(Boolean).join("\n");
+    return merged || null;
+  })();
 
   const brandPrimary = normalizeHex((profile as any)?.brandPrimaryHex) ?? "#1d4ed8";
   const brandAccent = normalizeHex((profile as any)?.brandAccentHex) ?? "#f472b6";
@@ -117,8 +148,8 @@ export default async function CustomDomainBlogPostPage({
   const blocks = parseBlogContent(post.content);
 
   return (
-    <div className="min-h-screen bg-white" style={{ ...(themeStyle as any), ...hostedBrandFont.styleVars, ...hostedBrandFont.globalStyle } as any}>
-      {hostedBrandFont.googleCss ? <style>{hostedBrandFont.googleCss}</style> : null}
+    <div className="pa-blog-root min-h-screen bg-white" style={{ ...(themeStyle as any), ...hostedBrandFont.styleVars } as any}>
+      {fontCss ? <style>{fontCss}</style> : null}
       <header className="border-b border-zinc-200 bg-white/80 backdrop-blur">
         <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-4">
           <Link href="/blogs" className="flex items-center gap-3">

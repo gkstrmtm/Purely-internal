@@ -6,6 +6,9 @@ import { prisma } from "@/lib/db";
 import { formatBlogDate, inlineMarkdownToHtmlSafe, parseBlogContent } from "@/lib/blog";
 import { hasPublicColumn } from "@/lib/dbSchema";
 import { findOwnerIdByStoredBlogSiteSlug } from "@/lib/blogSiteSlug";
+import { getBlogAppearance } from "@/lib/blogAppearance";
+import { getHostedBrandFont } from "@/lib/hostedBrandFont";
+import { resolveHostedFont } from "@/lib/portalHostedFonts";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -127,6 +130,37 @@ export default async function ClientBlogPostPage(props: PageProps) {
   const brandName = (profile as any)?.businessName || (site as any).name;
   const logoUrl = (profile as any)?.logoUrl || null;
 
+  const [hostedBrandFont, appearance] = await Promise.all([
+    getHostedBrandFont(String((site as any).ownerId)),
+    getBlogAppearance(String((site as any).ownerId)),
+  ]);
+
+  const titleFont = resolveHostedFont({
+    rawFontKey: appearance.useBrandFont ? "brand" : appearance.titleFontKey,
+    brandFontFamily: hostedBrandFont.fontFamily,
+    brandGoogleImportCss: hostedBrandFont.googleCss,
+  });
+  const bodyFont = resolveHostedFont({
+    rawFontKey: appearance.useBrandFont ? "brand" : appearance.bodyFontKey,
+    brandFontFamily: hostedBrandFont.fontFamily,
+    brandGoogleImportCss: hostedBrandFont.googleCss,
+  });
+
+  const fontCss = (() => {
+    const imports = new Set<string>();
+    if (titleFont.googleImportCss) imports.add(titleFont.googleImportCss);
+    if (bodyFont.googleImportCss) imports.add(bodyFont.googleImportCss);
+
+    const rules: string[] = [];
+    if (bodyFont.fontFamily) rules.push(`.pa-blog-root{font-family:${bodyFont.fontFamily};}`);
+    if (titleFont.fontFamily) rules.push(`.pa-blog-root .font-brand{font-family:${titleFont.fontFamily};}`);
+
+    const header = Array.from(imports.values()).join("\n");
+    const body = rules.join("\n");
+    const merged = [header, body].filter(Boolean).join("\n");
+    return merged || null;
+  })();
+
   const themeStyle = {
     ["--client-primary" as any]: brandPrimary,
     ["--client-accent" as any]: brandAccent,
@@ -136,7 +170,11 @@ export default async function ClientBlogPostPage(props: PageProps) {
   const blocks = parseBlogContent(post.content);
 
   return (
-    <div className="min-h-screen bg-white" style={themeStyle}>
+    <div
+      className="pa-blog-root min-h-screen bg-white"
+      style={{ ...(themeStyle as any), ...hostedBrandFont.styleVars } as any}
+    >
+      {fontCss ? <style>{fontCss}</style> : null}
       <header className="border-b border-zinc-200 bg-white/80 backdrop-blur">
         <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-4">
           <Link href={`/${siteHandle}/blogs`} className="flex items-center gap-3">

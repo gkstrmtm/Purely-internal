@@ -6,6 +6,8 @@ import { prisma } from "@/lib/db";
 import { hasPublicColumn } from "@/lib/dbSchema";
 import { findOwnerIdByStoredBlogSiteSlug } from "@/lib/blogSiteSlug";
 import { getReviewRequestsServiceData } from "@/lib/reviewRequests";
+import { getHostedBrandFont } from "@/lib/hostedBrandFont";
+import { resolveHostedFont } from "@/lib/portalHostedFonts";
 import { PublicReviewsClient } from "./PublicReviewsClient";
 
 export const dynamic = "force-dynamic";
@@ -77,6 +79,13 @@ export default async function PublicReviewsPage({ params }: { params: Promise<{ 
 
   const settings = data.settings;
   if (!settings.publicPage.enabled) return notFound();
+
+  const hostedBrandFont = await getHostedBrandFont(ownerId);
+  const hostedFont = resolveHostedFont({
+    rawFontKey: (settings.publicPage as any)?.fontKey,
+    brandFontFamily: hostedBrandFont.fontFamily,
+    brandGoogleImportCss: hostedBrandFont.googleCss,
+  });
 
   const brandPrimary = normalizeHex((profile as any)?.brandPrimaryHex) ?? "#1d4ed8";
   const brandAccent = normalizeHex((profile as any)?.brandAccentHex) ?? "#f472b6";
@@ -173,6 +182,8 @@ export default async function PublicReviewsPage({ params }: { params: Promise<{ 
     ["--client-text" as any]: brandText,
   } as CSSProperties;
 
+  const pageFontStyle = hostedFont.fontFamily ? ({ fontFamily: hostedFont.fontFamily } as CSSProperties) : null;
+
   const [hasBusinessReply, hasBusinessReplyAt, hasQaTable] = await Promise.all([
     hasPublicColumn("PortalReview", "businessReply"),
     hasPublicColumn("PortalReview", "businessReplyAt"),
@@ -220,7 +231,11 @@ export default async function PublicReviewsPage({ params }: { params: Promise<{ 
   const otherVerified = await getOtherVerifiedBusinesses();
 
   return (
-    <div className="min-h-screen bg-white text-zinc-900" style={themeStyle}>
+    <div
+      className="min-h-screen bg-white text-zinc-900"
+      style={{ ...(themeStyle as any), ...(pageFontStyle as any), ...hostedBrandFont.styleVars } as any}
+    >
+      {hostedFont.googleImportCss ? <style>{hostedFont.googleImportCss}</style> : null}
       <header className="border-b border-zinc-200 bg-white/80 backdrop-blur">
         <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-6 py-4">
           <Link href={`/${siteHandle}/reviews`} className="flex items-center gap-3">
@@ -299,7 +314,7 @@ export default async function PublicReviewsPage({ params }: { params: Promise<{ 
               <div className="-mt-24 mb-10">
                 <div className="flex gap-4 overflow-x-auto pb-3">
                   {settings.publicPage.photoUrls.slice(0, 12).map((u) => (
-                    <div key={u} className="h-[200px] w-[320px] shrink-0 overflow-hidden rounded-3xl border border-zinc-200 bg-white shadow-sm">
+                    <div key={u} className="h-50 w-80 shrink-0 overflow-hidden rounded-3xl border border-zinc-200 bg-white shadow-sm">
                       {/* eslint-disable-next-line @next/next/no-img-element */}
                       <img src={u} alt="" className="h-full w-full object-cover" />
                     </div>
@@ -340,7 +355,7 @@ export default async function PublicReviewsPage({ params }: { params: Promise<{ 
                 <div className="flex items-end justify-between gap-4">
                   <div>
                     <div className="font-brand text-2xl" style={{ color: "var(--client-text)" }}>
-                      more businesses on purely
+                      Verified pages
                     </div>
                     <div className="mt-1 text-sm text-zinc-600">Browse other verified pages.</div>
                   </div>
@@ -351,15 +366,15 @@ export default async function PublicReviewsPage({ params }: { params: Promise<{ 
                     <Link
                       key={b.ownerId}
                       href={`/${b.handle}/reviews`}
-                      className="group w-[280px] shrink-0 rounded-3xl border border-zinc-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:border-zinc-300 hover:shadow-md"
+                      className="group w-70 shrink-0 rounded-3xl border border-zinc-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:border-zinc-300 hover:shadow-md"
                     >
                       <div className="flex items-center gap-3">
                         {b.logoUrl ? (
                           // eslint-disable-next-line @next/next/no-img-element
                           <img src={b.logoUrl} alt={b.name} className="h-11 w-11 rounded-2xl object-cover" />
                         ) : (
-                          <div className="grid h-11 w-11 place-items-center rounded-2xl bg-[color:rgba(29,78,216,0.08)]">
-                            <div className="h-3 w-3 rounded-full bg-[color:var(--color-brand-blue)]" />
+                          <div className="grid h-11 w-11 place-items-center rounded-2xl bg-[rgba(29,78,216,0.08)]">
+                            <div className="h-3 w-3 rounded-full bg-(--color-brand-blue)" />
                           </div>
                         )}
                         <div className="min-w-0">
@@ -376,7 +391,7 @@ export default async function PublicReviewsPage({ params }: { params: Promise<{ 
             <div className="mt-14 rounded-3xl border border-zinc-200 bg-white p-8 shadow-sm">
               <div className="grid gap-6 lg:grid-cols-[1fr_auto] lg:items-center">
                 <div>
-                  <div className="font-brand text-2xl text-[color:var(--color-brand-blue)]">want a page like this?</div>
+                  <div className="font-brand text-2xl text-(--color-brand-blue)">want a page like this?</div>
                   <p className="mt-2 max-w-2xl text-sm text-zinc-700">
                     Purely helps businesses collect reviews and publish a clean, verified page customers can trust.
                   </p>
@@ -384,13 +399,13 @@ export default async function PublicReviewsPage({ params }: { params: Promise<{ 
                 <div className="flex flex-col gap-3 sm:flex-row">
                   <Link
                     href="/portal/get-started"
-                    className="inline-flex items-center justify-center rounded-2xl bg-[color:var(--color-brand-blue)] px-6 py-3 text-base font-extrabold text-white shadow-sm hover:bg-blue-700"
+                    className="inline-flex items-center justify-center rounded-2xl bg-(--color-brand-blue) px-6 py-3 text-base font-extrabold text-white shadow-sm hover:bg-blue-700"
                   >
                     get started
                   </Link>
                   <Link
                     href="/#demo"
-                    className="inline-flex items-center justify-center rounded-2xl border border-[color:rgba(29,78,216,0.15)] bg-white px-6 py-3 text-base font-bold text-[color:var(--color-brand-blue)] hover:bg-zinc-50"
+                    className="inline-flex items-center justify-center rounded-2xl border border-[rgba(29,78,216,0.15)] bg-white px-6 py-3 text-base font-bold text-(--color-brand-blue) hover:bg-zinc-50"
                   >
                     book a call
                   </Link>
