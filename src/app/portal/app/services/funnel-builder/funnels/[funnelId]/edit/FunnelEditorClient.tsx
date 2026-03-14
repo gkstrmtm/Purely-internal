@@ -1060,6 +1060,36 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
           const setEditorMode = async (mode: "BLOCKS" | "CUSTOM_HTML") => {
             if (!selectedPage) return;
             if (selectedPage.editorMode === mode) return;
+
+            if (mode === "CUSTOM_HTML" && selectedPage.editorMode === "BLOCKS") {
+              setBusy(true);
+              setError(null);
+              try {
+                const res = await fetch(
+                  `/api/portal/funnel-builder/funnels/${encodeURIComponent(funnelId)}/pages/${encodeURIComponent(selectedPage.id)}/export-custom-html`,
+                  {
+                    method: "POST",
+                    headers: { "content-type": "application/json" },
+                    body: JSON.stringify({ blocksJson: selectedBlocks, setEditorMode: "CUSTOM_HTML" }),
+                  },
+                );
+                const json = (await res.json().catch(() => null)) as any;
+                if (!res.ok || !json || json.ok !== true) throw new Error(json?.error || "Failed to export HTML");
+                const page = json.page as Partial<Page> | undefined;
+                if (page?.id) {
+                  setPages((prev) => (prev || []).map((p) => (p.id === page.id ? ({ ...p, ...page } as Page) : p)));
+                  setSelectedPageId(String(page.id));
+                } else {
+                  await load();
+                }
+              } catch (e) {
+                setError((e as any)?.message ? String((e as any).message) : "Failed to export HTML");
+              } finally {
+                setBusy(false);
+              }
+              return;
+            }
+
             setSelectedPageLocal({ editorMode: mode });
             await savePage({ editorMode: mode });
           };
@@ -3632,6 +3662,37 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
   const setEditorMode = async (mode: "BLOCKS" | "CUSTOM_HTML") => {
     if (!selectedPage) return;
     if (selectedPage.editorMode === mode) return;
+
+    if (mode === "CUSTOM_HTML" && selectedPage.editorMode === "BLOCKS") {
+      setBusy(true);
+      setError(null);
+      try {
+        const res = await fetch(
+          `/api/portal/funnel-builder/funnels/${encodeURIComponent(funnelId)}/pages/${encodeURIComponent(selectedPage.id)}/export-custom-html`,
+          {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ blocksJson: saveableBlocks, setEditorMode: "CUSTOM_HTML" }),
+          },
+        );
+        const json = (await res.json().catch(() => null)) as any;
+        if (!res.ok || !json || json.ok !== true) throw new Error(json?.error || "Failed to export HTML");
+
+        const page = json.page as Partial<Page> | undefined;
+        if (page?.id) {
+          setPages((prev) => (prev || []).map((p) => (p.id === page.id ? ({ ...p, ...page } as Page) : p)));
+          setSelectedPageId(String(page.id));
+        } else {
+          await load();
+        }
+      } catch (e) {
+        setError((e as any)?.message ? String((e as any).message) : "Failed to export HTML");
+      } finally {
+        setBusy(false);
+      }
+      return;
+    }
+
     setSelectedPageLocal({ editorMode: mode });
     await savePage({ editorMode: mode });
   };
@@ -4301,6 +4362,33 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
     setBusy(true);
     setError(null);
     try {
+      let currentHtml = selectedPage.customHtml || "";
+
+      // If we're in Blocks mode, first export the current blocks into a Custom HTML
+      // document so AI edits apply to the same page (not an unrelated empty doc).
+      if (selectedPage.editorMode === "BLOCKS") {
+        const resExport = await fetch(
+          `/api/portal/funnel-builder/funnels/${encodeURIComponent(funnelId)}/pages/${encodeURIComponent(selectedPage.id)}/export-custom-html`,
+          {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ blocksJson: saveableBlocks, setEditorMode: "CUSTOM_HTML" }),
+          },
+        );
+        const jsonExport = (await resExport.json().catch(() => null)) as any;
+        if (!resExport.ok || !jsonExport || jsonExport.ok !== true) {
+          throw new Error(jsonExport?.error || "Failed to export HTML");
+        }
+        const exportedPage = jsonExport.page as Partial<Page> | undefined;
+        if (exportedPage?.id) {
+          setPages((prev) => (prev || []).map((p) => (p.id === exportedPage.id ? ({ ...p, ...exportedPage } as Page) : p)));
+          setSelectedPageId(String(exportedPage.id));
+          currentHtml = String(exportedPage.customHtml || "");
+        } else {
+          currentHtml = String(jsonExport.html || "");
+        }
+      }
+
       const res = await fetch(
         `/api/portal/funnel-builder/funnels/${encodeURIComponent(funnelId)}/pages/${encodeURIComponent(selectedPage.id)}/generate-html`,
         {
@@ -4308,7 +4396,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
           headers: { "content-type": "application/json" },
           body: JSON.stringify({
             prompt: promptText,
-            currentHtml: selectedPage.customHtml || "",
+            currentHtml,
             contextKeys: aiContextKeys,
             contextMedia: aiContextMedia,
           }),
