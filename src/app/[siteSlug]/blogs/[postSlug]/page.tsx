@@ -9,6 +9,7 @@ import { findOwnerIdByStoredBlogSiteSlug } from "@/lib/blogSiteSlug";
 import { getBlogAppearance } from "@/lib/blogAppearance";
 import { getHostedBrandFont } from "@/lib/hostedBrandFont";
 import { resolveHostedFont } from "@/lib/portalHostedFonts";
+import { HostedPortalAdBanner } from "@/components/HostedPortalAdBanner";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -205,6 +206,8 @@ export default async function ClientBlogPostPage(props: PageProps) {
           </div>
         </div>
       </header>
+
+      <HostedPortalAdBanner placement="HOSTED_BLOG_PAGE" />
 
       <main className="mx-auto max-w-6xl px-6 py-14">
         <div className="mx-auto max-w-3xl">

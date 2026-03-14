@@ -91,6 +91,14 @@ type OwnerDetails = {
       since30: string;
       lastActivityAt: string | null;
       mostUsedServices: Array<{ key: string; count: number }>;
+      portalEngagement?: {
+        lastSeenAt: string | null;
+        lastSeenPath: string | null;
+        lastSeenPageKey: string | null;
+        topPages: Array<{ key: string; seconds: number }>;
+        topServicesByTime: Array<{ key: string; seconds: number }>;
+        recentActivity: Array<{ atMs: number; path: string; pageKey?: string; dtSec: number }>;
+      };
       newsletter: { failedLast30: number; sentLast30: number; requestedLast30: number; sendEventsLast30: number };
       leadScraping: { runsLast30: number; createdLast30: number; chargedCreditsLast30: number; errorsLast30: number };
       booking: { site: { enabled: boolean; slug: string; title: string } | null; bookingsCreatedLast30: number; bookingsUpcoming: number };
@@ -98,6 +106,13 @@ type OwnerDetails = {
       reviews: { receivedLast30: number };
       blog: { generationEventsLast30: number };
     };
+  };
+  hostedLinks?: {
+    funnels: Array<{ name: string; slug: string; url: string; pages: Array<{ title: string; slug: string; url: string }> }>;
+    blog: null | { indexUrl: string; posts: Array<{ title: string; slug: string; url: string }> };
+    newsletters: null | { indexUrl: string; items: Array<{ title: string; slug: string; url: string }> };
+    reviews: null | { indexUrl: string };
+    booking: null | { url: string; slug: string };
   };
 };
 
@@ -132,6 +147,16 @@ function formatHours(seconds: number | null | undefined) {
   const s = typeof seconds === "number" && Number.isFinite(seconds) ? Math.max(0, seconds) : 0;
   const hrs = s / 3600;
   return hrs >= 10 ? `${Math.round(hrs)}h` : `${hrs.toFixed(1)}h`;
+}
+
+function formatDurationShort(secondsRaw: number | null | undefined) {
+  const seconds = typeof secondsRaw === "number" && Number.isFinite(secondsRaw) ? Math.max(0, Math.floor(secondsRaw)) : 0;
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  const remMin = minutes % 60;
+  return remMin ? `${hours}h ${remMin}m` : `${hours}h`;
 }
 
 function ColorSwatch({ hex }: { hex: string | null | undefined }) {
@@ -179,6 +204,16 @@ async function setCreditsOnlyOverride(opts: { ownerIds: string[]; creditsOnly: b
     throw new Error(msg);
   }
   return body as { ok: true; creditsOnly: boolean };
+}
+
+async function deletePortalUser(ownerId: string) {
+  const res = await fetch(`/api/manager/portal/users/${encodeURIComponent(ownerId)}`, { method: "DELETE" });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const msg = typeof body?.error === "string" && body.error ? body.error : `Request failed (HTTP ${res.status})`;
+    throw new Error(msg);
+  }
+  return body as { ok: true };
 }
 
 export default function PortalOverridesClient() {
@@ -240,6 +275,19 @@ export default function PortalOverridesClient() {
       clearTimeout(t);
     };
   }, [q]);
+
+  async function reloadOverrides() {
+    setLoading(true);
+    setError(null);
+    try {
+      const json = await fetchOverrides(q);
+      setUsers(json.users);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to load overrides");
+    } finally {
+      setLoading(false);
+    }
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -477,6 +525,7 @@ export default function PortalOverridesClient() {
                     className="mt-2 flex items-center gap-2"
                     onMouseDown={(e) => e.stopPropagation()}
                     onTouchStart={(e) => e.stopPropagation()}
+                    onClick={(e) => e.stopPropagation()}
                   >
                     <input
                       className="w-28 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-zinc-400"
@@ -489,7 +538,10 @@ export default function PortalOverridesClient() {
                     <button
                       type="button"
                       className="rounded-xl bg-(--color-brand-blue) px-3 py-2 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
-                      onClick={() => onGift(u.id)}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        void onGift(u.id);
+                      }}
                       disabled={giftingOwnerId === u.id}
                     >
                       {giftingOwnerId === u.id ? "Gifting…" : "Gift"}
@@ -507,6 +559,7 @@ export default function PortalOverridesClient() {
                         className="inline-flex items-center gap-2 text-sm text-zinc-700"
                         onMouseDown={(e) => e.stopPropagation()}
                         onTouchStart={(e) => e.stopPropagation()}
+                        onClick={(e) => e.stopPropagation()}
                       >
                         <ToggleSwitch
                           checked={enabled}
@@ -534,6 +587,7 @@ export default function PortalOverridesClient() {
                         className="inline-flex items-center gap-2 text-sm text-zinc-700"
                         onMouseDown={(e) => e.stopPropagation()}
                         onTouchStart={(e) => e.stopPropagation()}
+                        onClick={(e) => e.stopPropagation()}
                       >
                         <ToggleSwitch
                           checked={enabled}
@@ -622,7 +676,7 @@ export default function PortalOverridesClient() {
           onMouseDown={() => setDetailsOwnerId(null)}
         >
           <div
-            className="w-full max-w-4xl overflow-hidden rounded-3xl border border-zinc-200 bg-white shadow-xl"
+            className="flex w-full max-w-4xl max-h-[calc(100vh-2rem)] flex-col overflow-hidden rounded-3xl border border-zinc-200 bg-white shadow-xl"
             onMouseDown={(e) => e.stopPropagation()}
           >
             <div className="flex items-start justify-between gap-3 border-b border-zinc-200 p-5">
@@ -635,29 +689,59 @@ export default function PortalOverridesClient() {
                   {users.find((x) => x.id === detailsOwnerId)?.email ?? detailsOwnerId}
                 </div>
               </div>
-              <button
-                type="button"
-                className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
-                onClick={() => setDetailsOwnerId(null)}
-              >
-                Close
-              </button>
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm font-semibold text-red-800 hover:bg-red-100"
+                  onClick={() => {
+                    const ownerId = (detailsOwnerId || "").trim();
+                    if (!ownerId) return;
+                    const email = users.find((x) => x.id === ownerId)?.email || ownerId;
+                    if (!confirm(`Deactivate this portal user?\n\n${email}\n\nThis will set the user to inactive.`)) return;
+                    void (async () => {
+                      try {
+                        await deletePortalUser(ownerId);
+                        toast.success("User deactivated.");
+                        setDetailsOwnerId(null);
+                        setDetailsByOwnerId((prev) => {
+                          const next = { ...prev };
+                          delete next[ownerId];
+                          return next;
+                        });
+                        await reloadOverrides();
+                      } catch (e) {
+                        toast.error(e instanceof Error ? e.message : "Unable to deactivate user");
+                      }
+                    })();
+                  }}
+                >
+                  Delete user
+                </button>
+                <button
+                  type="button"
+                  className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
+                  onClick={() => setDetailsOwnerId(null)}
+                >
+                  Close
+                </button>
+              </div>
             </div>
 
-            {detailsError ? (
-              <div className="p-5">
-                <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">{detailsError}</div>
-              </div>
-            ) : null}
+            <div className="flex-1 overflow-y-auto">
+              {detailsError ? (
+                <div className="p-5">
+                  <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">{detailsError}</div>
+                </div>
+              ) : null}
 
-            {detailsLoading && !details ? (
-              <div className="p-5">
-                <div className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm text-zinc-700">Loading details…</div>
-              </div>
-            ) : null}
+              {detailsLoading && !details ? (
+                <div className="p-5">
+                  <div className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm text-zinc-700">Loading details…</div>
+                </div>
+              ) : null}
 
-            {details ? (
-              <div className="grid gap-5 p-5 lg:grid-cols-2">
+              {details ? (
+                <div className="grid gap-5 p-5 lg:grid-cols-2">
                 <div className="space-y-4">
                   <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
                     <div className="text-sm font-semibold text-zinc-900">Business</div>
@@ -773,15 +857,20 @@ export default function PortalOverridesClient() {
                       {details.owner.integrations.twilio.configured && details.owner.integrations.twilio.fromNumberE164 ? (
                         <span className="font-mono text-zinc-700">{details.owner.integrations.twilio.fromNumberE164}</span>
                       ) : null}
-                      <span
-                        className={
-                          details.owner.integrations.salesReporting.connectedProviders.length
-                            ? "inline-flex items-center rounded-full bg-emerald-50 px-2 py-0.5 font-semibold text-emerald-700"
-                            : "inline-flex items-center rounded-full bg-zinc-100 px-2 py-0.5 font-semibold text-zinc-600"
-                        }
-                      >
-                        Sales reporting: {details.owner.integrations.salesReporting.connectedProviders.length ? "On" : "Off"}
-                      </span>
+                      {(() => {
+                        const on = Boolean(details.owner.stripe.connected || details.owner.integrations.salesReporting.connectedProviders.length);
+                        return (
+                          <span
+                            className={
+                              on
+                                ? "inline-flex items-center rounded-full bg-emerald-50 px-2 py-0.5 font-semibold text-emerald-700"
+                                : "inline-flex items-center rounded-full bg-zinc-100 px-2 py-0.5 font-semibold text-zinc-600"
+                            }
+                          >
+                            Sales reporting: {on ? "On" : "Off"}
+                          </span>
+                        );
+                      })()}
                       <span
                         className={
                           details.owner.stripe.connected
@@ -875,17 +964,137 @@ export default function PortalOverridesClient() {
                         <div className="text-xs text-zinc-500">Hours saved</div>
                         <div className="font-semibold text-zinc-900">{formatHours(details.owner.usage.hoursSaved.secondsLast30)}</div>
                       </div>
-                      <div className="col-span-2 pt-2 text-xs text-zinc-500">
-                        Most used: {details.owner.usage.mostUsedServices.map((s) => `${s.key.replace(/Last30$/, "")}=${s.count}`).join(" · ")}
-                      </div>
+
+                      {details.owner.usage.portalEngagement?.topPages?.length ? (
+                        <div className="col-span-2 pt-2 text-xs text-zinc-500">
+                          Top pages: {details.owner.usage.portalEngagement.topPages.map((p) => `${p.key}=${formatDurationShort(p.seconds)}`).join(" · ")}
+                        </div>
+                      ) : (
+                        <div className="col-span-2 pt-2 text-xs text-zinc-500">
+                          Most used: {details.owner.usage.mostUsedServices.map((s) => `${s.key.replace(/Last30$/, "")}=${s.count}`).join(" · ")}
+                        </div>
+                      )}
+
                       <div className="col-span-2 text-xs text-zinc-500">
                         Last activity: {details.owner.usage.lastActivityAt ? formatIso(details.owner.usage.lastActivityAt) : "N/A"}
                       </div>
                     </div>
                   </div>
+
+                  {details.owner.usage.portalEngagement?.recentActivity?.length ? (
+                    <div className="rounded-2xl border border-zinc-200 bg-white p-4">
+                      <div className="text-sm font-semibold text-zinc-900">All activity</div>
+                      <div className="mt-1 text-xs text-zinc-500">Most recent portal activity pings (capped).</div>
+                      <div className="mt-3 max-h-72 overflow-auto rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
+                        <div className="grid gap-2">
+                          {details.owner.usage.portalEngagement.recentActivity.map((a, idx) => (
+                            <div key={`${a.atMs}-${idx}`} className="flex items-start justify-between gap-3 text-xs text-zinc-700">
+                              <div className="min-w-0">
+                                <div className="truncate font-mono text-zinc-900" title={a.pageKey || a.path}>
+                                  {a.pageKey || a.path}
+                                </div>
+                                <div className="mt-0.5 text-[11px] text-zinc-500">{new Date(a.atMs).toLocaleString()}</div>
+                              </div>
+                              <div className="shrink-0 font-semibold text-zinc-700">+{formatDurationShort(a.dtSec)}</div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  ) : null}
+
+                  {details.hostedLinks ? (
+                    <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+                      <div className="text-sm font-semibold text-zinc-900">Hosted links</div>
+                      <div className="mt-3 space-y-2 text-sm">
+                        {details.hostedLinks.funnels.length ? (
+                          <div>
+                            <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Funnels</div>
+                            <div className="mt-1 space-y-1">
+                              {details.hostedLinks.funnels.slice(0, 10).map((f) => (
+                                <div key={f.slug} className="rounded-xl border border-zinc-200 bg-white p-2">
+                                  <div className="flex items-center justify-between gap-3">
+                                    <a href={f.url} target="_blank" rel="noreferrer" className="truncate font-semibold text-brand-ink hover:underline">{f.name}</a>
+                                    <span className="text-xs font-mono text-zinc-600">/f/{f.slug}</span>
+                                  </div>
+                                  {f.pages.length ? (
+                                    <div className="mt-2 space-y-1">
+                                      {f.pages.slice(0, 5).map((p) => (
+                                        <div key={p.slug} className="flex items-center justify-between gap-3">
+                                          <a href={p.url} target="_blank" rel="noreferrer" className="truncate text-sm font-semibold text-brand-ink hover:underline">{p.title}</a>
+                                          <span className="text-xs font-mono text-zinc-600">/{p.slug}</span>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  ) : null}
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        ) : null}
+
+                        {details.hostedLinks.blog ? (
+                          <div>
+                            <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Blog</div>
+                            <div className="mt-1">
+                              <a href={details.hostedLinks.blog.indexUrl} target="_blank" rel="noreferrer" className="font-semibold text-brand-ink hover:underline">Blog index</a>
+                            </div>
+                            {details.hostedLinks.blog.posts.length ? (
+                              <div className="mt-2 space-y-1">
+                                {details.hostedLinks.blog.posts.slice(0, 5).map((p) => (
+                                  <div key={p.slug} className="flex items-center justify-between gap-3">
+                                    <a href={p.url} target="_blank" rel="noreferrer" className="truncate text-sm font-semibold text-brand-ink hover:underline">{p.title}</a>
+                                    <span className="text-xs font-mono text-zinc-600">/blogs/{p.slug}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            ) : null}
+                          </div>
+                        ) : null}
+
+                        {details.hostedLinks.newsletters ? (
+                          <div>
+                            <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Newsletters</div>
+                            <div className="mt-1">
+                              <a href={details.hostedLinks.newsletters.indexUrl} target="_blank" rel="noreferrer" className="font-semibold text-brand-ink hover:underline">Newsletters index</a>
+                            </div>
+                            {details.hostedLinks.newsletters.items.length ? (
+                              <div className="mt-2 space-y-1">
+                                {details.hostedLinks.newsletters.items.slice(0, 5).map((n) => (
+                                  <div key={n.slug} className="flex items-center justify-between gap-3">
+                                    <a href={n.url} target="_blank" rel="noreferrer" className="truncate text-sm font-semibold text-brand-ink hover:underline">{n.title}</a>
+                                    <span className="text-xs font-mono text-zinc-600">/newsletters/{n.slug}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            ) : null}
+                          </div>
+                        ) : null}
+
+                        {details.hostedLinks.reviews ? (
+                          <div>
+                            <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Reviews</div>
+                            <div className="mt-1">
+                              <a href={details.hostedLinks.reviews.indexUrl} target="_blank" rel="noreferrer" className="font-semibold text-brand-ink hover:underline">Reviews page</a>
+                            </div>
+                          </div>
+                        ) : null}
+
+                        {details.hostedLinks.booking ? (
+                          <div>
+                            <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Booking</div>
+                            <div className="mt-1">
+                              <a href={details.hostedLinks.booking.url} target="_blank" rel="noreferrer" className="font-semibold text-brand-ink hover:underline">Booking page</a>
+                            </div>
+                          </div>
+                        ) : null}
+                      </div>
+                    </div>
+                  ) : null}
                 </div>
-              </div>
-            ) : null}
+                </div>
+              ) : null}
+            </div>
           </div>
         </div>
       ) : null}

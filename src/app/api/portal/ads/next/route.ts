@@ -16,7 +16,16 @@ function detectDeviceFromUserAgent(ua: string | null): "mobile" | "desktop" {
 }
 
 function asPlacement(v: string | null): PortalAdPlacement | null {
-  if (v === "SIDEBAR_BANNER" || v === "TOP_BANNER" || v === "BILLING_SPONSORED" || v === "FULLSCREEN_REWARD" || v === "POPUP_CARD") return v;
+  if (
+    v === "SIDEBAR_BANNER" ||
+    v === "TOP_BANNER" ||
+    v === "BILLING_SPONSORED" ||
+    v === "FULLSCREEN_REWARD" ||
+    v === "POPUP_CARD" ||
+    v === "HOSTED_BLOG_PAGE" ||
+    v === "HOSTED_REVIEWS_PAGE"
+  )
+    return v;
   return null;
 }
 

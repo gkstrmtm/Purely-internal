@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { PortalSelectDropdown } from "@/components/PortalSelectDropdown";
+import { ToggleSwitch } from "@/components/ToggleSwitch";
 import { useToast } from "@/components/ToastProvider";
 
 export type LeadRow = {
@@ -494,19 +495,19 @@ export default function ManagerLeadsClient({
                           </div>
 
                           <div className="mt-3 flex flex-col gap-2">
-                            <label className="flex items-center gap-2 text-xs text-zinc-700">
-                              <input
-                                type="checkbox"
+                            <div className="flex items-center gap-2 text-xs text-zinc-700">
+                              <ToggleSwitch
                                 checked={showUnavailable}
-                                onChange={(e) =>
+                                onChange={(checked) =>
                                   setShowUnavailableClosersByLeadId((prev) => ({
                                     ...prev,
-                                    [l.id]: e.target.checked,
+                                    [l.id]: checked,
                                   }))
                                 }
+                                ariaLabel="Show unavailable closers too"
                               />
-                              Show unavailable closers too
-                            </label>
+                              <span>Show unavailable closers too</span>
+                            </div>
 
                             <button
                               className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs hover:bg-zinc-50 disabled:opacity-60"
@@ -535,19 +536,19 @@ export default function ManagerLeadsClient({
                                     buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs outline-none hover:bg-zinc-50 focus:border-zinc-400"
                                   />
 
-                                  <label className="flex items-center gap-2 text-xs text-zinc-700">
-                                    <input
-                                      type="checkbox"
+                                  <div className="flex items-center gap-2 text-xs text-zinc-700">
+                                    <ToggleSwitch
                                       checked={overrideAvailability}
-                                      onChange={(e) =>
+                                      onChange={(checked) =>
                                         setOverrideAvailabilityByLeadId((prev) => ({
                                           ...prev,
-                                          [l.id]: e.target.checked,
+                                          [l.id]: checked,
                                         }))
                                       }
+                                      ariaLabel="Override availability"
                                     />
-                                    Override availability (adds a closer availability block)
-                                  </label>
+                                    <span>Override availability (adds a closer availability block)</span>
+                                  </div>
 
                                   <button
                                     className="rounded-xl bg-zinc-900 px-3 py-2 text-xs font-medium text-white hover:bg-zinc-800 disabled:opacity-60"

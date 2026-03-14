@@ -15,8 +15,27 @@ function detectDeviceFromUserAgent(ua: string | null): "mobile" | "desktop" {
   return /Mobi|Android|iPhone|iPad|iPod|Mobile|IEMobile|BlackBerry/i.test(s) ? "mobile" : "desktop";
 }
 
-function asPlacement(v: string | null): "SIDEBAR_BANNER" | "TOP_BANNER" | "BILLING_SPONSORED" | "FULLSCREEN_REWARD" | "POPUP_CARD" | null {
-  if (v === "SIDEBAR_BANNER" || v === "TOP_BANNER" || v === "BILLING_SPONSORED" || v === "FULLSCREEN_REWARD" || v === "POPUP_CARD") return v;
+function asPlacement(
+  v: string | null,
+):
+  | "SIDEBAR_BANNER"
+  | "TOP_BANNER"
+  | "BILLING_SPONSORED"
+  | "FULLSCREEN_REWARD"
+  | "POPUP_CARD"
+  | "HOSTED_BLOG_PAGE"
+  | "HOSTED_REVIEWS_PAGE"
+  | null {
+  if (
+    v === "SIDEBAR_BANNER" ||
+    v === "TOP_BANNER" ||
+    v === "BILLING_SPONSORED" ||
+    v === "FULLSCREEN_REWARD" ||
+    v === "POPUP_CARD" ||
+    v === "HOSTED_BLOG_PAGE" ||
+    v === "HOSTED_REVIEWS_PAGE"
+  )
+    return v;
   return null;
 }
 

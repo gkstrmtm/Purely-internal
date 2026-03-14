@@ -29,6 +29,50 @@ const CREDITS_SETUP_SLUG = "credits";
 const PROFILE_SETUP_SLUG = "profile";
 const INTEGRATIONS_SETUP_SLUG = "integrations";
 const AI_RECEPTIONIST_SETUP_SLUG = "ai-receptionist";
+const ENGAGEMENT_SETUP_SLUG = "portal_engagement";
+
+function readObj(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+}
+
+function readRecordNumberMap(value: unknown): Record<string, number> {
+  const rec = value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
+  if (!rec) return {};
+  const out: Record<string, number> = {};
+  for (const [kRaw, vRaw] of Object.entries(rec)) {
+    const k = String(kRaw || "").trim();
+    if (!k) continue;
+    const n = typeof vRaw === "number" ? vRaw : typeof vRaw === "string" ? Number(vRaw) : NaN;
+    if (!Number.isFinite(n)) continue;
+    out[k] = Math.max(0, Math.floor(n));
+  }
+  return out;
+}
+
+function readActivityList(value: unknown): Array<{ atMs: number; path: string; pageKey?: string; dtSec: number }> {
+  if (!Array.isArray(value)) return [];
+  const out: Array<{ atMs: number; path: string; pageKey?: string; dtSec: number }> = [];
+  for (const raw of value) {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) continue;
+    const r: any = raw as any;
+    const atMs = Number.isFinite(Number(r.atMs)) ? Math.max(0, Math.floor(Number(r.atMs))) : 0;
+    const dtSec = Number.isFinite(Number(r.dtSec)) ? Math.max(1, Math.min(60, Math.floor(Number(r.dtSec)))) : 0;
+    const path = typeof r.path === "string" ? r.path.trim().slice(0, 512) : "";
+    const pageKey = typeof r.pageKey === "string" ? r.pageKey.trim().slice(0, 140) : "";
+    if (!atMs || !dtSec || !path) continue;
+    out.push(pageKey ? { atMs, dtSec, path, pageKey } : { atMs, dtSec, path });
+  }
+  out.sort((a, b) => b.atMs - a.atMs);
+  return out;
+}
+
+function topEntriesByValue(map: Record<string, number>, take: number): Array<{ key: string; seconds: number }> {
+  return Object.entries(map)
+    .filter(([k, v]) => Boolean(k) && Number.isFinite(v) && v > 0)
+    .sort((a, b) => (b[1] as number) - (a[1] as number))
+    .slice(0, take)
+    .map(([k, v]) => ({ key: k, seconds: Number(v) }));
+}
 
 function parseOverrides(dataJson: unknown): Set<ModuleKey> {
   const rec = dataJson && typeof dataJson === "object" && !Array.isArray(dataJson)
@@ -172,7 +216,15 @@ export async function GET(req: Request) {
         where: {
           ownerId,
           serviceSlug: {
-            in: [OVERRIDES_SETUP_SLUG, BILLING_MODEL_SETUP_SLUG, CREDITS_SETUP_SLUG, PROFILE_SETUP_SLUG, INTEGRATIONS_SETUP_SLUG, AI_RECEPTIONIST_SETUP_SLUG],
+            in: [
+              OVERRIDES_SETUP_SLUG,
+              BILLING_MODEL_SETUP_SLUG,
+              CREDITS_SETUP_SLUG,
+              PROFILE_SETUP_SLUG,
+              INTEGRATIONS_SETUP_SLUG,
+              AI_RECEPTIONIST_SETUP_SLUG,
+              ENGAGEMENT_SETUP_SLUG,
+            ],
           },
         },
         select: { serviceSlug: true, dataJson: true },
@@ -189,6 +241,18 @@ export async function GET(req: Request) {
   const profileVoiceAgentId = parseProfileVoiceAgentId(getSetup(PROFILE_SETUP_SLUG));
   const aiReceptionistVoiceAgentId = parseAiReceptionistVoiceAgentId(getSetup(AI_RECEPTIONIST_SETUP_SLUG));
   const twilioFrom = parseTwilioFromNumberE164(getSetup(INTEGRATIONS_SETUP_SLUG));
+
+  const engagementJson = getSetup(ENGAGEMENT_SETUP_SLUG);
+  const engagementRec = readObj(engagementJson);
+  const engagementLastSeenAtMs = Number.isFinite(Number(engagementRec.lastSeenAtMs)) ? Math.floor(Number(engagementRec.lastSeenAtMs)) : 0;
+  const engagementLastSeenAt = engagementLastSeenAtMs ? new Date(engagementLastSeenAtMs) : null;
+  const engagementLastSeenPath = typeof engagementRec.lastSeenPath === "string" ? engagementRec.lastSeenPath.trim().slice(0, 512) : null;
+  const engagementLastSeenPageKey = typeof engagementRec.lastSeenPageKey === "string" ? engagementRec.lastSeenPageKey.trim().slice(0, 140) : null;
+  const pathTimeSec = readRecordNumberMap(engagementRec.pathTimeSec);
+  const serviceTimeSec = readRecordNumberMap(engagementRec.serviceTimeSec);
+  const recentActivity = readActivityList(engagementRec.recentActivity);
+  const topPages = topEntriesByValue(pathTimeSec, 12);
+  const topServicesByTime = topEntriesByValue(serviceTimeSec, 8);
 
   const mailbox = (await hasPublicTable("PortalMailboxAddress").catch(() => false))
     ? await safe(
@@ -350,6 +414,7 @@ export async function GET(req: Request) {
     mailbox?.updatedAt,
     businessProfile?.updatedAt,
     salesReportingCredentials[0]?.updatedAt,
+    engagementLastSeenAt,
   ]);
 
   const usageCounts = {
@@ -366,6 +431,77 @@ export async function GET(req: Request) {
     .sort((a, b) => (b[1] as number) - (a[1] as number))
     .slice(0, 4)
     .map(([k, v]) => ({ key: k, count: v }));
+
+  const siteSlug = blogSite ? String(blogSite.slug || blogSite.id || "").trim() : "";
+  const domainHost = blogSite?.primaryDomain && blogSite?.verifiedAt ? String(blogSite.primaryDomain).trim() : "";
+  const hostify = (path: string) => (domainHost ? `https://${domainHost}${path}` : path);
+
+  const funnels = await safe(
+    async () =>
+      prisma.creditFunnel.findMany({
+        where: { ownerId },
+        select: {
+          id: true,
+          slug: true,
+          name: true,
+          status: true,
+          updatedAt: true,
+          pages: { select: { slug: true, title: true }, orderBy: { sortOrder: "asc" } },
+        },
+        orderBy: { updatedAt: "desc" },
+        take: 20,
+      }),
+    [],
+  );
+
+  const blogPosts = blogSite
+    ? await safe(
+        async () =>
+          prisma.clientBlogPost.findMany({
+            where: { siteId: blogSite.id, archivedAt: null, status: "PUBLISHED" },
+            select: { slug: true, title: true, publishedAt: true },
+            orderBy: [{ publishedAt: "desc" }, { updatedAt: "desc" }],
+            take: 50,
+          }),
+        [],
+      )
+    : [];
+
+  const newsletters = blogSite
+    ? await safe(
+        async () =>
+          prisma.clientNewsletter.findMany({
+            where: { siteId: blogSite.id, kind: "EXTERNAL", status: "SENT" },
+            select: { slug: true, title: true, sentAt: true },
+            orderBy: [{ sentAt: "desc" }, { updatedAt: "desc" }],
+            take: 50,
+          }),
+        [],
+      )
+    : [];
+
+  const hostedLinks = {
+    funnels: funnels.map((f) => ({
+      name: f.name,
+      slug: f.slug,
+      url: hostify(`/f/${encodeURIComponent(f.slug)}`),
+      pages: (f.pages || []).slice(0, 50).map((p) => ({ title: p.title, slug: p.slug, url: hostify(`/f/${encodeURIComponent(f.slug)}/${encodeURIComponent(p.slug)}`) })),
+    })),
+    blog: siteSlug
+      ? {
+          indexUrl: hostify(`/${encodeURIComponent(siteSlug)}/blogs`),
+          posts: blogPosts.map((p) => ({ title: p.title, slug: p.slug, url: hostify(`/${encodeURIComponent(siteSlug)}/blogs/${encodeURIComponent(p.slug)}`) })),
+        }
+      : null,
+    newsletters: siteSlug
+      ? {
+          indexUrl: hostify(`/${encodeURIComponent(siteSlug)}/newsletters`),
+          items: newsletters.map((n) => ({ title: n.title, slug: n.slug, url: hostify(`/${encodeURIComponent(siteSlug)}/newsletters/${encodeURIComponent(n.slug)}`) })),
+        }
+      : null,
+    reviews: siteSlug ? { indexUrl: hostify(`/${encodeURIComponent(siteSlug)}/reviews`) } : null,
+    booking: bookingSite?.slug ? { url: hostify(`/book/${encodeURIComponent(bookingSite.slug)}`), slug: bookingSite.slug } : null,
+  };
 
   return NextResponse.json({
     ok: true,
@@ -443,6 +579,14 @@ export async function GET(req: Request) {
         since30,
         mostUsedServices,
         counts: usageCounts,
+        portalEngagement: {
+          lastSeenAt: engagementLastSeenAt ? engagementLastSeenAt.toISOString() : null,
+          lastSeenPath: engagementLastSeenPath,
+          lastSeenPageKey: engagementLastSeenPageKey,
+          topPages,
+          topServicesByTime,
+          recentActivity: recentActivity.slice(0, 500),
+        },
         blog: {
           generationEventsLast30: blogGenLast30,
         },
@@ -481,6 +625,7 @@ export async function GET(req: Request) {
         },
         lastActivityAt,
       },
+      hostedLinks,
     },
   });
 }

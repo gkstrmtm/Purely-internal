@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 
 import { LocalDateTimePicker } from "@/components/LocalDateTimePicker";
 import { PortalSelectDropdown } from "@/components/PortalSelectDropdown";
+import { ToggleSwitch } from "@/components/ToggleSwitch";
 import { useToast } from "@/components/ToastProvider";
 
 type CloserOption = {
@@ -414,14 +415,14 @@ export default function ManagerAppointmentsClient({
                         </div>
                       </div>
                       <div className="flex flex-wrap gap-2">
-                        <label className="flex items-center gap-2 text-xs text-zinc-700">
-                          <input
-                            type="checkbox"
+                        <div className="flex items-center gap-2 text-xs text-zinc-700">
+                          <ToggleSwitch
                             checked={suggestIncludeUnavailable}
-                            onChange={(e) => setSuggestIncludeUnavailable(e.target.checked)}
+                            onChange={setSuggestIncludeUnavailable}
+                            ariaLabel="Show unavailable times"
                           />
-                          Show unavailable times
-                        </label>
+                          <span>Show unavailable times</span>
+                        </div>
                         <button
                           className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs hover:bg-zinc-50 disabled:opacity-60"
                           type="button"
@@ -491,17 +492,15 @@ export default function ManagerAppointmentsClient({
                     </button>
                   </div>
 
-                  <div className="mt-3 flex items-start gap-2">
-                    <input
-                      id={`overrideAvailability-${a.id}`}
-                      type="checkbox"
-                      className="mt-1"
+                  <div className="mt-3 flex items-start gap-3">
+                    <ToggleSwitch
                       checked={overrideAvailability}
-                      onChange={(e) => setOverrideAvailability(e.target.checked)}
+                      onChange={setOverrideAvailability}
+                      ariaLabel="Override availability"
                     />
-                    <label htmlFor={`overrideAvailability-${a.id}`} className="text-xs text-zinc-700">
+                    <div className="text-xs text-zinc-700">
                       Override availability if needed (adds an availability block for the selected closer and time)
-                    </label>
+                    </div>
                   </div>
 
                   <div className="mt-3 flex flex-wrap gap-2">

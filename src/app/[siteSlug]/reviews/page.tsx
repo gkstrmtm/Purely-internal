@@ -2,6 +2,8 @@ import Image from "next/image";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import type { CSSProperties } from "react";
+
+import { HostedPortalAdBanner } from "@/components/HostedPortalAdBanner";
 import { prisma } from "@/lib/db";
 import { hasPublicColumn } from "@/lib/dbSchema";
 import { findOwnerIdByStoredBlogSiteSlug } from "@/lib/blogSiteSlug";
@@ -282,6 +284,8 @@ export default async function PublicReviewsPage({ params }: { params: Promise<{ 
           </div>
         </div>
       </header>
+
+      <HostedPortalAdBanner placement="HOSTED_REVIEWS_PAGE" />
 
       <main>
         <section style={{ backgroundColor: "var(--client-primary)" }}>

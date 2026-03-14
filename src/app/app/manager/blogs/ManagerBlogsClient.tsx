@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { PortalListboxDropdown } from "@/components/PortalListboxDropdown";
 import { PortalSelectDropdown } from "@/components/PortalSelectDropdown";
+import { ToggleSwitch } from "@/components/ToggleSwitch";
 import { useToast } from "@/components/ToastProvider";
 
 type Settings = {
@@ -628,15 +629,10 @@ export default function ManagerBlogsClient() {
           </div>
           <p className="mt-1 text-xs text-zinc-600">Set how often automation publishes. When disabled, cron will skip without generating.</p>
 
-          <label className="mt-4 flex items-center gap-3 text-sm">
-            <input
-              type="checkbox"
-              checked={weeklyEnabled}
-              onChange={(e) => setWeeklyEnabled(e.target.checked)}
-              className="h-4 w-4"
-            />
-            Automation enabled
-          </label>
+          <div className="mt-4 flex items-center gap-3 text-sm text-zinc-700">
+            <ToggleSwitch checked={weeklyEnabled} onChange={setWeeklyEnabled} ariaLabel="Automation enabled" />
+            <span>Automation enabled</span>
+          </div>
 
           <div className="mt-3 flex flex-wrap items-center gap-3 text-sm text-zinc-700">
             <div className="text-xs text-zinc-600">Frequency</div>
@@ -674,10 +670,10 @@ export default function ManagerBlogsClient() {
               </span>
             </button>
 
-            <label className="flex items-center gap-2 text-sm text-zinc-700">
-              <input type="checkbox" checked={forceWeekly} onChange={(e) => setForceWeekly(e.target.checked)} className="h-4 w-4" />
-              Force (ignore “already published” and disabled)
-            </label>
+            <div className="flex items-center gap-3 text-sm text-zinc-700">
+              <ToggleSwitch checked={forceWeekly} onChange={setForceWeekly} ariaLabel="Force run" />
+              <span>Force (ignore “already published” and disabled)</span>
+            </div>
 
             <button
               className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold hover:bg-zinc-50"
@@ -760,15 +756,10 @@ export default function ManagerBlogsClient() {
             <InfoTip text="Select posts to archive (hide from /blogs) or delete permanently." />
           </div>
 
-          <label className="inline-flex items-center gap-2 text-xs text-zinc-600">
-            <input
-              type="checkbox"
-              className="h-4 w-4 rounded border-zinc-300"
-              checked={includeArchived}
-              onChange={(e) => setIncludeArchived(e.target.checked)}
-            />
-            Show archived
-          </label>
+          <div className="inline-flex items-center gap-3 text-xs text-zinc-600">
+            <ToggleSwitch checked={includeArchived} onChange={setIncludeArchived} ariaLabel="Show archived" />
+            <span>Show archived</span>
+          </div>
         </div>
 
         <div className="mt-3 flex flex-wrap items-center gap-2">

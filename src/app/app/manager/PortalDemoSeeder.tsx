@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 
+import { ToggleSwitch } from "@/components/ToggleSwitch";
 import { useToast } from "@/components/ToastProvider";
 
 type SeedResult = {
@@ -154,16 +155,15 @@ export default function PortalDemoSeeder() {
           </div>
         </div>
         <div className="flex flex-col items-start gap-3 sm:flex-row sm:items-center">
-          <label className="inline-flex items-center gap-2 text-sm text-zinc-700">
-            <input
-              type="checkbox"
-              className="h-4 w-4 rounded border-zinc-300"
+          <div className="inline-flex items-center gap-3 text-sm text-zinc-700">
+            <ToggleSwitch
               checked={forceInboxSeed}
-              onChange={(e) => setForceInboxSeed(e.target.checked)}
+              onChange={setForceInboxSeed}
               disabled={loading}
+              ariaLabel="Force reseed inbox"
             />
-            Force reseed inbox
-          </label>
+            <span>Force reseed inbox</span>
+          </div>
           <button
             className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-5 py-3 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
             onClick={seed}
@@ -223,16 +223,15 @@ export default function PortalDemoSeeder() {
             <div className="mt-1 text-sm text-zinc-600">Seeds 3 demo calls into the existing demo-full account. Does not change passwords.</div>
           </div>
           <div className="flex flex-col items-start gap-3 sm:flex-row sm:items-center">
-            <label className="inline-flex items-center gap-2 text-sm text-zinc-700">
-              <input
-                type="checkbox"
-                className="h-4 w-4 rounded border-zinc-300"
+            <div className="inline-flex items-center gap-3 text-sm text-zinc-700">
+              <ToggleSwitch
                 checked={forceAiSeed}
-                onChange={(e) => setForceAiSeed(e.target.checked)}
+                onChange={setForceAiSeed}
                 disabled={aiLoading}
+                ariaLabel="Force reseed calls"
               />
-              Force reseed calls
-            </label>
+              <span>Force reseed calls</span>
+            </div>
             <button
               className="inline-flex items-center justify-center rounded-2xl bg-zinc-900 px-5 py-3 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
               onClick={seedAiReceptionistOnly}

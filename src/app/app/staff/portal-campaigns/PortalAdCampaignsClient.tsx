@@ -5,10 +5,18 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { LocalDateTimePicker } from "@/components/LocalDateTimePicker";
 import { PortalListboxDropdown } from "@/components/PortalListboxDropdown";
 import { PortalMultiSelectDropdown } from "@/components/PortalMultiSelectDropdown";
+import { ToggleSwitch } from "@/components/ToggleSwitch";
 import { useToast } from "@/components/ToastProvider";
 import { BUSINESS_MODEL_SUGGESTIONS, INDUSTRY_SUGGESTIONS, PORTAL_ONBOARDING_PLANS } from "@/lib/portalOnboardingWizardCatalog";
 
-type Placement = "SIDEBAR_BANNER" | "TOP_BANNER" | "BILLING_SPONSORED" | "FULLSCREEN_REWARD" | "POPUP_CARD";
+type Placement =
+  | "SIDEBAR_BANNER"
+  | "TOP_BANNER"
+  | "BILLING_SPONSORED"
+  | "FULLSCREEN_REWARD"
+  | "POPUP_CARD"
+  | "HOSTED_BLOG_PAGE"
+  | "HOSTED_REVIEWS_PAGE";
 
 type CampaignRow = {
   id: string;
@@ -205,6 +213,8 @@ function placementLabel(p: Placement) {
   if (p === "TOP_BANNER") return "Top banner";
   if (p === "BILLING_SPONSORED") return "Billing sponsored";
   if (p === "FULLSCREEN_REWARD") return "Fullscreen reward";
+  if (p === "HOSTED_BLOG_PAGE") return "Hosted blog page";
+  if (p === "HOSTED_REVIEWS_PAGE") return "Hosted reviews page";
   return "Popup card";
 }
 
@@ -213,6 +223,8 @@ function placementSupportsMedia(p: Placement): { image: boolean; video: boolean 
   if (p === "TOP_BANNER") return { image: true, video: false };
   if (p === "FULLSCREEN_REWARD") return { image: true, video: true };
   if (p === "POPUP_CARD") return { image: true, video: true };
+  if (p === "HOSTED_BLOG_PAGE") return { image: true, video: true };
+  if (p === "HOSTED_REVIEWS_PAGE") return { image: true, video: true };
   return { image: false, video: false }; // BILLING_SPONSORED
 }
 
@@ -271,6 +283,8 @@ export default function PortalAdCampaignsClient() {
   const [campaigns, setCampaigns] = useState<CampaignRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  const [campaignRowBusyId, setCampaignRowBusyId] = useState<string | null>(null);
 
   const [usersLoading, setUsersLoading] = useState(false);
   const [usersError, setUsersError] = useState<string | null>(null);
@@ -459,6 +473,42 @@ export default function PortalAdCampaignsClient() {
   useEffect(() => {
     void loadCampaigns();
   }, []);
+
+  async function updateCampaignFromList(c: CampaignRow, patch: Partial<Pick<CampaignRow, "name" | "enabled" | "priority" | "placement">>) {
+    setError(null);
+    setCampaignRowBusyId(c.id);
+    try {
+      const payload: any = {
+        id: c.id,
+        name: patch.name ?? c.name,
+        enabled: patch.enabled ?? c.enabled,
+        priority: patch.priority ?? c.priority,
+        placement: patch.placement ?? c.placement,
+        startAtIso: c.startAt,
+        endAtIso: c.endAt,
+        targetJson: c.targetJson,
+        creativeJson: c.creativeJson,
+        rewardJson: c.rewardJson,
+      };
+
+      const res = await fetch("/api/staff/portal/ad-campaigns", {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(payload),
+      }).catch(() => null as any);
+
+      const body = (await res?.json().catch(() => null)) as any;
+      if (!res?.ok || !body?.ok) {
+        setError(body?.error || "Unable to update campaign.");
+        return;
+      }
+
+      toast.success("Saved.");
+      await loadCampaigns();
+    } finally {
+      setCampaignRowBusyId(null);
+    }
+  }
 
   async function loadBuckets() {
     const res = await fetch("/api/staff/portal/targeting-buckets", { cache: "no-store" }).catch(() => null as any);
@@ -864,7 +914,7 @@ export default function PortalAdCampaignsClient() {
     });
   }
 
-  async function saveEditor() {
+  async function saveEditor(opts?: { keepOpen?: boolean }) {
     if (!editor) return;
     setError(null);
 
@@ -1069,8 +1119,11 @@ export default function PortalAdCampaignsClient() {
       }
     }
 
-    setEditor(null);
+    toast.success("Saved.");
     await loadCampaigns();
+
+    const keepOpen = Boolean(opts?.keepOpen && editor.id);
+    if (!keepOpen) setEditor(null);
   }
 
   async function openAssignments(campaignId: string) {
@@ -1424,17 +1477,37 @@ export default function PortalAdCampaignsClient() {
                     <div className="font-semibold text-zinc-900">{c.name}</div>
                     <div className="mt-1 text-xs text-zinc-500">{c.id}</div>
                   </td>
-                  <td className="px-4 py-3 text-zinc-700">{placementLabel(c.placement)}</td>
+                  <td className="px-4 py-3 text-zinc-700">
+                    <PortalListboxDropdown
+                      value={c.placement as Placement}
+                      options={(
+                        [
+                          { value: "SIDEBAR_BANNER", label: "Sidebar banner" },
+                          { value: "TOP_BANNER", label: "Top banner" },
+                          { value: "BILLING_SPONSORED", label: "Billing sponsored" },
+                          { value: "FULLSCREEN_REWARD", label: "Fullscreen reward" },
+                          { value: "POPUP_CARD", label: "Popup card" },
+                          { value: "HOSTED_BLOG_PAGE", label: "Hosted blog page" },
+                          { value: "HOSTED_REVIEWS_PAGE", label: "Hosted reviews page" },
+                        ] as Array<{ value: Placement; label: string }>
+                      )}
+                      onChange={(v) => void updateCampaignFromList(c, { placement: v })}
+                      buttonClassName="w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-left text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+                      disabled={campaignRowBusyId === c.id}
+                    />
+                  </td>
                   <td className="px-4 py-3 text-zinc-700">{c.priority}</td>
                   <td className="px-4 py-3">
-                    <span
-                      className={
-                        "rounded-full px-2 py-0.5 text-xs font-semibold " +
-                        (c.enabled ? "bg-emerald-100 text-emerald-900" : "bg-zinc-100 text-zinc-700")
-                      }
-                    >
-                      {c.enabled ? "Enabled" : "Disabled"}
-                    </span>
+                    <div className="inline-flex items-center gap-2">
+                      <ToggleSwitch
+                        checked={c.enabled}
+                        disabled={campaignRowBusyId === c.id}
+                        accent="ink"
+                        ariaLabel={c.enabled ? "Disable campaign" : "Enable campaign"}
+                        onChange={(checked) => void updateCampaignFromList(c, { enabled: checked })}
+                      />
+                      <span className="text-xs font-semibold text-zinc-700">{c.enabled ? "Enabled" : "Disabled"}</span>
+                    </div>
                   </td>
                   <td className="px-4 py-3 text-xs text-zinc-600">
                     {c.startAt ? new Date(c.startAt).toLocaleString() : "Anytime"} → {c.endAt ? new Date(c.endAt).toLocaleString() : "Anytime"}
@@ -1470,7 +1543,6 @@ export default function PortalAdCampaignsClient() {
           <div className="flex items-start justify-between gap-3">
             <div>
               <div className="text-base font-semibold text-zinc-900">{editor.id ? "Edit campaign" : "New campaign"}</div>
-              <div className="mt-1 text-sm text-zinc-600">Wizard-style setup: basics → targeting → creatives → offers.</div>
             </div>
             <button
               type="button"
@@ -1529,15 +1601,16 @@ export default function PortalAdCampaignsClient() {
                           onChange={(e) => setEditor({ ...editor, priority: Math.floor(Number(e.target.value) || 0) })}
                         />
                       </div>
-                      <div className="flex items-end">
-                        <label className="flex items-center gap-2 text-sm font-semibold text-zinc-800">
-                          <input
-                            type="checkbox"
+                      <div className="flex items-end justify-end">
+                        <div className="flex items-center gap-2 text-sm font-semibold text-zinc-800">
+                          <ToggleSwitch
                             checked={editor.enabled}
-                            onChange={(e) => setEditor({ ...editor, enabled: e.target.checked })}
+                            accent="ink"
+                            ariaLabel={editor.enabled ? "Disable campaign" : "Enable campaign"}
+                            onChange={(checked) => setEditor({ ...editor, enabled: checked })}
                           />
-                          Enabled
-                        </label>
+                          <span>Enabled</span>
+                        </div>
                       </div>
                     </div>
 
@@ -1553,12 +1626,22 @@ export default function PortalAdCampaignsClient() {
                               { value: "BILLING_SPONSORED", label: "Billing sponsored" },
                               { value: "FULLSCREEN_REWARD", label: "Fullscreen reward" },
                               { value: "POPUP_CARD", label: "Popup card" },
+                              { value: "HOSTED_BLOG_PAGE", label: "Hosted blog page" },
+                              { value: "HOSTED_REVIEWS_PAGE", label: "Hosted reviews page" },
                             ]}
                             onChange={(v) => setEditor({ ...editor, placements: [v] })}
                           />
                         ) : (
                           <div className="flex flex-wrap gap-2">
-                            {(["SIDEBAR_BANNER", "TOP_BANNER", "BILLING_SPONSORED", "FULLSCREEN_REWARD", "POPUP_CARD"] as Placement[]).map((p) => {
+                            {([
+                              "SIDEBAR_BANNER",
+                              "TOP_BANNER",
+                              "BILLING_SPONSORED",
+                              "FULLSCREEN_REWARD",
+                              "POPUP_CARD",
+                              "HOSTED_BLOG_PAGE",
+                              "HOSTED_REVIEWS_PAGE",
+                            ] as Placement[]).map((p) => {
                               const on = editor.placements.includes(p);
                               return (
                                 <button
@@ -2105,18 +2188,19 @@ export default function PortalAdCampaignsClient() {
                           <div className="mt-3 rounded-2xl border border-zinc-200 bg-white p-3">
                             <div className="text-xs font-semibold text-zinc-600">Dismiss / close button</div>
                             <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-3">
-                              <label className="inline-flex items-center gap-2 text-sm text-zinc-800">
-                                <input
-                                  type="checkbox"
+                              <div className="inline-flex items-center gap-2 text-sm text-zinc-800">
+                                <ToggleSwitch
                                   checked={Boolean(v.dismissEnabled)}
-                                  onChange={(e) => {
+                                  accent="ink"
+                                  ariaLabel={Boolean(v.dismissEnabled) ? "Disable dismiss" : "Enable dismiss"}
+                                  onChange={(checked) => {
                                     const next = [...editor.creatives];
-                                    next[idx] = { ...next[idx]!, dismissEnabled: e.target.checked };
+                                    next[idx] = { ...next[idx]!, dismissEnabled: checked };
                                     setEditor({ ...editor, creatives: next });
                                   }}
                                 />
-                                Allow dismiss (X)
-                              </label>
+                                <span>Allow dismiss (X)</span>
+                              </div>
                               <div>
                                 <label className="text-xs font-semibold text-zinc-600">X shows after (seconds)</label>
                                 <input
@@ -2847,14 +2931,23 @@ export default function PortalAdCampaignsClient() {
 
             <div className="flex flex-wrap gap-2">
               {editor.step < 3 ? (
-                <button
-                  type="button"
-                  disabled={!canGoNext}
-                  className="rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
-                  onClick={() => setEditor({ ...editor, step: ((editor.step + 1) as any) })}
-                >
-                  Next
-                </button>
+                <>
+                  <button
+                    type="button"
+                    className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
+                    onClick={() => void saveEditor({ keepOpen: true })}
+                  >
+                    Save
+                  </button>
+                  <button
+                    type="button"
+                    disabled={!canGoNext}
+                    className="rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
+                    onClick={() => setEditor({ ...editor, step: ((editor.step + 1) as any) })}
+                  >
+                    Next
+                  </button>
+                </>
               ) : (
                 <button
                   type="button"

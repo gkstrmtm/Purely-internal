@@ -10,6 +10,7 @@ import { resolveCustomDomain } from "@/lib/customDomainResolver";
 import { getHostedBrandFont } from "@/lib/hostedBrandFont";
 import { getBlogAppearance } from "@/lib/blogAppearance";
 import { resolveHostedFont } from "@/lib/portalHostedFonts";
+import { HostedPortalAdBanner } from "@/components/HostedPortalAdBanner";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -179,6 +180,8 @@ export default async function CustomDomainBlogsIndexPage({
           </Link>
         </div>
       </header>
+
+      <HostedPortalAdBanner placement="HOSTED_BLOG_PAGE" />
 
       <main>
         <section style={{ backgroundColor: "var(--client-primary)" }}>

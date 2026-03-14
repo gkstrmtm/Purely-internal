@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import type { Metadata } from "next";
 import type { CSSProperties } from "react";
 
+import { HostedPortalAdBanner } from "@/components/HostedPortalAdBanner";
 import { prisma } from "@/lib/db";
 import { hasPublicColumn } from "@/lib/dbSchema";
 import { getReviewRequestsServiceData } from "@/lib/reviewRequests";
@@ -221,6 +222,8 @@ export default async function CustomDomainReviewsPage({
           </div>
         </div>
       </header>
+
+      <HostedPortalAdBanner placement="HOSTED_REVIEWS_PAGE" />
 
       <main className="mx-auto max-w-6xl px-6 py-12">
         <div className="mx-auto max-w-3xl">

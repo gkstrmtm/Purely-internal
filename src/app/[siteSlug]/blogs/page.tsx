@@ -9,6 +9,7 @@ import { findOwnerIdByStoredBlogSiteSlug } from "@/lib/blogSiteSlug";
 import { getBlogAppearance } from "@/lib/blogAppearance";
 import { getHostedBrandFont } from "@/lib/hostedBrandFont";
 import { resolveHostedFont } from "@/lib/portalHostedFonts";
+import { HostedPortalAdBanner } from "@/components/HostedPortalAdBanner";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -196,6 +197,8 @@ export default async function ClientBlogsIndexPage(props: PageProps) {
           </Link>
         </div>
       </header>
+
+      <HostedPortalAdBanner placement="HOSTED_BLOG_PAGE" />
 
       <main>
         <section style={{ backgroundColor: "var(--client-primary)" }}>

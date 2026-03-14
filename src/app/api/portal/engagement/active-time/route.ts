@@ -18,6 +18,7 @@ const postSchema = z
 const KIND = "portal_active_time";
 const MAX_SECONDS_PER_DAY = 8 * 60 * 60; // 8h/day cap
 const ENGAGEMENT_SERVICE_SLUG = "portal_engagement";
+const MAX_RECENT_ACTIVITY = 500;
 
 function readObj(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
@@ -44,6 +45,56 @@ function topKeysByValue(map: Record<string, number>, keep: number): Record<strin
   const next: Record<string, number> = {};
   for (const [k, v] of entries.slice(0, keep)) next[k] = v;
   return next;
+}
+
+function readActivityList(value: unknown): Array<{ atMs: number; path: string; pageKey?: string; dtSec: number }> {
+  if (!Array.isArray(value)) return [];
+  const out: Array<{ atMs: number; path: string; pageKey?: string; dtSec: number }> = [];
+  for (const raw of value) {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) continue;
+    const r: any = raw as any;
+    const atMs = Number.isFinite(Number(r.atMs)) ? Math.max(0, Math.floor(Number(r.atMs))) : 0;
+    const dtSec = Number.isFinite(Number(r.dtSec)) ? Math.max(1, Math.min(60, Math.floor(Number(r.dtSec)))) : 0;
+    const path = typeof r.path === "string" ? r.path.trim().slice(0, 512) : "";
+    const pageKey = typeof r.pageKey === "string" ? r.pageKey.trim().slice(0, 140) : "";
+    if (!atMs || !dtSec || !path) continue;
+    out.push(pageKey ? { atMs, dtSec, path, pageKey } : { atMs, dtSec, path });
+  }
+  // Keep newest-first, drop malformed ordering.
+  out.sort((a, b) => b.atMs - a.atMs);
+  return out.slice(0, MAX_RECENT_ACTIVITY);
+}
+
+function stripQueryHash(pathRaw: string): string {
+  const s = String(pathRaw || "").trim();
+  if (!s) return "";
+  const q = s.indexOf("?");
+  const h = s.indexOf("#");
+  const cut = q === -1 ? h : h === -1 ? q : Math.min(q, h);
+  return (cut === -1 ? s : s.slice(0, cut)).trim();
+}
+
+function derivePageKeyFromPath(pathRaw: unknown): string | null {
+  const raw = typeof pathRaw === "string" ? stripQueryHash(pathRaw) : "";
+  const path = raw.trim();
+  if (!path || !path.startsWith("/")) return null;
+
+  const lower = path.toLowerCase();
+  const variants = ["/portal/app", "/credit/app"] as const;
+  for (const base of variants) {
+    if (lower === base || lower === `${base}/`) return `${base}/dashboard`;
+    if (lower.startsWith(`${base}/services/`)) {
+      const rest = path.slice(`${base}/services/`.length);
+      const slug = rest.split("/")[0]?.trim() || "";
+      return slug ? `${base}/services/${slug.slice(0, 80)}` : null;
+    }
+    if (lower.startsWith(`${base}/`)) {
+      const rest = path.slice(`${base}/`.length);
+      const section = rest.split("/")[0]?.trim() || "";
+      return section ? `${base}/${section.slice(0, 80)}` : `${base}/dashboard`;
+    }
+  }
+  return null;
 }
 
 function deriveServiceKeyFromPath(pathRaw: unknown): string | null {
@@ -95,8 +146,9 @@ export async function POST(req: Request) {
 
   const ownerId = auth.session.user.id;
   const dtSec = Math.max(1, Math.min(60, parsed.data.dtSec));
-  const path = typeof parsed.data.path === "string" ? parsed.data.path.trim().slice(0, 512) : "";
+  const path = typeof parsed.data.path === "string" ? stripQueryHash(parsed.data.path).trim().slice(0, 512) : "";
   const serviceKey = deriveServiceKeyFromPath(path);
+  const pageKey = derivePageKeyFromPath(path);
 
   // Best-effort: bump "last seen" for any portal activity ping.
   // Keep it migration-free by storing it in PortalServiceSetup JSON.
@@ -116,13 +168,28 @@ export async function POST(req: Request) {
       nextServiceTimeSec[serviceKey] = Math.max(0, (nextServiceTimeSec[serviceKey] ?? 0) + dtSec);
     }
 
+    const prevPathTimeSec = readRecordNumberMap(prev.pathTimeSec);
+    const nextPathTimeSec = { ...prevPathTimeSec };
+    if (pageKey) {
+      nextPathTimeSec[pageKey] = Math.max(0, (nextPathTimeSec[pageKey] ?? 0) + dtSec);
+    }
+
+    const prevActivity = readActivityList(prev.recentActivity);
+    const nextActivity = [
+      { atMs: nowMs, path, ...(pageKey ? { pageKey } : {}), dtSec },
+      ...prevActivity,
+    ].slice(0, MAX_RECENT_ACTIVITY);
+
     const next = {
       ...prev,
-      version: 2,
+      version: 3,
       lastSeenAtMs: nowMs,
       ...(path ? { lastSeenPath: path } : {}),
+      ...(pageKey ? { lastSeenPageKey: pageKey } : {}),
       ...(serviceKey ? { lastSeenService: serviceKey } : {}),
       ...(Object.keys(nextServiceTimeSec).length ? { serviceTimeSec: topKeysByValue(nextServiceTimeSec, 40) } : {}),
+      ...(Object.keys(nextPathTimeSec).length ? { pathTimeSec: topKeysByValue(nextPathTimeSec, 80) } : {}),
+      ...(nextActivity.length ? { recentActivity: nextActivity } : {}),
     };
 
     await prisma.portalServiceSetup.upsert({

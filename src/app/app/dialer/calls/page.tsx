@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 import { LocalDateTimePicker } from "@/components/LocalDateTimePicker";
 import { PortalSelectDropdown } from "@/components/PortalSelectDropdown";
+import { ToggleSwitch } from "@/components/ToggleSwitch";
 import { useToast } from "@/components/ToastProvider";
 
 type Lead = {
@@ -1045,16 +1046,13 @@ export default function DialerCallsPage() {
               />
             </div>
 
-            <div className="sm:col-span-2 flex items-center gap-2">
-              <input
-                id="createTranscript"
-                type="checkbox"
+            <div className="sm:col-span-2 flex items-center gap-3">
+              <ToggleSwitch
                 checked={createTranscript}
-                onChange={(e) => setCreateTranscript(e.target.checked)}
+                onChange={setCreateTranscript}
+                ariaLabel="Create a transcript doc for this call"
               />
-              <label htmlFor="createTranscript" className="text-sm text-zinc-700">
-                Create a transcript doc for this call
-              </label>
+              <div className="text-sm text-zinc-700">Create a transcript doc for this call</div>
             </div>
 
             <div className="sm:col-span-2 flex gap-3">

@@ -11,7 +11,15 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-const placementSchema = z.enum(["SIDEBAR_BANNER", "TOP_BANNER", "BILLING_SPONSORED", "FULLSCREEN_REWARD", "POPUP_CARD"]);
+const placementSchema = z.enum([
+  "SIDEBAR_BANNER",
+  "TOP_BANNER",
+  "BILLING_SPONSORED",
+  "FULLSCREEN_REWARD",
+  "POPUP_CARD",
+  "HOSTED_BLOG_PAGE",
+  "HOSTED_REVIEWS_PAGE",
+]);
 
 const campaignCreateSchema = z.object({
   name: z.string().trim().min(1).max(120),
