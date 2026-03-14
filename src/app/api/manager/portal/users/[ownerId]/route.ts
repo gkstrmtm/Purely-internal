@@ -16,7 +16,7 @@ function requireManager(session: any) {
   return { ok: true as const, status: 200 as const, userId };
 }
 
-export async function DELETE(_req: Request, ctx: { params: { ownerId: string } }) {
+export async function DELETE(_req: Request, { params }: { params: Promise<{ ownerId: string }> }) {
   const session = await getServerSession(authOptions);
   const auth = requireManager(session);
   if (!auth.ok) {
@@ -26,7 +26,7 @@ export async function DELETE(_req: Request, ctx: { params: { ownerId: string } }
     );
   }
 
-  const ownerId = String(ctx?.params?.ownerId || "").trim();
+  const ownerId = String((await params)?.ownerId || "").trim();
   if (!ownerId) return NextResponse.json({ error: "Invalid ownerId" }, { status: 400 });
 
   if (auth.userId === ownerId) {

@@ -8,6 +8,7 @@ export type HostedAdsTokenPayload = {
   ownerId: string;
   placement: HostedAdsPlacement;
   path?: string | null;
+  vh?: string | null; // viewer hash (best-effort), derived from IP/UA hashes
   exp: number; // unix ms
 };
 
@@ -90,12 +91,13 @@ export function verifyHostedAdsToken(token: string): HostedAdsTokenPayload | nul
     const placement = typeof obj.placement === "string" ? (obj.placement as HostedAdsPlacement) : null;
     const exp = typeof obj.exp === "number" ? obj.exp : NaN;
     const path = typeof obj.path === "string" ? obj.path.trim().slice(0, 500) : null;
+    const vh = typeof obj.vh === "string" ? obj.vh.trim().slice(0, 200) : null;
 
     if (!campaignId || !ownerId) return null;
     if (placement !== "HOSTED_BLOG_PAGE" && placement !== "HOSTED_REVIEWS_PAGE") return null;
     if (!Number.isFinite(exp) || exp <= 0) return null;
 
-    return { v: 1, campaignId, ownerId, placement, path, exp };
+    return { v: 1, campaignId, ownerId, placement, path, vh, exp };
   } catch {
     return null;
   }

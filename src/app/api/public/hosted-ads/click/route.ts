@@ -11,6 +11,29 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
+const HOSTED_ADS_VIEWER_COOKIE = "pa_hadv";
+
+function readCookie(req: Request, name: string): string | null {
+  const header = req.headers.get("cookie");
+  if (!header) return null;
+  const parts = header.split(";");
+  for (const p of parts) {
+    const s = p.trim();
+    if (!s) continue;
+    const idx = s.indexOf("=");
+    if (idx <= 0) continue;
+    const k = s.slice(0, idx).trim();
+    if (k !== name) continue;
+    const v = s.slice(idx + 1);
+    try {
+      return decodeURIComponent(v);
+    } catch {
+      return v;
+    }
+  }
+  return null;
+}
+
 function getClientIp(req: Request): string {
   const h = req.headers;
   const xff = h.get("x-forwarded-for");
@@ -144,12 +167,20 @@ export async function GET(req: Request) {
     const ip = getClientIp(req);
     const ipHash = ip ? hashViewerPart(`ip:${ip}`) : null;
     const uaHash = userAgent ? hashViewerPart(`ua:${userAgent}`) : null;
+    const viewerHash = hashViewerPart(`vh:${ipHash || ""}:${uaHash || ""}`);
     const dedupKey = ipHash ? `click:v1:${campaignId}:${placement}:${ipHash}:${uaHash || ""}` : null;
 
     const rateLimitPerMinute = Math.max(1, Math.min(120, Number(process.env.HOSTED_ADS_MAX_CLICKS_PER_IP_PER_MINUTE || 20)));
     const dedupWindowSec = Math.max(10, Math.min(24 * 60 * 60, Number(process.env.HOSTED_ADS_CLICK_DEDUP_SEC || 600)));
 
     let suppressed = false;
+
+    // Extra hardening: require a recent viewer cookie AND a token bound to that viewer.
+    // If missing/mismatched, still redirect normally but do not log/bill.
+    const cookieViewerHash = readCookie(req, HOSTED_ADS_VIEWER_COOKIE);
+    if (!cookieViewerHash || !token.vh || token.vh !== viewerHash || cookieViewerHash !== viewerHash) {
+      suppressed = true;
+    }
     if (ipHash) {
       // Global rate limit for hosted public clicks (best-effort).
       try {

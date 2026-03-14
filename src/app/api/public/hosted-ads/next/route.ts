@@ -13,6 +13,8 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
+const HOSTED_ADS_VIEWER_COOKIE = "pa_hadv";
+
 function getClientIp(req: Request): string {
   const h = req.headers;
   const xff = h.get("x-forwarded-for");
@@ -157,6 +159,7 @@ export async function GET(req: Request) {
     excludeCampaignIds,
   });
 
+  let viewerHashForToken: string | null = null;
   if (campaign?.id) {
     const userAgent = req.headers.get("user-agent");
     const device = detectDeviceFromUserAgent(userAgent);
@@ -164,6 +167,7 @@ export async function GET(req: Request) {
     const ip = getClientIp(req);
     const ipHash = ip ? hashViewerPart(`ip:${ip}`) : null;
     const uaHash = userAgent ? hashViewerPart(`ua:${userAgent}`) : null;
+    viewerHashForToken = hashViewerPart(`vh:${ipHash || ""}:${uaHash || ""}`);
     const dedupKey = ipHash ? `imp:v1:${campaign.id}:${placement}:${ipHash}` : null;
 
     // Best-effort impression dedupe to reduce bot spam and DB churn.
@@ -228,6 +232,7 @@ export async function GET(req: Request) {
       ownerId,
       placement,
       path,
+      vh: viewerHashForToken,
       exp,
     });
     if (!token) return null;
@@ -237,5 +242,15 @@ export async function GET(req: Request) {
     return `/api/public/hosted-ads/click?${qs.toString()}`;
   })();
 
-  return NextResponse.json({ ok: true, campaign: campaign ?? null, clickUrl });
+  const res = NextResponse.json({ ok: true, campaign: campaign ?? null, clickUrl });
+  if (viewerHashForToken) {
+    res.cookies.set(HOSTED_ADS_VIEWER_COOKIE, viewerHashForToken, {
+      httpOnly: true,
+      secure: true,
+      sameSite: "lax",
+      path: "/api/public/hosted-ads",
+      maxAge: 10 * 60,
+    });
+  }
+  return res;
 }
