@@ -2531,6 +2531,8 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
   const [aiContextOpen, setAiContextOpen] = useState(false);
   const [aiContextKeys, setAiContextKeys] = useState<string[]>([]);
   const [aiContextMedia, setAiContextMedia] = useState<Array<{ url: string; fileName?: string; mimeType?: string }>>([]);
+  const [aiContextUploadBusy, setAiContextUploadBusy] = useState(false);
+  const aiContextUploadInputRef = useRef<HTMLInputElement | null>(null);
 
   const aiContextOptions = useMemo(
     () =>
@@ -3003,6 +3005,52 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
     const nextUrl = String(mediaItem.shareUrl || blob.url || "").trim();
     if (!nextUrl) throw new Error("Upload did not return a URL");
     return { url: nextUrl, mediaItem };
+  };
+
+  const uploadAiContextFiles = async (files: FileList | File[]) => {
+    const list = Array.from(files || [])
+      .filter(Boolean)
+      .slice(0, 10);
+    if (!list.length) return;
+
+    setAiContextUploadBusy(true);
+    try {
+      const uploaded: Array<{ url: string; fileName?: string; mimeType?: string }> = [];
+
+      for (const f of list) {
+        const { url, mediaItem } = await uploadToUploads(f);
+        const nextUrl = String(url || "").trim();
+        if (!nextUrl) continue;
+        uploaded.push({
+          url: nextUrl,
+          fileName: String(mediaItem?.fileName || f.name || "").trim() || undefined,
+          mimeType: String(mediaItem?.mimeType || f.type || "").trim() || undefined,
+        });
+      }
+
+      if (!uploaded.length) {
+        toast.error("Upload finished, but no files were added");
+        return;
+      }
+
+      setAiContextMedia((prev) => {
+        const map = new Map<string, { url: string; fileName?: string; mimeType?: string }>();
+        for (const it of prev || []) {
+          const u = String(it?.url || "").trim();
+          if (!u) continue;
+          map.set(u, it);
+        }
+        for (const it of uploaded) map.set(it.url, it);
+        return Array.from(map.values());
+      });
+
+      toast.success(`Uploaded ${uploaded.length} file${uploaded.length === 1 ? "" : "s"}`);
+    } catch (e) {
+      const msg = e && typeof e === "object" && "message" in e ? String((e as any).message) : "Upload failed";
+      toast.error(msg || "Upload failed");
+    } finally {
+      setAiContextUploadBusy(false);
+    }
   };
 
   const closeDialog = () => {
@@ -4701,17 +4749,43 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                 <div className="text-sm font-semibold text-zinc-900">Media library</div>
                 <div className="mt-1 text-xs text-zinc-600">Optional: add images/videos the AI can reference.</div>
               </div>
-              <button
-                type="button"
-                disabled={busy}
-                onClick={() => {
-                  setMediaPickerTarget({ type: "ai-context" });
-                  setMediaPickerOpen(true);
-                }}
-                className="shrink-0 rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
-              >
-                Add media
-              </button>
+              <div className="shrink-0 flex items-center gap-2">
+                <input
+                  ref={aiContextUploadInputRef}
+                  type="file"
+                  multiple
+                  accept="image/*,video/*"
+                  className="hidden"
+                  onChange={(e) => {
+                    const files = e.target.files;
+                    // Allow re-selecting the same file(s)
+                    e.currentTarget.value = "";
+                    if (!files || files.length === 0) return;
+                    void uploadAiContextFiles(files);
+                  }}
+                />
+
+                <button
+                  type="button"
+                  disabled={busy || aiContextUploadBusy}
+                  onClick={() => aiContextUploadInputRef.current?.click()}
+                  className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-60"
+                >
+                  {aiContextUploadBusy ? "Uploading…" : "Upload files"}
+                </button>
+
+                <button
+                  type="button"
+                  disabled={busy || aiContextUploadBusy}
+                  onClick={() => {
+                    setMediaPickerTarget({ type: "ai-context" });
+                    setMediaPickerOpen(true);
+                  }}
+                  className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-60"
+                >
+                  Add media
+                </button>
+              </div>
             </div>
 
             {aiContextMedia.length ? (

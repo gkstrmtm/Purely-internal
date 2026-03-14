@@ -375,6 +375,7 @@ function inferForcedActionsFromIntent(opts: {
     haystack.includes("your_calendar_embed_link_here");
   const wantsForm =
     /\b(form|application|apply\b|intake|questionnaire|survey)\b/i.test(haystack) ||
+    haystack.includes("/forms/") ||
     haystack.includes("/portal/forms/");
   const wantsChatbot = /\b(chatbot|chat widget|live chat|ai chat)\b/i.test(haystack) || haystack.includes("your_chatbot_link_here");
 
@@ -537,7 +538,9 @@ export async function POST(req: Request) {
     );
   }
 
-  const basePath = auth.variant === "credit" ? "/credit" : "/portal";
+  // IMPORTANT: This route is called from inside the portal editor, but the
+  // generated output must work on hosted/public funnels (NOT under /portal).
+  const hostedBasePath = auth.variant === "credit" ? "/credit" : "";
 
   const json = await req.json().catch(() => null);
   const parsed = bodySchema.safeParse(json);
@@ -638,10 +641,10 @@ export async function POST(req: Request) {
     "- Make it safe to embed inside an existing page.",
     "- Do NOT output placeholder URLs (e.g. 'your_calendar_embed_link_here'). If you don't have a real URL, ask a question or return JSON actions.",
     "- Do NOT link to /portal/* routes. Those do not exist on hosted funnels.",
-    `- Links should keep the user inside ${basePath}.`,
+    "- Links should be relative and keep the user on the hosted funnel site.",
     "Integration:",
-    `- This page is hosted at: ${basePath}/f/${page.funnel.slug}`,
-    `- Hosted forms are at: ${basePath}/forms/{formSlug}`,
+    `- This page is hosted at: ${hostedBasePath}/f/${page.funnel.slug}`,
+    `- Hosted forms are at: ${hostedBasePath}/forms/{formSlug}`,
     "- For booking/scheduling: prefer returning a calendarEmbed block rather than hardcoding a booking URL.",
     "- If the user asks for a shop/store/product list, prefer insertPresetAfter with preset='shop'.",
     "- If STRIPE_PRODUCTS are provided, assume Stripe is connected and avoid asking 'what do you sell?'.",
@@ -682,7 +685,7 @@ export async function POST(req: Request) {
     "- If key info is missing, output='question' and ask ONE question.",
     "- IMPORTANT: If STRIPE_PRODUCTS are present, do NOT ask what they sell. At most ask which products to feature (if needed).",
     "Context:",
-    `- Funnel page host path: ${basePath}/f/${page.funnel.slug}`,
+    `- Funnel page host path: ${hostedBasePath}/f/${page.funnel.slug}`,
     "Available forms (slug: name [status]):",
     ...forms.map((f) => `- ${f.slug}: ${f.name} [${f.status}]`),
     "Available calendars (id: title [enabled]):",
