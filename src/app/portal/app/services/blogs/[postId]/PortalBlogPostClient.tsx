@@ -7,6 +7,7 @@ import { LocalDateTimePicker } from "@/components/LocalDateTimePicker";
 import { RichTextMarkdownEditor } from "@/components/RichTextMarkdownEditor";
 import { PortalMediaPickerModal } from "@/components/PortalMediaPickerModal";
 import { PortalListboxDropdown, type PortalListboxOption } from "@/components/PortalListboxDropdown";
+import { ToggleSwitch } from "@/components/ToggleSwitch";
 import { useToast } from "@/components/ToastProvider";
 import { buildFontDropdownOptions } from "@/lib/portalHostedFonts";
 
@@ -881,14 +882,20 @@ export function PortalBlogPostClient({ postId }: { postId: string }) {
                 placeholder="Example: Write a helpful post for homeowners about how to choose the right HVAC filter, with a friendly professional tone."
               />
               <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                <label className="inline-flex items-center gap-2 text-sm text-zinc-700">
-                  <input
-                    type="checkbox"
+                <div className="inline-flex items-center gap-3 text-sm text-zinc-700">
+                  <ToggleSwitch
                     checked={aiIncludeCoverImage}
-                    onChange={(e) => setAiIncludeCoverImage(e.target.checked)}
+                    ariaLabel="Add a cover image"
+                    onChange={setAiIncludeCoverImage}
                   />
-                  Add a cover image (generated SVG)
-                </label>
+                  <div className="min-w-0">
+                    <div className="font-semibold text-zinc-800">Add a cover image</div>
+                    <div className="text-xs text-zinc-500">Generated SVG</div>
+                  </div>
+                  <span className={aiIncludeCoverImage ? "text-xs font-semibold text-emerald-700" : "text-xs text-zinc-500"}>
+                    {aiIncludeCoverImage ? "On" : "Off"}
+                  </span>
+                </div>
                 {creditsRemaining !== null ? (
                   <div className="text-xs font-semibold text-zinc-600">Credits remaining: {creditsRemaining}</div>
                 ) : null}
@@ -979,17 +986,20 @@ export function PortalBlogPostClient({ postId }: { postId: string }) {
                 <div className="text-sm font-semibold text-zinc-800">Use brand font</div>
                 <div className="mt-0.5 text-xs text-zinc-500">Uses your Business font from Profile → Business info.</div>
               </div>
-              <input
-                type="checkbox"
-                className="h-5 w-5"
-                disabled={appearanceSaving}
-                checked={Boolean(appearance.useBrandFont)}
-                onChange={(e) => {
-                  const useBrandFont = e.target.checked;
-                  setAppearance((prev) => ({ ...prev, useBrandFont }));
-                  void saveAppearance({ useBrandFont });
-                }}
-              />
+              <div className="flex items-center gap-2">
+                <ToggleSwitch
+                  checked={Boolean(appearance.useBrandFont)}
+                  disabled={appearanceSaving}
+                  ariaLabel="Use brand font"
+                  onChange={(useBrandFont) => {
+                    setAppearance((prev) => ({ ...prev, useBrandFont }));
+                    void saveAppearance({ useBrandFont });
+                  }}
+                />
+                <span className={Boolean(appearance.useBrandFont) ? "text-sm font-semibold text-emerald-700" : "text-sm text-zinc-500"}>
+                  {Boolean(appearance.useBrandFont) ? "On" : "Off"}
+                </span>
+              </div>
             </div>
 
             <div className="mt-3 grid grid-cols-1 gap-3">

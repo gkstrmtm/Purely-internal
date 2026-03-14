@@ -5,6 +5,7 @@ import { useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { PortalSettingsSection } from "@/components/PortalSettingsSection";
+import { ToggleSwitch } from "@/components/ToggleSwitch";
 import { PortalListboxDropdown, type PortalListboxOption } from "@/components/PortalListboxDropdown";
 import { useToast } from "@/components/ToastProvider";
 import { PortalBackToOnboardingLink } from "@/components/PortalBackToOnboardingLink";
@@ -805,12 +806,17 @@ export function PortalBlogsClient({
           <div className="mt-5 space-y-4">
             <label className="flex items-center justify-between gap-3 text-sm">
               <span className="font-semibold text-zinc-800">Enable automation</span>
-              <input
-                type="checkbox"
-                checked={autoEnabled}
-                onChange={(e) => setAutoEnabled(e.target.checked)}
-                className="h-5 w-5"
-              />
+              <div className="flex items-center gap-2">
+                <ToggleSwitch
+                  checked={autoEnabled}
+                  disabled={autoSaving}
+                  ariaLabel="Enable blog automation"
+                  onChange={setAutoEnabled}
+                />
+                <span className={autoEnabled ? "text-sm font-semibold text-emerald-700" : "text-sm text-zinc-500"}>
+                  {autoEnabled ? "On" : "Off"}
+                </span>
+              </div>
             </label>
 
             <div>
@@ -898,12 +904,17 @@ export function PortalBlogsClient({
 
             <label className="flex items-center justify-between gap-3 text-sm">
               <span className="font-semibold text-zinc-800">Auto-publish (optional)</span>
-              <input
-                type="checkbox"
-                checked={autoPublish}
-                onChange={(e) => setAutoPublish(e.target.checked)}
-                className="h-5 w-5"
-              />
+              <div className="flex items-center gap-2">
+                <ToggleSwitch
+                  checked={autoPublish}
+                  disabled={autoSaving}
+                  ariaLabel="Auto-publish blog posts"
+                  onChange={setAutoPublish}
+                />
+                <span className={autoPublish ? "text-sm font-semibold text-emerald-700" : "text-sm text-zinc-500"}>
+                  {autoPublish ? "On" : "Off"}
+                </span>
+              </div>
             </label>
             <div className="text-xs text-zinc-500">
               Auto-publish marks posts as “Published” in this portal (and backdates when catching up). If you publish elsewhere, keep this off and export.
@@ -1093,22 +1104,31 @@ export function PortalBlogsClient({
                     <div className="text-sm font-semibold text-zinc-800">Use brand font</div>
                     <div className="mt-0.5 text-xs text-zinc-500">Uses your Business font from Profile → Business info.</div>
                   </div>
-                  <input
-                    type="checkbox"
-                    className="h-5 w-5"
-                    disabled={appearanceSaving}
-                    checked={Boolean(appearance?.useBrandFont ?? true)}
-                    onChange={(e) => {
-                      const useBrandFont = e.target.checked;
-                      setAppearance((prev) => ({
-                        version: 1,
-                        useBrandFont,
-                        titleFontKey: prev?.titleFontKey ?? "brand",
-                        bodyFontKey: prev?.bodyFontKey ?? "brand",
-                      }));
-                      void saveAppearance({ useBrandFont });
-                    }}
-                  />
+                  <div className="flex items-center gap-2">
+                    <ToggleSwitch
+                      checked={Boolean(appearance?.useBrandFont ?? true)}
+                      disabled={appearanceSaving}
+                      ariaLabel="Use brand font"
+                      onChange={(useBrandFont) => {
+                        setAppearance((prev) => ({
+                          version: 1,
+                          useBrandFont,
+                          titleFontKey: prev?.titleFontKey ?? "brand",
+                          bodyFontKey: prev?.bodyFontKey ?? "brand",
+                        }));
+                        void saveAppearance({ useBrandFont });
+                      }}
+                    />
+                    <span
+                      className={
+                        Boolean(appearance?.useBrandFont ?? true)
+                          ? "text-sm font-semibold text-emerald-700"
+                          : "text-sm text-zinc-500"
+                      }
+                    >
+                      {Boolean(appearance?.useBrandFont ?? true) ? "On" : "Off"}
+                    </span>
+                  </div>
                 </div>
 
                 <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
