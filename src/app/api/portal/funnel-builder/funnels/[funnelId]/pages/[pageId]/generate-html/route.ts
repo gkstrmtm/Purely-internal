@@ -3,6 +3,9 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { requireFunnelBuilderSession } from "@/lib/funnelBuilderAccess";
 import { generateText, generateTextWithImages } from "@/lib/ai";
+import type { CreditFunnelBlock } from "@/lib/creditFunnelBlocks";
+import { getBookingCalendarsConfig } from "@/lib/bookingCalendars";
+import { getAiReceptionistServiceData } from "@/lib/aiReceptionist";
 import { getBusinessProfileAiContext } from "@/lib/businessProfileAiContext.server";
 import { getStripeSecretKeyForOwner } from "@/lib/stripeIntegration.server";
 import { stripeGetWithKey } from "@/lib/stripeFetchWithKey.server";
@@ -57,6 +60,257 @@ function escapeHtml(s: string) {
 function pickRandom<T>(items: T[]): T {
   if (!Array.isArray(items) || items.length === 0) throw new Error("pickRandom called with empty array");
   return items[Math.floor(Math.random() * items.length)]!;
+}
+
+function normalizePortalHostedPaths(html: string): string {
+  let out = String(html || "");
+  if (!out) return out;
+
+  // Public funnels/forms/booking should never be under /portal on hosted pages.
+  out = out
+    .replace(/\b\/portal\/forms\//gi, "/forms/")
+    .replace(/\b\/portal\/f\//gi, "/f/")
+    .replace(/\b\/portal\/book\//gi, "/book/")
+    .replace(/\b\/api\/public\/portal\//gi, "/api/public/");
+
+  return out;
+}
+
+function newBlockId(prefix = "b"): string {
+  const g: any = globalThis as any;
+  const uuid = typeof g.crypto?.randomUUID === "function" ? String(g.crypto.randomUUID()) : "";
+  if (uuid) return `${prefix}_${uuid}`;
+  return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function detectInteractiveIntent(text: string): {
+  wantsShop: boolean;
+  wantsCart: boolean;
+  wantsCheckout: boolean;
+  wantsCalendar: boolean;
+  wantsChatbot: boolean;
+  any: boolean;
+} {
+  const s = String(text || "").toLowerCase();
+  const wantsShop = /\b(shop|store|product|products|pricing|buy now|buy\b)/.test(s);
+  const wantsCart = /\b(cart|add to cart)\b/.test(s);
+  const wantsCheckout = /\b(checkout|purchase|pay now)\b/.test(s);
+  const wantsCalendar = /\b(calendar|schedule|booking|book a call|book a meeting|appointment)\b/.test(s);
+  const wantsChatbot = /\b(chatbot|chat bot|live chat|website chat)\b/.test(s);
+  const any = wantsShop || wantsCart || wantsCheckout || wantsCalendar || wantsChatbot;
+  return { wantsShop, wantsCart, wantsCheckout, wantsCalendar, wantsChatbot, any };
+}
+
+function normalizeAgentId(raw: unknown): string {
+  const s = typeof raw === "string" ? raw.trim() : "";
+  if (!s) return "";
+  const cleaned = s.slice(0, 120);
+  if (!cleaned.startsWith("agent_")) return "";
+  return cleaned;
+}
+
+async function getOwnerChatAgentIds(ownerId: string): Promise<string[]> {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  const push = (id: string) => {
+    const clean = normalizeAgentId(id);
+    if (!clean) return;
+    if (seen.has(clean)) return;
+    seen.add(clean);
+    out.push(clean);
+  };
+
+  const receptionist = await getAiReceptionistServiceData(ownerId).catch(() => null);
+  if (receptionist) {
+    push(receptionist.settings.chatAgentId);
+  }
+
+  const campaigns = await prisma.portalAiOutboundCallCampaign
+    .findMany({
+      where: { ownerId },
+      select: { chatAgentId: true },
+      orderBy: { updatedAt: "desc" },
+      take: 60,
+    })
+    .catch(() => [] as Array<{ chatAgentId: string | null }>);
+
+  for (const c of campaigns) {
+    if (c?.chatAgentId) push(c.chatAgentId);
+  }
+
+  return out.slice(0, 50);
+}
+
+function buildInteractiveBlocks(opts: {
+  funnelName: string;
+  pageTitle: string;
+  ownerId: string;
+  stripeProducts: Array<{
+    id: string;
+    name: string;
+    description: string | null;
+    images: string[];
+    defaultPriceId: string;
+    unitAmount: number | null;
+    currency: string;
+  }>;
+  calendarId?: string;
+  chatAgentId?: string;
+  intent: ReturnType<typeof detectInteractiveIntent>;
+}): CreditFunnelBlock[] {
+  const blocks: CreditFunnelBlock[] = [];
+
+  blocks.push({ id: newBlockId("page"), type: "page", props: {} });
+
+  blocks.push({
+    id: newBlockId("header"),
+    type: "headerNav",
+    props: {
+      sticky: true,
+      transparent: false,
+      items: [],
+    },
+  });
+
+  blocks.push({
+    id: newBlockId("hero"),
+    type: "section",
+    props: {
+      children: [
+        {
+          id: newBlockId("h1"),
+          type: "heading",
+          props: { text: opts.pageTitle || opts.funnelName || "Welcome", level: 1 },
+        },
+        {
+          id: newBlockId("p"),
+          type: "paragraph",
+          props: {
+            text:
+              "Explore what we offer below. Add items to your cart, checkout securely, or book a time to talk — all on this page.",
+          },
+        },
+        {
+          id: newBlockId("cart"),
+          type: "cartButton",
+          props: { text: "Cart" },
+        },
+      ],
+    },
+  });
+
+  if (opts.intent.wantsShop || opts.intent.wantsCart || opts.intent.wantsCheckout) {
+    const purchasable = opts.stripeProducts
+      .filter((p) => p && p.defaultPriceId)
+      .slice(0, 6);
+
+    if (purchasable.length) {
+      blocks.push({
+        id: newBlockId("shopSection"),
+        type: "section",
+        props: {
+          children: [
+            {
+              id: newBlockId("shopH"),
+              type: "heading",
+              props: { text: "Shop", level: 2 },
+            },
+            {
+              id: newBlockId("shopCols"),
+              type: "columns",
+              props: {
+                gapPx: 18,
+                stackOnMobile: true,
+                columns: purchasable.slice(0, 3).map((p) => {
+                  const children: CreditFunnelBlock[] = [];
+                  const img = p.images?.[0] ? String(p.images[0]).trim() : "";
+                  if (img) {
+                    children.push({
+                      id: newBlockId("img"),
+                      type: "image",
+                      props: { src: img, alt: p.name || "Product" },
+                    });
+                  }
+
+                  children.push({
+                    id: newBlockId("name"),
+                    type: "heading",
+                    props: { text: p.name, level: 3 },
+                  });
+
+                  if (p.description) {
+                    children.push({
+                      id: newBlockId("desc"),
+                      type: "paragraph",
+                      props: { text: String(p.description).slice(0, 320) },
+                    });
+                  }
+
+                  children.push({
+                    id: newBlockId("add"),
+                    type: "addToCartButton",
+                    props: {
+                      priceId: p.defaultPriceId,
+                      quantity: 1,
+                      productName: p.name,
+                      ...(p.description ? { productDescription: String(p.description).slice(0, 320) } : {}),
+                      text: "Add to cart",
+                    },
+                  });
+
+                  children.push({
+                    id: newBlockId("buy"),
+                    type: "salesCheckoutButton",
+                    props: {
+                      priceId: p.defaultPriceId,
+                      quantity: 1,
+                      productName: p.name,
+                      ...(p.description ? { productDescription: String(p.description).slice(0, 320) } : {}),
+                      text: "Buy now",
+                    },
+                  });
+
+                  return { markdown: "", children };
+                }),
+              },
+            },
+          ],
+        },
+      });
+    }
+  }
+
+  if (opts.intent.wantsCalendar && opts.calendarId) {
+    blocks.push({
+      id: newBlockId("calSection"),
+      type: "section",
+      props: {
+        children: [
+          { id: newBlockId("calH"), type: "heading", props: { text: "Book a time", level: 2 } },
+          {
+            id: newBlockId("calEmbed"),
+            type: "calendarEmbed",
+            props: { calendarId: opts.calendarId, height: 760 },
+          },
+        ],
+      },
+    });
+  }
+
+  if (opts.intent.wantsChatbot && opts.chatAgentId) {
+    blocks.push({
+      id: newBlockId("chatbot"),
+      type: "chatbot",
+      props: {
+        agentId: opts.chatAgentId,
+        launcherStyle: "bubble",
+        placementX: "right",
+        placementY: "bottom",
+      },
+    });
+  }
+
+  return blocks;
 }
 
 const PAGE_UPDATED_VARIANTS = [
@@ -194,7 +448,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
     );
   }
 
-  const basePath = auth.variant === "credit" ? "/credit" : "/portal";
+  const basePath = auth.variant === "credit" ? "/credit" : "";
 
   const { funnelId: funnelIdRaw, pageId: pageIdRaw } = await ctx.params;
   const funnelId = String(funnelIdRaw || "").trim();
@@ -218,6 +472,8 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
       id: true,
       slug: true,
       title: true,
+      editorMode: true,
+      blocksJson: true,
       customChatJson: true,
       customHtml: true,
       funnel: { select: { id: true, slug: true, name: true } },
@@ -228,6 +484,98 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
   const ownerId = auth.session.user.id;
   const businessContext = await getBusinessProfileAiContext(ownerId).catch(() => "");
   const stripeProducts = await getStripeProductsForOwner(ownerId).catch(() => ({ ok: false as const, products: [] as any[] }));
+
+  const intent = detectInteractiveIntent(prompt);
+  if (intent.any) {
+    const bookingCalendars = await getBookingCalendarsConfig(ownerId).catch(() => ({ version: 1 as const, calendars: [] as any[] }));
+    const enabledCalendars = Array.isArray((bookingCalendars as any).calendars)
+      ? (bookingCalendars as any).calendars.filter((c: any) => c && typeof c === "object" && (c as any).enabled !== false)
+      : [];
+    const calendarId = enabledCalendars[0]?.id ? String(enabledCalendars[0].id).trim().slice(0, 50) : "";
+
+    const agentIds = await getOwnerChatAgentIds(ownerId).catch(() => [] as string[]);
+    const chatAgentId = agentIds[0] ? String(agentIds[0]).trim() : "";
+
+    const purchasable = stripeProducts.ok
+      ? (stripeProducts.products as any[]).filter((p) => p && typeof p === "object" && String((p as any).defaultPriceId || "").trim())
+      : [];
+
+    const missingShop = (intent.wantsShop || intent.wantsCart || intent.wantsCheckout) && purchasable.length === 0;
+    const missingCalendar = intent.wantsCalendar && !calendarId;
+    const missingChatbot = intent.wantsChatbot && !chatAgentId;
+
+    if (missingShop || missingCalendar || missingChatbot) {
+      const parts: string[] = [];
+      if (missingShop) parts.push("I can add a working Shop/Cart/Checkout, but I don't see any Stripe products with default prices yet. Do you want to connect Stripe and add products first?");
+      if (missingCalendar) parts.push("I can embed a working booking calendar, but you don't have any booking calendars configured yet. Which calendar should I use (or should I create one in Booking settings first)?");
+      if (missingChatbot) parts.push("I can add a working chatbot widget, but I don't see an ElevenLabs chat agent ID for this account yet. What agent ID should I use?");
+      const question = parts[0] ? parts[0].slice(0, 800) : "Which interactive block should I add (shop, calendar, or chatbot)?";
+
+      const prevChat = Array.isArray(page.customChatJson) ? (page.customChatJson as any[]) : [];
+      const userMsg = { role: "user", content: `${prompt}`, at: new Date().toISOString() };
+      const assistantMsg = { role: "assistant", content: question, at: new Date().toISOString() };
+      const nextChat = [...prevChat, userMsg, assistantMsg].slice(-40);
+
+      const updated = await prisma.creditFunnelPage.update({
+        where: { id: page.id },
+        data: {
+          customChatJson: nextChat,
+        },
+        select: {
+          id: true,
+          slug: true,
+          title: true,
+          editorMode: true,
+          blocksJson: true,
+          customHtml: true,
+          customChatJson: true,
+          updatedAt: true,
+        },
+      });
+
+      return NextResponse.json({ ok: true, question, page: updated });
+    }
+
+    const blocks = buildInteractiveBlocks({
+      funnelName: page.funnel.name,
+      pageTitle: page.title,
+      ownerId,
+      stripeProducts: stripeProducts.ok ? (stripeProducts.products as any) : [],
+      ...(calendarId ? { calendarId } : {}),
+      ...(chatAgentId ? { chatAgentId } : {}),
+      intent,
+    });
+
+    const prevChat = Array.isArray(page.customChatJson) ? (page.customChatJson as any[]) : [];
+    const userMsg = { role: "user", content: `${prompt}`, at: new Date().toISOString() };
+    const assistantMsg = {
+      role: "assistant",
+      content: "Done — I inserted real Funnel Builder blocks for the interactive parts (shop/cart/checkout/calendar/chatbot) so everything works in preview and on the hosted page.",
+      at: new Date().toISOString(),
+    };
+    const nextChat = [...prevChat, userMsg, assistantMsg].slice(-40);
+
+    const updated = await prisma.creditFunnelPage.update({
+      where: { id: page.id },
+      data: {
+        editorMode: "BLOCKS",
+        blocksJson: blocks as any,
+        customChatJson: nextChat,
+      },
+      select: {
+        id: true,
+        slug: true,
+        title: true,
+        editorMode: true,
+        blocksJson: true,
+        customHtml: true,
+        customChatJson: true,
+        updatedAt: true,
+      },
+    });
+
+    return NextResponse.json({ ok: true, page: updated });
+  }
 
   const forms = await prisma.creditForm.findMany({
     where: { ownerId: auth.session.user.id },
@@ -246,7 +594,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
     "Constraints:",
     "- Use plain HTML + inline <style>. No external JS/CSS, no frameworks.",
     "- Mobile-first, modern, clean styling.",
-    `- Use relative links that keep the user inside ${basePath}.`,
+    "- Use relative links (no /portal/* links).",
     "Integration:",
     `- This page will be hosted at: ${basePath}/f/${page.funnel.slug}`,
     `- Hosted forms are at: ${basePath}/forms/{formSlug}`,
@@ -406,6 +754,8 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
 
   if (!html) return NextResponse.json({ ok: false, error: "AI returned empty HTML" }, { status: 502 });
 
+  html = normalizePortalHostedPaths(html);
+
   if (!/<!doctype\s+html|<html\b/i.test(html)) {
     html = [
       "<!doctype html>",
@@ -434,7 +784,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
     where: { id: page.id },
     data: {
       editorMode: "CUSTOM_HTML",
-      customHtml: html,
+      customHtml: normalizePortalHostedPaths(html),
       customChatJson: nextChat,
     },
     select: {
