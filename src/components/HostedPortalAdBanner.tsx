@@ -19,8 +19,19 @@ type Campaign = {
   };
 };
 
-export function HostedPortalAdBanner({ placement }: { placement: Placement }) {
+export function HostedPortalAdBanner({
+  placement,
+  siteSlug,
+  domain,
+  pathOverride,
+}: {
+  placement: Placement;
+  siteSlug?: string | null | undefined;
+  domain?: string | null | undefined;
+  pathOverride?: string | null | undefined;
+}) {
   const [campaign, setCampaign] = useState<Campaign | null>(null);
+  const [clickUrl, setClickUrl] = useState<string>("");
   const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
@@ -28,23 +39,28 @@ export function HostedPortalAdBanner({ placement }: { placement: Placement }) {
 
     (async () => {
       try {
-        const path = window.location.pathname || "";
-        const res = await fetch(
-          `/api/portal/ads/next?placement=${encodeURIComponent(placement)}&path=${encodeURIComponent(path)}`,
-          { cache: "no-store" },
-        );
+        const path = (pathOverride || window.location.pathname || "").trim();
+        const qs = new URLSearchParams();
+        qs.set("placement", placement);
+        if (path) qs.set("path", path);
+        if (siteSlug) qs.set("siteSlug", String(siteSlug));
+        if (domain) qs.set("domain", String(domain));
+        const res = await fetch(`/api/public/hosted-ads/next?${qs.toString()}`, { cache: "no-store" });
         const json = (await res.json().catch(() => null)) as any;
         if (canceled) return;
         if (!res.ok || !json?.ok) {
           setCampaign(null);
+          setClickUrl("");
           setLoaded(true);
           return;
         }
         setCampaign((json.campaign as Campaign | null) ?? null);
+        setClickUrl(typeof json.clickUrl === "string" ? json.clickUrl : "");
         setLoaded(true);
       } catch {
         if (canceled) return;
         setCampaign(null);
+        setClickUrl("");
         setLoaded(true);
       }
     })();
@@ -52,19 +68,11 @@ export function HostedPortalAdBanner({ placement }: { placement: Placement }) {
     return () => {
       canceled = true;
     };
-  }, [placement]);
+  }, [placement, siteSlug, domain, pathOverride]);
 
   const clickHref = useMemo(() => {
-    if (!campaign?.id) return "";
-    const path = typeof window !== "undefined" ? window.location.pathname || "" : "";
-    const qs = new URLSearchParams();
-    qs.set("campaignId", campaign.id);
-    qs.set("placement", placement);
-    if (path) qs.set("path", path);
-    const to = String(campaign.creative?.linkUrl || "").trim();
-    if (to) qs.set("to", to);
-    return `/api/portal/ads/click?${qs.toString()}`;
-  }, [campaign?.id, campaign?.creative?.linkUrl, placement]);
+    return typeof clickUrl === "string" ? clickUrl : "";
+  }, [clickUrl]);
 
   if (!loaded) return null;
   if (!campaign?.id) return null;
@@ -78,6 +86,8 @@ export function HostedPortalAdBanner({ placement }: { placement: Placement }) {
       <div className="mx-auto max-w-6xl px-6 py-4">
         <a
           href={clickHref}
+          target="_blank"
+          rel="noopener noreferrer"
           className="block rounded-3xl border border-brand-ink/10 bg-gradient-to-r from-[color:var(--color-brand-blue)]/10 via-white to-white p-4 hover:opacity-95"
         >
           <div className="flex items-center justify-between gap-3">

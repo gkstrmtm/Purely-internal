@@ -198,7 +198,7 @@ export default async function ClientBlogsIndexPage(props: PageProps) {
         </div>
       </header>
 
-      <HostedPortalAdBanner placement="HOSTED_BLOG_PAGE" />
+      <HostedPortalAdBanner placement="HOSTED_BLOG_PAGE" siteSlug={siteHandle} pathOverride="/blogs" />
 
       <main>
         <section style={{ backgroundColor: "var(--client-primary)" }}>

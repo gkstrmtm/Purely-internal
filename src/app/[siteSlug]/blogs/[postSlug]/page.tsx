@@ -207,7 +207,11 @@ export default async function ClientBlogPostPage(props: PageProps) {
         </div>
       </header>
 
-      <HostedPortalAdBanner placement="HOSTED_BLOG_PAGE" />
+      <HostedPortalAdBanner
+        placement="HOSTED_BLOG_PAGE"
+        siteSlug={siteHandle}
+        pathOverride={`/blogs/${postSlug}`}
+      />
 
       <main className="mx-auto max-w-6xl px-6 py-14">
         <div className="mx-auto max-w-3xl">

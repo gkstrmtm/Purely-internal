@@ -181,7 +181,7 @@ export default async function CustomDomainBlogsIndexPage({
         </div>
       </header>
 
-      <HostedPortalAdBanner placement="HOSTED_BLOG_PAGE" />
+      <HostedPortalAdBanner placement="HOSTED_BLOG_PAGE" domain={host} pathOverride="/blogs" />
 
       <main>
         <section style={{ backgroundColor: "var(--client-primary)" }}>
