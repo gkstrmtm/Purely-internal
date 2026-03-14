@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 
+import crypto from "crypto";
+
 import { prisma } from "@/lib/db";
 import { hasPublicColumn } from "@/lib/dbSchema";
 import { resolveCustomDomain } from "@/lib/customDomainResolver";
@@ -10,6 +12,41 @@ import { signHostedAdsToken, type HostedAdsPlacement } from "@/lib/hostedAdsToke
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
+
+function getClientIp(req: Request): string {
+  const h = req.headers;
+  const xff = h.get("x-forwarded-for");
+  if (xff) {
+    const first = xff.split(",")[0]?.trim();
+    if (first) return first;
+  }
+  const realIp = h.get("x-real-ip")?.trim();
+  if (realIp) return realIp;
+  const cf = h.get("cf-connecting-ip")?.trim();
+  if (cf) return cf;
+  return "";
+}
+
+function base64UrlEncode(buf: Buffer) {
+  return buf
+    .toString("base64")
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/g, "");
+}
+
+function hashViewerPart(input: string): string {
+  const secret =
+    process.env.HOSTED_ADS_TOKEN_SECRET ||
+    process.env.NEXTAUTH_SECRET ||
+    process.env.AUTH_SECRET ||
+    "";
+  const mac = crypto
+    .createHmac("sha256", secret || "hosted_ads")
+    .update(input)
+    .digest();
+  return base64UrlEncode(mac).slice(0, 32);
+}
 
 function detectDeviceFromUserAgent(ua: string | null): "mobile" | "desktop" {
   const s = String(ua || "");
@@ -124,26 +161,61 @@ export async function GET(req: Request) {
     const userAgent = req.headers.get("user-agent");
     const device = detectDeviceFromUserAgent(userAgent);
 
-    await prisma.portalAdCampaignEvent
-      .create({
-        data: {
-          campaignId: campaign.id,
-          ownerId,
-          kind: "IMPRESSION",
-          metaJson: {
-            action: "IMPRESSION",
-            viewer: "public",
-            placement,
-            path,
-            device,
-            userAgent,
-            siteSlug,
-            domain,
+    const ip = getClientIp(req);
+    const ipHash = ip ? hashViewerPart(`ip:${ip}`) : null;
+    const uaHash = userAgent ? hashViewerPart(`ua:${userAgent}`) : null;
+    const dedupKey = ipHash ? `imp:v1:${campaign.id}:${placement}:${ipHash}` : null;
+
+    // Best-effort impression dedupe to reduce bot spam and DB churn.
+    let shouldLog = true;
+    if (dedupKey) {
+      try {
+        const windowStart = new Date(Date.now() - 30 * 1000);
+        const rows = await prisma.$queryRaw<Array<{ exists: boolean }>>`
+          select exists(
+            select 1
+            from "PortalAdCampaignEvent" e
+            where e."campaignId" = ${campaign.id}
+              and e."ownerId" = ${ownerId}
+              and e."kind" = 'IMPRESSION'
+              and e."createdAt" >= ${windowStart}
+              and (e."metaJson"->>'action') = 'IMPRESSION'
+              and (e."metaJson"->>'viewer') = 'public'
+              and (e."metaJson"->>'dedupKey') = ${dedupKey}
+            limit 1
+          ) as "exists";
+        `;
+        if (rows?.[0]?.exists) shouldLog = false;
+      } catch {
+        // ignore
+      }
+    }
+
+    if (shouldLog) {
+      await prisma.portalAdCampaignEvent
+        .create({
+          data: {
+            campaignId: campaign.id,
+            ownerId,
+            kind: "IMPRESSION",
+            metaJson: {
+              action: "IMPRESSION",
+              viewer: "public",
+              placement,
+              path,
+              device,
+              userAgent,
+              siteSlug,
+              domain,
+              ipHash,
+              uaHash,
+              dedupKey,
+            },
           },
-        },
-        select: { id: true },
-      })
-      .catch(() => null);
+          select: { id: true },
+        })
+        .catch(() => null);
+    }
   }
 
   const clickUrl = (() => {

@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 
+import crypto from "crypto";
+
 import { prisma } from "@/lib/db";
 import { verifyHostedAdsToken } from "@/lib/hostedAdsToken";
 import { getPortalAdCampaignForOwnerById, type PortalAdPlacement } from "@/lib/portalAdCampaigns.server";
@@ -8,6 +10,41 @@ import { getOrCreateStripeCustomerId, isStripeConfigured, stripeGet, stripePost 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
+
+function getClientIp(req: Request): string {
+  const h = req.headers;
+  const xff = h.get("x-forwarded-for");
+  if (xff) {
+    const first = xff.split(",")[0]?.trim();
+    if (first) return first;
+  }
+  const realIp = h.get("x-real-ip")?.trim();
+  if (realIp) return realIp;
+  const cf = h.get("cf-connecting-ip")?.trim();
+  if (cf) return cf;
+  return "";
+}
+
+function base64UrlEncode(buf: Buffer) {
+  return buf
+    .toString("base64")
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/g, "");
+}
+
+function hashViewerPart(input: string): string {
+  const secret =
+    process.env.HOSTED_ADS_TOKEN_SECRET ||
+    process.env.NEXTAUTH_SECRET ||
+    process.env.AUTH_SECRET ||
+    "";
+  const mac = crypto
+    .createHmac("sha256", secret || "hosted_ads")
+    .update(input)
+    .digest();
+  return base64UrlEncode(mac).slice(0, 32);
+}
 
 function detectDeviceFromUserAgent(ua: string | null): "mobile" | "desktop" {
   const s = String(ua || "");
@@ -104,20 +141,87 @@ export async function GET(req: Request) {
     const userAgent = req.headers.get("user-agent");
     const device = detectDeviceFromUserAgent(userAgent);
 
-    await prisma.portalAdCampaignEvent
-      .create({
-        data: {
-          campaignId: campaign.id,
-          ownerId,
-          kind: "IMPRESSION",
-          metaJson: { action: "CLICK", viewer: "public", placement, path, device, userAgent, to },
-        },
-        select: { id: true },
-      })
-      .catch(() => null);
+    const ip = getClientIp(req);
+    const ipHash = ip ? hashViewerPart(`ip:${ip}`) : null;
+    const uaHash = userAgent ? hashViewerPart(`ua:${userAgent}`) : null;
+    const dedupKey = ipHash ? `click:v1:${campaignId}:${placement}:${ipHash}:${uaHash || ""}` : null;
+
+    const rateLimitPerMinute = Math.max(1, Math.min(120, Number(process.env.HOSTED_ADS_MAX_CLICKS_PER_IP_PER_MINUTE || 20)));
+    const dedupWindowSec = Math.max(10, Math.min(24 * 60 * 60, Number(process.env.HOSTED_ADS_CLICK_DEDUP_SEC || 600)));
+
+    let suppressed = false;
+    if (ipHash) {
+      // Global rate limit for hosted public clicks (best-effort).
+      try {
+        const windowStart = new Date(Date.now() - 60 * 1000);
+        const rows = await prisma.$queryRaw<Array<{ n: bigint }>>`
+          select count(*)::bigint as "n"
+          from "PortalAdCampaignEvent" e
+          where e."kind" = 'IMPRESSION'
+            and e."createdAt" >= ${windowStart}
+            and (e."metaJson"->>'action') = 'CLICK'
+            and (e."metaJson"->>'viewer') = 'public'
+            and (e."metaJson"->>'ipHash') = ${ipHash}
+        `;
+        const n = Number(rows?.[0]?.n || 0);
+        if (Number.isFinite(n) && n >= rateLimitPerMinute) suppressed = true;
+      } catch {
+        // ignore
+      }
+    }
+
+    if (!suppressed && dedupKey) {
+      // Per-campaign dedupe window to prevent double-billing on spammy reloads.
+      try {
+        const windowStart = new Date(Date.now() - dedupWindowSec * 1000);
+        const rows = await prisma.$queryRaw<Array<{ exists: boolean }>>`
+          select exists(
+            select 1
+            from "PortalAdCampaignEvent" e
+            where e."campaignId" = ${campaignId}
+              and e."ownerId" = ${ownerId}
+              and e."kind" = 'IMPRESSION'
+              and e."createdAt" >= ${windowStart}
+              and (e."metaJson"->>'action') = 'CLICK'
+              and (e."metaJson"->>'viewer') = 'public'
+              and (e."metaJson"->>'dedupKey') = ${dedupKey}
+            limit 1
+          ) as "exists";
+        `;
+        if (rows?.[0]?.exists) suppressed = true;
+      } catch {
+        // ignore
+      }
+    }
+
+    if (!suppressed) {
+      await prisma.portalAdCampaignEvent
+        .create({
+          data: {
+            campaignId: campaign.id,
+            ownerId,
+            kind: "IMPRESSION",
+            metaJson: {
+              action: "CLICK",
+              viewer: "public",
+              placement,
+              path,
+              device,
+              userAgent,
+              to,
+              ipHash,
+              uaHash,
+              dedupKey,
+            },
+          },
+          select: { id: true },
+        })
+        .catch(() => null);
+    }
 
     // Best-effort CPC billing: same logic as the portal click endpoint, but marked as public.
     try {
+      if (suppressed) throw new Error("suppressed");
       const row = await prisma.portalAdCampaign.findUnique({
         where: { id: campaignId },
         select: { createdById: true, targetJson: true },
@@ -234,7 +338,7 @@ export async function GET(req: Request) {
               kind: "SPEND",
               amountCents: billing.costPerClickCents,
               campaignId,
-              metaJson: { source: "hosted_public_click", placement, path, ownerId },
+              metaJson: { source: "hosted_public_click", placement, path, ownerId, ipHash },
             },
             select: { id: true },
           });
