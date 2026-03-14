@@ -110,7 +110,13 @@ function bookingApiBase(target: PublicBookingTarget) {
   return `/api/public/booking/u/${encodeURIComponent(target.ownerId)}/${encodeURIComponent(target.calendarId)}`;
 }
 
-export function PublicBookingClient({ target }: { target: PublicBookingTarget }) {
+export function PublicBookingClient({
+  target,
+  showBranding = true,
+}: {
+  target: PublicBookingTarget;
+  showBranding?: boolean;
+}) {
   const toast = useToast();
   const [site, setSite] = useState<Site | null>(null);
   const [slots, setSlots] = useState<Slot[]>([]);
@@ -397,15 +403,17 @@ export function PublicBookingClient({ target }: { target: PublicBookingTarget })
               </div>
             ) : null}
 
-            <div className="mt-8 border-t border-zinc-200 pt-6 text-center text-xs text-zinc-600">
-              <Link href="/" className="font-semibold hover:underline" style={{ color: "var(--booking-primary)" }}>
-                Powered by Purely Automation
-              </Link>
-              <span className="px-2">•</span>
-              <Link href="/#demo" className="font-semibold hover:underline" style={{ color: "var(--booking-primary)" }}>
-                Create your own booking link
-              </Link>
-            </div>
+            {showBranding ? (
+              <div className="mt-8 border-t border-zinc-200 pt-6 text-center text-xs text-zinc-600">
+                <Link href="/" className="font-semibold hover:underline" style={{ color: "var(--booking-primary)" }}>
+                  Powered by Purely Automation
+                </Link>
+                <span className="px-2">•</span>
+                <Link href="/#demo" className="font-semibold hover:underline" style={{ color: "var(--booking-primary)" }}>
+                  Create your own booking link
+                </Link>
+              </div>
+            ) : null}
           </div>
         </div>
       </div>
@@ -736,15 +744,17 @@ export function PublicBookingClient({ target }: { target: PublicBookingTarget })
           </div>
         </div>
 
-        <div className="mt-10 border-t border-zinc-200 pt-6 text-center text-xs text-zinc-600">
-          <Link href="/" className="font-semibold hover:underline" style={{ color: "var(--booking-primary)" }}>
-            Powered by Purely Automation
-          </Link>
-          <span className="px-2">•</span>
-          <Link href="/#demo" className="font-semibold hover:underline" style={{ color: "var(--booking-primary)" }}>
-            Create your own booking link
-          </Link>
-        </div>
+        {showBranding ? (
+          <div className="mt-10 border-t border-zinc-200 pt-6 text-center text-xs text-zinc-600">
+            <Link href="/" className="font-semibold hover:underline" style={{ color: "var(--booking-primary)" }}>
+              Powered by Purely Automation
+            </Link>
+            <span className="px-2">•</span>
+            <Link href="/#demo" className="font-semibold hover:underline" style={{ color: "var(--booking-primary)" }}>
+              Create your own booking link
+            </Link>
+          </div>
+        ) : null}
         </div>
       </div>
     </div>

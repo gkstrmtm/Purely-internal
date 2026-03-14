@@ -2217,6 +2217,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                           <iframe
                             title={selectedPage.title}
                             sandbox="allow-forms allow-popups allow-scripts allow-same-origin"
+                            allow="microphone"
                             srcDoc={selectedPage.customHtml || ""}
                             className="h-[78vh] w-full bg-white"
                           />
@@ -2415,6 +2416,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                           <iframe
                             title={selectedPage.title}
                             sandbox="allow-forms allow-popups allow-scripts allow-same-origin"
+                            allow="microphone"
                             srcDoc={selectedPage.customHtml || ""}
                             className="h-full w-full bg-white"
                           />
@@ -10055,6 +10057,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                   <iframe
                     title={selectedPage.title}
                     sandbox="allow-forms allow-popups allow-scripts allow-same-origin"
+                    allow="microphone"
                     srcDoc={selectedPage.customHtml || ""}
                     className="h-[78vh] w-full bg-white"
                   />

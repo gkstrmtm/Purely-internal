@@ -63,7 +63,10 @@ export default async function CustomDomainBookingCalendarPage({
   return (
     <div style={{ ...(hostedBrandFont.styleVars as any), ...hostedBrandFont.globalStyle } as any}>
       {hostedBrandFont.googleCss ? <style>{hostedBrandFont.googleCss}</style> : null}
-      <PublicBookingClient target={{ kind: "calendar", ownerId: ownerIdSafe, calendarId: calendarIdSafe }} />
+      <PublicBookingClient
+        target={{ kind: "calendar", ownerId: ownerIdSafe, calendarId: calendarIdSafe }}
+        showBranding={false}
+      />
     </div>
   );
 }

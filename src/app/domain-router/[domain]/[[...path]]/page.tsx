@@ -447,6 +447,7 @@ async function renderFunnel(
             <iframe
               title={page.title}
               sandbox="allow-forms allow-popups allow-scripts allow-same-origin"
+              allow="microphone"
               srcDoc={customHtmlSrcDoc ?? (page.customHtml || "")}
               className="h-screen w-full bg-white"
             />

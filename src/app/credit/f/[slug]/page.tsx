@@ -58,6 +58,7 @@ export default async function CreditHostedFunnelPage({ params }: { params: Promi
             <iframe
               title={page.title}
               sandbox="allow-forms allow-popups allow-scripts allow-same-origin"
+                 allow="microphone"
               srcDoc={page.customHtml || ""}
               className="h-screen w-full bg-white"
             />

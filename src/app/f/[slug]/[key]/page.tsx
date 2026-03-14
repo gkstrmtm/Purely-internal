@@ -191,8 +191,9 @@ export default async function HostedFunnelWithKeyPage({
             <iframe
               title={page.title}
               sandbox="allow-forms allow-popups allow-scripts allow-same-origin"
+              allow="microphone"
               srcDoc={renderedCustomHtml || ""}
-              className="h-[100vh] w-full bg-white"
+              className="h-screen w-full bg-white"
             />
           ) : page.editorMode === "BLOCKS" ? (
             <div>
@@ -271,7 +272,7 @@ export default async function HostedFunnelWithKeyPage({
             rel="noopener noreferrer"
             className="pointer-events-auto inline-flex items-center gap-1.5 rounded-full border border-zinc-200 bg-white/75 px-3 py-1 text-[11px] font-semibold text-zinc-700 shadow-sm backdrop-blur hover:bg-white hover:text-zinc-900"
           >
-            <AiSparkIcon className="h-3.5 w-3.5 text-[color:var(--color-brand-blue)]" />
+            <AiSparkIcon className="h-3.5 w-3.5 text-(--color-brand-blue)" />
             Powered by Purely Automation
           </a>
         </div>

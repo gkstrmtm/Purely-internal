@@ -66,7 +66,7 @@ export default async function CustomDomainBookingPage({
   return (
     <div style={{ ...(hostedBrandFont.styleVars as any), ...hostedBrandFont.globalStyle } as any}>
       {hostedBrandFont.googleCss ? <style>{hostedBrandFont.googleCss}</style> : null}
-      <PublicBookingClient target={{ kind: "slug", slug: bookingSlug }} />
+      <PublicBookingClient target={{ kind: "slug", slug: bookingSlug }} showBranding={false} />
     </div>
   );
 }
