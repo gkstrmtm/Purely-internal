@@ -185,6 +185,39 @@ function isHexColor(value: string) {
   return /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(value.trim());
 }
 
+function coerceBlockStyle(raw: unknown): BlockStyle | undefined {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;
+  const o: any = raw;
+
+  const s = (v: unknown, max = 500) => (typeof v === "string" ? v.trim().slice(0, max) : "");
+  const n = (v: unknown, min: number, max: number) =>
+    typeof v === "number" && Number.isFinite(v) ? Math.max(min, Math.min(max, v)) : undefined;
+
+  const align = o.align === "left" || o.align === "center" || o.align === "right" ? (o.align as any) : undefined;
+
+  const next: BlockStyle = {
+    textColor: s(o.textColor, 40) || undefined,
+    backgroundColor: s(o.backgroundColor, 40) || undefined,
+    backgroundImageUrl: s(o.backgroundImageUrl, 800) || undefined,
+    backgroundVideoUrl: s(o.backgroundVideoUrl, 800) || undefined,
+    backgroundVideoPosterUrl: s(o.backgroundVideoPosterUrl, 800) || undefined,
+    fontSizePx: n(o.fontSizePx, 8, 96),
+    fontFamily: s(o.fontFamily, 120) || undefined,
+    fontGoogleFamily: s(o.fontGoogleFamily, 120) || undefined,
+    align,
+    marginTopPx: n(o.marginTopPx, 0, 240),
+    marginBottomPx: n(o.marginBottomPx, 0, 240),
+    paddingPx: n(o.paddingPx, 0, 240),
+    borderRadiusPx: n(o.borderRadiusPx, 0, 160),
+    borderColor: s(o.borderColor, 40) || undefined,
+    borderWidthPx: n(o.borderWidthPx, 0, 24),
+    maxWidthPx: n(o.maxWidthPx, 120, 1400),
+  };
+
+  const hasAny = Object.values(next).some((v) => v !== undefined && v !== "");
+  return hasAny ? next : undefined;
+}
+
 function migrateLegacyAnchorBlocksIntoSections(blocks: CreditFunnelBlock[]): CreditFunnelBlock[] {
   let changed = false;
 
@@ -2482,6 +2515,9 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
   const [chatInput, setChatInput] = useState("");
   const [customCodeBlockPrompt, setCustomCodeBlockPrompt] = useState("");
   const [customCodeBlockBusy, setCustomCodeBlockBusy] = useState(false);
+  const [aiSidebarCustomCodePrompt, setAiSidebarCustomCodePrompt] = useState("");
+  const [aiSidebarCustomCodeBusy, setAiSidebarCustomCodeBusy] = useState(false);
+  const [aiSidebarCustomCodeBlockId, setAiSidebarCustomCodeBlockId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -3636,6 +3672,93 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
     });
   };
 
+  const insertBlock = (
+    base: CreditFunnelBlock,
+    opts?: {
+      select?: boolean;
+      sidebarPanel?: "presets" | "text" | "layout" | "forms" | "media" | "header" | "shop" | "ai" | "page" | "selected";
+    },
+  ): string | null => {
+    if (!selectedPage) return null;
+
+    const selectedContainer = selectedBlockId ? findContainerForBlock(editableBlocks, selectedBlockId) : null;
+    const nextEditable = (() => {
+      if (base.type === "headerNav") {
+        const next = [base, ...editableBlocks.filter((b) => b.id !== base.id)];
+        return next;
+      }
+
+      if (selectedBlock && selectedBlock.type === "section") {
+        const section = selectedBlock as any;
+        const key: BlockContainerKey = section.props?.layout === "two" ? "leftChildren" : "children";
+        const nextSection: CreditFunnelBlock = {
+          ...section,
+          props: {
+            ...section.props,
+            [key]: [...(Array.isArray(section.props?.[key]) ? section.props[key] : []), base],
+          },
+        };
+        return replaceBlockInTree(editableBlocks, nextSection);
+      }
+
+      if (selectedBlockId && selectedContainer && selectedContainer.key !== "root") {
+        const containerBlock = findBlockInTree(editableBlocks, selectedContainer.sectionId)?.block;
+        if (containerBlock && (containerBlock.type === "section" || containerBlock.type === "columns")) {
+          const props: any = containerBlock.props;
+          if (containerBlock.type === "columns" && selectedContainer.key === "columnChildren") {
+            const cols = Array.isArray(props.columns) ? (props.columns as any[]) : [];
+            const col = cols[selectedContainer.columnIndex];
+            const arr =
+              col && typeof col === "object" && Array.isArray((col as any).children)
+                ? ((col as any).children as CreditFunnelBlock[])
+                : [];
+            const idx = arr.findIndex((b) => b.id === selectedBlockId);
+            const nextArr = [...arr];
+            nextArr.splice(idx >= 0 ? idx + 1 : nextArr.length, 0, base);
+            const nextCols = cols.map((c, i) =>
+              i === selectedContainer.columnIndex ? { ...(c || {}), children: nextArr } : c,
+            );
+            const nextContainer: CreditFunnelBlock = {
+              ...containerBlock,
+              props: { ...props, columns: nextCols },
+            } as any;
+            return replaceBlockInTree(editableBlocks, nextContainer);
+          }
+
+          const arr = Array.isArray(props[selectedContainer.key]) ? (props[selectedContainer.key] as CreditFunnelBlock[]) : [];
+          const idx = arr.findIndex((b) => b.id === selectedBlockId);
+          const nextArr = [...arr];
+          nextArr.splice(idx >= 0 ? idx + 1 : nextArr.length, 0, base);
+          const nextContainer: CreditFunnelBlock = {
+            ...containerBlock,
+            props: { ...props, [selectedContainer.key]: nextArr },
+          } as any;
+          return replaceBlockInTree(editableBlocks, nextContainer);
+        }
+      }
+
+      if (selectedBlockId && selectedContainer?.key === "root") {
+        const idx = editableBlocks.findIndex((b) => b.id === selectedBlockId);
+        if (idx >= 0) {
+          const next = [...editableBlocks];
+          next.splice(idx + 1, 0, base);
+          return next;
+        }
+      }
+
+      return [...editableBlocks, base];
+    })();
+
+    setSelectedPageLocal({
+      editorMode: "BLOCKS",
+      blocksJson: pageSettingsBlock ? [pageSettingsBlock, ...nextEditable] : nextEditable,
+    });
+
+    if (opts?.select !== false) setSelectedBlockId(base.id);
+    if (opts?.sidebarPanel) setSidebarPanel(opts.sidebarPanel);
+    return base.id;
+  };
+
   const selectedPageDirty = Boolean(selectedPageId && dirtyPageIds[selectedPageId]);
 
   const ensurePageSettings = () => {
@@ -3694,8 +3817,8 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
     });
   };
 
-  const addBlock = (type: Exclude<CreditFunnelBlock["type"], "page" | "anchor">) => {
-    if (!selectedPage) return;
+  const addBlock = (type: Exclude<CreditFunnelBlock["type"], "page" | "anchor">): string | null => {
+    if (!selectedPage) return null;
     const id = newId();
     const base: CreditFunnelBlock =
       type === "headerNav"
@@ -3818,76 +3941,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                             }
                           : { id, type: "spacer", props: { height: 24 } };
 
-    const selectedContainer = selectedBlockId ? findContainerForBlock(editableBlocks, selectedBlockId) : null;
-    const nextEditable = (() => {
-      if (type === "headerNav") {
-        const next = [base, ...editableBlocks.filter((b) => b.id !== base.id)];
-        return next;
-      }
-
-      if (selectedBlock && selectedBlock.type === "section") {
-        const section = selectedBlock as any;
-        const key: BlockContainerKey =
-          section.props?.layout === "two" ? "leftChildren" : "children";
-        const nextSection: CreditFunnelBlock = {
-          ...section,
-          props: {
-            ...section.props,
-            [key]: [...(Array.isArray(section.props?.[key]) ? section.props[key] : []), base],
-          },
-        };
-        return replaceBlockInTree(editableBlocks, nextSection);
-      }
-
-      if (selectedBlockId && selectedContainer && selectedContainer.key !== "root") {
-        const containerBlock = findBlockInTree(editableBlocks, selectedContainer.sectionId)?.block;
-        if (containerBlock && (containerBlock.type === "section" || containerBlock.type === "columns")) {
-          const props: any = containerBlock.props;
-          if (containerBlock.type === "columns" && selectedContainer.key === "columnChildren") {
-            const cols = Array.isArray(props.columns) ? (props.columns as any[]) : [];
-            const col = cols[selectedContainer.columnIndex];
-            const arr = col && typeof col === "object" && Array.isArray((col as any).children) ? ((col as any).children as CreditFunnelBlock[]) : [];
-            const idx = arr.findIndex((b) => b.id === selectedBlockId);
-            const nextArr = [...arr];
-            nextArr.splice(idx >= 0 ? idx + 1 : nextArr.length, 0, base);
-            const nextCols = cols.map((c, i) => (i === selectedContainer.columnIndex ? { ...(c || {}), children: nextArr } : c));
-            const nextContainer: CreditFunnelBlock = {
-              ...containerBlock,
-              props: { ...props, columns: nextCols },
-            } as any;
-            return replaceBlockInTree(editableBlocks, nextContainer);
-          }
-
-          const arr = Array.isArray(props[selectedContainer.key]) ? (props[selectedContainer.key] as CreditFunnelBlock[]) : [];
-          const idx = arr.findIndex((b) => b.id === selectedBlockId);
-          const nextArr = [...arr];
-          nextArr.splice(idx >= 0 ? idx + 1 : nextArr.length, 0, base);
-          const nextContainer: CreditFunnelBlock = {
-            ...containerBlock,
-            props: { ...props, [selectedContainer.key]: nextArr },
-          } as any;
-          return replaceBlockInTree(editableBlocks, nextContainer);
-        }
-      }
-
-      if (selectedBlockId && selectedContainer?.key === "root") {
-        const idx = editableBlocks.findIndex((b) => b.id === selectedBlockId);
-        if (idx >= 0) {
-          const next = [...editableBlocks];
-          next.splice(idx + 1, 0, base);
-          return next;
-        }
-      }
-
-      return [...editableBlocks, base];
-    })();
-
-    setSelectedPageLocal({
-      editorMode: "BLOCKS",
-      blocksJson: pageSettingsBlock ? [pageSettingsBlock, ...nextEditable] : nextEditable,
-    });
-    setSelectedBlockId(id);
-    setSidebarPanel("selected");
+    return insertBlock(base, { select: true, sidebarPanel: "selected" });
   };
 
   type FunnelPresetKey = "hero" | "body" | "form" | "shop";
@@ -3899,19 +3953,14 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
     const firstFormSlug = (forms || []).find((f) => typeof f?.slug === "string" && f.slug.trim())?.slug || "";
 
     if (preset === "hero") {
-      const heroSectionId = newId();
       blocks.push({
-        id: heroSectionId,
+        id: newId(),
         type: "section",
         props: {
           layout: "one",
           children: [
             { id: newId(), type: "heading", props: { text: "Hero headline", level: 1, style: { align: "center" } } },
-            {
-              id: newId(),
-              type: "paragraph",
-              props: { text: "Add your subheadline here.", style: { align: "center" } },
-            },
+            { id: newId(), type: "paragraph", props: { text: "Add your subheadline here.", style: { align: "center" } } },
             {
               id: newId(),
               type: "button",
@@ -3943,10 +3992,40 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
         props: {
           layout: "one",
           children: [
-            { id: newId(), type: "heading", props: { text: "Body section", level: 2 } },
-            { id: newId(), type: "paragraph", props: { text: "Write your main content here…" } },
+            { id: newId(), type: "heading", props: { text: "Why this works", level: 2 } },
+            {
+              id: newId(),
+              type: "paragraph",
+              props: {
+                text: "Add a short explanation of your offer and the outcomes customers should expect.",
+              },
+            },
+            {
+              id: newId(),
+              type: "columns",
+              props: {
+                columns: [
+                  {
+                    markdown: "",
+                    children: [
+                      { id: newId(), type: "heading", props: { text: "Benefit 1", level: 3 } },
+                      { id: newId(), type: "paragraph", props: { text: "A concise benefit statement." } },
+                    ],
+                  },
+                  {
+                    markdown: "",
+                    children: [
+                      { id: newId(), type: "heading", props: { text: "Benefit 2", level: 3 } },
+                      { id: newId(), type: "paragraph", props: { text: "A concise benefit statement." } },
+                    ],
+                  },
+                ],
+                gapPx: 16,
+                stackOnMobile: true,
+              },
+            },
           ],
-          style: { paddingPx: 32, marginBottomPx: 24 },
+          style: { paddingPx: 32, backgroundColor: "#f8fafc", borderRadiusPx: 24, marginBottomPx: 16 },
         },
       });
     }
@@ -3958,16 +4037,17 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
         props: {
           layout: "one",
           children: [
-            { id: newId(), type: "heading", props: { text: "Form section", level: 2 } },
-            { id: newId(), type: "paragraph", props: { text: "Embed a form below." } },
+            { id: newId(), type: "heading", props: { text: "Get started", level: 2 } },
             {
               id: newId(),
-              type: "formEmbed",
+              type: "paragraph",
               props: {
-                formSlug: firstFormSlug,
-                style: { marginTopPx: 16 },
+                text: "Capture details with a hosted form.",
               },
             },
+            firstFormSlug
+              ? ({ id: newId(), type: "formEmbed", props: { formSlug: firstFormSlug, height: 720 } as any } as any)
+              : ({ id: newId(), type: "formLink", props: { formSlug: "", text: "Open form" } as any } as any),
           ],
           style: { paddingPx: 32, backgroundColor: "#f8fafc", borderRadiusPx: 24, marginBottomPx: 16 },
         },
@@ -5446,6 +5526,707 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                     ))}
                   </div>
                   <div className="mt-2 text-xs text-zinc-500">AI blocks add chat and advanced embeds to your funnel.</div>
+
+                  <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Custom code (AI)</div>
+                        <div className="mt-1 text-xs text-zinc-600">
+                          Generate or edit a <span className="font-semibold">Custom code</span> block using the same context + media workflow.
+                        </div>
+                      </div>
+                      {(() => {
+                        const block = aiSidebarCustomCodeBlockId
+                          ? findBlockInTree(editableBlocks, aiSidebarCustomCodeBlockId)?.block
+                          : null;
+                        if (!block || block.type !== "customCode") return null;
+                        return (
+                          <button
+                            type="button"
+                            disabled={busy}
+                            onClick={() => {
+                              setSelectedBlockId(block.id);
+                              setSidebarPanel("selected");
+                            }}
+                            className="shrink-0 rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+                          >
+                            Open block
+                          </button>
+                        );
+                      })()}
+                    </div>
+
+                    <div className="mt-3 max-h-[28vh] space-y-2 overflow-auto rounded-2xl border border-zinc-200 bg-white p-3">
+                      {(() => {
+                        const block = aiSidebarCustomCodeBlockId
+                          ? findBlockInTree(editableBlocks, aiSidebarCustomCodeBlockId)?.block
+                          : null;
+                        const msgs =
+                          block && block.type === "customCode" && Array.isArray((block.props as any).chatJson)
+                            ? ((block.props as any).chatJson as BlockChatMessage[])
+                            : [];
+
+                        if (!msgs.length) {
+                          return (
+                            <div className="text-sm text-zinc-600">
+                              Ask for an embed or a custom section. Then follow up with edits.
+                            </div>
+                          );
+                        }
+
+                        return msgs.map((m, idx) => (
+                          <div
+                            key={idx}
+                            className={classNames(
+                              "rounded-xl px-3 py-2 text-sm",
+                              m.role === "user" ? "bg-blue-50 text-zinc-900" : "bg-zinc-50 text-zinc-800",
+                            )}
+                          >
+                            <div className="text-[10px] font-semibold uppercase tracking-wide text-zinc-500">{m.role}</div>
+                            <div className="mt-1 whitespace-pre-wrap break-words">{chatDisplayContent(m)}</div>
+                          </div>
+                        ));
+                      })()}
+                    </div>
+
+                    <textarea
+                      value={aiSidebarCustomCodePrompt}
+                      onChange={(e) => setAiSidebarCustomCodePrompt(e.target.value)}
+                      className="mt-3 min-h-[90px] w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                      placeholder="Describe what to build or change…"
+                    />
+
+                    <div className="mt-3 space-y-2">
+                      <div className="flex items-center justify-between gap-3">
+                        <div>
+                          <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Context</div>
+                          <div className="mt-1 text-xs text-zinc-500">Optional: add blocks/presets and media to guide the AI output.</div>
+                        </div>
+                        <button
+                          type="button"
+                          disabled={busy || aiSidebarCustomCodeBusy}
+                          onClick={() => setAiContextOpen(true)}
+                          className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-60"
+                        >
+                          Add context
+                        </button>
+                      </div>
+
+                      {aiContextKeys.length || aiContextMedia.length ? (
+                        <div className="flex flex-wrap gap-2">
+                          {aiContextKeys.map((k) => {
+                            const opt = aiContextOptions.find((o) => o.key === k);
+                            const label = opt?.label || k;
+                            return (
+                              <button
+                                key={k}
+                                type="button"
+                                disabled={busy || aiSidebarCustomCodeBusy}
+                                onClick={() => setAiContextKeys((prev) => (prev || []).filter((x) => x !== k))}
+                                className="inline-flex items-center gap-2 rounded-full border border-zinc-200 bg-white px-3 py-1.5 text-sm text-zinc-800 hover:bg-zinc-50"
+                                title="Click to remove"
+                              >
+                                <span className="font-semibold">{label}</span>
+                                <span className="text-zinc-400">×</span>
+                              </button>
+                            );
+                          })}
+
+                          {aiContextMedia.map((m) => {
+                            const label = (m.fileName || "").trim() || "Media";
+                            return (
+                              <button
+                                key={m.url}
+                                type="button"
+                                disabled={busy || aiSidebarCustomCodeBusy}
+                                onClick={() => setAiContextMedia((prev) => (prev || []).filter((x) => x.url !== m.url))}
+                                className="inline-flex items-center gap-2 rounded-full border border-zinc-200 bg-white px-3 py-1.5 text-sm text-zinc-800 hover:bg-zinc-50"
+                                title="Click to remove"
+                              >
+                                <span className="font-semibold">{label}</span>
+                                <span className="text-zinc-400">×</span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      ) : (
+                        <div className="text-sm text-zinc-600">No context selected.</div>
+                      )}
+                    </div>
+
+                    <div className="mt-3 flex gap-2">
+                      <button
+                        type="button"
+                        disabled={busy || aiSidebarCustomCodeBusy || !aiSidebarCustomCodePrompt.trim()}
+                        onClick={() => {
+                          void (async () => {
+                            if (!selectedPage) return;
+                            const prompt = aiSidebarCustomCodePrompt.trim();
+                            if (!prompt) return;
+
+                            setAiSidebarCustomCodeBusy(true);
+                            setError(null);
+                            try {
+                              const existingBlock = aiSidebarCustomCodeBlockId
+                                ? findBlockInTree(editableBlocks, aiSidebarCustomCodeBlockId)?.block
+                                : null;
+
+                              const currentHtml =
+                                existingBlock && existingBlock.type === "customCode"
+                                  ? String((existingBlock.props as any).html || "")
+                                  : "";
+                              const currentCss =
+                                existingBlock && existingBlock.type === "customCode"
+                                  ? String((existingBlock.props as any).css || "")
+                                  : "";
+
+                              const res = await fetch("/api/portal/funnel-builder/custom-code-block/generate", {
+                                method: "POST",
+                                headers: { "content-type": "application/json" },
+                                body: JSON.stringify({
+                                  funnelId,
+                                  pageId: selectedPage.id,
+                                  prompt,
+                                  currentHtml,
+                                  currentCss,
+                                  contextKeys: aiContextKeys,
+                                  contextMedia: aiContextMedia,
+                                }),
+                              });
+                              const json = (await res.json().catch(() => null)) as any;
+                              if (!res.ok || !json || json.ok !== true) throw new Error(json?.error || "Failed to generate code");
+
+                              const prevChat =
+                                existingBlock && existingBlock.type === "customCode" && Array.isArray((existingBlock.props as any).chatJson)
+                                  ? ((existingBlock.props as any).chatJson as BlockChatMessage[])
+                                  : [];
+
+                              const userMsg: BlockChatMessage = { role: "user", content: prompt, at: new Date().toISOString() };
+
+                              const question = typeof json?.question === "string" ? String(json.question).trim() : "";
+                              if (question) {
+                                const assistantMsg: BlockChatMessage = {
+                                  role: "assistant",
+                                  content: question,
+                                  at: new Date().toISOString(),
+                                };
+                                const nextChat = [...prevChat, userMsg, assistantMsg].slice(-40);
+
+                                if (existingBlock && existingBlock.type === "customCode") {
+                                  upsertBlock({
+                                    ...existingBlock,
+                                    props: {
+                                      ...(existingBlock.props as any),
+                                      chatJson: nextChat,
+                                    },
+                                  } as any);
+                                } else {
+                                  const id = newId();
+                                  insertBlock(
+                                    { id, type: "customCode", props: { html: "", css: "", heightPx: 360, chatJson: nextChat } as any } as any,
+                                    { select: false, sidebarPanel: "ai" },
+                                  );
+                                  setAiSidebarCustomCodeBlockId(id);
+                                }
+
+                                setAiSidebarCustomCodePrompt("");
+                                return;
+                              }
+
+                              const actions = Array.isArray(json?.actions) ? (json.actions as any[]) : [];
+                              if (actions.length) {
+                                const prevChat =
+                                  existingBlock && existingBlock.type === "customCode" && Array.isArray((existingBlock.props as any).chatJson)
+                                    ? ((existingBlock.props as any).chatJson as BlockChatMessage[])
+                                    : [];
+
+                                const actionSummaries = actions.slice(0, 6).map((a) => {
+                                  if (!a || typeof a !== "object") return null;
+                                  const t = typeof (a as any).type === "string" ? String((a as any).type) : "";
+                                  if (t === "insertPresetAfter") {
+                                    const preset = typeof (a as any).preset === "string" ? String((a as any).preset) : "";
+                                    return preset ? `- Insert preset: ${preset}` : "- Insert preset";
+                                  }
+                                  if (t === "insertAfter") {
+                                    const blockType = typeof (a as any)?.block?.type === "string" ? String((a as any).block.type) : "";
+                                    return blockType ? `- Insert block: ${blockType}` : "- Insert block";
+                                  }
+                                  return t ? `- ${t}` : null;
+                                });
+
+                                const userMsg: BlockChatMessage = { role: "user", content: prompt, at: new Date().toISOString() };
+                                const assistantMsg: BlockChatMessage = {
+                                  role: "assistant",
+                                  content: [pickRandom(AI_BLOCK_ACTIONS_VARIANTS), actionSummaries.filter(Boolean).join("\n")]
+                                    .filter(Boolean)
+                                    .join("\n"),
+                                  at: new Date().toISOString(),
+                                };
+
+                                const nextChat = [...prevChat, userMsg, assistantMsg].slice(-40);
+
+                                const s = (v: unknown, max = 240) => (typeof v === "string" ? v : "").trim().slice(0, max);
+
+                                const isSafeHref = (href: string) => {
+                                  const raw = String(href || "").trim();
+                                  if (!raw) return false;
+                                  if (raw.startsWith("/") || raw.startsWith("#")) return true;
+                                  try {
+                                    const u = new URL(raw);
+                                    return ["http:", "https:", "mailto:", "tel:"].includes(u.protocol);
+                                  } catch {
+                                    return false;
+                                  }
+                                };
+
+                                const coerceAiBlock = (rawBlock: any): CreditFunnelBlock | null => {
+                                  const type = s(rawBlock?.type, 40);
+                                  const props =
+                                    rawBlock?.props && typeof rawBlock.props === "object" && !Array.isArray(rawBlock.props)
+                                      ? rawBlock.props
+                                      : {};
+                                  const id = newId();
+                                  const style = coerceBlockStyle((props as any).style);
+
+                                  if (type === "chatbot") {
+                                    const agentId = s((props as any).agentId, 140);
+                                    return {
+                                      id,
+                                      type: "chatbot",
+                                      props: {
+                                        agentId: agentId || String(aiReceptionistChatAgentId || "").trim(),
+                                        primaryColor: s((props as any).primaryColor, 40) || "#1d4ed8",
+                                        launcherStyle:
+                                          (props as any).launcherStyle === "dots"
+                                            ? "dots"
+                                            : (props as any).launcherStyle === "spark"
+                                              ? "spark"
+                                              : "bubble",
+                                        launcherImageUrl: s((props as any).launcherImageUrl, 800) || "",
+                                        placementX:
+                                          (props as any).placementX === "left"
+                                            ? "left"
+                                            : (props as any).placementX === "center"
+                                              ? "center"
+                                              : "right",
+                                        placementY:
+                                          (props as any).placementY === "top"
+                                            ? "top"
+                                            : (props as any).placementY === "middle"
+                                              ? "middle"
+                                              : "bottom",
+                                        ...(style ? { style } : null),
+                                      } as any,
+                                    };
+                                  }
+
+                                  if (type === "image") {
+                                    const src = s((props as any).src, 1200);
+                                    return {
+                                      id,
+                                      type: "image",
+                                      props: {
+                                        src,
+                                        alt: s((props as any).alt, 200),
+                                        ...(style ? { style } : null),
+                                      },
+                                    };
+                                  }
+
+                                  if (type === "heading") {
+                                    const text = s((props as any).text, 240) || "Heading";
+                                    const level = [1, 2, 3].includes(Number((props as any).level))
+                                      ? (Number((props as any).level) as 1 | 2 | 3)
+                                      : 2;
+                                    return { id, type: "heading", props: { text, level, ...(style ? { style } : null) } } as any;
+                                  }
+
+                                  if (type === "paragraph") {
+                                    const text = s((props as any).text, 2000) || "";
+                                    if (!text) return null;
+                                    return { id, type: "paragraph", props: { text, ...(style ? { style } : null) } } as any;
+                                  }
+
+                                  if (type === "button") {
+                                    const text = s((props as any).text, 120) || "Click";
+                                    const hrefRaw = s((props as any).href, 800) || "#";
+                                    const href = isSafeHref(hrefRaw) ? hrefRaw : "#";
+                                    const variant = (props as any).variant === "secondary" ? "secondary" : "primary";
+                                    return { id, type: "button", props: { text, href, variant, ...(style ? { style } : null) } } as any;
+                                  }
+
+                                  if (type === "spacer") {
+                                    const heightNum = Number((props as any).height);
+                                    const height = Number.isFinite(heightNum) ? Math.max(0, Math.min(240, heightNum)) : 24;
+                                    return { id, type: "spacer", props: { height, ...(style ? { style } : null) } } as any;
+                                  }
+
+                                  if (type === "formLink") {
+                                    const formSlug = s((props as any).formSlug, 160);
+                                    if (!formSlug) return null;
+                                    const text = s((props as any).text, 120) || "Open form";
+                                    return { id, type: "formLink", props: { formSlug, text, ...(style ? { style } : null) } } as any;
+                                  }
+
+                                  if (type === "formEmbed") {
+                                    const formSlug = s((props as any).formSlug, 160);
+                                    if (!formSlug) return null;
+                                    const heightNum = Number((props as any).height);
+                                    const height = Number.isFinite(heightNum) ? Math.max(120, Math.min(1600, heightNum)) : undefined;
+                                    return {
+                                      id,
+                                      type: "formEmbed",
+                                      props: {
+                                        formSlug,
+                                        ...(typeof height === "number" ? { height } : {}),
+                                        ...(style ? { style } : null),
+                                      },
+                                    } as any;
+                                  }
+
+                                  if (type === "calendarEmbed") {
+                                    const calendarId = s((props as any).calendarId, 160);
+                                    if (!calendarId) return null;
+                                    const heightNum = Number((props as any).height);
+                                    const height = Number.isFinite(heightNum) ? Math.max(120, Math.min(1600, heightNum)) : undefined;
+                                    return {
+                                      id,
+                                      type: "calendarEmbed",
+                                      props: {
+                                        calendarId,
+                                        ...(typeof height === "number" ? { height } : {}),
+                                        ...(style ? { style } : null),
+                                      },
+                                    } as any;
+                                  }
+
+                                  if (type === "salesCheckoutButton") {
+                                    const priceId = s((props as any).priceId, 140);
+                                    const qtyNum = Number((props as any).quantity);
+                                    const quantity = Number.isFinite(qtyNum) ? Math.max(1, Math.min(20, Math.floor(qtyNum))) : 1;
+                                    const text = s((props as any).text, 120) || "Buy now";
+                                    return { id, type: "salesCheckoutButton", props: { text, priceId, quantity, ...(style ? { style } : null) } } as any;
+                                  }
+
+                                  return null;
+                                };
+
+                                const insertAfterAnchor = (
+                                  blocks: CreditFunnelBlock[],
+                                  anchorId: string,
+                                  block: CreditFunnelBlock,
+                                ): CreditFunnelBlock[] => {
+                                  const container = anchorId ? findContainerForBlock(blocks, anchorId) : null;
+                                  if (anchorId && container && container.key !== "root") {
+                                    const containerBlock = findBlockInTree(blocks, container.sectionId)?.block;
+                                    if (containerBlock && (containerBlock.type === "section" || containerBlock.type === "columns")) {
+                                      const props: any = (containerBlock as any).props;
+                                      if (containerBlock.type === "columns" && container.key === "columnChildren") {
+                                        const cols = Array.isArray(props.columns) ? (props.columns as any[]) : [];
+                                        const col = cols[container.columnIndex];
+                                        const arr =
+                                          col && typeof col === "object" && Array.isArray((col as any).children)
+                                            ? ((col as any).children as CreditFunnelBlock[])
+                                            : [];
+                                        const idx = arr.findIndex((b) => b.id === anchorId);
+                                        const nextArr = [...arr];
+                                        nextArr.splice(idx >= 0 ? idx + 1 : nextArr.length, 0, block);
+                                        const nextCols = cols.map((c, i) => (i === container.columnIndex ? { ...(c || {}), children: nextArr } : c));
+                                        const nextContainer: CreditFunnelBlock = {
+                                          ...(containerBlock as any),
+                                          props: { ...props, columns: nextCols },
+                                        } as any;
+                                        return replaceBlockInTree(blocks, nextContainer);
+                                      }
+
+                                      const arr = Array.isArray(props[container.key]) ? (props[container.key] as CreditFunnelBlock[]) : [];
+                                      const idx = arr.findIndex((b) => b.id === anchorId);
+                                      const nextArr = [...arr];
+                                      nextArr.splice(idx >= 0 ? idx + 1 : nextArr.length, 0, block);
+                                      const nextContainer: CreditFunnelBlock = {
+                                        ...(containerBlock as any),
+                                        props: { ...props, [container.key]: nextArr },
+                                      } as any;
+                                      return replaceBlockInTree(blocks, nextContainer);
+                                    }
+                                  }
+
+                                  if (anchorId && container?.key === "root") {
+                                    const idx = blocks.findIndex((b) => b.id === anchorId);
+                                    if (idx >= 0) {
+                                      const next = [...blocks];
+                                      next.splice(idx + 1, 0, block);
+                                      return next;
+                                    }
+                                  }
+
+                                  return [...blocks, block];
+                                };
+
+                                const insertCustomCodeBlock = (base: CreditFunnelBlock): CreditFunnelBlock[] => {
+                                  const selectedContainer = selectedBlockId
+                                    ? findContainerForBlock(editableBlocks, selectedBlockId)
+                                    : null;
+
+                                  if (selectedBlock && selectedBlock.type === "section") {
+                                    const section = selectedBlock as any;
+                                    const key: any = section.props?.layout === "two" ? "leftChildren" : "children";
+                                    const nextSection: CreditFunnelBlock = {
+                                      ...section,
+                                      props: {
+                                        ...section.props,
+                                        [key]: [...(Array.isArray(section.props?.[key]) ? section.props[key] : []), base],
+                                      },
+                                    };
+                                    return replaceBlockInTree(editableBlocks, nextSection);
+                                  }
+
+                                  if (selectedBlockId && selectedContainer && selectedContainer.key !== "root") {
+                                    const containerBlock = findBlockInTree(editableBlocks, selectedContainer.sectionId)?.block;
+                                    if (containerBlock && (containerBlock.type === "section" || containerBlock.type === "columns")) {
+                                      const props: any = (containerBlock as any).props;
+                                      if (containerBlock.type === "columns" && selectedContainer.key === "columnChildren") {
+                                        const cols = Array.isArray(props.columns) ? (props.columns as any[]) : [];
+                                        const col = cols[selectedContainer.columnIndex];
+                                        const arr =
+                                          col && typeof col === "object" && Array.isArray((col as any).children)
+                                            ? ((col as any).children as CreditFunnelBlock[])
+                                            : [];
+                                        const idx = arr.findIndex((b) => b.id === selectedBlockId);
+                                        const nextArr = [...arr];
+                                        nextArr.splice(idx >= 0 ? idx + 1 : nextArr.length, 0, base);
+                                        const nextCols = cols.map((c, i) =>
+                                          i === selectedContainer.columnIndex ? { ...(c || {}), children: nextArr } : c,
+                                        );
+                                        const nextContainer: CreditFunnelBlock = {
+                                          ...containerBlock,
+                                          props: { ...props, columns: nextCols },
+                                        } as any;
+                                        return replaceBlockInTree(editableBlocks, nextContainer);
+                                      }
+
+                                      const arr = Array.isArray(props[selectedContainer.key])
+                                        ? (props[selectedContainer.key] as CreditFunnelBlock[])
+                                        : [];
+                                      const idx = arr.findIndex((b) => b.id === selectedBlockId);
+                                      const nextArr = [...arr];
+                                      nextArr.splice(idx >= 0 ? idx + 1 : nextArr.length, 0, base);
+                                      const nextContainer: CreditFunnelBlock = {
+                                        ...containerBlock,
+                                        props: { ...props, [selectedContainer.key]: nextArr },
+                                      } as any;
+                                      return replaceBlockInTree(editableBlocks, nextContainer);
+                                    }
+                                  }
+
+                                  if (selectedBlockId && selectedContainer?.key === "root") {
+                                    const idx = editableBlocks.findIndex((b) => b.id === selectedBlockId);
+                                    if (idx >= 0) {
+                                      const next = [...editableBlocks];
+                                      next.splice(idx + 1, 0, base);
+                                      return next;
+                                    }
+                                  }
+
+                                  return [...editableBlocks, base];
+                                };
+
+                                const customCodeId =
+                                  existingBlock && existingBlock.type === "customCode" ? existingBlock.id : newId();
+
+                                const updatedCustomCodeBlock: CreditFunnelBlock =
+                                  existingBlock && existingBlock.type === "customCode"
+                                    ? ({
+                                        ...existingBlock,
+                                        props: {
+                                          ...(existingBlock.props as any),
+                                          chatJson: nextChat,
+                                        },
+                                      } as any)
+                                    : ({
+                                        id: customCodeId,
+                                        type: "customCode",
+                                        props: { html: "", css: "", heightPx: 360, chatJson: nextChat } as any,
+                                      } as any);
+
+                                let nextEditable =
+                                  existingBlock && existingBlock.type === "customCode"
+                                    ? replaceBlockInTree(editableBlocks, updatedCustomCodeBlock)
+                                    : insertCustomCodeBlock(updatedCustomCodeBlock);
+
+                                let anchorId = customCodeId;
+                                const insertedIds: string[] = [];
+
+                                for (const a of actions.slice(0, 6)) {
+                                  if (!a || typeof a.type !== "string") continue;
+                                  if (a.type === "insertAfter") {
+                                    const nextBlock = coerceAiBlock((a as any).block);
+                                    if (!nextBlock) continue;
+                                    nextEditable = insertAfterAnchor(nextEditable, anchorId, nextBlock);
+                                    anchorId = nextBlock.id;
+                                    insertedIds.push(nextBlock.id);
+                                    continue;
+                                  }
+
+                                  if (a.type === "insertPresetAfter") {
+                                    const preset = String((a as any).preset || "").trim();
+                                    if (preset !== "hero" && preset !== "body" && preset !== "form" && preset !== "shop") continue;
+                                    const presetBlocks = buildPresetBlocks(preset as any);
+                                    for (const b of presetBlocks.slice(0, 3)) {
+                                      nextEditable = insertAfterAnchor(nextEditable, anchorId, b);
+                                      anchorId = b.id;
+                                      insertedIds.push(b.id);
+                                    }
+                                  }
+                                }
+
+                                setSelectedPageLocal({
+                                  editorMode: "BLOCKS",
+                                  blocksJson: pageSettingsBlock ? [pageSettingsBlock, ...nextEditable] : nextEditable,
+                                });
+
+                                setAiSidebarCustomCodeBlockId(customCodeId);
+
+                                if (insertedIds[0]) {
+                                  setSelectedBlockId(insertedIds[0]);
+                                  setSidebarPanel("selected");
+                                  toast.success(`Added ${insertedIds.length} block${insertedIds.length === 1 ? "" : "s"}`);
+                                }
+
+                                setAiSidebarCustomCodePrompt("");
+                                return;
+                              }
+
+                              const nextHtml = typeof json.html === "string" ? json.html : "";
+                              const nextCss = typeof json.css === "string" ? json.css : "";
+                              const assistantMsg: BlockChatMessage = {
+                                role: "assistant",
+                                content: nextHtml || nextCss ? pickRandom(AI_BLOCK_UPDATED_VARIANTS) : "No changes returned.",
+                                at: new Date().toISOString(),
+                              };
+                              const nextChat = [...prevChat, userMsg, assistantMsg].slice(-40);
+
+                              if (existingBlock && existingBlock.type === "customCode") {
+                                upsertBlock({
+                                  ...existingBlock,
+                                  props: {
+                                    ...(existingBlock.props as any),
+                                    html: nextHtml,
+                                    css: nextCss,
+                                    chatJson: nextChat,
+                                  },
+                                } as any);
+                              } else {
+                                const id = newId();
+                                insertBlock(
+                                  {
+                                    id,
+                                    type: "customCode",
+                                    props: { html: nextHtml, css: nextCss, heightPx: 360, chatJson: nextChat } as any,
+                                  } as any,
+                                  { select: false, sidebarPanel: "ai" },
+                                );
+                                setAiSidebarCustomCodeBlockId(id);
+                              }
+
+                              setAiSidebarCustomCodePrompt("");
+                            } catch (e) {
+                              const msg = (e as any)?.message ? String((e as any).message) : "Failed to generate code";
+                              setError(msg);
+                              toast.error(msg);
+                            } finally {
+                              setAiSidebarCustomCodeBusy(false);
+                            }
+                          })();
+                        }}
+                        className={classNames(
+                          "flex-1 inline-flex items-center justify-center gap-2 rounded-2xl px-4 py-2 text-sm font-semibold text-white",
+                          busy || aiSidebarCustomCodeBusy || !aiSidebarCustomCodePrompt.trim()
+                            ? "bg-zinc-400"
+                            : "bg-linear-to-r from-[color:var(--color-brand-blue)] via-violet-500 to-[color:var(--color-brand-pink)] hover:opacity-90 shadow-sm",
+                        )}
+                      >
+                        <AiSparkIcon className="h-4 w-4" />
+                        <span>{aiSidebarCustomCodeBusy ? "Working…" : "Ask AI"}</span>
+                      </button>
+                      <button
+                        type="button"
+                        disabled={busy || aiSidebarCustomCodeBusy}
+                        onClick={() => {
+                          setAiSidebarCustomCodePrompt("");
+
+                          const existingBlock = aiSidebarCustomCodeBlockId
+                            ? findBlockInTree(editableBlocks, aiSidebarCustomCodeBlockId)?.block
+                            : null;
+                          if (existingBlock && existingBlock.type === "customCode") {
+                            upsertBlock({
+                              ...existingBlock,
+                              props: { ...(existingBlock.props as any), chatJson: [] },
+                            } as any);
+                          }
+                        }}
+                        className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-60"
+                      >
+                        Clear
+                      </button>
+                    </div>
+
+                    {(() => {
+                      const block = aiSidebarCustomCodeBlockId
+                        ? findBlockInTree(editableBlocks, aiSidebarCustomCodeBlockId)?.block
+                        : null;
+                      if (!block || block.type !== "customCode") return null;
+                      return (
+                        <div className="mt-3 space-y-2">
+                          <label className="block">
+                            <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Height (px)</div>
+                            <input
+                              type="number"
+                              value={String((block.props as any).heightPx ?? 360)}
+                              onChange={(e) =>
+                                upsertBlock({
+                                  ...block,
+                                  props: { ...(block.props as any), heightPx: Number(e.target.value) || 0 },
+                                } as any)
+                              }
+                              className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                              placeholder="360"
+                            />
+                          </label>
+
+                          <label className="block">
+                            <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">HTML</div>
+                            <textarea
+                              value={String((block.props as any).html || "")}
+                              onChange={(e) =>
+                                upsertBlock({
+                                  ...block,
+                                  props: { ...(block.props as any), html: e.target.value },
+                                } as any)
+                              }
+                              className="min-h-[120px] w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 font-mono text-xs"
+                              placeholder="<div>Hello world</div>"
+                            />
+                          </label>
+
+                          <label className="block">
+                            <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">CSS (optional)</div>
+                            <textarea
+                              value={String((block.props as any).css || "")}
+                              onChange={(e) =>
+                                upsertBlock({
+                                  ...block,
+                                  props: { ...(block.props as any), css: e.target.value },
+                                } as any)
+                              }
+                              className="min-h-[100px] w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 font-mono text-xs"
+                              placeholder=".container { max-width: 900px; }"
+                            />
+                          </label>
+                        </div>
+                      );
+                    })()}
+                  </div>
                 </div>
               ) : null}
 
@@ -5534,6 +6315,64 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                               className="mt-3 min-h-[90px] w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
                               placeholder="Describe what to build or change…"
                             />
+
+                            <div className="mt-3 space-y-2">
+                              <div className="flex items-center justify-between gap-3">
+                                <div>
+                                  <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Context</div>
+                                  <div className="mt-1 text-xs text-zinc-500">Optional: add blocks/presets and media to guide the AI output.</div>
+                                </div>
+                                <button
+                                  type="button"
+                                  disabled={busy || customCodeBlockBusy}
+                                  onClick={() => setAiContextOpen(true)}
+                                  className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-60"
+                                >
+                                  Add context
+                                </button>
+                              </div>
+
+                              {aiContextKeys.length || aiContextMedia.length ? (
+                                <div className="flex flex-wrap gap-2">
+                                  {aiContextKeys.map((k) => {
+                                    const opt = aiContextOptions.find((o) => o.key === k);
+                                    const label = opt?.label || k;
+                                    return (
+                                      <button
+                                        key={k}
+                                        type="button"
+                                        disabled={busy || customCodeBlockBusy}
+                                        onClick={() => setAiContextKeys((prev) => (prev || []).filter((x) => x !== k))}
+                                        className="inline-flex items-center gap-2 rounded-full border border-zinc-200 bg-white px-3 py-1.5 text-sm text-zinc-800 hover:bg-zinc-50"
+                                        title="Click to remove"
+                                      >
+                                        <span className="font-semibold">{label}</span>
+                                        <span className="text-zinc-400">×</span>
+                                      </button>
+                                    );
+                                  })}
+
+                                  {aiContextMedia.map((m) => {
+                                    const label = (m.fileName || "").trim() || "Media";
+                                    return (
+                                      <button
+                                        key={m.url}
+                                        type="button"
+                                        disabled={busy || customCodeBlockBusy}
+                                        onClick={() => setAiContextMedia((prev) => (prev || []).filter((x) => x.url !== m.url))}
+                                        className="inline-flex items-center gap-2 rounded-full border border-zinc-200 bg-white px-3 py-1.5 text-sm text-zinc-800 hover:bg-zinc-50"
+                                        title="Click to remove"
+                                      >
+                                        <span className="font-semibold">{label}</span>
+                                        <span className="text-zinc-400">×</span>
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                              ) : (
+                                <div className="text-sm text-zinc-600">No context selected.</div>
+                              )}
+                            </div>
 
                             <div className="mt-3 flex gap-2">
                               <button
@@ -5643,6 +6482,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                                           const type = s(rawBlock?.type, 40);
                                           const props = rawBlock?.props && typeof rawBlock.props === "object" && !Array.isArray(rawBlock.props) ? rawBlock.props : {};
                                           const id = newId();
+                                          const style = coerceBlockStyle((props as any).style);
 
                                           if (type === "chatbot") {
                                             const agentId = s((props as any).agentId, 140);
@@ -5671,6 +6511,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                                                     : (props as any).placementY === "middle"
                                                       ? "middle"
                                                       : "bottom",
+                                                ...(style ? { style } : null),
                                               } as any,
                                             };
                                           }
@@ -5683,6 +6524,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                                               props: {
                                                 src,
                                                 alt: s((props as any).alt, 200),
+                                                ...(style ? { style } : null),
                                               },
                                             };
                                           }
@@ -5692,13 +6534,13 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                                             const level = [1, 2, 3].includes(Number((props as any).level))
                                               ? (Number((props as any).level) as 1 | 2 | 3)
                                               : 2;
-                                            return { id, type: "heading", props: { text, level } } as any;
+                                            return { id, type: "heading", props: { text, level, ...(style ? { style } : null) } } as any;
                                           }
 
                                           if (type === "paragraph") {
                                             const text = s((props as any).text, 2000) || "";
                                             if (!text) return null;
-                                            return { id, type: "paragraph", props: { text } } as any;
+                                            return { id, type: "paragraph", props: { text, ...(style ? { style } : null) } } as any;
                                           }
 
                                           if (type === "button") {
@@ -5706,20 +6548,20 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                                             const hrefRaw = s((props as any).href, 800) || "#";
                                             const href = isSafeHref(hrefRaw) ? hrefRaw : "#";
                                             const variant = (props as any).variant === "secondary" ? "secondary" : "primary";
-                                            return { id, type: "button", props: { text, href, variant } } as any;
+                                            return { id, type: "button", props: { text, href, variant, ...(style ? { style } : null) } } as any;
                                           }
 
                                           if (type === "spacer") {
                                             const heightNum = Number((props as any).height);
                                             const height = Number.isFinite(heightNum) ? Math.max(0, Math.min(240, heightNum)) : 24;
-                                            return { id, type: "spacer", props: { height } } as any;
+                                            return { id, type: "spacer", props: { height, ...(style ? { style } : null) } } as any;
                                           }
 
                                           if (type === "formLink") {
                                             const formSlug = s((props as any).formSlug, 160);
                                             if (!formSlug) return null;
                                             const text = s((props as any).text, 120) || "Open form";
-                                            return { id, type: "formLink", props: { formSlug, text } } as any;
+                                            return { id, type: "formLink", props: { formSlug, text, ...(style ? { style } : null) } } as any;
                                           }
 
                                           if (type === "formEmbed") {
@@ -5727,7 +6569,15 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                                             if (!formSlug) return null;
                                             const heightNum = Number((props as any).height);
                                             const height = Number.isFinite(heightNum) ? Math.max(120, Math.min(1600, heightNum)) : undefined;
-                                            return { id, type: "formEmbed", props: { formSlug, ...(typeof height === "number" ? { height } : {}) } } as any;
+                                            return {
+                                              id,
+                                              type: "formEmbed",
+                                              props: {
+                                                formSlug,
+                                                ...(typeof height === "number" ? { height } : {}),
+                                                ...(style ? { style } : null),
+                                              },
+                                            } as any;
                                           }
 
                                           if (type === "calendarEmbed") {
@@ -5735,7 +6585,15 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                                             if (!calendarId) return null;
                                             const heightNum = Number((props as any).height);
                                             const height = Number.isFinite(heightNum) ? Math.max(120, Math.min(1600, heightNum)) : undefined;
-                                            return { id, type: "calendarEmbed", props: { calendarId, ...(typeof height === "number" ? { height } : {}) } } as any;
+                                            return {
+                                              id,
+                                              type: "calendarEmbed",
+                                              props: {
+                                                calendarId,
+                                                ...(typeof height === "number" ? { height } : {}),
+                                                ...(style ? { style } : null),
+                                              },
+                                            } as any;
                                           }
 
                                           if (type === "salesCheckoutButton") {
@@ -5743,7 +6601,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                                             const qtyNum = Number((props as any).quantity);
                                             const quantity = Number.isFinite(qtyNum) ? Math.max(1, Math.min(20, Math.floor(qtyNum))) : 1;
                                             const text = s((props as any).text, 120) || "Buy now";
-                                            return { id, type: "salesCheckoutButton", props: { text, priceId, quantity } } as any;
+                                            return { id, type: "salesCheckoutButton", props: { text, priceId, quantity, ...(style ? { style } : null) } } as any;
                                           }
 
                                           return null;

@@ -85,6 +85,13 @@ function writeCart(pageId: string, items: FunnelCartItem[]): void {
 function subscribe(pageId: string, cb: () => void): () => void {
   if (typeof window === "undefined") return () => {};
 
+  let localStorageRef: Storage | null = null;
+  try {
+    localStorageRef = window.localStorage;
+  } catch {
+    localStorageRef = null;
+  }
+
   const onCustom = (e: Event) => {
     const any = e as any;
     const changedPageId = any?.detail?.pageId;
@@ -93,9 +100,13 @@ function subscribe(pageId: string, cb: () => void): () => void {
   };
 
   const onStorage = (e: StorageEvent) => {
-    if (e.storageArea !== window.localStorage) return;
-    if (e.key !== storageKey(pageId)) return;
-    cb();
+    try {
+      if (localStorageRef && e.storageArea !== localStorageRef) return;
+      if (e.key !== storageKey(pageId)) return;
+      cb();
+    } catch {
+      // ignore
+    }
   };
 
   window.addEventListener(CART_EVENT, onCustom as any);

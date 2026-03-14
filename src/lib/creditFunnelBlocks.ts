@@ -1,6 +1,7 @@
 import React from "react";
 
 import { ConvaiChatWidget } from "@/components/ConvaiChatWidget";
+import { SafeClientBoundary } from "@/components/SafeClientBoundary";
 import { AddToCartButton } from "@/components/funnel/AddToCartButton";
 import { CartButton } from "@/components/funnel/CartButton";
 import {
@@ -1484,14 +1485,18 @@ export function renderCreditFunnelBlocks({
                   : null,
               )
             : null,
-          React.createElement(SalesCheckoutButton, {
-            pageId,
-            priceId,
-            quantity,
-            text,
-            disabled: isEditor,
-            style: Object.keys(btnStyle).some((k) => (btnStyle as any)[k] !== undefined) ? btnStyle : undefined,
-          }),
+          React.createElement(
+            SafeClientBoundary,
+            { name: "Sales checkout button" },
+            React.createElement(SalesCheckoutButton, {
+              pageId,
+              priceId,
+              quantity,
+              text,
+              disabled: isEditor,
+              style: Object.keys(btnStyle).some((k) => (btnStyle as any)[k] !== undefined) ? btnStyle : undefined,
+            }),
+          ),
         );
       }
 
@@ -1662,16 +1667,20 @@ export function renderCreditFunnelBlocks({
                   : null,
               )
             : null,
-          React.createElement(AddToCartButton, {
-            pageId,
-            priceId,
-            quantity,
-            productName,
-            productDescription,
-            text,
-            disabled: isEditor,
-            style: Object.keys(btnStyle).some((k) => (btnStyle as any)[k] !== undefined) ? btnStyle : undefined,
-          }),
+          React.createElement(
+            SafeClientBoundary,
+            { name: "Add to cart button" },
+            React.createElement(AddToCartButton, {
+              pageId,
+              priceId,
+              quantity,
+              productName,
+              productDescription,
+              text,
+              disabled: isEditor,
+              style: Object.keys(btnStyle).some((k) => (btnStyle as any)[k] !== undefined) ? btnStyle : undefined,
+            }),
+          ),
         );
       }
 
@@ -1716,12 +1725,16 @@ export function renderCreditFunnelBlocks({
             ...wrapProps(b.id),
           },
           renderMoveControls(b.id),
-          React.createElement(CartButton, {
-            pageId,
-            text,
-            disabled: isEditor,
-            style: Object.keys(btnStyle).some((k) => (btnStyle as any)[k] !== undefined) ? btnStyle : undefined,
-          }),
+          React.createElement(
+            SafeClientBoundary,
+            { name: "Cart button" },
+            React.createElement(CartButton, {
+              pageId,
+              text,
+              disabled: isEditor,
+              style: Object.keys(btnStyle).some((k) => (btnStyle as any)[k] !== undefined) ? btnStyle : undefined,
+            }),
+          ),
         );
       }
 
@@ -1823,18 +1836,22 @@ export function renderCreditFunnelBlocks({
             style: { ...wrapperStyle(b.props.style), ...(blockWrapStyle(b.id) || {}) },
             ...wrapProps(b.id),
           },
-          React.createElement(ConvaiChatWidget, {
-            agentId,
-            signedUrlEndpoint: "/api/public/elevenlabs/convai/signed-url",
-            positioning: "fixed",
-            placementX,
-            placementY,
-            primaryColor: (b.props as any)?.primaryColor,
-            launcherStyle: (b.props as any)?.launcherStyle,
-            launcherImageUrl: (b.props as any)?.launcherImageUrl,
-            panelTitle: "Chat",
-            panelSubtitle: "Message us",
-          }),
+          React.createElement(
+            SafeClientBoundary,
+            { name: "Chatbot widget" },
+            React.createElement(ConvaiChatWidget, {
+              agentId,
+              signedUrlEndpoint: "/api/public/elevenlabs/convai/signed-url",
+              positioning: "fixed",
+              placementX,
+              placementY,
+              primaryColor: (b.props as any)?.primaryColor,
+              launcherStyle: (b.props as any)?.launcherStyle,
+              launcherImageUrl: (b.props as any)?.launcherImageUrl,
+              panelTitle: "Chat",
+              panelSubtitle: "Message us",
+            }),
+          ),
         );
       }
 

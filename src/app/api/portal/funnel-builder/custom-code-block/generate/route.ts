@@ -342,6 +342,71 @@ function extractFence(text: string, lang: string): string {
   return m?.[1] ? m[1].trim() : "";
 }
 
+function hasPlaceholderOrPortalLinks(html: string, css: string) {
+  const blob = `${String(html || "")}\n${String(css || "")}`;
+  const lower = blob.toLowerCase();
+  if (!lower.trim()) return false;
+
+  // Common placeholder patterns the model should never emit.
+  if (/\byour_[a-z0-9_\-]+_here\b/i.test(blob)) return true;
+  if (/\byour_[a-z0-9_\-]+_link_here\b/i.test(blob)) return true;
+  if (lower.includes("your_calendar_embed_link_here")) return true;
+  if (lower.includes("your_chatbot_link_here")) return true;
+
+  // Internal portal routes do not exist on public funnels.
+  if (lower.includes("/portal/")) return true;
+
+  return false;
+}
+
+function inferForcedActionsFromIntent(opts: {
+  prompt: string;
+  html: string;
+  forms: Array<{ slug: string; name: string; status: string }>;
+  calendars: Array<{ id: string; enabled: boolean; title: string }>;
+  hasStripeProducts: boolean;
+}) {
+  const prompt = String(opts.prompt || "");
+  const html = String(opts.html || "");
+  const haystack = `${prompt}\n${html}`.toLowerCase();
+
+  const wantsCalendar =
+    /\b(calendar|booking|book\b|schedule|appointment|appoint)\b/i.test(haystack) ||
+    haystack.includes("your_calendar_embed_link_here");
+  const wantsForm =
+    /\b(form|application|apply\b|intake|questionnaire|survey)\b/i.test(haystack) ||
+    haystack.includes("/portal/forms/");
+  const wantsChatbot = /\b(chatbot|chat widget|live chat|ai chat)\b/i.test(haystack) || haystack.includes("your_chatbot_link_here");
+
+  // Only force shop preset when the user is clearly asking for a commerce integration.
+  const wantsShop =
+    /\b(add to cart|cart\b|checkout\b|buy now|purchase\b|stripe\b|shop\b|store\b)\b/i.test(haystack) &&
+    (opts.hasStripeProducts || /\b(stripe|checkout|add to cart|cart)\b/i.test(haystack));
+
+  const actions: Array<any> = [];
+
+  if (wantsShop) {
+    actions.push({ type: "insertPresetAfter", preset: "shop" });
+  }
+
+  if (wantsForm) {
+    const formSlug = pickDefaultFormSlug(opts.forms);
+    if (formSlug) actions.push({ type: "insertAfter", block: { type: "formEmbed", props: { formSlug, height: 720 } } });
+  }
+
+  if (wantsCalendar) {
+    const calendarId = pickDefaultCalendarId(opts.calendars);
+    if (calendarId)
+      actions.push({ type: "insertAfter", block: { type: "calendarEmbed", props: { calendarId, height: 780 } } });
+  }
+
+  if (wantsChatbot) {
+    actions.push({ type: "insertAfter", block: { type: "chatbot", props: {} } });
+  }
+
+  return actions.length ? actions.slice(0, 6) : null;
+}
+
 function toAbsoluteUrl(req: Request, url: string): string {
   const u = String(url || "").trim();
   if (!u) return "";
@@ -571,6 +636,8 @@ export async function POST(req: Request) {
     "- No external JS/CSS, no frameworks.",
     "- Prefer semantic HTML and classes; keep it minimal.",
     "- Make it safe to embed inside an existing page.",
+    "- Do NOT output placeholder URLs (e.g. 'your_calendar_embed_link_here'). If you don't have a real URL, ask a question or return JSON actions.",
+    "- Do NOT link to /portal/* routes. Those do not exist on hosted funnels.",
     `- Links should keep the user inside ${basePath}.`,
     "Integration:",
     `- This page is hosted at: ${basePath}/f/${page.funnel.slug}`,
@@ -604,7 +671,9 @@ export async function POST(req: Request) {
     "Rules:",
     "- If user says 'embed my calendar' or anything about booking/scheduling, prefer output='actions' with a calendarEmbed block.",
     "- If user says 'embed my form' or anything about forms, prefer output='actions' with a formEmbed (or formLink if they want a link).",
+    "- If user asks for a chatbot/chat widget, prefer output='actions' with a chatbot block.",
     "- If user asks for a shop/store/product list, prefer output='actions' with an insertPresetAfter preset='shop'.",
+    "- If user mentions cart/checkout/add-to-cart/Stripe, prefer output='actions' with preset='shop' (do NOT generate a fake shop in HTML).",
     "- For calendarEmbed, props must include { calendar: { pick: 'default'|'byId'|'byTitle', value? }, height?, style? }.",
     "- For formEmbed/formLink, props must include { form: { pick: 'default'|'bySlug'|'byName', value? }, ... }.",
     "- Use pick='default' for 'my calendar'/'my form' when no specific name/slug is provided.",
@@ -771,6 +840,35 @@ export async function POST(req: Request) {
 
   if (!html.trim()) {
     return NextResponse.json({ ok: false, error: "AI returned empty HTML" }, { status: 502 });
+  }
+
+  // Final guardrail: if the model emitted placeholders or portal-only URLs, or if intent is clearly
+  // better represented as blocks, force actions instead of returning broken HTML.
+  const shouldForceActions =
+    hasPlaceholderOrPortalLinks(html, css) ||
+    /\b(chatbot|calendar|booking|schedule|form|cart|checkout|add to cart|stripe|shop|store)\b/i.test(prompt);
+
+  if (shouldForceActions) {
+    const forced = inferForcedActionsFromIntent({
+      prompt,
+      html,
+      forms,
+      calendars,
+      hasStripeProducts: Boolean(stripeProducts.ok && stripeProducts.products.length),
+    });
+
+    if (forced?.length) {
+      const validated = aiActionsPayloadSchema.safeParse({ actions: forced });
+      if (validated.success) {
+        return NextResponse.json({ ok: true, actions: validated.data.actions });
+      }
+    }
+
+    return NextResponse.json({
+      ok: true,
+      question:
+        "I can insert a proper Form/Calendar/Chatbot/Shop block (recommended) instead of custom HTML. Which one do you want here?",
+    });
   }
 
   return NextResponse.json({ ok: true, html, css });
