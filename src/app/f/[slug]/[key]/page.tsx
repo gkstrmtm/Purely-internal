@@ -190,7 +190,7 @@ export default async function HostedFunnelWithKeyPage({
           {page.editorMode === "CUSTOM_HTML" ? (
             <iframe
               title={page.title}
-              sandbox="allow-forms allow-popups allow-scripts"
+              sandbox="allow-forms allow-popups allow-scripts allow-same-origin"
               srcDoc={renderedCustomHtml || ""}
               className="h-[100vh] w-full bg-white"
             />

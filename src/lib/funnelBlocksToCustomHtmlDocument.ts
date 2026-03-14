@@ -327,9 +327,36 @@ export function blocksToCustomHtmlDocument(opts: {
     }
 
     if (b.type === "chatbot") {
-      // Custom HTML export cannot reliably embed the full widget without React.
-      const cssInline = styleToCss((b.props as any)?.style);
-      return `<div class=\"pa-card\"${cssInline ? ` style=\"${escapeHtmlAttr(cssInline)}\"` : ""}><div style=\"font-weight:800\">Chatbot</div><div style=\"margin-top:6px;color:var(--pa-muted);font-size:14px\">This page was generated from blocks. The chatbot runs in blocks mode; you can replace this with your own embed in custom code.</div></div>`;
+      const p: any = b.props as any;
+      const agentId = typeof p?.agentId === "string" ? String(p.agentId).trim() : "";
+      const cssInline = styleToCss(p?.style);
+      if (!agentId) {
+        return `<div class=\"pa-card\"${cssInline ? ` style=\"${escapeHtmlAttr(cssInline)}\"` : ""}><div style=\"font-weight:800\">Chatbot</div><div style=\"margin-top:6px;color:var(--pa-muted);font-size:14px\">Select an agent for this chatbot block to enable the embed.</div></div>`;
+      }
+
+      const primaryColor = typeof p?.primaryColor === "string" ? String(p.primaryColor).trim() : "";
+      const launcherStyle = p?.launcherStyle === "dots" ? "dots" : p?.launcherStyle === "spark" ? "spark" : "bubble";
+      const launcherImageUrl = typeof p?.launcherImageUrl === "string" ? String(p.launcherImageUrl).trim() : "";
+      const placementX = p?.placementX === "left" || p?.placementX === "center" || p?.placementX === "right" ? p.placementX : "right";
+      const placementY = p?.placementY === "top" || p?.placementY === "middle" || p?.placementY === "bottom" ? p.placementY : "bottom";
+
+      // Use an internal embed page (React) so the widget works in custom HTML mode.
+      // NOTE: Keep this path public + domain-router friendly.
+      const qs = new URLSearchParams({
+        agentId,
+        signedUrlEndpoint: "/api/public/elevenlabs/convai/signed-url",
+        placementX,
+        placementY,
+        launcherStyle,
+        ...(primaryColor ? { primaryColor } : {}),
+        ...(launcherImageUrl ? { launcherImageUrl } : {}),
+      }).toString();
+
+      // Fixed-position iframe avoids breaking the parent page layout.
+      // Tradeoff: the iframe blocks clicks in its rectangle.
+      const iframeCss = "position:fixed;right:0;bottom:0;width:440px;height:740px;border:0;background:transparent;z-index:2147483647";
+
+      return `<div${cssInline ? ` style=\"${escapeHtmlAttr(cssInline)}\"` : ""}><iframe title=\"Chatbot\" src=\"/embed/chatbot?${escapeHtmlAttr(qs)}\" style=\"${iframeCss}\" sandbox=\"allow-forms allow-scripts allow-same-origin\" allow=\"microphone\"></iframe></div>`;
     }
 
     if (b.type === "customCode") {

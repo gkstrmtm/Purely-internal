@@ -446,7 +446,7 @@ async function renderFunnel(
           {page.editorMode === "CUSTOM_HTML" ? (
             <iframe
               title={page.title}
-              sandbox="allow-forms allow-popups allow-scripts"
+              sandbox="allow-forms allow-popups allow-scripts allow-same-origin"
               srcDoc={customHtmlSrcDoc ?? (page.customHtml || "")}
               className="h-screen w-full bg-white"
             />
