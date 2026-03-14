@@ -342,6 +342,42 @@ function extractFence(text: string, lang: string): string {
   return m?.[1] ? m[1].trim() : "";
 }
 
+function extractInlineStyleTags(html: string): { html: string; css: string } {
+  const h = String(html || "");
+  if (!h.trim()) return { html: "", css: "" };
+
+  const cssParts: string[] = [];
+  const nextHtml = h.replace(/<style[^>]*>([\s\S]*?)<\/style>/gi, (_, css: string) => {
+    const c = String(css || "").trim();
+    if (c) cssParts.push(c);
+    return "";
+  });
+
+  return { html: nextHtml.trim(), css: cssParts.join("\n\n").trim() };
+}
+
+function coerceHtmlFragment(html: string): { html: string; cssFromHtml: string } {
+  const raw = String(html || "").trim();
+  if (!raw) return { html: "", cssFromHtml: "" };
+
+  const { html: withoutStyles, css } = extractInlineStyleTags(raw);
+  const h = withoutStyles.trim();
+
+  if (!/(<!doctype\b|<html\b|<head\b|<body\b)/i.test(h)) {
+    return { html: h, cssFromHtml: css };
+  }
+
+  const bodyMatch = h.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
+  const inner = (bodyMatch?.[1] ?? h)
+    .replace(/^\s*<!doctype[^>]*>\s*/i, "")
+    .replace(/<head[\s\S]*?<\/head>/i, "")
+    .replace(/<\/?html[^>]*>/gi, "")
+    .replace(/<\/?body[^>]*>/gi, "")
+    .trim();
+
+  return { html: inner, cssFromHtml: css };
+}
+
 function hasPlaceholderOrPortalLinks(html: string, css: string) {
   const blob = `${String(html || "")}\n${String(css || "")}`;
   const lower = blob.toLowerCase();
@@ -838,8 +874,11 @@ export async function POST(req: Request) {
     }
   }
 
-  const html = extractFence(buildRaw, "html");
-  const css = extractFence(buildRaw, "css");
+  const rawHtmlFence = extractFence(buildRaw, "html");
+  const rawCssFence = extractFence(buildRaw, "css");
+  const coerced = coerceHtmlFragment(rawHtmlFence);
+  const html = coerced.html;
+  const css = [rawCssFence, coerced.cssFromHtml].filter(Boolean).join("\n\n").trim();
 
   if (!html.trim()) {
     return NextResponse.json({ ok: false, error: "AI returned empty HTML" }, { status: 502 });
@@ -847,9 +886,10 @@ export async function POST(req: Request) {
 
   // Final guardrail: if the model emitted placeholders or portal-only URLs, or if intent is clearly
   // better represented as blocks, force actions instead of returning broken HTML.
+  const intentHaystack = `${prompt}\n${html}\n${css}`;
   const shouldForceActions =
     hasPlaceholderOrPortalLinks(html, css) ||
-    /\b(chatbot|calendar|booking|schedule|form|cart|checkout|add to cart|stripe|shop|store)\b/i.test(prompt);
+    /\b(chatbot|calendar|booking|schedule|form|cart|checkout|add to cart|stripe|shop|store)\b/i.test(intentHaystack);
 
   if (shouldForceActions) {
     const forced = inferForcedActionsFromIntent({

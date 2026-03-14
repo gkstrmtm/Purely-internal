@@ -1531,6 +1531,17 @@ export function renderCreditFunnelBlocks({
           }),
         };
 
+        // Sticky headers are more reliable when the *block wrapper* is sticky.
+        // Also force sticky headers to be full-width (the header component already constrains inner content).
+        if (sticky) {
+          wrapper.marginTop = 0;
+          wrapper.maxWidth = undefined;
+          wrapper.marginLeft = undefined;
+          wrapper.marginRight = undefined;
+          wrapper.padding = undefined;
+          wrapper.borderRadius = undefined;
+        }
+
         const headerStyle: React.CSSProperties = {
           fontFamily: s?.fontFamily,
           color: s?.textColor,
@@ -1546,7 +1557,13 @@ export function renderCreditFunnelBlocks({
               const wp = wrapProps(b.id);
               return {
                 ...wp,
-                className: [wp.className, "funnel-header-block"].filter(Boolean).join(" "),
+                className: [
+                  wp.className,
+                  "funnel-header-block",
+                  sticky ? "sticky top-0 z-[60]" : null,
+                ]
+                  .filter(Boolean)
+                  .join(" "),
               };
             })(),
           },
@@ -1559,7 +1576,8 @@ export function renderCreditFunnelBlocks({
               logoAlt: logoAlt || undefined,
               logoHref: logoHref || undefined,
               items,
-              sticky,
+              // Sticky positioning is applied on the wrapper (more reliable across containers).
+              sticky: false,
               transparent,
               mobileMode,
               desktopMode,
