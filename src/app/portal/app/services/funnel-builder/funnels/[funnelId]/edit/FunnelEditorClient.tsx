@@ -2216,7 +2216,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                         >
                           <iframe
                             title={selectedPage.title}
-                            sandbox="allow-forms allow-popups allow-scripts"
+                            sandbox="allow-forms allow-popups allow-scripts allow-same-origin"
                             srcDoc={selectedPage.customHtml || ""}
                             className="h-[78vh] w-full bg-white"
                           />
@@ -2414,7 +2414,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                         >
                           <iframe
                             title={selectedPage.title}
-                            sandbox="allow-forms allow-popups allow-scripts"
+                            sandbox="allow-forms allow-popups allow-scripts allow-same-origin"
                             srcDoc={selectedPage.customHtml || ""}
                             className="h-full w-full bg-white"
                           />
