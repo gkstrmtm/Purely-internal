@@ -182,17 +182,18 @@ export function PortalOnboardingClient() {
       <AppModal
         open={creditsModalOpen}
         title="Starter credits added"
-        description={`We added ${creditsAdded} credits to help you get started — welcome!`}
+        description={`We added ${creditsAdded} credits to help you get started. Welcome!`}
         onClose={() => {
           setCreditsModalOpen(false);
           router.replace("/portal/app/onboarding");
+          router.refresh();
         }}
         widthClassName="w-[min(520px,calc(100vw-32px))]"
         footer={
           <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
             <button
               type="button"
-              className="rounded-2xl bg-[color:var(--color-brand-blue)] px-4 py-2 text-sm font-semibold text-white hover:opacity-95"
+              className="rounded-2xl bg-(--color-brand-blue) px-4 py-2 text-sm font-semibold text-white hover:opacity-95"
               onClick={() => {
                 setCreditsModalOpen(false);
                 router.replace("/portal/app/onboarding");

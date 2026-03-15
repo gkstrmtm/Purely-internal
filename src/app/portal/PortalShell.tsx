@@ -868,7 +868,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
 
           <aside
             className={classNames(
-              "absolute left-0 top-0 h-full w-[290px] overflow-y-auto border-r border-zinc-200 bg-white shadow-xl transition-transform",
+              "absolute left-0 top-0 h-full w-72.5 overflow-y-auto border-r border-zinc-200 bg-white shadow-xl transition-transform",
               mobileOpen ? "translate-x-0" : "-translate-x-full",
             )}
           >
@@ -904,7 +904,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                     className={classNames(
                       "flex items-center gap-3 rounded-2xl px-3 py-2 text-sm font-semibold",
                       isActive(item.href)
-                        ? "bg-[color:rgba(29,78,216,0.10)] text-[color:var(--color-brand-blue)]"
+                        ? "bg-[rgba(29,78,216,0.10)] text-(--color-brand-blue)"
                         : "text-zinc-700 hover:bg-zinc-50",
                     )}
                   >
@@ -941,9 +941,9 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                                 <span
                                   className={classNames(
                                     s.accent === "blue"
-                                      ? "text-[color:var(--color-brand-blue)]"
+                                      ? "text-(--color-brand-blue)"
                                       : s.accent === "coral"
-                                        ? "text-[color:var(--color-brand-pink)]"
+                                        ? "text-(--color-brand-pink)"
                                         : "text-zinc-700",
                                   )}
                                 >
@@ -971,7 +971,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
 
             <div className="border-t border-zinc-200 p-4">
               {sidebarCampaign ? (
-                <div className="mb-4 rounded-2xl border border-brand-ink/10 bg-gradient-to-br from-[color:var(--color-brand-blue)]/10 to-white p-3 text-sm text-zinc-800">
+                <div className="mb-4 rounded-2xl border border-brand-ink/10 bg-linear-to-br from-brand-blue/10 to-white p-3 text-sm text-zinc-800">
                   {canShowDismiss(sidebarCampaign, sidebarShownAtMs) ? (
                     <div className="mb-2 flex justify-end">
                       <button
@@ -1038,7 +1038,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
         <aside
           className={classNames(
             "hidden h-full min-h-0 shrink-0 border-r border-zinc-200 bg-white sm:flex sm:flex-col",
-            collapsed ? "w-[76px]" : "w-[280px]",
+            collapsed ? "w-19" : "w-70",
           )}
         >
           <div className={classNames("flex items-center gap-3 border-b border-zinc-200 p-4", collapsed && "justify-center")}
@@ -1089,7 +1089,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                   className={classNames(
                     "flex items-center gap-3 rounded-2xl px-3 py-2 text-sm font-semibold",
                     isActive(item.href)
-                      ? "bg-[color:rgba(29,78,216,0.10)] text-[color:var(--color-brand-blue)]"
+                      ? "bg-[rgba(29,78,216,0.10)] text-(--color-brand-blue)"
                       : "text-zinc-700 hover:bg-zinc-50",
                     collapsed && "justify-center px-2",
                   )}
@@ -1126,9 +1126,9 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                           <span
                             className={classNames(
                               s.accent === "blue"
-                                ? "text-[color:var(--color-brand-blue)]"
+                                ? "text-(--color-brand-blue)"
                                 : s.accent === "coral"
-                                  ? "text-[color:var(--color-brand-pink)]"
+                                  ? "text-(--color-brand-pink)"
                                   : "text-zinc-700",
                             )}
                           >
@@ -1163,9 +1163,9 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                                 <span
                                   className={classNames(
                                     s.accent === "blue"
-                                      ? "text-[color:var(--color-brand-blue)]"
+                                      ? "text-(--color-brand-blue)"
                                       : s.accent === "coral"
-                                        ? "text-[color:var(--color-brand-pink)]"
+                                        ? "text-(--color-brand-pink)"
                                         : "text-zinc-700",
                                   )}
                                 >
@@ -1195,7 +1195,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
           <div className={classNames("border-t border-zinc-200 p-4", collapsed && "px-2")}
           >
             {sidebarCampaign && !collapsed ? (
-              <div className="mb-4 rounded-2xl border border-brand-ink/10 bg-gradient-to-br from-[color:var(--color-brand-blue)]/10 to-white p-3 text-sm text-zinc-800">
+              <div className="mb-4 rounded-2xl border border-brand-ink/10 bg-linear-to-br from-brand-blue/10 to-white p-3 text-sm text-zinc-800">
                 {canShowDismiss(sidebarCampaign, sidebarShownAtMs) ? (
                   <div className="mb-2 flex justify-end">
                     <button
@@ -1221,7 +1221,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                   <img
                     src={sidebarCampaign.creative.mediaUrl}
                     alt={sidebarCampaign?.creative?.headline || "Sponsored"}
-                    className="mb-2 max-h-[120px] w-full rounded-xl border border-zinc-200 object-cover"
+                    className="mb-2 max-h-30 w-full rounded-xl border border-zinc-200 object-cover"
                     style={{
                       objectFit: sidebarCampaign?.creative?.mediaFit || "cover",
                       objectPosition: sidebarCampaign?.creative?.mediaPosition || "center",
@@ -1292,9 +1292,9 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
             </div>
           </header>
 
-          <main className="min-h-0 min-w-0 flex-1 p-4 sm:p-8">
+          <main className="min-h-0 min-w-0 flex-1 p-4 pb-28 sm:p-8 sm:pb-8">
             {topBannerCampaign ? (
-              <div className="mb-4 rounded-3xl border border-brand-ink/10 bg-gradient-to-r from-[color:var(--color-brand-blue)]/15 via-white to-white p-4 text-brand-ink">
+              <div className="mb-4 rounded-3xl border border-brand-ink/10 bg-linear-to-r from-brand-blue/15 via-white to-white p-4 text-brand-ink">
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                   <div className="flex min-w-0 items-start gap-3">
                     {topBannerCampaign?.creative?.mediaUrl && topBannerCampaign?.creative?.mediaKind !== "video" ? (
@@ -1363,11 +1363,11 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
           </main>
 
           {rewardCampaign && rewardEligible ? (
-            <div className="fixed bottom-4 left-4 z-[9996] w-[min(420px,calc(100vw-2rem))] rounded-3xl border border-zinc-200 bg-white p-4 shadow-2xl ring-1 ring-[color:rgba(29,78,216,0.14)]">
+            <div className="fixed bottom-4 left-4 z-9996 w-[min(420px,calc(100vw-2rem))] rounded-3xl border border-zinc-200 bg-white p-4 shadow-2xl ring-1 ring-[rgba(29,78,216,0.14)]">
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   <div className="flex min-w-0 items-center gap-2">
-                    <span className="rounded-full bg-[color:var(--color-brand-blue)]/15 px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide text-[color:var(--color-brand-blue)]">
+                    <span className="rounded-full bg-brand-blue/15 px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide text-(--color-brand-blue)">
                       Sponsored
                     </span>
                     <div className="min-w-0 truncate text-sm font-semibold text-zinc-900">
@@ -1414,7 +1414,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
 
           {rewardModalOpen ? (
             <div
-              className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/70 p-3 sm:p-6"
+              className="fixed inset-0 z-9999 flex items-center justify-center bg-black/70 p-3 sm:p-6"
               onMouseDown={() => {
                 if (rewardCredits > 0 && rewardRemainingSeconds > 0) setRewardConfirmExit(true);
                 else setRewardModalOpen(false);
@@ -1429,7 +1429,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
                       <div className="flex flex-wrap items-center gap-2">
-                        <span className="rounded-full bg-[color:var(--color-brand-blue)]/15 px-3 py-1 text-[12px] font-bold uppercase tracking-wide text-[color:var(--color-brand-blue)]">
+                        <span className="rounded-full bg-brand-blue/15 px-3 py-1 text-[12px] font-bold uppercase tracking-wide text-(--color-brand-blue)">
                           Sponsored by Purely Automation
                         </span>
                         {rewardCredits > 0 ? (
@@ -1640,7 +1640,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
 
                 {rewardConfirmExit ? (
                   <div
-                    className="absolute inset-0 z-[10000] flex items-center justify-center bg-black/60 p-4"
+                    className="absolute inset-0 z-10000 flex items-center justify-center bg-black/60 p-4"
                     onMouseDown={() => setRewardConfirmExit(false)}
                   >
                     <div
@@ -1689,7 +1689,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
           ) : null}
 
           {popupCampaign ? (
-            <div className="fixed inset-0 z-[9995] flex items-center justify-center p-4">
+            <div className="fixed inset-0 z-9995 flex items-center justify-center p-4">
               <button
                 type="button"
                 className="absolute inset-0 bg-black/40"

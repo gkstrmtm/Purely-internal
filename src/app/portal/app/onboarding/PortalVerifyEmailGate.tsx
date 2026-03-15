@@ -19,8 +19,12 @@ export function PortalVerifyEmailGate(props: Props) {
   const router = useRouter();
   const [sending, setSending] = useState(false);
   const [message, setMessage] = useState<string>("");
+  const [sentAtOverride, setSentAtOverride] = useState<string | null>(null);
 
-  const sentAtLabel = useMemo(() => formatSentAt(props.emailVerificationEmailSentAt), [props.emailVerificationEmailSentAt]);
+  const sentAtLabel = useMemo(
+    () => formatSentAt(sentAtOverride ?? props.emailVerificationEmailSentAt),
+    [props.emailVerificationEmailSentAt, sentAtOverride],
+  );
 
   const resend = useCallback(async () => {
     setSending(true);
@@ -31,6 +35,7 @@ export function PortalVerifyEmailGate(props: Props) {
 
       if (res.ok && json?.ok) {
         setMessage("Verification email sent. Check your inbox (and spam). The link expires quickly.");
+        setSentAtOverride(new Date().toISOString());
         router.refresh();
         return;
       }
@@ -75,12 +80,12 @@ export function PortalVerifyEmailGate(props: Props) {
             onClick={() => router.refresh()}
             className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-5 py-3 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
           >
-            I’ve verified — refresh
+            I verified - refresh
           </button>
         </div>
 
         <div className="mt-6 text-xs text-zinc-500">
-          Tip: if you clicked an old link, request a new one—resending invalidates older links.
+          Tip: if you clicked an old link, request a new one. Resending invalidates older links.
         </div>
       </div>
     </div>

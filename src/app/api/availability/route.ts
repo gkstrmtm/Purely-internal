@@ -4,6 +4,18 @@ import { z } from "zod";
 
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { getPortalUser } from "@/lib/portalAuth";
+
+async function getAnyUserAuth(): Promise<{ userId: string | null; role: string | null }> {
+  const session = await getServerSession(authOptions).catch(() => null);
+  const userId = session?.user?.id ? String(session.user.id) : null;
+  const role = session?.user?.role ? String(session.user.role) : null;
+  if (userId) return { userId, role };
+
+  const portalUser = await getPortalUser().catch(() => null);
+  if (!portalUser?.id) return { userId: null, role: null };
+  return { userId: String(portalUser.id), role: portalUser.role ? String(portalUser.role) : null };
+}
 
 const createSchema = z.object({
   startAt: z.string().min(1),
@@ -24,8 +36,8 @@ const replaceRangeSchema = z.object({
 });
 
 export async function GET() {
-  const session = await getServerSession(authOptions);
-  const userId = session?.user?.id;
+  const auth = await getAnyUserAuth();
+  const userId = auth.userId;
   if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const blocks = await prisma.availabilityBlock.findMany({
@@ -38,9 +50,9 @@ export async function GET() {
 }
 
 export async function POST(req: Request) {
-  const session = await getServerSession(authOptions);
-  const userId = session?.user?.id;
-  const role = session?.user?.role;
+  const auth = await getAnyUserAuth();
+  const userId = auth.userId;
+  const role = auth.role;
   if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   if (role !== "CLOSER" && role !== "ADMIN" && role !== "MANAGER" && role !== "HR" && role !== "CLIENT") {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
@@ -66,9 +78,9 @@ export async function POST(req: Request) {
 }
 
 export async function PUT(req: Request) {
-  const session = await getServerSession(authOptions);
-  const userId = session?.user?.id;
-  const role = session?.user?.role;
+  const auth = await getAnyUserAuth();
+  const userId = auth.userId;
+  const role = auth.role;
   if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   if (role !== "CLOSER" && role !== "ADMIN" && role !== "MANAGER" && role !== "HR" && role !== "CLIENT") {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
@@ -122,11 +134,11 @@ export async function PUT(req: Request) {
 const deleteSchema = z.object({ id: z.string().min(1) });
 
 export async function DELETE(req: Request) {
-  const session = await getServerSession(authOptions);
-  const userId = session?.user?.id;
-  const role = session?.user?.role;
+  const auth = await getAnyUserAuth();
+  const userId = auth.userId;
+  const role = auth.role;
   if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  if (role !== "CLOSER" && role !== "ADMIN" && role !== "MANAGER" && role !== "HR") {
+  if (role !== "CLOSER" && role !== "ADMIN" && role !== "MANAGER" && role !== "HR" && role !== "CLIENT") {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 

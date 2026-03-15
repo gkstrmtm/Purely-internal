@@ -19,6 +19,14 @@ function normalizeSlug(raw: unknown) {
   return cleaned;
 }
 
+function withRandomSuffix(base: string, maxLen = 60) {
+  const digits = String(Math.floor(1000 + Math.random() * 9000));
+  const suffix = `-${digits}`;
+  const headMax = Math.max(1, maxLen - suffix.length);
+  const head = base.length > headMax ? base.slice(0, headMax).replace(/-+$/g, "") : base;
+  return `${head}${suffix}`;
+}
+
 export async function GET() {
   const auth = await requireFunnelBuilderSession();
   if (!auth.ok) {
@@ -63,20 +71,25 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: "Invalid name" }, { status: 400 });
   }
 
-  const form = await prisma.creditForm
-    .create({
-      data: { ownerId, slug, name },
-      select: { id: true, slug: true, name: true, status: true, createdAt: true, updatedAt: true },
-    })
-    .catch((e) => {
-      const msg = String((e as any)?.message || "");
-      if (msg.includes("CreditForm_slug_key") || msg.toLowerCase().includes("unique")) return null;
-      throw e;
-    });
+  let form: any = null;
+  let candidate = slug;
+  for (let i = 0; i < 8; i += 1) {
+    form = await prisma.creditForm
+      .create({
+        data: { ownerId, slug: candidate, name },
+        select: { id: true, slug: true, name: true, status: true, createdAt: true, updatedAt: true },
+      })
+      .catch((e) => {
+        const msg = String((e as any)?.message || "");
+        if (msg.includes("CreditForm_slug_key") || msg.toLowerCase().includes("unique")) return null;
+        throw e;
+      });
 
-  if (!form) {
-    return NextResponse.json({ ok: false, error: "That slug is already taken" }, { status: 409 });
+    if (form) break;
+    candidate = withRandomSuffix(slug);
   }
+
+  if (!form) return NextResponse.json({ ok: false, error: "Unable to create form" }, { status: 500 });
 
   return NextResponse.json({ ok: true, form });
 }

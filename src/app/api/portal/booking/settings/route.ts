@@ -176,9 +176,15 @@ export async function PUT(req: Request) {
   if (nextSlug && nextSlug.length < 3) nextSlug = undefined;
 
   if (nextSlug && nextSlug !== current.slug) {
-    const collision = await prisma.portalBookingSite.findUnique({ where: { slug: nextSlug } });
-    if (collision) {
-      return NextResponse.json({ error: "That booking link is already taken." }, { status: 409 });
+    for (let i = 0; i < 8; i += 1) {
+      const collision = await prisma.portalBookingSite.findUnique({ where: { slug: nextSlug! } });
+      if (!collision) break;
+      const digits = String(Math.floor(1000 + Math.random() * 9000));
+      const suffix = `-${digits}`;
+      const headMax = Math.max(1, 80 - suffix.length);
+      const slugHead: string =
+        nextSlug!.length > headMax ? nextSlug!.slice(0, headMax).replace(/-+$/g, "") : nextSlug!;
+      nextSlug = `${slugHead}${suffix}`;
     }
   }
 

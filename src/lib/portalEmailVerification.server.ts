@@ -128,7 +128,9 @@ export async function sendVerifyEmail(opts: { userId: string; toEmail: string })
   return { ok: true };
 }
 
-export async function verifyEmailToken(token: string): Promise<{ ok: true; userId: string } | { ok: false; reason: string }> {
+export async function verifyEmailToken(
+  token: string,
+): Promise<{ ok: true; userId: string; alreadyVerified?: boolean } | { ok: false; reason: string }> {
   const support = await getEmailVerificationSupport();
   if (!support.tokensTable) return { ok: false, reason: "Email verification is not available" };
 
@@ -144,7 +146,7 @@ export async function verifyEmailToken(token: string): Promise<{ ok: true; userI
   });
 
   if (!row) return { ok: false, reason: "Invalid or expired token" };
-  if (row.usedAt) return { ok: false, reason: "This link was already used" };
+  if (row.usedAt) return { ok: true, userId: row.userId, alreadyVerified: true };
   if (row.expiresAt <= now) return { ok: false, reason: "This link expired" };
 
   await prisma

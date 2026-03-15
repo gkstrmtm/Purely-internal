@@ -56,5 +56,6 @@ export async function POST(req: Request) {
     return { awarded: true };
   });
 
-  return NextResponse.json({ ok: true, ...(result.awarded ? { referralCreditsAwarded: awardCredits } : {}) });
+  // Don't message the invited user about the inviter's credits.
+  return NextResponse.json({ ok: true, alreadyVerified: Boolean((verified as any).alreadyVerified) });
 }

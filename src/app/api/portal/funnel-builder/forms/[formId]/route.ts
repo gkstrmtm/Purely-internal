@@ -19,6 +19,14 @@ function normalizeSlug(raw: unknown) {
   return cleaned;
 }
 
+function withRandomSuffix(base: string, maxLen = 60) {
+  const digits = String(Math.floor(1000 + Math.random() * 9000));
+  const suffix = `-${digits}`;
+  const headMax = Math.max(1, maxLen - suffix.length);
+  const head = base.length > headMax ? base.slice(0, headMax).replace(/-+$/g, "") : base;
+  return `${head}${suffix}`;
+}
+
 function normalizeHexColor(raw: unknown) {
   const s = typeof raw === "string" ? raw.trim() : "";
   if (!s) return null;
@@ -151,27 +159,38 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ formId: strin
     data.schemaJson = normalizeSchema(body.schemaJson);
   }
 
-  const form = await prisma.creditForm
-    .update({
-      where: { id },
-      data,
-      select: {
-        id: true,
-        slug: true,
-        name: true,
-        status: true,
-        schemaJson: true,
-        createdAt: true,
-        updatedAt: true,
-      },
-    })
-    .catch((e) => {
-      const msg = String((e as any)?.message || "");
-      if (msg.toLowerCase().includes("unique") || msg.includes("CreditForm_slug_key")) return null;
-      throw e;
-    });
+  const desiredSlug = typeof (data as any)?.slug === "string" ? String((data as any).slug) : null;
+  let form: any = null;
+  let candidate = desiredSlug;
+  for (let i = 0; i < 8; i += 1) {
+    if (candidate) (data as any).slug = candidate;
 
-  if (!form) return NextResponse.json({ ok: false, error: "That slug is already taken" }, { status: 409 });
+    form = await prisma.creditForm
+      .update({
+        where: { id },
+        data,
+        select: {
+          id: true,
+          slug: true,
+          name: true,
+          status: true,
+          schemaJson: true,
+          createdAt: true,
+          updatedAt: true,
+        },
+      })
+      .catch((e) => {
+        const msg = String((e as any)?.message || "");
+        if (msg.toLowerCase().includes("unique") || msg.includes("CreditForm_slug_key")) return null;
+        throw e;
+      });
+
+    if (form) break;
+    if (!desiredSlug) break;
+    candidate = withRandomSuffix(desiredSlug);
+  }
+
+  if (!form) return NextResponse.json({ ok: false, error: "Unable to update form" }, { status: 500 });
   return NextResponse.json({ ok: true, form });
 }
 

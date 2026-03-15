@@ -150,6 +150,14 @@ function normalizeSlug(raw: unknown) {
   return cleaned;
 }
 
+function withRandomSuffix(base: string, maxLen = 60) {
+  const digits = String(Math.floor(1000 + Math.random() * 9000));
+  const suffix = `-${digits}`;
+  const headMax = Math.max(1, maxLen - suffix.length);
+  const head = base.length > headMax ? base.slice(0, headMax).replace(/-+$/g, "") : base;
+  return `${head}${suffix}`;
+}
+
 export async function GET(_req: Request, ctx: { params: Promise<{ funnelId: string }> }) {
   const auth = await requireFunnelBuilderSession();
   if (!auth.ok) {
@@ -250,19 +258,30 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ funnelId: str
     data.slug = slug;
   }
 
-  const funnel = await prisma.creditFunnel
-    .update({
-      where: { id },
-      data,
-      select: { id: true, slug: true, name: true, status: true, createdAt: true, updatedAt: true },
-    })
-    .catch((e) => {
-      const msg = String((e as any)?.message || "");
-      if (msg.toLowerCase().includes("unique") || msg.includes("CreditFunnel_slug_key")) return null;
-      throw e;
-    });
+  const desiredSlug = typeof (data as any)?.slug === "string" ? String((data as any).slug) : null;
+  let funnel: any = null;
+  let candidate = desiredSlug;
+  for (let i = 0; i < 8; i += 1) {
+    if (candidate) (data as any).slug = candidate;
 
-  if (!funnel) return NextResponse.json({ ok: false, error: "That slug is already taken" }, { status: 409 });
+    funnel = await prisma.creditFunnel
+      .update({
+        where: { id },
+        data,
+        select: { id: true, slug: true, name: true, status: true, createdAt: true, updatedAt: true },
+      })
+      .catch((e) => {
+        const msg = String((e as any)?.message || "");
+        if (msg.toLowerCase().includes("unique") || msg.includes("CreditFunnel_slug_key")) return null;
+        throw e;
+      });
+
+    if (funnel) break;
+    if (!desiredSlug) break;
+    candidate = withRandomSuffix(desiredSlug);
+  }
+
+  if (!funnel) return NextResponse.json({ ok: false, error: "Unable to update funnel" }, { status: 500 });
 
   let assignedDomain: string | null = null;
   let seo: FunnelSeo | null = null;
