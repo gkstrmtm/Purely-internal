@@ -319,6 +319,13 @@ export async function POST(req: Request) {
         name: parsed.data.name,
         enabled: parsed.data.enabled ?? true,
         priority: parsed.data.priority ?? 0,
+
+        // Staff-created campaigns are pre-approved.
+        // This avoids production drift where the database default might be PENDING.
+        reviewStatus: "APPROVED" as any,
+        reviewedAt: new Date(),
+        reviewedById: auth.session.user.id,
+
         placement: parsed.data.placement as any,
         startAt,
         endAt,

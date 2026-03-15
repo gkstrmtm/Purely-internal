@@ -357,6 +357,8 @@ export async function getNextPortalAdCampaignForOwner(opts: {
 }) {
   const now = new Date();
 
+  const isHostedPlacement = opts.placement === "HOSTED_BLOG_PAGE" || opts.placement === "HOSTED_REVIEWS_PAGE";
+
   const adsCache = {
     accountByUserId: new Map<string, { id: string; balanceCents: number } | null>(),
     spendTodayByCampaignId: new Map<string, number>(),
@@ -397,7 +399,7 @@ export async function getNextPortalAdCampaignForOwner(opts: {
     .findMany({
       where: {
         enabled: true,
-        reviewStatus: "APPROVED",
+        reviewStatus: (isHostedPlacement ? ({ in: ["APPROVED", "PENDING"] } as any) : ("APPROVED" as any)) as any,
         placement: opts.placement as any,
         ...(Array.isArray(opts.excludeCampaignIds) && opts.excludeCampaignIds.length
           ? { id: { notIn: opts.excludeCampaignIds.filter(Boolean).slice(0, 200) } }
@@ -479,6 +481,14 @@ export async function getNextPortalAdCampaignForOwner(opts: {
 
     // If there are explicit assignments/includeOwnerIds/buckets, treat this campaign as a whitelist.
     if (hasWhitelist && !isWhitelisted) continue;
+
+    // Approval gating:
+    // - Normally only serve APPROVED.
+    // - For hosted placements, allow PENDING only when explicitly whitelisted to the owner.
+    const rs = String((c as any)?.reviewStatus || "").trim().toUpperCase();
+    if (rs && rs !== "APPROVED") {
+      if (!(isHostedPlacement && isWhitelisted && rs === "PENDING")) continue;
+    }
 
     const matchesVariant =
       !target.portalVariant ||
@@ -583,7 +593,6 @@ export async function getPortalAdCampaignForOwnerById(opts: {
     .catch(() => null);
 
   if (!c?.enabled) return null;
-  if ((c as any)?.reviewStatus && (c as any).reviewStatus !== "APPROVED") return null;
   if (!withinWindow(now, c.startAt, c.endAt)) return null;
 
   const target = readTargetJson(c.targetJson);
@@ -610,6 +619,13 @@ export async function getPortalAdCampaignForOwnerById(opts: {
   const isWhitelisted = isAssignedToOwner || Boolean(target.includeOwnerIds?.includes(opts.ownerId)) || isInBucket;
 
   if (hasWhitelist && !isWhitelisted) return null;
+
+  const isHostedPlacement =
+    (c.placement as any) === "HOSTED_BLOG_PAGE" || (c.placement as any) === "HOSTED_REVIEWS_PAGE";
+  const rs = String((c as any)?.reviewStatus || "").trim().toUpperCase();
+  if (rs && rs !== "APPROVED") {
+    if (!(isHostedPlacement && isWhitelisted && rs === "PENDING")) return null;
+  }
 
   const matchesVariant =
     !target.portalVariant ||
