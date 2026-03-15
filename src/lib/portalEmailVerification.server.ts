@@ -1,6 +1,8 @@
 import crypto from "crypto";
 
 import { prisma } from "@/lib/db";
+import { hasPublicTable } from "@/lib/dbSchema";
+import { dbHasPublicColumn } from "@/lib/dbSchemaCompat";
 import { trySendTransactionalEmail } from "@/lib/emailSender";
 import { getAppBaseUrl } from "@/lib/portalNotifications";
 
@@ -15,7 +17,33 @@ function emailVerificationTtlMs(): number {
   return Math.max(1000 * 60, Math.min(1000 * 60 * 60 * 24 * 7, Math.trunc(mins) * 1000 * 60));
 }
 
+let emailVerificationSupportPromise:
+  | Promise<{ tokensTable: boolean; hasEmailVerifiedAt: boolean; hasEmailSentAt: boolean }>
+  | null = null;
+
+async function getEmailVerificationSupport(): Promise<{
+  tokensTable: boolean;
+  hasEmailVerifiedAt: boolean;
+  hasEmailSentAt: boolean;
+}> {
+  if (!emailVerificationSupportPromise) {
+    emailVerificationSupportPromise = (async () => {
+      const [tokensTable, hasEmailVerifiedAt, hasEmailSentAt] = await Promise.all([
+        hasPublicTable("PortalEmailVerificationToken").catch(() => false),
+        dbHasPublicColumn({ tableNames: ["User", "user"], columnName: "emailVerifiedAt" }).catch(() => false),
+        dbHasPublicColumn({ tableNames: ["User", "user"], columnName: "emailVerificationEmailSentAt" }).catch(() => false),
+      ]);
+      return { tokensTable, hasEmailVerifiedAt, hasEmailSentAt };
+    })();
+  }
+
+  return emailVerificationSupportPromise;
+}
+
 export async function createEmailVerificationToken(userId: string): Promise<{ token: string; tokenHash: string; expiresAt: Date }> {
+  const support = await getEmailVerificationSupport();
+  if (!support.tokensTable) throw new Error("Email verification token table is missing");
+
   const token = crypto.randomBytes(32).toString("hex");
   const tokenHash = sha256Hex(token);
   const expiresAt = new Date(Date.now() + emailVerificationTtlMs());
@@ -33,20 +61,29 @@ export async function createEmailVerificationToken(userId: string): Promise<{ to
 }
 
 export async function findOrCreateLatestToken(userId: string): Promise<{ token: string; expiresAt: Date } | null> {
+  const support = await getEmailVerificationSupport();
+  if (!support.tokensTable) return null;
+
   const now = new Date();
 
   // Ensure only one active link works at a time: when we send a new email,
   // mark any existing unused/unexpired tokens as used.
-  await prisma.portalEmailVerificationToken.updateMany({
-    where: { userId, usedAt: null, expiresAt: { gt: now } },
-    data: { usedAt: now },
-  });
+  try {
+    await prisma.portalEmailVerificationToken.updateMany({
+      where: { userId, usedAt: null, expiresAt: { gt: now } },
+      data: { usedAt: now },
+    });
 
-  const created = await createEmailVerificationToken(userId);
-  return { token: created.token, expiresAt: created.expiresAt };
+    const created = await createEmailVerificationToken(userId);
+    return { token: created.token, expiresAt: created.expiresAt };
+  } catch {
+    return null;
+  }
 }
 
 export async function sendVerifyEmail(opts: { userId: string; toEmail: string }): Promise<{ ok: true } | { ok: false; reason: string }> {
+  const support = await getEmailVerificationSupport();
+
   const tokenRes = await findOrCreateLatestToken(opts.userId);
   if (!tokenRes) return { ok: false, reason: "Unable to create token" };
 
@@ -78,16 +115,23 @@ export async function sendVerifyEmail(opts: { userId: string; toEmail: string })
 
   if (!res.ok) return { ok: false, reason: res.reason };
 
-  await prisma.user.update({
-    where: { id: opts.userId },
-    data: { emailVerificationEmailSentAt: new Date() },
-    select: { id: true },
-  });
+  if (support.hasEmailSentAt) {
+    await prisma.user
+      .update({
+        where: { id: opts.userId },
+        data: { emailVerificationEmailSentAt: new Date() },
+        select: { id: true },
+      })
+      .catch(() => null);
+  }
 
   return { ok: true };
 }
 
 export async function verifyEmailToken(token: string): Promise<{ ok: true; userId: string } | { ok: false; reason: string }> {
+  const support = await getEmailVerificationSupport();
+  if (!support.tokensTable) return { ok: false, reason: "Email verification is not available" };
+
   const raw = String(token || "").trim();
   if (!raw || raw.length < 20 || raw.length > 200) return { ok: false, reason: "Invalid token" };
 
@@ -103,19 +147,23 @@ export async function verifyEmailToken(token: string): Promise<{ ok: true; userI
   if (row.usedAt) return { ok: false, reason: "This link was already used" };
   if (row.expiresAt <= now) return { ok: false, reason: "This link expired" };
 
-  await prisma.$transaction(async (tx) => {
-    await tx.portalEmailVerificationToken.update({
-      where: { id: row.id },
-      data: { usedAt: new Date() },
-      select: { id: true },
-    });
+  await prisma
+    .$transaction(async (tx) => {
+      await tx.portalEmailVerificationToken.update({
+        where: { id: row.id },
+        data: { usedAt: new Date() },
+        select: { id: true },
+      });
 
-    await tx.user.update({
-      where: { id: row.userId },
-      data: { emailVerifiedAt: new Date() },
-      select: { id: true },
-    });
-  });
+      if (support.hasEmailVerifiedAt) {
+        await tx.user.update({
+          where: { id: row.userId },
+          data: { emailVerifiedAt: new Date() },
+          select: { id: true },
+        });
+      }
+    })
+    .catch(() => null);
 
   return { ok: true, userId: row.userId };
 }

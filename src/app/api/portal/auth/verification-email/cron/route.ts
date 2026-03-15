@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 
 import { prisma } from "@/lib/db";
 import { isVercelCronRequest, readCronAuthValue } from "@/lib/cronAuth";
+import { hasPublicTable } from "@/lib/dbSchema";
+import { dbHasPublicColumn } from "@/lib/dbSchemaCompat";
 import { sendVerifyEmail } from "@/lib/portalEmailVerification.server";
 
 export const dynamic = "force-dynamic";
@@ -32,6 +34,16 @@ function checkAuth(req: Request) {
 export async function GET(req: Request) {
   const auth = checkAuth(req);
   if (!auth.ok) return NextResponse.json({ ok: false, error: auth.error }, { status: auth.status });
+
+  const [tokensTable, hasEmailVerifiedAt, hasEmailSentAt] = await Promise.all([
+    hasPublicTable("PortalEmailVerificationToken").catch(() => false),
+    dbHasPublicColumn({ tableNames: ["User", "user"], columnName: "emailVerifiedAt" }).catch(() => false),
+    dbHasPublicColumn({ tableNames: ["User", "user"], columnName: "emailVerificationEmailSentAt" }).catch(() => false),
+  ]);
+
+  if (!tokensTable || !hasEmailVerifiedAt || !hasEmailSentAt) {
+    return NextResponse.json({ ok: true, skipped: true, reason: "schema_not_ready" });
+  }
 
   const cutoff = new Date(Date.now() - 10 * 60 * 1000);
 

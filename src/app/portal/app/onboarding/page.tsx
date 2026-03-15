@@ -1,6 +1,7 @@
 import { requirePortalUserForService } from "@/lib/portalAuth";
 import { prisma } from "@/lib/db";
 import { sendVerifyEmail } from "@/lib/portalEmailVerification.server";
+import { dbHasPublicColumn } from "@/lib/dbSchemaCompat";
 import { PortalOnboardingClient } from "@/app/portal/app/onboarding/PortalOnboardingClient";
 import { PortalVerifyEmailGate } from "@/app/portal/app/onboarding/PortalVerifyEmailGate";
 
@@ -8,18 +9,29 @@ export default async function PortalOnboardingPage() {
   const sessionUser = await requirePortalUserForService("businessProfile", "edit");
   const memberId = sessionUser.memberId || sessionUser.id;
 
-  const me = await prisma.user.findUnique({
-    where: { id: memberId },
-    select: { email: true, emailVerifiedAt: true, emailVerificationEmailSentAt: true },
-  });
+  const [hasEmailVerifiedAt, hasEmailSentAt] = await Promise.all([
+    dbHasPublicColumn({ tableNames: ["User", "user"], columnName: "emailVerifiedAt" }).catch(() => false),
+    dbHasPublicColumn({ tableNames: ["User", "user"], columnName: "emailVerificationEmailSentAt" }).catch(() => false),
+  ]);
+
+  const select: Record<string, boolean> = { email: true };
+  if (hasEmailVerifiedAt) select.emailVerifiedAt = true;
+  if (hasEmailSentAt) select.emailVerificationEmailSentAt = true;
+
+  const me = await prisma.user.findUnique({ where: { id: memberId }, select: select as any }).catch(() => null);
 
   const email = String(me?.email || sessionUser.email || "").trim();
-  const verified = Boolean(me?.emailVerifiedAt);
+
+  // If the DB doesn’t yet have verification columns (schema drift), don’t hard-crash
+  // and don’t block onboarding.
+  const verified = hasEmailVerifiedAt ? Boolean((me as any)?.emailVerifiedAt) : true;
 
   if (!verified) {
-    let emailSentAtIso = me?.emailVerificationEmailSentAt ? me.emailVerificationEmailSentAt.toISOString() : null;
+    let emailSentAtIso = hasEmailSentAt && (me as any)?.emailVerificationEmailSentAt
+      ? new Date((me as any).emailVerificationEmailSentAt).toISOString()
+      : null;
 
-    if (email && !me?.emailVerificationEmailSentAt) {
+    if (email && (!hasEmailSentAt || !(me as any)?.emailVerificationEmailSentAt)) {
       const sentAt = new Date();
       await sendVerifyEmail({ userId: memberId, toEmail: email }).catch(() => null);
       emailSentAtIso = sentAt.toISOString();

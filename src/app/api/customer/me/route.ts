@@ -12,6 +12,7 @@ import { listAiReceptionistEvents, type AiReceptionistCallEvent } from "@/lib/ai
 import { listMissedCallTextBackEvents, type MissedCallTextBackEvent } from "@/lib/missedCallTextBack";
 import { sumHoursSavedSeconds } from "@/lib/hoursSaved";
 import { sendVerifyEmail } from "@/lib/portalEmailVerification.server";
+import { dbHasPublicColumn } from "@/lib/dbSchemaCompat";
 
 function safeDate(value: unknown): Date | null {
   if (typeof value !== "string" || !value.trim()) return null;
@@ -241,23 +242,40 @@ export async function GET(req: Request) {
     const ownerId = portalUser?.id ? String(portalUser.id) : null;
     ownerIdForEntitlements = ownerId;
     if (ownerId) {
+      const [hasEmailVerifiedAt, hasEmailSentAt] = await Promise.all([
+        dbHasPublicColumn({ tableNames: ["User", "user"], columnName: "emailVerifiedAt" }).catch(() => false),
+        dbHasPublicColumn({ tableNames: ["User", "user"], columnName: "emailVerificationEmailSentAt" }).catch(() => false),
+      ]);
+
+      const ownerSelect: Record<string, boolean> = { email: true, createdAt: true };
+      if (hasEmailVerifiedAt) ownerSelect.emailVerifiedAt = true;
+      if (hasEmailSentAt) ownerSelect.emailVerificationEmailSentAt = true;
+
       const owner = await prisma.user
         .findUnique({
           where: { id: ownerId },
-          select: { email: true, createdAt: true, emailVerifiedAt: true, emailVerificationEmailSentAt: true },
+          select: ownerSelect as any,
         })
         .catch(() => null);
-      if (owner?.email) entitlementsEmail = String(owner.email);
+      const ownerEmail = typeof (owner as any)?.email === "string" ? String((owner as any).email).trim() : "";
+      if (ownerEmail) entitlementsEmail = ownerEmail;
 
       // Send verify email about ~10 minutes after signup (first portal load after delay).
       // Guarded so it only sends once.
       try {
         const now = Date.now();
-        const createdAtMs = owner?.createdAt ? new Date(owner.createdAt).getTime() : NaN;
+        const createdAtRaw = (owner as any)?.createdAt;
+        const createdAtMs =
+          createdAtRaw instanceof Date
+            ? createdAtRaw.getTime()
+            : typeof createdAtRaw === "string" || typeof createdAtRaw === "number"
+              ? new Date(createdAtRaw).getTime()
+              : NaN;
         const isDue = Number.isFinite(createdAtMs) && createdAtMs <= now - 10 * 60 * 1000;
-        const needs = !!owner?.email && !owner?.emailVerifiedAt && !owner?.emailVerificationEmailSentAt;
-        if (isDue && needs) {
-          await sendVerifyEmail({ userId: ownerId, toEmail: String(owner.email) });
+        // Only auto-send when the DB can track sent/verified state (avoids spam + drift crashes).
+        if (isDue && hasEmailVerifiedAt && hasEmailSentAt) {
+          const needs = !!ownerEmail && !(owner as any)?.emailVerifiedAt && !(owner as any)?.emailVerificationEmailSentAt;
+          if (needs) await sendVerifyEmail({ userId: ownerId, toEmail: ownerEmail });
         }
       } catch {
         // ignore
