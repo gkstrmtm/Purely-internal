@@ -196,13 +196,6 @@ export default async function ClientBlogPostPage(props: PageProps) {
             >
               all posts
             </Link>
-            <Link
-              href="/"
-              className="rounded-2xl px-4 py-2 text-sm font-bold text-white shadow-sm"
-              style={{ backgroundColor: "var(--client-primary)" }}
-            >
-              powered by purely
-            </Link>
           </div>
         </div>
       </header>
@@ -287,9 +280,6 @@ export default async function ClientBlogPostPage(props: PageProps) {
             </div>
           </div>
 
-          <div className="mt-10 text-xs text-zinc-500">
-            Powered by Purely Automation.
-          </div>
         </div>
       </main>
 

@@ -171,13 +171,6 @@ export default async function CustomDomainBlogPostPage({
             >
               all posts
             </Link>
-            <a
-              href="https://purelyautomation.com"
-              className="rounded-2xl px-4 py-2 text-sm font-bold text-white shadow-sm"
-              style={{ backgroundColor: "var(--client-primary)" }}
-            >
-              powered by purely
-            </a>
           </div>
         </div>
       </header>
@@ -258,7 +251,6 @@ export default async function CustomDomainBlogPostPage({
             </div>
           </div>
 
-          <div className="mt-10 text-xs text-zinc-500">Powered by Purely Automation.</div>
         </div>
       </main>
 

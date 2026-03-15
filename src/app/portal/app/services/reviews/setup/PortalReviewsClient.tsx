@@ -435,6 +435,25 @@ export default function PortalReviewsClient() {
     return preferred?.url || settings.destinations[0]?.url || "";
   }, [funnelDomains, publicSiteSlug, settings.defaultDestinationId, settings.destinations, settings.publicPage.enabled, site?.primaryDomain, site?.verifiedAt]);
 
+  const liveHostedReviewsUrl = useMemo(() => {
+    if (!settings.publicPage.enabled) return "";
+    const verifiedDomain = (() => {
+      if (!site?.primaryDomain) return null;
+      if (site.verifiedAt) return site.primaryDomain;
+      const apex = (v: string) => {
+        const s = String(v || "").trim().toLowerCase();
+        return s.startsWith("www.") ? s.slice(4) : s;
+      };
+      const targetApex = apex(site.primaryDomain);
+      const match = funnelDomains.find((d) => apex(d.domain) === targetApex);
+      if (match?.status === "VERIFIED") return site.primaryDomain;
+      return null;
+    })();
+    if (verifiedDomain) return `https://${verifiedDomain}/reviews`;
+    if (publicSiteSlug) return `/${publicSiteSlug}/reviews`;
+    return "";
+  }, [funnelDomains, publicSiteSlug, settings.publicPage.enabled, site?.primaryDomain, site?.verifiedAt]);
+
   useEffect(() => {
     setSiteDomainDraft(site?.primaryDomain || "");
   }, [site?.primaryDomain]);
@@ -1531,11 +1550,35 @@ export default function PortalReviewsClient() {
               </PlainSettingsSection>
 
               <PortalSettingsSection title="Hosted reviews page" description="Configure the public reviews page and its form." accent="slate" defaultOpen={false}>
-                {publicSiteSlug ? (
-                  <div className="mt-1 text-xs text-neutral-500">
-                    Public URL: <span className="font-mono">/{publicSiteSlug}/reviews</span>
-                  </div>
-                ) : null}
+                <div className="mt-1 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                  {publicSiteSlug ? (
+                    <div className="text-xs text-neutral-500">
+                      Public URL: <span className="font-mono">/{publicSiteSlug}/reviews</span>
+                    </div>
+                  ) : (
+                    <div className="text-xs text-neutral-500">Public URL will appear after you have a site handle.</div>
+                  )}
+
+                  {liveHostedReviewsUrl ? (
+                    <a
+                      href={liveHostedReviewsUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center justify-center rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-brand-ink hover:bg-zinc-50"
+                    >
+                      View live page
+                    </a>
+                  ) : (
+                    <button
+                      type="button"
+                      disabled
+                      className="inline-flex items-center justify-center rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-neutral-400"
+                      title={settings.publicPage.enabled ? "No live URL yet." : "Enable public page to view live URL."}
+                    >
+                      View live page
+                    </button>
+                  )}
+                </div>
 
                 <div className="mt-3 rounded-2xl border border-zinc-200 bg-white p-4">
                   <div className="text-xs font-semibold text-zinc-600">Custom domain (optional)</div>

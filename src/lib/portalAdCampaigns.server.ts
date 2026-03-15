@@ -487,18 +487,28 @@ export async function getNextPortalAdCampaignForOwner(opts: {
       (target.portalVariant === "credit" && opts.portalVariant === "credit");
     if (!matchesVariant) continue;
 
+    if (!matchPath(opts.path, target.paths ?? [])) continue;
+
+    // If explicitly whitelisted, serve regardless of billing/profile/service targeting.
+    // This matches the “target a specific owner => always show” expectation.
+    if (isWhitelisted) {
+      return {
+        id: c.id,
+        name: c.name,
+        placement: c.placement as PortalAdPlacement,
+        creative: pickCreativeForOwner(c.creativeJson, { ownerId: opts.ownerId, campaignId: c.id }),
+        reward: readRewardJson(c.rewardJson),
+      };
+    }
+
     const matchesBilling = !target.billingModel || target.billingModel === "any" || target.billingModel === billingModelKey;
     if (!matchesBilling) continue;
 
-    if (!matchPath(opts.path, target.paths ?? [])) continue;
+    const matchesIndustry = matchAnyCaseInsensitive(profile?.industry, target.industries ?? []);
+    if (!matchesIndustry && (target.industries ?? []).length) continue;
 
-    if (!isWhitelisted) {
-      const matchesIndustry = matchAnyCaseInsensitive(profile?.industry, target.industries ?? []);
-      if (!matchesIndustry && (target.industries ?? []).length) continue;
-
-      const matchesBusinessModel = matchAnyCaseInsensitive(profile?.businessModel, target.businessModels ?? []);
-      if (!matchesBusinessModel && (target.businessModels ?? []).length) continue;
-    }
+    const matchesBusinessModel = matchAnyCaseInsensitive(profile?.businessModel, target.businessModels ?? []);
+    if (!matchesBusinessModel && (target.businessModels ?? []).length) continue;
 
     if ((target.serviceSlugsAny ?? []).length) {
       const any = (target.serviceSlugsAny ?? []).some((s) => unlockedServiceSlugs.has(s));
@@ -510,12 +520,9 @@ export async function getNextPortalAdCampaignForOwner(opts: {
       if (!all) continue;
     }
 
-    // If it’s whitelisted (assignment/includeOwnerIds/bucket), bypass remaining “needs profile” edge cases.
-    if (!isWhitelisted) {
-      // If campaign targets industry/businessModel but profile is missing, skip.
-      if ((target.industries ?? []).length && !String(profile?.industry || "").trim()) continue;
-      if ((target.businessModels ?? []).length && !String(profile?.businessModel || "").trim()) continue;
-    }
+    // If campaign targets industry/businessModel but profile is missing, skip.
+    if ((target.industries ?? []).length && !String(profile?.industry || "").trim()) continue;
+    if ((target.businessModels ?? []).length && !String(profile?.businessModel || "").trim()) continue;
 
     return {
       id: c.id,
@@ -611,18 +618,26 @@ export async function getPortalAdCampaignForOwnerById(opts: {
     (target.portalVariant === "credit" && opts.portalVariant === "credit");
   if (!matchesVariant) return null;
 
+  if (!matchPath(opts.path, target.paths ?? [])) return null;
+
+  if (isWhitelisted) {
+    return {
+      id: c.id,
+      name: c.name,
+      placement: c.placement as PortalAdPlacement,
+      creative: pickCreativeForOwner(c.creativeJson, { ownerId: opts.ownerId, campaignId: c.id }),
+      reward: readRewardJson(c.rewardJson),
+    };
+  }
+
   const matchesBilling = !target.billingModel || target.billingModel === "any" || target.billingModel === billingModelKey;
   if (!matchesBilling) return null;
 
-  if (!matchPath(opts.path, target.paths ?? [])) return null;
+  const matchesIndustry = matchAnyCaseInsensitive(profile?.industry, target.industries ?? []);
+  if (!matchesIndustry && (target.industries ?? []).length) return null;
 
-  if (!isWhitelisted) {
-    const matchesIndustry = matchAnyCaseInsensitive(profile?.industry, target.industries ?? []);
-    if (!matchesIndustry && (target.industries ?? []).length) return null;
-
-    const matchesBusinessModel = matchAnyCaseInsensitive(profile?.businessModel, target.businessModels ?? []);
-    if (!matchesBusinessModel && (target.businessModels ?? []).length) return null;
-  }
+  const matchesBusinessModel = matchAnyCaseInsensitive(profile?.businessModel, target.businessModels ?? []);
+  if (!matchesBusinessModel && (target.businessModels ?? []).length) return null;
 
   if ((target.serviceSlugsAny ?? []).length) {
     const any = (target.serviceSlugsAny ?? []).some((s) => unlockedServiceSlugs.has(s));
@@ -634,10 +649,8 @@ export async function getPortalAdCampaignForOwnerById(opts: {
     if (!all) return null;
   }
 
-  if (!isWhitelisted) {
-    if ((target.industries ?? []).length && !String(profile?.industry || "").trim()) return null;
-    if ((target.businessModels ?? []).length && !String(profile?.businessModel || "").trim()) return null;
-  }
+  if ((target.industries ?? []).length && !String(profile?.industry || "").trim()) return null;
+  if ((target.businessModels ?? []).length && !String(profile?.businessModel || "").trim()) return null;
 
   return {
     id: c.id,

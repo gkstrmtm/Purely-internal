@@ -170,14 +170,6 @@ export default async function CustomDomainBlogsIndexPage({
               </div>
             )}
           </Link>
-
-          <Link
-            href="https://purelyautomation.com"
-            className="rounded-2xl px-4 py-2 text-sm font-bold text-white shadow-sm"
-            style={{ backgroundColor: "var(--client-primary)" }}
-          >
-            powered by purely
-          </Link>
         </div>
       </header>
 
@@ -266,15 +258,28 @@ export default async function CustomDomainBlogsIndexPage({
               </div>
             </div>
 
-            <aside className="rounded-3xl border border-zinc-200 bg-white p-7 shadow-sm">
-              <div className="text-sm font-semibold text-zinc-900">More</div>
-              <div className="mt-4 space-y-2">
-                <Link href="/newsletters" className="block rounded-2xl px-4 py-3 text-sm font-semibold text-zinc-700 hover:bg-zinc-50">
-                  newsletters
-                </Link>
-                <Link href="/reviews" className="block rounded-2xl px-4 py-3 text-sm font-semibold text-zinc-700 hover:bg-zinc-50">
-                  reviews
-                </Link>
+            <aside className="lg:pt-1">
+              <div className="sticky top-6 rounded-3xl border border-zinc-200 bg-white p-7 shadow-sm">
+                <div className="font-brand text-2xl" style={{ color: "var(--client-primary)" }}>
+                  about
+                </div>
+                <p className="mt-3 text-sm leading-relaxed text-zinc-700">{brandName} shares updates, guides, and helpful ideas here.</p>
+
+                <div className="mt-6 rounded-2xl p-5" style={{ backgroundColor: "rgba(29,78,216,0.06)" }}>
+                  <div className="text-sm font-bold" style={{ color: "var(--client-text)" }}>
+                    want a blog like this?
+                  </div>
+                  <p className="mt-2 text-sm text-zinc-700">This blog is hosted and managed by Purely Automation.</p>
+                  <div className="mt-4">
+                    <a
+                      href="https://purelyautomation.com"
+                      className="inline-flex items-center rounded-2xl px-4 py-2 text-sm font-extrabold shadow-sm"
+                      style={{ backgroundColor: coralCta, color: "#fff" }}
+                    >
+                      learn more
+                    </a>
+                  </div>
+                </div>
               </div>
             </aside>
           </div>
