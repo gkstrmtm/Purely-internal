@@ -223,7 +223,7 @@ export default async function CustomDomainReviewsPage({
         </div>
       </header>
 
-      <HostedPortalAdBanner placement="HOSTED_REVIEWS_PAGE" domain={host} pathOverride="/reviews" />
+      <HostedPortalAdBanner placement="HOSTED_REVIEWS_PAGE" domain={host} ownerId={ownerId} pathOverride="/reviews" />
 
       <main className="mx-auto max-w-6xl px-6 py-12">
         <div className="mx-auto max-w-3xl">

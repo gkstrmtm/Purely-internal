@@ -285,7 +285,7 @@ export default async function PublicReviewsPage({ params }: { params: Promise<{ 
         </div>
       </header>
 
-      <HostedPortalAdBanner placement="HOSTED_REVIEWS_PAGE" siteSlug={siteHandle} pathOverride="/reviews" />
+      <HostedPortalAdBanner placement="HOSTED_REVIEWS_PAGE" siteSlug={siteHandle} ownerId={ownerId} pathOverride="/reviews" />
 
       <main>
         <section style={{ backgroundColor: "var(--client-primary)" }}>

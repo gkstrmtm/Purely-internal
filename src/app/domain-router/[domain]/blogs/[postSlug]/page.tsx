@@ -175,7 +175,7 @@ export default async function CustomDomainBlogPostPage({
         </div>
       </header>
 
-      <HostedPortalAdBanner placement="HOSTED_BLOG_PAGE" domain={host} pathOverride={`/blogs/${postSlug}`} />
+      <HostedPortalAdBanner placement="HOSTED_BLOG_PAGE" domain={host} ownerId={mapping.ownerId} pathOverride={`/blogs/${postSlug}`} />
 
       <main className="mx-auto max-w-6xl px-6 py-14">
         <div className="mx-auto max-w-3xl">

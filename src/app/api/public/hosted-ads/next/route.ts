@@ -71,6 +71,23 @@ function asPlacement(v: string | null): HostedAdsPlacement | null {
   return null;
 }
 
+async function validateOwnerIdParam(raw: string | null): Promise<string | null> {
+  const id = String(raw || "").trim();
+  if (!id) return null;
+  if (id.length > 64) return null;
+
+  const row = await prisma.user
+    .findUnique({ where: { id }, select: { id: true, active: true, role: true } })
+    .catch(() => null);
+  if (!row?.id) return null;
+  if (row.active === false) return null;
+
+  // Only allow client owners for public hosted ads.
+  if (String((row as any).role || "").toUpperCase() !== "CLIENT") return null;
+
+  return String(row.id);
+}
+
 async function resolveOwnerIdFromHandle(handleRaw: string): Promise<string | null> {
   const handle = String(handleRaw || "").trim().toLowerCase();
   if (!handle) return null;
@@ -141,35 +158,25 @@ export async function GET(req: Request) {
 
   const siteSlug = (url.searchParams.get("siteSlug") || "").trim().slice(0, 120) || null;
   const domain = (url.searchParams.get("domain") || "").trim().slice(0, 200) || null;
+  const ownerIdParam = (url.searchParams.get("ownerId") || "").trim().slice(0, 80) || null;
 
   if (!placement) {
     return NextResponse.json({ ok: false, error: "Invalid placement" }, { status: 400 });
   }
 
-  const ownerId = await resolveOwnerId(req, siteSlug, domain);
+  const explicitOwnerId = await validateOwnerIdParam(ownerIdParam);
+  const ownerId = explicitOwnerId || (await resolveOwnerId(req, siteSlug, domain));
   if (!ownerId) {
     return NextResponse.json({ ok: true, campaign: null }, { status: 200 });
   }
 
-  let campaign = await getNextPortalAdCampaignForOwner({
+  const campaign = await getNextPortalAdCampaignForOwner({
     ownerId,
     portalVariant: "portal",
     placement: placement as PortalAdPlacement,
     path,
     excludeCampaignIds,
   });
-
-  // Safety net: if the caller is a hosted page placement but campaigns were created under a more general
-  // placement (ex: TOP_BANNER), still show something rather than silently rendering nothing.
-  if (!campaign && (placement === "HOSTED_BLOG_PAGE" || placement === "HOSTED_REVIEWS_PAGE")) {
-    campaign = await getNextPortalAdCampaignForOwner({
-      ownerId,
-      portalVariant: "portal",
-      placement: "TOP_BANNER",
-      path,
-      excludeCampaignIds,
-    });
-  }
 
   let viewerHashForToken: string | null = null;
   if (campaign?.id) {

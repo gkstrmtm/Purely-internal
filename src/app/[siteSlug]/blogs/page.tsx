@@ -104,6 +104,7 @@ export default async function ClientBlogsIndexPage(props: PageProps) {
   if (!site) notFound();
 
   const siteHandle = canUseSlugColumn ? ((site as any).slug ?? (site as any).id) : siteSlug;
+  const ownerId = String((site as any).ownerId);
 
   const [hasLogoUrl, hasPrimaryHex, hasAccentHex, hasTextHex] = await Promise.all([
     hasPublicColumn("BusinessProfile", "logoUrl"),
@@ -198,7 +199,7 @@ export default async function ClientBlogsIndexPage(props: PageProps) {
         </div>
       </header>
 
-      <HostedPortalAdBanner placement="HOSTED_BLOG_PAGE" siteSlug={siteHandle} pathOverride="/blogs" />
+      <HostedPortalAdBanner placement="HOSTED_BLOG_PAGE" siteSlug={siteHandle} ownerId={ownerId} pathOverride="/blogs" />
 
       <main>
         <section style={{ backgroundColor: "var(--client-primary)" }}>

@@ -422,9 +422,6 @@ export async function getNextPortalAdCampaignForOwner(opts: {
     .findMany({
       where: {
         enabled: true,
-        // No manual approval step: enabled campaigns should serve.
-        // Still respect explicit rejections.
-        reviewStatus: ({ in: ["APPROVED", "PENDING"] } as any) as any,
         placement: opts.placement as any,
         ...(Array.isArray(opts.excludeCampaignIds) && opts.excludeCampaignIds.length
           ? { id: { notIn: opts.excludeCampaignIds.filter(Boolean).slice(0, 200) } }

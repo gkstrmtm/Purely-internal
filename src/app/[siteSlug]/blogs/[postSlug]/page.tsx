@@ -98,6 +98,7 @@ export default async function ClientBlogPostPage(props: PageProps) {
   if (!site) notFound();
 
   const siteHandle = canUseSlugColumn ? ((site as any).slug ?? (site as any).id) : siteSlug;
+  const ownerId = String((site as any).ownerId);
 
   const [hasLogoUrl, hasPrimaryHex, hasAccentHex, hasTextHex] = await Promise.all([
     hasPublicColumn("BusinessProfile", "logoUrl"),
@@ -203,6 +204,7 @@ export default async function ClientBlogPostPage(props: PageProps) {
       <HostedPortalAdBanner
         placement="HOSTED_BLOG_PAGE"
         siteSlug={siteHandle}
+        ownerId={ownerId}
         pathOverride={`/blogs/${postSlug}`}
       />
 

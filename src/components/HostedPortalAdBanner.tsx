@@ -23,11 +23,13 @@ export function HostedPortalAdBanner({
   placement,
   siteSlug,
   domain,
+  ownerId,
   pathOverride,
 }: {
   placement: Placement;
   siteSlug?: string | null | undefined;
   domain?: string | null | undefined;
+  ownerId?: string | null | undefined;
   pathOverride?: string | null | undefined;
 }) {
   const [campaign, setCampaign] = useState<Campaign | null>(null);
@@ -45,6 +47,7 @@ export function HostedPortalAdBanner({
         if (path) qs.set("path", path);
         if (siteSlug) qs.set("siteSlug", String(siteSlug));
         if (domain) qs.set("domain", String(domain));
+        if (ownerId) qs.set("ownerId", String(ownerId));
         const res = await fetch(`/api/public/hosted-ads/next?${qs.toString()}`, { cache: "no-store" });
         const json = (await res.json().catch(() => null)) as any;
         if (canceled) return;
@@ -68,7 +71,7 @@ export function HostedPortalAdBanner({
     return () => {
       canceled = true;
     };
-  }, [placement, siteSlug, domain, pathOverride]);
+  }, [placement, siteSlug, domain, ownerId, pathOverride]);
 
   const clickHref = useMemo(() => {
     return typeof clickUrl === "string" ? clickUrl : "";
