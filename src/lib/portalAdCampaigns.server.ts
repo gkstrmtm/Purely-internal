@@ -348,6 +348,12 @@ function matchPath(path: string | null | undefined, allowed: string[]) {
   });
 }
 
+function shouldEnforcePathTargetingForPlacement(placement: PortalAdPlacement): boolean {
+  // Hosted placements already imply the page context (blogs/reviews). Enforcing `targetJson.paths`
+  // for these causes enabled hosted campaigns to never serve if the UI stored portal-only paths.
+  return placement !== "HOSTED_BLOG_PAGE" && placement !== "HOSTED_REVIEWS_PAGE";
+}
+
 export async function getNextPortalAdCampaignForOwner(opts: {
   ownerId: string;
   portalVariant: PortalVariant;
@@ -515,7 +521,7 @@ export async function getNextPortalAdCampaignForOwner(opts: {
       (target.portalVariant === "credit" && opts.portalVariant === "credit");
     if (!matchesVariant) continue;
 
-    if (!matchPath(opts.path, target.paths ?? [])) continue;
+    if (shouldEnforcePathTargetingForPlacement(opts.placement) && !matchPath(opts.path, target.paths ?? [])) continue;
 
     // If explicitly whitelisted, serve regardless of billing/profile/service targeting.
     // This matches the “target a specific owner => always show” expectation.
@@ -675,7 +681,8 @@ export async function getPortalAdCampaignForOwnerById(opts: {
     (target.portalVariant === "credit" && opts.portalVariant === "credit");
   if (!matchesVariant) return null;
 
-  if (!matchPath(opts.path, target.paths ?? [])) return null;
+  const placement = c.placement as PortalAdPlacement;
+  if (shouldEnforcePathTargetingForPlacement(placement) && !matchPath(opts.path, target.paths ?? [])) return null;
 
   if (isWhitelisted) {
     return {
