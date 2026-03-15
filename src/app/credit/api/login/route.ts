@@ -3,6 +3,7 @@ import { z } from "zod";
 import { encode } from "next-auth/jwt";
 
 import { prisma } from "@/lib/db";
+import { dbHasUserClientPortalVariantColumn } from "@/lib/dbSchemaCompat";
 import { verifyPassword } from "@/lib/password";
 import { CREDIT_PORTAL_SESSION_COOKIE_NAME } from "@/lib/portalAuth";
 import { resolvePortalOwnerIdForLogin } from "@/lib/portalAccounts";
@@ -28,6 +29,14 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Server misconfigured" }, { status: 500 });
   }
 
+  const hasVariantColumn = await dbHasUserClientPortalVariantColumn();
+  if (!hasVariantColumn) {
+    return NextResponse.json(
+      { error: "We’re updating our system. Please try again in a few minutes." },
+      { status: 503 },
+    );
+  }
+
   const json = await req.json().catch(() => null);
   const parsed = bodySchema.safeParse(json);
   if (!parsed.success) {
@@ -36,12 +45,23 @@ export async function POST(req: Request) {
 
   const email = parsed.data.email.toLowerCase();
 
-  const user = await prisma.user.findUnique({ where: { email } });
+  const user = await prisma.user.findUnique({
+    where: { email },
+    select: {
+      id: true,
+      email: true,
+      name: true,
+      passwordHash: true,
+      role: true,
+      active: true,
+      clientPortalVariant: true,
+    },
+  });
   if (!user || !user.active) {
     return NextResponse.json({ error: "Invalid email or password" }, { status: 401 });
   }
 
-  const userVariant = (user as any).clientPortalVariant ? String((user as any).clientPortalVariant) : "PORTAL";
+  const userVariant = String((user as any).clientPortalVariant);
   if (userVariant !== "CREDIT") {
     return NextResponse.json({ error: "Invalid email or password" }, { status: 401 });
   }

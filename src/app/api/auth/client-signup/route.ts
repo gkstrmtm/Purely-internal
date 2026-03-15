@@ -5,6 +5,7 @@ import { encode } from "next-auth/jwt";
 import type { User } from "@prisma/client";
 
 import { prisma } from "@/lib/db";
+import { dbHasUserClientPortalVariantColumn } from "@/lib/dbSchemaCompat";
 import { hashPassword } from "@/lib/password";
 import { ensureClientRoleAllowed, isClientRoleMissingError } from "@/lib/ensureClientRoleAllowed";
 import { normalizePhoneStrict } from "@/lib/phone";
@@ -234,12 +235,24 @@ export async function POST(req: Request) {
 
     const couponCode = (parsed.data.couponCode || "").trim().toUpperCase().slice(0, 40);
 
-    const existing = await prisma.user.findUnique({ where: { email } });
+    const existing = await prisma.user.findUnique({ where: { email }, select: { id: true } });
     if (existing) {
       return jsonResponse({ ok: false, error: "Email already in use" }, { status: 409 });
     }
 
     const passwordHash = await hashPassword(parsed.data.password);
+
+    const hasVariantColumn = await dbHasUserClientPortalVariantColumn();
+    if (variant === "credit" && !hasVariantColumn) {
+      return jsonResponse(
+        {
+          ok: false,
+          error: "We’re updating our system. Please try again in a few minutes.",
+          errorKey: "SCHEMA_MISMATCH",
+        },
+        { status: 503 },
+      );
+    }
 
     const createUserOnly = async () => {
       return prisma.user.create({
@@ -248,7 +261,7 @@ export async function POST(req: Request) {
           name: parsed.data.name,
           passwordHash,
           role: "CLIENT",
-          clientPortalVariant: variant === "credit" ? "CREDIT" : "PORTAL",
+          ...(hasVariantColumn ? { clientPortalVariant: variant === "credit" ? "CREDIT" : "PORTAL" } : {}),
         },
         select: { id: true, email: true, name: true, role: true },
       });

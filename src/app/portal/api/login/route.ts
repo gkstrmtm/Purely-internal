@@ -3,6 +3,7 @@ import { z } from "zod";
 import { encode } from "next-auth/jwt";
 
 import { prisma } from "@/lib/db";
+import { dbHasUserClientPortalVariantColumn } from "@/lib/dbSchemaCompat";
 import { hashPassword, verifyPassword } from "@/lib/password";
 import { CREDIT_PORTAL_SESSION_COOKIE_NAME, PORTAL_SESSION_COOKIE_NAME } from "@/lib/portalAuth";
 import { resolvePortalOwnerIdForLogin } from "@/lib/portalAccounts";
@@ -31,6 +32,14 @@ function isSecureRequest(req: Request): boolean {
 export async function POST(req: Request) {
   const variant = (normalizePortalVariant(req.headers.get(PORTAL_VARIANT_HEADER)) || "portal") satisfies PortalVariant;
 
+  const hasVariantColumn = await dbHasUserClientPortalVariantColumn();
+  if (variant === "credit" && !hasVariantColumn) {
+    return NextResponse.json(
+      { error: "We’re updating our system. Please try again in a few minutes." },
+      { status: 503 },
+    );
+  }
+
   const secret = process.env.NEXTAUTH_SECRET;
   if (!secret) {
     return NextResponse.json({ error: "Server misconfigured" }, { status: 500 });
@@ -54,7 +63,17 @@ export async function POST(req: Request) {
   );
   const isPortalDemoLogin = variant === "portal" && demoEmailAllowlist.has(email);
 
-  let user = await prisma.user.findUnique({ where: { email } });
+  const userSelect: any = {
+    id: true,
+    email: true,
+    name: true,
+    passwordHash: true,
+    role: true,
+    active: true,
+    ...(hasVariantColumn ? { clientPortalVariant: true } : {}),
+  };
+
+  let user: any = await prisma.user.findUnique({ where: { email }, select: userSelect });
 
   // Safety valve: if the demo account is missing (or its password got reset),
   // allow recreating/resetting it on login so the portal doesn't get bricked.
@@ -66,7 +85,7 @@ export async function POST(req: Request) {
         role: "CLIENT",
         active: true,
         name: email.includes("demo-limited") ? "Demo Client (Limited)" : "Demo Client (Full)",
-        clientPortalVariant: "PORTAL",
+        ...(hasVariantColumn ? { clientPortalVariant: "PORTAL" } : {}),
         passwordHash,
       },
       create: {
@@ -74,9 +93,10 @@ export async function POST(req: Request) {
         name: email.includes("demo-limited") ? "Demo Client (Limited)" : "Demo Client (Full)",
         role: "CLIENT",
         active: true,
-        clientPortalVariant: "PORTAL",
+        ...(hasVariantColumn ? { clientPortalVariant: "PORTAL" } : {}),
         passwordHash,
       },
+      select: userSelect,
     });
   }
 
@@ -84,9 +104,11 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Invalid email or password" }, { status: 401 });
   }
 
-  const expectedUserVariant = variant === "credit" ? "CREDIT" : "PORTAL";
-  if (String(user.clientPortalVariant) !== expectedUserVariant) {
-    return NextResponse.json({ error: "Invalid email or password" }, { status: 401 });
+  if (hasVariantColumn) {
+    const expectedUserVariant = variant === "credit" ? "CREDIT" : "PORTAL";
+    if (String((user as any).clientPortalVariant) !== expectedUserVariant) {
+      return NextResponse.json({ error: "Invalid email or password" }, { status: 401 });
+    }
   }
 
   if (user.role !== "CLIENT" && user.role !== "ADMIN") {
@@ -97,7 +119,7 @@ export async function POST(req: Request) {
   if (!ok && isPortalDemoLogin) {
     // Demo recovery: accept the provided password and reset the demo hash.
     const passwordHash = await hashPassword(parsed.data.password);
-    user = await prisma.user.update({ where: { id: user.id }, data: { passwordHash } });
+    user = await prisma.user.update({ where: { id: user.id }, data: { passwordHash }, select: userSelect });
     ok = true;
   }
 
