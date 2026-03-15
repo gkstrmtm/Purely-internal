@@ -323,41 +323,78 @@ function PortalGetStartedInner() {
     setError(null);
     setLoading(true);
 
-    const res = await fetch("/api/auth/client-signup", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      credentials: "include",
-      body: JSON.stringify({
-        name,
-        email,
-        phone,
-        password,
-        referralCode,
-        businessName,
-        city,
-        state,
-        websiteUrl,
-        hasWebsite,
-        callsPerMonthRange,
-        acquisitionMethods,
-        industry,
-        businessModel,
-        targetCustomer,
-        brandVoice,
-        goalIds: normalizedGoals,
-        selectedServiceSlugs,
-        selectedPlanIds,
-        selectedPlanQuantities: planQuantities,
-        couponCode: normalizedCoupon,
-        billingPreference,
-        selectedBundleId,
-      }),
-    });
+    let res: Response;
+    try {
+      res = await fetch("/api/auth/client-signup", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          name,
+          email,
+          phone,
+          password,
+          referralCode,
+          businessName,
+          city,
+          state,
+          websiteUrl,
+          hasWebsite,
+          callsPerMonthRange,
+          acquisitionMethods,
+          industry,
+          businessModel,
+          targetCustomer,
+          brandVoice,
+          goalIds: normalizedGoals,
+          selectedServiceSlugs,
+          selectedPlanIds,
+          selectedPlanQuantities: planQuantities,
+          couponCode: normalizedCoupon,
+          billingPreference,
+          selectedBundleId,
+        }),
+      });
+    } catch {
+      setLoading(false);
+      setError("Network error while creating your account. Please check your connection and try again.");
+      return;
+    }
+
+    const requestIdFromHeader = res.headers.get("x-pa-request-id") || "";
 
     if (!res.ok) {
-      const body = await res.json().catch(() => ({}));
+      const rawText = await res.text().catch(() => "");
+      const body = (() => {
+        try {
+          return rawText ? JSON.parse(rawText) : {};
+        } catch {
+          return {};
+        }
+      })();
+
+      const requestId =
+        (typeof body?.requestId === "string" ? body.requestId : "") ||
+        requestIdFromHeader;
+
+      const serverError = typeof body?.error === "string" ? body.error : "";
+
+      const fallbackBase =
+        res.status === 409
+          ? "That email already has an account. Try signing in instead."
+          : res.status === 400
+            ? "Please check the form and try again."
+            : res.status === 403
+              ? "Signup is currently disabled."
+              : res.status >= 500
+                ? "Server error while creating your account. Please try again in a minute."
+                : "Unable to create account.";
+
+      const msg = serverError || fallbackBase;
+      const ref = requestId ? ` (Ref: ${requestId})` : "";
+
       setLoading(false);
-      setError(body?.error ?? "Unable to create account. Please check your details and try again.");
+      setError(msg + ref);
       return;
     }
 

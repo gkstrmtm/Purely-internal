@@ -27,6 +27,17 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
+function createRequestId() {
+  try {
+    // Prefer a real UUID when available.
+    const c = (globalThis as any)?.crypto;
+    if (c?.randomUUID) return String(c.randomUUID());
+  } catch {
+    // ignore
+  }
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
 const bodySchema = z.object({
   name: z.string().trim().min(2).max(120),
   email: z.string().trim().email(),
@@ -158,75 +169,80 @@ function withLifecycle(dataJson: unknown, lifecycle: { state: string; reason?: s
 }
 
 export async function POST(req: Request) {
+  const requestId = createRequestId();
   const variant = (normalizePortalVariant(req.headers.get(PORTAL_VARIANT_HEADER)) || "portal") satisfies PortalVariant;
 
-  const secret = process.env.NEXTAUTH_SECRET;
-  if (!secret) {
-    return NextResponse.json({ error: "Server misconfigured" }, { status: 500 });
-  }
+  const jsonResponse = (body: Record<string, unknown>, init?: { status?: number }) => {
+    const res = NextResponse.json({ requestId, ...body }, init);
+    res.headers.set("x-pa-request-id", requestId);
+    return res;
+  };
 
-  // Default to enabled. Set CLIENT_SIGNUP_ENABLED="false" to disable.
-  const enabledFlag = String(process.env.CLIENT_SIGNUP_ENABLED ?? "").trim().toLowerCase();
-  if (["0", "false", "off", "disabled"].includes(enabledFlag)) {
-    return NextResponse.json(
-      { error: "Customer signup is disabled" },
-      { status: 403 },
-    );
-  }
+  try {
+    const secret = process.env.NEXTAUTH_SECRET;
+    if (!secret) {
+      return jsonResponse({ ok: false, error: "Server misconfigured" }, { status: 500 });
+    }
 
-  const json = await req.json().catch(() => null);
-  const parsed = bodySchema.safeParse(json);
-  if (!parsed.success) {
-    return NextResponse.json(
-      { error: friendlySignupValidationError(parsed.error.issues) },
-      { status: 400 },
-    );
-  }
+    // Default to enabled. Set CLIENT_SIGNUP_ENABLED="false" to disable.
+    const enabledFlag = String(process.env.CLIENT_SIGNUP_ENABLED ?? "").trim().toLowerCase();
+    if (["0", "false", "off", "disabled"].includes(enabledFlag)) {
+      return jsonResponse({ ok: false, error: "Customer signup is disabled" }, { status: 403 });
+    }
 
-  const email = parsed.data.email.toLowerCase();
-  const invitedIp = getRequestIp(req);
-  const referralCode = readReferralCodeFromUnknown(parsed.data.referralCode);
-  const inviter = referralCode ? await findInviterByReferralCode(referralCode).catch(() => null) : null;
+    const json = await req.json().catch(() => null);
+    const parsed = bodySchema.safeParse(json);
+    if (!parsed.success) {
+      return jsonResponse(
+        { ok: false, error: friendlySignupValidationError(parsed.error.issues) },
+        { status: 400 },
+      );
+    }
 
-  const goalIds = normalizeGoalIds(parsed.data.goalIds);
-  const recommendedServiceSlugs = recommendPortalServiceSlugs(goalIds);
-  const selectedServiceSlugsRaw = normalizeServiceSlugs(parsed.data.selectedServiceSlugs);
-  const selectedServiceSlugs = selectedServiceSlugsRaw.length ? selectedServiceSlugsRaw : recommendedServiceSlugs;
+    const email = parsed.data.email.toLowerCase();
+    const invitedIp = getRequestIp(req);
+    const referralCode = readReferralCodeFromUnknown(parsed.data.referralCode);
+    const inviter = referralCode ? await findInviterByReferralCode(referralCode).catch(() => null) : null;
 
-  const phoneRaw = typeof parsed.data.phone === "string" ? parsed.data.phone.trim() : "";
-  const phoneParsed = phoneRaw ? normalizePhoneStrict(phoneRaw) : null;
-  if (phoneParsed && !phoneParsed.ok) {
-    return NextResponse.json({ error: "Invalid phone number" }, { status: 400 });
-  }
-  const phoneE164 = phoneParsed && phoneParsed.ok ? phoneParsed.e164 : null;
+    const goalIds = normalizeGoalIds(parsed.data.goalIds);
+    const recommendedServiceSlugs = recommendPortalServiceSlugs(goalIds);
+    const selectedServiceSlugsRaw = normalizeServiceSlugs(parsed.data.selectedServiceSlugs);
+    const selectedServiceSlugs = selectedServiceSlugsRaw.length ? selectedServiceSlugsRaw : recommendedServiceSlugs;
 
-  const websiteUrl = (parsed.data.websiteUrl || "").trim();
-  const city = parsed.data.city.trim();
-  const state = parsed.data.state.trim();
-  const hasWebsite = parsed.data.hasWebsite ?? null;
-  const callsPerMonthRange = parsed.data.callsPerMonthRange ?? null;
-  const acquisitionMethods = normalizeStringArray(parsed.data.acquisitionMethods);
-  const acquisitionMethodLegacy = (parsed.data.acquisitionMethod || "").trim();
-  const acquisitionMethod = acquisitionMethods.length ? acquisitionMethods.join(", ") : acquisitionMethodLegacy;
-  const industry = (parsed.data.industry || "").trim();
-  const businessModel = (parsed.data.businessModel || "").trim();
-  const targetCustomer = (parsed.data.targetCustomer || "").trim();
-  const brandVoice = (parsed.data.brandVoice || "").trim();
+    const phoneRaw = typeof parsed.data.phone === "string" ? parsed.data.phone.trim() : "";
+    const phoneParsed = phoneRaw ? normalizePhoneStrict(phoneRaw) : null;
+    if (phoneParsed && !phoneParsed.ok) {
+      return jsonResponse({ ok: false, error: "Invalid phone number" }, { status: 400 });
+    }
+    const phoneE164 = phoneParsed && phoneParsed.ok ? phoneParsed.e164 : null;
 
-  const billingPreference = parsed.data.billingPreference ?? null;
-  const selectedBundleId = typeof parsed.data.selectedBundleId === "string" ? parsed.data.selectedBundleId : null;
+    const websiteUrl = (parsed.data.websiteUrl || "").trim();
+    const city = parsed.data.city.trim();
+    const state = parsed.data.state.trim();
+    const hasWebsite = parsed.data.hasWebsite ?? null;
+    const callsPerMonthRange = parsed.data.callsPerMonthRange ?? null;
+    const acquisitionMethods = normalizeStringArray(parsed.data.acquisitionMethods);
+    const acquisitionMethodLegacy = (parsed.data.acquisitionMethod || "").trim();
+    const acquisitionMethod = acquisitionMethods.length ? acquisitionMethods.join(", ") : acquisitionMethodLegacy;
+    const industry = (parsed.data.industry || "").trim();
+    const businessModel = (parsed.data.businessModel || "").trim();
+    const targetCustomer = (parsed.data.targetCustomer || "").trim();
+    const brandVoice = (parsed.data.brandVoice || "").trim();
 
-  const couponCode = (parsed.data.couponCode || "").trim().toUpperCase().slice(0, 40);
+    const billingPreference = parsed.data.billingPreference ?? null;
+    const selectedBundleId = typeof parsed.data.selectedBundleId === "string" ? parsed.data.selectedBundleId : null;
 
-  const existing = await prisma.user.findUnique({ where: { email } });
-  if (existing) {
-    return NextResponse.json({ error: "Email already in use" }, { status: 409 });
-  }
+    const couponCode = (parsed.data.couponCode || "").trim().toUpperCase().slice(0, 40);
 
-  const passwordHash = await hashPassword(parsed.data.password);
+    const existing = await prisma.user.findUnique({ where: { email } });
+    if (existing) {
+      return jsonResponse({ ok: false, error: "Email already in use" }, { status: 409 });
+    }
 
-  const createUser = async () =>
-    prisma.$transaction(async (tx) => {
+    const passwordHash = await hashPassword(parsed.data.password);
+
+    const createUser = async () =>
+      prisma.$transaction(async (tx) => {
       const user = await tx.user.create({
         data: {
           email,
@@ -457,8 +473,7 @@ export async function POST(req: Request) {
       return user;
     });
 
-  let user: Pick<User, "id" | "email" | "name" | "role">;
-  try {
+    let user: Pick<User, "id" | "email" | "name" | "role">;
     try {
       user = await createUser();
     } catch (e) {
@@ -492,7 +507,7 @@ export async function POST(req: Request) {
       maxAge: 60 * 60 * 24 * 30,
     });
 
-    const res = NextResponse.json({ ok: true, user, signedIn: true });
+    const res = jsonResponse({ ok: true, user, signedIn: true });
     res.cookies.set({
       name: variant === "credit" ? CREDIT_PORTAL_SESSION_COOKIE_NAME : PORTAL_SESSION_COOKIE_NAME,
       value: token,
@@ -504,21 +519,18 @@ export async function POST(req: Request) {
     });
     return res;
   } catch (e) {
-    console.error("/api/auth/client-signup failed", e);
+    console.error("/api/auth/client-signup failed", { requestId, error: e });
 
     const prismaCode = typeof (e as any)?.code === "string" ? String((e as any).code) : null;
     if (prismaCode === "P2002") {
-      return NextResponse.json({ error: "Email already in use" }, { status: 409 });
+      return jsonResponse({ ok: false, error: "Email already in use" }, { status: 409 });
     }
     if (prismaCode === "P2021") {
-      return NextResponse.json(
-        { error: "Server database is missing required tables" },
-        { status: 500 },
-      );
+      return jsonResponse({ ok: false, error: "Server database is missing required tables" }, { status: 500 });
     }
 
     const message = e instanceof Error ? e.message : "Unknown error";
     const error = process.env.NODE_ENV === "production" ? "Unable to create account" : message;
-    return NextResponse.json({ error }, { status: 500 });
+    return jsonResponse({ ok: false, error }, { status: 500 });
   }
 }
