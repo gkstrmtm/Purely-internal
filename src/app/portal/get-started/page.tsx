@@ -175,6 +175,7 @@ function PortalGetStartedInner() {
   const couponIsBuild = normalizedCoupon === "BUILD";
 
   const [error, setError] = useState<string | null>(null);
+  const [supportCode, setSupportCode] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
@@ -321,6 +322,7 @@ function PortalGetStartedInner() {
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
+    setSupportCode(null);
     setLoading(true);
 
     let res: Response;
@@ -357,7 +359,7 @@ function PortalGetStartedInner() {
       });
     } catch {
       setLoading(false);
-      setError("Network error while creating your account. Please check your connection and try again.");
+      setError("We couldn’t reach the server. Check your connection and try again.");
       return;
     }
 
@@ -379,22 +381,25 @@ function PortalGetStartedInner() {
 
       const serverError = typeof body?.error === "string" ? body.error : "";
 
+      if (res.status >= 500 && requestId) {
+        setSupportCode(requestId);
+      }
+
       const fallbackBase =
         res.status === 409
-          ? "That email already has an account. Try signing in instead."
+          ? "That email already has an account. Sign in or reset your password."
           : res.status === 400
-            ? "Please check the form and try again."
+            ? "Please double-check your details and try again."
             : res.status === 403
-              ? "Signup is currently disabled."
+              ? "Signup is currently unavailable. If you already have an account, sign in."
               : res.status >= 500
-                ? "Server error while creating your account. Please try again in a minute."
+                ? "We couldn’t create your account right now. Please try again in a few minutes."
                 : "Unable to create account.";
 
       const msg = serverError || fallbackBase;
-      const ref = requestId ? ` (Ref: ${requestId})` : "";
 
       setLoading(false);
-      setError(msg + ref);
+      setError(msg);
       return;
     }
 
@@ -1006,6 +1011,19 @@ function PortalGetStartedInner() {
                 <div className="mt-1 text-sm text-zinc-600">
                   {billingPreference === "subscription" ? "You’ll check out next and activate services." : "You’ll start free and activate services."}
                 </div>
+
+                {error ? (
+                  <div className="mt-4 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-900">
+                    <div className="font-semibold">We couldn’t create your account</div>
+                    <div className="mt-1 text-red-800">{error}</div>
+                    <div className="mt-3 text-xs text-red-800">
+                      If you already have an account, use the “Sign in” link below.
+                      {supportCode ? (
+                        <span className="ml-2 inline-block">Support code: {supportCode}</span>
+                      ) : null}
+                    </div>
+                  </div>
+                ) : null}
 
                 <div className="mt-4 grid grid-cols-1 gap-4">
                   <div>

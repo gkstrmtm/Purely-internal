@@ -523,14 +523,38 @@ export async function POST(req: Request) {
 
     const prismaCode = typeof (e as any)?.code === "string" ? String((e as any).code) : null;
     if (prismaCode === "P2002") {
-      return jsonResponse({ ok: false, error: "Email already in use" }, { status: 409 });
+      return jsonResponse(
+        { ok: false, error: "That email already has an account. Please sign in.", errorKey: "EMAIL_IN_USE" },
+        { status: 409 },
+      );
     }
-    if (prismaCode === "P2021") {
-      return jsonResponse({ ok: false, error: "Server database is missing required tables" }, { status: 500 });
+
+    const msg = e instanceof Error ? e.message : "";
+    const msgLower = msg.toLowerCase();
+    const isSchemaMismatch =
+      prismaCode === "P2021" ||
+      prismaCode === "P2022" ||
+      // Postgres enum mismatch (Role missing CLIENT, etc)
+      (msgLower.includes("invalid input value for enum") && (msgLower.includes("role") || msgLower.includes("client"))) ||
+      // Common runtime drift errors
+      msgLower.includes("relation") && msgLower.includes("does not exist") ||
+      msgLower.includes("column") && msgLower.includes("does not exist");
+
+    if (isSchemaMismatch) {
+      return jsonResponse(
+        {
+          ok: false,
+          error: "We’re updating our system. Please try again in a few minutes.",
+          errorKey: "SCHEMA_MISMATCH",
+        },
+        { status: 503 },
+      );
     }
 
     const message = e instanceof Error ? e.message : "Unknown error";
-    const error = process.env.NODE_ENV === "production" ? "Unable to create account" : message;
-    return jsonResponse({ ok: false, error }, { status: 500 });
+    const error = process.env.NODE_ENV === "production"
+      ? "We couldn’t create your account right now. Please try again in a few minutes."
+      : message;
+    return jsonResponse({ ok: false, error, errorKey: "UNKNOWN" }, { status: 500 });
   }
 }
