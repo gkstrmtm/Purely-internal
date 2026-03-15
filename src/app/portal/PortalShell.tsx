@@ -806,7 +806,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
   if (isFunnelBuilderEditor || isAutomationsEditor) {
     return (
       <div className="h-dvh overflow-hidden bg-brand-mist text-brand-ink">
-        <main className="h-full overflow-y-auto pb-64 sm:pb-8">{children}</main>
+        <main className="h-full overflow-y-auto pb-[max(24rem,calc(var(--portal-floating-tools-space,0px)+env(safe-area-inset-bottom)))] sm:pb-8">{children}</main>
       </div>
     );
   }
@@ -1261,7 +1261,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
           </div>
         </aside>
 
-        <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto pb-64 sm:pb-0">
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto pb-[max(24rem,calc(var(--portal-floating-tools-space,0px)+env(safe-area-inset-bottom)))] sm:pb-0">
           <header className="sticky top-0 z-10 border-b border-zinc-200 bg-white/80 backdrop-blur sm:hidden">
             <div className="flex items-center justify-between px-4 py-3">
               <button

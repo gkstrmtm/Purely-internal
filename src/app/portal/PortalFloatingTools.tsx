@@ -276,6 +276,12 @@ function classNames(...xs: Array<string | false | null | undefined>) {
   return xs.filter(Boolean).join(" ");
 }
 
+function setPortalBottomSafeSpacePx(px: number) {
+  if (typeof document === "undefined") return;
+  const v = Number.isFinite(px) ? Math.max(0, Math.round(px)) : 0;
+  document.documentElement.style.setProperty("--portal-floating-tools-space", `${v}px`);
+}
+
 export function PortalFloatingTools() {
   const [minimized, setMinimized] = useState(true);
   const [version, setVersion] = useState<VersionPayload | null>(null);
@@ -298,6 +304,42 @@ export function PortalFloatingTools() {
   const chatEndRef = useRef<HTMLDivElement | null>(null);
   const shouldAutoScrollRef = useRef(true);
   const chatScrollRafRef = useRef<number | null>(null);
+
+  const toolsRootRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    const el = toolsRootRef.current;
+    if (!el) return;
+
+    const update = () => {
+      try {
+        const rect = el.getBoundingClientRect();
+        const height = rect.height;
+        const bottomGap = Math.max(0, window.innerHeight - rect.bottom);
+        // Extra buffer so the last tap-target is never hidden.
+        setPortalBottomSafeSpacePx(height + bottomGap + 32);
+      } catch {
+        // Ignore measurement failures.
+      }
+    };
+
+    update();
+
+    let ro: ResizeObserver | null = null;
+    if (typeof ResizeObserver !== "undefined") {
+      ro = new ResizeObserver(() => update());
+      ro.observe(el);
+    }
+
+    window.addEventListener("resize", update);
+    window.addEventListener("orientationchange", update);
+
+    return () => {
+      ro?.disconnect();
+      window.removeEventListener("resize", update);
+      window.removeEventListener("orientationchange", update);
+    };
+  }, [minimized, reportOpen, chatOpen]);
 
   useEffect(() => {
     chatMessagesRef.current = chatMessages;
@@ -603,7 +645,7 @@ export function PortalFloatingTools() {
         </div>
       ) : null}
 
-      <div className="fixed bottom-4 right-4 z-9997">
+      <div ref={toolsRootRef} className="fixed bottom-4 right-4 z-9997">
         {minimized ? (
           <button
             type="button"
