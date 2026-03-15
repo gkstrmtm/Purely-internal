@@ -808,7 +808,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
       <div className="h-dvh overflow-hidden bg-brand-mist text-brand-ink">
         <main className="h-full overflow-y-auto">
           {children}
-          <div aria-hidden className="h-[calc(env(safe-area-inset-bottom)+2.5rem)] sm:hidden" />
+          <div aria-hidden className="h-[calc(env(safe-area-inset-bottom)+5rem)]" />
         </main>
       </div>
     );
@@ -1363,7 +1363,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
             ) : null}
 
             {children}
-            <div aria-hidden className="h-[calc(env(safe-area-inset-bottom)+2.5rem)] sm:hidden" />
+            <div aria-hidden className="h-[calc(env(safe-area-inset-bottom)+5rem)]" />
           </main>
 
           {rewardCampaign && rewardEligible ? (
