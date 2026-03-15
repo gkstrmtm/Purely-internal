@@ -179,10 +179,6 @@ function PortalGetStartedInner() {
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    if (error) toast.error(error);
-  }, [error, toast]);
-
-  useEffect(() => {
     if (selectionTouched) return;
     setSelectedPlanIds(Array.from(new Set(["core", ...recommendedPlanIds])));
   }, [recommendedPlanIds, selectionTouched]);

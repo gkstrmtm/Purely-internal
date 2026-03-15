@@ -241,9 +241,8 @@ export async function POST(req: Request) {
 
     const passwordHash = await hashPassword(parsed.data.password);
 
-    const createUser = async () =>
-      prisma.$transaction(async (tx) => {
-      const user = await tx.user.create({
+    const createUserOnly = async () => {
+      return prisma.user.create({
         data: {
           email,
           name: parsed.data.name,
@@ -253,30 +252,45 @@ export async function POST(req: Request) {
         },
         select: { id: true, email: true, name: true, role: true },
       });
+    };
 
-      if (referralCode) {
-        const inviterIp = String(inviter?.referralCodeCreatedIp || "").trim();
-        const isValidInviter = inviter && inviter.role === "CLIENT" && inviter.email.toLowerCase() !== email;
-
-        const ipOk = !inviterIp || !invitedIp || inviterIp !== invitedIp;
-        if (isValidInviter && ipOk) {
-          await tx.portalReferral
-            .create({
-              data: {
-                inviterId: inviter.id,
-                invitedUserId: user.id,
-                invitedEmail: email,
-                invitedIp,
-              },
-              select: { id: true },
-            })
-            .catch(() => null);
-        }
+    let user: Pick<User, "id" | "email" | "name" | "role">;
+    try {
+      user = await createUserOnly();
+    } catch (e) {
+      if (isClientRoleMissingError(e)) {
+        await ensureClientRoleAllowed(prisma);
+        user = await createUserOnly();
+      } else {
+        throw e;
       }
+    }
 
-      const primaryGoals = goalLabelsFromIds(goalIds);
+    // Best-effort: provision onboarding records. These should never block account creation.
+    const provisionTasks: Array<Promise<unknown>> = [];
 
-      await tx.businessProfile.create({
+    if (referralCode) {
+      const inviterIp = String(inviter?.referralCodeCreatedIp || "").trim();
+      const isValidInviter = inviter && inviter.role === "CLIENT" && inviter.email.toLowerCase() !== email;
+      const ipOk = !inviterIp || !invitedIp || inviterIp !== invitedIp;
+      if (isValidInviter && ipOk) {
+        provisionTasks.push(
+          prisma.portalReferral.create({
+            data: {
+              inviterId: inviter.id,
+              invitedUserId: user.id,
+              invitedEmail: email,
+              invitedIp,
+            },
+            select: { id: true },
+          }).catch(() => null),
+        );
+      }
+    }
+
+    const primaryGoals = goalLabelsFromIds(goalIds);
+    provisionTasks.push(
+      prisma.businessProfile.create({
         data: {
           ownerId: user.id,
           businessName: parsed.data.businessName,
@@ -288,9 +302,11 @@ export async function POST(req: Request) {
           brandVoice: brandVoice ? brandVoice : null,
         },
         select: { id: true },
-      });
+      }),
+    );
 
-      await tx.portalServiceSetup.upsert({
+    provisionTasks.push(
+      prisma.portalServiceSetup.upsert({
         where: { ownerId_serviceSlug: { ownerId: user.id, serviceSlug: "profile" } },
         create: {
           ownerId: user.id,
@@ -313,10 +329,12 @@ export async function POST(req: Request) {
           },
         },
         select: { id: true },
-      });
+      }),
+    );
 
-      if (variant !== "credit" && billingPreference) {
-        await tx.portalServiceSetup.upsert({
+    if (variant !== "credit" && billingPreference) {
+      provisionTasks.push(
+        prisma.portalServiceSetup.upsert({
           where: {
             ownerId_serviceSlug: { ownerId: user.id, serviceSlug: PORTAL_BILLING_MODEL_OVERRIDE_SETUP_SLUG },
           },
@@ -339,10 +357,12 @@ export async function POST(req: Request) {
             },
           },
           select: { id: true },
-        });
-      }
+        }),
+      );
+    }
 
-      await tx.portalServiceSetup.upsert({
+    provisionTasks.push(
+      prisma.portalServiceSetup.upsert({
         where: { ownerId_serviceSlug: { ownerId: user.id, serviceSlug: "onboarding-intake" } },
         create: {
           ownerId: user.id,
@@ -409,10 +429,12 @@ export async function POST(req: Request) {
           },
         },
         select: { id: true },
-      });
+      }),
+    );
 
-      // Default credits auto top-up ON for new accounts.
-      await tx.portalServiceSetup.upsert({
+    // Default credits auto top-up ON for new accounts.
+    provisionTasks.push(
+      prisma.portalServiceSetup.upsert({
         where: { ownerId_serviceSlug: { ownerId: user.id, serviceSlug: "credits" } },
         create: {
           ownerId: user.id,
@@ -425,65 +447,64 @@ export async function POST(req: Request) {
           dataJson: { balance: billingPreference === "credits" ? 50 : 0, autoTopUp: true },
         },
         select: { id: true },
-      });
+      }),
+    );
 
-      // Keep services gated until checkout completes (subscription billing only).
-      if (billingPreference !== "credits") {
-        const allowed = new Set<string>(ONBOARDING_SERVICE_SLUGS_TO_GUARD as unknown as string[]);
-        const coreIncluded = new Set<string>(CORE_INCLUDED_SERVICE_SLUGS as unknown as string[]);
+    // Keep services gated until checkout completes (subscription billing only).
+    if (billingPreference !== "credits") {
+      const allowed = new Set<string>(ONBOARDING_SERVICE_SLUGS_TO_GUARD as unknown as string[]);
+      const coreIncluded = new Set<string>(CORE_INCLUDED_SERVICE_SLUGS as unknown as string[]);
 
-        const planIds = Array.isArray(parsed.data.selectedPlanIds)
-          ? parsed.data.selectedPlanIds.map((x) => (typeof x === "string" ? x.trim() : "")).filter(Boolean).slice(0, 20)
-          : [];
-        const planSlugs = planIds.flatMap((id) => planById(id)?.serviceSlugsToActivate ?? []);
+      const planIds = Array.isArray(parsed.data.selectedPlanIds)
+        ? parsed.data.selectedPlanIds.map((x) => (typeof x === "string" ? x.trim() : "")).filter(Boolean).slice(0, 20)
+        : [];
+      const planSlugs = planIds.flatMap((id) => planById(id)?.serviceSlugsToActivate ?? []);
 
-        const pendingPayment = new Set<string>([...selectedServiceSlugs, ...planSlugs]);
-        for (const slug of Array.from(pendingPayment)) {
-          if (!allowed.has(slug)) continue;
-          if (coreIncluded.has(slug)) continue;
+      const pendingPayment = new Set<string>([...selectedServiceSlugs, ...planSlugs]);
+      for (const slug of Array.from(pendingPayment)) {
+        if (!allowed.has(slug)) continue;
+        if (coreIncluded.has(slug)) continue;
 
-          const existing = await tx.portalServiceSetup
-            .findUnique({
+        provisionTasks.push(
+          (async () => {
+            const existing = await prisma.portalServiceSetup
+              .findUnique({
+                where: { ownerId_serviceSlug: { ownerId: user.id, serviceSlug: slug } },
+                select: { id: true, dataJson: true },
+              })
+              .catch(() => null);
+
+            if (!existing) {
+              await prisma.portalServiceSetup.create({
+                data: {
+                  ownerId: user.id,
+                  serviceSlug: slug,
+                  status: "NOT_STARTED",
+                  dataJson: withLifecycle({}, { state: "paused", reason: "pending_payment" }) as any,
+                },
+                select: { id: true },
+              });
+              return;
+            }
+
+            await prisma.portalServiceSetup.update({
               where: { ownerId_serviceSlug: { ownerId: user.id, serviceSlug: slug } },
-              select: { id: true, dataJson: true },
-            })
-            .catch(() => null);
-
-          if (!existing) {
-            await tx.portalServiceSetup.create({
-              data: {
-                ownerId: user.id,
-                serviceSlug: slug,
-                status: "NOT_STARTED",
-                dataJson: withLifecycle({}, { state: "paused", reason: "pending_payment" }) as any,
-              },
+              data: { dataJson: withLifecycle(existing.dataJson, { state: "paused", reason: "pending_payment" }) as any },
               select: { id: true },
             });
-            continue;
-          }
-
-          await tx.portalServiceSetup.update({
-            where: { ownerId_serviceSlug: { ownerId: user.id, serviceSlug: slug } },
-            data: { dataJson: withLifecycle(existing.dataJson, { state: "paused", reason: "pending_payment" }) as any },
-            select: { id: true },
-          });
-        }
-      }
-
-      return user;
-    });
-
-    let user: Pick<User, "id" | "email" | "name" | "role">;
-    try {
-      user = await createUser();
-    } catch (e) {
-      if (isClientRoleMissingError(e)) {
-        await ensureClientRoleAllowed(prisma);
-        user = await createUser();
-      } else {
-        throw e;
+          })(),
+        );
       }
     }
+
+    await Promise.all(
+      provisionTasks.map((p) =>
+        p.catch((err) => {
+          console.error("/api/auth/client-signup provisioning failed", { requestId, error: err });
+          return null;
+        }),
+      ),
+    );
 
     // Multi-user portal accounts: session uid is the account ownerId.
     const ownerId = await resolvePortalOwnerIdForLogin(user.id).catch(() => user.id);
@@ -536,6 +557,8 @@ export async function POST(req: Request) {
       prismaCode === "P2022" ||
       // Postgres enum mismatch (Role missing CLIENT, etc)
       (msgLower.includes("invalid input value for enum") && (msgLower.includes("role") || msgLower.includes("client"))) ||
+      // Type mismatch from drift (e.g. column is text but prisma expects enum)
+      (msgLower.includes("is of type") && msgLower.includes("but expression is of type")) ||
       // Common runtime drift errors
       msgLower.includes("relation") && msgLower.includes("does not exist") ||
       msgLower.includes("column") && msgLower.includes("does not exist");
