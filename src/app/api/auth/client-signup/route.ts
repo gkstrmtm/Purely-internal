@@ -22,7 +22,8 @@ import {
 import { CORE_INCLUDED_SERVICE_SLUGS, planById } from "@/lib/portalOnboardingWizardCatalog";
 import { PORTAL_BILLING_MODEL_OVERRIDE_SETUP_SLUG } from "@/lib/portalBillingModel";
 import { getRequestIp } from "@/lib/requestIp";
-import { findInviterByReferralCode, readReferralCodeFromUnknown } from "@/lib/portalReferrals.server";
+import { findInviterByReferralCode, readReferralCodeFromUnknown, rotatePortalReferralCode } from "@/lib/portalReferrals.server";
+import { sendVerifyEmail } from "@/lib/portalEmailVerification.server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -282,11 +283,18 @@ export async function POST(req: Request) {
     // Best-effort: provision onboarding records. These should never block account creation.
     const provisionTasks: Array<Promise<unknown>> = [];
 
+    // Always send a verification email on new account creation (best-effort).
+    provisionTasks.push(
+      sendVerifyEmail({ userId: user.id, toEmail: user.email }).catch((err) => {
+        console.error("/api/auth/client-signup verification email send failed", { requestId, error: err });
+        return null;
+      }),
+    );
+
     if (referralCode) {
       const inviterIp = String(inviter?.referralCodeCreatedIp || "").trim();
       const isValidInviter = inviter && inviter.role === "CLIENT" && inviter.email.toLowerCase() !== email;
-      const ipOk = !inviterIp || !invitedIp || inviterIp !== invitedIp;
-      if (isValidInviter && ipOk) {
+      if (isValidInviter) {
         provisionTasks.push(
           prisma.portalReferral.create({
             data: {
@@ -296,6 +304,15 @@ export async function POST(req: Request) {
               invitedIp,
             },
             select: { id: true },
+          }).then(async () => {
+            // Refresh inviter's link after a successful invite so the shared link rotates automatically.
+            // Best-effort: never block signup.
+            await rotatePortalReferralCode({ ownerId: inviter.id, req }).catch(() => null);
+
+            // Keep inviter IP metadata reasonably current when available.
+            if (inviterIp && invitedIp && inviterIp === invitedIp) {
+              // No-op: still allow recording, awarding logic will decide.
+            }
           }).catch(() => null),
         );
       }

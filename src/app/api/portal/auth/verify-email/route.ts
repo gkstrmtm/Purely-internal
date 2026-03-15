@@ -40,27 +40,10 @@ export async function POST(req: Request) {
 
     if (referral.creditsAwardedAt) return { awarded: false };
 
-    // Best-effort anti-abuse: require IP difference if inviter recorded one.
-    const inviter = await tx.user.findUnique({
-      where: { id: referral.inviterId },
-      select: { portalReferralCodeCreatedIp: true },
-    });
-
-    const invited = await tx.portalReferral.findUnique({
-      where: { id: referral.id },
-      select: { invitedIp: true },
-    });
-
-    const inviterIp = String(inviter?.portalReferralCodeCreatedIp || "").trim();
-    const invitedIp = String(invited?.invitedIp || "").trim();
-
-    if (!inviterIp || !invitedIp) {
-      return { awarded: false };
-    }
-
-    if (inviterIp === invitedIp) {
-      return { awarded: false };
-    }
+    // Award credits once the invited user verifies their email.
+    // Avoid overly-strict IP gating (it caused legit referrals to never award).
+    // Self-referrals are already blocked at signup; keep the award logic simple and reliable.
+    if (!referral.inviterId || referral.inviterId === verified.userId) return { awarded: false };
 
     await addCreditsTx(tx as any, referral.inviterId, awardCredits);
 

@@ -805,14 +805,14 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
 
   if (isFunnelBuilderEditor || isAutomationsEditor) {
     return (
-      <div className="min-h-screen bg-brand-mist text-brand-ink">
-        <main className="min-h-screen">{children}</main>
+      <div className="h-dvh overflow-hidden bg-brand-mist text-brand-ink">
+        <main className="h-full overflow-y-auto">{children}</main>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-brand-mist text-brand-ink">
+    <div className="h-dvh overflow-hidden bg-brand-mist text-brand-ink">
       {showGettingStartedHint ? (
         <div className="pointer-events-none fixed inset-0 z-40 flex items-end justify-center px-4 pb-6 sm:items-center sm:pb-0">
           <button
@@ -847,7 +847,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
         </div>
       ) : null}
 
-      <div className="flex min-h-screen">
+  <div className="flex h-full min-h-0">
         {/* Mobile drawer */}
         <div
           className={classNames(
@@ -1037,7 +1037,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
 
         <aside
           className={classNames(
-            "sticky top-[72px] hidden h-[calc(100vh-72px)] shrink-0 border-r border-zinc-200 bg-white sm:flex sm:flex-col",
+            "hidden h-full min-h-0 shrink-0 border-r border-zinc-200 bg-white sm:flex sm:flex-col",
             collapsed ? "w-[76px]" : "w-[280px]",
           )}
         >
@@ -1261,7 +1261,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
           </div>
         </aside>
 
-        <div className="flex min-w-0 flex-1 flex-col">
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto">
           <header className="sticky top-0 z-10 border-b border-zinc-200 bg-white/80 backdrop-blur sm:hidden">
             <div className="flex items-center justify-between px-4 py-3">
               <button
@@ -1292,7 +1292,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
             </div>
           </header>
 
-          <main className="min-w-0 flex-1 p-4 sm:p-8">
+          <main className="min-h-0 min-w-0 flex-1 p-4 sm:p-8">
             {topBannerCampaign ? (
               <div className="mb-4 rounded-3xl border border-brand-ink/10 bg-gradient-to-r from-[color:var(--color-brand-blue)]/15 via-white to-white p-4 text-brand-ink">
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">

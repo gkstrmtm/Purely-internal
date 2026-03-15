@@ -8,10 +8,17 @@ function sha256Hex(raw: string): string {
   return crypto.createHash("sha256").update(raw).digest("hex");
 }
 
+function emailVerificationTtlMs(): number {
+  const raw = String(process.env.PORTAL_EMAIL_VERIFICATION_TTL_MINUTES ?? "").trim();
+  const mins = raw ? Number(raw) : 20;
+  if (!Number.isFinite(mins) || mins <= 0) return 1000 * 60 * 20;
+  return Math.max(1000 * 60, Math.min(1000 * 60 * 60 * 24 * 7, Math.trunc(mins) * 1000 * 60));
+}
+
 export async function createEmailVerificationToken(userId: string): Promise<{ token: string; tokenHash: string; expiresAt: Date }> {
   const token = crypto.randomBytes(32).toString("hex");
   const tokenHash = sha256Hex(token);
-  const expiresAt = new Date(Date.now() + 1000 * 60 * 60 * 24 * 7); // 7 days
+  const expiresAt = new Date(Date.now() + emailVerificationTtlMs());
 
   await prisma.portalEmailVerificationToken.create({
     data: {
@@ -27,17 +34,13 @@ export async function createEmailVerificationToken(userId: string): Promise<{ to
 
 export async function findOrCreateLatestToken(userId: string): Promise<{ token: string; expiresAt: Date } | null> {
   const now = new Date();
-  const existing = await prisma.portalEmailVerificationToken.findFirst({
-    where: { userId, usedAt: null, expiresAt: { gt: now } },
-    orderBy: { createdAt: "desc" },
-    select: { tokenHash: true, expiresAt: true },
-  });
 
-  // We can’t recover the raw token from a hash; generate a new one if any exist.
-  // This keeps the implementation simple and avoids sending an invalid link.
-  if (existing) {
-    // Generate a fresh token for each send.
-  }
+  // Ensure only one active link works at a time: when we send a new email,
+  // mark any existing unused/unexpired tokens as used.
+  await prisma.portalEmailVerificationToken.updateMany({
+    where: { userId, usedAt: null, expiresAt: { gt: now } },
+    data: { usedAt: now },
+  });
 
   const created = await createEmailVerificationToken(userId);
   return { token: created.token, expiresAt: created.expiresAt };
@@ -46,6 +49,8 @@ export async function findOrCreateLatestToken(userId: string): Promise<{ token: 
 export async function sendVerifyEmail(opts: { userId: string; toEmail: string }): Promise<{ ok: true } | { ok: false; reason: string }> {
   const tokenRes = await findOrCreateLatestToken(opts.userId);
   if (!tokenRes) return { ok: false, reason: "Unable to create token" };
+
+  const ttlMinutes = Math.max(1, Math.round(emailVerificationTtlMs() / (1000 * 60)));
 
   const base = getAppBaseUrl();
   const url = new URL("/portal/verify-email", base);
@@ -57,6 +62,8 @@ export async function sendVerifyEmail(opts: { userId: string; toEmail: string })
     "",
     "Please verify your email address to finish setting up your account:",
     String(url.toString()),
+    "",
+    `This link expires in about ${ttlMinutes} minute${ttlMinutes === 1 ? "" : "s"}, so please use it right away.`,
     "",
     "If you didn’t create this account, you can ignore this email.",
   ].join("\n");
