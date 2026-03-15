@@ -421,7 +421,7 @@ function PortalGetStartedInner() {
   }
 
   return (
-    <div className="min-h-screen bg-brand-mist text-brand-ink">
+    <div className="min-h-screen overflow-x-hidden bg-brand-mist text-brand-ink">
       <div className="mx-auto flex min-h-screen max-w-lg flex-col justify-center px-6 py-12">
         <div className="rounded-3xl border border-zinc-200 bg-white p-8 shadow-sm sm:p-10">
           <div className="flex justify-center">
@@ -437,7 +437,7 @@ function PortalGetStartedInner() {
 
           <p className="mt-6 text-base text-zinc-600">Set up your portal in a few quick steps.</p>
 
-          <div className="mt-6 flex items-center justify-between gap-2">
+          <div className="mt-6 grid grid-cols-2 gap-2 sm:flex sm:items-center sm:justify-between">
             {STEPS.map((label, i) => (
               <button
                 key={label}
@@ -448,7 +448,7 @@ function PortalGetStartedInner() {
                   setStep(i);
                 }}
                 className={classNames(
-                  "flex-1 rounded-full border px-3 py-2 text-xs font-semibold",
+                  "min-w-0 w-full rounded-full border px-3 py-2 text-xs font-semibold sm:flex-1",
                   billingPreference === "credits" && i === 3 ? "cursor-not-allowed opacity-50" : "",
                   i === step
                     ? "border-brand-ink bg-brand-ink text-white"
@@ -457,7 +457,7 @@ function PortalGetStartedInner() {
                       : "border-zinc-200 bg-white text-zinc-400",
                 )}
               >
-                {label}
+                <span className="block truncate">{label}</span>
               </button>
             ))}
           </div>
@@ -746,7 +746,7 @@ function PortalGetStartedInner() {
                               checked ? "border-brand-ink bg-zinc-50" : "border-zinc-200 bg-white hover:bg-zinc-50",
                             )}
                           >
-                            <div className="flex items-center justify-between gap-3">
+                            <div className="flex min-w-0 flex-wrap items-center justify-between gap-3">
                               <div className="text-sm font-semibold text-zinc-900">{bundleTitle(id)}</div>
                               <div className="flex items-center gap-2">
                                 {isChosen ? (
@@ -757,7 +757,7 @@ function PortalGetStartedInner() {
                                 ) : null}
                               </div>
                             </div>
-                            <div className="mt-2 text-sm text-zinc-600">Includes: {bundlePlanIds(id).map((pid) => planById(pid)?.title || pid).join(", ")}</div>
+                            <div className="mt-2 break-words text-sm text-zinc-600">Includes: {bundlePlanIds(id).map((pid) => planById(pid)?.title || pid).join(", ")}</div>
                             {checked ? <div className="mt-2 text-xs font-semibold text-zinc-700">Selected</div> : null}
                           </button>
                         );
@@ -805,12 +805,12 @@ function PortalGetStartedInner() {
                     </div>
 
                     <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
-                      <div className="flex items-start justify-between gap-4">
-                        <div>
+                      <div className="flex min-w-0 items-start justify-between gap-4">
+                        <div className="min-w-0">
                           <div className="text-sm font-semibold text-zinc-900">Core Portal</div>
-                          <div className="mt-1 text-sm text-zinc-600">Includes Inbox/Outbox, Media Library, Tasks, and Reporting.</div>
+                          <div className="mt-1 break-words text-sm text-zinc-600">Includes Inbox/Outbox, Media Library, Tasks, and Reporting.</div>
                         </div>
-                        <div className="text-right">
+                        <div className="shrink-0 text-right">
                           <div className="text-sm font-semibold text-zinc-900">{moneyLabel(39)}</div>
                           <div className="mt-1 text-xs text-zinc-500">Required</div>
                         </div>
@@ -832,14 +832,14 @@ function PortalGetStartedInner() {
                             onClick={() => togglePlan(id)}
                             disabled={couponIsBuild && (id === "ai-receptionist" || id === "reviews")}
                             className={classNames(
-                              "flex w-full items-start justify-between gap-4 rounded-2xl border p-4 text-left",
+                              "flex w-full min-w-0 items-start justify-between gap-4 rounded-2xl border p-4 text-left",
                               checked ? "border-emerald-200 bg-emerald-50" : "border-zinc-200 bg-white hover:bg-zinc-50",
                               couponIsBuild && (id === "ai-receptionist" || id === "reviews") ? "cursor-not-allowed opacity-70" : "",
                             )}
                           >
-                            <div>
+                            <div className="min-w-0">
                               <div className="text-sm font-semibold text-zinc-900">{p.title}</div>
-                              <div className="mt-1 text-sm text-zinc-600">{p.description}</div>
+                              <div className="mt-1 break-words text-sm text-zinc-600">{p.description}</div>
                               {checked && p.quantityConfig ? (
                                 <div className="mt-3 flex flex-wrap items-center gap-3 text-xs text-zinc-600">
                                   <div className="font-semibold text-zinc-700">{p.quantityConfig.label}</div>
@@ -860,7 +860,7 @@ function PortalGetStartedInner() {
                                 </div>
                               ) : null}
                             </div>
-                            <div className="text-right">
+                            <div className="shrink-0 text-right">
                               <div className="text-sm font-semibold text-zinc-900">{buildFree ? "$0/mo" : moneyLabel(p.monthlyUsd)}</div>
                               {p.oneTimeUsd && !buildFree ? (
                                 <div className="mt-1 text-xs font-semibold text-zinc-600">+{formatUsd(p.oneTimeUsd, { maximumFractionDigits: 0 })} setup</div>
@@ -899,14 +899,14 @@ function PortalGetStartedInner() {
                               onClick={() => togglePlan(p.id)}
                               disabled={couponIsBuild && (p.id === "ai-receptionist" || p.id === "reviews")}
                               className={classNames(
-                                "flex w-full items-start justify-between gap-4 rounded-2xl border p-4 text-left",
+                                "flex w-full min-w-0 items-start justify-between gap-4 rounded-2xl border p-4 text-left",
                                 checked ? "border-emerald-200 bg-emerald-50" : "border-zinc-200 bg-white hover:bg-zinc-50",
                                 couponIsBuild && (p.id === "ai-receptionist" || p.id === "reviews") ? "cursor-not-allowed opacity-70" : "",
                               )}
                             >
-                              <div>
+                              <div className="min-w-0">
                                 <div className="text-sm font-semibold text-zinc-900">{p.title}</div>
-                                <div className="mt-1 text-sm text-zinc-600">{p.description}</div>
+                                <div className="mt-1 break-words text-sm text-zinc-600">{p.description}</div>
                                 {checked && p.quantityConfig ? (
                                   <div className="mt-3 flex flex-wrap items-center gap-3 text-xs text-zinc-600">
                                     <div className="font-semibold text-zinc-700">{p.quantityConfig.label}</div>
@@ -927,7 +927,7 @@ function PortalGetStartedInner() {
                                   </div>
                                 ) : null}
                               </div>
-                              <div className="text-right">
+                              <div className="shrink-0 text-right">
                                 <div className="text-sm font-semibold text-zinc-900">{buildFree ? "$0/mo" : moneyLabel(p.monthlyUsd)}</div>
                                 {p.oneTimeUsd && !buildFree ? (
                                   <div className="mt-1 text-xs font-semibold text-zinc-600">+{formatUsd(p.oneTimeUsd, { maximumFractionDigits: 0 })} setup</div>
