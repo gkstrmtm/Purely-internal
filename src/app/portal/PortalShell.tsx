@@ -1041,11 +1041,11 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
 
         <aside
           className={classNames(
-            "hidden h-full min-h-0 shrink-0 border-r border-zinc-200 bg-white sm:flex sm:flex-col",
+            "hidden shrink-0 border-r border-zinc-200 bg-white overflow-hidden sm:flex sm:flex-col sm:sticky sm:top-0 sm:h-screen",
             collapsed ? "w-19" : "w-70",
           )}
         >
-          <div className={classNames("flex items-center gap-3 border-b border-zinc-200 p-3", collapsed && "justify-center")}
+          <div className={classNames("shrink-0 flex items-center gap-3 border-b border-zinc-200 p-3", collapsed && "justify-center")}
           >
             {!collapsed ? (
               <Link href={`${basePath}/app`} className="flex items-center gap-3">
@@ -1073,7 +1073,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
             </button>
           </div>
 
-          <div className="min-h-0 flex-1 overflow-y-auto p-3">
+          <div className="min-h-0 flex-1 overflow-y-auto p-2">
             <div className="space-y-1">
               {navItems.map((item) => (
                 <Link
@@ -1093,7 +1093,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
               ))}
             </div>
 
-            <div className={classNames("mt-6", collapsed && "px-1")}>
+            <div className={classNames("mt-4", collapsed && "px-1")}>
               {!collapsed ? (
                 <div className="px-3 text-xs font-semibold uppercase tracking-wide text-zinc-500">
                   Services
@@ -1133,7 +1133,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                   })}
                 </div>
               ) : (
-                <div className="mt-2 space-y-4">
+                <div className="mt-2 space-y-3">
                   {sidebarServiceGroups.map((group) => (
                     <div key={group.key}>
                       <div className="px-3 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">{group.title}</div>
@@ -1185,7 +1185,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
             </div>
           </div>
 
-          <div className={classNames("border-t border-zinc-200 p-3", collapsed && "px-2")}
+          <div className={classNames("shrink-0 border-t border-zinc-200 bg-white p-3", collapsed && "px-2")}
           >
             {sidebarCampaign && !collapsed ? (
               <div className="mb-4 rounded-2xl border border-brand-ink/10 bg-linear-to-br from-brand-blue/10 to-white p-3 text-sm text-zinc-800">

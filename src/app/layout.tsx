@@ -8,15 +8,9 @@ export const metadata: Metadata = {
   description: "Automation systems for businesses so you can focus on higher leverage tasks.",
   metadataBase: new URL("https://purelyautomation.com"),
   icons: {
-    icon: [
-      { url: "/brand/purelylogo.png", type: "image/png" },
-    ],
-    shortcut: [
-      { url: "/brand/purelylogo.png", type: "image/png" },
-    ],
-    apple: [
-      { url: "/brand/purelylogo.png", type: "image/png" },
-    ],
+    icon: [{ url: "/icon.svg", type: "image/svg+xml" }],
+    shortcut: [{ url: "/icon.svg", type: "image/svg+xml" }],
+    apple: [{ url: "/icon.svg", type: "image/svg+xml" }],
   },
   openGraph: {
     title: "Purely Automation",

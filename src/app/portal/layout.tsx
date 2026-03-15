@@ -9,8 +9,9 @@ import { normalizePortalVariant, PORTAL_VARIANT_HEADER } from "@/lib/portalVaria
 
 export const metadata: Metadata = {
   icons: {
-    icon: [{ url: "/brand/1.png", type: "image/png" }],
-    apple: [{ url: "/brand/1.png", type: "image/png" }],
+    icon: [{ url: "/icon.svg", type: "image/svg+xml" }],
+    shortcut: [{ url: "/icon.svg", type: "image/svg+xml" }],
+    apple: [{ url: "/icon.svg", type: "image/svg+xml" }],
   },
 };
 
@@ -58,7 +59,7 @@ export default async function PortalLayout({
               alt="Purely Automation"
               width={190}
               height={58}
-              className="h-10 w-auto shrink-0 object-contain sm:h-11"
+              className="h-8 w-auto shrink-0 object-contain sm:h-9"
               priority
             />
           </Link>
