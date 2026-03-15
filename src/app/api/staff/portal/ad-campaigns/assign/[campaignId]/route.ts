@@ -10,6 +10,19 @@ export const revalidate = 0;
 
 const postSchema = z.object({ ownerId: z.string().trim().min(1).max(64) });
 
+async function normalizeOwnerIdForAssignment(rawId: string): Promise<string> {
+  const id = String(rawId || "").trim();
+  if (!id) return id;
+
+  // If a staff member accidentally assigns a *portal member* user id,
+  // resolve it to the account owner id so it matches hosted page ownership.
+  const member = await prisma.portalAccountMember
+    .findFirst({ where: { userId: id }, select: { ownerId: true }, take: 1 })
+    .catch(() => null);
+
+  return member?.ownerId ? String(member.ownerId) : id;
+}
+
 export async function GET(_: NextRequest, context: { params: Promise<{ campaignId: string }> }) {
   const auth = await requireStaffSession();
   if (!auth.ok) {
@@ -64,10 +77,12 @@ export async function POST(req: NextRequest, context: { params: Promise<{ campai
 
   const { campaignId } = await context.params;
 
+  const ownerId = await normalizeOwnerIdForAssignment(parsed.data.ownerId);
+
   try {
     await prisma.portalAdCampaignAssignment.upsert({
-      where: { campaignId_ownerId: { campaignId, ownerId: parsed.data.ownerId } },
-      create: { campaignId, ownerId: parsed.data.ownerId },
+      where: { campaignId_ownerId: { campaignId, ownerId } },
+      create: { campaignId, ownerId },
       update: {},
       select: { id: true },
     });

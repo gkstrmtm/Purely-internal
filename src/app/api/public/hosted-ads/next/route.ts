@@ -151,13 +151,25 @@ export async function GET(req: Request) {
     return NextResponse.json({ ok: true, campaign: null }, { status: 200 });
   }
 
-  const campaign = await getNextPortalAdCampaignForOwner({
+  let campaign = await getNextPortalAdCampaignForOwner({
     ownerId,
     portalVariant: "portal",
     placement: placement as PortalAdPlacement,
     path,
     excludeCampaignIds,
   });
+
+  // Safety net: if the caller is a hosted page placement but campaigns were created under a more general
+  // placement (ex: TOP_BANNER), still show something rather than silently rendering nothing.
+  if (!campaign && (placement === "HOSTED_BLOG_PAGE" || placement === "HOSTED_REVIEWS_PAGE")) {
+    campaign = await getNextPortalAdCampaignForOwner({
+      ownerId,
+      portalVariant: "portal",
+      placement: "TOP_BANNER",
+      path,
+      excludeCampaignIds,
+    });
+  }
 
   let viewerHashForToken: string | null = null;
   if (campaign?.id) {

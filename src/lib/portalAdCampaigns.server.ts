@@ -357,7 +357,30 @@ export async function getNextPortalAdCampaignForOwner(opts: {
 }) {
   const now = new Date();
 
-  const isHostedPlacement = opts.placement === "HOSTED_BLOG_PAGE" || opts.placement === "HOSTED_REVIEWS_PAGE";
+  const memberUserIds = new Set<string>();
+  try {
+    const rows = await prisma.portalAccountMember.findMany({
+      where: { ownerId: opts.ownerId },
+      select: { userId: true },
+      take: 500,
+    });
+    for (const r of rows || []) {
+      const id = String((r as any)?.userId || "").trim();
+      if (id) memberUserIds.add(id);
+    }
+  } catch {
+    // ignore
+  }
+
+  const ownerOrMemberIds = [opts.ownerId, ...Array.from(memberUserIds)].slice(0, 500);
+
+  function listMatchesOwnerOrMember(list: string[] | null | undefined): boolean {
+    const arr = Array.isArray(list) ? list : [];
+    if (!arr.length) return false;
+    if (arr.includes(opts.ownerId)) return true;
+    for (const id of memberUserIds) if (arr.includes(id)) return true;
+    return false;
+  }
 
   const adsCache = {
     accountByUserId: new Map<string, { id: string; balanceCents: number } | null>(),
@@ -399,7 +422,9 @@ export async function getNextPortalAdCampaignForOwner(opts: {
     .findMany({
       where: {
         enabled: true,
-        reviewStatus: (isHostedPlacement ? ({ in: ["APPROVED", "PENDING"] } as any) : ("APPROVED" as any)) as any,
+        // No manual approval step: enabled campaigns should serve.
+        // Still respect explicit rejections.
+        reviewStatus: ({ in: ["APPROVED", "PENDING"] } as any) as any,
         placement: opts.placement as any,
         ...(Array.isArray(opts.excludeCampaignIds) && opts.excludeCampaignIds.length
           ? { id: { notIn: opts.excludeCampaignIds.filter(Boolean).slice(0, 200) } }
@@ -408,7 +433,7 @@ export async function getNextPortalAdCampaignForOwner(opts: {
       orderBy: [{ priority: "desc" }, { updatedAt: "desc" }, { createdAt: "desc" }],
       take: 50,
       include: {
-        assignments: { where: { ownerId: opts.ownerId }, select: { id: true } },
+        assignments: { where: { ownerId: { in: ownerOrMemberIds } }, select: { id: true, ownerId: true } },
         _count: { select: { assignments: true } },
       },
     })
@@ -426,7 +451,7 @@ export async function getNextPortalAdCampaignForOwner(opts: {
           orderBy: [{ priority: "desc" }, { updatedAt: "desc" }, { createdAt: "desc" }],
           take: 50,
           include: {
-            assignments: { where: { ownerId: opts.ownerId }, select: { id: true } },
+            assignments: { where: { ownerId: { in: ownerOrMemberIds } }, select: { id: true, ownerId: true } },
             _count: { select: { assignments: true } },
           },
         })
@@ -468,7 +493,7 @@ export async function getNextPortalAdCampaignForOwner(opts: {
       }
     }
 
-    if (target.excludeOwnerIds?.includes(opts.ownerId)) continue;
+    if (listMatchesOwnerOrMember(target.excludeOwnerIds)) continue;
 
     const isAssignedToOwner = Array.isArray((c as any).assignments) && (c as any).assignments.length > 0;
     const assignmentsCount = typeof (c as any)?._count?.assignments === "number" ? Number((c as any)._count.assignments) : 0;
@@ -477,18 +502,14 @@ export async function getNextPortalAdCampaignForOwner(opts: {
     const isInBucket = targetBucketIds.length ? targetBucketIds.some((id) => bucketIdsForOwner.has(id)) : false;
 
     const hasWhitelist = assignmentsCount > 0 || (target.includeOwnerIds ?? []).length > 0 || targetBucketIds.length > 0;
-    const isWhitelisted = isAssignedToOwner || Boolean(target.includeOwnerIds?.includes(opts.ownerId)) || isInBucket;
+    const isWhitelisted = isAssignedToOwner || listMatchesOwnerOrMember(target.includeOwnerIds) || isInBucket;
 
     // If there are explicit assignments/includeOwnerIds/buckets, treat this campaign as a whitelist.
     if (hasWhitelist && !isWhitelisted) continue;
 
-    // Approval gating:
-    // - Normally only serve APPROVED.
-    // - For hosted placements, allow PENDING only when explicitly whitelisted to the owner.
+    // Approval gating: enabled should serve, except explicit rejections.
     const rs = String((c as any)?.reviewStatus || "").trim().toUpperCase();
-    if (rs && rs !== "APPROVED") {
-      if (!(isHostedPlacement && isWhitelisted && rs === "PENDING")) continue;
-    }
+    if (rs === "REJECTED") continue;
 
     const matchesVariant =
       !target.portalVariant ||
@@ -554,6 +575,31 @@ export async function getPortalAdCampaignForOwnerById(opts: {
 }) {
   const now = new Date();
 
+  const memberUserIds = new Set<string>();
+  try {
+    const rows = await prisma.portalAccountMember.findMany({
+      where: { ownerId: opts.ownerId },
+      select: { userId: true },
+      take: 500,
+    });
+    for (const r of rows || []) {
+      const id = String((r as any)?.userId || "").trim();
+      if (id) memberUserIds.add(id);
+    }
+  } catch {
+    // ignore
+  }
+
+  const ownerOrMemberIds = [opts.ownerId, ...Array.from(memberUserIds)].slice(0, 500);
+
+  function listMatchesOwnerOrMember(list: string[] | null | undefined): boolean {
+    const arr = Array.isArray(list) ? list : [];
+    if (!arr.length) return false;
+    if (arr.includes(opts.ownerId)) return true;
+    for (const id of memberUserIds) if (arr.includes(id)) return true;
+    return false;
+  }
+
   const billingModel = await getPortalBillingModelForOwner({ ownerId: opts.ownerId, portalVariant: opts.portalVariant });
   const billingModelKey = isCreditsOnlyBilling(billingModel) ? "credits" : "subscription";
 
@@ -586,7 +632,7 @@ export async function getPortalAdCampaignForOwnerById(opts: {
     .findUnique({
       where: { id: opts.campaignId },
       include: {
-        assignments: { where: { ownerId: opts.ownerId }, select: { id: true } },
+        assignments: { where: { ownerId: { in: ownerOrMemberIds } }, select: { id: true, ownerId: true } },
         _count: { select: { assignments: true } },
       },
     })
@@ -595,8 +641,11 @@ export async function getPortalAdCampaignForOwnerById(opts: {
   if (!c?.enabled) return null;
   if (!withinWindow(now, c.startAt, c.endAt)) return null;
 
+  const rs = String((c as any)?.reviewStatus || "").trim().toUpperCase();
+  if (rs === "REJECTED") return null;
+
   const target = readTargetJson(c.targetJson);
-  if (target.excludeOwnerIds?.includes(opts.ownerId)) return null;
+  if (listMatchesOwnerOrMember(target.excludeOwnerIds)) return null;
 
   const isAssignedToOwner = Array.isArray((c as any).assignments) && (c as any).assignments.length > 0;
   const assignmentsCount = typeof (c as any)?._count?.assignments === "number" ? Number((c as any)._count.assignments) : 0;
@@ -616,16 +665,11 @@ export async function getPortalAdCampaignForOwnerById(opts: {
   const targetBucketIds = target.bucketIds ?? [];
   const isInBucket = targetBucketIds.length ? targetBucketIds.some((id) => bucketIdsForOwner.has(id)) : false;
   const hasWhitelist = assignmentsCount > 0 || (target.includeOwnerIds ?? []).length > 0 || targetBucketIds.length > 0;
-  const isWhitelisted = isAssignedToOwner || Boolean(target.includeOwnerIds?.includes(opts.ownerId)) || isInBucket;
+  const isWhitelisted = isAssignedToOwner || listMatchesOwnerOrMember(target.includeOwnerIds) || isInBucket;
 
   if (hasWhitelist && !isWhitelisted) return null;
 
-  const isHostedPlacement =
-    (c.placement as any) === "HOSTED_BLOG_PAGE" || (c.placement as any) === "HOSTED_REVIEWS_PAGE";
-  const rs = String((c as any)?.reviewStatus || "").trim().toUpperCase();
-  if (rs && rs !== "APPROVED") {
-    if (!(isHostedPlacement && isWhitelisted && rs === "PENDING")) return null;
-  }
+  // Approval gating handled above; do not require APPROVED for serving.
 
   const matchesVariant =
     !target.portalVariant ||
