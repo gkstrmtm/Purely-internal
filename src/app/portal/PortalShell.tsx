@@ -806,7 +806,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
 
   if (isFunnelBuilderEditor || isAutomationsEditor) {
     return (
-      <div className="h-dvh overflow-hidden bg-brand-mist text-brand-ink">
+      <div className="h-full overflow-hidden bg-brand-mist text-brand-ink">
         <main className="h-full overflow-y-auto">
           {children}
           <div aria-hidden className="h-[calc(env(safe-area-inset-bottom)+5rem)]" />
@@ -816,7 +816,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <div className="h-dvh overflow-hidden bg-brand-mist text-brand-ink">
+    <div className="h-full overflow-hidden bg-brand-mist text-brand-ink">
       {showGettingStartedHint ? (
         <div className="pointer-events-none fixed inset-0 z-40 flex items-end justify-center px-4 pb-6 sm:items-center sm:pb-0">
           <button
@@ -1041,7 +1041,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
 
         <aside
           className={classNames(
-            "hidden shrink-0 border-r border-zinc-200 bg-white overflow-hidden sm:flex sm:flex-col sm:sticky sm:top-0 sm:h-screen",
+            "hidden shrink-0 border-r border-zinc-200 bg-white overflow-hidden sm:flex sm:flex-col sm:sticky sm:top-0 sm:h-full",
             collapsed ? "w-19" : "w-70",
           )}
         >
@@ -1095,7 +1095,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
 
             <div className={classNames("mt-4", collapsed && "px-1")}>
               {!collapsed ? (
-                <div className="px-3 text-xs font-semibold uppercase tracking-wide text-zinc-500">
+                <div className="px-3 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">
                   Services
                 </div>
               ) : null}
@@ -1107,7 +1107,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                         key={s.slug}
                         href={`${basePath}/app/services/${s.slug}`}
                         className={classNames(
-                          "flex items-center gap-3 rounded-2xl px-3 py-2 text-sm font-medium",
+                          "flex items-center gap-3 rounded-2xl px-3 py-1.5 text-sm font-medium",
                           pathname === `${basePath}/app/services/${s.slug}` || pathname.startsWith(`${basePath}/app/services/${s.slug}/`)
                             ? "bg-zinc-100 text-zinc-900"
                             : "text-zinc-700 hover:bg-zinc-50",
@@ -1115,7 +1115,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                         )}
                         title={s.title}
                       >
-                        <span className="inline-flex h-9 w-9 items-center justify-center rounded-2xl border border-zinc-200 bg-white">
+                        <span className="inline-flex h-8 w-8 items-center justify-center rounded-2xl border border-zinc-200 bg-white">
                           <span
                             className={classNames(
                               s.accent === "blue"
@@ -1133,10 +1133,10 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                   })}
                 </div>
               ) : (
-                <div className="mt-2 space-y-3">
+                <div className="mt-2 space-y-2">
                   {sidebarServiceGroups.map((group) => (
                     <div key={group.key}>
-                      <div className="px-3 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">{group.title}</div>
+                      <div className="px-3 text-[10px] font-semibold uppercase tracking-wide text-zinc-500">{group.title}</div>
                       <div className="mt-1 space-y-1">
                         {group.services.map((s) => {
                           const lockBadge = serviceLockBadge(s.slug);
@@ -1146,13 +1146,13 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                               key={s.slug}
                               href={`${basePath}/app/services/${s.slug}`}
                               className={classNames(
-                                "flex items-center gap-3 rounded-2xl px-3 py-2 text-sm font-medium",
+                                "flex items-center gap-3 rounded-2xl px-3 py-1.5 text-sm font-medium",
                                 pathname === `${basePath}/app/services/${s.slug}` || pathname.startsWith(`${basePath}/app/services/${s.slug}/`)
                                   ? "bg-zinc-100 text-zinc-900"
                                   : "text-zinc-700 hover:bg-zinc-50",
                               )}
                             >
-                              <span className="inline-flex h-9 w-9 items-center justify-center rounded-2xl border border-zinc-200 bg-white">
+                              <span className="inline-flex h-8 w-8 items-center justify-center rounded-2xl border border-zinc-200 bg-white">
                                 <span
                                   className={classNames(
                                     s.accent === "blue"
@@ -1285,7 +1285,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
             </div>
           </header>
 
-          <main className="min-h-0 min-w-0 flex-1 p-4 pb-8 sm:p-8 sm:pb-8">
+          <main className="min-h-0 min-w-0 flex-1 p-4 pb-4 sm:p-8 sm:pb-6">
             {topBannerCampaign ? (
               <div className="mb-4 rounded-3xl border border-brand-ink/10 bg-linear-to-r from-brand-blue/15 via-white to-white p-4 text-brand-ink">
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">

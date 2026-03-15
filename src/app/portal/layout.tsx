@@ -9,9 +9,9 @@ import { normalizePortalVariant, PORTAL_VARIANT_HEADER } from "@/lib/portalVaria
 
 export const metadata: Metadata = {
   icons: {
-    icon: [{ url: "/icon.svg", type: "image/svg+xml" }],
-    shortcut: [{ url: "/icon.svg", type: "image/svg+xml" }],
-    apple: [{ url: "/icon.svg", type: "image/svg+xml" }],
+    icon: [{ url: "/brand/purelylogo.png", type: "image/png" }],
+    shortcut: [{ url: "/brand/purelylogo.png", type: "image/png" }],
+    apple: [{ url: "/brand/purelylogo.png", type: "image/png" }],
   },
 };
 
@@ -50,7 +50,7 @@ export default async function PortalLayout({
   const canOpenPortalApp = user?.role === "CLIENT" || user?.role === "ADMIN";
 
   return (
-    <div className="min-h-[100dvh] overflow-x-hidden bg-brand-mist text-brand-ink">
+    <div className="min-h-[100dvh] overflow-x-hidden bg-brand-mist text-brand-ink flex flex-col">
       <header className="pa-portal-topbar sticky top-0 z-10 border-b border-zinc-200 bg-white/80 backdrop-blur">
         <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-4 py-4 sm:gap-6 sm:px-6">
           <Link href={homeHref} className="flex shrink-0 items-center gap-3">
@@ -80,7 +80,9 @@ export default async function PortalLayout({
         </div>
       </header>
 
-      {children}
+      <div className="min-h-0 flex-1">
+        {children}
+      </div>
     </div>
   );
 }
