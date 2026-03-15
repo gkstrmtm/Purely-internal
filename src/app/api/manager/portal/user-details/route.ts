@@ -30,6 +30,16 @@ const PROFILE_SETUP_SLUG = "profile";
 const INTEGRATIONS_SETUP_SLUG = "integrations";
 const AI_RECEPTIONIST_SETUP_SLUG = "ai-receptionist";
 const ENGAGEMENT_SETUP_SLUG = "portal_engagement";
+const DELETED_ACCOUNT_SETUP_SLUG = "__portal_deleted_account";
+
+function parseDeletedAccountTombstone(dataJson: unknown): { originalEmail: string | null; originalName: string | null; deletedAtIso: string | null } {
+  if (!dataJson || typeof dataJson !== "object" || Array.isArray(dataJson)) return { originalEmail: null, originalName: null, deletedAtIso: null };
+  const rec = dataJson as Record<string, unknown>;
+  const originalEmail = typeof rec.originalEmail === "string" ? rec.originalEmail.trim().slice(0, 320) : "";
+  const originalName = typeof rec.originalName === "string" ? rec.originalName.trim().slice(0, 200) : "";
+  const deletedAtIso = typeof rec.deletedAtIso === "string" ? rec.deletedAtIso.trim().slice(0, 64) : "";
+  return { originalEmail: originalEmail || null, originalName: originalName || null, deletedAtIso: deletedAtIso || null };
+}
 
 function readObj(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
@@ -224,6 +234,7 @@ export async function GET(req: Request) {
               INTEGRATIONS_SETUP_SLUG,
               AI_RECEPTIONIST_SETUP_SLUG,
               ENGAGEMENT_SETUP_SLUG,
+              DELETED_ACCOUNT_SETUP_SLUG,
             ],
           },
         },
@@ -253,6 +264,10 @@ export async function GET(req: Request) {
   const recentActivity = readActivityList(engagementRec.recentActivity);
   const topPages = topEntriesByValue(pathTimeSec, 12);
   const topServicesByTime = topEntriesByValue(serviceTimeSec, 8);
+
+  const deletedTombstone = parseDeletedAccountTombstone(getSetup(DELETED_ACCOUNT_SETUP_SLUG));
+  const displayEmail = deletedTombstone.originalEmail ?? user.email;
+  const displayName = deletedTombstone.originalName ?? user.name;
 
   const mailbox = (await hasPublicTable("PortalMailboxAddress").catch(() => false))
     ? await safe(
@@ -507,10 +522,11 @@ export async function GET(req: Request) {
     ok: true,
     owner: {
       id: user.id,
-      email: user.email,
-      name: user.name,
+      email: displayEmail,
+      name: displayName,
       active: user.active,
       role: user.role,
+      deletedAt: deletedTombstone.deletedAtIso ?? null,
       createdAt: user.createdAt,
       updatedAt: user.updatedAt,
       timeZone: user.timeZone,

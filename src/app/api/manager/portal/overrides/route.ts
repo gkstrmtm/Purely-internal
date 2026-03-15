@@ -29,6 +29,20 @@ const CREDITS_SETUP_SLUG = "credits";
 const PROFILE_SETUP_SLUG = "profile";
 const INTEGRATIONS_SETUP_SLUG = "integrations";
 const AI_RECEPTIONIST_SETUP_SLUG = "ai-receptionist";
+const DELETED_ACCOUNT_SETUP_SLUG = "__portal_deleted_account";
+
+function parseDeletedAccountTombstone(dataJson: unknown): { originalEmail: string | null; originalName: string | null; deletedAtIso: string | null } {
+  if (!dataJson || typeof dataJson !== "object" || Array.isArray(dataJson)) return { originalEmail: null, originalName: null, deletedAtIso: null };
+  const rec = dataJson as Record<string, unknown>;
+  const originalEmail = typeof rec.originalEmail === "string" ? rec.originalEmail.trim().slice(0, 320) : "";
+  const originalName = typeof rec.originalName === "string" ? rec.originalName.trim().slice(0, 200) : "";
+  const deletedAtIso = typeof rec.deletedAtIso === "string" ? rec.deletedAtIso.trim().slice(0, 64) : "";
+  return {
+    originalEmail: originalEmail || null,
+    originalName: originalName || null,
+    deletedAtIso: deletedAtIso || null,
+  };
+}
 
 function parseCreditsOnlyOverride(dataJson: unknown): boolean {
   if (!dataJson || typeof dataJson !== "object" || Array.isArray(dataJson)) return false;
@@ -169,6 +183,26 @@ export async function GET(req: Request) {
     : [];
   const matchedOwnerIds = new Set<string>(matchedOwnerIdsFromBusinessName.map((r) => r.ownerId));
 
+  // If searching, also try to match deleted accounts by their original email/name stored in a tombstone setup.
+  if (q) {
+    try {
+      const rows = await prisma.portalServiceSetup.findMany({
+        where: { serviceSlug: DELETED_ACCOUNT_SETUP_SLUG },
+        select: { ownerId: true, dataJson: true },
+        take: 5000,
+      });
+      const qLower = q.toLowerCase();
+      for (const r of rows) {
+        const t = parseDeletedAccountTombstone(r.dataJson);
+        const email = (t.originalEmail ?? "").toLowerCase();
+        const name = (t.originalName ?? "").toLowerCase();
+        if ((email && email.includes(qLower)) || (name && name.includes(qLower))) matchedOwnerIds.add(r.ownerId);
+      }
+    } catch {
+      // ignore
+    }
+  }
+
   const users = await safeFindMany(
     async () =>
       prisma.user.findMany({
@@ -299,6 +333,19 @@ export async function GET(req: Request) {
     twilioFromByOwner.set(row.ownerId, parseTwilioFromNumberE164(row.dataJson));
   }
 
+  const deletedRows = ownerIds.length
+    ? await safeFindMany(
+        async () =>
+          prisma.portalServiceSetup.findMany({
+            where: { ownerId: { in: ownerIds }, serviceSlug: DELETED_ACCOUNT_SETUP_SLUG },
+            select: { ownerId: true, dataJson: true },
+          }),
+        [],
+      )
+    : [];
+  const deletedByOwner = new Map<string, { originalEmail: string | null; originalName: string | null; deletedAtIso: string | null }>();
+  for (const row of deletedRows) deletedByOwner.set(row.ownerId, parseDeletedAccountTombstone(row.dataJson));
+
   // Best-effort enrichment (never required for correctness)
   const businessNameByOwner = new Map<string, string | null>();
   const businessEmailByOwner = new Map<string, string | null>();
@@ -403,9 +450,10 @@ export async function GET(req: Request) {
 
   return NextResponse.json({
     users: users.map((u) => ({
+      deletedAt: deletedByOwner.get(u.id)?.deletedAtIso ?? null,
       id: u.id,
-      email: u.email,
-      name: u.name,
+      email: deletedByOwner.get(u.id)?.originalEmail ?? u.email,
+      name: deletedByOwner.get(u.id)?.originalName ?? u.name,
       active: u.active,
       createdAt: u.createdAt,
       invitesSentCount: refTotalByOwner.get(u.id) ?? 0,

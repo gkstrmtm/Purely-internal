@@ -12,6 +12,7 @@ type UserRow = {
   email: string;
   name: string;
   active: boolean;
+  deletedAt?: string | null;
   createdAt: string;
   invitesSentCount?: number;
   invitesVerifiedCount?: number;
@@ -39,6 +40,7 @@ type OwnerDetails = {
     name: string;
     active: boolean;
     role: string;
+    deletedAt?: string | null;
     createdAt: string;
     updatedAt: string;
     timeZone: string;
@@ -157,6 +159,39 @@ function formatDurationShort(secondsRaw: number | null | undefined) {
   const hours = Math.floor(minutes / 60);
   const remMin = minutes % 60;
   return remMin ? `${hours}h ${remMin}m` : `${hours}h`;
+}
+
+function groupRecentActivity(
+  activity: Array<{ atMs: number; path: string; pageKey?: string; dtSec: number }>,
+  opts?: { maxGapMs?: number; take?: number },
+) {
+  const maxGapMs = Math.max(0, Math.floor(opts?.maxGapMs ?? 2500));
+  const take = Math.max(1, Math.floor(opts?.take ?? 200));
+
+  const normalized = activity
+    .map((a) => {
+      const endMs = Math.max(0, Math.floor(a.atMs));
+      const dtSec = Math.max(1, Math.min(60, Math.floor(a.dtSec)));
+      const startMs = Math.max(0, endMs - dtSec * 1000);
+      const key = (a.pageKey || a.path || "").trim().slice(0, 512);
+      return { key, path: a.path, pageKey: a.pageKey, startMs, endMs };
+    })
+    .filter((a) => Boolean(a.key) && a.endMs > 0)
+    .sort((a, b) => a.startMs - b.startMs);
+
+  const sessions: Array<{ key: string; startMs: number; endMs: number; seconds: number }> = [];
+  for (const a of normalized) {
+    const prev = sessions.length ? sessions[sessions.length - 1] : null;
+    if (prev && prev.key === a.key && a.startMs <= prev.endMs + maxGapMs) {
+      prev.endMs = Math.max(prev.endMs, a.endMs);
+      prev.seconds = Math.max(1, Math.floor((prev.endMs - prev.startMs) / 1000));
+      continue;
+    }
+    sessions.push({ key: a.key, startMs: a.startMs, endMs: a.endMs, seconds: Math.max(1, Math.floor((a.endMs - a.startMs) / 1000)) });
+  }
+
+  sessions.sort((a, b) => b.endMs - a.endMs);
+  return sessions.slice(0, take);
 }
 
 function ColorSwatch({ hex }: { hex: string | null | undefined }) {
@@ -466,7 +501,15 @@ export default function PortalOverridesClient() {
                 <td className="sticky left-0 z-10 bg-white px-4 py-4">
                   <div className="text-sm font-semibold text-brand-ink">{u.email}</div>
                   <div className="mt-1 text-xs text-zinc-500">
-                    {u.name} {u.active ? "" : "• inactive"}
+                    {u.name}{" "}
+                    {u.deletedAt ? (
+                      <span className="font-semibold text-red-700">• deleted</span>
+                    ) : u.active ? (
+                      ""
+                    ) : (
+                      "• inactive"
+                    )}
+                    {u.deletedAt ? <span className="text-zinc-500"> · {formatIso(u.deletedAt)}</span> : null}
                   </div>
                   <div className="mt-2 space-y-1 text-xs text-zinc-600">
                     {u.businessName ? (
@@ -697,11 +740,11 @@ export default function PortalOverridesClient() {
                     const ownerId = (detailsOwnerId || "").trim();
                     if (!ownerId) return;
                     const email = users.find((x) => x.id === ownerId)?.email || ownerId;
-                    if (!confirm(`Deactivate this portal user?\n\n${email}\n\nThis will set the user to inactive.`)) return;
+                    if (!confirm(`Delete this client portal account?\n\n${email}\n\nThis will disable the account and free the email so a new signup can use it again.`)) return;
                     void (async () => {
                       try {
                         await deletePortalUser(ownerId);
-                        toast.success("User deactivated.");
+                        toast.success("Account deleted (email freed).");
                         setDetailsOwnerId(null);
                         setDetailsByOwnerId((prev) => {
                           const next = { ...prev };
@@ -710,12 +753,12 @@ export default function PortalOverridesClient() {
                         });
                         await reloadOverrides();
                       } catch (e) {
-                        toast.error(e instanceof Error ? e.message : "Unable to deactivate user");
+                        toast.error(e instanceof Error ? e.message : "Unable to delete account");
                       }
                     })();
                   }}
                 >
-                  Delete user
+                  Delete account
                 </button>
                 <button
                   type="button"
@@ -984,18 +1027,20 @@ export default function PortalOverridesClient() {
                   {details.owner.usage.portalEngagement?.recentActivity?.length ? (
                     <div className="rounded-2xl border border-zinc-200 bg-white p-4">
                       <div className="text-sm font-semibold text-zinc-900">All activity</div>
-                      <div className="mt-1 text-xs text-zinc-500">Most recent portal activity pings (capped).</div>
+                      <div className="mt-1 text-xs text-zinc-500">Grouped into continuous sessions per page (capped).</div>
                       <div className="mt-3 max-h-72 overflow-auto rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
                         <div className="grid gap-2">
-                          {details.owner.usage.portalEngagement.recentActivity.map((a, idx) => (
-                            <div key={`${a.atMs}-${idx}`} className="flex items-start justify-between gap-3 text-xs text-zinc-700">
+                          {groupRecentActivity(details.owner.usage.portalEngagement.recentActivity, { take: 250 }).map((s, idx) => (
+                            <div key={`${s.key}-${s.endMs}-${idx}`} className="flex items-start justify-between gap-3 text-xs text-zinc-700">
                               <div className="min-w-0">
-                                <div className="truncate font-mono text-zinc-900" title={a.pageKey || a.path}>
-                                  {a.pageKey || a.path}
+                                <div className="truncate font-mono text-zinc-900" title={s.key}>
+                                  {s.key}
                                 </div>
-                                <div className="mt-0.5 text-[11px] text-zinc-500">{new Date(a.atMs).toLocaleString()}</div>
+                                <div className="mt-0.5 text-[11px] text-zinc-500">
+                                  {new Date(s.startMs).toLocaleString()} → {new Date(s.endMs).toLocaleString()}
+                                </div>
                               </div>
-                              <div className="shrink-0 font-semibold text-zinc-700">+{formatDurationShort(a.dtSec)}</div>
+                              <div className="shrink-0 font-semibold text-zinc-700">{formatDurationShort(s.seconds)}</div>
                             </div>
                           ))}
                         </div>
