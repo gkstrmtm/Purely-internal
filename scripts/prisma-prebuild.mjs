@@ -23,7 +23,6 @@ const shouldRunMigrations = process.env.RUN_PRISMA_MIGRATIONS === "1";
 const isVercel = Boolean(process.env.VERCEL);
 const vercelEnv = String(process.env.VERCEL_ENV || "").trim().toLowerCase();
 const isVercelProduction = isVercel && vercelEnv === "production";
-const forceMigrations = process.env.RUN_PRISMA_MIGRATIONS === "1";
 const allowMigrateFailure = String(process.env.ALLOW_PRISMA_MIGRATE_FAILURE || "").trim() === "1";
 const directUrl = process.env.DIRECT_URL;
 const databaseUrl = process.env.DATABASE_URL;

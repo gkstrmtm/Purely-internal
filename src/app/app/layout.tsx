@@ -5,6 +5,7 @@ import { AppShell } from "./AppShell";
 import { authOptions } from "@/lib/auth";
 
 export const metadata: Metadata = {
+	title: "Purely Employee",
   icons: {
     icon: [{ url: "/brand/purelylogo.png", type: "image/png" }],
     shortcut: [{ url: "/brand/purelylogo.png", type: "image/png" }],

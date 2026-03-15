@@ -25,6 +25,13 @@ export async function GET(req: Request, ctx: { params: Promise<{ roomId: string 
 	try {
 		await ensureConnectSchema();
 
+		const room = await prisma.connectRoom.findUnique({
+			where: { id: roomId },
+			select: { id: true, endedAt: true },
+		});
+		if (!room) return NextResponse.json({ ok: false, error: "Room not found" }, { status: 404 });
+		if (room.endedAt) return NextResponse.json({ ok: false, error: "Room ended" }, { status: 410 });
+
 		const me = await prisma.connectParticipant.findFirst({
 			where: { id: parsed.data.participantId, secret: parsed.data.secret, roomId },
 			select: { id: true, status: true },

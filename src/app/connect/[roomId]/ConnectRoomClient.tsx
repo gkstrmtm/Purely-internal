@@ -4,7 +4,10 @@ import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
+import { ToggleSwitch } from "@/components/ToggleSwitch";
+
 import { ConnectAuthPanel } from "../ConnectAuthPanel";
+import { defaultConnectUserDefaults, readConnectUserDefaultsFromStorage, writeConnectUserDefaultsToStorage, type ConnectUserDefaults } from "../connectDefaults";
 
 type ParticipantCreds = {
 	participantId: string;
@@ -88,6 +91,10 @@ function mirrorPrefKey() {
 	return "pa.connect.mirrorSelf";
 }
 
+function connectNoticeKey() {
+	return "pa.connect.notice";
+}
+
 function safeName(s: string) {
 	return String(s || "")
 		.replace(/[\r\n\t]+/g, " ")
@@ -126,6 +133,17 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 	const [chromeVisible, setChromeVisible] = useState(true);
 	const [tileHudVisible, setTileHudVisible] = useState(false);
 	const [mirrorSelf, setMirrorSelf] = useState(true);
+	const [cameraFacing, setCameraFacing] = useState<"user" | "environment">("user");
+	const [hasBackCamera, setHasBackCamera] = useState(false);
+	const [headerMenuOpen, setHeaderMenuOpen] = useState(false);
+	const [connectDefaults, setConnectDefaults] = useState<ConnectUserDefaults>(() => {
+		if (typeof window === "undefined") return defaultConnectUserDefaults();
+		try {
+			return readConnectUserDefaultsFromStorage(window.localStorage);
+		} catch {
+			return defaultConnectUserDefaults();
+		}
+	});
 
 	const [remoteTiles, setRemoteTiles] = useState<Array<{ id: string; displayName: string; stream: MediaStream }>>([]);
 
@@ -144,6 +162,8 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 	const roomSettingsRef = useRef<RoomSettings | null>(null);
 	const isHostRef = useRef<boolean>(false);
 	const pendingAdmissionRef = useRef<boolean>(false);
+	const connectDefaultsRef = useRef<ConnectUserDefaults>(defaultConnectUserDefaults());
+	const headerMenuRef = useRef<HTMLDivElement | null>(null);
 	const pollingRef = useRef<boolean>(false);
 	const pollTimerRef = useRef<number | null>(null);
 	const participantsTimerRef = useRef<number | null>(null);
@@ -157,14 +177,50 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 	}, [roomId]);
 
 	useEffect(() => {
+		connectDefaultsRef.current = connectDefaults;
 		try {
-			const raw = localStorage.getItem(mirrorPrefKey());
-			if (raw === "0") setMirrorSelf(false);
-			if (raw === "1") setMirrorSelf(true);
+			writeConnectUserDefaultsToStorage(window.localStorage, connectDefaults);
 		} catch {
 			// ignore
 		}
+	}, [connectDefaults]);
+
+	useEffect(() => {
+		// Initialize mirror preference: default to connectDefaults.mirrorSelf,
+		// but keep honoring the legacy mirrorPrefKey if present.
+		try {
+			const raw = localStorage.getItem(mirrorPrefKey());
+			if (raw === "0") {
+				setMirrorSelf(false);
+				return;
+			}
+			if (raw === "1") {
+				setMirrorSelf(true);
+				return;
+			}
+		} catch {
+			// ignore
+		}
+		setMirrorSelf(connectDefaultsRef.current.mirrorSelf !== false);
 	}, []);
+
+	useEffect(() => {
+		if (!headerMenuOpen) return;
+		const onDown = (e: MouseEvent) => {
+			const target = e.target as Node | null;
+			if (!target) return;
+			if (headerMenuRef.current && !headerMenuRef.current.contains(target)) setHeaderMenuOpen(false);
+		};
+		const onKey = (e: KeyboardEvent) => {
+			if (e.key === "Escape") setHeaderMenuOpen(false);
+		};
+		window.addEventListener("mousedown", onDown);
+		window.addEventListener("keydown", onKey);
+		return () => {
+			window.removeEventListener("mousedown", onDown);
+			window.removeEventListener("keydown", onKey);
+		};
+	}, [headerMenuOpen]);
 
 	function clearToastTimer(id: string) {
 		const t = toastTimersRef.current.get(id);
@@ -198,6 +254,23 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 
 	function toggleTileHud() {
 		setTileHudVisible((prev) => !prev);
+	}
+
+	function setLandingNotice(message: string) {
+		try {
+			localStorage.setItem(connectNoticeKey(), message);
+		} catch {
+			// ignore
+		}
+	}
+
+	function goToConnectLanding(opts?: { notice?: string }) {
+		if (opts?.notice) setLandingNotice(opts.notice);
+		window.location.href = "/connect";
+	}
+
+	function isRoomEndedApiError(e: unknown) {
+		return e instanceof ApiError && e.status === 410;
 	}
 
 	useEffect(() => {
@@ -295,10 +368,18 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 		});
 	}
 
+	class ApiError extends Error {
+		status: number;
+		constructor(status: number, message: string) {
+			super(message);
+			this.status = status;
+		}
+	}
+
 	async function apiGet<T>(path: string): Promise<T> {
 		const res = await fetch(path, { method: "GET" });
 		const json = (await res.json().catch(() => null)) as T;
-		if (!res.ok) throw new Error((json as any)?.error || "Request failed");
+		if (!res.ok) throw new ApiError(res.status, (json as any)?.error || "Request failed");
 		return json;
 	}
 
@@ -309,7 +390,7 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 			body: JSON.stringify(body),
 		});
 		const json = (await res.json().catch(() => null)) as T;
-		if (!res.ok) throw new Error((json as any)?.error || "Request failed");
+		if (!res.ok) throw new ApiError(res.status, (json as any)?.error || "Request failed");
 		return json;
 	}
 
@@ -320,7 +401,17 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 		const url = new URL(`/api/connect/rooms/${encodeURIComponent(roomId)}/settings`, window.location.origin);
 		url.searchParams.set("participantId", creds.participantId);
 		url.searchParams.set("secret", creds.secret);
-		const res = await apiGet<RoomSettingsResponse>(url.toString());
+		let res: RoomSettingsResponse;
+		try {
+			res = await apiGet(url.toString());
+		} catch (e) {
+			if (isRoomEndedApiError(e)) {
+				cleanupLocalState();
+				goToConnectLanding({ notice: "Meeting ended." });
+				return;
+			}
+			return;
+		}
 		if (!res.ok) return;
 		setRoomSettings(res.room.settings);
 		setIsHost(res.me?.isHost === true);
@@ -364,7 +455,17 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 		const url = new URL(`/api/connect/rooms/${encodeURIComponent(roomId)}/waiting`, window.location.origin);
 		url.searchParams.set("participantId", creds.participantId);
 		url.searchParams.set("secret", creds.secret);
-		const res = await apiGet<WaitingRoomResponse>(url.toString());
+		let res: WaitingRoomResponse;
+		try {
+			res = await apiGet(url.toString());
+		} catch (e) {
+			if (isRoomEndedApiError(e)) {
+				cleanupLocalState();
+				goToConnectLanding({ notice: "Meeting ended." });
+				return;
+			}
+			return;
+		}
 		if (!res.ok) return;
 		setWaitingRoom(res.waiting ?? []);
 	}
@@ -423,6 +524,59 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 		}).catch(() => null);
 	}
 
+	function buildVideoConstraints(facing: "user" | "environment") {
+		// `facingMode` is widely supported on mobile; browsers that don't support it will ignore.
+		return { facingMode: { ideal: facing } } as any;
+	}
+
+	async function detectBackCameraOnce() {
+		if (typeof navigator === "undefined") return;
+		if (!navigator.mediaDevices?.enumerateDevices) return;
+		try {
+			const devices = await navigator.mediaDevices.enumerateDevices();
+			const videos = devices.filter((d) => d.kind === "videoinput");
+			const labeledBack = videos.some((d) => /back|rear|environment/i.test(d.label || ""));
+			setHasBackCamera(labeledBack || videos.length > 1);
+		} catch {
+			// ignore
+		}
+	}
+
+	async function replaceLocalVideoTrack(local: MediaStream, newTrack: MediaStreamTrack) {
+		// Replace video track in local stream
+		for (const t of local.getVideoTracks()) {
+			try {
+				t.stop();
+			} catch {
+				// ignore
+			}
+			try {
+				local.removeTrack(t);
+			} catch {
+				// ignore
+			}
+		}
+		local.addTrack(newTrack);
+
+		if (localVideoRef.current) {
+			localVideoRef.current.srcObject = local;
+			await localVideoRef.current.play().catch(() => null);
+		}
+
+		// Replace sender track for all peers
+		for (const pc of peerMapRef.current.values()) {
+			const sender = pc.getSenders().find((s) => s.track?.kind === "video");
+			if (sender) await sender.replaceTrack(newTrack).catch(() => null);
+			else {
+				try {
+					pc.addTrack(newTrack, local);
+				} catch {
+					// ignore
+				}
+			}
+		}
+	}
+
 	async function ensureLocalMedia() {
 		if (localStreamRef.current) return localStreamRef.current;
 
@@ -435,9 +589,10 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 			throw new Error(warning);
 		}
 
-		const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+		const stream = await navigator.mediaDevices.getUserMedia({ video: buildVideoConstraints(cameraFacing), audio: true });
 		localStreamRef.current = stream;
 		setLocalStreamReady(true);
+		void detectBackCameraOnce();
 		try {
 			localStorage.setItem(mediaGrantedKey(), "1");
 		} catch {
@@ -511,42 +666,10 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 		}
 
 		if (!navigator.mediaDevices?.getUserMedia) throw new Error("Camera not supported");
-		const camStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+		const camStream = await navigator.mediaDevices.getUserMedia({ video: buildVideoConstraints(cameraFacing), audio: false });
 		const newTrack = camStream.getVideoTracks()[0];
 		if (!newTrack) throw new Error("No camera available");
-
-		// Replace video track in local stream
-		for (const t of local.getVideoTracks()) {
-			try {
-				t.stop();
-			} catch {
-				// ignore
-			}
-			try {
-				local.removeTrack(t);
-			} catch {
-				// ignore
-			}
-		}
-		local.addTrack(newTrack);
-
-		if (localVideoRef.current) {
-			localVideoRef.current.srcObject = local;
-			await localVideoRef.current.play().catch(() => null);
-		}
-
-		// Replace sender track for all peers
-		for (const pc of peerMapRef.current.values()) {
-			const sender = pc.getSenders().find((s) => s.track?.kind === "video");
-			if (sender) await sender.replaceTrack(newTrack).catch(() => null);
-			else {
-				try {
-					pc.addTrack(newTrack, local);
-				} catch {
-					// ignore
-				}
-			}
-		}
+		await replaceLocalVideoTrack(local, newTrack);
 	}
 
 	function attachLocalTracksToExistingPeers(stream: MediaStream) {
@@ -776,13 +899,28 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 		url.searchParams.set("afterSeq", String(afterSeqRef.current));
 		url.searchParams.set("limit", "50");
 
-		const res = await apiGet<{ ok: boolean; signals: Signal[]; nextAfterSeq: number }>(url.toString());
+		let res: { ok: boolean; signals: Signal[]; nextAfterSeq: number };
+		try {
+			res = await apiGet(url.toString());
+		} catch (e) {
+			if (isRoomEndedApiError(e)) {
+				cleanupLocalState();
+				goToConnectLanding({ notice: "Meeting ended." });
+				return;
+			}
+			return;
+		}
 		if (!res.ok) return;
 
 		if (typeof res.nextAfterSeq === "number") afterSeqRef.current = res.nextAfterSeq;
 		const isPending = pendingAdmissionRef.current;
 
 		for (const s of res.signals ?? []) {
+			if (s.kind === "end") {
+				cleanupLocalState();
+				goToConnectLanding({ notice: "Meeting ended by the host." });
+				return;
+			}
 			if (s.kind === "admit") {
 				const pid = (s.payload as any)?.participantId;
 				if (pid && pid === creds.participantId) {
@@ -873,7 +1011,17 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 		url.searchParams.set("participantId", creds.participantId);
 		url.searchParams.set("secret", creds.secret);
 
-		const res = await apiGet<{ ok: boolean; pending?: boolean; participants: ParticipantPublic[] }>(url.toString());
+		let res: { ok: boolean; pending?: boolean; participants: ParticipantPublic[] };
+		try {
+			res = await apiGet(url.toString());
+		} catch (e) {
+			if (isRoomEndedApiError(e)) {
+				cleanupLocalState();
+				goToConnectLanding({ notice: "Meeting ended." });
+				return;
+			}
+			return;
+		}
 		if (!res.ok) return;
 
 		if (res.pending) {
@@ -923,6 +1071,31 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 		participantsTimerRef.current = null;
 	}
 
+	async function applyHostDefaultsIfNeeded(creds: ParticipantCreds, current: RoomSettings | null) {
+		const desired = connectDefaultsRef.current.hostDefaults;
+		if (!desired) return;
+		if (!current) return;
+
+		const patch: Partial<RoomSettings> = {};
+		if (current.waitingRoomEnabled !== desired.waitingRoomEnabled) patch.waitingRoomEnabled = desired.waitingRoomEnabled;
+		if (current.locked !== desired.locked) patch.locked = desired.locked;
+		if (current.muteOnJoin !== desired.muteOnJoin) patch.muteOnJoin = desired.muteOnJoin;
+		if (current.cameraOffOnJoin !== desired.cameraOffOnJoin) patch.cameraOffOnJoin = desired.cameraOffOnJoin;
+		if (current.allowScreenShare !== desired.allowScreenShare) patch.allowScreenShare = desired.allowScreenShare;
+		if (!Object.keys(patch).length) return;
+
+		try {
+			const res = await apiPost<RoomSettingsUpdateResponse>(`/api/connect/rooms/${encodeURIComponent(roomId)}/settings`, {
+				participantId: creds.participantId,
+				secret: creds.secret,
+				...patch,
+			});
+			if (res.ok) setRoomSettings(res.room.settings);
+		} catch {
+			// ignore
+		}
+	}
+
 	async function onJoin() {
 		if (myCreds) return;
 		setToasts([]);
@@ -953,11 +1126,14 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 			afterSeqRef.current = 0;
 
 			setRoomSettings(joinRes.room?.settings ?? null);
-			setIsHost(joinRes.room?.hostParticipantId === creds.participantId);
+			const isHostNow = joinRes.room?.hostParticipantId === creds.participantId;
+			setIsHost(isHostNow);
+			isHostRef.current = isHostNow;
 			setPendingAdmission(joinRes.pending === true);
 
-			const defaultsMuted = joinRes.room?.settings?.muteOnJoin === true;
-			const defaultsCamOff = joinRes.room?.settings?.cameraOffOnJoin === true;
+			const deviceDefaults = connectDefaultsRef.current;
+			const defaultsMuted = joinRes.room?.settings?.muteOnJoin === true || deviceDefaults.startMuted === true;
+			const defaultsCamOff = joinRes.room?.settings?.cameraOffOnJoin === true || deviceDefaults.startCameraOff === true;
 			setIsMuted(defaultsMuted);
 			setIsVideoOff(defaultsCamOff);
 
@@ -966,6 +1142,10 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 				...(joinRes.others ?? []),
 				{ id: creds.participantId, displayName: creds.displayName, isGuest: creds.isGuest, createdAt: new Date().toISOString() },
 			]);
+
+			if (isHostNow && joinRes.room?.settings) {
+				void applyHostDefaultsIfNeeded(creds, joinRes.room.settings);
+			}
 
 			localStorage.setItem(storageKey(roomId), JSON.stringify(creds));
 
@@ -1069,6 +1249,69 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 
 	async function onLeave() {
 		await performLeave();
+	}
+
+	async function onEndMeeting() {
+		if (!myCredsRef.current) return;
+		if (!isHostRef.current) {
+			showToast("warn", "Only the host can end the meeting.");
+			return;
+		}
+		setToasts([]);
+		try {
+			await apiPost(`/api/connect/rooms/${encodeURIComponent(roomId)}/end`, {
+				participantId: myCredsRef.current.participantId,
+				secret: myCredsRef.current.secret,
+			});
+		} catch (e) {
+			if (isRoomEndedApiError(e)) {
+				cleanupLocalState();
+				goToConnectLanding({ notice: "Meeting ended." });
+				return;
+			}
+			showToast("error", e instanceof Error ? e.message : "Failed to end meeting");
+			return;
+		}
+		cleanupLocalState();
+		goToConnectLanding({ notice: "You ended the meeting." });
+	}
+
+	function flipCamera() {
+		void (async () => {
+			const prevFacing = cameraFacing;
+			const nextFacing: "user" | "environment" = prevFacing === "user" ? "environment" : "user";
+			setCameraFacing(nextFacing);
+			showChromeTemporarily();
+
+			if (nextFacing === "environment" && !hasBackCamera) {
+				// Still attempt to switch: some browsers don't expose labels, but facingMode works.
+				showToast("info", "Switching camera…", { ttlMs: 1200 });
+			}
+
+			try {
+				let local = localStreamRef.current;
+				if (!local) {
+					local = await ensureLocalMedia();
+					attachLocalTracksToExistingPeers(local);
+				}
+				if (!navigator.mediaDevices?.getUserMedia) throw new Error("Camera not supported");
+
+				const camStream = await navigator.mediaDevices.getUserMedia({ video: buildVideoConstraints(nextFacing), audio: false });
+				const newTrack = camStream.getVideoTracks()[0];
+				if (!newTrack) throw new Error("No camera available");
+				await replaceLocalVideoTrack(local, newTrack);
+				void detectBackCameraOnce();
+
+				// Preserve current video enabled state
+				if (isVideoOff) {
+					for (const t of local.getVideoTracks()) t.enabled = false;
+				}
+			} catch (err) {
+				setCameraFacing(prevFacing);
+				const msg = err && typeof err === "object" && "message" in err ? String((err as any).message) : "Unknown error";
+				showToast("warn", "Could not switch camera.", { details: msg });
+			}
+		})();
 	}
 
 	function toggleMute() {
@@ -1419,17 +1662,91 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 						<div className="mt-1 text-sm text-zinc-600">Room: {roomId}</div>
 					</div>
 
-					<div className="flex flex-wrap items-center gap-2">
-						<Link href="/connect" className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-base hover:bg-zinc-50">
-							Back
-						</Link>
-						<button onClick={copyLink} className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-base hover:bg-zinc-50">
-							Copy link
+					<div ref={headerMenuRef} className="relative flex items-center">
+						<button
+							onClick={() => setHeaderMenuOpen((p) => !p)}
+							className="inline-flex h-11 w-11 items-center justify-center rounded-full border border-zinc-200 bg-white hover:bg-zinc-50"
+							aria-label="Meeting menu"
+							title="Meeting menu"
+						>
+							<DotsIcon />
 						</button>
-						{myCreds ? (
-							<button onClick={onLeave} className="rounded-2xl bg-red-600 px-4 py-2 text-base font-semibold text-white hover:bg-red-500">
-								Leave
-							</button>
+						{headerMenuOpen ? (
+							<div className="absolute right-0 top-full z-20 mt-2 w-[min(320px,calc(100vw-2rem))] overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-lg">
+								<div className="p-2">
+									<Link
+										href="/connect"
+										onClick={() => setHeaderMenuOpen(false)}
+										className="flex w-full items-center gap-3 rounded-xl px-3 py-2 text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
+									>
+										<ArrowLeftIcon />
+										Back
+									</Link>
+
+									<button
+										onClick={() => {
+											setHeaderMenuOpen(false);
+											void copyLink();
+										}}
+										className="flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
+									>
+										<CopyIcon />
+										Copy link
+									</button>
+								</div>
+
+								<div className="h-px bg-zinc-200" />
+
+								<div className="p-3">
+									<div className="flex items-center justify-between gap-3 rounded-xl bg-zinc-50 px-3 py-2">
+										<div>
+											<div className="text-sm font-semibold text-zinc-900">Mirror self view</div>
+											<div className="mt-0.5 text-xs text-zinc-600">Front camera acts like a mirror.</div>
+										</div>
+										<ToggleSwitch
+											checked={mirrorSelf}
+											onChange={(checked) => {
+												setMirrorSelf(checked);
+												setConnectDefaults((prev) => ({ ...prev, mirrorSelf: checked }));
+												try {
+													localStorage.setItem(mirrorPrefKey(), checked ? "1" : "0");
+												} catch {
+													// ignore
+												}
+											}}
+											ariaLabel="Mirror self view"
+										/>
+									</div>
+								</div>
+
+								{myCreds ? (
+									<div className="p-2">
+										{isHost ? (
+											<button
+												onClick={() => {
+														setHeaderMenuOpen(false);
+														void onEndMeeting();
+													}}
+													className="flex w-full items-center gap-3 rounded-xl bg-red-600 px-3 py-2 text-left text-sm font-semibold text-white hover:bg-red-500"
+												>
+											<EndMeetingIcon />
+											End meeting for everyone
+										</button>
+										) : (
+											<button
+												onClick={() => {
+														setHeaderMenuOpen(false);
+														void onLeave();
+													}}
+													className="flex w-full items-center gap-3 rounded-xl bg-red-600 px-3 py-2 text-left text-sm font-semibold text-white hover:bg-red-500"
+												>
+											<PhoneHangupIcon />
+											Leave meeting
+										</button>
+										)}
+									</div>
+								) : null}
+							</div>
 						) : null}
 					</div>
 				</div>
@@ -1453,7 +1770,7 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 							<button
 								onClick={onJoin}
 								disabled={joining || !safeName(joinName)}
-								className="rounded-2xl bg-brand-ink px-5 py-3 text-base font-semibold text-white hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-60"
+								className="rounded-2xl bg-(--color-brand-blue) px-5 py-3 text-base font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
 							>
 								{joining ? "Joining…" : "Join"}
 							</button>
@@ -1494,7 +1811,7 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 										playsInline
 										autoPlay
 										className="h-full w-full object-cover"
-										style={{ transform: mirrorSelf ? "scaleX(-1)" : undefined }}
+										style={{ transform: mirrorSelf && cameraFacing === "user" ? "scaleX(-1)" : undefined }}
 									/>
 								}
 								videoEnabled={!isVideoOff}
@@ -1544,57 +1861,52 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 									<div className="mt-4 grid gap-3">
 										<label className="flex items-center justify-between gap-3 rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3">
 											<span className="text-sm font-semibold text-zinc-900">Waiting room</span>
-											<input
-												type="checkbox"
-												checked={roomSettings.waitingRoomEnabled}
-												disabled={savingSettings}
-												onChange={(e) => void saveRoomSettings({ waitingRoomEnabled: e.target.checked })}
-												className="h-5 w-5"
-											/>
+																		<ToggleSwitch
+																			checked={roomSettings.waitingRoomEnabled}
+																			disabled={savingSettings}
+																			onChange={(checked) => void saveRoomSettings({ waitingRoomEnabled: checked })}
+																			ariaLabel="Waiting room"
+																		/>
 										</label>
 
 										<label className="flex items-center justify-between gap-3 rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3">
 											<span className="text-sm font-semibold text-zinc-900">Lock meeting</span>
-											<input
-												type="checkbox"
-												checked={roomSettings.locked}
-												disabled={savingSettings}
-												onChange={(e) => void saveRoomSettings({ locked: e.target.checked })}
-												className="h-5 w-5"
-											/>
+																		<ToggleSwitch
+																			checked={roomSettings.locked}
+																			disabled={savingSettings}
+																			onChange={(checked) => void saveRoomSettings({ locked: checked })}
+																			ariaLabel="Lock meeting"
+																		/>
 										</label>
 
 										<label className="flex items-center justify-between gap-3 rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3">
 											<span className="text-sm font-semibold text-zinc-900">Mute on join</span>
-											<input
-												type="checkbox"
-												checked={roomSettings.muteOnJoin}
-												disabled={savingSettings}
-												onChange={(e) => void saveRoomSettings({ muteOnJoin: e.target.checked })}
-												className="h-5 w-5"
-											/>
+																		<ToggleSwitch
+																			checked={roomSettings.muteOnJoin}
+																			disabled={savingSettings}
+																			onChange={(checked) => void saveRoomSettings({ muteOnJoin: checked })}
+																			ariaLabel="Mute on join"
+																		/>
 										</label>
 
 										<label className="flex items-center justify-between gap-3 rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3">
 											<span className="text-sm font-semibold text-zinc-900">Camera off on join</span>
-											<input
-												type="checkbox"
-												checked={roomSettings.cameraOffOnJoin}
-												disabled={savingSettings}
-												onChange={(e) => void saveRoomSettings({ cameraOffOnJoin: e.target.checked })}
-												className="h-5 w-5"
-											/>
+																		<ToggleSwitch
+																			checked={roomSettings.cameraOffOnJoin}
+																			disabled={savingSettings}
+																			onChange={(checked) => void saveRoomSettings({ cameraOffOnJoin: checked })}
+																			ariaLabel="Camera off on join"
+																		/>
 										</label>
 
 										<label className="flex items-center justify-between gap-3 rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3">
 											<span className="text-sm font-semibold text-zinc-900">Allow screen share</span>
-											<input
-												type="checkbox"
-												checked={roomSettings.allowScreenShare}
-												disabled={savingSettings}
-												onChange={(e) => void saveRoomSettings({ allowScreenShare: e.target.checked })}
-												className="h-5 w-5"
-											/>
+																		<ToggleSwitch
+																			checked={roomSettings.allowScreenShare}
+																			disabled={savingSettings}
+																			onChange={(checked) => void saveRoomSettings({ allowScreenShare: checked })}
+																			ariaLabel="Allow screen share"
+																		/>
 										</label>
 									</div>
 
@@ -1692,21 +2004,10 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 								/>
 								<div className="mx-1 h-8 w-px bg-zinc-200" />
 								<IconButton
-									label={mirrorSelf ? "Unmirror" : "Mirror"}
-									onClick={() => {
-										setMirrorSelf((prev) => {
-											const next = !prev;
-											try {
-												localStorage.setItem(mirrorPrefKey(), next ? "1" : "0");
-											} catch {
-												// ignore
-											}
-											showChromeTemporarily();
-											return next;
-										});
-									}}
+									label={cameraFacing === "user" ? "Back camera" : "Front camera"}
+									onClick={flipCamera}
 									active={true}
-									icon={<RotateIcon />}
+									icon={<CameraFlipIcon />}
 								/>
 								<div className="mx-1 h-8 w-px bg-zinc-200" />
 								<button
@@ -1841,23 +2142,81 @@ function ScreenStopIcon() {
 	);
 }
 
-function RotateIcon() {
+function DotsIcon() {
+	return (
+		<svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" className="text-zinc-900">
+			<circle cx="12" cy="5" r="1.6" fill="currentColor" />
+			<circle cx="12" cy="12" r="1.6" fill="currentColor" />
+			<circle cx="12" cy="19" r="1.6" fill="currentColor" />
+		</svg>
+	);
+}
+
+function ArrowLeftIcon() {
+	return (
+		<svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" className="text-zinc-900">
+			<path d="M10 6l-6 6 6 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+			<path d="M4 12h16" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+		</svg>
+	);
+}
+
+function CopyIcon() {
 	return (
 		<svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" className="text-zinc-900">
 			<path
-				d="M21 12a9 9 0 0 0-15.36-6.36"
+				d="M9 9h10v10H9V9Z"
 				stroke="currentColor"
 				strokeWidth="2"
-				strokeLinecap="round"
+				strokeLinejoin="round"
 			/>
 			<path
-				d="M3 12a9 9 0 0 0 15.36 6.36"
+				d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1"
 				stroke="currentColor"
 				strokeWidth="2"
 				strokeLinecap="round"
 			/>
-			<path d="M6 5v4h4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-			<path d="M18 19v-4h-4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+		</svg>
+	);
+}
+
+function EndMeetingIcon() {
+	return (
+		<svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" className="text-white">
+			<path
+				d="M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18Z"
+				stroke="currentColor"
+				strokeWidth="2"
+			/>
+			<path d="M9 9l6 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+			<path d="M15 9l-6 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+		</svg>
+	);
+}
+
+function CameraFlipIcon() {
+	return (
+		<svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" className="text-zinc-900">
+			<path
+				d="M7 7h3l1-2h2l1 2h3a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2Z"
+				stroke="currentColor"
+				strokeWidth="2"
+				strokeLinejoin="round"
+			/>
+			<path
+				d="M15.5 11.2a4.5 4.5 0 0 0-7.6 1.5"
+				stroke="currentColor"
+				strokeWidth="2"
+				strokeLinecap="round"
+			/>
+			<path d="M8 11.2v2.6h2.6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+			<path
+				d="M8.5 14.8a4.5 4.5 0 0 0 7.6-1.5"
+				stroke="currentColor"
+				strokeWidth="2"
+				strokeLinecap="round"
+			/>
+			<path d="M16 14.8v-2.6h-2.6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
 		</svg>
 	);
 }

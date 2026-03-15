@@ -24,7 +24,7 @@ export async function POST(req: Request) {
   // If this user was referred, mark verified and award credits once.
   const awardCredits = 100;
 
-  const result = await prisma.$transaction(async (tx) => {
+  await prisma.$transaction(async (tx) => {
     const referral = await tx.portalReferral.findUnique({
       where: { invitedUserId: verified.userId },
       select: { id: true, inviterId: true, creditsAwardedAt: true },
