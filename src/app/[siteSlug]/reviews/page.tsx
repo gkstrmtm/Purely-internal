@@ -238,7 +238,7 @@ export default async function PublicReviewsPage({ params }: { params: Promise<{ 
       style={{ ...(themeStyle as any), ...(pageFontStyle as any), ...hostedBrandFont.styleVars } as any}
     >
       {hostedFont.googleImportCss ? <style>{hostedFont.googleImportCss}</style> : null}
-      <header className="border-b border-zinc-200 bg-white/80 backdrop-blur">
+      <header className="relative z-50 border-b border-zinc-200 bg-white/80 backdrop-blur">
         <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-6 py-4">
           <Link href={`/${siteHandle}/reviews`} className="flex items-center gap-3">
             {logoUrl ? (

@@ -7,6 +7,7 @@ import { PortalListboxDropdown } from "@/components/PortalListboxDropdown";
 import { PortalMultiSelectDropdown } from "@/components/PortalMultiSelectDropdown";
 import { ToggleSwitch } from "@/components/ToggleSwitch";
 import { useToast } from "@/components/ToastProvider";
+import { HostedPortalAdCard } from "@/components/HostedPortalAdBanner";
 import { BUSINESS_MODEL_SUGGESTIONS, INDUSTRY_SUGGESTIONS, PORTAL_ONBOARDING_PLANS } from "@/lib/portalOnboardingWizardCatalog";
 
 type Placement =
@@ -54,6 +55,10 @@ type CreativeVariantDraft = {
   sidebarImageHeight?: number;
   topBannerImageSize?: number;
   fullscreenMediaMaxWidthPct?: number;
+
+  // Hosted page (blogs/reviews) overlay controls
+  hostedCardWidth?: number;
+  hostedMediaAspectRatio?: "21:9" | "16:9" | "4:3" | "3:2" | "1:1";
 
   dismissEnabled?: boolean;
   dismissDelaySeconds?: number;
@@ -274,6 +279,18 @@ function clampFullscreenMaxWidthPct(v: unknown): number | undefined {
   const n = typeof v === "number" ? v : typeof v === "string" ? Number(v) : NaN;
   if (!Number.isFinite(n)) return undefined;
   return Math.max(40, Math.min(100, Math.floor(n)));
+}
+
+function clampHostedCardWidth(v: unknown): number | undefined {
+  const n = typeof v === "number" ? v : typeof v === "string" ? Number(v) : NaN;
+  if (!Number.isFinite(n)) return undefined;
+  return Math.max(260, Math.min(520, Math.floor(n)));
+}
+
+function normalizeHostedAspectRatio(v: unknown): NonNullable<CreativeVariantDraft["hostedMediaAspectRatio"]> {
+  const s = typeof v === "string" ? v.trim() : "";
+  if (s === "21:9" || s === "16:9" || s === "4:3" || s === "3:2" || s === "1:1") return s;
+  return "16:9";
 }
 
 export default function PortalAdCampaignsClient() {
@@ -752,6 +769,9 @@ export default function PortalAdCampaignsClient() {
           topBannerImageSize: 56,
           fullscreenMediaMaxWidthPct: 100,
 
+          hostedCardWidth: 360,
+          hostedMediaAspectRatio: "16:9",
+
           dismissEnabled: false,
           dismissDelaySeconds: 0,
           dismissReshowAfterSeconds: 3600,
@@ -798,6 +818,9 @@ export default function PortalAdCampaignsClient() {
           topBannerImageSize: clampTopBannerSize(v?.topBannerImageSize) ?? 56,
           fullscreenMediaMaxWidthPct: clampFullscreenMaxWidthPct(v?.fullscreenMediaMaxWidthPct) ?? 100,
 
+          hostedCardWidth: clampHostedCardWidth(v?.hostedCardWidth) ?? 360,
+          hostedMediaAspectRatio: normalizeHostedAspectRatio(v?.hostedMediaAspectRatio),
+
           dismissEnabled: Boolean(v?.dismissEnabled),
           dismissDelaySeconds: Number.isFinite(Number(v?.dismissDelaySeconds)) ? Math.max(0, Math.floor(Number(v?.dismissDelaySeconds))) : 0,
           dismissReshowAfterSeconds: reshow.seconds,
@@ -835,6 +858,9 @@ export default function PortalAdCampaignsClient() {
             sidebarImageHeight: clampSidebarImageHeight(c?.sidebarImageHeight) ?? 120,
             topBannerImageSize: clampTopBannerSize(c?.topBannerImageSize) ?? 56,
             fullscreenMediaMaxWidthPct: clampFullscreenMaxWidthPct(c?.fullscreenMediaMaxWidthPct) ?? 100,
+
+            hostedCardWidth: clampHostedCardWidth(c?.hostedCardWidth) ?? 360,
+            hostedMediaAspectRatio: normalizeHostedAspectRatio(c?.hostedMediaAspectRatio),
 
             dismissEnabled: Boolean(c?.dismissEnabled),
             dismissDelaySeconds: Number.isFinite(Number(c?.dismissDelaySeconds)) ? Math.max(0, Math.floor(Number(c?.dismissDelaySeconds))) : 0,
@@ -951,6 +977,9 @@ export default function PortalAdCampaignsClient() {
         topBannerImageSize: clampTopBannerSize(v.topBannerImageSize) ?? 56,
         fullscreenMediaMaxWidthPct: clampFullscreenMaxWidthPct(v.fullscreenMediaMaxWidthPct) ?? 100,
 
+        hostedCardWidth: clampHostedCardWidth(v.hostedCardWidth) ?? 360,
+        hostedMediaAspectRatio: normalizeHostedAspectRatio(v.hostedMediaAspectRatio),
+
         showDelaySeconds: Number.isFinite(Number(v.showDelaySeconds)) ? Math.max(0, Math.floor(Number(v.showDelaySeconds))) : 0,
 
         dismissEnabled: Boolean(v.dismissEnabled) || undefined,
@@ -1051,6 +1080,9 @@ export default function PortalAdCampaignsClient() {
               sidebarImageHeight: 120,
               topBannerImageSize: 56,
               fullscreenMediaMaxWidthPct: 100,
+
+              hostedCardWidth: 360,
+              hostedMediaAspectRatio: "16:9",
             };
 
     const rewardJson: any =
@@ -1979,6 +2011,9 @@ export default function PortalAdCampaignsClient() {
                             sidebarImageHeight: 120,
                             topBannerImageSize: 56,
                             fullscreenMediaMaxWidthPct: 100,
+
+                            hostedCardWidth: 360,
+                            hostedMediaAspectRatio: "16:9" as const,
                           };
                           const next = [...editor.creatives];
                           for (const it of uploaded) {
@@ -2014,6 +2049,9 @@ export default function PortalAdCampaignsClient() {
                               sidebarImageHeight: 120,
                               topBannerImageSize: 56,
                               fullscreenMediaMaxWidthPct: 100,
+
+                              hostedCardWidth: 360,
+                              hostedMediaAspectRatio: "16:9",
                             },
                           ],
                         })
@@ -2431,6 +2469,61 @@ export default function PortalAdCampaignsClient() {
                                   </div>
                                 </div>
                               ) : null}
+
+                              {activeCreativePlacement === "HOSTED_BLOG_PAGE" || activeCreativePlacement === "HOSTED_REVIEWS_PAGE" ? (
+                                <div className="sm:col-span-2">
+                                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                                    <div>
+                                      <label className="text-xs font-semibold text-zinc-600">Hosted card width</label>
+                                      <div className="mt-1">
+                                        <PortalListboxDropdown
+                                          value={String(clampHostedCardWidth(v.hostedCardWidth) ?? 360) as any}
+                                          onChange={(val) => {
+                                            const size = clampHostedCardWidth(val) ?? 360;
+                                            const next = [...editor.creatives];
+                                            next[idx] = { ...next[idx]!, hostedCardWidth: size };
+                                            setEditor({ ...editor, creatives: next });
+                                          }}
+                                          options={
+                                            [
+                                              { value: "320", label: "Compact" },
+                                              { value: "360", label: "Default" },
+                                              { value: "420", label: "Large" },
+                                              { value: "480", label: "XL" },
+                                            ] as any
+                                          }
+                                        />
+                                      </div>
+                                    </div>
+                                    <div>
+                                      <label className="text-xs font-semibold text-zinc-600">Hosted image aspect</label>
+                                      <div className="mt-1">
+                                        <PortalListboxDropdown
+                                          value={normalizeHostedAspectRatio(v.hostedMediaAspectRatio) as any}
+                                          onChange={(val) => {
+                                            const ar = normalizeHostedAspectRatio(val);
+                                            const next = [...editor.creatives];
+                                            next[idx] = { ...next[idx]!, hostedMediaAspectRatio: ar };
+                                            setEditor({ ...editor, creatives: next });
+                                          }}
+                                          options={
+                                            [
+                                              { value: "21:9", label: "21:9 (cinema)" },
+                                              { value: "16:9", label: "16:9 (widescreen)" },
+                                              { value: "4:3", label: "4:3" },
+                                              { value: "3:2", label: "3:2" },
+                                              { value: "1:1", label: "1:1 (square)" },
+                                            ] as any
+                                          }
+                                        />
+                                      </div>
+                                    </div>
+                                  </div>
+                                  <div className="mt-2 text-xs text-zinc-500">
+                                    This controls the floating overlay card on hosted Blogs/Reviews pages.
+                                  </div>
+                                </div>
+                              ) : null}
                             </div>
                           ) : null}
 
@@ -2616,6 +2709,43 @@ export default function PortalAdCampaignsClient() {
                                               }}
                                             />
                                           )}
+                                        </div>
+                                      </div>
+                                    </div>
+                                  </div>
+                                );
+                              }
+
+                              if (p === "HOSTED_BLOG_PAGE" || p === "HOSTED_REVIEWS_PAGE") {
+                                const width = clampHostedCardWidth(v.hostedCardWidth) ?? 360;
+                                return (
+                                  <div className="mt-3 rounded-2xl border border-zinc-200 bg-white p-3">
+                                    <div className="text-xs font-semibold text-zinc-600">Hosted page overlay preview</div>
+                                    <div className="mt-2 overflow-hidden rounded-2xl border border-zinc-200 bg-zinc-950">
+                                      <div className="relative h-[240px]">
+                                        <div className="absolute inset-0 bg-gradient-to-b from-zinc-900 via-zinc-800 to-zinc-950" />
+                                        <div className="absolute left-0 right-0 top-0 h-14 bg-white/85 backdrop-blur" />
+                                        <div className="absolute left-6 top-4 h-6 w-32 rounded bg-zinc-200/70" />
+                                        <div className="absolute left-6 top-20 h-8 w-64 rounded bg-white/20" />
+                                        <div className="absolute left-6 top-32 h-4 w-80 rounded bg-white/10" />
+                                        <div className="absolute left-6 top-40 h-4 w-72 rounded bg-white/10" />
+
+                                        <div className="pointer-events-none absolute right-4 top-16" style={{ width, maxWidth: "calc(100% - 2rem)" }}>
+                                          <HostedPortalAdCard
+                                            creative={{
+                                              headline: v.headline,
+                                              body: v.body,
+                                              ctaText: v.ctaText,
+                                              linkUrl: v.linkUrl,
+                                              mediaUrl: v.mediaUrl,
+                                              mediaKind: v.mediaKind,
+                                              mediaFit: v.mediaFit,
+                                              mediaPosition: v.mediaPosition,
+                                              hostedCardWidth: width,
+                                              hostedMediaAspectRatio: normalizeHostedAspectRatio(v.hostedMediaAspectRatio),
+                                            } as any}
+                                            clickHref="#"
+                                          />
                                         </div>
                                       </div>
                                     </div>

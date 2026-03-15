@@ -16,8 +16,102 @@ type Campaign = {
     mediaFit?: "cover" | "contain";
     mediaPosition?: string;
     topBannerImageSize?: number;
+
+    // Hosted placement overrides
+    hostedCardWidth?: number;
+    hostedMediaAspectRatio?: "21:9" | "16:9" | "4:3" | "3:2" | "1:1";
   };
 };
+
+export type HostedPortalAdCreative = NonNullable<Campaign["creative"]>;
+
+function clampHostedCardWidth(v: unknown): number {
+  const n = typeof v === "number" ? v : typeof v === "string" ? Number(v) : NaN;
+  if (!Number.isFinite(n)) return 360;
+  return Math.max(260, Math.min(520, Math.floor(n)));
+}
+
+function normalizeHostedAspectRatio(v: unknown): NonNullable<HostedPortalAdCreative["hostedMediaAspectRatio"]> {
+  const s = typeof v === "string" ? v.trim() : "";
+  if (s === "21:9" || s === "16:9" || s === "4:3" || s === "3:2" || s === "1:1") return s;
+  return "16:9";
+}
+
+function aspectRatioToCss(raw: HostedPortalAdCreative["hostedMediaAspectRatio"]): string {
+  const r = normalizeHostedAspectRatio(raw);
+  if (r === "21:9") return "21 / 9";
+  if (r === "16:9") return "16 / 9";
+  if (r === "4:3") return "4 / 3";
+  if (r === "3:2") return "3 / 2";
+  return "1 / 1";
+}
+
+export function HostedPortalAdCard({
+  creative,
+  clickHref,
+}: {
+  creative: HostedPortalAdCreative;
+  clickHref: string;
+}) {
+  const mediaUrl = String(creative.mediaUrl || "").trim();
+  const mediaKind = creative.mediaKind === "video" ? "video" : "image";
+  const hasMedia = Boolean(mediaUrl);
+  const isVideo = hasMedia && mediaKind === "video";
+  const isImage = hasMedia && mediaKind === "image";
+
+  const mediaFit = creative.mediaFit ?? "cover";
+  const mediaPosition = creative.mediaPosition ?? "center";
+
+  return (
+    <a
+      href={clickHref}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="block overflow-hidden border border-zinc-200 bg-white shadow-xl"
+      style={{ borderRadius: 12 }}
+    >
+      {isVideo ? (
+        <div className="relative w-full bg-black" style={{ aspectRatio: aspectRatioToCss(creative.hostedMediaAspectRatio) }}>
+          <video
+            className="absolute inset-0 h-full w-full"
+            style={{ objectFit: mediaFit, objectPosition: mediaPosition }}
+            playsInline
+            preload="metadata"
+            muted
+            loop
+            autoPlay
+            src={mediaUrl}
+          />
+        </div>
+      ) : null}
+
+      {isImage ? (
+        <div className="relative w-full bg-zinc-100" style={{ aspectRatio: aspectRatioToCss(creative.hostedMediaAspectRatio) }}>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={mediaUrl}
+            alt=""
+            className="absolute inset-0 h-full w-full"
+            style={{ objectFit: mediaFit, objectPosition: mediaPosition }}
+          />
+        </div>
+      ) : null}
+
+      <div className="p-4">
+        <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Sponsored</div>
+        <div className="mt-1 text-base font-semibold text-zinc-900">{creative.headline || "Sponsored"}</div>
+        {creative.body ? <div className="mt-2 text-sm leading-relaxed text-zinc-700">{creative.body}</div> : null}
+
+        <div className="mt-3 flex items-center justify-between gap-3">
+          <div className="text-xs text-zinc-500">Ad</div>
+          <div className="inline-flex items-center justify-center bg-zinc-900 px-4 py-2 text-xs font-semibold text-white" style={{ borderRadius: 10 }}>
+            {creative.ctaText || "Learn more"}
+          </div>
+        </div>
+      </div>
+    </a>
+  );
+}
 
 export function HostedPortalAdBanner({
   placement,
@@ -81,45 +175,12 @@ export function HostedPortalAdBanner({
   if (!campaign?.id) return null;
 
   const v = campaign.creative ?? {};
-  const showImage = Boolean(v.mediaUrl) && (v.mediaKind ?? "image") === "image";
-  const size = Math.max(40, Math.min(96, Math.floor(Number(v.topBannerImageSize ?? 56) || 56)));
+  const width = clampHostedCardWidth(v.hostedCardWidth);
 
   return (
-    <div className="border-b border-zinc-200 bg-white">
-      <div className="mx-auto max-w-6xl px-6 py-4">
-        <a
-          href={clickHref}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="block rounded-3xl border border-brand-ink/10 bg-gradient-to-r from-[color:var(--color-brand-blue)]/10 via-white to-white p-4 hover:opacity-95"
-        >
-          <div className="flex items-center justify-between gap-3">
-            <div className="flex min-w-0 items-center gap-3">
-              {showImage ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  src={String(v.mediaUrl)}
-                  alt=""
-                  className="shrink-0 rounded-2xl border border-zinc-200 object-cover"
-                  style={{
-                    height: size,
-                    width: size,
-                    objectFit: v.mediaFit ?? "cover",
-                    objectPosition: v.mediaPosition ?? "center",
-                  }}
-                />
-              ) : null}
-              <div className="min-w-0">
-                <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Sponsored</div>
-                <div className="truncate text-sm font-semibold text-zinc-900">{v.headline || "Sponsored"}</div>
-                {v.body ? <div className="mt-1 line-clamp-2 text-xs text-zinc-700">{v.body}</div> : null}
-              </div>
-            </div>
-            <div className="inline-flex shrink-0 rounded-2xl bg-zinc-900 px-4 py-2 text-xs font-semibold text-white">
-              {v.ctaText || "Learn"}
-            </div>
-          </div>
-        </a>
+    <div className="pointer-events-none fixed bottom-4 right-4 z-40 sm:bottom-auto sm:right-6 sm:top-24">
+      <div className="pointer-events-auto" style={{ width, maxWidth: "calc(100vw - 2rem)" }}>
+        <HostedPortalAdCard creative={v as HostedPortalAdCreative} clickHref={clickHref} />
       </div>
     </div>
   );
