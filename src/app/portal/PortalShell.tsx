@@ -876,14 +876,14 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
               mobileOpen ? "translate-x-0" : "-translate-x-full",
             )}
           >
-            <div className="shrink-0 flex items-center gap-3 border-b border-zinc-200 bg-white/90 p-4 backdrop-blur">
+            <div className="shrink-0 flex items-center gap-3 border-b border-zinc-200 bg-white/90 p-3 backdrop-blur">
               <Link href={`${basePath}/app`} className="flex items-center gap-3">
                 <Image
                   src={sidebarLogoSrc}
                   alt="Purely Automation"
                   width={120}
                   height={34}
-                  className="h-7 w-auto max-w-35 object-contain"
+                  className="h-6 w-auto max-w-32 object-contain"
                   priority
                 />
               </Link>
@@ -1045,7 +1045,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
             collapsed ? "w-19" : "w-70",
           )}
         >
-          <div className={classNames("flex items-center gap-3 border-b border-zinc-200 p-4", collapsed && "justify-center")}
+          <div className={classNames("flex items-center gap-3 border-b border-zinc-200 p-3", collapsed && "justify-center")}
           >
             {!collapsed ? (
               <Link href={`${basePath}/app`} className="flex items-center gap-3">
@@ -1054,22 +1054,11 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                   alt="Purely Automation"
                   width={120}
                   height={34}
-                  className="h-7 w-auto max-w-40 object-contain"
+                  className="h-6 w-auto max-w-36 object-contain"
                   priority
                 />
               </Link>
-            ) : (
-              <Link href={`${basePath}/app`} aria-label="Portal dashboard">
-                <Image
-                  src={sidebarLogoSrc}
-                  alt="Purely Automation"
-                  width={32}
-                  height={32}
-                  className="h-8 w-8 object-contain"
-                  priority
-                />
-              </Link>
-            )}
+            ) : null}
 
             <button
               type="button"
@@ -1196,7 +1185,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
             </div>
           </div>
 
-          <div className={classNames("border-t border-zinc-200 p-4", collapsed && "px-2")}
+          <div className={classNames("border-t border-zinc-200 p-3", collapsed && "px-2")}
           >
             {sidebarCampaign && !collapsed ? (
               <div className="mb-4 rounded-2xl border border-brand-ink/10 bg-linear-to-br from-brand-blue/10 to-white p-3 text-sm text-zinc-800">
@@ -1283,7 +1272,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                   alt="Purely Automation"
                   width={150}
                   height={46}
-                  className="h-9 w-auto object-contain"
+                  className="h-8 w-auto object-contain"
                   priority
                 />
               </Link>
