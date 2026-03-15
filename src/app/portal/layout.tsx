@@ -5,6 +5,7 @@ import { headers } from "next/headers";
 import { getPortalUser } from "@/lib/portalAuth";
 import { PortalHeaderCta } from "@/app/portal/PortalHeaderCta";
 import { PortalHelpLink } from "@/app/portal/PortalHelpLink";
+import { PortalTopbarHeightClient } from "@/app/portal/PortalTopbarHeightClient";
 import { normalizePortalVariant, PORTAL_VARIANT_HEADER } from "@/lib/portalVariant";
 
 export const metadata: Metadata = {
@@ -79,6 +80,8 @@ export default async function PortalLayout({
           </div>
         </div>
       </header>
+
+      <PortalTopbarHeightClient />
 
       <div className="min-h-0 flex-1">
         {children}

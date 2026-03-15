@@ -806,7 +806,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
 
   if (isFunnelBuilderEditor || isAutomationsEditor) {
     return (
-      <div className="h-full overflow-hidden bg-brand-mist text-brand-ink">
+      <div className="h-[calc(100dvh-var(--pa-portal-topbar-height,0px))] overflow-hidden bg-brand-mist text-brand-ink">
         <main className="h-full overflow-y-auto">
           {children}
           <div aria-hidden className="h-[calc(env(safe-area-inset-bottom)+5rem)]" />
@@ -816,7 +816,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <div className="h-full overflow-hidden bg-brand-mist text-brand-ink">
+    <div className="h-[calc(100dvh-var(--pa-portal-topbar-height,0px))] overflow-hidden bg-brand-mist text-brand-ink">
       {showGettingStartedHint ? (
         <div className="pointer-events-none fixed inset-0 z-40 flex items-end justify-center px-4 pb-6 sm:items-center sm:pb-0">
           <button
@@ -1185,8 +1185,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
             </div>
           </div>
 
-          <div className={classNames("shrink-0 border-t border-zinc-200 bg-white p-3", collapsed && "px-2")}
-          >
+          <div className={classNames("shrink-0 border-t border-zinc-200 bg-white p-3 z-20", collapsed && "px-2")}>
             {sidebarCampaign && !collapsed ? (
               <div className="mb-4 rounded-2xl border border-brand-ink/10 bg-linear-to-br from-brand-blue/10 to-white p-3 text-sm text-zinc-800">
                 {canShowDismiss(sidebarCampaign, sidebarShownAtMs) ? (
