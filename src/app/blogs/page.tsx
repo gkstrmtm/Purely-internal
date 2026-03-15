@@ -48,7 +48,7 @@ export default async function BlogsIndexPage(props: PageProps) {
         <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-4">
           <Link href="/" className="flex items-center gap-3">
             <Image
-              src="/brand/Untitled%20design%20(6).png"
+              src="/brand/purelylogo1.png"
               alt="Purely Automation"
               width={140}
               height={44}

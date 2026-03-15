@@ -1198,7 +1198,7 @@ export function MarketingLanding() {
         <div className="mx-auto flex h-14 max-w-6xl items-center justify-between px-6">
           <Link href="/" className="flex items-center gap-3">
             <Image
-              src="/brand/Untitled%20design%20(6).png"
+              src="/brand/purelylogo1.png"
               alt="Purely Automation"
               width={40}
               height={40}

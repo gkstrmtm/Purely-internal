@@ -56,6 +56,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
   const variant = typeof pathname === "string" && (pathname === "/credit" || pathname.startsWith("/credit/")) ? "credit" : "portal";
   const basePath = variant === "credit" ? "/credit" : "/portal";
   const logoSrc = variant === "credit" ? "/brand/2.png" : "/brand/1.png";
+  const sidebarLogoSrc = "/brand/purelylogo.png";
 
   type AdPlacement = "SIDEBAR_BANNER" | "TOP_BANNER" | "FULLSCREEN_REWARD" | "POPUP_CARD";
 
@@ -871,18 +872,18 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
 
           <aside
             className={classNames(
-              "absolute left-0 top-0 h-full w-72.5 overflow-y-auto border-r border-zinc-200 bg-white shadow-xl transition-transform",
+              "absolute left-0 top-0 flex h-full w-72.5 flex-col overflow-hidden border-r border-zinc-200 bg-white shadow-xl transition-transform",
               mobileOpen ? "translate-x-0" : "-translate-x-full",
             )}
           >
-            <div className="sticky top-0 z-10 flex items-center gap-3 border-b border-zinc-200 bg-white/90 p-4 backdrop-blur">
+            <div className="shrink-0 flex items-center gap-3 border-b border-zinc-200 bg-white/90 p-4 backdrop-blur">
               <Link href={`${basePath}/app`} className="flex items-center gap-3">
                 <Image
-                  src={logoSrc}
+                  src={sidebarLogoSrc}
                   alt="Purely Automation"
-                  width={190}
-                  height={58}
-                  className="h-9 w-auto object-contain"
+                  width={120}
+                  height={34}
+                  className="h-7 w-auto max-w-35 object-contain"
                   priority
                 />
               </Link>
@@ -1049,22 +1050,22 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
             {!collapsed ? (
               <Link href={`${basePath}/app`} className="flex items-center gap-3">
                 <Image
-                  src={logoSrc}
+                  src={sidebarLogoSrc}
                   alt="Purely Automation"
-                  width={190}
-                  height={58}
-                  className="h-9 w-auto object-contain"
+                  width={120}
+                  height={34}
+                  className="h-7 w-auto max-w-40 object-contain"
                   priority
                 />
               </Link>
             ) : (
               <Link href={`${basePath}/app`} aria-label="Portal dashboard">
                 <Image
-                  src={logoSrc}
+                  src={sidebarLogoSrc}
                   alt="Purely Automation"
-                  width={56}
-                  height={56}
-                  className="h-9 w-9 object-contain"
+                  width={32}
+                  height={32}
+                  className="h-8 w-8 object-contain"
                   priority
                 />
               </Link>
