@@ -1292,7 +1292,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
             </div>
           </header>
 
-          <main className="min-h-0 min-w-0 flex-1 p-4 pb-28 sm:p-8 sm:pb-8">
+          <main className="min-h-0 min-w-0 flex-1 p-4 pb-64 sm:p-8 sm:pb-8">
             {topBannerCampaign ? (
               <div className="mb-4 rounded-3xl border border-brand-ink/10 bg-linear-to-r from-brand-blue/15 via-white to-white p-4 text-brand-ink">
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">

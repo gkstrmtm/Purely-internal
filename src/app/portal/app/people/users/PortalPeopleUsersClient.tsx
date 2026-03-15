@@ -336,7 +336,6 @@ export function PortalPeopleUsersClient() {
           <p className="mt-2 text-sm text-zinc-600">Manage portal users and invites.</p>
           <PortalPeopleTabs />
         </div>
-        <div className="text-xs font-semibold text-zinc-500">Auto-refreshes when you return to this tab.</div>
       </div>
 
       {loading ? (

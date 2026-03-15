@@ -1017,7 +1017,7 @@ export function PortalPeopleContactsClient() {
           value={q}
           onChange={(e) => setQ(e.target.value)}
           placeholder="Name, email, phone, website…"
-          className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-[color:var(--color-brand-blue)]"
+          className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-(--color-brand-blue)"
         />
       </div>
 
@@ -1051,7 +1051,7 @@ export function PortalPeopleContactsClient() {
                 Contacts ({data.contacts.length} of {typeof data.totalContacts === "number" ? data.totalContacts : "N/A"})
                 {q.trim() ? <span className="ml-2 text-xs font-semibold text-zinc-500">Filtered: {filteredContacts.length}</span> : null}
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 {duplicateGroupsCount > 0 ? (
                   <button
                     type="button"
@@ -1072,8 +1072,8 @@ export function PortalPeopleContactsClient() {
                   + New
                 </button>
                 <div className="text-xs text-zinc-500">Page {contactsCursorStack.length}</div>
-                <div className="text-xs text-zinc-500">•</div>
-                <div className="text-xs text-zinc-500">50 per page</div>
+                <div className="hidden text-xs text-zinc-500 sm:block">•</div>
+                <div className="hidden text-xs text-zinc-500 sm:block">50 per page</div>
                 <button
                   type="button"
                   disabled={contactsCursorStack.length <= 1}
@@ -1180,10 +1180,10 @@ export function PortalPeopleContactsClient() {
                 Unlinked leads ({data.unlinkedLeads.length} of {typeof data.totalUnlinkedLeads === "number" ? data.totalUnlinkedLeads : "N/A"})
                 {q.trim() ? <span className="ml-2 text-xs font-semibold text-zinc-500">Filtered: {filteredLeads.length}</span> : null}
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <div className="text-xs text-zinc-500">Page {leadsCursorStack.length}</div>
-                <div className="text-xs text-zinc-500">•</div>
-                <div className="text-xs text-zinc-500">50 per page</div>
+                <div className="hidden text-xs text-zinc-500 sm:block">•</div>
+                <div className="hidden text-xs text-zinc-500 sm:block">50 per page</div>
                 <button
                   type="button"
                   disabled={leadsCursorStack.length <= 1}
@@ -1256,7 +1256,7 @@ export function PortalPeopleContactsClient() {
       ) : null}
 
       {importOpen ? (
-        <div className="fixed inset-0 z-[85] flex items-start justify-center overflow-auto bg-black/40 p-4">
+        <div className="fixed inset-0 z-85 flex items-start justify-center overflow-auto bg-black/40 p-4">
           <div className="w-full max-w-3xl rounded-3xl border border-zinc-200 bg-white p-5 shadow-xl">
             <div className="flex items-start justify-between gap-3">
               <div>
@@ -1382,7 +1382,7 @@ export function PortalPeopleContactsClient() {
                             .map((name) => ({ value: name, label: name })),
                           { value: "__new_tag__", label: "New tag…" },
                         ]}
-                        buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none hover:bg-zinc-50 focus:border-[color:var(--color-brand-blue)]"
+                        buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none hover:bg-zinc-50 focus:border-(--color-brand-blue)"
                       />
                     </div>
 
@@ -1391,7 +1391,7 @@ export function PortalPeopleContactsClient() {
                         <div className="text-xs font-semibold text-zinc-600">Create new tag</div>
                         <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-3">
                           <input
-                            className="sm:col-span-2 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-[color:var(--color-brand-blue)]"
+                            className="sm:col-span-2 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-(--color-brand-blue)"
                             placeholder="Tag name"
                             value={manualCreateTagName}
                             onChange={(e) => setManualCreateTagName(e.target.value)}
@@ -1550,7 +1550,7 @@ export function PortalPeopleContactsClient() {
                     }
                     className={classNames(
                       "rounded-2xl px-5 py-2.5 text-sm font-semibold",
-                      manualBusy ? "bg-zinc-200 text-zinc-600" : "bg-[color:var(--color-brand-blue)] text-white hover:opacity-95",
+                      manualBusy ? "bg-zinc-200 text-zinc-600" : "bg-(--color-brand-blue) text-white hover:opacity-95",
                     )}
                   >
                     {manualBusy ? "Adding…" : "Add contact"}
@@ -1698,10 +1698,10 @@ export function PortalPeopleContactsClient() {
 
                           return (
                             <tr key={idx} className="border-t border-zinc-200">
-                              <td className="px-3 py-2 max-w-[180px] truncate">{name || "n/a"}</td>
-                              <td className="px-3 py-2 max-w-[180px] truncate">{importMapping.email ? cell(importMapping.email) : "n/a"}</td>
-                              <td className="px-3 py-2 max-w-[160px] truncate">{importMapping.phone ? cell(importMapping.phone) : "n/a"}</td>
-                              <td className="px-3 py-2 max-w-[180px] truncate">{tagsText || "n/a"}</td>
+                              <td className="px-3 py-2 max-w-45 truncate">{name || "n/a"}</td>
+                              <td className="px-3 py-2 max-w-45 truncate">{importMapping.email ? cell(importMapping.email) : "n/a"}</td>
+                              <td className="px-3 py-2 max-w-40 truncate">{importMapping.phone ? cell(importMapping.phone) : "n/a"}</td>
+                              <td className="px-3 py-2 max-w-45 truncate">{tagsText || "n/a"}</td>
                             </tr>
                           );
                         })}
@@ -1782,7 +1782,7 @@ export function PortalPeopleContactsClient() {
                 }
                 className={classNames(
                   "rounded-2xl px-5 py-2.5 text-sm font-semibold",
-                  !importFile || importBusy ? "bg-zinc-200 text-zinc-600" : "bg-[color:var(--color-brand-blue)] text-white hover:opacity-95",
+                  !importFile || importBusy ? "bg-zinc-200 text-zinc-600" : "bg-(--color-brand-blue) text-white hover:opacity-95",
                 )}
               >
                 {importBusy ? "Importing…" : "Import"}
@@ -1795,7 +1795,7 @@ export function PortalPeopleContactsClient() {
 
       {importDupesOpen ? (
         <div
-          className="fixed inset-0 z-[90] flex items-center justify-center p-4"
+          className="fixed inset-0 z-90 flex items-center justify-center p-4"
           role="dialog"
           aria-modal="true"
           aria-label="Duplicates skipped"
@@ -1878,7 +1878,7 @@ export function PortalPeopleContactsClient() {
                   "rounded-2xl px-5 py-2 text-sm font-semibold",
                   importDupesBusy || !importFile || importDupesRowIndexes.length === 0
                     ? "bg-zinc-200 text-zinc-600"
-                    : "bg-[color:var(--color-brand-blue)] text-white hover:opacity-95",
+                    : "bg-(--color-brand-blue) text-white hover:opacity-95",
                 )}
               >
                 {importDupesBusy ? "Adding…" : "Add duplicates anyway"}
@@ -1889,7 +1889,7 @@ export function PortalPeopleContactsClient() {
       ) : null}
 
       {detailOpen ? (
-        <div className="fixed inset-0 z-[80] flex items-start justify-center overflow-auto bg-black/40 p-4">
+        <div className="fixed inset-0 z-80 flex items-start justify-center overflow-auto bg-black/40 p-4">
           <div className="w-full max-w-3xl rounded-3xl border border-zinc-200 bg-white p-6 shadow-xl">
             <div className="flex items-start justify-between gap-3">
               <div>
@@ -1932,7 +1932,7 @@ export function PortalPeopleContactsClient() {
                 <div className="text-xs font-semibold text-zinc-600">Name</div>
                 {editingContact ? (
                   <input
-                    className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-900 outline-none focus:border-[color:var(--color-brand-blue)]"
+                    className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-900 outline-none focus:border-(--color-brand-blue)"
                     value={editName}
                     onChange={(e) => setEditName(e.target.value)}
                     placeholder="Full name"
@@ -1943,7 +1943,7 @@ export function PortalPeopleContactsClient() {
                 <div className="mt-3 text-xs font-semibold text-zinc-600">Email</div>
                 {editingContact ? (
                   <input
-                    className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-800 outline-none focus:border-[color:var(--color-brand-blue)]"
+                    className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-800 outline-none focus:border-(--color-brand-blue)"
                     value={editEmail}
                     onChange={(e) => setEditEmail(e.target.value)}
                     placeholder="email@company.com"
@@ -1954,7 +1954,7 @@ export function PortalPeopleContactsClient() {
                 <div className="mt-3 text-xs font-semibold text-zinc-600">Phone</div>
                 {editingContact ? (
                   <input
-                    className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-800 outline-none focus:border-[color:var(--color-brand-blue)]"
+                    className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-800 outline-none focus:border-(--color-brand-blue)"
                     value={editPhone}
                     onChange={(e) => setEditPhone(e.target.value)}
                     placeholder="+15551234567"
@@ -1992,7 +1992,7 @@ export function PortalPeopleContactsClient() {
                       editCustomVarRows.map((row, idx) => (
                         <div key={`${idx}-${row.key}`} className="grid grid-cols-1 gap-2 sm:grid-cols-5">
                           <input
-                            className="sm:col-span-2 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-800 outline-none focus:border-[color:var(--color-brand-blue)]"
+                            className="sm:col-span-2 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-800 outline-none focus:border-(--color-brand-blue)"
                             value={row.key}
                             onChange={(e) =>
                               setEditCustomVarRows((prev) => {
@@ -2004,7 +2004,7 @@ export function PortalPeopleContactsClient() {
                             placeholder="key (e.g. city)"
                           />
                           <input
-                            className="sm:col-span-3 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-800 outline-none focus:border-[color:var(--color-brand-blue)]"
+                            className="sm:col-span-3 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-800 outline-none focus:border-(--color-brand-blue)"
                             value={row.value}
                             onChange={(e) =>
                               setEditCustomVarRows((prev) => {
@@ -2186,7 +2186,7 @@ export function PortalPeopleContactsClient() {
                             .map((t) => ({ value: t.id, label: t.name })),
                           { value: "__new_tag__", label: "New tag…" },
                         ]}
-                        buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none hover:bg-zinc-50 focus:border-[color:var(--color-brand-blue)]"
+                        buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none hover:bg-zinc-50 focus:border-(--color-brand-blue)"
                       />
                     </div>
                   </div>
@@ -2196,7 +2196,7 @@ export function PortalPeopleContactsClient() {
                       <div className="text-xs font-semibold text-zinc-600">Create new tag</div>
                       <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-3">
                         <input
-                          className="sm:col-span-2 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-[color:var(--color-brand-blue)]"
+                          className="sm:col-span-2 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-(--color-brand-blue)"
                           placeholder="Tag name"
                           value={createTagName}
                           onChange={(e) => setCreateTagName(e.target.value)}
@@ -2323,7 +2323,7 @@ export function PortalPeopleContactsClient() {
       ) : null}
 
       {leadModalOpen ? (
-        <div className="fixed inset-0 z-[90] flex items-start justify-center overflow-auto bg-black/40 p-4">
+        <div className="fixed inset-0 z-90 flex items-start justify-center overflow-auto bg-black/40 p-4">
           <div className="w-full max-w-xl rounded-3xl border border-zinc-200 bg-white p-6 shadow-xl">
             <div className="flex items-start justify-between gap-3">
               <div>
@@ -2346,7 +2346,7 @@ export function PortalPeopleContactsClient() {
               <div>
                 <div className="text-xs font-semibold text-zinc-700">Business name</div>
                 <input
-                  className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-[color:var(--color-brand-blue)]"
+                  className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-(--color-brand-blue)"
                   value={leadBusinessName}
                   onChange={(e) => setLeadBusinessName(e.target.value)}
                   placeholder="Business name"
@@ -2357,7 +2357,7 @@ export function PortalPeopleContactsClient() {
                 <div>
                   <div className="text-xs font-semibold text-zinc-700">Email</div>
                   <input
-                    className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-[color:var(--color-brand-blue)]"
+                    className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-(--color-brand-blue)"
                     value={leadEmail}
                     onChange={(e) => setLeadEmail(e.target.value)}
                     placeholder="email@company.com"
@@ -2366,7 +2366,7 @@ export function PortalPeopleContactsClient() {
                 <div>
                   <div className="text-xs font-semibold text-zinc-700">Phone</div>
                   <input
-                    className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-[color:var(--color-brand-blue)]"
+                    className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-(--color-brand-blue)"
                     value={leadPhone}
                     onChange={(e) => setLeadPhone(e.target.value)}
                     placeholder="+15551234567"
@@ -2377,7 +2377,7 @@ export function PortalPeopleContactsClient() {
               <div>
                 <div className="text-xs font-semibold text-zinc-700">Website</div>
                 <input
-                  className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-[color:var(--color-brand-blue)]"
+                  className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-(--color-brand-blue)"
                   value={leadWebsite}
                   onChange={(e) => setLeadWebsite(e.target.value)}
                   placeholder="https://example.com"

@@ -1790,29 +1790,29 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
                     ))}
                   </div>
                 ) : null}
-                <div className="mt-3 flex items-center justify-between gap-3">
+                <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                   <div className="text-xs text-zinc-500">
                     {activeThread ? `Replying to ${activeThread.peerAddress}` : ""}
                   </div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:justify-end">
                     <button
                       type="button"
                       onClick={() => openVariablePicker("email_body")}
-                      className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
+                      className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50 sm:w-auto"
                     >
                       Insert variable
                     </button>
                     <button
                       type="button"
                       onClick={() => emailFileRef.current?.click()}
-                      className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
+                      className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50 sm:w-auto"
                     >
                       Upload
                     </button>
                     <button
                       type="button"
                       onClick={() => setMediaPickerOpen(true)}
-                      className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
+                      className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50 sm:w-auto"
                     >
                       Add from media library
                     </button>
@@ -1832,7 +1832,7 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
                       onClick={onSend}
                       disabled={sending}
                       className={classNames(
-                        "rounded-2xl bg-[#007aff] px-5 py-2 text-sm font-semibold text-white hover:bg-[#006ae6]",
+                        "w-full rounded-2xl bg-[#007aff] px-5 py-2 text-sm font-semibold text-white hover:bg-[#006ae6] sm:w-auto",
                         sending && "opacity-60",
                       )}
                     >
