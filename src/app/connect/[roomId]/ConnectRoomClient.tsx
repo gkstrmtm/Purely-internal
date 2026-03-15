@@ -1412,7 +1412,7 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 					<div>
 						<div className="flex items-center gap-3">
 							<div className="relative h-8 w-32">
-								<Image src="/brand/Purely_Connect.png" alt="Purely Connect" fill className="object-contain" priority />
+								<Image src="/brand/3.png" alt="Purely Connect" fill className="object-contain" priority />
 							</div>
 							<div className="text-lg font-semibold text-zinc-900">Meeting</div>
 						</div>

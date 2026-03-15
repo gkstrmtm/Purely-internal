@@ -55,7 +55,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
   const toast = useToast();
   const variant = typeof pathname === "string" && (pathname === "/credit" || pathname.startsWith("/credit/")) ? "credit" : "portal";
   const basePath = variant === "credit" ? "/credit" : "/portal";
-  const logoSrc = variant === "credit" ? "/brand/purely%20credit.png" : "/brand/purity-5.png";
+  const logoSrc = variant === "credit" ? "/brand/2.png" : "/brand/1.png";
 
   type AdPlacement = "SIDEBAR_BANNER" | "TOP_BANNER" | "FULLSCREEN_REWARD" | "POPUP_CARD";
 

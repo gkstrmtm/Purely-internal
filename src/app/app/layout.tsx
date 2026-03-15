@@ -6,8 +6,8 @@ import { authOptions } from "@/lib/auth";
 
 export const metadata: Metadata = {
   icons: {
-    icon: [{ url: "/brand/purity-5.png", type: "image/png" }],
-    apple: [{ url: "/brand/purity-5.png", type: "image/png" }],
+    icon: [{ url: "/brand/1.png", type: "image/png" }],
+    apple: [{ url: "/brand/1.png", type: "image/png" }],
   },
 };
 

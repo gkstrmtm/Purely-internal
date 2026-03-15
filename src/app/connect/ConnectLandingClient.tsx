@@ -61,7 +61,7 @@ export function ConnectLandingClient({ signedInName }: { signedInName?: string |
 				<div className="rounded-3xl border border-zinc-200 bg-white p-8 shadow-sm sm:p-10">
 					<div className="flex items-center justify-between gap-6">
 						<div className="relative h-12 w-48">
-							<Image src="/brand/Purely_Connect.png" alt="Purely Connect" fill className="object-contain" priority />
+							<Image src="/brand/3.png" alt="Purely Connect" fill className="object-contain" priority />
 						</div>
 						<div className="hidden text-sm text-zinc-600 sm:block">
 							{signedInName ? `Signed in as ${signedInName}` : "Video meetings"}

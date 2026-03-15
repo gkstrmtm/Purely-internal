@@ -68,7 +68,7 @@ export default function AdsLandingPage() {
       <div className="mx-auto max-w-6xl px-6 py-10">
         <header className="flex items-center justify-between">
           <Link href="/" className="flex items-center">
-            <Image src="/brand/purity-5.png" alt="" width={56} height={56} className="h-14 w-14 object-contain" priority />
+            <Image src="/brand/1.png" alt="" width={56} height={56} className="h-14 w-14 object-contain" priority />
             <span className="sr-only">Home</span>
           </Link>
 
@@ -222,7 +222,7 @@ export default function AdsLandingPage() {
             <div>
               <div className="flex items-center gap-3">
                 <Image
-                  src="/brand/play_white_removed_everywhere%20(1).png"
+                  src="/brand/purelylogo.png"
                   alt=""
                   width={84}
                   height={56}

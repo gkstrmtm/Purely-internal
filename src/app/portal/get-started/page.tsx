@@ -107,7 +107,7 @@ function PortalGetStartedInner() {
   const portalBase = pathname.startsWith("/credit") ? "/credit" : "/portal";
   // The authenticated app lives under /portal; /credit is a branded entrypoint.
   const appBase = "/portal";
-  const logoSrc = portalBase === "/credit" ? "/brand/purely%20credit.png" : "/brand/purity-5.png";
+  const logoSrc = portalBase === "/credit" ? "/brand/2.png" : "/brand/1.png";
 
   const checkoutState = (search?.get("checkout") || "").trim().toLowerCase();
   const referralCode = (search?.get("ref") || "").trim();

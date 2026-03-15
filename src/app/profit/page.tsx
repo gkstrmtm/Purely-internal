@@ -1303,7 +1303,7 @@ export default function ProfitVisualizationDashboardPage() {
         <div className="flex flex-col gap-5 md:flex-row md:items-center md:justify-between">
           <div className="flex items-center gap-4">
             <div className="relative h-11 w-11 overflow-hidden rounded-2xl bg-white shadow-sm">
-              <Image src="/brand/purity-5.png" alt="Purely" fill className="object-contain p-1.5" priority />
+              <Image src="/brand/1.png" alt="Purely" fill className="object-contain p-1.5" priority />
             </div>
             <div>
               <div className="text-2xl font-bold tracking-tight text-zinc-900">Profit dashboard</div>

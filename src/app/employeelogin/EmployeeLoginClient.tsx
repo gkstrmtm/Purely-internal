@@ -83,7 +83,7 @@ export default function EmployeeLoginClient() {
         <div className="rounded-3xl border border-zinc-200 bg-white p-8 shadow-sm sm:p-10">
           <div className="flex justify-center">
             <Image
-              src="/brand/purity-5.png"
+              src="/brand/1.png"
               alt="Purely Automation"
               width={520}
               height={160}

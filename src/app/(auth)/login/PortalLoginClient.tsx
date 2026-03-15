@@ -22,7 +22,7 @@ export default function PortalLoginClient() {
 
   const pathnameVariant = useMemo(() => (pathname.startsWith("/credit") ? "credit" : "portal"), [pathname]);
   const logoSrc = useMemo(
-    () => (pathnameVariant === "credit" ? "/brand/purely%20credit.png" : "/brand/purity-5.png"),
+    () => (pathnameVariant === "credit" ? "/brand/2.png" : "/brand/1.png"),
     [pathnameVariant],
   );
 

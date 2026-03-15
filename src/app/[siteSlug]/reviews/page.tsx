@@ -247,7 +247,7 @@ export default async function PublicReviewsPage({ params }: { params: Promise<{ 
             ) : (
               <div className="grid h-10 w-10 place-items-center rounded-xl border border-zinc-200 bg-white shadow-sm">
                 <Image
-                  src="/brand/play_white_removed_everywhere%20(1).png"
+                  src="/brand/purelylogo.png"
                   alt=""
                   width={22}
                   height={22}
@@ -274,7 +274,7 @@ export default async function PublicReviewsPage({ params }: { params: Promise<{ 
             ) : null}
             <Link href="/" className="inline-flex items-center gap-3 rounded-xl px-3 py-2 hover:bg-zinc-100" aria-label="Purely Automation">
               <Image
-                src="/brand/purity-5.png"
+                src="/brand/1.png"
                 alt="Purely Automation"
                 width={140}
                 height={44}

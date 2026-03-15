@@ -198,7 +198,7 @@ export default async function CustomDomainReviewsPage({
               <img src={logoUrl} alt={businessName} className="h-10 w-10 rounded-xl object-cover" />
             ) : (
               <div className="grid h-10 w-10 place-items-center rounded-xl border border-zinc-200 bg-white shadow-sm">
-                <Image src="/brand/play_white_removed_everywhere%20(1).png" alt="" width={22} height={22} className="h-5 w-5" />
+                <Image src="/brand/purelylogo.png" alt="" width={22} height={22} className="h-5 w-5" />
               </div>
             )}
             <div className="min-w-0">
@@ -217,7 +217,7 @@ export default async function CustomDomainReviewsPage({
               blogs
             </Link>
             <a href="https://purelyautomation.com" className="inline-flex items-center gap-3 rounded-xl px-3 py-2 hover:bg-zinc-100" aria-label="Purely Automation">
-              <Image src="/brand/purity-5.png" alt="" width={80} height={18} className="h-4 w-auto" />
+              <Image src="/brand/1.png" alt="" width={80} height={18} className="h-4 w-auto" />
             </a>
           </div>
         </div>

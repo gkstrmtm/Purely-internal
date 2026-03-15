@@ -15,7 +15,7 @@ export default async function AdsAppLayout({ children }: { children: React.React
             <div className="flex items-center justify-between gap-4">
               <Link href="/ads" className="flex items-center gap-2">
                 <Image
-                  src="/brand/purity-5.png"
+                  src="/brand/1.png"
                   alt="Purely Automation"
                   width={48}
                   height={48}

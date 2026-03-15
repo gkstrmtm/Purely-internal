@@ -1298,7 +1298,7 @@ export function MarketingLanding() {
               <div className="grid grid-cols-1 gap-10 md:grid-cols-2 md:items-center">
                 <div>
                   <Image
-                    src="/brand/purity-5.png"
+                    src="/brand/1.png"
                     alt="Purely Automation"
                     width={520}
                     height={180}

@@ -51,7 +51,7 @@ export function AppShell({ role, email, children }: Props) {
         >
           <Link href="/app" className="flex items-center gap-2">
             <Image
-              src="/brand/purity-5.png"
+              src="/brand/1.png"
               alt="Purely Automation"
               width={40}
               height={40}
@@ -130,7 +130,7 @@ export function AppShell({ role, email, children }: Props) {
 
           <Link href="/app" className="flex items-center gap-2">
             <Image
-              src="/brand/purity-5.png"
+              src="/brand/1.png"
               alt="Purely Automation"
               width={36}
               height={36}
@@ -159,7 +159,7 @@ export function AppShell({ role, email, children }: Props) {
             <div className="flex items-center justify-between border-b border-zinc-200 px-4 py-3">
               <Link href="/app" className="flex items-center gap-2" onClick={() => setMobileOpen(false)}>
                 <Image
-                  src="/brand/purity-5.png"
+                  src="/brand/1.png"
                   alt="Purely Automation"
                   width={36}
                   height={36}

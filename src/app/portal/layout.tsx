@@ -9,8 +9,8 @@ import { normalizePortalVariant, PORTAL_VARIANT_HEADER } from "@/lib/portalVaria
 
 export const metadata: Metadata = {
   icons: {
-    icon: [{ url: "/brand/purity-5.png", type: "image/png" }],
-    apple: [{ url: "/brand/purity-5.png", type: "image/png" }],
+    icon: [{ url: "/brand/1.png", type: "image/png" }],
+    apple: [{ url: "/brand/1.png", type: "image/png" }],
   },
 };
 
@@ -40,7 +40,7 @@ export default async function PortalLayout({
 }) {
   const h = await headers();
   const variant = normalizePortalVariant(h.get(PORTAL_VARIANT_HEADER)) || "portal";
-  const logoSrc = variant === "credit" ? "/brand/purely%20credit.png" : "/brand/purity-5.png";
+  const logoSrc = variant === "credit" ? "/brand/2.png" : "/brand/1.png";
   const homeHref = variant === "credit" ? "/credit" : "/portal";
   const signInHref = variant === "credit" ? "/credit/login" : "/login";
   const getStartedHref = variant === "credit" ? "/credit/get-started" : "/portal/get-started";
