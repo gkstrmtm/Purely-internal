@@ -27,8 +27,8 @@ export default function PortalLoginClient() {
   );
 
   const fromRaw = searchParams.get("from");
-  // The authenticated portal UI lives under /portal/app.
-  const defaultFrom = useMemo(() => "/portal/app", []);
+  // Default landing should stay inside the active variant.
+  const defaultFrom = useMemo(() => (pathnameVariant === "credit" ? "/credit/app" : "/portal/app"), [pathnameVariant]);
   const from = useMemo(() => safeInternalPath(fromRaw, defaultFrom), [fromRaw, defaultFrom]);
   const portalVariant = useMemo(() => (pathnameVariant === "credit" || from.startsWith("/credit") ? "credit" : "portal"), [from, pathnameVariant]);
   const apiBase = useMemo(() => (portalVariant === "credit" ? "/credit" : "/portal"), [portalVariant]);
@@ -265,7 +265,7 @@ export default function PortalLoginClient() {
 
           <div className="mt-6 text-base text-zinc-600">
             Need an account?{" "}
-            <Link className="font-medium text-brand-ink hover:underline" href="/portal/get-started">
+            <Link className="font-medium text-brand-ink hover:underline" href={portalVariant === "credit" ? "/credit/get-started" : "/portal/get-started"}>
               Get started
             </Link>
           </div>

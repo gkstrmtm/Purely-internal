@@ -9,6 +9,7 @@ export default async function PortalDashboardPage() {
   const variant = normalizePortalVariant(h.get(PORTAL_VARIANT_HEADER)) || "portal";
   const getStartedHref = variant === "credit" ? "/credit/get-started" : "/portal/get-started";
   const signInHref = variant === "credit" ? "/credit/login" : "/login";
+  const getStartedPackageHref = (pkg: string) => `${getStartedHref}?package=${encodeURIComponent(pkg)}`;
 
   const directoryItems = [
     { href: "/", label: "Home" },
@@ -290,7 +291,7 @@ export default async function PortalDashboardPage() {
               </Link>
               <div className="mt-auto pt-6">
                 <Link
-                  href="/portal/get-started?package=brand-builder"
+                  href={getStartedPackageHref("brand-builder")}
                   className="inline-flex w-full items-center justify-center rounded-2xl bg-[color:var(--color-brand-blue)] px-4 py-3 text-sm font-semibold text-white transition hover:-translate-y-px hover:opacity-95 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:rgba(29,78,216,0.45)] focus-visible:ring-offset-2 focus-visible:ring-offset-white"
                 >
                   Get Started
@@ -320,7 +321,7 @@ export default async function PortalDashboardPage() {
               </Link>
               <div className="mt-auto pt-6">
                 <Link
-                  href="/portal/get-started?package=sales-loop"
+                  href={getStartedPackageHref("sales-loop")}
                   className="inline-flex w-full items-center justify-center rounded-2xl border border-[color:rgba(51,65,85,0.55)] bg-white px-4 py-3 text-sm font-semibold text-brand-ink transition hover:-translate-y-px hover:border-[color:rgba(51,65,85,0.85)] hover:bg-[color:rgba(51,65,85,0.04)] hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:rgba(29,78,216,0.55)] focus-visible:ring-offset-2 focus-visible:ring-offset-white"
                 >
                   Get Started
@@ -347,7 +348,7 @@ export default async function PortalDashboardPage() {
               </Link>
               <div className="mt-auto pt-6">
                 <Link
-                  href="/portal/get-started?package=launch-kit"
+                  href={getStartedPackageHref("launch-kit")}
                   className="inline-flex w-full items-center justify-center rounded-2xl bg-[color:var(--color-brand-pink)] px-4 py-3 text-sm font-semibold text-white transition hover:-translate-y-px hover:opacity-95 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:rgba(251,113,133,0.40)] focus-visible:ring-offset-2 focus-visible:ring-offset-white"
                 >
                   Get Started
@@ -403,13 +404,13 @@ export default async function PortalDashboardPage() {
             </div>
             <div className="flex w-full flex-col gap-3 sm:w-auto sm:flex-row">
               <Link
-                href="/portal/get-started"
+                href={getStartedHref}
                 className="inline-flex w-full items-center justify-center rounded-2xl bg-linear-to-r from-[color:var(--color-brand-blue)] via-violet-500 to-[color:var(--color-brand-pink)] px-6 py-3 text-sm font-semibold text-white shadow-sm hover:opacity-90 sm:w-auto"
               >
                 Start free
               </Link>
               <Link
-                href="/login"
+                href={signInHref}
                 className="inline-flex w-full items-center justify-center rounded-2xl border border-white/35 bg-white/10 px-6 py-3 text-sm font-semibold text-white hover:bg-white/15 sm:w-auto"
               >
                 Sign in

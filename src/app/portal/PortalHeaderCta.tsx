@@ -9,10 +9,9 @@ export function PortalHeaderCta({ canOpenPortalApp }: { canOpenPortalApp: boolea
 
   if (!canOpenPortalApp) return null;
 
-  // The authenticated client portal app lives under /portal/app.
-  // /credit is a branded entrypoint and does not have its own /credit/app.
-  const appHref = "/portal/app";
-  const inPortalApp = typeof pathname === "string" && pathname.startsWith("/portal/app");
+  const isCreditVariantPath = typeof pathname === "string" && (pathname === "/credit" || pathname.startsWith("/credit/"));
+  const appHref = isCreditVariantPath ? "/credit/app" : "/portal/app";
+  const inPortalApp = typeof pathname === "string" && (pathname.startsWith("/portal/app") || pathname.startsWith("/credit/app"));
 
   if (inPortalApp) {
     return (
