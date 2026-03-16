@@ -2163,7 +2163,7 @@ export default function PortalReviewsClient() {
                       </div>
                       <div className="flex items-center gap-2">
                         <button
-                          className="h-9 rounded-lg bg-neutral-900 px-3 text-xs font-medium text-white disabled:opacity-60"
+                          className="h-9 rounded-lg bg-(--color-brand-blue) px-3 text-xs font-medium text-white hover:opacity-90 disabled:opacity-60"
                           disabled={!canSend}
                           onClick={() => manualSend(b.id)}
                           type="button"
@@ -2201,7 +2201,7 @@ export default function PortalReviewsClient() {
                       </div>
                       <div className="flex items-center gap-2">
                         <button
-                          className="h-9 rounded-lg bg-neutral-900 px-3 text-xs font-medium text-white disabled:opacity-60"
+                          className="h-9 rounded-lg bg-(--color-brand-blue) px-3 text-xs font-medium text-white hover:opacity-90 disabled:opacity-60"
                           disabled={!canSend || sendingContactId === c.id}
                           onClick={() => manualSendContact(c.id)}
                           type="button"

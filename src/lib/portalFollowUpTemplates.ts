@@ -99,4 +99,85 @@ export const FOLLOW_UP_TEMPLATES: FollowUpTemplate[] = [
       },
     ],
   },
+  {
+    id: "post-visit-care-instructions",
+    title: "Care instructions + check-in (2 steps)",
+    description: "Send any after-care / next steps right away, then check in the next day.",
+    steps: [
+      {
+        kind: "EMAIL",
+        delayMinutes: 60,
+        subject: "Your next steps",
+        body:
+          "Hi {contact.firstName},\n\nThanks again for coming in today. Here are your next steps:\n\n- (Add instructions here)\n- (Add what to expect)\n\nIf you have any questions, just reply to this email.\n\n- {business.name}",
+      },
+      {
+        kind: "SMS",
+        delayMinutes: 60 * 24,
+        body: "Hey {contact.firstName} — quick check-in after yesterday. How are things going? Reply here if you need anything. - {business.name}",
+      },
+    ],
+  },
+  {
+    id: "rebook-reminder",
+    title: "Rebook reminder (2 steps)",
+    description: "Nudge them to book the next appointment in 2–3 weeks.",
+    steps: [
+      {
+        kind: "EMAIL",
+        delayMinutes: 60 * 24 * 14,
+        subject: "Ready to book your next appointment?",
+        body:
+          "Hi {contact.firstName},\n\nJust a quick reminder — if you’d like to stay on track, now is a great time to book your next appointment.\n\nReply with a day/time that works and we’ll get you scheduled.\n\n- {business.name}",
+      },
+      {
+        kind: "SMS",
+        delayMinutes: 60 * 24 * 18,
+        body: "Hey {contact.firstName} — want to get your next appointment on the calendar? Reply with a good day/time. - {business.name}",
+      },
+    ],
+  },
+  {
+    id: "referral-ask",
+    title: "Referral ask (2 steps)",
+    description: "Ask for a referral while the experience is fresh.",
+    steps: [
+      {
+        kind: "EMAIL",
+        delayMinutes: 60 * 24 * 2,
+        subject: "Quick favor",
+        body:
+          "Hi {contact.firstName},\n\nIf you were happy with your experience, would you be open to referring a friend or family member?\n\nIf you reply with their name + best contact info, we’ll take great care of them.\n\nThank you,\n{business.name}",
+      },
+      {
+        kind: "SMS",
+        delayMinutes: 60 * 24 * 5,
+        body: "{contact.firstName}, quick favor — know anyone else who could use our help? Reply with their name and I’ll reach out. - {business.name}",
+      },
+    ],
+  },
+  {
+    id: "winback-30-days",
+    title: "Winback after 30 days (3 steps)",
+    description: "Re-engage past clients with a gentle check-in over a week.",
+    steps: [
+      {
+        kind: "SMS",
+        delayMinutes: 60 * 24 * 30,
+        body: "Hey {contact.firstName} — it’s been a bit. Want to get back on the schedule? Reply here and I’ll help. - {business.name}",
+      },
+      {
+        kind: "EMAIL",
+        delayMinutes: 60 * 24 * 33,
+        subject: "Checking in",
+        body:
+          "Hi {contact.firstName},\n\nJust checking in — if you’d like to book again, reply with what you’re looking for and we’ll get you taken care of.\n\n- {business.name}",
+      },
+      {
+        kind: "SMS",
+        delayMinutes: 60 * 24 * 37,
+        body: "Last check-in {contact.firstName} — should I keep a spot open for you this week, or circle back later? - {business.name}",
+      },
+    ],
+  },
 ];

@@ -54,6 +54,7 @@ function parseKindSettings(value: unknown) {
     deliveryEmailHint: typeof rec?.deliveryEmailHint === "string" ? rec.deliveryEmailHint.trim().slice(0, 1500) : "",
     deliverySmsHint: typeof rec?.deliverySmsHint === "string" ? rec.deliverySmsHint.trim().slice(0, 800) : "",
     includeImages: Boolean(rec?.includeImages),
+    royaltyFreeImages: typeof rec?.royaltyFreeImages === "boolean" ? rec.royaltyFreeImages : true,
     includeImagesWhereNeeded: Boolean(rec?.includeImagesWhereNeeded),
     fontKey,
     audience: rec?.audience && typeof rec.audience === "object" ? (rec.audience as any) : {},
@@ -210,7 +211,7 @@ export async function POST(req: Request) {
   });
 
   let contentWithImages = draft.content;
-  if (s.includeImages) {
+  if (s.includeImages && s.royaltyFreeImages) {
     const query = [topicHint, profile?.industry, profile?.businessName].filter(Boolean).join(" ").trim();
     const images = await pickCommonsImages(query || "newsletter", s.includeImagesWhereNeeded ? 1 : 2);
     contentWithImages = insertImagesIntoMarkdown(draft.content, images, { whereNeeded: Boolean(s.includeImagesWhereNeeded) });

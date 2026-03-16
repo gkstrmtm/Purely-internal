@@ -52,6 +52,7 @@ function normalizeKindSettings(value: unknown) {
     deliveryEmailHint: typeof rec?.deliveryEmailHint === "string" ? rec.deliveryEmailHint.trim().slice(0, 1500) : "",
     deliverySmsHint: typeof rec?.deliverySmsHint === "string" ? rec.deliverySmsHint.trim().slice(0, 800) : "",
     includeImages: Boolean(rec?.includeImages),
+    royaltyFreeImages: typeof rec?.royaltyFreeImages === "boolean" ? rec.royaltyFreeImages : true,
     includeImagesWhereNeeded: Boolean(rec?.includeImagesWhereNeeded),
     audience: rec?.audience && typeof rec.audience === "object" ? (rec.audience as any) : {},
     lastRunAt: typeof rec?.lastRunAt === "string" ? rec.lastRunAt : undefined,
@@ -213,7 +214,7 @@ async function runKind(opts: {
   });
 
   let contentWithImages = draft.content;
-  if ((opts.s as any).includeImages) {
+  if ((opts.s as any).includeImages && (opts.s as any).royaltyFreeImages !== false) {
     const query = [topicHint, profile?.industry, profile?.businessName].filter(Boolean).join(" ").trim();
     const whereNeeded = Boolean((opts.s as any).includeImagesWhereNeeded);
     const images = await pickCommonsImages(query || "newsletter", whereNeeded ? 1 : 2);

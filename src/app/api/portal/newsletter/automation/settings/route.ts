@@ -21,6 +21,7 @@ type StoredKindSettings = {
   deliveryEmailHint?: string;
   deliverySmsHint?: string;
   includeImages?: boolean;
+  royaltyFreeImages?: boolean;
   includeImagesWhereNeeded?: boolean;
   fontKey?: string;
   audience?: {
@@ -104,6 +105,7 @@ function parseKindSettings(value: unknown): Required<
   const deliveryEmailHint = typeof rec?.deliveryEmailHint === "string" ? rec.deliveryEmailHint.trim().slice(0, 1500) : "";
   const deliverySmsHint = typeof rec?.deliverySmsHint === "string" ? rec.deliverySmsHint.trim().slice(0, 800) : "";
   const includeImages = Boolean(rec?.includeImages);
+  const royaltyFreeImages = typeof rec?.royaltyFreeImages === "boolean" ? rec.royaltyFreeImages : true;
   const includeImagesWhereNeeded = Boolean(rec?.includeImagesWhereNeeded);
   const fontKey = normalizeNewsletterFontKey(rec?.fontKey);
 
@@ -117,6 +119,7 @@ function parseKindSettings(value: unknown): Required<
     promptAnswers,
     audience,
     fontKey,
+    royaltyFreeImages,
     // These are optional in storage but we expose normalized values.
     ...(deliveryEmailHint ? { deliveryEmailHint } : {}),
     ...(deliverySmsHint ? { deliverySmsHint } : {}),
@@ -144,6 +147,7 @@ const putSchema = z.object({
   deliveryEmailHint: z.string().trim().max(1500).optional(),
   deliverySmsHint: z.string().trim().max(800).optional(),
   includeImages: z.boolean().optional(),
+  royaltyFreeImages: z.boolean().optional(),
   includeImagesWhereNeeded: z.boolean().optional(),
   fontKey: z.string().trim().min(1).max(40).optional(),
   audience: z
@@ -247,6 +251,12 @@ export async function PUT(req: Request) {
       typeof parsedBody.data.deliverySmsHint === "string" ? parsedBody.data.deliverySmsHint.trim().slice(0, 800) : (prevKind as any).deliverySmsHint,
     includeImages:
       typeof parsedBody.data.includeImages === "boolean" ? parsedBody.data.includeImages : Boolean((prevKind as any).includeImages),
+    royaltyFreeImages:
+      typeof parsedBody.data.royaltyFreeImages === "boolean"
+        ? parsedBody.data.royaltyFreeImages
+        : typeof (prevKind as any).royaltyFreeImages === "boolean"
+          ? Boolean((prevKind as any).royaltyFreeImages)
+          : true,
     includeImagesWhereNeeded:
       typeof parsedBody.data.includeImagesWhereNeeded === "boolean"
         ? parsedBody.data.includeImagesWhereNeeded

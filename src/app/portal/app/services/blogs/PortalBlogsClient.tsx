@@ -831,19 +831,34 @@ export function PortalBlogsClient({
                   disabled={autoFrequencyUnit === "months"}
                   className="w-28 rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300 disabled:bg-zinc-50"
                 />
-                <select
-                  value={autoFrequencyUnit}
-                  onChange={(e) => {
-                    const nextUnit = (e.target.value as FrequencyUnit) || "days";
-                    setAutoFrequencyUnit(nextUnit);
-                    setAutoFrequencyCount((prev) => clampFrequencyCount(prev, nextUnit));
-                  }}
-                  className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300 sm:w-44"
-                >
-                  <option value="days">day(s)</option>
-                  <option value="weeks">week(s)</option>
-                  <option value="months">month(s)</option>
-                </select>
+                <div className="inline-flex w-full rounded-2xl border border-zinc-200 bg-white p-1 sm:w-auto" role="group" aria-label="Frequency unit">
+                  {([
+                    { key: "days" as const, label: "Days" },
+                    { key: "weeks" as const, label: "Weeks" },
+                    { key: "months" as const, label: "Months" },
+                  ] satisfies Array<{ key: FrequencyUnit; label: string }>).map((u) => {
+                    const active = autoFrequencyUnit === u.key;
+                    return (
+                      <button
+                        key={u.key}
+                        type="button"
+                        onClick={() => {
+                          setAutoFrequencyUnit(u.key);
+                          setAutoFrequencyCount((prev) => clampFrequencyCount(prev, u.key));
+                        }}
+                        className={
+                          "flex-1 rounded-xl px-3 py-2 text-sm font-semibold transition sm:flex-none " +
+                          (active
+                            ? "bg-(--color-brand-blue) text-white shadow-sm"
+                            : "text-zinc-700 hover:bg-zinc-50")
+                        }
+                        aria-pressed={active}
+                      >
+                        {u.label}
+                      </button>
+                    );
+                  })}
+                </div>
                 <div className="text-sm text-zinc-600">per post</div>
               </div>
               <div className="mt-1 text-xs text-zinc-500">

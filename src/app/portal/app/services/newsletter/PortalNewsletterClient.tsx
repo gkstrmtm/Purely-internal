@@ -34,6 +34,7 @@ type Settings = {
   deliveryEmailHint?: string;
   deliverySmsHint?: string;
   includeImages?: boolean;
+  royaltyFreeImages?: boolean;
   includeImagesWhereNeeded?: boolean;
   fontKey?: string;
   audience: { tagIds: string[]; contactIds: string[]; emails: string[]; userIds: string[]; sendAllUsers?: boolean };
@@ -76,18 +77,18 @@ function formatDate(value: string | null) {
   return Number.isFinite(d.getTime()) ? d.toLocaleString() : "";
 }
 
-function splitLines(value: string): string[] {
-  const raw = (value || "")
-    .split(/\r?\n/)
-    .map((s) => s.trim())
-    .filter(Boolean);
+function normalizeTopicHints(items: unknown): string[] {
+  if (!Array.isArray(items)) return [];
   const out: string[] = [];
   const seen = new Set<string>();
-  for (const item of raw) {
-    const key = item.toLowerCase();
+  for (const item of items) {
+    if (typeof item !== "string") continue;
+    const t = item.trim();
+    if (!t) continue;
+    const key = t.toLowerCase();
     if (seen.has(key)) continue;
     seen.add(key);
-    out.push(item);
+    out.push(t);
     if (out.length >= 50) break;
   }
   return out;
@@ -472,11 +473,12 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
         frequencyDays: normalizedFrequencyDays,
         requireApproval: Boolean(settings.requireApproval),
         channels: settings.channels,
-        topics: settings.topics,
+        topics: normalizeTopicHints(settings.topics),
         promptAnswers: settings.promptAnswers,
         deliveryEmailHint: settings.deliveryEmailHint ?? "",
         deliverySmsHint: settings.deliverySmsHint ?? "",
         includeImages: Boolean(settings.includeImages),
+        royaltyFreeImages: Boolean(settings.royaltyFreeImages ?? true),
         includeImagesWhereNeeded: Boolean(settings.includeImagesWhereNeeded),
         fontKey: (settings.fontKey ?? "brand") as any,
         audience: settings.audience,
@@ -889,10 +891,11 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
     const font = settings.fontKey ?? "brand";
     const enabledLine = settings.enabled ? `Enabled · every ${settings.frequencyDays}d` : "Disabled";
     const approvalLine = settings.requireApproval ? "Requires approval (creates READY drafts)" : "Auto-send (sends immediately)";
+    const royaltyFreeImages = settings.royaltyFreeImages ?? true;
     const imagesLine = settings.includeImages
-      ? `Images: yes${settings.includeImagesWhereNeeded ? " (only where needed)" : ""}`
+      ? `Images: yes${royaltyFreeImages ? " (royalty-free)" : ""}${settings.includeImagesWhereNeeded ? " (only where needed)" : ""}`
       : "Images: no";
-    const topicsCount = (settings.topics ?? []).length;
+    const topicsCount = (settings.topics ?? []).filter((t) => String(t || "").trim()).length;
 
     const lines: string[] = [];
     lines.push(audience === "internal" ? "Internal newsletter" : "External newsletter");
@@ -1002,14 +1005,6 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                     Settings
                   </button>
                 </div>
-
-                <button
-                  type="button"
-                  onClick={refresh}
-                  className="inline-flex items-center justify-center rounded-2xl bg-[color:var(--color-brand-blue)] px-4 py-2 text-sm font-semibold text-white shadow-sm hover:opacity-90"
-                >
-                  Refresh
-                </button>
               </div>
             </div>
 
@@ -1817,23 +1812,68 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
 
                     <div className="rounded-2xl border border-zinc-200 bg-zinc-50 px-3 py-2">
                       <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Images</div>
-                      <div className="mt-2 flex flex-wrap gap-4 text-sm">
-                        <label className="flex items-center gap-2">
-                          <input
-                            type="checkbox"
-                            checked={Boolean(settings?.includeImages)}
-                            onChange={(e) => setSettings((prev) => (prev ? { ...prev, includeImages: e.target.checked } : prev))}
-                          />
-                          Include royalty-free images
+                      <div className="mt-2 grid gap-3">
+                        <label className="flex items-center justify-between gap-4">
+                          <div>
+                            <div className="text-sm font-semibold text-zinc-800">Generate images</div>
+                            <div className="mt-0.5 text-xs text-zinc-500">Adds images to the hosted page when drafting.</div>
+                          </div>
+                          <span className="relative inline-flex h-6 w-11 shrink-0 items-center">
+                            <input
+                              type="checkbox"
+                              className="peer sr-only"
+                              checked={Boolean(settings?.includeImages)}
+                              onChange={(e) =>
+                                setSettings((prev) =>
+                                  prev
+                                    ? {
+                                        ...prev,
+                                        includeImages: e.target.checked,
+                                        includeImagesWhereNeeded: e.target.checked ? Boolean(prev.includeImagesWhereNeeded) : false,
+                                      }
+                                    : prev,
+                                )
+                              }
+                            />
+                            <span className="absolute inset-0 rounded-full bg-zinc-200 transition peer-checked:bg-[color:var(--color-brand-blue)]" />
+                            <span className="absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow-sm transition peer-checked:translate-x-5" />
+                          </span>
                         </label>
-                        <label className="flex items-center gap-2">
-                          <input
-                            type="checkbox"
-                            checked={Boolean(settings?.includeImagesWhereNeeded)}
-                            onChange={(e) => setSettings((prev) => (prev ? { ...prev, includeImagesWhereNeeded: e.target.checked } : prev))}
-                            disabled={!Boolean(settings?.includeImages)}
-                          />
-                          Only where needed
+
+                        <label className="flex items-center justify-between gap-4">
+                          <div>
+                            <div className="text-sm font-semibold text-zinc-800">Royalty-free images</div>
+                            <div className="mt-0.5 text-xs text-zinc-500">Uses Wikimedia Commons results.</div>
+                          </div>
+                          <span className="relative inline-flex h-6 w-11 shrink-0 items-center">
+                            <input
+                              type="checkbox"
+                              className="peer sr-only"
+                              checked={Boolean(settings?.royaltyFreeImages ?? true)}
+                              onChange={(e) => setSettings((prev) => (prev ? { ...prev, royaltyFreeImages: e.target.checked } : prev))}
+                              disabled={!Boolean(settings?.includeImages)}
+                            />
+                            <span className="absolute inset-0 rounded-full bg-zinc-200 transition peer-checked:bg-[color:var(--color-brand-blue)] peer-disabled:opacity-50" />
+                            <span className="absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow-sm transition peer-checked:translate-x-5" />
+                          </span>
+                        </label>
+
+                        <label className="flex items-center justify-between gap-4">
+                          <div>
+                            <div className="text-sm font-semibold text-zinc-800">Only where needed</div>
+                            <div className="mt-0.5 text-xs text-zinc-500">Adds fewer images when content already includes one.</div>
+                          </div>
+                          <span className="relative inline-flex h-6 w-11 shrink-0 items-center">
+                            <input
+                              type="checkbox"
+                              className="peer sr-only"
+                              checked={Boolean(settings?.includeImagesWhereNeeded)}
+                              onChange={(e) => setSettings((prev) => (prev ? { ...prev, includeImagesWhereNeeded: e.target.checked } : prev))}
+                              disabled={!Boolean(settings?.includeImages)}
+                            />
+                            <span className="absolute inset-0 rounded-full bg-zinc-200 transition peer-checked:bg-[color:var(--color-brand-blue)] peer-disabled:opacity-50" />
+                            <span className="absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow-sm transition peer-checked:translate-x-5" />
+                          </span>
                         </label>
                       </div>
                     </div>
@@ -1871,14 +1911,61 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
               {aiStep === "topics" ? (
                 <div className="mt-4">
                   <div className="text-sm font-semibold text-zinc-900">Topic hints (optional)</div>
-                  <div className="mt-2 text-sm text-zinc-600">One per line. The generator rotates through these over time.</div>
-                  <textarea
-                    value={(settings?.topics ?? []).join("\n")}
-                    onChange={(e) => setSettings((prev) => (prev ? { ...prev, topics: splitLines(e.target.value) } : prev))}
-                    rows={6}
-                    className="mt-3 w-full rounded-2xl border border-zinc-200 px-3 py-2 text-sm"
-                    placeholder={audience === "internal" ? "Weekly priorities\nOps changes\nHiring" : "Seasonal maintenance tips\nBefore/after photos\nFAQ"}
-                  />
+                  <div className="mt-2 text-sm text-zinc-600">Add as many as you want. The generator rotates through these over time.</div>
+
+                  <div className="mt-3 space-y-2">
+                    {(Array.isArray(settings?.topics) && settings?.topics.length ? settings.topics : [""]).map((t, idx, arr) => (
+                      <div key={idx} className="flex items-center gap-2">
+                        <input
+                          value={t}
+                          onChange={(e) => {
+                            const next = [...arr];
+                            next[idx] = e.target.value;
+                            setSettings((prev) => (prev ? { ...prev, topics: next } : prev));
+                          }}
+                          className="w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                          placeholder={
+                            audience === "internal"
+                              ? idx === 0
+                                ? "Weekly priorities"
+                                : "Another topic"
+                              : idx === 0
+                                ? "Seasonal maintenance tips"
+                                : "Another topic"
+                          }
+                        />
+
+                        {arr.length > 1 ? (
+                          <button
+                            type="button"
+                            className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
+                            onClick={() => {
+                              const next = arr.filter((_, i) => i !== idx);
+                              setSettings((prev) => (prev ? { ...prev, topics: next } : prev));
+                            }}
+                            aria-label="Remove topic"
+                          >
+                            Remove
+                          </button>
+                        ) : null}
+
+                        {idx === arr.length - 1 ? (
+                          <button
+                            type="button"
+                            className="rounded-2xl bg-[color:var(--color-brand-blue)] px-3 py-2 text-sm font-semibold text-white shadow-sm hover:opacity-90"
+                            onClick={() => {
+                              const next = [...arr, ""];
+                              setSettings((prev) => (prev ? { ...prev, topics: next } : prev));
+                            }}
+                            aria-label="Add another topic"
+                            title="Add another"
+                          >
+                            +
+                          </button>
+                        ) : null}
+                      </div>
+                    ))}
+                  </div>
                 </div>
               ) : null}
 
@@ -1985,14 +2072,6 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                   Settings
                 </button>
               </div>
-
-              <button
-                type="button"
-                onClick={refresh}
-                className="inline-flex items-center justify-center rounded-2xl bg-[color:var(--color-brand-blue)] px-4 py-2 text-sm font-semibold text-white shadow-sm hover:opacity-90"
-              >
-                Refresh
-              </button>
             </div>
           </div>
 

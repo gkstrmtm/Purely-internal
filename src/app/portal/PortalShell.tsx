@@ -811,6 +811,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
           {children}
           <div aria-hidden className="h-[calc(env(safe-area-inset-bottom)+5rem)]" />
         </main>
+        {isAutomationsEditor ? <PortalFloatingTools /> : null}
       </div>
     );
   }
