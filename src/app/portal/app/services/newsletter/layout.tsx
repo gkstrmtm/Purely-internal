@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 
 import { PortalServiceGate } from "@/app/portal/app/services/PortalServiceGate";
 import { PortalNewsletterClient } from "@/app/portal/app/services/newsletter/PortalNewsletterClient";
+import { requestPortalAppBasePath } from "@/lib/portalVariant.server";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -19,7 +20,8 @@ export default async function PortalNewsletterLayout({
   const raw = String(resolved?.audience || "external").toLowerCase();
 
   if (raw !== "external" && raw !== "internal") {
-    redirect("/portal/app/services/newsletter/external");
+    const base = await requestPortalAppBasePath();
+    redirect(`${base}/services/newsletter/external`);
   }
 
   return (

@@ -197,6 +197,15 @@ export async function proxy(req: NextRequest) {
   const isCredit = isCreditPathname(path);
   const isPortal = isPortalPathname(path);
 
+  // If the user is browsing the Credit App, never allow navigation into /portal/*.
+  // This prevents session cross-contamination when both portal cookies exist.
+  // We only apply this when the browser indicates the navigation originated from a /credit/* page.
+  if (fromCredit && isPortal && !isCredit) {
+    const url = req.nextUrl.clone();
+    url.pathname = path.replace("/portal", "/credit") || "/credit";
+    return NextResponse.redirect(url);
+  }
+
   // Keep /portal and /credit fully independent: never redirect across base paths
   // just because another portal session exists in cookies.
 

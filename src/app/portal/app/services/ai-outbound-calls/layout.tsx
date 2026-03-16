@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 
 import { PortalServiceGate } from "@/app/portal/app/services/PortalServiceGate";
 import { PortalAiOutboundCallsClient } from "@/app/portal/app/services/ai-outbound-calls/PortalAiOutboundCallsClient";
+import { requestPortalAppBasePath } from "@/lib/portalVariant.server";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -21,7 +22,8 @@ export default async function PortalAiOutboundCallsLayout({
   const raw = String(resolved?.tab || "calls").toLowerCase();
 
   if (raw !== "calls" && raw !== "messages" && raw !== "settings") {
-    redirect("/portal/app/services/ai-outbound-calls/calls");
+    const base = await requestPortalAppBasePath();
+    redirect(`${base}/services/ai-outbound-calls/calls`);
   }
 
   return (

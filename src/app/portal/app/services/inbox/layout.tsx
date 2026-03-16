@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 
 import { PortalServiceGate } from "@/app/portal/app/services/PortalServiceGate";
 import { PortalInboxClient } from "@/app/portal/app/services/inbox/PortalInboxClient";
+import { requestPortalAppBasePath } from "@/lib/portalVariant.server";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -21,7 +22,8 @@ export default async function PortalInboxLayout({
   const raw = String(resolved?.channel || "email").toLowerCase();
 
   if (raw !== "email" && raw !== "sms") {
-    redirect("/portal/app/services/inbox/email");
+    const base = await requestPortalAppBasePath();
+    redirect(`${base}/services/inbox/email`);
   }
 
   return (
