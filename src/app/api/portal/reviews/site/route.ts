@@ -6,6 +6,8 @@ import { prisma } from "@/lib/db";
 import { requireClientSessionForService } from "@/lib/portalAccess";
 import { hasPublicColumn } from "@/lib/dbSchema";
 import { slugify } from "@/lib/slugify";
+import { consumeCreditsOnce } from "@/lib/credits";
+import { PORTAL_CREDIT_COSTS } from "@/lib/portalCreditCosts";
 import {
   ensureStoredBlogSiteSlug,
   getStoredBlogSiteSlug,
@@ -216,6 +218,15 @@ export async function POST(req: Request) {
     if (collision && collision.ownerId !== ownerId) {
       return NextResponse.json({ error: "That link is already taken." }, { status: 409 });
     }
+  }
+
+  const charged = await consumeCreditsOnce(
+    ownerId,
+    PORTAL_CREDIT_COSTS.reviewPageEnableOnce,
+    "reviews_page_enable_v1",
+  );
+  if (!charged.ok) {
+    return NextResponse.json({ error: "Insufficient credits" }, { status: 402 });
   }
 
   const created = (await (prisma.clientBlogSite as any).create({

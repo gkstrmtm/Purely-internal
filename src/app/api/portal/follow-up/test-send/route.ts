@@ -3,6 +3,8 @@ import { z } from "zod";
 
 import { requireClientSessionForService } from "@/lib/portalAccess";
 import { prisma } from "@/lib/db";
+import { consumeCredits } from "@/lib/credits";
+import { PORTAL_CREDIT_COSTS } from "@/lib/portalCreditCosts";
 import { sendOwnerTwilioSms } from "@/lib/portalTwilio";
 import { sendTransactionalEmail } from "@/lib/emailSender";
 
@@ -41,6 +43,12 @@ export async function POST(req: Request) {
   }
 
   const ownerId = auth.session.user.id;
+
+  const charged = await consumeCredits(ownerId, PORTAL_CREDIT_COSTS.sendAction);
+  if (!charged.ok) {
+    return NextResponse.json({ ok: false, error: "Insufficient credits" }, { status: 402 });
+  }
+
   const profile = await prisma.businessProfile.findUnique({ where: { ownerId }, select: { businessName: true } });
   const fromName = profile?.businessName?.trim() || "Purely Automation";
 

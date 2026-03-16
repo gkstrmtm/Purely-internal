@@ -6,6 +6,8 @@ import {
   renderMissedCallReplyBody,
   sendOwnerMms,
 } from "@/lib/missedCallTextBack";
+import { consumeCreditsOnce } from "@/lib/credits";
+import { PORTAL_CREDIT_COSTS } from "@/lib/portalCreditCosts";
 import { runOwnerAutomationsForEvent } from "@/lib/portalAutomationsRunner";
 import { normalizePhoneStrict } from "@/lib/phone";
 import { getAppBaseUrl, tryNotifyPortalAccountUsers } from "@/lib/portalNotifications";
@@ -120,6 +122,27 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
   if (delayMs) await sleep(delayMs);
 
   const replyBody = renderMissedCallReplyBody(settings.replyBody, { from: fromE164, to: toE164 });
+
+  const chargeKey = `missed_call_textback:${callSid}`;
+  const charged = await consumeCreditsOnce(ownerId, PORTAL_CREDIT_COSTS.missedCallTextbackSend, chargeKey).catch(() => null);
+  if (!charged || !charged.ok) {
+    await upsertMissedCallEvent(ownerId, {
+      id: existing?.id ?? `evt_${callSid}`,
+      callSid,
+      from: fromE164,
+      to: toE164,
+      createdAtIso: existing?.createdAtIso ?? new Date().toISOString(),
+      dialCallStatus,
+      finalStatus,
+      smsStatus: "FAILED",
+      smsTo: fromE164,
+      smsBody: replyBody,
+      smsError: "Insufficient credits",
+    });
+
+    return xmlResponse("<?xml version=\"1.0\" encoding=\"UTF-8\"?><Response></Response>");
+  }
+
   const res = await sendOwnerMms(ownerId, { to: fromE164, body: replyBody, mediaUrls: settings.mediaUrls });
   await upsertMissedCallEvent(ownerId, {
     id: existing?.id ?? `evt_${callSid}`,

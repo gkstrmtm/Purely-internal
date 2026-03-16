@@ -4,6 +4,8 @@ import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { requireClientSessionForService } from "@/lib/portalAccess";
 import { upsertHoursSavedEvent } from "@/lib/hoursSaved";
+import { consumeCredits } from "@/lib/credits";
+import { PORTAL_CREDIT_COSTS } from "@/lib/portalCreditCosts";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -250,6 +252,14 @@ export async function PUT(req: Request) {
   });
 
   const newlyCreated = next.filter((a) => !existingById.has(a.id));
+
+  if (newlyCreated.length) {
+    const needCredits = newlyCreated.length * PORTAL_CREDIT_COSTS.automationCreate;
+    const charged = await consumeCredits(ownerId, needCredits);
+    if (!charged.ok) {
+      return NextResponse.json({ ok: false, error: "Insufficient credits" }, { status: 402 });
+    }
+  }
 
   const existingTokenRaw = typeof existingDataJson?.webhookToken === "string" ? String(existingDataJson.webhookToken).trim() : "";
   const webhookToken = existingTokenRaw.length >= 12 ? existingTokenRaw : newToken();

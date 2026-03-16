@@ -16,7 +16,8 @@ export async function POST(req: Request) {
   const bookingId = typeof body?.bookingId === "string" ? body.bookingId : "";
   const result = await sendReviewRequestForBooking({ ownerId, bookingId });
   if (!result.ok) {
-    return NextResponse.json({ ok: false, error: result.error }, { status: 400 });
+    const status = result.error === "Insufficient credits" ? 402 : 400;
+    return NextResponse.json({ ok: false, error: result.error }, { status });
   }
   return NextResponse.json({ ok: true });
 }

@@ -3,6 +3,8 @@ import { z } from "zod";
 
 import { requireClientSessionForService } from "@/lib/portalAccess";
 import { getBookingCalendarsConfig, setBookingCalendarsConfig } from "@/lib/bookingCalendars";
+import { consumeCredits } from "@/lib/credits";
+import { PORTAL_CREDIT_COSTS } from "@/lib/portalCreditCosts";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -54,6 +56,27 @@ export async function PUT(req: Request) {
   }
 
   const ownerId = auth.session.user.id;
+
+  const prev = await getBookingCalendarsConfig(ownerId).catch(() => null);
+  const prevIds = new Set(
+    Array.isArray((prev as any)?.calendars)
+      ? ((prev as any).calendars as any[])
+          .map((c) => (typeof c?.id === "string" ? c.id.trim() : ""))
+          .filter(Boolean)
+      : [],
+  );
+
+  const nextIds = parsed.data.calendars.map((c) => c.id.trim());
+  const newCount = nextIds.filter((id) => id && !prevIds.has(id)).length;
+  const needCredits = newCount * PORTAL_CREDIT_COSTS.bookingCalendarCreate;
+
+  if (needCredits > 0) {
+    const charged = await consumeCredits(ownerId, needCredits);
+    if (!charged.ok) {
+      return NextResponse.json({ ok: false, error: "Insufficient credits" }, { status: 402 });
+    }
+  }
+
   const saved = await setBookingCalendarsConfig(ownerId, {
     version: 1,
     calendars: parsed.data.calendars.map((c) => ({ ...c, enabled: c.enabled ?? true })),

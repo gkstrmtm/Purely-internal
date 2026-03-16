@@ -187,11 +187,6 @@ export async function ensureCreditsBalance(ownerId: string, minBalance: number):
   const need = Math.max(0, Math.floor(minBalance));
   if (need === 0) return await getCreditsState(ownerId);
 
-  // Demo accounts should never be blocked or charged.
-  if (await isFreeCreditsOwner(ownerId).catch(() => false)) {
-    return await getCreditsState(ownerId);
-  }
-
   const row = await prisma.portalServiceSetup
     .findUnique({ where: { ownerId_serviceSlug: { ownerId, serviceSlug: SERVICE_SLUG } }, select: { dataJson: true } })
     .catch(() => null);
@@ -223,11 +218,6 @@ export async function consumeCreditsOnce(
       : { ok: false, state: res.state, chargedAmount: 0, alreadyConsumed: false };
   }
   if (need === 0) return { ok: true, state: await getCreditsState(ownerId), chargedAmount: 0, alreadyConsumed: false };
-
-  // Demo accounts should never be blocked or charged.
-  if (await isFreeCreditsOwner(ownerId).catch(() => false)) {
-    return { ok: true, state: await getCreditsState(ownerId), chargedAmount: 0, alreadyConsumed: false };
-  }
 
   const currentRow = await prisma.portalServiceSetup.findUnique({
     where: { ownerId_serviceSlug: { ownerId, serviceSlug: SERVICE_SLUG } },
@@ -363,11 +353,6 @@ export async function consumeCredits(
 ): Promise<{ ok: true; state: CreditsState } | { ok: false; state: CreditsState }> {
   const need = Math.max(0, Math.floor(amount));
   if (need === 0) return { ok: true, state: await getCreditsState(ownerId) };
-
-  // Demo accounts should never be blocked or charged.
-  if (await isFreeCreditsOwner(ownerId).catch(() => false)) {
-    return { ok: true, state: await getCreditsState(ownerId) };
-  }
 
   const row = await prisma.portalServiceSetup
     .findUnique({ where: { ownerId_serviceSlug: { ownerId, serviceSlug: SERVICE_SLUG } }, select: { dataJson: true } })

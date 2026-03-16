@@ -4,6 +4,8 @@ import { z } from "zod";
 import { generateText } from "@/lib/ai";
 import { requireClientSessionForService } from "@/lib/portalAccess";
 import { getBusinessProfileAiContext, getBusinessProfileTemplateVars } from "@/lib/businessProfileAiContext.server";
+import { consumeCredits } from "@/lib/credits";
+import { PORTAL_CREDIT_COSTS } from "@/lib/portalCreditCosts";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -28,6 +30,11 @@ export async function POST(req: Request) {
 
   const parsed = postSchema.safeParse(await req.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ ok: false, error: "Invalid input" }, { status: 400 });
+
+  const charged = await consumeCredits(ownerId, PORTAL_CREDIT_COSTS.aiCallStepGenerate);
+  if (!charged.ok) {
+    return NextResponse.json({ ok: false, error: "Insufficient credits" }, { status: 402 });
+  }
 
   const businessContext = await getBusinessProfileAiContext(ownerId).catch(() => "");
   const templateVars = await getBusinessProfileTemplateVars(ownerId).catch(() => ({} as Record<string, string>));

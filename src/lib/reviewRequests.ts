@@ -9,6 +9,8 @@ import { upsertHoursSavedEvent } from "@/lib/hoursSaved";
 import { addContactTagAssignment } from "@/lib/portalContactTags";
 import { findOrCreatePortalContact } from "@/lib/portalContacts";
 import { normalizeHostedFontKey } from "@/lib/portalHostedFonts";
+import { consumeCredits } from "@/lib/credits";
+import { PORTAL_CREDIT_COSTS } from "@/lib/portalCreditCosts";
 import type { Prisma } from "@prisma/client";
 
 const SERVICE_SLUG = "reviews";
@@ -722,6 +724,9 @@ export async function sendReviewRequestForBooking(opts: { ownerId: string; booki
   const sentKeys = data.sentKeys.slice();
   if (sentKeys.includes(key)) return { ok: false, error: "Already sent" };
 
+  const charged = await consumeCredits(ownerId, PORTAL_CREDIT_COSTS.reviewRequestSend);
+  if (!charged.ok) return { ok: false, error: "Insufficient credits" };
+
   const now = Date.now();
   const scheduledForIso = new Date(now).toISOString();
   const bookingEndAtIso = booking.endAt.toISOString();
@@ -839,6 +844,9 @@ export async function sendReviewRequestForContact(opts: {
     const key = `contact_${contactId}:manual:${scheduledForIso.slice(0, 16)}`; // minute-bucketed to prevent double-click duplicates
     const sentKeys = data.sentKeys.slice();
     if (sentKeys.includes(key)) return { ok: false, error: "Already sent (just now)" };
+
+    const charged = await consumeCredits(ownerId, PORTAL_CREDIT_COSTS.reviewRequestSend);
+    if (!charged.ok) return { ok: false, error: "Insufficient credits" };
 
     const result = await sendOwnerTwilioSms({ ownerId, to: parsed.e164, body: smsBody });
     const status: ReviewRequestEvent["status"] = result.ok ? "SENT" : "FAILED";
@@ -1064,6 +1072,33 @@ export async function processDueReviewRequests(opts?: { ownersLimit?: number; pe
 
         const body = renderReviewRequestBody(pickMessageTemplate(settings, bookingCalendarId), vars);
         const smsBody = appendExternalDestinations(body, settings.destinations);
+
+        const charged = await consumeCredits(ownerId, PORTAL_CREDIT_COSTS.reviewRequestSend).catch(() => null);
+        if (!charged || !charged.ok) {
+          failed += 1;
+          const evt: ReviewRequestEvent = {
+            id: `evt_${booking.id}_${resolved.destinationId}`,
+            bookingId: booking.id,
+            calendarId: bookingCalendarId ?? null,
+            bookingEndAtIso,
+            scheduledForIso,
+            destinationId: resolved.destinationId,
+            destinationLabel: resolved.destinationLabel,
+            destinationUrl: resolved.destinationUrl,
+            contactName: booking.contactName,
+            contactPhoneRaw: booking.contactPhone ?? null,
+            smsTo: parsed.e164,
+            smsBody,
+            status: "FAILED",
+            error: "Insufficient credits",
+            createdAtIso: nowIso(),
+          };
+          events.unshift(evt);
+          sentKeys.unshift(key);
+          sentSet.add(key);
+          mutated = true;
+          continue;
+        }
 
         try {
           const result = await sendOwnerTwilioSms({ ownerId, to: parsed.e164, body: smsBody });

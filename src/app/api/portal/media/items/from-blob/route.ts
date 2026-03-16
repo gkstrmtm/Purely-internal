@@ -3,6 +3,8 @@ import { z } from "zod";
 
 import { requireClientSessionForService } from "@/lib/portalAccess";
 import { prisma } from "@/lib/db";
+import { recordThresholdMeterUsage } from "@/lib/creditsMetering";
+import { PORTAL_CREDIT_COSTS } from "@/lib/portalCreditCosts";
 import { isLikelyImageMimeType, newPublicToken, newTag, normalizeMimeType, safeFilename } from "@/lib/portalMedia";
 
 export const dynamic = "force-dynamic";
@@ -66,6 +68,20 @@ export async function POST(req: Request) {
   if (folderId) {
     const folder = await (prisma as any).portalMediaFolder.findFirst({ where: { id: folderId, ownerId }, select: { id: true } });
     if (!folder) return NextResponse.json({ ok: false, error: "Folder not found" }, { status: 404 });
+  }
+
+  const metered = await recordThresholdMeterUsage({
+    ownerId,
+    spec: {
+      meterKey: "media_items_v1",
+      unitSize: PORTAL_CREDIT_COSTS.mediaItemsPerUnit,
+      creditsPerUnit: PORTAL_CREDIT_COSTS.mediaCreditsPerUnit,
+    },
+    increment: 1,
+    note: "media_from_blob",
+  });
+  if (!metered.ok) {
+    return NextResponse.json({ ok: false, error: metered.error }, { status: metered.error === "Insufficient credits" ? 402 : 400 });
   }
 
   // Generate a tag that is unique per owner.

@@ -1,6 +1,8 @@
 import crypto from "crypto";
 
 import { prisma } from "@/lib/db";
+import { recordThresholdMeterUsage } from "@/lib/creditsMetering";
+import { PORTAL_CREDIT_COSTS } from "@/lib/portalCreditCosts";
 import { sendOwnerTwilioSms } from "@/lib/portalTwilio";
 import { findOrCreatePortalContact, normalizeEmailKey, normalizeNameKey, normalizePhoneKey } from "@/lib/portalContacts";
 import { addContactTagAssignment, ensurePortalContactTagsReady } from "@/lib/portalContactTags";
@@ -644,6 +646,30 @@ async function runAutomationOnce(opts: {
   });
 
   if (!triggerNodes.length) return;
+
+  // Meter automation usage: 5 credits per 100 trigger runs, per automation.
+  // Fail closed at the threshold boundary if credits are insufficient.
+  const safeAutomationId = String(opts.automation.id || "")
+    .replace(/[^a-zA-Z0-9_-]/g, "")
+    .slice(0, 40);
+  const automationKeySuffix = safeAutomationId
+    ? safeAutomationId
+    : crypto.createHash("sha256").update(String(opts.automation.id || "")).digest("hex").slice(0, 16);
+
+  const metered = await recordThresholdMeterUsage({
+    ownerId: opts.ownerId,
+    spec: {
+      meterKey: `auto_trig_v1_${automationKeySuffix}`,
+      unitSize: PORTAL_CREDIT_COSTS.automationTriggersPerUnit,
+      creditsPerUnit: PORTAL_CREDIT_COSTS.automationCreditsPerUnit,
+    },
+    increment: 1,
+    note: `automation_trigger:${opts.triggerKind}`,
+  }).catch(() => null);
+
+  if (!metered || !metered.ok) {
+    return;
+  }
 
   const runAt = new Date();
   const dayKey = runAt.toISOString().slice(0, 10);

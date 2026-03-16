@@ -4,6 +4,8 @@ import { z } from "zod";
 import { requireClientSessionForService } from "@/lib/portalAccess";
 import { getAiReceptionistServiceData } from "@/lib/aiReceptionist";
 import { generateText } from "@/lib/ai";
+import { consumeCredits } from "@/lib/credits";
+import { PORTAL_CREDIT_COSTS } from "@/lib/portalCreditCosts";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -115,6 +117,10 @@ export async function POST(req: Request) {
 
   let reply = "";
   try {
+    const charged = await consumeCredits(ownerId, PORTAL_CREDIT_COSTS.aiCallStepGenerate);
+    if (!charged.ok) {
+      return NextResponse.json({ ok: false, error: "Insufficient credits" }, { status: 402 });
+    }
     reply = await generateText({ system, user, model: process.env.AI_MODEL ?? "gpt-4o-mini" });
   } catch (e) {
     const msg = e instanceof Error ? e.message : "AI request failed";

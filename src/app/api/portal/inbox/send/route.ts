@@ -3,6 +3,8 @@ import { z } from "zod";
 
 import { requireClientSessionForService } from "@/lib/portalAccess";
 import { prisma } from "@/lib/db";
+import { recordThresholdMeterUsage } from "@/lib/creditsMetering";
+import { PORTAL_CREDIT_COSTS } from "@/lib/portalCreditCosts";
 import { getOwnerTwilioSmsConfig, sendOwnerTwilioSms } from "@/lib/portalTwilio";
 import { baseUrlFromRequest, sendEmail } from "@/lib/leadOutbound";
 import {
@@ -174,6 +176,20 @@ export async function POST(req: Request) {
     if (peer.error) return NextResponse.json({ ok: false, error: peer.error }, { status: 400 });
     if (!peer.peer || !peer.peerKey) return NextResponse.json({ ok: false, error: "Invalid phone" }, { status: 400 });
 
+    const metered = await recordThresholdMeterUsage({
+      ownerId,
+      spec: {
+        meterKey: "inbox_messages_v1",
+        unitSize: PORTAL_CREDIT_COSTS.inboxMessagesPerUnit,
+        creditsPerUnit: PORTAL_CREDIT_COSTS.inboxCreditsPerUnit,
+      },
+      increment: 1,
+      note: "inbox_send_sms",
+    });
+    if (!metered.ok) {
+      return NextResponse.json({ ok: false, error: metered.error }, { status: metered.error === "Insufficient credits" ? 402 : 400 });
+    }
+
     const twilioCfg = await getOwnerTwilioSmsConfig(ownerId);
     const baseUrl = baseUrlFromRequest(req);
     const mediaUrls = attachments.map((a: any) => `${baseUrl}/api/public/inbox/attachment/${a.id}/${a.publicToken}`);
@@ -253,6 +269,20 @@ export async function POST(req: Request) {
 
   const thread = makeEmailThreadKey(toRaw, subjectKey);
   if (!thread) return NextResponse.json({ ok: false, error: "Invalid email" }, { status: 400 });
+
+  const metered = await recordThresholdMeterUsage({
+    ownerId,
+    spec: {
+      meterKey: "inbox_messages_v1",
+      unitSize: PORTAL_CREDIT_COSTS.inboxMessagesPerUnit,
+      creditsPerUnit: PORTAL_CREDIT_COSTS.inboxCreditsPerUnit,
+    },
+    increment: 1,
+    note: "inbox_send_email",
+  });
+  if (!metered.ok) {
+    return NextResponse.json({ ok: false, error: metered.error }, { status: metered.error === "Insufficient credits" ? 402 : 400 });
+  }
 
   const mailbox = await getOrCreateOwnerMailboxAddress(ownerId).catch(() => null);
 

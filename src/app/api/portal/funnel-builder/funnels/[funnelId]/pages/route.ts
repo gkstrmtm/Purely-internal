@@ -3,6 +3,8 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { coerceBlocksJson, type CreditFunnelBlock } from "@/lib/creditFunnelBlocks";
 import { requireFunnelBuilderSession } from "@/lib/funnelBuilderAccess";
+import { consumeCredits } from "@/lib/credits";
+import { PORTAL_CREDIT_COSTS } from "@/lib/portalCreditCosts";
 
 const GLOBAL_HEADER_KEY = "__global_header__";
 
@@ -116,6 +118,11 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
     select: { id: true },
   });
   if (!funnel) return NextResponse.json({ ok: false, error: "Not found" }, { status: 404 });
+
+  const charged = await consumeCredits(auth.session.user.id, PORTAL_CREDIT_COSTS.funnelPageCreate);
+  if (!charged.ok) {
+    return NextResponse.json({ ok: false, error: "Insufficient credits" }, { status: 402 });
+  }
 
   const pagesForHeader = await prisma.creditFunnelPage.findMany({
     where: { funnelId },

@@ -5,6 +5,8 @@ import { buildPortalTemplateVars } from "@/lib/portalTemplateVars";
 import { renderTextTemplate } from "@/lib/textTemplate";
 import { sendTransactionalEmail, type EmailAttachment } from "@/lib/emailSender";
 import { addContactTagAssignment } from "@/lib/portalContactTags";
+import { consumeCredits } from "@/lib/credits";
+import { PORTAL_CREDIT_COSTS } from "@/lib/portalCreditCosts";
 
 const SERVICE_SLUG = "appointment-reminders";
 
@@ -986,6 +988,11 @@ export async function processDueAppointmentReminders(opts?: { ownersLimit?: numb
                   });
                 }
 
+                const charged = await consumeCredits(ownerId, PORTAL_CREDIT_COSTS.sendAction).catch(() => null);
+                if (!charged || !charged.ok) {
+                  throw new Error("Insufficient credits");
+                }
+
                 await sendAppointmentReminderEmail({
                   to,
                   subject,
@@ -1122,6 +1129,11 @@ export async function processDueAppointmentReminders(opts?: { ownersLimit?: numb
             }
 
             try {
+              const charged = await consumeCredits(ownerId, PORTAL_CREDIT_COSTS.sendAction).catch(() => null);
+              if (!charged || !charged.ok) {
+                throw new Error("Insufficient credits");
+              }
+
               const result = await sendOwnerTwilioSms({ ownerId, to: parsed.e164, body });
 
               if (!result.ok) {

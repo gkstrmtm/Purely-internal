@@ -5,7 +5,7 @@ import {
   getOwnerProfilePhoneE164,
   upsertAiReceptionistCallEvent,
 } from "@/lib/aiReceptionist";
-import { getCreditsState, isFreeCreditsOwner } from "@/lib/credits";
+import { getCreditsState } from "@/lib/credits";
 import { prisma } from "@/lib/db";
 import { registerElevenLabsTwilioCall } from "@/lib/elevenLabsConvai";
 import { normalizePhoneStrict } from "@/lib/phone";
@@ -330,8 +330,7 @@ async function handle(req: Request, token: string) {
   }
 
   // Credits gate (AI mode): require at least 1 credit to use.
-  const free = await isFreeCreditsOwner(ownerId).catch(() => false);
-  const credits = free ? { balance: 999999 } : await getCreditsState(ownerId).catch(() => null);
+  const credits = await getCreditsState(ownerId).catch(() => null);
   const hasKnownBalance = Boolean(credits && typeof (credits as any).balance === "number" && Number.isFinite((credits as any).balance));
   const hasCredit = hasKnownBalance ? Boolean((credits as any).balance >= 1) : true; // fail open if credits lookup fails
   if (!hasCredit) {

@@ -7,6 +7,8 @@ import { addContactTagAssignment } from "@/lib/portalContactTags";
 import { buildPortalTemplateVars } from "@/lib/portalTemplateVars";
 import { renderTextTemplate } from "@/lib/textTemplate";
 import { getOutboundEmailFrom, isOutboundEmailConfigured, sendTransactionalEmail } from "@/lib/emailSender";
+import { consumeCredits } from "@/lib/credits";
+import { PORTAL_CREDIT_COSTS } from "@/lib/portalCreditCosts";
 
 export type FollowUpChannel = "EMAIL" | "SMS" | "TAG";
 
@@ -1597,6 +1599,19 @@ export async function processDueFollowUps(opts: { limit: number }): Promise<{ pr
                 bytes: Buffer.from(m.bytes!),
               }));
 
+              const charged = await consumeCredits(row.ownerId, PORTAL_CREDIT_COSTS.sendAction).catch(() => null);
+              if (!charged || !charged.ok) {
+                failed++;
+                nextQueue[idx] = {
+                  ...nextQueue[idx]!,
+                  status: "FAILED",
+                  attempts: msg.attempts + 1,
+                  lastError: "Insufficient credits",
+                };
+                changed = true;
+                continue;
+              }
+
             try {
               await sendTransactionalEmail({
                 to,
@@ -1617,6 +1632,18 @@ export async function processDueFollowUps(opts: { limit: number }): Promise<{ pr
               continue;
             }
           } else {
+          const charged = await consumeCredits(row.ownerId, PORTAL_CREDIT_COSTS.sendAction).catch(() => null);
+          if (!charged || !charged.ok) {
+            failed++;
+            nextQueue[idx] = {
+              ...nextQueue[idx]!,
+              status: "FAILED",
+              attempts: msg.attempts + 1,
+              lastError: "Insufficient credits",
+            };
+            changed = true;
+            continue;
+          }
           try {
             await sendTransactionalEmail({
               to,
@@ -1665,6 +1692,19 @@ export async function processDueFollowUps(opts: { limit: number }): Promise<{ pr
           if (!to || !body) {
             failed++;
             nextQueue[idx] = { ...nextQueue[idx]!, status: "FAILED", attempts: msg.attempts + 1, lastError: "Missing SMS payload" };
+            changed = true;
+            continue;
+          }
+
+          const charged = await consumeCredits(row.ownerId, PORTAL_CREDIT_COSTS.sendAction).catch(() => null);
+          if (!charged || !charged.ok) {
+            failed++;
+            nextQueue[idx] = {
+              ...nextQueue[idx]!,
+              status: "FAILED",
+              attempts: msg.attempts + 1,
+              lastError: "Insufficient credits",
+            };
             changed = true;
             continue;
           }

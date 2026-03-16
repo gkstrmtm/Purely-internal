@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 
 import { prisma } from "@/lib/db";
 import { requireFunnelBuilderSession } from "@/lib/funnelBuilderAccess";
+import { consumeCredits } from "@/lib/credits";
+import { PORTAL_CREDIT_COSTS } from "@/lib/portalCreditCosts";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -97,6 +99,11 @@ export async function POST(req: Request) {
   }
 
   const ownerId = auth.session.user.id;
+
+  const charged = await consumeCredits(ownerId, PORTAL_CREDIT_COSTS.funnelCreate);
+  if (!charged.ok) {
+    return NextResponse.json({ ok: false, error: "Insufficient credits" }, { status: 402 });
+  }
 
   const body = (await req.json().catch(() => null)) as any;
   const slug = normalizeSlug(body?.slug);

@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 
 import { requireClientSessionForService } from "@/lib/portalAccess";
 import { prisma } from "@/lib/db";
+import { recordThresholdMeterUsage } from "@/lib/creditsMetering";
+import { PORTAL_CREDIT_COSTS } from "@/lib/portalCreditCosts";
 import { isLikelyImageMimeType, newPublicToken, newTag, normalizeMimeType, safeFilename } from "@/lib/portalMedia";
 
 export const dynamic = "force-dynamic";
@@ -82,6 +84,20 @@ export async function POST(req: Request) {
   if (!files.length) return NextResponse.json({ ok: false, error: "No files" }, { status: 400 });
   if (files.length > MAX_FILES) {
     return NextResponse.json({ ok: false, error: `Too many files (max ${MAX_FILES})` }, { status: 400 });
+  }
+
+  const metered = await recordThresholdMeterUsage({
+    ownerId,
+    spec: {
+      meterKey: "media_items_v1",
+      unitSize: PORTAL_CREDIT_COSTS.mediaItemsPerUnit,
+      creditsPerUnit: PORTAL_CREDIT_COSTS.mediaCreditsPerUnit,
+    },
+    increment: files.length,
+    note: "media_upload",
+  });
+  if (!metered.ok) {
+    return NextResponse.json({ ok: false, error: metered.error }, { status: metered.error === "Insufficient credits" ? 402 : 400 });
   }
 
   const created: any[] = [];

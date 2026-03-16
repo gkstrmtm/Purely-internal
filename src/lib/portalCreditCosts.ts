@@ -2,6 +2,40 @@ export const PORTAL_CREDIT_COSTS = {
   // Short, fixed-cost AI copy generation actions
   aiDraftStep: 5,
 
+  // Funnel builder
+  funnelCreate: 5,
+  funnelPageCreate: 1,
+
+  // Inbox/Outbox metering (integer credits): 100 credits per 1000 messages
+  // Implemented as 1 credit per 10 messages via threshold metering.
+  inboxMessagesPerUnit: 10,
+  inboxCreditsPerUnit: 1,
+
+  // Media library threshold
+  mediaItemsPerUnit: 1000,
+  mediaCreditsPerUnit: 10,
+
+  // Booking
+  bookingCalendarCreate: 5,
+
+  // Generic sends (follow-ups, reminders, missed-call textback, review requests, etc.)
+  sendAction: 1,
+
+  // Automations
+  automationCreate: 1,
+  automationTriggersPerUnit: 100,
+  automationCreditsPerUnit: 5,
+
+  // Reviews
+  reviewRequestSend: 1,
+  reviewPageEnableOnce: 10,
+
+  // Missed call textback
+  missedCallTextbackSend: 1,
+
+  // AI call-step generation gaps (only where not already charged elsewhere)
+  aiCallStepGenerate: 1,
+
   // Content generation
   newsletterGenerateDraft: 30,
   blogGenerateDraft: 50,
