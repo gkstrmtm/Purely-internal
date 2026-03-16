@@ -147,14 +147,24 @@ export default function PortalTutorialVideosAdmin() {
                     />
                   </td>
                   <td className="px-4 py-3 align-top text-right">
-                    <button
-                      type="button"
-                      className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-3 py-1.5 text-xs font-semibold text-white hover:opacity-95 disabled:opacity-60"
-                      onClick={() => void save(t.slug)}
-                      disabled={isSaving}
-                    >
-                      {isSaving ? "Saving…" : isSaved ? "Saved" : "Save"}
-                    </button>
+                    <div className="flex items-center justify-end gap-2">
+                      <a
+                        href={`/portal/tutorials/${t.slug}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-brand-ink hover:bg-zinc-50"
+                      >
+                        View page
+                      </a>
+                      <button
+                        type="button"
+                        className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-3 py-1.5 text-xs font-semibold text-white hover:opacity-95 disabled:opacity-60"
+                        onClick={() => void save(t.slug)}
+                        disabled={isSaving}
+                      >
+                        {isSaving ? "Saving…" : isSaved ? "Saved" : "Save"}
+                      </button>
+                    </div>
                   </td>
                 </tr>
               );

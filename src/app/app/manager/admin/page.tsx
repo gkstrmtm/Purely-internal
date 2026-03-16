@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { authOptions } from "@/lib/auth";
 import PortalDemoSeeder from "../PortalDemoSeeder";
 import PortalTutorialVideosAdmin from "../PortalTutorialVideosAdmin";
+import PortalTutorialPhotosAdmin from "../PortalTutorialPhotosAdmin";
 
 export default async function ManagerAdminPage() {
   const session = await getServerSession(authOptions).catch(() => null);
@@ -34,6 +35,16 @@ export default async function ManagerAdminPage() {
           </div>
           <div className="mt-4">
             <PortalTutorialVideosAdmin />
+          </div>
+        </div>
+
+        <div className="mt-8 rounded-3xl border border-zinc-200 bg-white p-6">
+          <div className="text-base font-semibold text-brand-ink">Portal tutorial photos</div>
+          <div className="mt-2 text-sm text-zinc-600">
+            Upload screenshots that appear inside each help &amp; tutorial page in the client portal.
+          </div>
+          <div className="mt-4">
+            <PortalTutorialPhotosAdmin />
           </div>
         </div>
 

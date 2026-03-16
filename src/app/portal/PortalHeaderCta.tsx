@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { IconServiceGlyph } from "@/app/portal/PortalIcons";
 
 export function PortalHeaderCta({ canOpenPortalApp }: { canOpenPortalApp: boolean }) {
   const pathname = usePathname();
@@ -19,9 +20,12 @@ export function PortalHeaderCta({ canOpenPortalApp }: { canOpenPortalApp: boolea
         href="https://purelyautomation.com/#book-a-call"
         target="_blank"
         rel="noreferrer"
-        className="rounded-xl bg-brand-ink px-3 py-2 text-sm font-semibold text-white hover:opacity-95"
+        className="group inline-flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-medium text-zinc-700 transition-all duration-150 hover:scale-[1.02] hover:bg-white hover:text-zinc-900 hover:shadow-sm hover:ring-1 hover:ring-zinc-200/60 focus:outline-none focus-visible:ring-2 focus-visible:ring-zinc-400/40"
       >
-        Book a call
+        <span className="text-zinc-600 transition-colors group-hover:text-zinc-900" aria-hidden="true">
+          <IconServiceGlyph slug="ai-outbound-calls" />
+        </span>
+        <span>Book a call</span>
       </a>
     );
   }

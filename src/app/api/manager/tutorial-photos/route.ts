@@ -37,6 +37,8 @@ function allTutorials() {
 
 type TutorialSettings = Record<string, { url?: string; photos?: string[] }>;
 
+type PhotosMap = Record<string, string[]>;
+
 function parseTutorialSettingsJson(data: unknown): TutorialSettings {
   if (!data || typeof data !== "object" || Array.isArray(data)) return {};
   const rec = data as Record<string, unknown>;
@@ -91,12 +93,16 @@ function encodeTutorialSettingsJson(current: TutorialSettings): Record<string, {
   return out;
 }
 
-function tutorialVideoMap(current: TutorialSettings): Record<string, string> {
-  const out: Record<string, string> = {};
+function photosMap(current: TutorialSettings): PhotosMap {
+  const out: PhotosMap = {};
   for (const [slug, settings] of Object.entries(current)) {
-    if (settings.url) out[slug] = settings.url;
+    if (settings.photos?.length) out[slug] = settings.photos;
   }
   return out;
+}
+
+function isHttpUrl(url: string) {
+  return /^https?:\/\//i.test(url);
 }
 
 export async function GET() {
@@ -121,9 +127,8 @@ export async function GET() {
     .catch(() => null);
 
   const settings = parseTutorialSettingsJson(row?.videosJson as unknown);
-  const videos = tutorialVideoMap(settings);
 
-  return NextResponse.json({ ok: true, tutorials, videos });
+  return NextResponse.json({ ok: true, tutorials, photos: photosMap(settings) });
 }
 
 export async function POST(req: Request) {
@@ -136,11 +141,12 @@ export async function POST(req: Request) {
     );
   }
 
-  const json = (await req.json().catch(() => null)) as { slug?: string; url?: string | null } | null;
+  const json = (await req.json().catch(() => null)) as
+    | { slug?: string; url?: string | null; remove?: boolean }
+    | null;
+
   const slug = (json?.slug ?? "").trim();
-  if (!slug) {
-    return NextResponse.json({ error: "Missing slug" }, { status: 400 });
-  }
+  if (!slug) return NextResponse.json({ error: "Missing slug" }, { status: 400 });
 
   const tutorials = allTutorials();
   const allowed = new Set(tutorials.map((t) => t.slug));
@@ -148,10 +154,13 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Unknown tutorial slug" }, { status: 400 });
   }
 
-  const url: string | null = typeof json?.url === "string" ? json.url.trim() : null;
-  if (url && !/^https?:\/\//i.test(url)) {
+  const urlRaw = typeof json?.url === "string" ? json.url.trim() : "";
+  if (!urlRaw) return NextResponse.json({ error: "Missing photo URL" }, { status: 400 });
+  if (!isHttpUrl(urlRaw)) {
     return NextResponse.json({ error: "URL must start with http:// or https://" }, { status: 400 });
   }
+
+  const remove = Boolean(json?.remove);
 
   const anyPrisma2 = prisma as any;
   const table2 = anyPrisma2.tutorialVideoSettings as {
@@ -165,16 +174,29 @@ export async function POST(req: Request) {
   const current = parseTutorialSettingsJson(existingRow?.videosJson as unknown);
   const prev = current[slug] ?? {};
 
-  if (!url) {
-    const next = { ...prev };
-    delete next.url;
-    if (next.photos?.length) {
-      current[slug] = next;
-    } else {
-      delete current[slug];
-    }
+  const photos = Array.isArray(prev.photos) ? prev.photos.slice(0, 24) : [];
+  const normalized = urlRaw;
+
+  let nextPhotos = photos;
+  if (remove) {
+    nextPhotos = photos.filter((p) => p !== normalized);
   } else {
-    current[slug] = { ...prev, url };
+    if (!photos.includes(normalized)) {
+      nextPhotos = [normalized, ...photos].slice(0, 24);
+    }
+  }
+
+  const next = { ...prev };
+  if (nextPhotos.length) {
+    next.photos = nextPhotos;
+  } else {
+    delete next.photos;
+  }
+
+  if (next.url || next.photos?.length) {
+    current[slug] = next;
+  } else {
+    delete current[slug];
   }
 
   const nextJson = encodeTutorialSettingsJson(current);

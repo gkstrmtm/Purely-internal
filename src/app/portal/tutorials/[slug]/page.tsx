@@ -4,7 +4,7 @@ import { notFound } from "next/navigation";
 import { PORTAL_SERVICES } from "@/app/portal/services/catalog";
 import { IconServiceGlyph } from "@/app/portal/PortalIcons";
 import { requirePortalUser } from "@/lib/portalAuth";
-import { getTutorialVideoUrl } from "@/lib/portalTutorialVideos";
+import { getTutorialPhotoUrls, getTutorialVideoUrl } from "@/lib/portalTutorialVideos";
 
 type TutorialSection = {
   title: string;
@@ -821,6 +821,7 @@ export default async function PortalTutorialDetailPage(props: { params: Promise<
   };
 
   const videoUrl = await getTutorialVideoUrl(slug);
+  const photoUrls = await getTutorialPhotoUrls(slug);
 
   return (
     <div className="w-full bg-white">
@@ -863,6 +864,30 @@ export default async function PortalTutorialDetailPage(props: { params: Promise<
                 allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
                 allowFullScreen
               />
+            </div>
+          </div>
+        ) : null}
+
+        {photoUrls.length ? (
+          <div className="mt-6 rounded-3xl border border-zinc-200 bg-white p-5">
+            <div className="text-sm font-semibold text-brand-ink">Screenshots</div>
+            <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+              {photoUrls.map((url) => (
+                <a
+                  key={url}
+                  href={url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="group overflow-hidden rounded-2xl border border-zinc-200 bg-zinc-50"
+                >
+                  <img
+                    src={url}
+                    alt="Tutorial screenshot"
+                    className="h-auto w-full object-cover transition-transform group-hover:scale-[1.01]"
+                    loading="lazy"
+                  />
+                </a>
+              ))}
             </div>
           </div>
         ) : null}

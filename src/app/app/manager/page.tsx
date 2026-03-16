@@ -37,14 +37,43 @@ export default async function ManagerHome() {
   const monthAgo = new Date(now);
   monthAgo.setDate(now.getDate() - 30);
 
-  const [hasLead, hasCallLog, hasAppointment, hasAppointmentOutcome, hasContractDraft] =
-    await Promise.all([
-      hasPublicTable("Lead"),
-      hasPublicTable("CallLog"),
-      hasPublicTable("Appointment"),
-      hasPublicTable("AppointmentOutcome"),
-      hasPublicTable("ContractDraft"),
-    ]);
+  const [
+    hasUser,
+    hasLead,
+    hasCallLog,
+    hasAppointment,
+    hasAppointmentOutcome,
+    hasContractDraft,
+    hasPortalServiceSetup,
+    hasPortalContact,
+    hasPortalReview,
+    hasPortalAdCampaign,
+    hasPortalAdCampaignEvent,
+    hasPortalNurtureCampaign,
+    hasPortalNewsletterSendEvent,
+    hasPortalNewsletterGenerationEvent,
+    hasPortalMediaItem,
+    hasPortalInboxThread,
+    hasPortalTask,
+  ] = await Promise.all([
+    hasPublicTable("User"),
+    hasPublicTable("Lead"),
+    hasPublicTable("CallLog"),
+    hasPublicTable("Appointment"),
+    hasPublicTable("AppointmentOutcome"),
+    hasPublicTable("ContractDraft"),
+    hasPublicTable("PortalServiceSetup"),
+    hasPublicTable("PortalContact"),
+    hasPublicTable("PortalReview"),
+    hasPublicTable("PortalAdCampaign"),
+    hasPublicTable("PortalAdCampaignEvent"),
+    hasPublicTable("PortalNurtureCampaign"),
+    hasPublicTable("PortalNewsletterSendEvent"),
+    hasPublicTable("PortalNewsletterGenerationEvent"),
+    hasPublicTable("PortalMediaItem"),
+    hasPublicTable("PortalInboxThread"),
+    hasPublicTable("PortalTask"),
+  ]);
 
   const emptyAggregate = { _sum: { revenueCents: 0 } } as const;
   const emptyMrrAggregate = { _sum: { monthlyFeeCents: 0 } } as const;
@@ -54,9 +83,29 @@ export default async function ManagerHome() {
     totalCalls,
     bookedCalls,
     upcomingAppointments,
+    appointments30d,
+    canceledAppointments30d,
     closedCount30d,
     revenue30d,
     projectedMrr,
+    totalUsers,
+    totalPortalUsers,
+    totalEmployees,
+    activeEmployees,
+    portalServiceSetups,
+    portalServiceSetupsComplete,
+    portalContacts,
+    portalReviews,
+    adCampaigns,
+    adCampaignsPending,
+    adImpressions7d,
+    adClaims7d,
+    nurtureCampaigns,
+    newsletterSends30d,
+    newsletterGenerations30d,
+    mediaItems,
+    inboxThreads,
+    openPortalTasks,
     recentCalls,
     recentLeads,
     nextAppointments,
@@ -67,6 +116,16 @@ export default async function ManagerHome() {
     hasAppointment
       ? prisma.appointment
           .count({ where: { startAt: { gte: now }, status: "SCHEDULED" } })
+          .catch(() => 0)
+      : 0,
+    hasAppointment
+      ? prisma.appointment
+          .count({ where: { startAt: { gte: monthAgo }, status: "SCHEDULED" } })
+          .catch(() => 0)
+      : 0,
+    hasAppointment
+      ? prisma.appointment
+          .count({ where: { startAt: { gte: monthAgo }, status: "CANCELED" } })
           .catch(() => 0)
       : 0,
     hasAppointmentOutcome
@@ -90,6 +149,50 @@ export default async function ManagerHome() {
           })
           .catch(() => emptyMrrAggregate)
       : emptyMrrAggregate,
+    hasUser ? prisma.user.count().catch(() => 0) : 0,
+    hasUser ? prisma.user.count({ where: { role: "CLIENT" } }).catch(() => 0) : 0,
+    hasUser
+      ? prisma.user
+          .count({ where: { role: { in: ["DIALER", "CLOSER", "MANAGER", "HR", "ADMIN"] } } })
+          .catch(() => 0)
+      : 0,
+    hasUser
+      ? prisma.user
+          .count({ where: { active: true, role: { in: ["DIALER", "CLOSER", "MANAGER", "HR", "ADMIN"] } } })
+          .catch(() => 0)
+      : 0,
+    hasPortalServiceSetup ? prisma.portalServiceSetup.count().catch(() => 0) : 0,
+    hasPortalServiceSetup
+      ? prisma.portalServiceSetup.count({ where: { status: "COMPLETE" } }).catch(() => 0)
+      : 0,
+    hasPortalContact ? prisma.portalContact.count().catch(() => 0) : 0,
+    hasPortalReview ? prisma.portalReview.count().catch(() => 0) : 0,
+    hasPortalAdCampaign ? prisma.portalAdCampaign.count().catch(() => 0) : 0,
+    hasPortalAdCampaign
+      ? prisma.portalAdCampaign.count({ where: { reviewStatus: "PENDING" } }).catch(() => 0)
+      : 0,
+    hasPortalAdCampaignEvent
+      ? prisma.portalAdCampaignEvent
+          .count({ where: { kind: "IMPRESSION", createdAt: { gte: weekAgo } } })
+          .catch(() => 0)
+      : 0,
+    hasPortalAdCampaignEvent
+      ? prisma.portalAdCampaignEvent
+          .count({ where: { kind: "CLAIM", createdAt: { gte: weekAgo } } })
+          .catch(() => 0)
+      : 0,
+    hasPortalNurtureCampaign ? prisma.portalNurtureCampaign.count().catch(() => 0) : 0,
+    hasPortalNewsletterSendEvent
+      ? prisma.portalNewsletterSendEvent.count({ where: { createdAt: { gte: monthAgo } } }).catch(() => 0)
+      : 0,
+    hasPortalNewsletterGenerationEvent
+      ? prisma.portalNewsletterGenerationEvent
+          .count({ where: { createdAt: { gte: monthAgo } } })
+          .catch(() => 0)
+      : 0,
+    hasPortalMediaItem ? prisma.portalMediaItem.count().catch(() => 0) : 0,
+    hasPortalInboxThread ? prisma.portalInboxThread.count().catch(() => 0) : 0,
+    hasPortalTask ? prisma.portalTask.count({ where: { status: "OPEN" } }).catch(() => 0) : 0,
     hasCallLog
       ? prisma.callLog
           .findMany({
@@ -235,13 +338,71 @@ export default async function ManagerHome() {
           </div>
         </div>
 
+        <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-3">
+          <div className="rounded-3xl border border-zinc-200 bg-white p-6">
+            <div className="text-sm font-semibold text-zinc-600">Users</div>
+            <div className="mt-2 text-3xl font-semibold text-brand-ink">{totalUsers}</div>
+            <div className="mt-1 text-sm text-zinc-500">
+              Portal: {totalPortalUsers} • Employees: {totalEmployees} ({activeEmployees} active)
+            </div>
+          </div>
+
+          <div className="rounded-3xl border border-zinc-200 bg-white p-6">
+            <div className="text-sm font-semibold text-zinc-600">Appointments (30d)</div>
+            <div className="mt-2 text-3xl font-semibold text-brand-ink">{appointments30d}</div>
+            <div className="mt-1 text-sm text-zinc-500">Canceled: {canceledAppointments30d}</div>
+          </div>
+
+          <div className="rounded-3xl border border-zinc-200 bg-white p-6">
+            <div className="text-sm font-semibold text-zinc-600">Ads</div>
+            <div className="mt-2 text-3xl font-semibold text-brand-ink">{adCampaigns}</div>
+            <div className="mt-1 text-sm text-zinc-500">
+              Pending review: {adCampaignsPending} • 7d: {adImpressions7d} impressions / {adClaims7d} claims
+            </div>
+          </div>
+
+          <div className="rounded-3xl border border-zinc-200 bg-white p-6">
+            <div className="text-sm font-semibold text-zinc-600">Portal campaigns</div>
+            <div className="mt-2 text-3xl font-semibold text-brand-ink">{nurtureCampaigns}</div>
+            <div className="mt-1 text-sm text-zinc-500">Nurture campaigns</div>
+          </div>
+
+          <div className="rounded-3xl border border-zinc-200 bg-white p-6">
+            <div className="text-sm font-semibold text-zinc-600">Portal activity</div>
+            <div className="mt-2 text-3xl font-semibold text-brand-ink">{inboxThreads}</div>
+            <div className="mt-1 text-sm text-zinc-500">
+              Inbox threads • Open tasks: {openPortalTasks}
+            </div>
+          </div>
+
+          <div className="rounded-3xl border border-zinc-200 bg-white p-6">
+            <div className="text-sm font-semibold text-zinc-600">Portal content</div>
+            <div className="mt-2 text-3xl font-semibold text-brand-ink">{portalContacts}</div>
+            <div className="mt-1 text-sm text-zinc-500">
+              Contacts • Reviews: {portalReviews} • Media: {mediaItems}
+            </div>
+          </div>
+
+          <div className="rounded-3xl border border-zinc-200 bg-white p-6">
+            <div className="text-sm font-semibold text-zinc-600">Newsletter (30d)</div>
+            <div className="mt-2 text-3xl font-semibold text-brand-ink">{newsletterSends30d}</div>
+            <div className="mt-1 text-sm text-zinc-500">Sends • Generations: {newsletterGenerations30d}</div>
+          </div>
+
+          <div className="rounded-3xl border border-zinc-200 bg-white p-6">
+            <div className="text-sm font-semibold text-zinc-600">Service setups</div>
+            <div className="mt-2 text-3xl font-semibold text-brand-ink">{portalServiceSetups}</div>
+            <div className="mt-1 text-sm text-zinc-500">Complete: {portalServiceSetupsComplete}</div>
+          </div>
+        </div>
+
         <div className="mt-8 rounded-3xl border border-zinc-200 bg-white p-6">
           <div className="text-base font-semibold text-brand-ink">Notes</div>
           <div className="mt-2 text-sm text-zinc-600">
             Last updated: {now.toLocaleString()} (week range starts {weekAgo.toLocaleDateString()})
           </div>
           <div className="mt-2 text-sm text-zinc-600">
-            Dev tools moved to <Link className="font-semibold text-[color:var(--color-brand-blue)]" href="/app/manager/admin">Admin</Link>.
+            Dev tools moved to <Link className="font-semibold text-(--color-brand-blue)" href="/app/manager/admin">Admin</Link>.
           </div>
         </div>
 
@@ -249,7 +410,7 @@ export default async function ManagerHome() {
           <div className="rounded-3xl border border-zinc-200 bg-white p-6">
             <div className="flex items-center justify-between gap-3">
               <div className="text-base font-semibold text-brand-ink">Recent calls</div>
-              <Link className="text-sm font-semibold text-[color:var(--color-brand-blue)]" href="/app/manager/calls">
+              <Link className="text-sm font-semibold text-(--color-brand-blue)" href="/app/manager/calls">
                 View all
               </Link>
             </div>
@@ -273,7 +434,7 @@ export default async function ManagerHome() {
           <div className="rounded-3xl border border-zinc-200 bg-white p-6">
             <div className="flex items-center justify-between gap-3">
               <div className="text-base font-semibold text-brand-ink">Recent leads</div>
-              <Link className="text-sm font-semibold text-[color:var(--color-brand-blue)]" href="/app/manager/leads">
+              <Link className="text-sm font-semibold text-(--color-brand-blue)" href="/app/manager/leads">
                 View all
               </Link>
             </div>
@@ -303,7 +464,7 @@ export default async function ManagerHome() {
           <div className="rounded-3xl border border-zinc-200 bg-white p-6">
             <div className="flex items-center justify-between gap-3">
               <div className="text-base font-semibold text-brand-ink">Next meetings</div>
-              <Link className="text-sm font-semibold text-[color:var(--color-brand-blue)]" href="/app/manager/appointments">
+              <Link className="text-sm font-semibold text-(--color-brand-blue)" href="/app/manager/appointments">
                 View all
               </Link>
             </div>
