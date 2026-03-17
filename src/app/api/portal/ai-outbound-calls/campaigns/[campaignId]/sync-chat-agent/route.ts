@@ -92,7 +92,18 @@ export async function POST(req: Request, ctx: { params: Promise<{ campaignId: st
   }
 
   const config = parseVoiceAgentConfig(campaign.chatAgentConfigJson);
-  const prompt = buildElevenLabsAgentPrompt(config);
+
+  const [profile, ownerUser] = await Promise.all([
+    prisma.businessProfile
+      .findUnique({ where: { ownerId }, select: { businessName: true } })
+      .catch(() => null),
+    prisma.user.findUnique({ where: { id: ownerId }, select: { name: true } }).catch(() => null),
+  ]);
+
+  const prompt = buildElevenLabsAgentPrompt(config, {
+    businessName: profile?.businessName || null,
+    ownerName: ownerUser?.name || null,
+  });
   const firstMessage = config.firstMessage.trim();
 
   const localConfigIsEmpty =
