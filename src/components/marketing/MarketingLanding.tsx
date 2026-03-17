@@ -1344,7 +1344,7 @@ export function MarketingLanding() {
                       formRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
                     }, 50);
                   }}
-                  className="inline-flex items-center gap-3 rounded-2xl bg-linear-to-r from-(--color-brand-blue) via-violet-500 to-(--color-brand-pink) px-7 py-4 text-xl font-bold text-white shadow-md hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/60 focus-visible:ring-offset-2 focus-visible:ring-offset-brand-blue"
+                  className="inline-flex items-center gap-3 rounded-2xl bg-[color:var(--color-brand-blue)] px-7 py-4 text-xl font-bold text-white shadow-md hover:opacity-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[color:var(--color-brand-blue)]"
                 >
                   <span>see it in action</span>
                 </button>

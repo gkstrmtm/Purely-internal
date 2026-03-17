@@ -89,7 +89,7 @@ export default function PortalGetStartedPage() {
     <Suspense
       fallback={
         <div className="min-h-screen bg-brand-mist text-brand-ink">
-          <div className="mx-auto flex min-h-screen max-w-lg flex-col justify-center px-6 py-12" />
+          <div className="mx-auto flex min-h-screen max-w-lg flex-col justify-center px-6 py-12 sm:max-w-2xl lg:max-w-4xl xl:max-w-5xl" />
         </div>
       }
     >
@@ -460,7 +460,7 @@ function PortalGetStartedInner() {
 
   return (
     <div className="min-h-screen overflow-x-hidden bg-brand-mist text-brand-ink">
-      <div className="mx-auto flex min-h-screen max-w-lg flex-col justify-center px-6 py-12">
+      <div className="mx-auto flex min-h-screen max-w-lg flex-col justify-center px-6 py-12 sm:max-w-2xl lg:max-w-4xl xl:max-w-5xl">
         <div className="rounded-3xl border border-zinc-200 bg-white p-8 shadow-sm sm:p-10">
           <div className="flex justify-center">
             <Image
