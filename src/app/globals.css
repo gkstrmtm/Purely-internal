@@ -1,8 +1,9 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
+  --background: #f1f5f9;
   --foreground: #171717;
+  color-scheme: light;
 }
 
 @theme inline {
@@ -20,13 +21,6 @@
   --color-brand-mist: #f1f5f9;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
-
 body {
   background: var(--background);
   color: var(--foreground);
@@ -36,6 +30,7 @@ body {
 }
 
 html {
+  background: var(--background);
   -webkit-text-size-adjust: 100%;
   text-size-adjust: 100%;
 }
