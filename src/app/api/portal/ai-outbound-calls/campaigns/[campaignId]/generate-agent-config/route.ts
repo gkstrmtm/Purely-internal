@@ -33,16 +33,77 @@ const configSchema = z
 
 function extractFirstJsonObject(text: string): any | null {
   const s = String(text || "");
-  const start = s.indexOf("{");
-  const end = s.lastIndexOf("}");
-  if (start < 0 || end < 0 || end <= start) return null;
 
-  const candidate = s.slice(start, end + 1);
-  try {
-    return JSON.parse(candidate);
-  } catch {
-    return null;
+  // Best-effort: find the first balanced {...} segment that parses as JSON.
+  for (let start = 0; start < s.length; start++) {
+    if (s[start] !== "{") continue;
+
+    let depth = 0;
+    for (let end = start; end < s.length; end++) {
+      const ch = s[end];
+      if (ch === "{") depth += 1;
+      else if (ch === "}") {
+        depth -= 1;
+        if (depth === 0) {
+          const candidate = s.slice(start, end + 1);
+          try {
+            return JSON.parse(candidate);
+          } catch {
+            break;
+          }
+        }
+      }
+    }
   }
+
+  return null;
+}
+
+function normalizeConfig(extracted: unknown): z.infer<typeof configSchema> | null {
+  if (!extracted || typeof extracted !== "object") return null;
+
+  let obj: any = extracted as any;
+  if (obj && typeof obj.config === "object" && obj.config) obj = obj.config;
+
+  const lower = new Map<string, unknown>();
+  for (const [k, v] of Object.entries(obj)) lower.set(String(k).toLowerCase(), v);
+
+  const clamp = (v: unknown, maxLen: number) => {
+    if (typeof v !== "string") return undefined;
+    const t = v.trim();
+    if (!t) return undefined;
+    return t.length > maxLen ? t.slice(0, maxLen) : t;
+  };
+
+  const get = (keys: string[], maxLen: number) => {
+    for (const key of keys) {
+      const direct = (obj as any)?.[key];
+      const lowered = lower.get(key.toLowerCase());
+      const picked = clamp(direct, maxLen) ?? clamp(lowered, maxLen);
+      if (picked) return picked;
+    }
+    return undefined;
+  };
+
+  const candidate: any = {
+    firstMessage: get(["firstMessage", "first_message", "firstmessage", "opener", "opening"], 800),
+    goal: get(["goal", "objective"], 6000),
+    personality: get(["personality", "persona"], 6000),
+    tone: get(["tone", "style", "voice"], 6000),
+    environment: get(["environment", "context", "setting"], 6000),
+    guardRails: get(["guardRails", "guardrails", "guard_rails", "guardRail", "guardrail"], 6000),
+  };
+
+  // Drop empties so optional fields don't fail schema constraints.
+  for (const k of Object.keys(candidate)) {
+    if (!candidate[k]) delete candidate[k];
+  }
+
+  if (!Object.keys(candidate).length) return null;
+
+  const validated = configSchema.safeParse(candidate);
+  if (validated.success) return validated.data;
+  return null;
 }
 
 export async function POST(req: Request, ctx: { params: Promise<{ campaignId: string }> }) {
@@ -111,11 +172,8 @@ export async function POST(req: Request, ctx: { params: Promise<{ campaignId: st
   }
 
   const extracted = extractFirstJsonObject(raw);
-  const validated = configSchema.safeParse(extracted);
-
-  if (validated.success) {
-    return NextResponse.json({ ok: true, config: validated.data });
-  }
+  const normalized = normalizeConfig(extracted);
+  if (normalized) return NextResponse.json({ ok: true, config: normalized });
 
   // Fallback: treat raw as a goal so the UI isn't blank.
   const fallbackGoal = String(raw || "").trim().slice(0, 6000);

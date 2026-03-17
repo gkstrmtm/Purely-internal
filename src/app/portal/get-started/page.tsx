@@ -9,6 +9,7 @@ import { useEffect, useState } from "react";
 import { useToast } from "@/components/ToastProvider";
 import { PortalListboxDropdown, type PortalListboxOption } from "@/components/PortalListboxDropdown";
 import { PortalMultiSelectDropdown } from "@/components/PortalMultiSelectDropdown";
+import { PortalSingleSelectDropdown } from "@/components/PortalSingleSelectDropdown";
 import {
   GET_STARTED_GOALS,
   goalLabelsFromIds,
@@ -45,6 +46,9 @@ const ACQUISITION_OPTIONS: Array<{ value: string; label: string }> = [
   { value: "Email", label: "Email" },
   { value: "Other", label: "Other" },
 ];
+
+const INDUSTRY_OPTIONS = INDUSTRY_SUGGESTIONS.map((s) => ({ value: s, label: s }));
+const BUSINESS_MODEL_OPTIONS = BUSINESS_MODEL_SUGGESTIONS.map((s) => ({ value: s, label: s }));
 
 function normalizePackagePreset(value: string | null): PackagePreset | null {
   const v = String(value || "").trim().toLowerCase();
@@ -624,34 +628,30 @@ function PortalGetStartedInner() {
 
                   <div>
                     <label className="text-base font-medium">Industry</label>
-                    <input
-                      list="industry-suggestions"
-                      className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-base outline-none focus:border-zinc-400"
-                      value={industry}
-                      onChange={(e) => setIndustry(e.target.value)}
-                      placeholder="Type to search…"
-                    />
-                    <datalist id="industry-suggestions">
-                      {INDUSTRY_SUGGESTIONS.map((s) => (
-                        <option key={s} value={s} />
-                      ))}
-                    </datalist>
+                    <div className="mt-2">
+                      <PortalSingleSelectDropdown
+                        value={industry}
+                        onChange={(v) => setIndustry(v)}
+                        options={INDUSTRY_OPTIONS}
+                        allowCustom
+                        placeholder="Type to search…"
+                        buttonClassName="flex w-full items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-base outline-none hover:bg-zinc-50 focus:border-zinc-400"
+                      />
+                    </div>
                   </div>
 
                   <div>
                     <label className="text-base font-medium">Business model</label>
-                    <input
-                      list="business-model-suggestions"
-                      className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-base outline-none focus:border-zinc-400"
-                      value={businessModel}
-                      onChange={(e) => setBusinessModel(e.target.value)}
-                      placeholder="Type to search…"
-                    />
-                    <datalist id="business-model-suggestions">
-                      {BUSINESS_MODEL_SUGGESTIONS.map((s) => (
-                        <option key={s} value={s} />
-                      ))}
-                    </datalist>
+                    <div className="mt-2">
+                      <PortalSingleSelectDropdown
+                        value={businessModel}
+                        onChange={(v) => setBusinessModel(v)}
+                        options={BUSINESS_MODEL_OPTIONS}
+                        allowCustom
+                        placeholder="Type to search…"
+                        buttonClassName="flex w-full items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-base outline-none hover:bg-zinc-50 focus:border-zinc-400"
+                      />
+                    </div>
                   </div>
 
                   <div>

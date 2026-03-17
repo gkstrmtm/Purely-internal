@@ -1263,6 +1263,80 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
     toast.success("Saved");
   }
 
+  function extractFirstJsonObjectFromText(text: string): any | null {
+    const s = String(text || "");
+    for (let start = 0; start < s.length; start++) {
+      if (s[start] !== "{") continue;
+      let depth = 0;
+      for (let end = start; end < s.length; end++) {
+        const ch = s[end];
+        if (ch === "{") depth += 1;
+        else if (ch === "}") {
+          depth -= 1;
+          if (depth === 0) {
+            const candidate = s.slice(start, end + 1);
+            try {
+              return JSON.parse(candidate);
+            } catch {
+              break;
+            }
+          }
+        }
+      }
+    }
+    return null;
+  }
+
+  function normalizeGeneratedAgentConfig(cfg: any): Partial<
+    Pick<VoiceAgentConfig, "firstMessage" | "goal" | "personality" | "tone" | "environment" | "guardRails">
+  > {
+    if (!cfg || typeof cfg !== "object") return {};
+
+    const hasAnyStructuredField =
+      Boolean(cfg.firstMessage) ||
+      Boolean(cfg.personality) ||
+      Boolean(cfg.tone) ||
+      Boolean(cfg.environment) ||
+      Boolean(cfg.guardRails) ||
+      Boolean(cfg.guardrails) ||
+      Boolean(cfg.guard_rails);
+
+    const goalText = typeof cfg.goal === "string" ? cfg.goal : "";
+    if (hasAnyStructuredField || !goalText) return cfg;
+
+    // If the server fell back and stuffed raw JSON (or almost-JSON) into goal, recover it.
+    const extracted = extractFirstJsonObjectFromText(goalText);
+    if (!extracted || typeof extracted !== "object") return cfg;
+
+    const obj: any = (extracted as any).config && typeof (extracted as any).config === "object" ? (extracted as any).config : extracted;
+    const lower = new Map<string, unknown>();
+    for (const [k, v] of Object.entries(obj)) lower.set(String(k).toLowerCase(), v);
+
+    const pick = (keys: string[]) => {
+      for (const key of keys) {
+        const direct = (obj as any)?.[key];
+        const lowered = lower.get(key.toLowerCase());
+        const v = typeof direct === "string" ? direct.trim() : typeof lowered === "string" ? (lowered as string).trim() : "";
+        if (v) return v;
+      }
+      return undefined;
+    };
+
+    const recovered = {
+      firstMessage: pick(["firstMessage", "first_message", "firstmessage", "opener", "opening"]),
+      goal: pick(["goal", "objective"]) ?? goalText.trim(),
+      personality: pick(["personality", "persona"]),
+      tone: pick(["tone", "style", "voice"]),
+      environment: pick(["environment", "context", "setting"]),
+      guardRails: pick(["guardRails", "guardrails", "guard_rails", "guardRail", "guardrail"]),
+    } satisfies Partial<Pick<VoiceAgentConfig, "firstMessage" | "goal" | "personality" | "tone" | "environment" | "guardRails">>;
+
+    return {
+      ...cfg,
+      ...Object.fromEntries(Object.entries(recovered).filter(([, v]) => typeof v === "string" && v.trim())),
+    };
+  }
+
   async function generateAgentConfig(kind: "calls" | "messages") {
     if (!selected) return;
     if (generateBusy) return;
@@ -1291,7 +1365,7 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
         throw new Error((json as any)?.error || "Failed to generate");
       }
 
-      const cfg = (json as any).config || {};
+      const cfg = normalizeGeneratedAgentConfig((json as any).config || {});
       if (kind === "calls") {
         setCampaigns((prev) =>
           prev.map((c) =>
