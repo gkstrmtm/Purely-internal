@@ -26,6 +26,8 @@ function getCoreWhatYoullLearn(slug: string): string {
 
 function getServiceWhatYoullLearn(slug: string): string {
   switch (slug) {
+    case "funnel-builder":
+      return "How to create and publish funnels and forms, connect a custom domain, set root behavior, and troubleshoot DNS/verification issues.";
     case "inbox":
       return "How to keep email and SMS threads in one queue, reply from the portal, and leave notes so your team stays in sync.";
     case "media-library":
@@ -35,21 +37,21 @@ function getServiceWhatYoullLearn(slug: string): string {
     case "ai-receptionist":
       return "How to connect your number, tune the script, and review calls so AI Receptionist reliably answers and routes for you.";
     case "newsletter":
-      return "How to draft a simple campaign, choose the right audience, and read basic stats after you send.";
+      return "How to draft and send newsletters to internal users or external contacts, pick audiences safely, and validate sending before a big send.";
     case "booking":
-      return "How to connect your calendar, share a booking link, and reduce back-and-forth while keeping your schedule accurate.";
+      return "How to configure booking settings, availability, and reminders so people book faster and no-shows drop.";
     case "ai-outbound-calls":
       return "How to define who should be called, set the script, and review outcomes so you do not have to dial one by one.";
     case "lead-scraping":
-      return "How to set up searches, exclusions, and schedules so fresh leads keep appearing without paying for duplicates.";
+      return "How to run and schedule pulls, use exclusions, export results, and optionally trigger outbound follow-up.";
     case "automations":
-      return "How to connect triggers and steps into simple flows so repetitive work runs automatically.";
+      return "How to connect triggers, actions, conditions, and delays into simple flows that run repetitive work automatically.";
     case "blogs":
-      return "How to approve topics and let automated drafts keep blog content going out on a steady schedule.";
+      return "How to create/edit/publish posts, use AI drafts safely, and configure blog automation and domain settings.";
     case "reviews":
       return "How to send review requests at the right time and track who responded and where.";
     case "nurture-campaigns":
-      return "How to build simple nurture sequences that keep leads warm without overwhelming their inbox.";
+      return "How to build nurture campaigns with tag-based audiences, multi-step sequences, delays, and safe activation/testing.";
     case "reporting":
       return "How to read the hours-saved snapshot and service activity so you know what is working.";
     default:

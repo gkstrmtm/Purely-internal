@@ -64,109 +64,248 @@ const CORE_TUTORIAL_PAGES: Record<string, TutorialUiService> = {
 };
 
 const TUTORIALS: Record<string, TutorialConfig> = {
-  inbox: {
-    intro: "Inbox / Outbox keeps email and SMS threads in one place so your team does not have to jump between tools.",
+  "funnel-builder": {
+    intro:
+      "Funnel Builder lets you publish funnels, landing pages, and lead-capture forms (optionally on your own domain), then track responses and route leads into the rest of the portal.",
     sections: [
       {
-        title: "How it should feel",
-        body: "You open Inbox / Outbox and immediately see who needs a reply. Threads include the full history so anyone on your team can jump in without asking for context.",
-      },
-      {
-        title: "Daily workflow",
-        body: "Most teams live on the main inbox list.",
+        title: "Key concepts (so the UI makes sense)",
+        body: "Funnel Builder has three main areas: Funnels, Forms, and Settings. Most setup issues come from domain/DNS status, funnel status, or Stripe not being connected.",
         steps: [
-          "Open Inbox / Outbox from Services in the left sidebar.",
-          "Filter by unread, assigned, or channel if you need to narrow things down.",
-          "Click a thread to see the full history and reply by email or SMS.",
-          "Add quick notes so other teammates know what happened and what is next.",
+          "Funnels are public pages you publish (typically DRAFT / ACTIVE / ARCHIVED).",
+          "Forms are lead-capture assets with their own editor, preview, and responses list.",
+          "Domains are added and verified in Settings. A funnel can be assigned to a verified domain to go live.",
+          "Root behavior controls what happens at the root of your domain (/, for example yourdomain.com).",
+          "Stripe is optional: connect it if your funnel includes payments/checkout behavior.",
         ],
       },
       {
-        title: "Common questions",
-        body: "A few things people usually ask the first week.",
+        title: "Create your first funnel (end-to-end)",
+        body: "Start by creating a funnel, editing it, then setting it to ACTIVE once you are ready to share it.",
         steps: [
-          "Messages from the same person are grouped by address or phone. If you see multiple threads for one contact, make sure their details match in your CRM.",
-          "Replies you send from the portal show as normal emails or texts to the contact. They do not have to log in anywhere.",
-          "If you do not see a recent email, check that the connected inbox for this account is the one that received it.",
+          "Open Services → Funnel Builder.",
+          "Stay on the Funnels tab.",
+          "Click Create and enter a Name and a Slug (the slug becomes part of the URL).",
+          "Open the funnel to edit the content and layout.",
+          "Use Preview (or open-in-new-tab) to check how the public page renders.",
+          "When ready, set the funnel status to ACTIVE.",
+          "Optional: assign a verified custom domain to make the funnel live on your branding.",
+        ],
+      },
+      {
+        title: "Assign a domain and go live",
+        body: "A funnel is only truly live on your custom domain after the domain is verified and assigned.",
+        steps: [
+          "In Funnel Builder, open Settings → Domains.",
+          "Add your domain (apex like yourdomain.com or subdomain like go.yourdomain.com).",
+          "Follow the DNS instructions shown (record type + host + value).",
+          "After DNS is set, click Verify domain in the portal.",
+          "Once the domain is VERIFIED, go back to Funnels and assign that domain to the funnel.",
+          "Confirm the funnel shows as LIVE (or similar) once verification and assignment are complete.",
+        ],
+      },
+      {
+        title: "Create and manage forms",
+        body: "Forms are first-class assets: you can edit them, preview them, view responses, and delete them independently of funnels.",
+        steps: [
+          "Open Funnel Builder → Forms tab.",
+          "Click Create to add a new form (Name + Slug).",
+          "Open the form to edit fields and layout.",
+          "Use the three-dot menu on a form for actions like Edit, Responses, Preview, and Delete.",
+          "Use Responses to review submissions and copy details into follow-up workflows.",
+          "Delete forms you no longer use to keep the list clean (deleting is permanent).",
+        ],
+      },
+      {
+        title: "Stripe payments (optional)",
+        body: "If you plan to collect payments in funnels, connect Stripe first so checkout components work reliably.",
+        steps: [
+          "In Funnel Builder settings, find the Stripe integration status.",
+          "Click to connect/configure Stripe and complete the Stripe onboarding steps.",
+          "Return to Funnel Builder and refresh the Stripe status card to confirm it shows connected/configured.",
+          "Run a small end-to-end test (preview the funnel and test the payment flow) before sending traffic.",
+        ],
+      },
+      {
+        title: "Domain root behavior (Directory / Redirect / Disabled)",
+        body: "Root behavior controls what someone sees at your domain root (/) independent of any one funnel slug.",
+        steps: [
+          "Open Funnel Builder → Settings → Domains.",
+          "For a domain, choose Root mode:",
+          "- DIRECTORY: show a directory-style landing that lists available funnels.",
+          "- REDIRECT: send / to a specific funnel or URL.",
+          "- DISABLED: do not serve content at / (useful if your root is handled elsewhere).",
+          "If using REDIRECT, set the redirect target and test in an incognito window.",
+          "If using DIRECTORY, keep funnel names/slugs clean because they become public-facing.",
+        ],
+      },
+      {
+        title: "Troubleshooting",
+        body: "Most issues are setup-related. Use this checklist before digging deeper.",
+        steps: [
+          "Domain stuck on PENDING: DNS may not have propagated yet. Re-check record type/host/value, then verify again after a few minutes.",
+          "Wrong host label in DNS: some registrars use @ for apex. Match the portal-provided record exactly as your registrar expects.",
+          "Funnel not visible: confirm the funnel status is ACTIVE (not DRAFT/ARCHIVED).",
+          "Payments failing: confirm Stripe is configured and re-test with a small controlled scenario.",
+          "Form responses missing: confirm users submitted the correct form URL and that you are in the correct portal account.",
+        ],
+      },
+    ],
+  },
+  inbox: {
+    intro:
+      "Inbox / Outbox keeps email and SMS threads in one place so your team can reply quickly, keep context attached to the contact, and avoid losing conversations across tools.",
+    sections: [
+      {
+        title: "Key concepts (channels, boxes, threads)",
+        body: "Inbox supports two channels (Email and SMS). Email also supports boxes (Inbox / Sent / All). Each thread is a conversation with a contact, including history and attachments.",
+        steps: [
+          "Email channel: use Inbox to focus on inbound messages, Sent to review outbound, and All to see everything.",
+          "SMS channel: threads are grouped by phone number; inbound and outbound live together.",
+          "Thread details: read history, reply, attach files, and use variables for personalization.",
+          "Contact context: threads can show contact details and tags so your team knows who they are talking to.",
+        ],
+      },
+      {
+        title: "Daily workflow (work the queue)",
+        body: "The fastest workflow is: scan → open thread → reply → add tags/notes → move on.",
+        steps: [
+          "Open Services → Inbox / Outbox.",
+          "Switch between Email and SMS.",
+          "(Email) Pick Inbox / Sent / All depending on what you are doing.",
+          "Click a thread to open it and read the full history.",
+          "Reply in the composer. Use Insert variable if you want personalization.",
+          "Attach files from your computer, or open the Media picker to reuse assets from Media Library.",
+          "Send your reply and confirm it appears in the thread timeline.",
+          "Update contact tags when a conversation changes state (for example: Interested, Needs quote, Booked, Not a fit).",
+        ],
+      },
+      {
+        title: "Start a new message (compose)",
+        body: "Compose lets you start an outbound email or SMS without waiting for an inbound message.",
+        steps: [
+          "Click Compose.",
+          "Enter the recipient (email address for Email, phone number for SMS).",
+          "Write your subject (Email only) and message body.",
+          "Use Insert variable to drop in contact fields (name, phone, custom variables) safely.",
+          "Attach media/files if needed.",
+          "Send, then confirm the thread appears in the list.",
+        ],
+      },
+      {
+        title: "Settings (webhooks + Twilio)",
+        body: "Settings shows your webhook token and Twilio connection status so inbound SMS can be routed into the portal.",
+        steps: [
+          "Open the Settings section inside Inbox / Outbox.",
+          "Copy the webhook token if you need to authenticate inbound integrations.",
+          "If SMS is enabled, confirm Twilio is configured and a From number is present.",
+          "Copy the Twilio inbound SMS webhook URL shown in the portal.",
+          "In Twilio, open your phone number → Messaging and set the inbound webhook to the portal URL (HTTP POST).",
         ],
       },
       {
         title: "Troubleshooting",
         body: "When something feels off, walk through these checks.",
         steps: [
-          "If new emails are not showing, refresh the page first. If they still do not appear, confirm the email account for this portal account is connected correctly in your profile or integrations.",
-          "If SMS replies are missing, confirm your Twilio number is connected and that the correct inbound webhook URL is set inside Twilio.",
-          "If a teammate cannot see a thread, confirm they have access to the same portal account, not a different workspace.",
+          "New emails not showing: refresh first, then confirm the correct email account is connected for this portal account.",
+          "SMS inbound missing: confirm Twilio is connected and the inbound SMS webhook URL matches the portal setting.",
+          "Cannot send: confirm the recipient address/number is valid and required fields (subject for email) are filled.",
+          "Attachments not appearing: try a smaller file and confirm it uploads before sending.",
+          "Variables render wrong: use the variable picker and confirm the contact has those fields populated in People.",
+          "Teammate cannot see threads: confirm they are in the same portal account/workspace.",
         ],
       },
     ],
   },
   "media-library": {
-    intro: "Store photos, videos, and files once, then reuse them across campaigns, automations, and messages.",
+    intro: "Store photos, videos, and files once, then reuse them across emails, SMS, blogs, newsletters, nurture campaigns, and anywhere you can attach media.",
     sections: [
       {
-        title: "How it should feel",
-        body: "You should never have to ask someone to resend the same file. Anything used more than once lives in the Media Library.",
-      },
-      {
-        title: "Upload and organize",
-        body: "Create folders that match how your team works, then drag files in.",
+        title: "What Media Library is",
+        body: "Media Library is shared storage for your portal account. The goal is: upload once, reuse everywhere, keep links stable, and avoid re-uploading assets.",
         steps: [
-          "Open Media Library from Services.",
-          "Create folders for categories like testimonials, before and after photos, offers, or promotion graphics.",
-          "Upload files from your computer or phone. Use short, clear names so they are easy to search.",
+          "Folders help you organize assets for reuse (logos, templates, promotions, before/after, testimonials).",
+          "Items support actions like rename, move, delete, copy share URL, and download.",
+          "Search works best when names are short and consistent.",
         ],
       },
       {
-        title: "Using media in other tools",
-        body: "Anywhere you can attach a file or image in the portal, you can pull from the Media Library instead of uploading again.",
+        title: "Upload and organize (every action)",
+        body: "This is the core workflow: create a folder structure once, then keep new assets flowing into it.",
         steps: [
-          "When composing an email, SMS, or campaign, look for the option to attach from the Media Library.",
-          "Pick the file once. The system handles the hosting and links for you.",
+          "Open Media Library from Services.",
+          "Create a folder (for example: Logos, Testimonials, Promotions, Blog Images).",
+          "Open a folder and upload files using the Upload button (or drag-and-drop if supported).",
+          "Rename folders or items to keep names short and searchable.",
+          "Move items between folders when you reorganize.",
+          "Copy share URL when you need a link you can paste elsewhere.",
+          "Download when you need the original file locally.",
+          "Delete items you no longer want available (deleting is permanent).",
+        ],
+      },
+      {
+        title: "Reuse media in other tools",
+        body: "Anywhere you can attach a file or image in the portal, use the media picker to pull from Media Library instead of uploading again.",
+        steps: [
+          "In Inbox, use Attach → Media Library (or similar) to attach assets.",
+          "In Blogs and Newsletters, use the media picker for images to keep assets centralized.",
+          "In Nurture Campaign steps, attach files/images from Media Library when supported.",
         ],
       },
       {
         title: "Troubleshooting",
         body: "If something does not show up when you expect it:",
         steps: [
-          "If a file will not upload, check that it is under the size limit and use a standard format like JPG, PNG, MP4, or PDF.",
-          "If you cannot find a file, try searching by part of the file name. If that fails, confirm it was uploaded into this portal account and not another workspace.",
-          "If attached media does not render inside an email or SMS preview, send a test to yourself to confirm how it appears to contacts.",
+          "Upload failures: try a smaller file first, then retry.",
+          "Cannot find an item: search by partial name, then confirm it was uploaded in this portal account.",
+          "Links not working: re-copy the share URL and test in an incognito window.",
+          "Media not rendering in previews: send a test message to yourself to confirm how it appears to a real recipient.",
         ],
       },
     ],
   },
   tasks: {
-    intro: "Tasks keep internal to dos tied to the work your automations and services are doing.",
+    intro:
+      "Tasks is your human handoff layer: when an automation needs a person (call, quote, follow-up, review), it creates or routes a task so nothing falls through.",
     sections: [
       {
-        title: "How it should feel",
-        body: "You should be able to open Tasks and see a clean list of what needs a human touch today, without digging through notes or inboxes.",
-      },
-      {
-        title: "Create and assign tasks",
-        body: "Use tasks for follow ups that need a person to decide or do something.",
+        title: "What Tasks supports",
+        body: "Tasks supports creating tasks, assigning them, marking done/undo, reopening completed tasks, and refreshing the list when you are working fast.",
         steps: [
-          "Open Tasks from Services.",
-          "Click to add a new task, give it a clear title, and describe the outcome you want.",
-          "Assign it to the right teammate and set a due date when timing matters.",
+          "Open tasks are your day-to-day queue.",
+          "Done tasks are your audit trail and allow reopening if something changes.",
+          "Some tasks are assigned to everyone (unassigned); each viewer can mark done/undo independently.",
         ],
       },
       {
-        title: "Working the list",
-        body: "Keep the list honest so reporting stays useful.",
+        title: "Create a task (manual)",
+        body: "Use manual tasks for one-off situations; use Automation Builder to create them automatically for repeatable events.",
         steps: [
-          "Sort by due date or status at the start of the day.",
-          "Close tasks as soon as they are finished so the next person does not double work it.",
-          "If a task is blocked, update the description with what is missing instead of leaving it untouched.",
+          "Open Tasks from Services.",
+          "Click Create task.",
+          "Enter a clear title (what done looks like).",
+          "Choose an assignee (or leave unassigned if it should be visible to everyone).",
+          "Create the task and confirm it appears in Open.",
+        ],
+      },
+      {
+        title: "Work the list (mark done / undo / reopen)",
+        body: "Tasks stays useful only if the status stays accurate.",
+        steps: [
+          "In Open, click Mark done when you complete a task.",
+          "For everyone-assigned tasks, use Undo if you accidentally marked done (it only affects your view).",
+          "In Done, click Reopen to move a task back to Open if it becomes active again.",
+          "If you can edit the assignee, change it when ownership changes.",
+          "Use Refresh if the list feels stale after a status change.",
         ],
       },
       {
         title: "Troubleshooting",
         body: "When tasks do not look right:",
         steps: [
-          "If automations are supposed to create tasks but you see none, open Automation Builder and confirm the step that creates tasks is enabled and saved.",
-          "If a teammate cannot see tasks, check that they are invited to the same portal account and have the correct permissions.",
+          "No tasks created by automations: open Automation Builder and confirm the automation is saved and not paused.",
+          "Assignee dropdown missing: some tasks may restrict assignee edits (role/permissions).",
+          "Teammate cannot see tasks: confirm they are on the same portal account/workspace and have access.",
         ],
       },
     ],
@@ -234,28 +373,40 @@ const TUTORIALS: Record<string, TutorialConfig> = {
     ],
   },
   newsletter: {
-    intro: "Newsletter lets you send simple campaigns to your existing contacts without switching tools.",
+    intro:
+      "Newsletter lets you draft and send campaigns to internal users or external contacts. The workflow is designed to be simple: pick an audience, write one clear update, send.",
     sections: [
       {
-        title: "How it should feel",
-        body: "You should be able to draft one clear email, pick who it goes to, and send without exporting lists or importing CSVs.",
-      },
-      {
-        title: "Create a campaign",
-        body: "Draft an email that explains one idea clearly.",
+        title: "Choose internal vs external",
+        body: "Newsletter supports two audience types. Internal is for your own team/users. External is for contacts (customers/leads).",
         steps: [
-          "Open Newsletter from Services.",
-          "Create a new campaign and pick the audience list or segment.",
-          "Write a subject line that sounds like you, not a template.",
-          "Add the main content and a clear call to action.",
+          "Internal newsletters: audience is portal users.",
+          "External newsletters: audience is contacts (often driven by tags).",
         ],
       },
       {
-        title: "Send and review",
-        body: "After you send, use basic stats to see what worked.",
+        title: "Create a newsletter (end-to-end)",
+        body: "Create the newsletter, write content, select audience, then send.",
         steps: [
-          "Schedule or send immediately when you are ready.",
-          "After sends go out, review opens and clicks to see which topics land best.",
+          "Open Services → Newsletter.",
+          "Click Create.",
+          "Choose kind: Internal or External.",
+          "Write a clear subject/title and the main content.",
+          "If the editor supports it, insert variables for personalization and attach media from Media Library.",
+          "Select your audience (tags/contacts/emails for External; users/all-users for Internal).",
+          "Send a test to yourself if test-send is available.",
+          "Send (or schedule, if scheduling is enabled).",
+        ],
+      },
+      {
+        title: "Audience selection (all actions)",
+        body: "Audience controls are the difference between a clean send and a messy one.",
+        steps: [
+          "For External: add Tags to target segments (recommended for repeatability).",
+          "For External: add Contacts by searching from People.",
+          "For External: add explicit Emails for one-off sends.",
+          "For Internal: choose specific Users or enable Send to all users.",
+          "Review the audience summary before sending.",
         ],
       },
       {
@@ -265,32 +416,46 @@ const TUTORIALS: Record<string, TutorialConfig> = {
           "If a campaign will not send, confirm your sending domain or email is verified in your account settings.",
           "If contacts say they did not receive it, check that they are actually on the list or segment you picked and that they are not unsubscribed.",
           "Always send a test email to yourself before a big send so you can see how it looks in a real inbox.",
+          "If you do not see contacts in the picker, confirm you are creating an External newsletter.",
         ],
       },
     ],
   },
   booking: {
-    intro: "Booking Automation reduces back and forth so more people end up on your calendar.",
+    intro:
+      "Booking Automation gives you a hosted booking site and calendars, shows appointments, and runs reminders/follow-up rules so leads book faster and no-shows drop.",
     sections: [
       {
-        title: "How it should feel",
-        body: "Leads click one link, pick a time, and get confirmation without long text or email chains.",
-      },
-      {
-        title: "Connect your calendar",
-        body: "Connect the calendar you actually use so the portal can see your real availability.",
+        title: "Core areas in Booking Automation",
+        body: "Booking is typically split into: Appointments, Reminders, and Settings. Availability is edited in a dedicated availability editor.",
         steps: [
-          "Open Booking Automation from Services.",
-          "Connect the calendar provider you use every day.",
-          "Confirm your time zone and default availability windows.",
+          "Appointments: view upcoming bookings (week/month views).",
+          "Reminders: configure rules that send SMS/email or apply tags before/after appointments.",
+          "Settings: booking site details, time zone, calendars you offer, and public link settings.",
+          "Availability: set weekly hours and blocks, then save.",
         ],
       },
       {
-        title: "Share your booking link",
-        body: "Use one booking link anywhere you currently ask people to call or text.",
+        title: "Set up your booking site (end-to-end)",
+        body: "The safest path is: configure site → create calendar(s) → set availability → test a booking → turn on reminders.",
         steps: [
-          "Copy your public booking link from the Booking Automation page.",
-          "Add it to your website, email signature, SMS follow ups, and ads.",
+          "Open Services → Booking Automation.",
+          "Open Settings and confirm your public site title, time zone, and default meeting details.",
+          "Create or select a booking calendar (service) and set its duration, location, and notification emails.",
+          "Open Availability to set your weekly hours (and any blocks). Save changes.",
+          "Copy your public booking link and run a test booking for yourself.",
+          "Confirm the appointment appears in Appointments and the confirmation details look correct.",
+        ],
+      },
+      {
+        title: "Reminders (SMS / Email / Tag actions)",
+        body: "Reminders are rule-based. Each reminder can send SMS, send email, or apply a tag at a scheduled offset from the appointment.",
+        steps: [
+          "Open Reminders.",
+          "Choose a template (or start from scratch) and edit the message.",
+          "Use Insert variable to personalize messages (name, time, location, links).",
+          "Configure timing (for example: 24 hours before, 2 hours before, 30 minutes after).",
+          "Save and run a test booking to confirm reminders queue correctly.",
         ],
       },
       {
@@ -300,24 +465,35 @@ const TUTORIALS: Record<string, TutorialConfig> = {
           "If times show as available when you are already busy, confirm the correct calendar is connected and that busy events are visible to the portal.",
           "If no times show at all, check your availability window settings and time zone.",
           "If confirmations are not going out, check that email and SMS notifications are enabled in booking settings.",
+          "If reminders are not sending, confirm reminders are enabled and your SMS/email channels are configured.",
         ],
       },
     ],
   },
   "ai-outbound-calls": {
-    intro: "AI outbound automatically places calls based on tags or lists so you do not have to dial one by one.",
+    intro:
+      "AI outbound runs outbound calling campaigns using your targeting rules, scripts, and tagging. It supports manual test calls, call/message activity, and campaign-level settings.",
     sections: [
       {
-        title: "How it should feel",
-        body: "You define who should be called and what the goal is. The system works that list for you, and you check the results instead of dialing.",
+        title: "What you can do",
+        body: "AI outbound is organized into Calls, Messages, and Settings. Most workflows start in Settings, then you test with Manual calls, then you activate a campaign.",
+        steps: [
+          "Calls: campaign list, activity counts, recent call activity, manual call testing and transcripts.",
+          "Messages: message activity related to campaigns and enrollments.",
+          "Settings: scripts, agent behavior, tagging rules, and campaign configuration.",
+        ],
       },
       {
-        title: "Choose your targets",
-        body: "Decide which contacts should receive outbound calls and what the script should cover.",
+        title: "Create a campaign (end-to-end)",
+        body: "Launch safely: create campaign → set targeting tags → write script → run manual tests → activate.",
         steps: [
-          "Open AI outbound from Services.",
-          "Pick the tags, list, or segment that defines who you want to call.",
-          "Write a script that clearly states who you are, why you are calling, and what the next step should be if they are interested.",
+          "Open Services → AI outbound calls.",
+          "Click Create campaign.",
+          "Set status to Draft while you configure it.",
+          "Choose which contact tags enroll someone (and which tags exclude them).",
+          "Write the call script and define a clear goal (book appointment, confirm details, qualify lead).",
+          "Configure call-outcome tagging so results automatically update the contact for downstream automations.",
+          "Run a few Manual calls and read the transcript before setting the campaign to Active.",
         ],
       },
       {
@@ -340,6 +516,16 @@ const TUTORIALS: Record<string, TutorialConfig> = {
         ],
       },
       {
+        title: "Manual calls + transcript review",
+        body: "Manual calls let you validate behavior without enrolling a large group. Treat transcripts as your feedback loop.",
+        steps: [
+          "Use Manual call to call a known test number.",
+          "Verify the opener matches your script and that it collects the info you need.",
+          "Adjust the prompt/script, then run another manual call.",
+          "Once behavior is consistent, activate the campaign and add enrollment tags to a small group.",
+        ],
+      },
+      {
         title: "Troubleshooting",
         body: "If calls are not going out:",
         steps: [
@@ -351,71 +537,142 @@ const TUTORIALS: Record<string, TutorialConfig> = {
     ],
   },
   "lead-scraping": {
-    intro: "Lead Scraping pulls fresh leads on a schedule so you always have new people to talk to.",
+    intro:
+      "Lead Scraping pulls targeted leads (B2B and, if unlocked, B2C). You can review leads, export to CSV, and optionally trigger outbound (email/SMS/calls) manually or automatically.",
     sections: [
       {
-        title: "How it should feel",
-        body: "You set the search once, then new leads quietly show up on the schedule you choose.",
+        title: "Tabs + sub-tabs (B2B vs B2C)",
+        body: "Lead Scraping supports B2B and (if entitled) B2C. B2B commonly has Pull and Settings sub-tabs plus outbound configuration.",
+        steps: [
+          "B2B → Pull: run pulls and review results.",
+          "B2B → Settings: saved filters, exclusions, schedule, and requirements (like requiring email).",
+          "B2C: similar flow if unlocked.",
+          "Outbound: configure templates and triggers for email/SMS/calls.",
+        ],
       },
       {
-        title: "Run a search",
-        body: "Set filters once, then reuse them.",
+        title: "Run a pull (end-to-end)",
+        body: "Start with a small pull so you can validate lead quality before scheduling it.",
         steps: [
           "Open Lead Scraping from Services.",
-          "Pick the niche and geography you care about.",
-          "Exclude any lists you already have so you do not pay for duplicates.",
-          "Choose how many leads you want in each run.",
+          "Choose B2B (or B2C if unlocked).",
+          "Set niche/keywords and geography.",
+          "Set exclusions (names/domains/phones) so you avoid duplicates and existing customers.",
+          "Choose whether email is required (higher quality but fewer results).",
+          "Run a pull and review results.",
+          "Apply tags to good leads so downstream workflows can target them.",
+          "Export results to CSV if you need to review offline.",
+        ],
+      },
+      {
+        title: "Scheduling (set-it-and-forget-it)",
+        body: "Scheduling runs pulls automatically on your chosen frequency. Always validate a manual pull first.",
+        steps: [
+          "Open Settings for the chosen tab (B2B/B2C).",
+          "Enable the schedule toggle.",
+          "Set frequency and quantity.",
+          "Confirm the next run happens and that credits are sufficient.",
+        ],
+      },
+      {
+        title: "Outbound actions (manual / on scrape / on approve)",
+        body: "Outbound can be triggered manually from a lead, automatically when scraped, or only after you approve.",
+        steps: [
+          "Configure outbound templates for Email and SMS (and Calls if unlocked).",
+          "Pick a trigger mode: Manual, On scrape, or On approve.",
+          "Use Insert variable to personalize with lead fields (business name, website, niche, location).",
+          "When reviewing a lead, use Approve to mark it approved (and trigger outbound if configured).",
+          "Use Send now actions when trigger mode is Manual.",
         ],
       },
       {
         title: "Troubleshooting",
         body: "When results do not match what you had in mind:",
         steps: [
-          "If you see too many past leads, double check your exclusion lists and make sure they include your existing customers.",
-          "If there are very few results, broaden your niche keywords or radius and try again.",
-          "If a scheduled job did not run, confirm the schedule is turned on and that there were enough credits available for that pull.",
+          "Too many duplicates: tighten exclusions and confirm schedule settings are not re-pulling the same filters.",
+          "Too few results: broaden keywords/geography or disable 'require email' temporarily.",
+          "Scheduled job did not run: confirm schedule enabled and you have enough credits.",
+          "Outbound did not send: confirm trigger mode, required channels (email/phone) exist on the lead, and settings are saved.",
         ],
       },
     ],
   },
   automations: {
-    intro: "Automation Builder lets you connect triggers and steps so the portal can handle repetitive work.",
+    intro:
+      "Automation Builder lets you build if-this-then-that workflows using triggers, actions, delays, and conditions. It is the glue between services (Inbox, Booking, Tasks, AI services, tags, and more).",
     sections: [
       {
-        title: "How it should feel",
-        body: "You set simple if this, then that style rules. After that, the system quietly runs them every time without you thinking about it.",
+        title: "Builder blocks (all node types)",
+        body: "Automations are built from nodes. Each node has settings. Keep each automation simple, testable, and tied to one outcome.",
+        steps: [
+          "Trigger: what starts the automation (manual, inbound SMS, inbound email, booking, tags, missed call, etc.).",
+          "Action: what the system does (send SMS, send email, create task, add/remove tag, trigger a service).",
+          "Delay: wait a period (minutes/hours/days/weeks/months) before continuing.",
+          "Condition: branch logic based on fields/variables (equals/contains/starts with/etc.).",
+          "Note: use notes to document why a step exists (helps teams maintain workflows).",
+        ],
       },
       {
-        title: "Start a simple flow",
-        body: "Always start with one clear trigger and one outcome.",
+        title: "Create a simple automation (recommended first build)",
+        body: "Start with a single trigger and a single outcome. Expand only after it works.",
         steps: [
           "Open Automation Builder from Services.",
-          "Create a new automation and choose a single trigger, for example new lead, booked appointment, or missed call.",
-          "Add one or two steps such as send SMS, send email, or create a task.",
-          "Turn the automation on and save.",
+          "Click New automation.",
+          "Pick one trigger (for example: inbound SMS).",
+          "Add one action (for example: create a task or send an SMS reply).",
+          "Use the variable picker to personalize messages safely.",
+          "Add a delay node if you do not want immediate follow-up.",
+          "Save the automation and make sure it is not paused.",
+        ],
+      },
+      {
+        title: "Conditions + delays (common advanced patterns)",
+        body: "Conditions let you route different outcomes; delays let you space follow-ups and avoid spamming.",
+        steps: [
+          "Add a Condition node to check contact fields/tags (example: only send if contact.email exists).",
+          "Add a Delay before follow-ups (for example 1 day) to keep spacing consistent.",
+          "Prefer a few clear conditions over complex nested logic.",
         ],
       },
       {
         title: "Troubleshooting",
         body: "If automations do not fire:",
         steps: [
-          "Confirm the automation is turned on. Draft or paused automations will not run.",
-          "Trigger a small test event that clearly matches the trigger conditions (for example, create a test contact with the right tag).",
-          "Check logs or recent activity on the related service (Tasks, Inbox, AI Receptionist) to see whether any steps ran.",
+          "Confirm the automation is saved and not paused.",
+          "Trigger a small test event that matches the trigger exactly.",
+          "Check downstream services (Inbox/Tasks/AI services) to confirm whether actions ran.",
+          "If conditions are used, temporarily simplify the automation to isolate the failing step.",
         ],
       },
     ],
   },
   blogs: {
-    intro: "Automated Blogs keep content going out without a weekly scramble.",
+    intro:
+      "Automated Blogs lets you run a hosted blog with posts, automation rules, and settings (including optional custom domains). You can draft, generate with AI, schedule, publish, archive, and delete posts.",
     sections: [
       {
-        title: "How it should feel",
-        body: "You approve topics and guardrails once, then new posts keep showing up on a schedule.",
+        title: "Tabs (posts / automation / settings)",
+        body: "Blogs is split into Posts (your content list), Automation (how drafts are generated), and Settings (site + domain).",
+        steps: [
+          "Posts: create, edit, publish, schedule, archive, delete.",
+          "Automation: define topics/guardrails so drafts are consistent.",
+          "Settings: configure the hosted site handle and optional custom domain.",
+        ],
       },
       {
-        title: "Set topics",
-        body: "Tell the system what topics you want to write about and how often you want posts to go out.",
+        title: "Create and edit a post (end-to-end)",
+        body: "Typical flow: create post → draft content → generate/adjust → set SEO → publish or schedule.",
+        steps: [
+          "Open Services → Automated Blogs → Posts.",
+          "Create a new post (or open an existing draft).",
+          "Edit title, content, and excerpt.",
+          "Optional: use AI Generate to create content (review and edit before publishing).",
+          "Set SEO keywords if you want the post optimized for specific search terms.",
+          "Add/replace images using Media Library when possible.",
+          "Publish immediately, or set a schedule time.",
+          "Archive posts you no longer want visible without deleting history.",
+          "Delete only when you truly want it removed permanently.",
+        ],
       },
       {
         title: "Troubleshooting",
@@ -423,6 +680,7 @@ const TUTORIALS: Record<string, TutorialConfig> = {
         steps: [
           "Confirm the blog service is turned on in your Services page.",
           "Check that you have enough credits for the period when posts should be generated.",
+          "Confirm automation settings are saved and cadence/topic rules are defined.",
         ],
       },
     ],
@@ -484,15 +742,31 @@ const TUTORIALS: Record<string, TutorialConfig> = {
     ],
   },
   "nurture-campaigns": {
-    intro: "Nurture Campaigns keep leads warm with simple, spaced out touch points.",
+    intro:
+      "Nurture Campaigns runs multi-step follow-up sequences (SMS/email and more) with delays, templates, and audience targeting via tags.",
     sections: [
       {
-        title: "How it should feel",
-        body: "Leads who are not ready yet still hear from you on a calm, regular schedule.",
+        title: "Campaign lifecycle + what you can edit",
+        body: "Campaigns move through DRAFT / ACTIVE / PAUSED / ARCHIVED. While in draft you build steps and audience; active campaigns enroll contacts that match the audience rules.",
+        steps: [
+          "Audience: one or more contact tags define who enrolls.",
+          "Steps: each step has a channel and a delay from the previous step.",
+          "Templates: apply a template to quickly create a full sequence.",
+          "Variables: use Insert variable for personalization.",
+        ],
       },
       {
-        title: "Build a sequence",
-        body: "Map out a short sequence of messages that make sense for your buyers.",
+        title: "Create a campaign (end-to-end)",
+        body: "Start with one short sequence. You can always add steps later.",
+        steps: [
+          "Open Services → Nurture Campaigns.",
+          "Click Create campaign.",
+          "Name the campaign and leave it in DRAFT while you build.",
+          "Select audience tags (or create a new tag).",
+          "Add steps: choose channel, write copy, and set delay timing.",
+          "Save and run a small test by tagging a test contact.",
+          "When ready, set the campaign to ACTIVE.",
+        ],
       },
       {
         title: "Troubleshooting",
@@ -500,6 +774,8 @@ const TUTORIALS: Record<string, TutorialConfig> = {
         steps: [
           "Shorten very long sequences so the main value is clear sooner.",
           "Make sure each message has one job: educate, remind, or ask for a small next step.",
+          "Confirm the campaign is ACTIVE and that contacts actually have the audience tags.",
+          "If messages are not sending, confirm SMS/email channels are configured and the contact has valid contact info.",
         ],
       },
     ],
@@ -592,28 +868,58 @@ const TUTORIALS: Record<string, TutorialConfig> = {
     ],
   },
   people: {
-    intro: "People is the list of contacts your portal knows about so you can see context in one place.",
+    intro:
+      "People is your CRM layer: contacts, tags, custom variables, linked leads, and cross-service history (inbox threads, bookings, reviews). It also includes user management and duplicates cleanup.",
     sections: [
       {
-        title: "How it should feel",
-        body: "You can quickly search for someone and see the basics: who they are, how to reach them, and any key tags.",
+        title: "People areas (tabs)",
+        body: "People includes Contacts, Users, and Duplicates. Contacts is the main workspace; Users is for team members; Duplicates helps clean data.",
+        steps: [
+          "Contacts: search, view details, edit tags and custom variables, import contacts, and link unlinked leads.",
+          "Users: review who has access and their role/status.",
+          "Duplicates: review duplicate groups (often grouped by phone) and clean up data quality issues.",
+        ],
       },
       {
-        title: "Daily workflow",
-        body: "Use People when you need a clean list or you are looking someone up.",
+        title: "Search and review a contact (daily workflow)",
+        body: "Use People → Contacts as the source of truth when you need to understand a person across services.",
         steps: [
-          "Open People from the left sidebar when you want a list view instead of an individual thread.",
-          "Search by name, email, or phone when you need to pull up a contact.",
-          "Use tags (when available) to group contacts by stage, interest, or segment.",
+          "Open People → Contacts.",
+          "Search by name, email, or phone.",
+          "Open a contact to view details: tags, custom variables, linked leads, inbox threads, bookings, and reviews.",
+          "Update tags to reflect stage/intent (these tags drive automations and campaign audiences).",
+          "Edit custom variables to improve personalization in templates and automations.",
+        ],
+      },
+      {
+        title: "Add contacts (manual and CSV import)",
+        body: "You can add contacts one-by-one or in bulk. Import supports mapping columns and handling duplicates.",
+        steps: [
+          "In Contacts, click Add contacts.",
+          "Choose Manual to add a single contact: name, email, phone, and tags.",
+          "Use Create tag if you need a new tag during entry.",
+          "Choose CSV to upload a file and map columns (name/first/last/email/phone/tags).",
+          "Review the import preview, then import.",
+          "If duplicates are detected, review the result and choose whether to add duplicates anyway.",
+        ],
+      },
+      {
+        title: "Unlinked leads (link leads to contacts)",
+        body: "If you have leads that exist but are not linked to a contact, link them so history and automations have a single record.",
+        steps: [
+          "In Contacts, scroll to the Unlinked leads section.",
+          "Open a lead and link it to the correct contact (or create a new contact if needed).",
+          "After linking, confirm the lead appears in the contact detail under Leads.",
         ],
       },
       {
         title: "Troubleshooting",
         body: "If a person or detail is missing:",
         steps: [
-          "If you expected someone to be in People, check whether they have interacted with your portal yet (email, SMS, booking, or lead import).",
-          "If a contact appears twice, confirm that their email and phone match; merge or clean up duplicates where needed.",
-          "If tags do not look right, review how automations or imports are assigning them before editing by hand.",
+          "Expected contact missing: confirm they were imported or interacted with a service that creates contacts.",
+          "Duplicates: use People → Duplicates to identify duplicate groups.",
+          "Tags look wrong: check automations and imports that assign tags so you fix the source, not just the symptom.",
+          "Variables missing in templates: ensure the custom variable key/value exists on the contact and the key matches what the variable picker expects.",
         ],
       },
     ],
@@ -676,11 +982,17 @@ const TUTORIALS: Record<string, TutorialConfig> = {
     ],
   },
   profile: {
-    intro: "Profile is where you manage your own login details, contact info, and key integrations tied to your user account.",
+    intro:
+      "Profile is where you manage your own login details, notification targets, and integrations (like Twilio) that power phone/SMS services across the portal.",
     sections: [
       {
-        title: "How it should feel",
-        body: "You can update your email, password, and notification details confidently without breaking access to the portal.",
+        title: "What belongs in Profile",
+        body: "Profile is for user-scoped settings: your identity, notification info, and provider credentials used by services.",
+        steps: [
+          "Account: name, email, password.",
+          "Notifications: where you want alerts (email/phone).",
+          "Integrations: Twilio credentials and other keys used by services like AI Receptionist, Inbox SMS, and outbound calling.",
+        ],
       },
       {
         title: "Keeping your profile up to date",
@@ -689,6 +1001,7 @@ const TUTORIALS: Record<string, TutorialConfig> = {
           "Update your name and email when they change so notifications go to the right place.",
           "Set your phone number if you want SMS notifications or forwarding to your device.",
           "Add or update integration keys (such as Twilio or voice agent settings) when your provider credentials change.",
+          "After changing provider credentials, re-test services that depend on them (AI Receptionist, Inbox SMS, AI outbound calls).",
         ],
       },
       {
@@ -698,6 +1011,7 @@ const TUTORIALS: Record<string, TutorialConfig> = {
           "If changing your email, make sure you enter your current password correctly so the system can verify you.",
           "If profile updates fail, double check that any integration keys you paste are complete and active in the provider.",
           "If notifications stop after an email change, log out and back in once so your session fully refreshes, then confirm the email on Profile matches what you expect.",
+          "If phone/SMS services stop working, confirm Twilio credentials are valid and that your Twilio numbers still exist in the same Twilio project.",
         ],
       },
     ],
@@ -762,6 +1076,7 @@ const TUTORIALS: Record<string, TutorialConfig> = {
           "Open Dashboard to see the default snapshot and make sure it loads without errors.",
           "Click Services and skim the list so you know what is available in your plan.",
           "Turn on one or two core services you care about most right now (for example AI Receptionist, Inbox, or Booking).",
+          "Open Tutorials and pick one service to fully configure end-to-end today (setup → test → go live).",
         ],
       },
       {
@@ -771,6 +1086,7 @@ const TUTORIALS: Record<string, TutorialConfig> = {
           "Visit Profile to confirm your email, phone, and any integrations like Twilio are set correctly.",
           "If you plan to use phone features, connect your Twilio number and set the correct webhooks from the related tutorial pages.",
           "If you rely on bookings, connect your calendar and test that you can create a test appointment.",
+          "If you plan to publish public pages, set up Funnel Builder domains early because DNS changes can take time to propagate.",
         ],
       },
       {
@@ -789,6 +1105,7 @@ const TUTORIALS: Record<string, TutorialConfig> = {
           "If you do not see any activity, double check that at least one service is turned on and properly connected (phone, calendar, email).",
           "If you are not sure what to do next, open the Tutorials page and pick the guide that matches the service you care about most.",
           "If data looks wrong, confirm you are in the right portal account and that test events (like test calls or bookings) are actually happening.",
+          "If domains or webhooks are involved, test in an incognito window to avoid cached sessions and stale DNS.",
         ],
       },
     ],
