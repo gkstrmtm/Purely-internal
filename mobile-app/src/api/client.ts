@@ -12,11 +12,13 @@ export class ApiError extends Error {
 }
 
 export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
-  if (!AppConfig.apiBaseUrl) throw new Error("EXPO_PUBLIC_API_BASE_URL is not set");
+  const base = (AppConfig.apiBaseUrl || "").trim();
+  const normalizedPath = path.startsWith("/") ? path : `/${path}`;
+  const url = base ? `${base.replace(/\/$/, "")}${normalizedPath}` : normalizedPath;
 
-  const url = `${AppConfig.apiBaseUrl.replace(/\/$/, "")}\/${path.replace(/^\//, "")}`;
   const res = await fetch(url, {
     ...init,
+    credentials: init?.credentials ?? "include",
     headers: {
       "Content-Type": "application/json",
       ...(init?.headers ?? {}),
@@ -28,5 +30,13 @@ export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> 
     throw new ApiError(`Request failed: ${res.status}`, res.status, text);
   }
 
-  return (await res.json()) as T;
+  const text = await res.text().catch(() => "");
+  if (!text) return undefined as T;
+
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    // Some endpoints may return non-JSON (rare). Keep it usable.
+    return text as unknown as T;
+  }
 }

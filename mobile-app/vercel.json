@@ -4,6 +4,14 @@
   "outputDirectory": "dist",
   "devCommand": "npm run web",
   "rewrites": [
+    {
+      "source": "/portal/api/(.*)",
+      "destination": "https://purely-internal-i5d62brbc-tabari-ropers-projects-6f2e090b.vercel.app/portal/api/$1"
+    },
+    {
+      "source": "/api/(.*)",
+      "destination": "https://purely-internal-i5d62brbc-tabari-ropers-projects-6f2e090b.vercel.app/api/$1"
+    },
     { "source": "/(.*)", "destination": "/index.html" }
   ]
 }
