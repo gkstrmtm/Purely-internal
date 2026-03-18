@@ -11,6 +11,16 @@ This folder is a **completely separate** mobile app project (React Native + Expo
 
 If you ever see an import that reaches outside `mobile-app/`, treat it as a bug.
 
+## Portal source-of-truth (do not change)
+
+This is the **source-of-truth Portal deployment URL from before mobile app work**:
+
+- https://purely-internal-i5d62brbc-tabari-ropers-projects-6f2e090b.vercel.app
+
+Hard rule:
+- **Never change** the existing Vercel project that deploys the repo root (Next.js portal).
+- The mobile app must always be deployed as a **separate** Vercel project with **Root Directory = `mobile-app`**.
+
 ## What this is right now
 
 This is a **prepared scaffold** so we can build a mobile version of the same product UX without risking the current web app.
