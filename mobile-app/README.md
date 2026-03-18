@@ -36,6 +36,37 @@ Then press:
 - `a` for Android emulator
 - or scan the QR with Expo Go
 
+## View in a browser (GitHub → Vercel)
+
+If you want to **view this in a browser** (and use Chrome device emulation), deploy it as a **separate Vercel project** that points at this folder.
+
+1) Push the branch you want to view to GitHub
+
+2) In Vercel:
+- Click **Add New… → Project**
+- Import the same GitHub repo
+- In **Project Settings**, set **Root Directory** to `mobile-app`
+
+3) Build settings
+
+You can leave them default if Vercel picks them up, but the expected values are:
+- **Install Command**: `npm install`
+- **Build Command**: `npm run build`
+- **Output Directory**: `dist`
+
+These are also defined in `mobile-app/vercel.json` (as long as the project Root Directory is `mobile-app`).
+
+4) Environment Variables (optional now, required later)
+
+Add `EXPO_PUBLIC_API_BASE_URL` in the Vercel project env vars (Preview + Production) when you’re ready to connect to the backend.
+
+5) Deploy
+
+After deploy, open the Vercel URL and in Chrome use:
+- **DevTools → Toggle Device Toolbar** (mobile emulator)
+
+Important: this does **not** change or deploy your existing Next.js web app unless you point a Vercel project at the repo root. Keep this project’s Root Directory set to `mobile-app`.
+
 ## Environment
 
 Copy the example env file:
