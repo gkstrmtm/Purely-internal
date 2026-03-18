@@ -33,21 +33,42 @@ export default function RootApp() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const isWeb = Platform.OS === 'web' && typeof window !== 'undefined';
+
   useEffect(() => {
     let mounted = true;
     (async () => {
       const user = await portalMe().catch(() => null);
       if (!mounted) return;
       setMe(user);
+      if (isWeb && user) {
+        window.location.replace('/portal/app');
+        return;
+      }
       setScreen(user ? 'home' : 'login');
     })();
     return () => { mounted = false; };
-  }, []);
+  }, [isWeb]);
 
   async function refreshMe() {
     const user = await portalMe().catch(() => null);
     setMe(user);
+    if (isWeb && user) {
+      window.location.replace('/portal/app');
+      return;
+    }
     setScreen(user ? 'home' : 'login');
+  }
+
+  if (isWeb && screen === 'signup') {
+    // Don't try to recreate the onboarding wizard in RN-web.
+    // Load the real portal get-started page so it matches exactly.
+    window.location.replace('/portal/get-started');
+    return (
+      <View style={styles.center}>
+        <ActivityIndicator size='large' color={BRAND_INK} />
+      </View>
+    );
   }
 
   if (screen === 'home') {
@@ -147,16 +168,28 @@ export default function RootApp() {
               {screen === 'login' ? (
                 <>
                   <Text style={styles.footerText}>
-                    Need an account? <Text style={styles.linkText} onPress={() => { setError(null); setScreen('signup'); }}>Get started</Text>
+                    Need an account?{' '}
+                    <Text
+                      style={styles.linkText}
+                      onPress={() => {
+                        setError(null);
+                        if (Platform.OS === 'web' && typeof window !== 'undefined') {
+                          window.location.assign('/portal/get-started');
+                          return;
+                        }
+                        setScreen('signup');
+                      }}
+                    >
+                      Get started
+                    </Text>
                   </Text>
                   <Text style={[styles.footerText, { marginTop: 8 }]}>
                     Employee?{' '}
                     <Text
                       style={styles.linkText}
                       onPress={() => {
-                        if (typeof window !== 'undefined') {
-                          window.location.href = '/employeelogin';
-                        }
+                        if (typeof window === 'undefined') return;
+                        window.open('https://purelyautomation.com/employee-login', '_blank', 'noopener,noreferrer');
                       }}
                     >
                       Log in as an employee
