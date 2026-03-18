@@ -254,9 +254,9 @@ function SignupForm({ busy, onSubmit }: { busy: boolean; onSubmit: (f: any) => v
         })}
       </View>
 
-      {step === 4 && (
+      {step === 0 && (
         <>
-          <Text style={styles.stepTitle}>Account</Text>
+          <Text style={styles.stepTitle}>Business</Text>
           <View style={styles.field}>
             <Text style={styles.label}>Business name</Text>
             <TextInput style={styles.input} value={businessName} onChangeText={setBusinessName} editable={!busy} />
@@ -289,20 +289,8 @@ function SignupForm({ busy, onSubmit }: { busy: boolean; onSubmit: (f: any) => v
               <TextInput style={styles.input} value={websiteUrl} onChangeText={setWebsiteUrl} editable={!busy} />
             </View>
           )}
-            <View style={styles.chipRow}>
-            <Text style={styles.label}>About how many calls do you get per month?</Text>
-                <Pressable
-                  key={v}
-                  style={[styles.chip, hasWebsite === v ? styles.chipSelected : null]}
-                  onPress={() => setHasWebsite(v as any)}
-                >
-                  <Text style={hasWebsite === v ? styles.chipTextSelected : styles.chipText}>{v}</Text>
-                </Pressable>
-              ))}
-            </View>
-          </View>
           <View style={styles.field}>
-            <Text style={styles.label}>How many calls per month?</Text>
+            <Text style={styles.label}>About how many calls do you get per month?</Text>
             <View style={styles.chipRow}>
               {[
                 'NOT_SURE',
