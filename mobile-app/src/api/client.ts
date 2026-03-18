@@ -12,7 +12,12 @@ export class ApiError extends Error {
 }
 
 export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
-  const base = (AppConfig.apiBaseUrl || "").trim();
+  // Critical for web builds: keep requests same-origin so the portal session cookie
+  // (set by `/portal/api/login`) is attached to `/api/*` calls via Vercel rewrites.
+  // If we use an absolute base URL on web, the cookie will be stored on that other
+  // domain and `portalMe()` will never see the session.
+  const isBrowser = typeof window !== "undefined";
+  const base = isBrowser ? "" : (AppConfig.apiBaseUrl || "").trim();
   const normalizedPath = path.startsWith("/") ? path : `/${path}`;
   const url = base ? `${base.replace(/\/$/, "")}${normalizedPath}` : normalizedPath;
 

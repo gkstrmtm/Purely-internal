@@ -248,33 +248,57 @@ function SignupForm({ busy, onSubmit }: { busy: boolean; onSubmit: (f: any) => v
 
   return (
     <View style={styles.form}>
-      {/* Step indicator: Business → Goals → Plan → Services → Account */}
-      <View style={styles.stepperRow}>
+      {/* Step indicator: Business → Goals → Plan → Services → Account (match portal get-started pill stepper) */}
+      <View style={styles.stepperPillsRow}>
         {['Business', 'Goals', 'Plan', 'Services', 'Account'].map((label, index) => {
           const isActive = index === step;
+          const isComplete = index < step;
+          const isFuture = index > step;
           return (
-            <View key={label} style={[styles.stepperItem, isActive ? styles.stepperItemActive : null]}>
-              <Text style={isActive ? styles.stepperTextActive : styles.stepperText}>{label}</Text>
-            </View>
+            <Pressable
+              key={label}
+              onPress={() => {
+                if (index > step) return;
+                setStep(index as any);
+              }}
+              style={[
+                styles.stepperPill,
+                isActive ? styles.stepperPillActive : null,
+                isComplete ? styles.stepperPillComplete : null,
+                isFuture ? styles.stepperPillFuture : null,
+              ]}
+            >
+              <Text
+                numberOfLines={1}
+                style={isActive ? styles.stepperPillTextActive : isComplete ? styles.stepperPillTextComplete : styles.stepperPillTextFuture}
+              >
+                {label}
+              </Text>
+            </Pressable>
           );
         })}
       </View>
 
       {step === 0 && (
         <>
-          <Text style={styles.stepTitle}>Business</Text>
-          <View style={styles.field}>
-            <Text style={styles.label}>Business name</Text>
-            <TextInput style={styles.input} value={businessName} onChangeText={setBusinessName} editable={!busy} />
-          </View>
-          <View style={styles.field}>
-            <Text style={styles.label}>City</Text>
-            <TextInput style={styles.input} value={city} onChangeText={setCity} editable={!busy} />
-          </View>
-          <View style={styles.field}>
-            <Text style={styles.label}>State</Text>
-            <TextInput style={styles.input} value={state} onChangeText={setState} editable={!busy} />
-          </View>
+          <View style={styles.stepPanel}>
+            <Text style={styles.panelTitle}>Business basics</Text>
+            <Text style={styles.panelSubtitle}>We use this to personalize your portal and recommendations.</Text>
+
+            <View style={styles.field}>
+              <Text style={styles.label}>Business name</Text>
+              <TextInput style={styles.input} value={businessName} onChangeText={setBusinessName} editable={!busy} />
+            </View>
+            <View style={styles.twoColRow}>
+              <View style={styles.twoColItem}>
+                <Text style={styles.label}>City</Text>
+                <TextInput style={styles.input} value={city} onChangeText={setCity} editable={!busy} />
+              </View>
+              <View style={styles.twoColItem}>
+                <Text style={styles.label}>State</Text>
+                <TextInput style={styles.input} value={state} onChangeText={setState} editable={!busy} />
+              </View>
+            </View>
           <View style={styles.field}>
             <Text style={styles.label}>Do you already have a website?</Text>
             <View style={styles.chipRow}>
@@ -358,74 +382,84 @@ function SignupForm({ busy, onSubmit }: { busy: boolean; onSubmit: (f: any) => v
             <Text style={styles.label}>Referral code (optional)</Text>
             <TextInput style={styles.input} value={referralCode} onChangeText={setReferralCode} editable={!busy} />
           </View>
-          <Pressable
-            style={[styles.primaryButton, (!canNextFromBusiness || busy) ? styles.buttonDisabled : null]}
-            onPress={() => canNextFromBusiness && !busy && setStep(1)}
-            disabled={!canNextFromBusiness || busy}
-          >
-            <Text style={styles.primaryButtonText}>Continue</Text>
-          </Pressable>
+            <Pressable
+              style={[styles.primaryButton, (!canNextFromBusiness || busy) ? styles.buttonDisabled : null]}
+              onPress={() => canNextFromBusiness && !busy && setStep(1)}
+              disabled={!canNextFromBusiness || busy}
+            >
+              <Text style={styles.primaryButtonText}>Continue</Text>
+            </Pressable>
+          </View>
         </>
       )}
 
       {step === 1 && (
         <>
-          <Text style={styles.stepTitle}>Goals</Text>
-          <View style={styles.chipRowWrap}>
-            {goals.map((g) => (
-              <Pressable
-                key={g.id}
-                style={[styles.chip, goalIds.includes(g.id) ? styles.chipSelected : null]}
-                onPress={() => toggleGoal(g.id)}
-              >
-                <Text style={goalIds.includes(g.id) ? styles.chipTextSelected : styles.chipText}>{g.label}</Text>
+          <View style={styles.stepPanel}>
+            <Text style={styles.panelTitle}>Top goals</Text>
+            <Text style={styles.panelSubtitle}>Pick a few—we’ll recommend services based on these.</Text>
+            <View style={styles.chipRowWrap}>
+              {goals.map((g) => (
+                <Pressable
+                  key={g.id}
+                  style={[styles.chip, goalIds.includes(g.id) ? styles.chipSelected : null]}
+                  onPress={() => toggleGoal(g.id)}
+                >
+                  <Text style={goalIds.includes(g.id) ? styles.chipTextSelected : styles.chipText}>{g.label}</Text>
+                </Pressable>
+              ))}
+            </View>
+            <View style={styles.stepButtonsRow}>
+              <Pressable style={[styles.secondaryButton]} onPress={() => setStep(0)}>
+                <Text style={styles.secondaryButtonText}>Back</Text>
               </Pressable>
-            ))}
-          </View>
-          <View style={styles.stepButtonsRow}>
-            <Pressable style={[styles.secondaryButton]} onPress={() => setStep(0)}>
-              <Text style={styles.secondaryButtonText}>Back</Text>
-            </Pressable>
-            <Pressable style={[styles.primaryButton]} onPress={() => setStep(2)}>
-              <Text style={styles.primaryButtonText}>Continue</Text>
-            </Pressable>
+              <Pressable style={[styles.primaryButton]} onPress={() => setStep(2)}>
+                <Text style={styles.primaryButtonText}>Continue</Text>
+              </Pressable>
+            </View>
           </View>
         </>
       )}
 
       {step === 2 && (
         <>
-          <Text style={styles.stepTitle}>Plan</Text>
-          <Text style={styles.stepSubtitle}>We’ll start you on the Core credits plan so you can get into the portal quickly. You can adjust your plan later from the full portal.</Text>
-          <View style={styles.stepButtonsRow}>
-            <Pressable style={[styles.secondaryButton]} onPress={() => setStep(1)}>
-              <Text style={styles.secondaryButtonText}>Back</Text>
-            </Pressable>
-            <Pressable style={[styles.primaryButton]} onPress={() => setStep(3)}>
-              <Text style={styles.primaryButtonText}>Continue</Text>
-            </Pressable>
+          <View style={styles.stepPanel}>
+            <Text style={styles.panelTitle}>Plan</Text>
+            <Text style={styles.panelSubtitle}>We’ll start you on the Core plan so you can get into the portal quickly. You can adjust later in Billing.</Text>
+            <View style={styles.stepButtonsRow}>
+              <Pressable style={[styles.secondaryButton]} onPress={() => setStep(1)}>
+                <Text style={styles.secondaryButtonText}>Back</Text>
+              </Pressable>
+              <Pressable style={[styles.primaryButton]} onPress={() => setStep(3)}>
+                <Text style={styles.primaryButtonText}>Continue</Text>
+              </Pressable>
+            </View>
           </View>
         </>
       )}
 
       {step === 3 && (
         <>
-          <Text style={styles.stepTitle}>Services</Text>
-          <Text style={styles.stepSubtitle}>We’ll turn on the core services that support your goals. You can fine-tune services later from the desktop portal.</Text>
-          <View style={styles.stepButtonsRow}>
-            <Pressable style={[styles.secondaryButton]} onPress={() => setStep(2)}>
-              <Text style={styles.secondaryButtonText}>Back</Text>
-            </Pressable>
-            <Pressable style={[styles.primaryButton]} onPress={() => setStep(4)}>
-              <Text style={styles.primaryButtonText}>Continue</Text>
-            </Pressable>
+          <View style={styles.stepPanel}>
+            <Text style={styles.panelTitle}>Services</Text>
+            <Text style={styles.panelSubtitle}>We’ll start you with the core portal. You can add more services after you’re in.</Text>
+            <View style={styles.stepButtonsRow}>
+              <Pressable style={[styles.secondaryButton]} onPress={() => setStep(2)}>
+                <Text style={styles.secondaryButtonText}>Back</Text>
+              </Pressable>
+              <Pressable style={[styles.primaryButton]} onPress={() => setStep(4)}>
+                <Text style={styles.primaryButtonText}>Continue</Text>
+              </Pressable>
+            </View>
           </View>
         </>
       )}
 
       {step === 4 && (
         <>
-          <Text style={styles.stepTitle}>Account</Text>
+          <View style={styles.stepPanel}>
+          <Text style={styles.panelTitle}>Account</Text>
+          <Text style={styles.panelSubtitle}>Create your login so you can access the portal.</Text>
           <View style={styles.field}>
             <Text style={styles.label}>Name</Text>
             <TextInput style={styles.input} value={name} onChangeText={setName} editable={!busy} />
@@ -518,6 +552,7 @@ function SignupForm({ busy, onSubmit }: { busy: boolean; onSubmit: (f: any) => v
               <Text style={styles.primaryButtonText}>{busy ? 'Creating account...' : 'Create account'}</Text>
             </Pressable>
           </View>
+          </View>
         </>
       )}
     </View>
@@ -575,13 +610,39 @@ const styles = StyleSheet.create({
   },
   primaryButtonText: { fontSize: 16, fontWeight: '600', color: '#ffffff' },
   buttonDisabled: { opacity: 0.6 },
-  stepperRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 },
-  stepperItem: { flex: 1, paddingVertical: 4, alignItems: 'center' },
-  stepperItemActive: { borderBottomWidth: 2, borderBottomColor: BRAND_INK },
-  stepperText: { fontSize: 12, color: ZINC_600 },
-  stepperTextActive: { fontSize: 12, fontWeight: '600', color: ZINC_900 },
-  stepTitle: { fontSize: 18, fontWeight: '600', color: ZINC_900, marginBottom: 12 },
-  stepSubtitle: { fontSize: 14, color: ZINC_600, marginBottom: 20 },
+
+  // Portal-like stepper pills
+  stepperPillsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 8 },
+  stepperPill: {
+    flexGrow: 1,
+    flexBasis: '48%',
+    borderRadius: 999,
+    borderWidth: 1,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    alignItems: 'center',
+    backgroundColor: '#ffffff',
+  },
+  stepperPillActive: { backgroundColor: BRAND_INK, borderColor: BRAND_INK },
+  stepperPillComplete: { backgroundColor: '#fafafa', borderColor: ZINC_200 },
+  stepperPillFuture: { backgroundColor: '#ffffff', borderColor: ZINC_200 },
+  stepperPillTextActive: { fontSize: 12, fontWeight: '600', color: '#ffffff' },
+  stepperPillTextComplete: { fontSize: 12, fontWeight: '600', color: '#3f3f46' },
+  stepperPillTextFuture: { fontSize: 12, fontWeight: '600', color: '#a1a1aa' },
+
+  // Portal-like nested panels per step
+  stepPanel: {
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: ZINC_200,
+    backgroundColor: '#ffffff',
+    padding: 16,
+  },
+  panelTitle: { fontSize: 14, fontWeight: '600', color: ZINC_900 },
+  panelSubtitle: { fontSize: 14, color: ZINC_600, marginTop: 4, marginBottom: 16 },
+  twoColRow: { flexDirection: 'row', gap: 12 },
+  twoColItem: { flex: 1 },
+
   chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 8 },
   chipRowWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 12 },
   chip: {
