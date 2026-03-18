@@ -27,6 +27,7 @@ export type PortalSignupInput = {
   selectedServiceSlugs?: string[];
   selectedPlanIds?: string[];
   selectedPlanQuantities?: Record<string, number>;
+  referralCode?: string;
   couponCode?: string;
   billingPreference?: "credits" | "subscription";
   selectedBundleId?: "launch-kit" | "sales-loop" | "brand-builder" | null;

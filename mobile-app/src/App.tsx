@@ -184,6 +184,7 @@ function SignupForm({ busy, onSubmit }: { busy: boolean; onSubmit: (f: any) => v
   const [businessName, setBusinessName] = useState('');
   const [city, setCity] = useState('');
   const [state, setState] = useState('');
+  const [phone, setPhone] = useState('');
   const [websiteUrl, setWebsiteUrl] = useState('');
   const [hasWebsite, setHasWebsite] = useState<'YES' | 'NO' | 'NOT_SURE'>('YES');
   const [callsPerMonthRange, setCallsPerMonthRange] = useState<'NOT_SURE' | '0_10' | '11_30' | '31_60' | '61_120' | '120_PLUS'>('NOT_SURE');
@@ -191,6 +192,10 @@ function SignupForm({ busy, onSubmit }: { busy: boolean; onSubmit: (f: any) => v
   const [goalIds, setGoalIds] = useState<string[]>([]);
   const [targetCustomer, setTargetCustomer] = useState('');
   const [brandVoice, setBrandVoice] = useState('');
+  const [industry, setIndustry] = useState('');
+  const [businessModel, setBusinessModel] = useState('');
+  const [referralCode, setReferralCode] = useState('');
+  const [couponCode, setCouponCode] = useState('');
 
   const goals = [
     { id: 'appointments', label: 'Book more appointments' },
@@ -230,6 +235,10 @@ function SignupForm({ busy, onSubmit }: { busy: boolean; onSubmit: (f: any) => v
             <TextInput style={styles.input} value={businessName} onChangeText={setBusinessName} editable={!busy} />
           </View>
           <View style={styles.field}>
+            <Text style={styles.label}>Phone (optional)</Text>
+            <TextInput style={styles.input} value={phone} onChangeText={setPhone} editable={!busy} keyboardType='phone-pad' />
+          </View>
+          <View style={styles.field}>
             <Text style={styles.label}>City</Text>
             <TextInput style={styles.input} value={city} onChangeText={setCity} editable={!busy} />
           </View>
@@ -243,6 +252,18 @@ function SignupForm({ busy, onSubmit }: { busy: boolean; onSubmit: (f: any) => v
           </View>
           <View style={styles.field}>
             <Text style={styles.label}>Do you have a website?</Text>
+                      <View style={styles.field}>
+                        <Text style={styles.label}>Industry (optional)</Text>
+                        <TextInput style={styles.input} value={industry} onChangeText={setIndustry} editable={!busy} />
+                      </View>
+                      <View style={styles.field}>
+                        <Text style={styles.label}>Business model (optional)</Text>
+                        <TextInput style={styles.input} value={businessModel} onChangeText={setBusinessModel} editable={!busy} />
+                      </View>
+                      <View style={styles.field}>
+                        <Text style={styles.label}>Referral code (optional)</Text>
+                        <TextInput style={styles.input} value={referralCode} onChangeText={setReferralCode} editable={!busy} />
+                      </View>
             <View style={styles.chipRow}>
               {['YES', 'NO', 'NOT_SURE'].map((v) => (
                 <Pressable
@@ -370,6 +391,16 @@ function SignupForm({ busy, onSubmit }: { busy: boolean; onSubmit: (f: any) => v
               placeholder='Friendly, professional, casual, etc.'
             />
           </View>
+          <View style={styles.field}>
+            <Text style={styles.label}>Coupon code (optional)</Text>
+            <TextInput
+              style={styles.input}
+              value={couponCode}
+              onChangeText={setCouponCode}
+              editable={!busy}
+              autoCapitalize='characters'
+            />
+          </View>
           <View style={styles.stepButtonsRow}>
             <Pressable style={[styles.secondaryButton]} onPress={() => setStep(1)}>
               <Text style={styles.secondaryButtonText}>Back</Text>
@@ -385,6 +416,7 @@ function SignupForm({ busy, onSubmit }: { busy: boolean; onSubmit: (f: any) => v
                   businessName,
                   city,
                   state,
+                  phone,
                   websiteUrl,
                   hasWebsite,
                   callsPerMonthRange,
@@ -392,6 +424,10 @@ function SignupForm({ busy, onSubmit }: { busy: boolean; onSubmit: (f: any) => v
                   goalIds,
                   targetCustomer,
                   brandVoice,
+                  industry,
+                  businessModel,
+                  referralCode,
+                  couponCode,
                   billingPreference: 'credits',
                   selectedPlanIds: ['core'],
                 });
