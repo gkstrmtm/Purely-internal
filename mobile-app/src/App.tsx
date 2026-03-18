@@ -87,15 +87,20 @@ export default function RootApp() {
         <ScrollView contentContainerStyle={styles.containerCenter} keyboardShouldPersistTaps='handled'>
           <View style={styles.card}>
             <View style={styles.logoContainer}>
-              <Image source={{ uri: 'https://purely-internal-i5d62brbc-tabari-ropers-projects-6f2e090b.vercel.app/brand/1.png' }} style={styles.logo} />
+              <Image
+                source={{ uri: 'https://purely-internal-i5d62brbc-tabari-ropers-projects-6f2e090b.vercel.app/brand/1.png' }}
+                style={styles.logo}
+              />
             </View>
 
-            <Text style={styles.title}>
-              {screen === 'login' ? 'Client Portal Login' : 'Create your account'}
-            </Text>
-            <Text style={styles.subtitle}>
-              {screen === 'login' ? 'Sign in to your client portal.' : 'Set up your portal in a few quick steps.'}
-            </Text>
+            {screen === 'login' ? (
+              <>
+                <Text style={styles.title}>Client Portal Login</Text>
+                <Text style={styles.subtitle}>Sign in to your client portal.</Text>
+              </>
+            ) : (
+              <Text style={styles.subtitle}>Set up your portal in a few quick steps.</Text>
+            )}
 
             {error ? (
               <View style={styles.errorBox}>
@@ -538,7 +543,7 @@ const styles = StyleSheet.create({
     elevation: 2,
   },
   logoContainer: { alignItems: 'center', marginBottom: 24 },
-  logo: { height: 64, width: '100%', resizeMode: 'contain' },
+  logo: { height: 80, width: 260, resizeMode: 'contain' },
   title: { fontSize: 20, fontWeight: '600', color: ZINC_900, marginTop: 24 },
   subtitle: { fontSize: 16, color: ZINC_600, marginTop: 8 },
   errorBox: { marginTop: 16, borderRadius: 8, backgroundColor: '#fef2f2', padding: 12, borderWidth: 1, borderColor: '#fecaca' },
