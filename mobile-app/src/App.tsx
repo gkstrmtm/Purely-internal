@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
@@ -11,18 +11,23 @@ import {
   Text,
   TextInput,
   View,
-} from "react-native";
+  Image,
+} from 'react-native';
 
-import { AppConfig } from "./config/app";
-import { portalLogin, portalLogout } from "./api/portalAuth";
-import { portalMe } from "./api/portalMe";
-import { portalSignup } from "./api/portalSignup";
-import { theme } from "./ui/theme";
+import { portalLogin, portalLogout } from './api/portalAuth';
+import { portalMe } from './api/portalMe';
+import { portalSignup } from './api/portalSignup';
 
-type Screen = "loading" | "login" | "signup" | "home";
+type Screen = 'loading' | 'login' | 'signup' | 'home';
+
+const BRAND_MIST = '#f1f5f9';
+const BRAND_INK = '#334155';
+const ZINC_200 = '#e4e4e7';
+const ZINC_600 = '#52525b';
+const ZINC_900 = '#18181b';
 
 export default function RootApp() {
-  const [screen, setScreen] = useState<Screen>("loading");
+  const [screen, setScreen] = useState<Screen>('loading');
   const [me, setMe] = useState<{ email: string; name: string; role: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -30,462 +35,231 @@ export default function RootApp() {
   useEffect(() => {
     let mounted = true;
     (async () => {
-      const user = await portalMe();
+      const user = await portalMe().catch(() => null);
       if (!mounted) return;
       setMe(user);
-      setScreen(user ? "home" : "login");
+      setScreen(user ? 'home' : 'login');
     })();
-    return () => {
-      mounted = false;
-    };
+    return () => { mounted = false; };
   }, []);
 
   async function refreshMe() {
-    const user = await portalMe();
+    const user = await portalMe().catch(() => null);
     setMe(user);
-    setScreen(user ? "home" : "login");
+    setScreen(user ? 'home' : 'login');
+  }
+
+  if (screen === 'home') {
+    return (
+      <SafeAreaView style={styles.safe}>
+        <StatusBar barStyle='dark-content' />
+        <ScrollView contentContainerStyle={styles.containerCenter}>
+          <View style={styles.card}>
+            <Image source={{ uri: 'https://purely-internal-i5d62brbc-tabari-ropers-projects-6f2e090b.vercel.app/brand/1.png' }} style={styles.logo} />
+            <Text style={styles.title}>Welcome back</Text>
+            <Text style={styles.subtitle}>{me?.email}</Text>
+            <Pressable style={styles.primaryButton} onPress={async () => {
+              setBusy(true);
+              await portalLogout().catch(() => {});
+              await refreshMe();
+              setBusy(false);
+            }}>
+              <Text style={styles.primaryButtonText}>{busy ? 'Logging out...' : 'Log out'}</Text>
+            </Pressable>
+          </View>
+        </ScrollView>
+      </SafeAreaView>
+    );
+  }
+
+  if (screen === 'loading') {
+    return (
+      <View style={styles.center}>
+        <ActivityIndicator size='large' color={BRAND_INK} />
+      </View>
+    );
   }
 
   return (
     <SafeAreaView style={styles.safe}>
-      <StatusBar barStyle="dark-content" />
-      {screen === "loading" ? (
-        <View style={styles.center}>
-          <ActivityIndicator />
-          <Text style={styles.mutedText}>Checking session…</Text>
-        </View>
-      ) : screen === "home" ? (
-        <ScrollView contentContainerStyle={styles.container}>
-          <Header title="Portal" subtitle={me?.email ? `Signed in as ${me.email}` : "Signed in"} />
-
+      <StatusBar barStyle='dark-content' />
+      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.flex}>
+        <ScrollView contentContainerStyle={styles.containerCenter} keyboardShouldPersistTaps='handled'>
           <View style={styles.card}>
-            <Text style={styles.cardTitle}>Continuity check</Text>
-            <Text style={styles.cardBody}>This session is coming from the same backend/database as the desktop portal.</Text>
-            <Text style={styles.cardBody}>Cookie-based auth is proxied through this mobile deployment.</Text>
-          </View>
+            <View style={styles.logoContainer}>
+              <Image source={{ uri: 'https://purely-internal-i5d62brbc-tabari-ropers-projects-6f2e090b.vercel.app/brand/1.png' }} style={styles.logo} />
+            </View>
 
-          <View style={styles.card}>
-            <Text style={styles.cardTitle}>Account</Text>
-            <Text style={styles.cardBody}>Email: {me?.email || "(unknown)"}</Text>
-            <Text style={styles.cardBody}>Name: {me?.name || "(not set)"}</Text>
-            <Text style={styles.cardBody}>Role: {me?.role || "(unknown)"}</Text>
-          </View>
+            <Text style={styles.title}>
+              {screen === 'login' ? 'Client Portal Login' : 'Create your account'}
+            </Text>
+            <Text style={styles.subtitle}>
+              {screen === 'login' ? 'Sign in to your client portal.' : 'Set up your portal in a few quick steps.'}
+            </Text>
 
-          <View style={styles.card}>
-            <Text style={styles.cardTitle}>Portal areas (next to implement)</Text>
-            <Text style={styles.cardBody}>• Dashboard</Text>
-            <Text style={styles.cardBody}>• Inbox</Text>
-            <Text style={styles.cardBody}>• People</Text>
-            <Text style={styles.cardBody}>• Booking</Text>
-            <Text style={styles.cardBody}>• Funnel Builder</Text>
-            <Text style={styles.cardBody}>• Automations</Text>
-            <Text style={styles.cardBody}>• Billing</Text>
-          </View>
+            {error ? (
+              <View style={styles.errorBox}>
+                <Text style={styles.errorText}>{error}</Text>
+              </View>
+            ) : null}
 
-          <View style={styles.row}>
-            <PrimaryButton
-              label={busy ? "Working…" : "Refresh"}
-              disabled={busy}
-              onPress={async () => {
-                setError(null);
-                setBusy(true);
-                try {
-                  await refreshMe();
-                } finally {
-                  setBusy(false);
-                }
-              }}
-            />
-            <SecondaryButton
-              label={busy ? "Working…" : "Log out"}
-              disabled={busy}
-              onPress={async () => {
-                setError(null);
-                setBusy(true);
-                try {
-                  await portalLogout();
-                } finally {
-                  setBusy(false);
-                }
-                await refreshMe();
-              }}
-            />
+            {screen === 'login' ? (
+              <LoginForm
+                busy={busy}
+                onSubmit={async (email, password) => {
+                  setError(null);
+                  setBusy(true);
+                  try {
+                    await portalLogin(email, password);
+                    await refreshMe();
+                  } catch (err: any) {
+                    setError(err.message || 'Incorrect username or incorrect password');
+                  } finally {
+                    setBusy(false);
+                  }
+                }}
+              />
+            ) : (
+              <SignupForm
+                busy={busy}
+                onSubmit={async (form) => {
+                  setError(null);
+                  setBusy(true);
+                  try {
+                    await portalSignup(form);
+                    await refreshMe();
+                  } catch (err: any) {
+                    setError(err.message || 'Unable to create account.');
+                  } finally {
+                    setBusy(false);
+                  }
+                }}
+              />
+            )}
+
+            <View style={styles.footerContainer}>
+              {screen === 'login' ? (
+                <Text style={styles.footerText}>
+                  Need an account? <Text style={styles.linkText} onPress={() => { setError(null); setScreen('signup'); }}>Get started</Text>
+                </Text>
+              ) : (
+                <Text style={styles.footerText}>
+                  Already have an account? <Text style={styles.linkText} onPress={() => { setError(null); setScreen('login'); }}>Sign in</Text>
+                </Text>
+              )}
+            </View>
           </View>
         </ScrollView>
-      ) : (
-        <AuthScreen
-          mode={screen === "signup" ? "signup" : "login"}
-          error={error}
-          busy={busy}
-          onSwitchMode={() => {
-            setError(null);
-            setScreen(screen === "login" ? "signup" : "login");
-          }}
-          onLogin={async ({ email, password }) => {
-            setError(null);
-            setBusy(true);
-            try {
-              await portalLogin(email, password);
-              await refreshMe();
-            } catch (e: any) {
-              setError(e instanceof Error ? e.message : "Unable to sign in");
-            } finally {
-              setBusy(false);
-            }
-          }}
-          onSignup={async ({ name, email, password, businessName, city, state }) => {
-            setError(null);
-            setBusy(true);
-            try {
-              await portalSignup({ name, email, password, businessName, city, state });
-              await refreshMe();
-            } catch (e: any) {
-              setError(e instanceof Error ? e.message : "Unable to create account");
-            } finally {
-              setBusy(false);
-            }
-          }}
-        />
-      )}
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
 
-function Header({ title, subtitle }: { title: string; subtitle: string }) {
+function LoginForm({ busy, onSubmit }: { busy: boolean; onSubmit: (e: string, p: string) => void }) {
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+
   return (
-    <View style={styles.header}>
-      <Text style={styles.title}>{title}</Text>
-      <Text style={styles.subtitle}>{subtitle}</Text>
+    <View style={styles.form}>
+      <View style={styles.field}>
+        <Text style={styles.label}>Email</Text>
+        <TextInput style={styles.input} value={email} onChangeText={setEmail} autoCapitalize='none' keyboardType='email-address' editable={!busy} />
+      </View>
+      <View style={styles.field}>
+        <Text style={styles.label}>Password</Text>
+        <TextInput style={styles.input} value={password} onChangeText={setPassword} secureTextEntry autoCapitalize='none' editable={!busy} />
+      </View>
+      <Pressable style={[styles.primaryButton, busy || !email || !password ? styles.buttonDisabled : null]} onPress={() => onSubmit(email, password)} disabled={busy || !email || !password}>
+        <Text style={styles.primaryButtonText}>{busy ? 'Signing in...' : 'Sign in'}</Text>
+      </Pressable>
     </View>
   );
 }
 
-function PrimaryButton({ label, disabled, onPress }: { label: string; disabled?: boolean; onPress: () => void }) {
-  return (
-    <Pressable
-      accessibilityRole="button"
-      onPress={disabled ? undefined : onPress}
-      style={[styles.button, styles.primaryButton, disabled ? styles.buttonDisabled : null]}
-    >
-      <Text style={styles.primaryButtonText}>{label}</Text>
-    </Pressable>
-  );
-}
-
-function SecondaryButton({ label, disabled, onPress }: { label: string; disabled?: boolean; onPress: () => void }) {
-  return (
-    <Pressable
-      accessibilityRole="button"
-      onPress={disabled ? undefined : onPress}
-      style={[styles.button, styles.secondaryButton, disabled ? styles.buttonDisabled : null]}
-    >
-      <Text style={styles.secondaryButtonText}>{label}</Text>
-    </Pressable>
-  );
-}
-
-function AuthScreen({
-  mode,
-  error,
-  busy,
-  onSwitchMode,
-  onLogin,
-  onSignup,
-}: {
-  mode: "login" | "signup";
-  error: string | null;
-  busy: boolean;
-  onSwitchMode: () => void;
-  onLogin: (input: { email: string; password: string }) => Promise<void>;
-  onSignup: (input: { name: string; email: string; password: string; businessName: string; city: string; state: string }) => Promise<void>;
-}) {
-  const isLogin = mode === "login";
-
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [name, setName] = useState("");
-  const [businessName, setBusinessName] = useState("");
-  const [city, setCity] = useState("");
-  const [state, setState] = useState("");
-
-  const canSubmit = useMemo(() => {
-    if (!email.trim()) return false;
-    if (isLogin) return password.trim().length >= 6;
-    if (password.trim().length < 8) return false;
-    if (!name.trim() || name.trim().length < 2) return false;
-    if (!businessName.trim() || businessName.trim().length < 2) return false;
-    if (!city.trim() || city.trim().length < 2) return false;
-    if (!state.trim() || state.trim().length < 2) return false;
-    return true;
-  }, [email, password, isLogin, name, businessName, city, state]);
+function SignupForm({ busy, onSubmit }: { busy: boolean; onSubmit: (f: any) => void; }) {
+  const [name, setName] = useState('');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [businessName, setBusinessName] = useState('');
+  const canSubmit = name && email && password.length >= 8 && businessName;
 
   return (
-    <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={styles.flex}>
-      <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
-        <Header title={isLogin ? "Sign in" : "Get started"} subtitle={isLogin ? "Use your Portal login" : "Create your Portal account"} />
-
-        {error ? (
-          <View style={styles.errorBox}>
-            <Text style={styles.errorText}>{error}</Text>
-          </View>
-        ) : null}
-
-        <View style={styles.card}>
-          {!isLogin ? (
-            <Field label="Name" value={name} onChangeText={setName} placeholder="Your name" autoCapitalize="words" />
-          ) : null}
-
-          <Field
-            label="Email"
-            value={email}
-            onChangeText={setEmail}
-            placeholder="you@domain.com"
-            autoCapitalize="none"
-            keyboardType="email-address"
-          />
-          <Field
-            label="Password"
-            value={password}
-            onChangeText={setPassword}
-            placeholder={isLogin ? "Your password" : "At least 8 characters"}
-            secureTextEntry
-            autoCapitalize="none"
-          />
-
-          {!isLogin ? (
-            <>
-              <Divider />
-              <Field
-                label="Business name"
-                value={businessName}
-                onChangeText={setBusinessName}
-                placeholder="Business LLC"
-                autoCapitalize="words"
-              />
-              <View style={styles.row}>
-                <View style={styles.half}>
-                  <Field label="City" value={city} onChangeText={setCity} placeholder="City" autoCapitalize="words" />
-                </View>
-                <View style={styles.half}>
-                  <Field label="State" value={state} onChangeText={setState} placeholder="State" autoCapitalize="characters" />
-                </View>
-              </View>
-            </>
-          ) : null}
-        </View>
-
-        <PrimaryButton
-          label={busy ? "Working…" : isLogin ? "Sign in" : "Create account"}
-          disabled={busy || !canSubmit}
-          onPress={() => {
-            if (isLogin) {
-              void onLogin({ email, password });
-            } else {
-              void onSignup({ name, email, password, businessName, city, state });
-            }
-          }}
-        />
-
-        <Pressable accessibilityRole="button" onPress={busy ? undefined : onSwitchMode} style={styles.linkButton}>
-          <Text style={styles.linkText}>
-            {isLogin ? "New here? Create an account" : "Already have an account? Sign in"}
-          </Text>
-        </Pressable>
-
-        <View style={styles.hint}>
-          <Text style={styles.hintText}>
-            Requests include `{AppConfig.appHeaderName}: {AppConfig.appHeaderValue}` and proxy to the Portal backend via Vercel rewrites.
-          </Text>
-        </View>
-      </ScrollView>
-    </KeyboardAvoidingView>
-  );
-}
-
-function Divider() {
-  return <View style={styles.divider} />;
-}
-
-function Field({
-  label,
-  value,
-  onChangeText,
-  placeholder,
-  secureTextEntry,
-  autoCapitalize,
-  keyboardType,
-}: {
-  label: string;
-  value: string;
-  onChangeText: (v: string) => void;
-  placeholder?: string;
-  secureTextEntry?: boolean;
-  autoCapitalize?: "none" | "sentences" | "words" | "characters";
-  keyboardType?: any;
-}) {
-  return (
-    <View style={styles.field}>
-      <Text style={styles.label}>{label}</Text>
-      <TextInput
-        value={value}
-        onChangeText={onChangeText}
-        placeholder={placeholder}
-        placeholderTextColor={"#8a8a8a"}
-        secureTextEntry={secureTextEntry}
-        autoCapitalize={autoCapitalize}
-        keyboardType={keyboardType}
-        style={styles.input}
-      />
+    <View style={styles.form}>
+      <View style={styles.field}>
+        <Text style={styles.label}>Name</Text>
+        <TextInput style={styles.input} value={name} onChangeText={setName} editable={!busy} />
+      </View>
+      <View style={styles.field}>
+        <Text style={styles.label}>Email</Text>
+        <TextInput style={styles.input} value={email} onChangeText={setEmail} autoCapitalize='none' keyboardType='email-address' editable={!busy} />
+      </View>
+      <View style={styles.field}>
+        <Text style={styles.label}>Password</Text>
+        <TextInput style={styles.input} value={password} onChangeText={setPassword} secureTextEntry autoCapitalize='none' editable={!busy} />
+      </View>
+      <View style={styles.field}>
+        <Text style={styles.label}>Business name</Text>
+        <TextInput style={styles.input} value={businessName} onChangeText={setBusinessName} editable={!busy} />
+      </View>
+      <Pressable style={[styles.primaryButton, busy || !canSubmit ? styles.buttonDisabled : null]} onPress={() => onSubmit({ name, email, password, businessName, city: 'Austin', state: 'TX', hasWebsite: 'NO', callsPerMonthRange: 'NOT_SURE', targetCustomer: '', brandVoice: '', selectedPlanIds: ['core'], billingPreference: 'credits', acquisitionMethods: [] })} disabled={busy || !canSubmit}>
+        <Text style={styles.primaryButtonText}>{busy ? 'Continuing...' : 'Create account'}</Text>
+      </Pressable>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   flex: { flex: 1 },
-  safe: {
-    flex: 1,
-    backgroundColor: theme.colors.background,
-  },
-  center: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-    gap: 10,
-    padding: 24,
-    backgroundColor: theme.colors.background,
-  },
-  container: {
-    padding: 20,
-    gap: 14,
-  },
-  header: {
-    gap: 6,
-    paddingVertical: 10,
-  },
-  title: {
-    fontSize: 26,
-    fontWeight: "700",
-    color: theme.colors.text,
-  },
-  subtitle: {
-    fontSize: 14,
-    color: theme.colors.muted,
-  },
+  safe: { flex: 1, backgroundColor: BRAND_MIST },
+  center: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: BRAND_MIST },
+  containerCenter: { flexGrow: 1, justifyContent: 'center', padding: 24, alignItems: 'center' },
   card: {
-    borderRadius: 16,
-    padding: 16,
-    backgroundColor: theme.colors.card,
+    width: '100%',
+    maxWidth: 512,
+    backgroundColor: '#ffffff',
+    borderRadius: 24,
     borderWidth: 1,
-    borderColor: theme.colors.border,
-    gap: 8,
+    borderColor: ZINC_200,
+    padding: 32,
+    shadowColor: '#000',
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 1 },
+    elevation: 2,
   },
-  cardTitle: {
-    fontSize: 16,
-    fontWeight: "700",
-    color: theme.colors.text,
-  },
-  cardBody: {
-    fontSize: 14,
-    color: theme.colors.text,
-    lineHeight: 20,
-  },
-  mutedText: {
-    fontSize: 14,
-    color: theme.colors.muted,
-  },
-  errorBox: {
-    borderRadius: 14,
-    padding: 12,
-    backgroundColor: "#fff5f5",
-    borderWidth: 1,
-    borderColor: "#fecaca",
-  },
-  errorText: {
-    color: "#991b1b",
-    fontSize: 14,
-    lineHeight: 20,
-    fontWeight: "600",
-  },
-  field: {
-    gap: 6,
-  },
-  label: {
-    fontSize: 12,
-    color: theme.colors.muted,
-    fontWeight: "600",
-    letterSpacing: 0.2,
-  },
+  logoContainer: { alignItems: 'center', marginBottom: 24 },
+  logo: { height: 64, width: '100%', resizeMode: 'contain' },
+  title: { fontSize: 20, fontWeight: '600', color: ZINC_900, marginTop: 24 },
+  subtitle: { fontSize: 16, color: ZINC_600, marginTop: 8 },
+  errorBox: { marginTop: 16, borderRadius: 8, backgroundColor: '#fef2f2', padding: 12, borderWidth: 1, borderColor: '#fecaca' },
+  errorText: { color: '#991b1b', fontSize: 14 },
+  form: { marginTop: 24, gap: 20 },
+  field: { marginBottom: 0 },
+  label: { fontSize: 16, fontWeight: '500', color: ZINC_900, marginBottom: 8 },
   input: {
-    borderRadius: 12,
+    width: '100%',
+    backgroundColor: '#ffffff',
+    borderRadius: 16,
     borderWidth: 1,
-    borderColor: theme.colors.border,
-    paddingHorizontal: 12,
-    paddingVertical: Platform.OS === "web" ? 10 : 12,
-    fontSize: 16,
-    color: theme.colors.text,
-    backgroundColor: "#fff",
-    outlineStyle: "none" as any,
-  },
-  divider: {
-    height: 1,
-    backgroundColor: theme.colors.border,
-    marginVertical: 6,
-  },
-  row: {
-    flexDirection: "row",
-    gap: 10,
-    alignItems: "center",
-  },
-  half: {
-    flex: 1,
-  },
-  button: {
-    borderRadius: 14,
+    borderColor: ZINC_200,
+    paddingHorizontal: 16,
     paddingVertical: 12,
-    paddingHorizontal: 14,
-    alignItems: "center",
-    justifyContent: "center",
-    flex: 1,
+    fontSize: 16,
+    color: ZINC_900,
+    ...(Platform.OS === 'web' ? { outlineStyle: 'none' } : {}),
   },
   primaryButton: {
-    backgroundColor: theme.colors.primary,
+    width: '100%',
+    backgroundColor: BRAND_INK,
+    marginTop: 8,
+    borderRadius: 16,
+    paddingVertical: 14,
+    paddingHorizontal: 20,
+    alignItems: 'center',
   },
-  primaryButtonText: {
-    color: "#fff",
-    fontWeight: "700",
-    fontSize: 15,
-  },
-  secondaryButton: {
-    backgroundColor: "#fff",
-    borderWidth: 1,
-    borderColor: theme.colors.border,
-  },
-  secondaryButtonText: {
-    color: theme.colors.text,
-    fontWeight: "700",
-    fontSize: 15,
-  },
-  buttonDisabled: {
-    opacity: 0.6,
-  },
-  linkButton: {
-    paddingVertical: 8,
-    alignItems: "center",
-  },
-  linkText: {
-    color: theme.colors.primary,
-    fontWeight: "700",
-  },
-  hint: {
-    borderRadius: 14,
-    padding: 12,
-    backgroundColor: "#f6f7ff",
-    borderWidth: 1,
-    borderColor: "#dbeafe",
-  },
-  hintText: {
-    color: theme.colors.muted,
-    fontSize: 13,
-    lineHeight: 18,
-  },
+  primaryButtonText: { fontSize: 16, fontWeight: '600', color: '#ffffff' },
+  buttonDisabled: { opacity: 0.6 },
+  footerContainer: { marginTop: 24 },
+  footerText: { fontSize: 16, color: ZINC_600 },
+  linkText: { fontWeight: '500', color: BRAND_INK },
 });

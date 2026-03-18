@@ -5,12 +5,12 @@
   "devCommand": "npm run web",
   "rewrites": [
     {
-      "source": "/portal/api/(.*)",
-      "destination": "https://purely-internal-i5d62brbc-tabari-ropers-projects-6f2e090b.vercel.app/portal/api/$1"
+      "source": "/portal/api/:path*",
+      "destination": "https://purely-internal-i5d62brbc-tabari-ropers-projects-6f2e090b.vercel.app/portal/api/:path*"
     },
     {
-      "source": "/api/(.*)",
-      "destination": "https://purely-internal-i5d62brbc-tabari-ropers-projects-6f2e090b.vercel.app/api/$1"
+      "source": "/api/:path*",
+      "destination": "https://purely-internal-i5d62brbc-tabari-ropers-projects-6f2e090b.vercel.app/api/:path*"
     },
     { "source": "/(.*)", "destination": "/index.html" }
   ]
