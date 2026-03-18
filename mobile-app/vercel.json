@@ -5,6 +5,10 @@
   "devCommand": "npm run web",
   "rewrites": [
     {
+      "source": "/brand/:path*",
+      "destination": "https://purelyautomation.com/brand/:path*"
+    },
+    {
       "source": "/portal/api/:path*",
       "destination": "https://purely-internal-i5d62brbc-tabari-ropers-projects-6f2e090b.vercel.app/portal/api/:path*"
     },

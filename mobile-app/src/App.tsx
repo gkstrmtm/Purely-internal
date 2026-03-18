@@ -17,6 +17,7 @@ import {
 import { portalLogin, portalLogout } from './api/portalAuth';
 import { portalMe } from './api/portalMe';
 import { portalSignup } from './api/portalSignup';
+import { portalLogoUrl } from './config/app';
 
 type Screen = 'loading' | 'login' | 'signup' | 'home';
 
@@ -55,7 +56,7 @@ export default function RootApp() {
         <StatusBar barStyle='dark-content' />
         <ScrollView contentContainerStyle={styles.containerCenter}>
           <View style={styles.card}>
-            <Image source={{ uri: 'https://purely-internal-i5d62brbc-tabari-ropers-projects-6f2e090b.vercel.app/brand/1.png' }} style={styles.logo} />
+            <Image source={{ uri: portalLogoUrl }} style={styles.logo} />
             <Text style={styles.title}>Welcome back</Text>
             <Text style={styles.subtitle}>{me?.email}</Text>
             <Pressable style={styles.primaryButton} onPress={async () => {
@@ -88,7 +89,7 @@ export default function RootApp() {
           <View style={styles.card}>
             <View style={styles.logoContainer}>
               <Image
-                source={{ uri: 'https://purely-internal-i5d62brbc-tabari-ropers-projects-6f2e090b.vercel.app/brand/1.png' }}
+                source={{ uri: portalLogoUrl }}
                 style={styles.logo}
               />
             </View>
