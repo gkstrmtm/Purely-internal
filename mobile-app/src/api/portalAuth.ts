@@ -1,20 +1,28 @@
 import { apiFetch } from "./client";
 import { AppConfig } from "../config/app";
 
-export type PortalLoginResponse = { ok: true } | { error: string };
-
 export async function portalLogin(email: string, password: string): Promise<void> {
-  const res = await apiFetch<PortalLoginResponse>("/portal/api/login", {
+  const res = await fetch("/portal/api/login", {
     method: "POST",
     headers: {
+      "content-type": "application/json",
       [AppConfig.portalVariantHeaderName]: AppConfig.portalVariant,
     },
+    credentials: "include",
     body: JSON.stringify({ email, password }),
   });
 
-  if ((res as any)?.ok !== true) {
-    const msg = typeof (res as any)?.error === "string" ? String((res as any).error) : "Invalid email or password";
-    throw new Error(msg);
+  if (!res.ok) {
+    let message = "Incorrect username or incorrect password";
+    try {
+      const data = (await res.json()) as { error?: string };
+      if (typeof data?.error === "string" && data.error.trim()) {
+        message = data.error.trim();
+      }
+    } catch {
+      // fall back to default message
+    }
+    throw new Error(message);
   }
 }
 

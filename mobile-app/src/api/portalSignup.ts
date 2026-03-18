@@ -8,6 +8,28 @@ export type PortalSignupInput = {
   businessName: string;
   city: string;
   state: string;
+  phone?: string;
+  websiteUrl?: string;
+  hasWebsite?: "YES" | "NO" | "NOT_SURE";
+  callsPerMonthRange?:
+    | "NOT_SURE"
+    | "0_10"
+    | "11_30"
+    | "31_60"
+    | "61_120"
+    | "120_PLUS";
+  acquisitionMethods?: string[];
+  industry?: string;
+  businessModel?: string;
+  targetCustomer?: string;
+  brandVoice?: string;
+  goalIds?: string[];
+  selectedServiceSlugs?: string[];
+  selectedPlanIds?: string[];
+  selectedPlanQuantities?: Record<string, number>;
+  couponCode?: string;
+  billingPreference?: "credits" | "subscription";
+  selectedBundleId?: "launch-kit" | "sales-loop" | "brand-builder" | null;
 };
 
 export type PortalSignupResponse =
@@ -22,7 +44,8 @@ export async function portalSignup(input: PortalSignupInput): Promise<void> {
     },
     body: JSON.stringify({
       ...input,
-      billingPreference: "credits",
+      billingPreference: input.billingPreference ?? "credits",
+      selectedPlanIds: input.selectedPlanIds && input.selectedPlanIds.length > 0 ? input.selectedPlanIds : ["core"],
     }),
   });
 
