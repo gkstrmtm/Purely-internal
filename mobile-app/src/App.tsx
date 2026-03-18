@@ -139,9 +139,24 @@ export default function RootApp() {
 
             <View style={styles.footerContainer}>
               {screen === 'login' ? (
-                <Text style={styles.footerText}>
-                  Need an account? <Text style={styles.linkText} onPress={() => { setError(null); setScreen('signup'); }}>Get started</Text>
-                </Text>
+                <>
+                  <Text style={styles.footerText}>
+                    Need an account? <Text style={styles.linkText} onPress={() => { setError(null); setScreen('signup'); }}>Get started</Text>
+                  </Text>
+                  <Text style={[styles.footerText, { marginTop: 8 }]}>
+                    Employee?{' '}
+                    <Text
+                      style={styles.linkText}
+                      onPress={() => {
+                        if (typeof window !== 'undefined') {
+                          window.location.href = '/employeelogin';
+                        }
+                      }}
+                    >
+                      Log in as an employee
+                    </Text>
+                  </Text>
+                </>
               ) : (
                 <Text style={styles.footerText}>
                   Already have an account? <Text style={styles.linkText} onPress={() => { setError(null); setScreen('login'); }}>Sign in</Text>
@@ -177,7 +192,7 @@ function LoginForm({ busy, onSubmit }: { busy: boolean; onSubmit: (e: string, p:
 }
 
 function SignupForm({ busy, onSubmit }: { busy: boolean; onSubmit: (f: any) => void; }) {
-  const [step, setStep] = useState<0 | 1 | 2>(0);
+  const [step, setStep] = useState<0 | 1 | 2 | 3 | 4>(0);
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -227,16 +242,24 @@ function SignupForm({ busy, onSubmit }: { busy: boolean; onSubmit: (f: any) => v
 
   return (
     <View style={styles.form}>
-      {step === 0 && (
+      {/* Step indicator: Business → Goals → Plan → Services → Account */}
+      <View style={styles.stepperRow}>
+        {['Business', 'Goals', 'Plan', 'Services', 'Account'].map((label, index) => {
+          const isActive = index === step;
+          return (
+            <View key={label} style={[styles.stepperItem, isActive ? styles.stepperItemActive : null]}>
+              <Text style={isActive ? styles.stepperTextActive : styles.stepperText}>{label}</Text>
+            </View>
+          );
+        })}
+      </View>
+
+      {step === 4 && (
         <>
-          <Text style={styles.stepTitle}>Business details</Text>
+          <Text style={styles.stepTitle}>Account</Text>
           <View style={styles.field}>
             <Text style={styles.label}>Business name</Text>
             <TextInput style={styles.input} value={businessName} onChangeText={setBusinessName} editable={!busy} />
-          </View>
-          <View style={styles.field}>
-            <Text style={styles.label}>Phone (optional)</Text>
-            <TextInput style={styles.input} value={phone} onChangeText={setPhone} editable={!busy} keyboardType='phone-pad' />
           </View>
           <View style={styles.field}>
             <Text style={styles.label}>City</Text>
@@ -247,25 +270,27 @@ function SignupForm({ busy, onSubmit }: { busy: boolean; onSubmit: (f: any) => v
             <TextInput style={styles.input} value={state} onChangeText={setState} editable={!busy} />
           </View>
           <View style={styles.field}>
-            <Text style={styles.label}>Website URL (optional)</Text>
-            <TextInput style={styles.input} value={websiteUrl} onChangeText={setWebsiteUrl} editable={!busy} />
-          </View>
-          <View style={styles.field}>
-            <Text style={styles.label}>Do you have a website?</Text>
-                      <View style={styles.field}>
-                        <Text style={styles.label}>Industry (optional)</Text>
-                        <TextInput style={styles.input} value={industry} onChangeText={setIndustry} editable={!busy} />
-                      </View>
-                      <View style={styles.field}>
-                        <Text style={styles.label}>Business model (optional)</Text>
-                        <TextInput style={styles.input} value={businessModel} onChangeText={setBusinessModel} editable={!busy} />
-                      </View>
-                      <View style={styles.field}>
-                        <Text style={styles.label}>Referral code (optional)</Text>
-                        <TextInput style={styles.input} value={referralCode} onChangeText={setReferralCode} editable={!busy} />
-                      </View>
+            <Text style={styles.label}>Do you already have a website?</Text>
             <View style={styles.chipRow}>
               {['YES', 'NO', 'NOT_SURE'].map((v) => (
+                <Pressable
+                  key={v}
+                  style={[styles.chip, hasWebsite === v ? styles.chipSelected : null]}
+                  onPress={() => setHasWebsite(v as any)}
+                >
+                  <Text style={hasWebsite === v ? styles.chipTextSelected : styles.chipText}>{v}</Text>
+                </Pressable>
+              ))}
+            </View>
+          </View>
+          {hasWebsite === 'YES' && (
+            <View style={styles.field}>
+              <Text style={styles.label}>Website URL</Text>
+              <TextInput style={styles.input} value={websiteUrl} onChangeText={setWebsiteUrl} editable={!busy} />
+            </View>
+          )}
+            <View style={styles.chipRow}>
+            <Text style={styles.label}>About how many calls do you get per month?</Text>
                 <Pressable
                   key={v}
                   style={[styles.chip, hasWebsite === v ? styles.chipSelected : null]}
@@ -298,7 +323,7 @@ function SignupForm({ busy, onSubmit }: { busy: boolean; onSubmit: (f: any) => v
             </View>
           </View>
           <View style={styles.field}>
-            <Text style={styles.label}>How do you get clients today? (comma separated)</Text>
+            <Text style={styles.label}>How do people find you?</Text>
             <TextInput
               style={styles.input}
               value={acquisitionMethodsText}
@@ -306,6 +331,38 @@ function SignupForm({ busy, onSubmit }: { busy: boolean; onSubmit: (f: any) => v
               editable={!busy}
               placeholder='Referrals, Google, Facebook'
             />
+          </View>
+          <View style={styles.field}>
+            <Text style={styles.label}>Industry</Text>
+            <TextInput style={styles.input} value={industry} onChangeText={setIndustry} editable={!busy} />
+          </View>
+          <View style={styles.field}>
+            <Text style={styles.label}>Business model</Text>
+            <TextInput style={styles.input} value={businessModel} onChangeText={setBusinessModel} editable={!busy} />
+          </View>
+          <View style={styles.field}>
+            <Text style={styles.label}>Target customer</Text>
+            <TextInput
+              style={styles.input}
+              value={targetCustomer}
+              onChangeText={setTargetCustomer}
+              editable={!busy}
+              placeholder='e.g., local service businesses in Austin'
+            />
+          </View>
+          <View style={styles.field}>
+            <Text style={styles.label}>Brand voice</Text>
+            <TextInput
+              style={styles.input}
+              value={brandVoice}
+              onChangeText={setBrandVoice}
+              editable={!busy}
+              placeholder='Friendly, professional, casual, etc.'
+            />
+          </View>
+          <View style={styles.field}>
+            <Text style={styles.label}>Referral code (optional)</Text>
+            <TextInput style={styles.input} value={referralCode} onChangeText={setReferralCode} editable={!busy} />
           </View>
           <Pressable
             style={[styles.primaryButton, (!canNextFromBusiness || busy) ? styles.buttonDisabled : null]}
@@ -319,7 +376,7 @@ function SignupForm({ busy, onSubmit }: { busy: boolean; onSubmit: (f: any) => v
 
       {step === 1 && (
         <>
-          <Text style={styles.stepTitle}>What are your goals?</Text>
+          <Text style={styles.stepTitle}>Goals</Text>
           <View style={styles.chipRowWrap}>
             {goals.map((g) => (
               <Pressable
@@ -344,7 +401,37 @@ function SignupForm({ busy, onSubmit }: { busy: boolean; onSubmit: (f: any) => v
 
       {step === 2 && (
         <>
-          <Text style={styles.stepTitle}>Create your account</Text>
+          <Text style={styles.stepTitle}>Plan</Text>
+          <Text style={styles.stepSubtitle}>We’ll start you on the Core credits plan so you can get into the portal quickly. You can adjust your plan later from the full portal.</Text>
+          <View style={styles.stepButtonsRow}>
+            <Pressable style={[styles.secondaryButton]} onPress={() => setStep(1)}>
+              <Text style={styles.secondaryButtonText}>Back</Text>
+            </Pressable>
+            <Pressable style={[styles.primaryButton]} onPress={() => setStep(3)}>
+              <Text style={styles.primaryButtonText}>Continue</Text>
+            </Pressable>
+          </View>
+        </>
+      )}
+
+      {step === 3 && (
+        <>
+          <Text style={styles.stepTitle}>Services</Text>
+          <Text style={styles.stepSubtitle}>We’ll turn on the core services that support your goals. You can fine-tune services later from the desktop portal.</Text>
+          <View style={styles.stepButtonsRow}>
+            <Pressable style={[styles.secondaryButton]} onPress={() => setStep(2)}>
+              <Text style={styles.secondaryButtonText}>Back</Text>
+            </Pressable>
+            <Pressable style={[styles.primaryButton]} onPress={() => setStep(4)}>
+              <Text style={styles.primaryButtonText}>Continue</Text>
+            </Pressable>
+          </View>
+        </>
+      )}
+
+      {step === 4 && (
+        <>
+          <Text style={styles.stepTitle}>Account</Text>
           <View style={styles.field}>
             <Text style={styles.label}>Name</Text>
             <TextInput style={styles.input} value={name} onChangeText={setName} editable={!busy} />
@@ -494,7 +581,13 @@ const styles = StyleSheet.create({
   },
   primaryButtonText: { fontSize: 16, fontWeight: '600', color: '#ffffff' },
   buttonDisabled: { opacity: 0.6 },
+  stepperRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 },
+  stepperItem: { flex: 1, paddingVertical: 4, alignItems: 'center' },
+  stepperItemActive: { borderBottomWidth: 2, borderBottomColor: BRAND_INK },
+  stepperText: { fontSize: 12, color: ZINC_600 },
+  stepperTextActive: { fontSize: 12, fontWeight: '600', color: ZINC_900 },
   stepTitle: { fontSize: 18, fontWeight: '600', color: ZINC_900, marginBottom: 12 },
+  stepSubtitle: { fontSize: 14, color: ZINC_600, marginBottom: 20 },
   chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 8 },
   chipRowWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 12 },
   chip: {
