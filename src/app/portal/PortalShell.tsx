@@ -844,117 +844,137 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
   }
 
   if (embedded) {
+    const footerTabs = [
+      { href: `${basePath}/app`, label: "Dashboard", key: "home" },
+      { href: `${basePath}/app/services/inbox`, label: "Inbox", key: "inbox" },
+      { href: `${basePath}/app/services/tasks`, label: "Tasks", key: "tasks" },
+      { href: `${basePath}/app/people`, label: "People", key: "people" },
+      { href: `${basePath}/app/profile`, label: "Settings", key: "settings" },
+    ] as const;
+
     return (
-      <div className="flex h-[100dvh] flex-col overflow-hidden bg-brand-mist text-brand-ink">
-        <header className="shrink-0 border-b border-zinc-200 bg-white">
-          <div className="mx-auto flex h-16 w-full max-w-screen-xl items-center gap-2 px-3">
-            <button
-              type="button"
-              className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-zinc-200 bg-white text-zinc-900"
-              aria-label="Open menu"
-              onClick={() => setMobileOpen(true)}
-            >
-              <IconHamburger />
-            </button>
+      <>
+        <style>{`
+          /* Embedded portal mode owns its own chrome; hide the /portal layout topbar. */
+          .pa-portal-topbar { display: none !important; }
+        `}</style>
 
-            <div className="flex min-w-0 flex-1 items-center justify-center">
-              <Link href={`${basePath}/app`} className="flex items-center justify-center">
-                <Image
-                  src={sidebarLogoSrc}
-                  alt="Purely Automation"
-                  width={220}
-                  height={44}
-                  className="h-8 w-auto max-w-[12.5rem] object-contain"
-                  priority
-                />
-              </Link>
-            </div>
-
-            <div className="flex items-center gap-2">
-              <Link
-                href="/book-a-call"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="hidden items-center justify-center rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50 sm:inline-flex"
-              >
-                Book a call
-              </Link>
-              <Link
-                href={`${basePath}/tutorials/getting-started?embed=1`}
-                className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50"
-                aria-label="Help"
-              >
-                ?
-              </Link>
-            </div>
-          </div>
-        </header>
-
-        {/* Embedded drawer */}
-        <div
-          className={classNames(
-            "fixed inset-0 z-40",
-            mobileOpen ? "" : "pointer-events-none",
-          )}
-          aria-hidden={!mobileOpen}
-        >
-          <button
-            type="button"
-            className={classNames(
-              "absolute inset-0 bg-black/30 transition-opacity",
-              mobileOpen ? "opacity-100" : "opacity-0",
-            )}
-            onClick={() => setMobileOpen(false)}
-            aria-label="Close menu"
-          />
-
-          <aside
-            className={classNames(
-              "absolute left-0 top-0 flex h-full w-72.5 flex-col overflow-hidden border-r border-zinc-200 bg-white shadow-xl transition-transform",
-              mobileOpen ? "translate-x-0" : "-translate-x-full",
-            )}
-          >
-            <div className="shrink-0 flex items-center gap-3 border-b border-zinc-200 bg-white p-3">
-              <Link href={`${basePath}/app`} className="flex items-center gap-3" onClick={() => setMobileOpen(false)}>
-                <Image
-                  src={sidebarLogoSrc}
-                  alt="Purely Automation"
-                  width={120}
-                  height={34}
-                  className="h-6 w-auto max-w-32 object-contain"
-                />
-              </Link>
+        <div className="flex h-[100dvh] flex-col overflow-hidden bg-brand-mist text-brand-ink">
+          {/* Top header (single header in embedded mode) */}
+          <header className="shrink-0 border-b border-zinc-200 bg-white">
+            <div className="mx-auto flex h-16 w-full max-w-md items-center gap-2 px-3">
               <button
                 type="button"
-                onClick={() => setMobileOpen(false)}
-                className="ml-auto inline-flex h-10 w-10 items-center justify-center rounded-xl border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50"
-                aria-label="Close menu"
+                className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-zinc-200 bg-white text-zinc-900"
+                aria-label="Open menu"
+                onClick={() => setMobileOpen(true)}
               >
-                ×
+                <IconHamburger />
               </button>
-            </div>
 
-            <div className="min-h-0 flex-1 overflow-y-auto p-3">
-              <div className="space-y-1">
-                {navItems.map((item) => (
-                  <Link
-                    key={item.href}
-                    href={item.href}
-                    onClick={() => setMobileOpen(false)}
-                    className={classNames(
-                      "flex items-center gap-3 rounded-2xl px-3 py-2 text-sm font-semibold",
-                      isActive(item.href)
-                        ? "bg-[rgba(29,78,216,0.10)] text-(--color-brand-blue)"
-                        : "text-zinc-700 hover:bg-zinc-50",
-                    )}
-                  >
-                    {item.icon}
-                    <span className="truncate">{item.label}</span>
-                  </Link>
-                ))}
+              <div className="flex min-w-0 flex-1 items-center justify-center">
+                <Link href={`${basePath}/app`} className="flex items-center justify-center">
+                  <Image
+                    src={sidebarLogoSrc}
+                    alt="Purely Automation"
+                    width={220}
+                    height={44}
+                    className="h-8 w-auto max-w-[12.5rem] object-contain"
+                    priority
+                  />
+                </Link>
               </div>
 
-              <div className="mt-6">
+              <div className="flex items-center gap-2">
+                <Link
+                  href="/book-a-call"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50"
+                  aria-label="Book a call"
+                >
+                  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M8 3v3M16 3v3" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                    <path d="M4 7h16" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                    <path
+                      d="M6 5h12a2 2 0 012 2v13a2 2 0 01-2 2H6a2 2 0 01-2-2V7a2 2 0 012-2z"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinejoin="round"
+                    />
+                    <path d="M8 11h4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                    <path d="M8 15h6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                  </svg>
+                </Link>
+                <Link
+                  href={`${basePath}/tutorials/getting-started?embed=1`}
+                  className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50"
+                  aria-label="Help"
+                >
+                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <path
+                      d="M9.1 9a3 3 0 115.8 0c0 2-3 2-3 4"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                    />
+                    <path d="M12 17h.01" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                    <path
+                      d="M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10z"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                    />
+                  </svg>
+                </Link>
+              </div>
+            </div>
+          </header>
+
+          {/* Embedded drawer (secondary navigation only) */}
+          <div
+            className={classNames(
+              "fixed inset-0 z-40",
+              mobileOpen ? "" : "pointer-events-none",
+            )}
+            aria-hidden={!mobileOpen}
+          >
+            <button
+              type="button"
+              className={classNames(
+                "absolute inset-0 bg-black/30 transition-opacity",
+                mobileOpen ? "opacity-100" : "opacity-0",
+              )}
+              onClick={() => setMobileOpen(false)}
+              aria-label="Close menu"
+            />
+
+            <aside
+              className={classNames(
+                "absolute left-0 top-0 flex h-full w-72 flex-col overflow-hidden border-r border-zinc-200 bg-white shadow-xl transition-transform",
+                mobileOpen ? "translate-x-0" : "-translate-x-full",
+              )}
+            >
+              <div className="shrink-0 flex items-center gap-3 border-b border-zinc-200 bg-white p-3">
+                <Link href={`${basePath}/app`} className="flex items-center gap-3" onClick={() => setMobileOpen(false)}>
+                  <Image
+                    src={sidebarLogoSrc}
+                    alt="Purely Automation"
+                    width={120}
+                    height={34}
+                    className="h-6 w-auto max-w-32 object-contain"
+                  />
+                </Link>
+                <button
+                  type="button"
+                  onClick={() => setMobileOpen(false)}
+                  className="ml-auto inline-flex h-10 w-10 items-center justify-center rounded-xl border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50"
+                  aria-label="Close menu"
+                >
+                  ×
+                </button>
+              </div>
+
+              <div className="min-h-0 flex-1 overflow-y-auto p-3">
                 <div className="px-3 text-xs font-semibold uppercase tracking-wide text-zinc-500">Services</div>
                 <div className="mt-2 space-y-4">
                   {sidebarServiceGroups.map((group) => (
@@ -993,18 +1013,152 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                     </div>
                   ))}
                 </div>
+
+                <div className="mt-6 px-3">
+                  <SignOutButton className="w-full justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm font-semibold text-zinc-800 hover:bg-zinc-50" />
+                </div>
               </div>
+            </aside>
+          </div>
+
+          {/* Main content */}
+          <main className="min-h-0 flex-1 overflow-y-auto">
+            <div className="mx-auto w-full max-w-md px-3 pb-[calc(env(safe-area-inset-bottom)+5.5rem)] pt-3">
+              {children}
             </div>
-          </aside>
+          </main>
+
+          {/* Bottom footer tabs */}
+          <nav className="shrink-0 border-t border-zinc-200 bg-white">
+            <div className="mx-auto grid w-full max-w-md grid-cols-5 gap-1 px-2 py-2">
+              {footerTabs.map((t) => {
+                const active = isActive(t.href);
+                const tone = active ? "text-(--color-brand-blue)" : "text-zinc-500";
+
+                function FooterIcon() {
+                  switch (t.key) {
+                    case "home":
+                      return (
+                        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                          <path
+                            d="M3 10.5l9-7 9 7V21a1 1 0 01-1 1h-5v-6a2 2 0 00-2-2H11a2 2 0 00-2 2v6H4a1 1 0 01-1-1V10.5z"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                            strokeLinejoin="round"
+                          />
+                        </svg>
+                      );
+                    case "inbox":
+                      return (
+                        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                          <path
+                            d="M4 4h16v12H4V4z"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                            strokeLinejoin="round"
+                          />
+                          <path
+                            d="M22 16l-3 5H5l-3-5"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          />
+                          <path d="M9 14h6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                        </svg>
+                      );
+                    case "tasks":
+                      return (
+                        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                          <path
+                            d="M9 11l2 2 4-4"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          />
+                          <path
+                            d="M7 4h12a2 2 0 012 2v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6a2 2 0 012-2z"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                            strokeLinejoin="round"
+                          />
+                          <path d="M7 8h2" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                        </svg>
+                      );
+                    case "people":
+                      return (
+                        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                          <path
+                            d="M17 21v-1a4 4 0 00-4-4H7a4 4 0 00-4 4v1"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                            strokeLinecap="round"
+                          />
+                          <path
+                            d="M10 12a4 4 0 100-8 4 4 0 000 8z"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                            strokeLinejoin="round"
+                          />
+                          <path
+                            d="M21 21v-1a3 3 0 00-2-2.83"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                            strokeLinecap="round"
+                          />
+                          <path
+                            d="M17 3.13a4 4 0 010 7.75"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                            strokeLinecap="round"
+                          />
+                        </svg>
+                      );
+                    case "settings":
+                      return (
+                        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                          <path
+                            d="M12 15.5a3.5 3.5 0 110-7 3.5 3.5 0 010 7z"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                          />
+                          <path
+                            d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 01-1.41 3.41h-.08a1.65 1.65 0 00-1.49 1.1l-.02.06a2 2 0 01-3.58 0l-.02-.06a1.65 1.65 0 00-1.49-1.1H9.9a1.65 1.65 0 00-1.49 1.1l-.02.06a2 2 0 01-3.58 0l-.02-.06a1.65 1.65 0 00-1.49-1.1H3.3a2 2 0 01-1.41-3.41l.06-.06A1.65 1.65 0 002.28 15v-.12a1.65 1.65 0 00-.33-1.82l-.06-.06A2 2 0 013.3 9.59h.08A1.65 1.65 0 004.87 8.5l.02-.06a2 2 0 013.58 0l.02.06A1.65 1.65 0 009.98 9.6h.12a1.65 1.65 0 001.82-.33l.06-.06a2 2 0 013.41 1.41v.08a1.65 1.65 0 001.1 1.49l.06.02a2 2 0 010 3.58l-.06.02a1.65 1.65 0 00-1.1 1.49z"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          />
+                        </svg>
+                      );
+                    default:
+                      return null;
+                  }
+                }
+
+                return (
+                  <Link
+                    key={t.key}
+                    href={t.href}
+                    className={classNames(
+                      "flex flex-col items-center justify-center gap-1 rounded-2xl px-2 py-2 text-[11px] font-semibold",
+                      active ? "bg-zinc-100 text-zinc-900" : "text-zinc-600 hover:bg-zinc-50",
+                    )}
+                  >
+                    <span className={classNames(tone)}>
+                      <FooterIcon />
+                    </span>
+                    <span className="max-w-full truncate">{t.label}</span>
+                  </Link>
+                );
+              })}
+            </div>
+          </nav>
+
+          <PortalFloatingTools />
         </div>
-
-        <main className="min-h-0 flex-1 overflow-y-auto">
-          {children}
-          <div aria-hidden className="h-[calc(env(safe-area-inset-bottom)+2rem)]" />
-        </main>
-
-        <PortalFloatingTools />
-      </div>
+      </>
     );
   }
 

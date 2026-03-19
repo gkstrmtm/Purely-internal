@@ -3,15 +3,18 @@
 import { signOut } from "next-auth/react";
 import { usePathname, useRouter } from "next/navigation";
 
-export function SignOutButton() {
+export function SignOutButton({ className }: { className?: string } = {}) {
   const pathname = usePathname();
   const router = useRouter();
   const isCredit = pathname?.startsWith("/credit");
   const isPortal = pathname?.startsWith("/portal");
   const portalBase = isCredit ? "/credit" : "/portal";
+
+  const baseClassName = "rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 hover:bg-zinc-50";
+  const mergedClassName = className ? `${baseClassName} ${className}` : baseClassName;
   return (
     <button
-      className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 hover:bg-zinc-50"
+      className={mergedClassName}
       onClick={async () => {
         if (isPortal || isCredit) {
           await fetch(`${portalBase}/api/logout`, { method: "POST" }).catch(() => null);
