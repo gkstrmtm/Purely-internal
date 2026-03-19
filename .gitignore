@@ -83,3 +83,6 @@ next-env.d.ts
 
 # local-only transcript accidentally created in uploads route (do not commit)
 /src/app/uploads/\[...path\]/newtranscript.md
+
+# local-only portal thread context (do not commit)
+/src/app/portal/app/settings/thread.md
