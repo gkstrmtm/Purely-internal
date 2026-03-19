@@ -867,12 +867,14 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
   }
 
   if (embedded) {
+    const settingsHref = variant === "portal" ? `${basePath}/app/settings` : `${basePath}/app`;
+
     const footerTabs = [
       { href: `${basePath}/app`, label: "Dashboard", key: "home" },
       { href: `${basePath}/app/services/inbox`, label: "Inbox", key: "inbox" },
       { href: `${basePath}/app/services/tasks`, label: "Tasks", key: "tasks" },
       { href: `${basePath}/app/people`, label: "People", key: "people" },
-      { href: `${basePath}/app/profile`, label: "Settings", key: "settings" },
+      { href: settingsHref, label: "Settings", key: "settings" },
     ] as const;
 
     const embeddedSidebarServiceGroups = sidebarServiceGroups

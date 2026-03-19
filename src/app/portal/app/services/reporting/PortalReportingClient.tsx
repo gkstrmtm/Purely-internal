@@ -549,9 +549,25 @@ export function PortalReportingClient() {
   const [activeOnly, setActiveOnly] = useState(true);
   const [dashboardWidgetIds, setDashboardWidgetIds] = useState<Set<string>>(() => new Set());
 
+  const dashboardScope = (() => {
+    if (typeof window === "undefined") return "default" as const;
+    try {
+      const sp = new URLSearchParams(window.location.search);
+      if (sp.get("embed") === "1" || sp.get("pa_embed") === "1") return "embedded" as const;
+    } catch {
+      // ignore
+    }
+    try {
+      if (window.sessionStorage.getItem("pa.portal.embed") === "1") return "embedded" as const;
+    } catch {
+      // ignore
+    }
+    return "default" as const;
+  })();
+
   async function addWidget(widgetId: string) {
     setNote(null);
-    const res = await fetch("/api/portal/dashboard", {
+    const res = await fetch(`/api/portal/dashboard?scope=${dashboardScope}`, {
       method: "PUT",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ action: "add", widgetId }),
@@ -571,7 +587,7 @@ export function PortalReportingClient() {
   }
 
   async function loadDashboardWidgetIds() {
-    const res = await fetch("/api/portal/dashboard", { cache: "no-store" }).catch(() => null as any);
+    const res = await fetch(`/api/portal/dashboard?scope=${dashboardScope}`, { cache: "no-store" }).catch(() => null as any);
     if (!res?.ok) return;
     const body = (await res.json().catch(() => ({}))) as { ok?: boolean; data?: DashboardData };
     const ids = new Set<string>(Array.isArray(body?.data?.widgets) ? body!.data!.widgets.map((w) => w.id).filter(Boolean) : []);

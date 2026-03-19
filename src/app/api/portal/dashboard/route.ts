@@ -23,7 +23,17 @@ const putSchema = z
   })
   .strict();
 
-export async function GET() {
+function dashboardScopeFromReq(req: Request) {
+  try {
+    const url = new URL(req.url);
+    const scope = url.searchParams.get("scope");
+    return scope === "embedded" ? "embedded" : "default";
+  } catch {
+    return "default" as const;
+  }
+}
+
+export async function GET(req: Request) {
   const auth = await requireClientSession();
   if (!auth.ok) {
     return NextResponse.json(
@@ -33,7 +43,8 @@ export async function GET() {
   }
 
   const ownerId = auth.session.user.id;
-  const data = await getPortalDashboardData(ownerId);
+  const scope = dashboardScopeFromReq(req);
+  const data = await getPortalDashboardData(ownerId, scope);
   return NextResponse.json({ ok: true, data });
 }
 
@@ -53,10 +64,11 @@ export async function PUT(req: Request) {
   }
 
   const ownerId = auth.session.user.id;
+  const scope = dashboardScopeFromReq(req);
 
   switch (parsed.data.action) {
     case "reset": {
-      const data = await resetPortalDashboard(ownerId);
+      const data = await resetPortalDashboard(ownerId, scope);
       return NextResponse.json({ ok: true, data });
     }
 
@@ -65,7 +77,7 @@ export async function PUT(req: Request) {
       if (!isDashboardWidgetId(id)) {
         return NextResponse.json({ error: "Unknown widget" }, { status: 400 });
       }
-      const data = await addPortalDashboardWidget(ownerId, id);
+      const data = await addPortalDashboardWidget(ownerId, scope, id);
       return NextResponse.json({ ok: true, data });
     }
 
@@ -74,12 +86,12 @@ export async function PUT(req: Request) {
       if (!isDashboardWidgetId(id)) {
         return NextResponse.json({ error: "Unknown widget" }, { status: 400 });
       }
-      const data = await removePortalDashboardWidget(ownerId, id);
+      const data = await removePortalDashboardWidget(ownerId, scope, id);
       return NextResponse.json({ ok: true, data });
     }
 
     case "save": {
-      const data = await savePortalDashboardData(ownerId, parsed.data.data as any);
+      const data = await savePortalDashboardData(ownerId, scope, parsed.data.data as any);
       return NextResponse.json({ ok: true, data });
     }
 

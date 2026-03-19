@@ -389,6 +389,22 @@ export function PortalDashboardClient() {
       setLoading(true);
       setError(null);
 
+      const dashboardScope = (() => {
+        if (typeof window === "undefined") return "default" as const;
+        try {
+          const sp = new URLSearchParams(window.location.search);
+          if (sp.get("embed") === "1" || sp.get("pa_embed") === "1") return "embedded" as const;
+        } catch {
+          // ignore
+        }
+        try {
+          if (window.sessionStorage.getItem("pa.portal.embed") === "1") return "embedded" as const;
+        } catch {
+          // ignore
+        }
+        return "default" as const;
+      })();
+
       const controller = new AbortController();
       const timeout = window.setTimeout(() => controller.abort(), 15000);
 
@@ -400,7 +416,7 @@ export function PortalDashboardClient() {
             signal: controller.signal,
             headers: { "x-pa-app": "portal", "x-portal-variant": variant },
           }),
-          fetch("/api/portal/dashboard", { cache: "no-store", signal: controller.signal }),
+          fetch(`/api/portal/dashboard?scope=${dashboardScope}` , { cache: "no-store", signal: controller.signal }),
           fetch("/api/portal/reporting?range=30d", { cache: "no-store", signal: controller.signal }).catch(() => null as any),
           fetch("/api/portal/media/stats", { cache: "no-store", signal: controller.signal }).catch(() => null as any),
         ]);
@@ -674,6 +690,22 @@ export function PortalDashboardClient() {
     if (!dashboard) return;
     setSavingLayout(true);
 
+    const dashboardScope = (() => {
+      if (typeof window === "undefined") return "default" as const;
+      try {
+        const sp = new URLSearchParams(window.location.search);
+        if (sp.get("embed") === "1" || sp.get("pa_embed") === "1") return "embedded" as const;
+      } catch {
+        // ignore
+      }
+      try {
+        if (window.sessionStorage.getItem("pa.portal.embed") === "1") return "embedded" as const;
+      } catch {
+        // ignore
+      }
+      return "default" as const;
+    })();
+
     const bp = activeDashboardBreakpoint(width);
     const chosen: Layout = Array.isArray((nextLayouts as any)?.[bp])
       ? (((nextLayouts as any)[bp]) as Layout)
@@ -694,7 +726,7 @@ export function PortalDashboardClient() {
       })),
     };
 
-    const res = await fetch("/api/portal/dashboard", {
+    const res = await fetch(`/api/portal/dashboard?scope=${dashboardScope}`, {
       method: "PUT",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ action: "save", data: next }),
@@ -742,7 +774,23 @@ export function PortalDashboardClient() {
   }
 
   async function removeWidget(id: DashboardWidgetId) {
-    const res = await fetch("/api/portal/dashboard", {
+    const dashboardScope = (() => {
+      if (typeof window === "undefined") return "default" as const;
+      try {
+        const sp = new URLSearchParams(window.location.search);
+        if (sp.get("embed") === "1" || sp.get("pa_embed") === "1") return "embedded" as const;
+      } catch {
+        // ignore
+      }
+      try {
+        if (window.sessionStorage.getItem("pa.portal.embed") === "1") return "embedded" as const;
+      } catch {
+        // ignore
+      }
+      return "default" as const;
+    })();
+
+    const res = await fetch(`/api/portal/dashboard?scope=${dashboardScope}`, {
       method: "PUT",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ action: "remove", widgetId: id }),
@@ -764,7 +812,23 @@ export function PortalDashboardClient() {
   }
 
   async function resetDashboard() {
-    const res = await fetch("/api/portal/dashboard", {
+    const dashboardScope = (() => {
+      if (typeof window === "undefined") return "default" as const;
+      try {
+        const sp = new URLSearchParams(window.location.search);
+        if (sp.get("embed") === "1" || sp.get("pa_embed") === "1") return "embedded" as const;
+      } catch {
+        // ignore
+      }
+      try {
+        if (window.sessionStorage.getItem("pa.portal.embed") === "1") return "embedded" as const;
+      } catch {
+        // ignore
+      }
+      return "default" as const;
+    })();
+
+    const res = await fetch(`/api/portal/dashboard?scope=${dashboardScope}`, {
       method: "PUT",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ action: "reset" }),

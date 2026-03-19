@@ -2,6 +2,8 @@ import { prisma } from "@/lib/db";
 
 const SERVICE_SLUG = "dashboard";
 
+export type DashboardScope = "default" | "embedded";
+
 export type DashboardWidgetId =
   | "hoursSaved"
   | "billing"
@@ -57,6 +59,13 @@ export type PortalDashboardData = {
   widgets: DashboardWidget[];
   layout: DashboardLayoutItem[];
 };
+
+type StoredDashboardJson =
+  | {
+      version: 1;
+      scopes: Partial<Record<DashboardScope, unknown>>;
+    }
+  | unknown;
 
 function normalizeInt(n: unknown, fallback: number) {
   const v = typeof n === "number" ? n : typeof n === "string" ? Number(n) : NaN;
@@ -190,27 +199,76 @@ function parseDashboardJson(raw: unknown): PortalDashboardData {
   };
 }
 
-export async function getPortalDashboardData(ownerId: string): Promise<PortalDashboardData> {
+function dashboardsByScopeFromStored(raw: StoredDashboardJson | null | undefined): Record<DashboardScope, PortalDashboardData> {
+  if (raw && typeof raw === "object" && !Array.isArray(raw)) {
+    const rec = raw as Record<string, unknown>;
+    const scopes = rec.scopes;
+    if (scopes && typeof scopes === "object" && !Array.isArray(scopes)) {
+      const scoped = scopes as Record<string, unknown>;
+      const defaultRaw = scoped.default ?? null;
+      const embeddedRaw = scoped.embedded ?? defaultRaw ?? null;
+      const d = parseDashboardJson(defaultRaw);
+      const e = parseDashboardJson(embeddedRaw);
+      return { default: d, embedded: e };
+    }
+  }
+
+  const d = parseDashboardJson(raw ?? null);
+  return { default: d, embedded: d };
+}
+
+function normalizeScope(scope: string | null | undefined): DashboardScope {
+  return scope === "embedded" ? "embedded" : "default";
+}
+export async function getPortalDashboardData(ownerId: string, scope?: DashboardScope | string | null): Promise<PortalDashboardData> {
+  const s = normalizeScope(scope);
   const row = await prisma.portalServiceSetup.findUnique({
     where: { ownerId_serviceSlug: { ownerId, serviceSlug: SERVICE_SLUG } },
     select: { dataJson: true },
   });
-  return parseDashboardJson(row?.dataJson ?? null);
+  const byScope = dashboardsByScopeFromStored((row?.dataJson ?? null) as any);
+  return byScope[s];
 }
 
-export async function savePortalDashboardData(ownerId: string, data: PortalDashboardData): Promise<PortalDashboardData> {
+export async function savePortalDashboardData(
+  ownerId: string,
+  scope: DashboardScope | string | null | undefined,
+  data: PortalDashboardData,
+): Promise<PortalDashboardData> {
+  const s = normalizeScope(scope);
   const next = parseDashboardJson(data);
-  const row = await prisma.portalServiceSetup.upsert({
+
+  const existing = await prisma.portalServiceSetup.findUnique({
     where: { ownerId_serviceSlug: { ownerId, serviceSlug: SERVICE_SLUG } },
-    create: { ownerId, serviceSlug: SERVICE_SLUG, status: "COMPLETE", dataJson: next as any },
-    update: { status: "COMPLETE", dataJson: next as any },
     select: { dataJson: true },
   });
-  return parseDashboardJson(row.dataJson);
+  const byScope = dashboardsByScopeFromStored((existing?.dataJson ?? null) as any);
+  const merged: Record<DashboardScope, PortalDashboardData> = {
+    default: s === "default" ? next : byScope.default,
+    embedded: s === "embedded" ? next : byScope.embedded,
+  };
+
+  const row = await prisma.portalServiceSetup.upsert({
+    where: { ownerId_serviceSlug: { ownerId, serviceSlug: SERVICE_SLUG } },
+    create: {
+      ownerId,
+      serviceSlug: SERVICE_SLUG,
+      status: "COMPLETE",
+      dataJson: { version: 1, scopes: merged } as any,
+    },
+    update: { status: "COMPLETE", dataJson: { version: 1, scopes: merged } as any },
+    select: { dataJson: true },
+  });
+  const out = dashboardsByScopeFromStored(row.dataJson as any);
+  return out[s];
 }
 
-export async function addPortalDashboardWidget(ownerId: string, widgetId: DashboardWidgetId): Promise<PortalDashboardData> {
-  const current = await getPortalDashboardData(ownerId);
+export async function addPortalDashboardWidget(
+  ownerId: string,
+  scope: DashboardScope | string | null | undefined,
+  widgetId: DashboardWidgetId,
+): Promise<PortalDashboardData> {
+  const current = await getPortalDashboardData(ownerId, scope);
   if (current.widgets.some((w) => w.id === widgetId)) return current;
 
   const next: PortalDashboardData = {
@@ -246,11 +304,15 @@ export async function addPortalDashboardWidget(ownerId: string, widgetId: Dashbo
     ],
   };
 
-  return await savePortalDashboardData(ownerId, next);
+  return await savePortalDashboardData(ownerId, scope, next);
 }
 
-export async function removePortalDashboardWidget(ownerId: string, widgetId: DashboardWidgetId): Promise<PortalDashboardData> {
-  const current = await getPortalDashboardData(ownerId);
+export async function removePortalDashboardWidget(
+  ownerId: string,
+  scope: DashboardScope | string | null | undefined,
+  widgetId: DashboardWidgetId,
+): Promise<PortalDashboardData> {
+  const current = await getPortalDashboardData(ownerId, scope);
 
   // Don’t allow removing the base widgets; keeps dashboard usable.
   const protectedIds: DashboardWidgetId[] = ["hoursSaved", "billing", "services"];
@@ -262,9 +324,9 @@ export async function removePortalDashboardWidget(ownerId: string, widgetId: Das
     layout: current.layout.filter((l) => l.i !== widgetId),
   };
 
-  return await savePortalDashboardData(ownerId, next);
+  return await savePortalDashboardData(ownerId, scope, next);
 }
 
-export async function resetPortalDashboard(ownerId: string): Promise<PortalDashboardData> {
-  return await savePortalDashboardData(ownerId, defaultDashboard());
+export async function resetPortalDashboard(ownerId: string, scope: DashboardScope | string | null | undefined): Promise<PortalDashboardData> {
+  return await savePortalDashboardData(ownerId, scope, defaultDashboard());
 }
