@@ -4,6 +4,7 @@ import {
   Platform,
   Pressable,
   ScrollView,
+  SafeAreaView,
   StyleSheet,
   Text,
   TextInput,
@@ -61,8 +62,14 @@ export function PortalSingleSelectField({
         <Text style={styles.chev}>{"▾"}</Text>
       </Pressable>
 
-      <Modal visible={open} animationType="slide" transparent>
-        <View style={styles.modalBackdrop}>
+      <Modal
+        visible={open}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setOpen(false)}
+      >
+        <SafeAreaView style={styles.modalBackdrop}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={() => setOpen(false)} />
           <View style={styles.modalCard}>
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>{label}</Text>
@@ -102,7 +109,7 @@ export function PortalSingleSelectField({
               {!filtered.length ? <Text style={styles.empty}>No results</Text> : null}
             </ScrollView>
           </View>
-        </View>
+        </SafeAreaView>
       </Modal>
     </View>
   );
@@ -165,8 +172,14 @@ export function PortalMultiSelectField({
         <Text style={styles.chev}>{"▾"}</Text>
       </Pressable>
 
-      <Modal visible={open} animationType="slide" transparent>
-        <View style={styles.modalBackdrop}>
+      <Modal
+        visible={open}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setOpen(false)}
+      >
+        <SafeAreaView style={styles.modalBackdrop}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={() => setOpen(false)} />
           <View style={styles.modalCard}>
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>{label}</Text>
@@ -203,7 +216,7 @@ export function PortalMultiSelectField({
               {!filtered.length ? <Text style={styles.empty}>No results</Text> : null}
             </ScrollView>
           </View>
-        </View>
+        </SafeAreaView>
       </Modal>
     </View>
   );
