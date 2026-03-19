@@ -852,6 +852,13 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
       { href: `${basePath}/app/profile`, label: "Settings", key: "settings" },
     ] as const;
 
+    const embeddedSidebarServiceGroups = sidebarServiceGroups
+      .map((g) => ({
+        ...g,
+        services: g.services.filter((s) => s.slug !== "tasks"),
+      }))
+      .filter((g) => g.services.length);
+
     return (
       <>
         <style>{`
@@ -868,34 +875,34 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
           {/* Top header (single header in embedded mode) */}
           <header className="shrink-0 border-b border-zinc-200 bg-white">
             <div className="mx-auto flex h-16 w-full max-w-md items-center gap-2 px-3">
-              <button
-                type="button"
-                className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-zinc-200 bg-white text-zinc-900"
-                aria-label="Open menu"
-                onClick={() => setMobileOpen(true)}
-              >
-                <IconHamburger />
-              </button>
+              <div className="flex min-w-0 flex-1 items-center gap-2">
+                <button
+                  type="button"
+                  className="inline-flex h-10 w-10 items-center justify-center rounded-xl bg-transparent text-zinc-900 transition-colors hover:text-zinc-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--color-brand-blue)]"
+                  aria-label="Open menu"
+                  onClick={() => setMobileOpen(true)}
+                >
+                  <IconHamburger />
+                </button>
 
-              <div className="flex min-w-0 flex-1 items-center justify-center">
-                <Link href={`${basePath}/app`} className="flex items-center justify-center">
+                <Link href={`${basePath}/app`} className="flex min-w-0 items-center" aria-label="Go to Dashboard">
                   <Image
                     src={sidebarLogoSrc}
                     alt="Purely Automation"
-                    width={220}
+                    width={180}
                     height={44}
-                    className="h-8 w-auto max-w-[12.5rem] object-contain"
+                    className="h-8 w-auto max-w-[10.5rem] object-contain"
                     priority
                   />
                 </Link>
               </div>
 
-              <div className="flex items-center gap-2">
+              <div className="ml-auto flex items-center gap-2">
                 <Link
                   href="/book-a-call"
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50"
+                  className="inline-flex h-10 w-10 items-center justify-center rounded-xl bg-transparent text-zinc-700 transition-colors hover:text-zinc-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--color-brand-blue)]"
                   aria-label="Book a call"
                 >
                   <svg width="22" height="22" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -913,7 +920,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                 </Link>
                 <Link
                   href={`${basePath}/tutorials/getting-started?embed=1`}
-                  className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50"
+                  className="inline-flex h-10 w-10 items-center justify-center rounded-xl bg-transparent text-zinc-700 transition-colors hover:text-zinc-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--color-brand-blue)]"
                   aria-label="Help"
                 >
                   <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -972,7 +979,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                 <button
                   type="button"
                   onClick={() => setMobileOpen(false)}
-                  className="ml-auto inline-flex h-10 w-10 items-center justify-center rounded-xl border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50"
+                  className="ml-auto inline-flex h-10 w-10 items-center justify-center rounded-xl bg-transparent text-zinc-700 transition-colors hover:text-zinc-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--color-brand-blue)]"
                   aria-label="Close menu"
                 >
                   ×
@@ -982,7 +989,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
               <div className="min-h-0 flex-1 overflow-y-auto p-3">
                 <div className="px-3 text-xs font-semibold uppercase tracking-wide text-zinc-500">Services</div>
                 <div className="mt-2 space-y-4">
-                  {sidebarServiceGroups.map((group) => (
+                  {embeddedSidebarServiceGroups.map((group) => (
                     <div key={group.key}>
                       <div className="px-3 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">{group.title}</div>
                       <div className="mt-1 space-y-1">
@@ -1057,19 +1064,19 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                       return (
                         <svg width="22" height="22" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
                           <path
-                            d="M4 4h16v12H4V4z"
-                            stroke="currentColor"
-                            strokeWidth="2"
-                            strokeLinejoin="round"
-                          />
-                          <path
-                            d="M22 16l-3 5H5l-3-5"
+                            d="M22 2L11 13"
                             stroke="currentColor"
                             strokeWidth="2"
                             strokeLinecap="round"
                             strokeLinejoin="round"
                           />
-                          <path d="M9 14h6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                          <path
+                            d="M22 2l-7 20-4-9-9-4 20-7z"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          />
                         </svg>
                       );
                     case "tasks":
@@ -1088,7 +1095,8 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                             strokeWidth="2"
                             strokeLinejoin="round"
                           />
-                          <path d="M7 8h2" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                          <path d="M8 8h10" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                          <path d="M8 16h10" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
                         </svg>
                       );
                     case "people":
@@ -1124,12 +1132,12 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                       return (
                         <svg width="22" height="22" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
                           <path
-                            d="M12 15.5a3.5 3.5 0 110-7 3.5 3.5 0 010 7z"
+                            d="M12 14.75a2.75 2.75 0 110-5.5 2.75 2.75 0 010 5.5z"
                             stroke="currentColor"
                             strokeWidth="2"
                           />
                           <path
-                            d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 01-1.41 3.41h-.08a1.65 1.65 0 00-1.49 1.1l-.02.06a2 2 0 01-3.58 0l-.02-.06a1.65 1.65 0 00-1.49-1.1H9.9a1.65 1.65 0 00-1.49 1.1l-.02.06a2 2 0 01-3.58 0l-.02-.06a1.65 1.65 0 00-1.49-1.1H3.3a2 2 0 01-1.41-3.41l.06-.06A1.65 1.65 0 002.28 15v-.12a1.65 1.65 0 00-.33-1.82l-.06-.06A2 2 0 013.3 9.59h.08A1.65 1.65 0 004.87 8.5l.02-.06a2 2 0 013.58 0l.02.06A1.65 1.65 0 009.98 9.6h.12a1.65 1.65 0 001.82-.33l.06-.06a2 2 0 013.41 1.41v.08a1.65 1.65 0 001.1 1.49l.06.02a2 2 0 010 3.58l-.06.02a1.65 1.65 0 00-1.1 1.49z"
+                            d="M19.4 15a7.97 7.97 0 00.1-1 7.97 7.97 0 00-.1-1l2.1-1.6-2-3.4-2.5 1a7.43 7.43 0 00-1.7-1L15 4h-6l-.3 3a7.43 7.43 0 00-1.7 1l-2.5-1-2 3.4L4.6 13a7.97 7.97 0 00-.1 1c0 .34.03.67.1 1L2.5 16.6l2 3.4 2.5-1c.53.41 1.1.74 1.7 1L9 23h6l.3-3c.6-.26 1.17-.59 1.7-1l2.5 1 2-3.4L19.4 15z"
                             stroke="currentColor"
                             strokeWidth="2"
                             strokeLinecap="round"

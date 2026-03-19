@@ -375,15 +375,6 @@ export function PortalTasksClient() {
           </div>
         </div>
       ) : null}
-
-      <button
-        type="button"
-        onClick={() => setCreateOpen(true)}
-        className="fixed bottom-4 right-4 z-[9997] rounded-full bg-[color:var(--color-brand-blue)] px-4 py-3 text-base font-semibold text-white shadow-lg hover:brightness-95 sm:hidden"
-        aria-label="Create task"
-      >
-        +
-      </button>
     </div>
   );
 }
