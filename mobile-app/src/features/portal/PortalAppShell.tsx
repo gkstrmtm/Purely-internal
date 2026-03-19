@@ -31,7 +31,7 @@ const ZINC_500 = "#71717a";
 const ZINC_600 = "#52525b";
 const ZINC_900 = "#18181b";
 const BRAND_BLUE = "#1d4ed8";
-const BRAND_PINK = "#f97316";
+const BRAND_PINK = "#fb7185";
 
 function accentColor(accent?: string) {
   const a = String(accent || "").toLowerCase();
@@ -79,23 +79,6 @@ function iconForServiceSlug(slug: string): keyof typeof Ionicons.glyphMap {
   }
 }
 
-function tabTitle(tab: RootTab) {
-  switch (tab) {
-    case "home":
-      return "Home";
-    case "inbox":
-      return "Inbox";
-    case "tasks":
-      return "Tasks";
-    case "people":
-      return "People";
-    case "settings":
-      return "Settings";
-    default:
-      return "";
-  }
-}
-
 function pathForView(view: ViewState): string {
   switch (view.kind) {
     case "tab": {
@@ -103,7 +86,7 @@ function pathForView(view: ViewState): string {
         case "home":
           return "/portal/app";
         case "inbox":
-          return "/portal/app/inbox";
+          return "/portal/app/services/inbox";
         case "tasks":
           return "/portal/app/services/tasks";
         case "people":
@@ -139,11 +122,7 @@ export function PortalAppShell({
   const [statuses, setStatuses] = useState<Record<string, { state: string; label: string }> | null>(null);
   const [loadingCatalog, setLoadingCatalog] = useState(false);
 
-  const title = useMemo(() => {
-    if (view.kind === "service") return view.title;
-    if (view.kind === "tab") return tabTitle(view.tab);
-    return "";
-  }, [view]);
+  const showChrome = !!me;
 
   const targetPath = useMemo(() => {
     if (view.kind === "tab" && view.tab === "settings") {
@@ -220,7 +199,7 @@ export function PortalAppShell({
     const p = deepLinkPath;
     setDrawerOpen(false);
 
-    if (p.startsWith("/portal/app/inbox")) {
+    if (p.startsWith("/portal/app/services/inbox") || p.startsWith("/portal/app/inbox")) {
       setView({ kind: "tab", tab: "inbox" });
       onDeepLinkHandled?.();
       return;
@@ -270,36 +249,35 @@ export function PortalAppShell({
   ];
 
   return (
-    <SafeAreaView style={styles.safe} {...panResponder.panHandlers}>
-      <View style={styles.header}>
-        <Pressable
-          style={styles.headerIconBtn}
-          onPress={() => setDrawerOpen(true)}
-          accessibilityRole="button"
-          accessibilityLabel="Open menu"
-        >
-          <Ionicons name="menu" size={24} color={ZINC_900} />
-        </Pressable>
+    <SafeAreaView style={styles.safe} {...(showChrome ? panResponder.panHandlers : {})}>
+      {showChrome ? (
+        <View style={styles.header}>
+          <Pressable
+            style={styles.headerIconBtn}
+            onPress={() => setDrawerOpen(true)}
+            accessibilityRole="button"
+            accessibilityLabel="Open menu"
+          >
+            <Ionicons name="menu" size={24} color={ZINC_900} />
+          </Pressable>
 
-        <View style={styles.headerCenter}>
-          <Image source={{ uri: portalLogoUrl }} style={styles.logo} />
-          <Text style={styles.headerTitle} numberOfLines={1}>
-            {title}
-          </Text>
+          <View style={styles.headerCenter}>
+            <Image source={{ uri: portalLogoUrl }} style={styles.logo} />
+          </View>
+
+          <Pressable
+            style={styles.headerIconBtn}
+            onPress={() => void onLogout()}
+            accessibilityRole="button"
+            accessibilityLabel="Sign out"
+          >
+            <Ionicons name="log-out-outline" size={22} color={ZINC_600} />
+          </Pressable>
         </View>
-
-        <Pressable
-          style={styles.headerIconBtn}
-          onPress={() => void onLogout()}
-          accessibilityRole="button"
-          accessibilityLabel="Sign out"
-        >
-          <Ionicons name="log-out-outline" size={22} color={ZINC_600} />
-        </Pressable>
-      </View>
+      ) : null}
 
       <View style={styles.body}>
-        {view.kind === "tab" && view.tab === "settings" ? (
+        {showChrome && view.kind === "tab" && view.tab === "settings" ? (
           <View style={styles.settingsHeaderRow}>
             <Pressable
               style={[
@@ -341,104 +319,108 @@ export function PortalAppShell({
         </View>
       </View>
 
-      <View style={styles.tabBar}>
-        {tabs.map((t) => {
-          const active = view.kind === "tab" && view.tab === t.key;
-          return (
-            <Pressable
-              key={t.key}
-              style={styles.tabBtn}
-              onPress={() => setView({ kind: "tab", tab: t.key })}
-              accessibilityRole="button"
-              accessibilityLabel={t.label}
-            >
-              <Ionicons name={t.icon} size={22} color={active ? BRAND_BLUE : ZINC_500} />
-              <Text style={[styles.tabLabel, active ? styles.tabLabelActive : null]} numberOfLines={1}>
-                {t.label}
-              </Text>
-            </Pressable>
-          );
-        })}
-      </View>
-
-      <View
-        pointerEvents={drawerOpen ? "auto" : "none"}
-        style={[styles.drawerOverlay, { opacity: drawerOpen ? 1 : 0 }]}
-      >
-        <Pressable style={styles.drawerBackdrop} onPress={() => setDrawerOpen(false)} />
-      </View>
-
-      <Animated.View
-        style={[styles.drawer, { width: drawerWidth, transform: [{ translateX }] }]}
-        pointerEvents={drawerOpen ? "auto" : "none"}
-      >
-        <View style={styles.drawerTop}>
-          <Text style={styles.drawerTitle}>Services</Text>
-          <Pressable style={styles.drawerCloseBtn} onPress={() => setDrawerOpen(false)}>
-            <Ionicons name="close" size={20} color={ZINC_600} />
-          </Pressable>
-        </View>
-
-        {loadingCatalog && !catalog ? (
-          <View style={styles.drawerLoading}>
-            <ActivityIndicator color={ZINC_900} />
+      {showChrome ? (
+        <>
+          <View style={styles.tabBar}>
+            {tabs.map((t) => {
+              const active = view.kind === "tab" && view.tab === t.key;
+              return (
+                <Pressable
+                  key={t.key}
+                  style={styles.tabBtn}
+                  onPress={() => setView({ kind: "tab", tab: t.key })}
+                  accessibilityRole="button"
+                  accessibilityLabel={t.label}
+                >
+                  <Ionicons name={t.icon} size={22} color={active ? BRAND_BLUE : ZINC_500} />
+                  <Text style={[styles.tabLabel, active ? styles.tabLabelActive : null]} numberOfLines={1}>
+                    {t.label}
+                  </Text>
+                </Pressable>
+              );
+            })}
           </View>
-        ) : (
-          <ScrollView contentContainerStyle={styles.drawerScroll}>
-            {(catalog || []).map((g) => (
-              <View key={g.key} style={styles.drawerGroup}>
-                <Text style={styles.drawerGroupTitle}>{g.title}</Text>
-                {g.services.map((s) => {
-                  const st = statuses?.[s.slug];
-                  const state = typeof st?.state === "string" ? st.state : "";
-                  const lockLabel = typeof st?.label === "string" ? st.label : "";
-                  const showLock = state && ["locked", "paused", "canceled", "coming_soon"].includes(state);
-                  const tone = accentColor(s.accent);
-                  const glyph = iconForServiceSlug(s.slug);
 
-                  return (
-                    <Pressable
-                      key={s.slug}
-                      style={styles.drawerItem}
-                      onPress={() => {
-                        setDrawerOpen(false);
-                        setView({ kind: "service", slug: s.slug, title: s.title });
-                      }}
-                    >
-                      <View style={styles.drawerItemIconChip}>
-                        <Ionicons name={glyph} size={18} color={tone} />
-                      </View>
+          <View
+            pointerEvents={drawerOpen ? "auto" : "none"}
+            style={[styles.drawerOverlay, { opacity: drawerOpen ? 1 : 0 }]}
+          >
+            <Pressable style={styles.drawerBackdrop} onPress={() => setDrawerOpen(false)} />
+          </View>
 
-                      <View style={styles.drawerItemLeft}>
-                        <Text style={styles.drawerItemTitle} numberOfLines={1}>
-                          {s.title}
-                        </Text>
-                        <Text style={styles.drawerItemDesc} numberOfLines={1}>
-                          {s.description}
-                        </Text>
-                      </View>
-                      {showLock ? (
-                        <View style={styles.lockPill}>
-                          <Ionicons name="lock-closed" size={12} color={ZINC_600} />
-                          <Text style={styles.lockPillText} numberOfLines={1}>
-                            {lockLabel || "Locked"}
-                          </Text>
-                        </View>
-                      ) : null}
-                    </Pressable>
-                  );
-                })}
+          <Animated.View
+            style={[styles.drawer, { width: drawerWidth, transform: [{ translateX }] }]}
+            pointerEvents={drawerOpen ? "auto" : "none"}
+          >
+            <View style={styles.drawerTop}>
+              <Text style={styles.drawerTitle}>Services</Text>
+              <Pressable style={styles.drawerCloseBtn} onPress={() => setDrawerOpen(false)}>
+                <Ionicons name="close" size={20} color={ZINC_600} />
+              </Pressable>
+            </View>
+
+            {loadingCatalog && !catalog ? (
+              <View style={styles.drawerLoading}>
+                <ActivityIndicator color={ZINC_900} />
               </View>
-            ))}
-          </ScrollView>
-        )}
+            ) : (
+              <ScrollView contentContainerStyle={styles.drawerScroll}>
+                {(catalog || []).map((g) => (
+                  <View key={g.key} style={styles.drawerGroup}>
+                    <Text style={styles.drawerGroupTitle}>{g.title}</Text>
+                    {g.services.map((s) => {
+                      const st = statuses?.[s.slug];
+                      const state = typeof st?.state === "string" ? st.state : "";
+                      const lockLabel = typeof st?.label === "string" ? st.label : "";
+                      const showLock = state && ["locked", "paused", "canceled", "coming_soon"].includes(state);
+                      const tone = accentColor(s.accent);
+                      const glyph = iconForServiceSlug(s.slug);
 
-        <View style={styles.drawerFooter}>
-          <Text style={styles.drawerFooterMeta} numberOfLines={1}>
-            {me?.name ? me.name : ""}
-          </Text>
-        </View>
-      </Animated.View>
+                      return (
+                        <Pressable
+                          key={s.slug}
+                          style={styles.drawerItem}
+                          onPress={() => {
+                            setDrawerOpen(false);
+                            setView({ kind: "service", slug: s.slug, title: s.title });
+                          }}
+                        >
+                          <View style={styles.drawerItemIconChip}>
+                            <Ionicons name={glyph} size={18} color={tone} />
+                          </View>
+
+                          <View style={styles.drawerItemLeft}>
+                            <Text style={styles.drawerItemTitle} numberOfLines={1}>
+                              {s.title}
+                            </Text>
+                            <Text style={styles.drawerItemDesc} numberOfLines={1}>
+                              {s.description}
+                            </Text>
+                          </View>
+                          {showLock ? (
+                            <View style={styles.lockPill}>
+                              <Ionicons name="lock-closed" size={12} color={ZINC_600} />
+                              <Text style={styles.lockPillText} numberOfLines={1}>
+                                {lockLabel || "Locked"}
+                              </Text>
+                            </View>
+                          ) : null}
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+                ))}
+              </ScrollView>
+            )}
+
+            <View style={styles.drawerFooter}>
+              <Text style={styles.drawerFooterMeta} numberOfLines={1}>
+                {me?.name ? me.name : ""}
+              </Text>
+            </View>
+          </Animated.View>
+        </>
+      ) : null}
     </SafeAreaView>
   );
 }
@@ -461,7 +443,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  headerCenter: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 10 },
+  headerCenter: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "flex-start", gap: 10 },
   logo: { width: 28, height: 28, resizeMode: "contain" },
   headerTitle: { fontSize: 16, fontWeight: "700", color: ZINC_900, maxWidth: 200 },
 

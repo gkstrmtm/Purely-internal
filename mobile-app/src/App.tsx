@@ -151,13 +151,13 @@ export default function RootApp() {
       if (!mounted || !last) return;
       const data: any = last.notification.request.content.data;
       const path = typeof data?.path === 'string' ? data.path : null;
-      setPortalDeepLinkPath(path || '/portal/app/inbox');
+      setPortalDeepLinkPath(path || '/portal/app/services/inbox');
     })();
 
     const sub = Notifications.addNotificationResponseReceivedListener((response) => {
       const data: any = response.notification.request.content.data;
       const path = typeof data?.path === 'string' ? data.path : null;
-      setPortalDeepLinkPath(path || '/portal/app/inbox');
+      setPortalDeepLinkPath(path || '/portal/app/services/inbox');
     });
 
     return () => {
