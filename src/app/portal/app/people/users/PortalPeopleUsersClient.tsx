@@ -344,7 +344,7 @@ export function PortalPeopleUsersClient() {
 
       {data ? (
         <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-2">
-          <div className="rounded-3xl border border-zinc-200 bg-white p-6">
+          <div className="rounded-3xl border border-zinc-200 bg-white p-4 sm:p-6">
             <div className="flex items-center justify-between gap-3">
               <div className="text-base font-semibold text-zinc-900">Members</div>
               <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
@@ -352,13 +352,13 @@ export function PortalPeopleUsersClient() {
               </div>
             </div>
 
-            <div className="mt-4 rounded-2xl border border-zinc-200 overflow-hidden">
+            <div className="mt-4 rounded-2xl border border-zinc-200 overflow-x-auto">
               <table className="w-full text-left text-sm">
                 <thead className="bg-zinc-50 text-xs font-semibold uppercase tracking-wide text-zinc-500">
                   <tr>
-                    <th className="px-4 py-3">User</th>
-                    <th className="px-4 py-3">Role</th>
-                    <th className="px-4 py-3">Status</th>
+                    <th className="px-3 py-2 sm:px-4 sm:py-3">User</th>
+                    <th className="px-3 py-2 sm:px-4 sm:py-3">Role</th>
+                    <th className="px-3 py-2 sm:px-4 sm:py-3">Status</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -371,11 +371,11 @@ export function PortalPeopleUsersClient() {
                       )}
                       onClick={() => openMemberEditor(m)}
                     >
-                      <td className="px-4 py-3">
+                      <td className="px-3 py-2 sm:px-4 sm:py-3">
                         <div className="font-semibold text-zinc-900">{m.user?.name || "N/A"}</div>
                         <div className="text-xs text-zinc-500">{m.user?.email || ""}</div>
                       </td>
-                      <td className="px-4 py-3">
+                      <td className="px-3 py-2 sm:px-4 sm:py-3">
                         <span
                           className={classNames(
                             "inline-flex items-center rounded-full px-2 py-1 text-xs font-semibold",
@@ -390,7 +390,7 @@ export function PortalPeopleUsersClient() {
                           {m.implicit ? " (account)" : ""}
                         </span>
                       </td>
-                      <td className="px-4 py-3">
+                      <td className="px-3 py-2 sm:px-4 sm:py-3">
                         <span
                           className={classNames(
                             "inline-flex items-center rounded-full px-2 py-1 text-xs font-semibold",
@@ -411,7 +411,7 @@ export function PortalPeopleUsersClient() {
             </div>
           </div>
 
-          <div className="rounded-3xl border border-zinc-200 bg-white p-6">
+          <div className="rounded-3xl border border-zinc-200 bg-white p-4 sm:p-6">
             <div className="flex items-center justify-between gap-3">
               <div className="text-base font-semibold text-zinc-900">Invites</div>
               <div className="flex items-center gap-2">
@@ -577,30 +577,30 @@ export function PortalPeopleUsersClient() {
               </div>
             </AppModal>
 
-            <div className="mt-4 rounded-2xl border border-zinc-200 overflow-hidden">
+            <div className="mt-4 rounded-2xl border border-zinc-200 overflow-x-auto">
               <table className="w-full text-left text-sm">
                 <thead className="bg-zinc-50 text-xs font-semibold uppercase tracking-wide text-zinc-500">
                   <tr>
-                    <th className="px-4 py-3">Email</th>
-                    <th className="px-4 py-3">Role</th>
-                    <th className="px-4 py-3">State</th>
-                    <th className="px-4 py-3">Link</th>
+                    <th className="px-3 py-2 sm:px-4 sm:py-3">Email</th>
+                    <th className="px-3 py-2 sm:px-4 sm:py-3">Role</th>
+                    <th className="px-3 py-2 sm:px-4 sm:py-3">State</th>
+                    <th className="px-3 py-2 sm:px-4 sm:py-3">Link</th>
                   </tr>
                 </thead>
                 <tbody>
                   {data.invites.length ? (
                     data.invites.map((inv) => (
                       <tr key={inv.id} className="border-t border-zinc-200">
-                        <td className="px-4 py-3">
+                        <td className="px-3 py-2 sm:px-4 sm:py-3">
                           <div className="font-semibold text-zinc-900">{inv.email}</div>
                           <div className="text-xs text-zinc-500">Expires {new Date(inv.expiresAt).toLocaleString()}</div>
                         </td>
-                        <td className="px-4 py-3">
+                        <td className="px-3 py-2 sm:px-4 sm:py-3">
                           <span className="inline-flex items-center rounded-full bg-zinc-100 px-2 py-1 text-xs font-semibold text-zinc-700">
                             {inv.role}
                           </span>
                         </td>
-                        <td className="px-4 py-3">
+                        <td className="px-3 py-2 sm:px-4 sm:py-3">
                           {inv.acceptedAt ? (
                             <span className="inline-flex items-center rounded-full bg-emerald-50 px-2 py-1 text-xs font-semibold text-emerald-700">
                               Accepted
@@ -611,7 +611,7 @@ export function PortalPeopleUsersClient() {
                             </span>
                           )}
                         </td>
-                        <td className="px-4 py-3">
+                        <td className="px-3 py-2 sm:px-4 sm:py-3">
                           <button
                             type="button"
                             onClick={async () => {
@@ -633,7 +633,7 @@ export function PortalPeopleUsersClient() {
                     ))
                   ) : (
                     <tr className="border-t border-zinc-200">
-                      <td className="px-4 py-5 text-sm text-zinc-600" colSpan={4}>
+                      <td className="px-3 py-4 text-sm text-zinc-600" colSpan={4}>
                         No invites yet.
                       </td>
                     </tr>
@@ -648,10 +648,10 @@ export function PortalPeopleUsersClient() {
       {canInvite && !inviteModalOpen && !editingMember ? (
         <button
           type="button"
-          className="fixed right-4 z-12020 rounded-full bg-(--color-brand-pink) px-5 py-3 text-sm font-semibold text-white shadow-lg hover:opacity-95 disabled:opacity-60"
+          className="fixed right-4 z-11001 rounded-full bg-(--color-brand-pink) px-5 py-3 text-sm font-semibold text-white shadow-xl hover:opacity-95 disabled:opacity-60"
           style={{
             bottom:
-              "calc(var(--pa-portal-embed-footer-offset,0px) + 16px + var(--pa-portal-floating-tools-reserve,0px))",
+              "calc(var(--pa-portal-embed-footer-offset,0px) + 5.75rem + var(--pa-portal-floating-tools-reserve, 0px))",
           }}
           onClick={() => {
             setInviteModalOpen(true);

@@ -253,7 +253,7 @@ export function PortalPeopleContactsClient() {
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState<ContactsPayload | null>(null);
   const [q, setQ] = useState("");
-  const [mobilePeopleFilter, setMobilePeopleFilter] = useState<"all" | "contacts" | "unlinked">("all");
+  const [mobilePeopleFilter, setMobilePeopleFilter] = useState<"contacts" | "unlinked">("contacts");
 
   const [duplicateGroupsCount, setDuplicateGroupsCount] = useState(0);
   const [duplicatesLoading, setDuplicatesLoading] = useState(false);
@@ -916,21 +916,16 @@ export function PortalPeopleContactsClient() {
     });
   }, [data?.unlinkedLeads, q]);
 
-  const mobilePeopleItems = useMemo(() => {
-    type Item = { kind: "contact"; row: ContactRow } | { kind: "unlinked"; row: LeadRow };
+  const mobileListTotal = useMemo(() => {
+    if (!data) return 0;
+    if (mobilePeopleFilter === "unlinked") {
+      return typeof data.totalUnlinkedLeads === "number" ? data.totalUnlinkedLeads : data.unlinkedLeads.length;
+    }
+    return typeof data.totalContacts === "number" ? data.totalContacts : data.contacts.length;
+  }, [data, mobilePeopleFilter]);
 
-    const out: Item[] = [];
-    if (mobilePeopleFilter === "all" || mobilePeopleFilter === "contacts") {
-      for (const c of filteredContacts || []) {
-        out.push({ kind: "contact", row: c });
-      }
-    }
-    if (mobilePeopleFilter === "all" || mobilePeopleFilter === "unlinked") {
-      for (const l of filteredLeads || []) {
-        out.push({ kind: "unlinked", row: l });
-      }
-    }
-    return out;
+  const mobileListRows = useMemo(() => {
+    return mobilePeopleFilter === "unlinked" ? (filteredLeads || []) : (filteredContacts || []);
   }, [filteredContacts, filteredLeads, mobilePeopleFilter]);
 
   const customVarPickerKeys = useMemo(() => {
@@ -1029,14 +1024,50 @@ export function PortalPeopleContactsClient() {
         }}
       />
 
-      <div className="mt-4 rounded-3xl border border-zinc-200 bg-white p-4">
-        <div className="text-xs font-semibold text-zinc-700">Search</div>
-        <input
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-          placeholder="Name, email, phone, website…"
-          className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-(--color-brand-blue)"
-        />
+      <div className="mt-4 flex flex-wrap items-center gap-2">
+        <div className="relative min-w-56 flex-1">
+          <div className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-zinc-400" aria-hidden>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+              <path
+                d="M10.5 18a7.5 7.5 0 1 1 0-15 7.5 7.5 0 0 1 0 15Z"
+                stroke="currentColor"
+                strokeWidth="2"
+              />
+              <path
+                d="M16.5 16.5 21 21"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+              />
+            </svg>
+          </div>
+          <input
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            placeholder="Search contacts"
+            className="h-11 w-full rounded-full border border-zinc-200 bg-white pl-11 pr-4 text-sm text-zinc-900 outline-none focus:border-zinc-300"
+          />
+        </div>
+
+        <button
+          type="button"
+          className="sm:hidden h-11 shrink-0 rounded-full border border-zinc-200 bg-white px-4 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
+          onClick={() => setMobilePeopleFilter((prev) => (prev === "unlinked" ? "contacts" : "unlinked"))}
+          aria-label={mobilePeopleFilter === "unlinked" ? "Show contacts" : "Show unlinked leads"}
+          title={mobilePeopleFilter === "unlinked" ? "Show contacts" : "Show unlinked leads"}
+        >
+          <span className="inline-flex items-center gap-2">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden>
+              <path
+                d="M4 6h16M7 12h10M10 18h4"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+              />
+            </svg>
+            {mobilePeopleFilter === "unlinked" ? "Unlinked" : "Contacts"}
+          </span>
+        </button>
       </div>
 
       {loading ? (
@@ -1067,198 +1098,94 @@ export function PortalPeopleContactsClient() {
             <div className="rounded-3xl border border-zinc-200 bg-white p-4">
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
-                  <div className="text-base font-semibold text-zinc-900">People</div>
-                  <div className="mt-1 text-sm text-zinc-600">Contacts + unlinked leads</div>
+                  <div className="text-base font-semibold text-zinc-900">
+                    {mobilePeopleFilter === "unlinked" ? "Unlinked leads" : "Contacts"}
+                  </div>
+                  <div className="mt-1 text-sm text-zinc-600">
+                    {q.trim() ? `Filtered: ${mobileListRows.length}` : `${mobileListTotal} total`}
+                  </div>
                 </div>
 
-                {duplicateGroupsCount > 0 ? (
-                  <button
-                    type="button"
-                    onClick={() => router.push("/portal/app/people/contacts/duplicates")}
-                    className="rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-900 hover:bg-amber-100"
-                    title="Duplicates are grouped by phone number"
-                  >
-                    Duplicates ({duplicateGroupsCount})
-                  </button>
-                ) : duplicatesLoading ? (
-                  <div className="text-xs font-semibold text-zinc-400">Checking duplicates…</div>
+                {mobilePeopleFilter !== "unlinked" ? (
+                  duplicateGroupsCount > 0 ? (
+                    <button
+                      type="button"
+                      onClick={() => router.push("/portal/app/people/contacts/duplicates")}
+                      className="rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-900 hover:bg-amber-100"
+                      title="Duplicates are grouped by phone number"
+                    >
+                      Duplicates ({duplicateGroupsCount})
+                    </button>
+                  ) : duplicatesLoading ? (
+                    <div className="text-xs font-semibold text-zinc-400">Checking duplicates…</div>
+                  ) : null
                 ) : null}
               </div>
 
-              <div className="mt-3 flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  onClick={() => setMobilePeopleFilter("all")}
-                  className={classNames(
-                    "rounded-full border px-3 py-2 text-xs font-semibold",
-                    mobilePeopleFilter === "all" ? "border-brand-ink bg-brand-ink text-white" : "border-zinc-200 bg-white text-zinc-800 hover:bg-zinc-50",
-                  )}
-                >
-                  All ({(filteredContacts?.length ?? 0) + (filteredLeads?.length ?? 0)})
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setMobilePeopleFilter("contacts")}
-                  className={classNames(
-                    "rounded-full border px-3 py-2 text-xs font-semibold",
-                    mobilePeopleFilter === "contacts"
-                      ? "border-(--color-brand-blue) bg-(--color-brand-blue) text-white"
-                      : "border-zinc-200 bg-white text-zinc-800 hover:bg-zinc-50",
-                  )}
-                >
-                  Contacts ({filteredContacts?.length ?? 0})
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setMobilePeopleFilter("unlinked")}
-                  className={classNames(
-                    "rounded-full border px-3 py-2 text-xs font-semibold",
-                    mobilePeopleFilter === "unlinked"
-                      ? "border-(--color-brand-pink) bg-(--color-brand-pink) text-white"
-                      : "border-zinc-200 bg-white text-zinc-800 hover:bg-zinc-50",
-                  )}
-                >
-                  Unlinked ({filteredLeads?.length ?? 0})
-                </button>
-              </div>
-
-              <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs text-zinc-500">
-                <div>
-                  Contacts: page {contactsCursorStack.length}
-                  <span className="mx-1">•</span>
-                  Leads: page {leadsCursorStack.length}
-                </div>
-                <div>50 per page</div>
-              </div>
-
               {(() => {
-                const contactsTotal = typeof data.totalContacts === "number" ? data.totalContacts : data.contacts.length;
-                const leadsTotal = typeof data.totalUnlinkedLeads === "number" ? data.totalUnlinkedLeads : data.unlinkedLeads.length;
-                const showContacts = mobilePeopleFilter === "all" || mobilePeopleFilter === "contacts";
-                const showLeads = mobilePeopleFilter === "all" || mobilePeopleFilter === "unlinked";
-                const showContactsPages = showContacts && contactsTotal >= 20;
-                const showLeadsPages = showLeads && leadsTotal >= 20;
-
-                if (!showContactsPages && !showLeadsPages) return null;
-
+                const total = mobileListTotal;
+                if (total < 20) return null;
+                const page = mobilePeopleFilter === "unlinked" ? leadsCursorStack.length : contactsCursorStack.length;
+                const canBack = mobilePeopleFilter === "unlinked" ? leadsCursorStack.length > 1 : contactsCursorStack.length > 1;
+                const canNext = mobilePeopleFilter === "unlinked" ? Boolean(leadsNextCursor) : Boolean(contactsNextCursor);
                 return (
-                  <div className="mt-3 space-y-2">
-                    {showContactsPages ? (
-                      <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-zinc-50 px-3 py-2">
-                        <div className="text-xs font-semibold text-zinc-700">Contacts</div>
-                        <div className="flex flex-wrap items-center gap-2">
-                          <div className="text-xs text-zinc-500">Page {contactsCursorStack.length}</div>
-                          <button
-                            type="button"
-                            disabled={contactsCursorStack.length <= 1}
-                            onClick={() =>
-                              void (async () => {
-                                const prev = contactsCursorStack[contactsCursorStack.length - 2] ?? null;
-                                const ok = await load({ contactsCursor: prev, leadsCursor });
-                                if (ok) setContactsCursorStack((s) => (s.length > 1 ? s.slice(0, -1) : s));
-                              })()
+                  <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-zinc-50 px-3 py-2">
+                    <div className="text-xs text-zinc-500">
+                      Page {page}
+                      <span className="mx-1">•</span>
+                      50 per page
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <button
+                        type="button"
+                        disabled={!canBack}
+                        onClick={() =>
+                          void (async () => {
+                            if (mobilePeopleFilter === "unlinked") {
+                              const prev = leadsCursorStack[leadsCursorStack.length - 2] ?? null;
+                              const ok = await load({ contactsCursor, leadsCursor: prev });
+                              if (ok) setLeadsCursorStack((s) => (s.length > 1 ? s.slice(0, -1) : s));
+                              return;
                             }
-                            className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-50"
-                          >
-                            Back
-                          </button>
-                          <button
-                            type="button"
-                            disabled={!contactsNextCursor}
-                            onClick={() =>
-                              void (async () => {
-                                if (!contactsNextCursor) return;
-                                const ok = await load({ contactsCursor: contactsNextCursor, leadsCursor });
-                                if (ok) setContactsCursorStack((s) => [...s, contactsNextCursor]);
-                              })()
+                            const prev = contactsCursorStack[contactsCursorStack.length - 2] ?? null;
+                            const ok = await load({ contactsCursor: prev, leadsCursor });
+                            if (ok) setContactsCursorStack((s) => (s.length > 1 ? s.slice(0, -1) : s));
+                          })()
+                        }
+                        className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-50"
+                      >
+                        Back
+                      </button>
+                      <button
+                        type="button"
+                        disabled={!canNext}
+                        onClick={() =>
+                          void (async () => {
+                            if (mobilePeopleFilter === "unlinked") {
+                              if (!leadsNextCursor) return;
+                              const ok = await load({ contactsCursor, leadsCursor: leadsNextCursor });
+                              if (ok) setLeadsCursorStack((s) => [...s, leadsNextCursor]);
+                              return;
                             }
-                            className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-50"
-                          >
-                            Next
-                          </button>
-                        </div>
-                      </div>
-                    ) : null}
-
-                    {showLeadsPages ? (
-                      <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-zinc-50 px-3 py-2">
-                        <div className="text-xs font-semibold text-zinc-700">Unlinked leads</div>
-                        <div className="flex flex-wrap items-center gap-2">
-                          <div className="text-xs text-zinc-500">Page {leadsCursorStack.length}</div>
-                          <button
-                            type="button"
-                            disabled={leadsCursorStack.length <= 1}
-                            onClick={() =>
-                              void (async () => {
-                                const prev = leadsCursorStack[leadsCursorStack.length - 2] ?? null;
-                                const ok = await load({ contactsCursor, leadsCursor: prev });
-                                if (ok) setLeadsCursorStack((s) => (s.length > 1 ? s.slice(0, -1) : s));
-                              })()
-                            }
-                            className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-50"
-                          >
-                            Back
-                          </button>
-                          <button
-                            type="button"
-                            disabled={!leadsNextCursor}
-                            onClick={() =>
-                              void (async () => {
-                                if (!leadsNextCursor) return;
-                                const ok = await load({ contactsCursor, leadsCursor: leadsNextCursor });
-                                if (ok) setLeadsCursorStack((s) => [...s, leadsNextCursor]);
-                              })()
-                            }
-                            className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-50"
-                          >
-                            Next
-                          </button>
-                        </div>
-                      </div>
-                    ) : null}
+                            if (!contactsNextCursor) return;
+                            const ok = await load({ contactsCursor: contactsNextCursor, leadsCursor });
+                            if (ok) setContactsCursorStack((s) => [...s, contactsNextCursor]);
+                          })()
+                        }
+                        className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-50"
+                      >
+                        Next
+                      </button>
+                    </div>
                   </div>
                 );
               })()}
             </div>
 
             <div className="mt-3 space-y-3">
-              {mobilePeopleItems.length ? (
-                mobilePeopleItems.slice(0, 100).map((item) => {
-                  if (item.kind === "contact") {
-                    const c = item.row;
-                    return (
-                      <button
-                        key={`c_${c.id}`}
-                        type="button"
-                        onClick={() => openContact(c.id)}
-                        className="w-full rounded-2xl border border-zinc-200 bg-white p-4 text-left hover:bg-zinc-50"
-                      >
-                        <div className="font-semibold text-zinc-900 truncate">{c.name || "N/A"}</div>
-                        <div className="mt-1 text-sm text-zinc-600 truncate">
-                          {c.email || "N/A"} {c.phone ? `• ${c.phone}` : ""}
-                        </div>
-                        {c.tags?.length ? (
-                          <div className="mt-2 flex flex-wrap gap-1">
-                            {c.tags.slice(0, 4).map((t) => (
-                              <span
-                                key={t.id}
-                                className="inline-flex items-center rounded-full border border-zinc-200 bg-white px-2 py-0.5 text-[11px] font-semibold text-zinc-700"
-                                title={t.name}
-                              >
-                                {t.name}
-                              </span>
-                            ))}
-                            {c.tags.length > 4 ? (
-                              <span className="text-[11px] font-semibold text-zinc-500">+{c.tags.length - 4}</span>
-                            ) : null}
-                          </div>
-                        ) : null}
-                      </button>
-                    );
-                  }
-
-                  const l = item.row;
-                  return (
+              {mobileListRows.length ? (
+                mobilePeopleFilter === "unlinked" ? (
+                  (mobileListRows as LeadRow[]).slice(0, 100).map((l) => (
                     <button
                       key={`l_${l.id}`}
                       type="button"
@@ -1288,96 +1215,98 @@ export function PortalPeopleContactsClient() {
                         </div>
                       </div>
                     </button>
-                  );
-                })
+                  ))
+                ) : (
+                  (mobileListRows as ContactRow[]).slice(0, 100).map((c) => (
+                    <button
+                      key={`c_${c.id}`}
+                      type="button"
+                      onClick={() => openContact(c.id)}
+                      className="w-full rounded-2xl border border-zinc-200 bg-white p-4 text-left hover:bg-zinc-50"
+                    >
+                      <div className="font-semibold text-zinc-900 truncate">{c.name || "N/A"}</div>
+                      <div className="mt-1 text-sm text-zinc-600 truncate">
+                        {c.email || "N/A"} {c.phone ? `• ${c.phone}` : ""}
+                      </div>
+                      {c.tags?.length ? (
+                        <div className="mt-2 flex flex-wrap gap-1">
+                          {c.tags.slice(0, 4).map((t) => (
+                            <span
+                              key={t.id}
+                              className="inline-flex items-center rounded-full border border-zinc-200 bg-white px-2 py-0.5 text-[11px] font-semibold text-zinc-700"
+                              title={t.name}
+                            >
+                              {t.name}
+                            </span>
+                          ))}
+                          {c.tags.length > 4 ? (
+                            <span className="text-[11px] font-semibold text-zinc-500">+{c.tags.length - 4}</span>
+                          ) : null}
+                        </div>
+                      ) : null}
+                    </button>
+                  ))
+                )
               ) : (
-                <div className="rounded-2xl border border-zinc-200 bg-white p-4 text-sm text-zinc-600">
-                  No matches.
-                </div>
+                <div className="rounded-2xl border border-zinc-200 bg-white p-4 text-sm text-zinc-600">No matches.</div>
               )}
             </div>
 
             {(() => {
-              const contactsTotal = typeof data.totalContacts === "number" ? data.totalContacts : data.contacts.length;
-              const leadsTotal = typeof data.totalUnlinkedLeads === "number" ? data.totalUnlinkedLeads : data.unlinkedLeads.length;
-              const showContacts = mobilePeopleFilter === "all" || mobilePeopleFilter === "contacts";
-              const showLeads = mobilePeopleFilter === "all" || mobilePeopleFilter === "unlinked";
-
+              const total = mobileListTotal;
+              if (total < 20) return null;
+              const page = mobilePeopleFilter === "unlinked" ? leadsCursorStack.length : contactsCursorStack.length;
+              const canBack = mobilePeopleFilter === "unlinked" ? leadsCursorStack.length > 1 : contactsCursorStack.length > 1;
+              const canNext = mobilePeopleFilter === "unlinked" ? Boolean(leadsNextCursor) : Boolean(contactsNextCursor);
               return (
-                <div className="mt-4 space-y-3">
-                  {showContacts && contactsTotal >= 20 ? (
-                    <div className="rounded-3xl border border-zinc-200 bg-white p-4">
-                      <div className="text-sm font-semibold text-zinc-900">Contacts pages</div>
-                      <div className="mt-2 flex flex-wrap items-center gap-2">
-                        <div className="text-xs text-zinc-500">Page {contactsCursorStack.length}</div>
-                        <button
-                          type="button"
-                          disabled={contactsCursorStack.length <= 1}
-                          onClick={() =>
-                            void (async () => {
-                              const prev = contactsCursorStack[contactsCursorStack.length - 2] ?? null;
-                              const ok = await load({ contactsCursor: prev, leadsCursor });
-                              if (ok) setContactsCursorStack((s) => (s.length > 1 ? s.slice(0, -1) : s));
-                            })()
+                <div className="mt-4 flex flex-wrap items-center justify-between gap-2 rounded-3xl border border-zinc-200 bg-white p-4">
+                  <div className="text-xs text-zinc-500">
+                    Page {page}
+                    <span className="mx-1">•</span>
+                    50 per page
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      disabled={!canBack}
+                      onClick={() =>
+                        void (async () => {
+                          if (mobilePeopleFilter === "unlinked") {
+                            const prev = leadsCursorStack[leadsCursorStack.length - 2] ?? null;
+                            const ok = await load({ contactsCursor, leadsCursor: prev });
+                            if (ok) setLeadsCursorStack((s) => (s.length > 1 ? s.slice(0, -1) : s));
+                            return;
                           }
-                          className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-50"
-                        >
-                          Back
-                        </button>
-                        <button
-                          type="button"
-                          disabled={!contactsNextCursor}
-                          onClick={() =>
-                            void (async () => {
-                              if (!contactsNextCursor) return;
-                              const ok = await load({ contactsCursor: contactsNextCursor, leadsCursor });
-                              if (ok) setContactsCursorStack((s) => [...s, contactsNextCursor]);
-                            })()
+                          const prev = contactsCursorStack[contactsCursorStack.length - 2] ?? null;
+                          const ok = await load({ contactsCursor: prev, leadsCursor });
+                          if (ok) setContactsCursorStack((s) => (s.length > 1 ? s.slice(0, -1) : s));
+                        })()
+                      }
+                      className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-50"
+                    >
+                      Back
+                    </button>
+                    <button
+                      type="button"
+                      disabled={!canNext}
+                      onClick={() =>
+                        void (async () => {
+                          if (mobilePeopleFilter === "unlinked") {
+                            if (!leadsNextCursor) return;
+                            const ok = await load({ contactsCursor, leadsCursor: leadsNextCursor });
+                            if (ok) setLeadsCursorStack((s) => [...s, leadsNextCursor]);
+                            return;
                           }
-                          className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-50"
-                        >
-                          Next
-                        </button>
-                      </div>
-                    </div>
-                  ) : null}
-
-                  {showLeads && leadsTotal >= 20 ? (
-                    <div className="rounded-3xl border border-zinc-200 bg-white p-4">
-                      <div className="text-sm font-semibold text-zinc-900">Unlinked leads pages</div>
-                      <div className="mt-2 flex flex-wrap items-center gap-2">
-                        <div className="text-xs text-zinc-500">Page {leadsCursorStack.length}</div>
-                        <button
-                          type="button"
-                          disabled={leadsCursorStack.length <= 1}
-                          onClick={() =>
-                            void (async () => {
-                              const prev = leadsCursorStack[leadsCursorStack.length - 2] ?? null;
-                              const ok = await load({ contactsCursor, leadsCursor: prev });
-                              if (ok) setLeadsCursorStack((s) => (s.length > 1 ? s.slice(0, -1) : s));
-                            })()
-                          }
-                          className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-50"
-                        >
-                          Back
-                        </button>
-                        <button
-                          type="button"
-                          disabled={!leadsNextCursor}
-                          onClick={() =>
-                            void (async () => {
-                              if (!leadsNextCursor) return;
-                              const ok = await load({ contactsCursor, leadsCursor: leadsNextCursor });
-                              if (ok) setLeadsCursorStack((s) => [...s, leadsNextCursor]);
-                            })()
-                          }
-                          className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-50"
-                        >
-                          Next
-                        </button>
-                      </div>
-                    </div>
-                  ) : null}
+                          if (!contactsNextCursor) return;
+                          const ok = await load({ contactsCursor: contactsNextCursor, leadsCursor });
+                          if (ok) setContactsCursorStack((s) => [...s, contactsNextCursor]);
+                        })()
+                      }
+                      className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-50"
+                    >
+                      Next
+                    </button>
+                  </div>
                 </div>
               );
             })()}
@@ -1687,10 +1616,10 @@ export function PortalPeopleContactsClient() {
         <button
           type="button"
           onClick={openImportModal}
-          className="sm:hidden fixed right-4 z-12020 rounded-full bg-(--color-brand-pink) px-5 py-3 text-sm font-semibold text-white shadow-lg hover:opacity-95"
+          className="sm:hidden fixed right-4 z-11001 rounded-full bg-(--color-brand-pink) px-5 py-3 text-sm font-semibold text-white shadow-xl hover:opacity-95"
           style={{
             bottom:
-              "calc(var(--pa-portal-embed-footer-offset,0px) + 16px + var(--pa-portal-floating-tools-reserve,0px))",
+              "calc(var(--pa-portal-embed-footer-offset,0px) + 5.75rem + var(--pa-portal-floating-tools-reserve, 0px))",
           }}
         >
           + New
