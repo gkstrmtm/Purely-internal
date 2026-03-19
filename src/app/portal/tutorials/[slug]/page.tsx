@@ -270,7 +270,7 @@ const TUTORIALS: Record<string, TutorialConfig> = {
     sections: [
       {
         title: "What Tasks supports",
-        body: "Tasks supports creating tasks, assigning them, marking done/undo, reopening completed tasks, and refreshing the list when you are working fast.",
+        body: "Tasks supports creating tasks, assigning them, marking done/undo, and reopening completed tasks.",
         steps: [
           "Open tasks are your day-to-day queue.",
           "Done tasks are your audit trail and allow reopening if something changes.",
@@ -296,7 +296,7 @@ const TUTORIALS: Record<string, TutorialConfig> = {
           "For everyone-assigned tasks, use Undo if you accidentally marked done (it only affects your view).",
           "In Done, click Reopen to move a task back to Open if it becomes active again.",
           "If you can edit the assignee, change it when ownership changes.",
-          "Use Refresh if the list feels stale after a status change.",
+          "If the list feels stale after a status change, wait a moment or reload the page.",
         ],
       },
       {
@@ -366,7 +366,7 @@ const TUTORIALS: Record<string, TutorialConfig> = {
         steps: [
           "If calls are hitting voicemail or a different system, double check that your Twilio number is pointing to the AI Receptionist voice webhook URL and not an old URL.",
           "If calls connect but you do not see them in the activity list, confirm you are viewing the correct portal account and Twilio project.",
-          "If there is no transcript yet, wait a minute. If it still does not appear, click Refresh in the activity view. If nothing changes, confirm that Twilio and your voice agent API key are configured in Profile.",
+          "If there is no transcript yet, wait a minute. If it still does not appear, reopen the call details or reload the page. If nothing changes, confirm that Twilio and your voice agent API key are configured in Profile.",
           "If SMS or email notifications are missing, open Profile and the AI Receptionist settings to confirm your contact phone and forwarding number are set correctly.",
         ],
       },

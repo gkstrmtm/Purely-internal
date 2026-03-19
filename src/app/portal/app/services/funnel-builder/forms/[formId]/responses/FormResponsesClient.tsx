@@ -119,21 +119,6 @@ export function FormResponsesClient({ basePath, formId }: { basePath: string; fo
     await goTo({ cursor: prev === "" ? null : prev, stack });
   };
 
-  const refresh = async () => {
-    setBusy(true);
-    setError(null);
-    try {
-      await loadForm();
-      setCursor(null);
-      setCursorStack([]);
-      await loadSubmissions({ cursor: null });
-    } catch (e) {
-      setError((e as any)?.message ? String((e as any).message) : "Refresh failed");
-    } finally {
-      setBusy(false);
-    }
-  };
-
   return (
     <div className="mx-auto w-full max-w-6xl">
       <div className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-end">
