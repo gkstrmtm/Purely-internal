@@ -17,7 +17,7 @@ import { normalizePortalContactCustomVarKey, PORTAL_MESSAGE_VARIABLES } from "@/
 
 type Channel = "email" | "sms";
 type EmailBox = "inbox" | "sent" | "all";
-type EmailDateFilter = "any" | "7d" | "30d" | "90d";
+type DateFilter = "any" | "7d" | "30d" | "90d";
 
 type Thread = {
   id: string;
@@ -172,8 +172,11 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
   const [emailBox, setEmailBox] = useState<EmailBox>("inbox");
   const [threadSearch, setThreadSearch] = useState<string>("");
   const [emailFiltersOpen, setEmailFiltersOpen] = useState(false);
-  const [emailDateFilter, setEmailDateFilter] = useState<EmailDateFilter>("any");
+  const [emailDateFilter, setEmailDateFilter] = useState<DateFilter>("any");
   const [emailHasAttachmentsOnly, setEmailHasAttachmentsOnly] = useState(false);
+  const [smsFiltersOpen, setSmsFiltersOpen] = useState(false);
+  const [smsDateFilter, setSmsDateFilter] = useState<DateFilter>("any");
+  const [smsIncomingOnly, setSmsIncomingOnly] = useState(false);
   const [threads, setThreads] = useState<Thread[]>([]);
   const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -183,6 +186,7 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
 
   const [emailComposerOpen, setEmailComposerOpen] = useState(false);
   const [emailAttachMenuOpen, setEmailAttachMenuOpen] = useState(false);
+  const [smsSheetOpen, setSmsSheetOpen] = useState(false);
 
   const initialDeepLink = useMemo(() => {
     if (typeof window === "undefined") {
@@ -244,19 +248,20 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
   }, [threads, tab, emailBox]);
 
   const visibleThreadsWithFilters = useMemo(() => {
-    if (tab !== "email") return visibleThreads;
-
     const now = Date.now();
-    const days = emailDateFilter === "7d" ? 7 : emailDateFilter === "30d" ? 30 : emailDateFilter === "90d" ? 90 : 0;
 
-    const filtered = visibleThreads.filter((t) => {
+    const activeDateFilter = tab === "email" ? emailDateFilter : tab === "sms" ? smsDateFilter : "any";
+    const days =
+      activeDateFilter === "7d" ? 7 : activeDateFilter === "30d" ? 30 : activeDateFilter === "90d" ? 90 : 0;
+
+    return visibleThreads.filter((t) => {
       if (days > 0) {
         const ts = new Date(t.lastMessageAt).getTime();
         if (!Number.isFinite(ts)) return false;
         if (now - ts > days * 24 * 60 * 60 * 1000) return false;
       }
 
-      if (emailHasAttachmentsOnly) {
+      if (tab === "email" && emailHasAttachmentsOnly) {
         // Threads API doesn't currently expose attachments, so do best-effort:
         // treat subjects/previews that mention common attachment hints as a match.
         const hay = `${t.subject ?? ""} ${t.lastMessageSubject ?? ""} ${t.lastMessagePreview ?? ""}`.toLowerCase();
@@ -275,11 +280,13 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
         if (!looksLikeAttachment) return false;
       }
 
+      if (tab === "sms" && smsIncomingOnly) {
+        if (t.lastMessageDirection !== "IN") return false;
+      }
+
       return true;
     });
-
-    return filtered;
-  }, [emailDateFilter, emailHasAttachmentsOnly, tab, visibleThreads]);
+  }, [emailDateFilter, emailHasAttachmentsOnly, smsDateFilter, smsIncomingOnly, tab, visibleThreads]);
 
   const filteredThreads = useMemo(() => {
     const q = threadSearch.trim().toLowerCase();
@@ -636,7 +643,8 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
       preferredThreadIdRef.current = null;
       preferredToRef.current = null;
     } else if (json.threads.length) {
-      setActiveThreadId(json.threads[0].id);
+      if (nextTab === "email") setActiveThreadId(json.threads[0].id);
+      else setActiveThreadId(null);
     } else if (preferredTo) {
       setComposeTo(preferredTo);
       preferredToRef.current = null;
@@ -707,6 +715,17 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
     if (!el) return;
     el.scrollTop = el.scrollHeight;
   }, [tab, activeThreadId, messages.length]);
+
+  useEffect(() => {
+    if (tab !== "sms") {
+      if (smsSheetOpen) setSmsSheetOpen(false);
+      return;
+    }
+
+    if (activeThreadId && !smsSheetOpen) {
+      setSmsSheetOpen(true);
+    }
+  }, [activeThreadId, smsSheetOpen, tab]);
 
   async function uploadAttachments(files: FileList | null) {
     if (!files || !files.length) return;
@@ -824,7 +843,8 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
   }
 
   useEffect(() => {
-    if (!emailComposerOpen) {
+    const needsElevated = emailComposerOpen || smsSheetOpen;
+    if (!needsElevated) {
       try {
         document.documentElement.style.removeProperty("--pa-variable-picker-backdrop-z");
         document.documentElement.style.removeProperty("--pa-variable-picker-z");
@@ -849,7 +869,7 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
         // ignore
       }
     };
-  }, [emailComposerOpen]);
+  }, [emailComposerOpen, smsSheetOpen]);
 
   function insertAtCursor(
     current: string,
@@ -1137,7 +1157,7 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
                           { key: "7d" as const, label: "Last 7 days" },
                           { key: "30d" as const, label: "Last 30 days" },
                           { key: "90d" as const, label: "Last 90 days" },
-                        ] satisfies Array<{ key: EmailDateFilter; label: string }>
+                        ] satisfies Array<{ key: DateFilter; label: string }>
                       ).map((opt) => (
                         <button
                           key={opt.key}
@@ -1207,6 +1227,152 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
               onClick={() => setEmailFiltersOpen((v) => !v)}
               aria-label="Mail filters"
               aria-expanded={emailFiltersOpen ? true : undefined}
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden>
+                <path
+                  d="M4 6h16M7 12h10M10 18h4"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                />
+              </svg>
+            </button>
+          </div>
+        </div>
+      ) : null}
+
+      {tab === "sms" ? (
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[#007aff] text-white shadow-sm hover:bg-[#006ae6]"
+            onClick={() => {
+              setSmsSheetOpen(true);
+              setActiveThreadId(null);
+              clearConversationForCompose();
+              setComposeTo("");
+              setComposeBody("");
+              setComposeAttachments([]);
+              setSmsMoreOpen(false);
+              setToSuggestionsOpen(false);
+            }}
+            aria-label="New message"
+          >
+            <span className="text-xl leading-none">+</span>
+          </button>
+
+          <div className="relative min-w-[14rem] flex-1">
+            <div className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-zinc-400" aria-hidden>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+                <path
+                  d="M10.5 18a7.5 7.5 0 1 1 0-15 7.5 7.5 0 0 1 0 15Z"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                />
+                <path
+                  d="M16.5 16.5 21 21"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                />
+              </svg>
+            </div>
+            <input
+              value={threadSearch}
+              onChange={(e) => setThreadSearch(e.target.value)}
+              placeholder="Search messages"
+              className="h-11 w-full rounded-full border border-zinc-200 bg-white pl-11 pr-4 text-sm text-zinc-900 outline-none focus:border-zinc-300"
+            />
+          </div>
+
+          <div className="relative shrink-0">
+            {smsFiltersOpen ? (
+              <>
+                <div
+                  className="fixed inset-0 z-50"
+                  onMouseDown={() => setSmsFiltersOpen(false)}
+                  onTouchStart={() => setSmsFiltersOpen(false)}
+                  aria-hidden
+                />
+                <div className="absolute right-0 top-full z-60 mt-2 w-72 overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-xl">
+                  <div className="border-b border-zinc-100 px-4 py-3 text-xs font-semibold text-zinc-600">Filters</div>
+                  <div className="px-4 py-3">
+                    <div className="text-xs font-semibold text-zinc-700">Date</div>
+                    <div className="mt-2 grid grid-cols-2 gap-2">
+                      {(
+                        [
+                          { key: "any" as const, label: "Any time" },
+                          { key: "7d" as const, label: "Last 7 days" },
+                          { key: "30d" as const, label: "Last 30 days" },
+                          { key: "90d" as const, label: "Last 90 days" },
+                        ] satisfies Array<{ key: DateFilter; label: string }>
+                      ).map((opt) => (
+                        <button
+                          key={opt.key}
+                          type="button"
+                          className={classNames(
+                            "rounded-xl border px-3 py-2 text-left text-xs font-semibold",
+                            smsDateFilter === opt.key
+                              ? "border-brand-ink bg-brand-ink text-white"
+                              : "border-zinc-200 bg-white text-zinc-800 hover:bg-zinc-50",
+                          )}
+                          onClick={() => setSmsDateFilter(opt.key)}
+                        >
+                          {opt.label}
+                        </button>
+                      ))}
+                    </div>
+
+                    <div className="mt-4 flex items-center justify-between gap-3 rounded-xl border border-zinc-200 bg-white px-3 py-2">
+                      <div>
+                        <div className="text-xs font-semibold text-zinc-900">Incoming only</div>
+                        <div className="text-[11px] text-zinc-500">Last message from them</div>
+                      </div>
+                      <button
+                        type="button"
+                        className={classNames(
+                          "h-7 w-12 rounded-full border transition",
+                          smsIncomingOnly ? "border-brand-ink bg-brand-ink" : "border-zinc-200 bg-zinc-100",
+                        )}
+                        onClick={() => setSmsIncomingOnly((v) => !v)}
+                        aria-pressed={smsIncomingOnly}
+                        aria-label="Toggle incoming-only filter"
+                      >
+                        <span
+                          className={classNames(
+                            "block h-6 w-6 translate-x-0.5 rounded-full bg-white shadow transition",
+                            smsIncomingOnly && "translate-x-[1.4rem]",
+                          )}
+                        />
+                      </button>
+                    </div>
+
+                    {(smsDateFilter !== "any" || smsIncomingOnly) ? (
+                      <button
+                        type="button"
+                        className="mt-3 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+                        onClick={() => {
+                          setSmsDateFilter("any");
+                          setSmsIncomingOnly(false);
+                        }}
+                      >
+                        Clear filters
+                      </button>
+                    ) : null}
+                  </div>
+                </div>
+              </>
+            ) : null}
+
+            <button
+              type="button"
+              className={classNames(
+                "inline-flex h-11 w-11 items-center justify-center rounded-full border border-zinc-200 bg-white text-zinc-800 hover:bg-zinc-50",
+                (smsDateFilter !== "any" || smsIncomingOnly) && "border-brand-ink",
+              )}
+              onClick={() => setSmsFiltersOpen((v) => !v)}
+              aria-label="Message filters"
+              aria-expanded={smsFiltersOpen ? true : undefined}
             >
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden>
                 <path
@@ -1326,29 +1492,7 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
               <div className="border-b border-zinc-100 px-4 py-3">
                 <div className="text-sm font-semibold text-zinc-900">{emailBox === "sent" ? "Sent" : "Inbox"}</div>
               </div>
-            ) : (
-              <div className="border-b border-zinc-100 p-3">
-              <div className="flex items-center justify-between gap-3">
-                <div>
-                  <div className="text-sm font-semibold text-zinc-900">Messages</div>
-                  <div className="mt-1 text-xs text-zinc-500">Your text conversations</div>
-                </div>
-                <button
-                  type="button"
-                  className="inline-flex items-center gap-1 rounded-xl bg-[#007aff] px-3 py-2 text-xs font-semibold text-white hover:bg-[#006ae6]"
-                  onClick={() => {
-                    clearConversationForCompose();
-                    setComposeTo("");
-                    setComposeBody("");
-                    setComposeAttachments([]);
-                  }}
-                >
-                  <span className="text-sm leading-none">+</span>
-                  <span>New SMS</span>
-                </button>
-              </div>
-              </div>
-            )}
+            ) : null}
 
             {loadingThreads ? (
               <div className="px-3 py-4 text-sm text-zinc-600">Loading…</div>
@@ -1364,7 +1508,12 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
                     <button
                       key={t.id}
                       type="button"
-                      onClick={() => setActiveThreadId(t.id)}
+                      onClick={() => {
+                        setActiveThreadId(t.id);
+                        setSmsSheetOpen(true);
+                        setSmsMoreOpen(false);
+                        setToSuggestionsOpen(false);
+                      }}
                       className={classNames(
                         "w-full border-b border-zinc-100 px-4 py-3 text-left transition",
                         active ? "bg-zinc-100" : "hover:bg-zinc-50",
@@ -1374,26 +1523,6 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
                         <div className="min-w-0">
                           <div className="truncate text-[15px] font-semibold text-zinc-900">{title}</div>
                           <div className="mt-0.5 truncate text-xs text-zinc-600">{subtitle || " "}</div>
-                          {Array.isArray(t.contactTags) && t.contactTags.length ? (
-                            <div className="mt-1 flex flex-wrap gap-1">
-                              {t.contactTags.slice(0, 3).map((tag) => (
-                                <span
-                                  key={tag.id}
-                                  className="rounded-full border px-2 py-0.5 text-[10px] font-semibold"
-                                  style={{
-                                    backgroundColor: (tag.color || "#0f172a") + "20",
-                                    borderColor: (tag.color || "#0f172a") + "40",
-                                    color: tag.color || "#0f172a",
-                                  }}
-                                >
-                                    {tag.name}
-                                </span>
-                              ))}
-                              {t.contactTags.length > 3 ? (
-                                <span className="text-[10px] font-semibold text-zinc-500">+{t.contactTags.length - 3}</span>
-                              ) : null}
-                            </div>
-                          ) : null}
                         </div>
                         <div className="shrink-0 text-[11px] text-zinc-500">{formatDayOrTime(t.lastMessageAt)}</div>
                       </div>
@@ -1467,319 +1596,13 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
         ) : null}
 
         {/* Right panel: conversation view */}
-        {!emailComposerOpen ? (
+        {!emailComposerOpen && tab === "email" ? (
           <div
             className={classNames(
               "overflow-hidden rounded-3xl border border-zinc-200 bg-white lg:col-span-8",
-              tab === "email" && !activeThreadId ? "hidden lg:block" : "",
+              !activeThreadId ? "hidden lg:block" : "",
             )}
           >
-          {tab === "sms" ? (
-            <div className="flex h-full min-h-[68vh] flex-col">
-              <div className="border-b border-zinc-100 px-4 py-3">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <div className="truncate text-base font-semibold text-zinc-900">
-                      {activeThread ? activeThread.contact?.name || displayNameFromAddress(activeThread.peerAddress) : "New Message"}
-                    </div>
-                    <div className="truncate text-xs text-zinc-500">
-                      {activeThread ? activeThread.peerAddress : "Enter a phone number to start a text"}
-                    </div>
-                  </div>
-                  {activeThread ? (
-                    <button
-                      type="button"
-                      className="shrink-0 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold hover:bg-zinc-50"
-                      onClick={openContactModalForActiveThread}
-                    >
-                      {activeThread.contactId ? "Edit contact" : "Add contact"}
-                    </button>
-                  ) : null}
-                </div>
-
-                {activeThread?.contactId ? (
-                  <div className="mt-2">
-                    <ContactTagsEditor
-                      compact
-                      contactId={activeThread.contactId}
-                      tags={Array.isArray(activeThread.contactTags) ? activeThread.contactTags : []}
-                      onChange={(next) => updateThreadTags(activeThread.id, next)}
-                    />
-                  </div>
-                ) : null}
-              </div>
-
-              {!activeThread ? (
-                <div className="border-b border-zinc-100 p-3">
-                  {toSuggestionsOpen ? (
-                    <div
-                      className="fixed inset-0 z-65"
-                      onMouseDown={() => setToSuggestionsOpen(false)}
-                      onTouchStart={() => setToSuggestionsOpen(false)}
-                      aria-hidden
-                    />
-                  ) : null}
-                  <div className="relative">
-                    <div className="flex items-center gap-2 rounded-2xl border border-zinc-200 bg-white px-3 py-2">
-                      <div className="text-xs font-semibold text-zinc-600">To:</div>
-                      <input
-                        ref={smsToRef}
-                        value={composeTo}
-                        onFocus={() => {
-                          void ensureContactsLoaded();
-                          setToSuggestionsOpen(true);
-                        }}
-                        onChange={(e) => {
-                          void ensureContactsLoaded();
-                          setComposeTo(e.target.value);
-                          setToSuggestionsOpen(true);
-                        }}
-                        onKeyDown={(e) => {
-                          if (e.key === "Escape") setToSuggestionsOpen(false);
-                        }}
-                        placeholder="Phone number or contact name"
-                        className="w-full bg-transparent text-sm text-zinc-900 placeholder:text-zinc-400 focus:outline-none"
-                      />
-                    </div>
-
-                    {toSuggestionsOpen ? (
-                      <div className="absolute left-0 right-0 top-full z-80 mt-2 overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-lg">
-                        {contactsLoading ? (
-                          <div className="px-3 py-3 text-sm text-zinc-600">Loading contacts…</div>
-                        ) : (
-                          (() => {
-                            const suggestions = findContactSuggestions(composeTo);
-                            if (!suggestions.length) {
-                              return <div className="px-3 py-3 text-sm text-zinc-600">No matching contacts.</div>;
-                            }
-
-                            return (
-                              <div className="max-h-72 overflow-y-auto py-1">
-                                {suggestions.map((c) => (
-                                  <button
-                                    key={c.id}
-                                    type="button"
-                                    className="w-full px-3 py-2 text-left hover:bg-zinc-50"
-                                    onMouseDown={(e) => {
-                                      e.preventDefault();
-                                      applyContactToCompose(c);
-                                    }}
-                                  >
-                                    <div className="truncate text-sm font-semibold text-zinc-900">{c.name}</div>
-                                    <div className="mt-0.5 truncate text-xs text-zinc-600">{c.phone || "No phone"}</div>
-                                  </button>
-                                ))}
-                              </div>
-                            );
-                          })()
-                        )}
-                      </div>
-                    ) : null}
-                  </div>
-                </div>
-              ) : null}
-
-              <div ref={smsScrollRef} className={classNames("flex-1 overflow-y-auto px-4 py-4", styles.smsPane)}>
-                {!activeThread ? (
-                  <div className="text-sm text-zinc-600">Start a new text by choosing a contact or entering a phone number.</div>
-                ) : loadingMessages ? (
-                  <div className="text-sm text-zinc-600">Loading…</div>
-                ) : messages.length ? (
-                  <div className="space-y-2">
-                    {messages.map((m, idx) => {
-                      const mine = m.direction === "OUT";
-                      const prev = idx > 0 ? messages[idx - 1] : null;
-                      const next = idx + 1 < messages.length ? messages[idx + 1] : null;
-                      const startsGroup = !prev || prev.direction !== m.direction;
-                      const endsGroup = !next || next.direction !== m.direction;
-
-                      const bubbleCls = classNames(
-                        styles.bubble,
-                        mine ? styles.bubbleOut : styles.bubbleIn,
-                        endsGroup ? (mine ? styles.tailOut : styles.tailIn) : "",
-                      );
-
-                      return (
-                        <div key={m.id} className={classNames("flex", mine ? "justify-end" : "justify-start", startsGroup ? "mt-2" : "mt-0")}
-                        >
-                          <div className={bubbleCls}>
-                            {m.attachments?.length ? (
-                              <div className="mb-2 space-y-2">
-                                {m.attachments.map((a) => {
-                                  const isImg = String(a.mimeType || "").startsWith("image/");
-                                  if (isImg) {
-                                    return (
-                                      <a key={a.id} href={a.url} target="_blank" rel="noreferrer" className="block">
-                                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                                        <img src={a.url} alt={a.fileName} className="max-h-56 w-full max-w-60 rounded-2xl object-cover" />
-                                      </a>
-                                    );
-                                  }
-
-                                  return (
-                                    <a
-                                      key={a.id}
-                                      href={a.url}
-                                      target="_blank"
-                                      rel="noreferrer"
-                                      className={classNames(
-                                        "block rounded-2xl px-3 py-2 text-xs font-semibold",
-                                        mine ? "bg-white/15 text-white" : "bg-zinc-100 text-zinc-800",
-                                      )}
-                                    >
-                                      {a.fileName} · {formatBytes(a.fileSize)}
-                                    </a>
-                                  );
-                                })}
-                              </div>
-                            ) : null}
-                            <div className="whitespace-pre-wrap wrap-break-word">{m.bodyText}</div>
-                            {endsGroup ? (
-                              <div className={classNames("mt-1 text-[11px]", mine ? "text-white/80" : "text-zinc-600")}>
-                                {formatTimeOnly(m.createdAt)}
-                              </div>
-                            ) : null}
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                ) : (
-                  <div className="text-sm text-zinc-600">No messages yet.</div>
-                )}
-              </div>
-
-              <div className={classNames("border-t border-zinc-100 p-3", styles.inputBar)}>
-                {composeAttachments.length ? (
-                  <div className="mb-2 flex flex-wrap gap-2 px-1">
-                    {composeAttachments.map((a) => {
-                      const isImg = String(a.mimeType || "").startsWith("image/");
-                      return (
-                        <div key={a.id} className="flex items-center gap-2 rounded-2xl border border-zinc-200 bg-white px-2 py-1">
-                          {isImg ? (
-                            /* eslint-disable-next-line @next/next/no-img-element */
-                            <img src={a.url} alt={a.fileName} className="h-8 w-8 rounded-xl object-cover" />
-                          ) : (
-                            <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-zinc-100 text-xs font-semibold text-zinc-700">
-                              FILE
-                            </div>
-                          )}
-                          <div className="min-w-0">
-                            <div className="max-w-45 truncate text-xs font-semibold text-zinc-900">{a.fileName}</div>
-                            <div className="text-[11px] text-zinc-500">{formatBytes(a.fileSize)}</div>
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() => removeAttachment(a.id)}
-                            className="ml-1 rounded-xl px-2 py-1 text-xs font-semibold text-zinc-600 hover:bg-zinc-50"
-                            aria-label="Remove attachment"
-                          >
-                            ×
-                          </button>
-                        </div>
-                      );
-                    })}
-                  </div>
-                ) : null}
-                <div className={classNames("flex items-center gap-2 px-2 py-2", styles.inputPill)}>
-                  <div className="relative">
-                    {smsMoreOpen ? (
-                      <>
-                        <div
-                          className="fixed inset-0 z-70"
-                          onMouseDown={() => setSmsMoreOpen(false)}
-                          onTouchStart={() => setSmsMoreOpen(false)}
-                          aria-hidden
-                        />
-                        <div className="absolute bottom-full left-0 z-75 mb-2 w-64 overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-lg">
-                          <button
-                            type="button"
-                            className="w-full px-4 py-3 text-left text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
-                            onClick={() => {
-                              setSmsMoreOpen(false);
-                              openVariablePicker("sms_body");
-                            }}
-                          >
-                            Insert variable
-                          </button>
-                          <button
-                            type="button"
-                            className="w-full px-4 py-3 text-left text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
-                            onClick={() => {
-                              setSmsMoreOpen(false);
-                              smsFileRef.current?.click();
-                            }}
-                          >
-                            Upload from device
-                          </button>
-                          <button
-                            type="button"
-                            className="w-full px-4 py-3 text-left text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
-                            onClick={() => {
-                              setSmsMoreOpen(false);
-                              setMediaPickerOpen(true);
-                            }}
-                          >
-                            Add from media library
-                          </button>
-                        </div>
-                      </>
-                    ) : null}
-
-                    <button
-                      type="button"
-                      className={classNames(styles.iconButton, styles.iconButtonMuted)}
-                      onClick={() => setSmsMoreOpen((v) => !v)}
-                      aria-label="More"
-                      aria-expanded={smsMoreOpen ? true : undefined}
-                    >
-                      <span className="text-lg leading-none">+</span>
-                    </button>
-                  </div>
-
-                  <input
-                    ref={smsFileRef}
-                    type="file"
-                    multiple
-                    className="hidden"
-                    onChange={(e) => {
-                      void uploadAttachments(e.currentTarget.files);
-                      e.currentTarget.value = "";
-                    }}
-                    accept="image/*,video/*,audio/*,application/pdf,text/plain"
-                  />
-
-                  <input
-                    ref={smsComposeRef}
-                    value={composeBody}
-                    onChange={(e) => setComposeBody(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        e.preventDefault();
-                        onSend();
-                      }
-                    }}
-                    placeholder="SMS"
-                    className="w-full bg-transparent px-1 text-[15px] text-zinc-900 placeholder:text-zinc-400 focus:outline-none"
-                  />
-
-
-                  <button
-                    type="button"
-                    onClick={onSend}
-                    disabled={sending}
-                    className={classNames(styles.iconButton, styles.iconButtonPrimary, sending && "opacity-60")}
-                    aria-label="Send"
-                  >
-                    <span className="text-[13px] font-semibold">↑</span>
-                  </button>
-                </div>
-                <div className="mt-1 px-2 text-[11px] text-zinc-500">
-                  {uploading ? "Uploading…" : "Press Enter to send"}
-                </div>
-              </div>
-            </div>
-          ) : (
             <div className="flex h-full min-h-[68vh] flex-col">
               <div className="border-b border-zinc-100 px-4 py-3">
                 <div className="flex items-start justify-between gap-3">
@@ -1954,7 +1777,6 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
                 </div>
               </div>
             </div>
-          )}
           </div>
         ) : null}
       </div>
@@ -1966,6 +1788,356 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
         confirmLabel="Add"
         title="Add from media library"
       />
+
+      {tab === "sms" && smsSheetOpen && !emailComposerOpen ? (
+        <>
+          <div
+            className="fixed inset-0 z-12030 bg-black/20"
+            onMouseDown={() => {
+              setSmsSheetOpen(false);
+              setActiveThreadId(null);
+              setSmsMoreOpen(false);
+              setToSuggestionsOpen(false);
+            }}
+            onTouchStart={() => {
+              setSmsSheetOpen(false);
+              setActiveThreadId(null);
+              setSmsMoreOpen(false);
+              setToSuggestionsOpen(false);
+            }}
+            aria-hidden
+          />
+          <div
+            className="fixed left-0 right-0 z-12040 bg-white shadow-2xl"
+            style={{
+              top: "max(var(--pa-portal-topbar-height, 0px), var(--pa-modal-safe-top, 0px))",
+              bottom: "var(--pa-portal-embed-footer-offset, 0px)",
+            }}
+            role="dialog"
+            aria-modal="true"
+            aria-label="Messages"
+          >
+            <div className="flex h-full flex-col">
+              <div className="flex items-center gap-3 border-b border-zinc-200 px-4 py-3">
+                <button
+                  type="button"
+                  className="rounded-full p-2 text-zinc-700 hover:bg-zinc-100"
+                  onClick={() => {
+                    setSmsSheetOpen(false);
+                    setActiveThreadId(null);
+                    setSmsMoreOpen(false);
+                    setToSuggestionsOpen(false);
+                  }}
+                  aria-label="Back to threads"
+                >
+                  <span className="text-sm font-semibold">Back</span>
+                </button>
+
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-sm font-semibold text-zinc-900">
+                    {activeThread
+                      ? activeThread.contact?.name || displayNameFromAddress(activeThread.peerAddress)
+                      : "New message"}
+                  </div>
+                  <div className="truncate text-xs text-zinc-500">
+                    {activeThread ? activeThread.peerAddress : "Enter a phone number or pick a contact"}
+                  </div>
+                </div>
+
+                {activeThread ? (
+                  <button
+                    type="button"
+                    className="shrink-0 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold hover:bg-zinc-50"
+                    onClick={openContactModalForActiveThread}
+                  >
+                    {activeThread.contactId ? "Edit contact" : "Add contact"}
+                  </button>
+                ) : null}
+              </div>
+
+              {!activeThread ? (
+                <div className="border-b border-zinc-200 px-4">
+                  {toSuggestionsOpen ? (
+                    <div
+                      className="fixed inset-0 z-12041"
+                      onMouseDown={() => setToSuggestionsOpen(false)}
+                      onTouchStart={() => setToSuggestionsOpen(false)}
+                      aria-hidden
+                    />
+                  ) : null}
+
+                  <div className="relative py-3">
+                    <div className="flex items-center gap-2 rounded-2xl border border-zinc-200 bg-white px-3 py-2">
+                      <div className="text-xs font-semibold text-zinc-600">To:</div>
+                      <input
+                        ref={smsToRef}
+                        value={composeTo}
+                        onFocus={() => {
+                          void ensureContactsLoaded();
+                          setToSuggestionsOpen(true);
+                        }}
+                        onChange={(e) => {
+                          void ensureContactsLoaded();
+                          setComposeTo(e.target.value);
+                          setToSuggestionsOpen(true);
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === "Escape") setToSuggestionsOpen(false);
+                        }}
+                        placeholder="Phone number or contact name"
+                        className="w-full bg-transparent text-sm text-zinc-900 placeholder:text-zinc-400 focus:outline-none"
+                      />
+                    </div>
+
+                    {toSuggestionsOpen ? (
+                      <div className="absolute left-0 right-0 top-full z-12045 mt-2 overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-lg">
+                        {contactsLoading ? (
+                          <div className="px-3 py-3 text-sm text-zinc-600">Loading contacts…</div>
+                        ) : (
+                          (() => {
+                            const suggestions = findContactSuggestions(composeTo);
+                            if (!suggestions.length) {
+                              return <div className="px-3 py-3 text-sm text-zinc-600">No matching contacts.</div>;
+                            }
+
+                            return (
+                              <div className="max-h-72 overflow-y-auto py-1">
+                                {suggestions.map((c) => (
+                                  <button
+                                    key={c.id}
+                                    type="button"
+                                    className="w-full px-3 py-2 text-left hover:bg-zinc-50"
+                                    onMouseDown={(e) => {
+                                      e.preventDefault();
+                                      applyContactToCompose(c);
+                                    }}
+                                  >
+                                    <div className="truncate text-sm font-semibold text-zinc-900">{c.name}</div>
+                                    <div className="mt-0.5 truncate text-xs text-zinc-600">{c.phone || "No phone"}</div>
+                                  </button>
+                                ))}
+                              </div>
+                            );
+                          })()
+                        )}
+                      </div>
+                    ) : null}
+                  </div>
+                </div>
+              ) : null}
+
+              <div ref={smsScrollRef} className={classNames("min-h-0 flex-1 overflow-y-auto px-4 py-4", styles.smsPane)}>
+                {!activeThread ? (
+                  <div className="text-sm text-zinc-600">Start a new text by choosing a contact or entering a phone number.</div>
+                ) : loadingMessages ? (
+                  <div className="text-sm text-zinc-600">Loading…</div>
+                ) : messages.length ? (
+                  <div className="space-y-2">
+                    {messages.map((m, idx) => {
+                      const mine = m.direction === "OUT";
+                      const prev = idx > 0 ? messages[idx - 1] : null;
+                      const next = idx + 1 < messages.length ? messages[idx + 1] : null;
+                      const startsGroup = !prev || prev.direction !== m.direction;
+                      const endsGroup = !next || next.direction !== m.direction;
+
+                      const bubbleCls = classNames(
+                        styles.bubble,
+                        mine ? styles.bubbleOut : styles.bubbleIn,
+                        endsGroup ? (mine ? styles.tailOut : styles.tailIn) : "",
+                      );
+
+                      return (
+                        <div
+                          key={m.id}
+                          className={classNames(
+                            "flex",
+                            mine ? "justify-end" : "justify-start",
+                            startsGroup ? "mt-2" : "mt-0",
+                          )}
+                        >
+                          <div className={bubbleCls}>
+                            {m.attachments?.length ? (
+                              <div className="mb-2 space-y-2">
+                                {m.attachments.map((a) => {
+                                  const isImg = String(a.mimeType || "").startsWith("image/");
+                                  if (isImg) {
+                                    return (
+                                      <a key={a.id} href={a.url} target="_blank" rel="noreferrer" className="block">
+                                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                                        <img
+                                          src={a.url}
+                                          alt={a.fileName}
+                                          className="max-h-56 w-full max-w-60 rounded-2xl object-cover"
+                                        />
+                                      </a>
+                                    );
+                                  }
+
+                                  return (
+                                    <a
+                                      key={a.id}
+                                      href={a.url}
+                                      target="_blank"
+                                      rel="noreferrer"
+                                      className={classNames(
+                                        "block rounded-2xl px-3 py-2 text-xs font-semibold",
+                                        mine ? "bg-white/15 text-white" : "bg-zinc-100 text-zinc-800",
+                                      )}
+                                    >
+                                      {a.fileName} · {formatBytes(a.fileSize)}
+                                    </a>
+                                  );
+                                })}
+                              </div>
+                            ) : null}
+                            <div className="whitespace-pre-wrap wrap-break-word">{m.bodyText}</div>
+                            {endsGroup ? (
+                              <div className={classNames("mt-1 text-[11px]", mine ? "text-white/80" : "text-zinc-600")}>
+                                {formatTimeOnly(m.createdAt)}
+                              </div>
+                            ) : null}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className="text-sm text-zinc-600">No messages yet.</div>
+                )}
+              </div>
+
+              <div className={classNames("shrink-0 border-t border-zinc-200 p-3", styles.inputBar)}>
+                {composeAttachments.length ? (
+                  <div className="mb-2 flex flex-wrap gap-2 px-1">
+                    {composeAttachments.map((a) => {
+                      const isImg = String(a.mimeType || "").startsWith("image/");
+                      return (
+                        <div key={a.id} className="flex items-center gap-2 rounded-2xl border border-zinc-200 bg-white px-2 py-1">
+                          {isImg ? (
+                            /* eslint-disable-next-line @next/next/no-img-element */
+                            <img src={a.url} alt={a.fileName} className="h-8 w-8 rounded-xl object-cover" />
+                          ) : (
+                            <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-zinc-100 text-xs font-semibold text-zinc-700">
+                              FILE
+                            </div>
+                          )}
+                          <div className="min-w-0">
+                            <div className="max-w-45 truncate text-xs font-semibold text-zinc-900">{a.fileName}</div>
+                            <div className="text-[11px] text-zinc-500">{formatBytes(a.fileSize)}</div>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => removeAttachment(a.id)}
+                            className="ml-1 rounded-xl px-2 py-1 text-xs font-semibold text-zinc-600 hover:bg-zinc-50"
+                            aria-label="Remove attachment"
+                          >
+                            ×
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : null}
+
+                <div className={classNames("flex items-center gap-2 px-2 py-2", styles.inputPill)}>
+                  <div className="relative">
+                    {smsMoreOpen ? (
+                      <>
+                        <div
+                          className="fixed inset-0 z-12041"
+                          onMouseDown={() => setSmsMoreOpen(false)}
+                          onTouchStart={() => setSmsMoreOpen(false)}
+                          aria-hidden
+                        />
+                        <div className="absolute bottom-full left-0 z-12045 mb-2 w-64 overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-lg">
+                          <button
+                            type="button"
+                            className="w-full px-4 py-3 text-left text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
+                            onClick={() => {
+                              setSmsMoreOpen(false);
+                              openVariablePicker("sms_body");
+                            }}
+                          >
+                            Insert variable
+                          </button>
+                          <button
+                            type="button"
+                            className="w-full px-4 py-3 text-left text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
+                            onClick={() => {
+                              setSmsMoreOpen(false);
+                              smsFileRef.current?.click();
+                            }}
+                          >
+                            Upload from device
+                          </button>
+                          <button
+                            type="button"
+                            className="w-full px-4 py-3 text-left text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
+                            onClick={() => {
+                              setSmsMoreOpen(false);
+                              setMediaPickerOpen(true);
+                            }}
+                          >
+                            Add from media library
+                          </button>
+                        </div>
+                      </>
+                    ) : null}
+
+                    <button
+                      type="button"
+                      className={classNames(styles.iconButton, styles.iconButtonMuted)}
+                      onClick={() => setSmsMoreOpen((v) => !v)}
+                      aria-label="More"
+                      aria-expanded={smsMoreOpen ? true : undefined}
+                    >
+                      <span className="text-lg leading-none">+</span>
+                    </button>
+                  </div>
+
+                  <input
+                    ref={smsFileRef}
+                    type="file"
+                    multiple
+                    className="hidden"
+                    onChange={(e) => {
+                      void uploadAttachments(e.currentTarget.files);
+                      e.currentTarget.value = "";
+                    }}
+                    accept="image/*,video/*,audio/*,application/pdf,text/plain"
+                  />
+
+                  <input
+                    ref={smsComposeRef}
+                    value={composeBody}
+                    onChange={(e) => setComposeBody(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        onSend();
+                      }
+                    }}
+                    placeholder="Text message"
+                    className="w-full bg-transparent px-1 text-[15px] text-zinc-900 placeholder:text-zinc-400 focus:outline-none"
+                  />
+
+                  <button
+                    type="button"
+                    onClick={onSend}
+                    disabled={sending}
+                    className={classNames(styles.iconButton, styles.iconButtonPrimary, sending && "opacity-60")}
+                    aria-label="Send"
+                  >
+                    <span className="text-[13px] font-semibold">↑</span>
+                  </button>
+                </div>
+
+                <div className="mt-1 px-2 text-[11px] text-zinc-500">{uploading ? "Uploading…" : "Press Enter to send"}</div>
+              </div>
+            </div>
+          </div>
+        </>
+      ) : null}
 
       {tab === "email" && !emailComposerOpen ? (
         <button
