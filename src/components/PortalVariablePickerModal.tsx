@@ -263,11 +263,11 @@ export function PortalVariablePickerModal(props: {
   if (!mounted) return null;
 
   const body = (
-    <div className="fixed inset-0 z-8100" aria-hidden>
+    <div className="fixed inset-0 z-(--pa-variable-picker-backdrop-z,8100)" aria-hidden>
       <button type="button" className="absolute inset-0 bg-black/30" onMouseDown={onClose} aria-label="Close" />
       <div
         className={classNames(
-          "fixed inset-0 z-8110 flex items-start justify-center px-4",
+          "fixed inset-0 z-(--pa-variable-picker-z,8110) flex items-start justify-center px-4",
           "pt-[calc(var(--pa-modal-safe-top,0px)+1rem)] pb-[calc(var(--pa-modal-safe-bottom,0px)+1rem)]",
           "sm:items-center",
         )}

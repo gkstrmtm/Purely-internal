@@ -169,12 +169,16 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
     setTab(initialChannel);
   }, [initialChannel]);
   const [emailBox, setEmailBox] = useState<EmailBox>("inbox");
+  const [threadSearch, setThreadSearch] = useState<string>("");
   const [threads, setThreads] = useState<Thread[]>([]);
   const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [loadingThreads, setLoadingThreads] = useState(true);
   const [loadingMessages, setLoadingMessages] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const [emailComposerOpen, setEmailComposerOpen] = useState(false);
+  const [emailAttachMenuOpen, setEmailAttachMenuOpen] = useState(false);
 
   const initialDeepLink = useMemo(() => {
     if (typeof window === "undefined") {
@@ -235,6 +239,27 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
     return threads.filter((t) => t.lastMessageDirection === dir);
   }, [threads, tab, emailBox]);
 
+  const filteredThreads = useMemo(() => {
+    const q = threadSearch.trim().toLowerCase();
+    if (!q) return visibleThreads;
+    return visibleThreads.filter((t) => {
+      const hay = [
+        t.contact?.name,
+        t.peerAddress,
+        t.subject,
+        t.lastMessageSubject,
+        t.lastMessagePreview,
+        t.lastMessageFrom,
+        t.lastMessageTo,
+      ]
+        .map((x) => String(x ?? "").trim())
+        .filter(Boolean)
+        .join(" \n")
+        .toLowerCase();
+      return hay.includes(q);
+    });
+  }, [threadSearch, visibleThreads]);
+
   const [composeTo, setComposeTo] = useState<string>("");
   const [composeSubject, setComposeSubject] = useState<string>("");
   const [composeBody, setComposeBody] = useState<string>("");
@@ -248,6 +273,7 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
 
   const smsToRef = useRef<HTMLInputElement | null>(null);
   const emailToRef = useRef<HTMLInputElement | null>(null);
+  const emailComposerFileRef = useRef<HTMLInputElement | null>(null);
 
   const [smsMoreOpen, setSmsMoreOpen] = useState(false);
   const [mediaPickerOpen, setMediaPickerOpen] = useState(false);
@@ -708,8 +734,8 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
     await fetch(`/api/portal/inbox/attachments/${id}`, { method: "DELETE" }).catch(() => null);
   }
 
-  async function onSend() {
-    if (sending) return;
+  async function onSend(): Promise<{ ok: true; threadId: string | null } | { ok: false }> {
+    if (sending) return { ok: false };
     setError(null);
 
     const to = composeTo.trim();
@@ -718,7 +744,7 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
 
     if (!to || (!body && composeAttachments.length === 0)) {
       setError("To and message or attachment are required");
-      return;
+      return { ok: false };
     }
 
     setSending(true);
@@ -739,7 +765,7 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
     if (!res.ok || !json?.ok) {
       setSending(false);
       setError(typeof json?.error === "string" ? json.error : "Send failed");
-      return;
+      return { ok: false };
     }
 
     const threadId = typeof json.threadId === "string" ? json.threadId : activeThreadId;
@@ -751,7 +777,37 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
     // Refresh threads + messages.
     await loadThreads(tab);
     if (threadId) setActiveThreadId(threadId);
+
+    return { ok: true, threadId: threadId ?? null };
   }
+
+  useEffect(() => {
+    if (!emailComposerOpen) {
+      try {
+        document.documentElement.style.removeProperty("--pa-variable-picker-backdrop-z");
+        document.documentElement.style.removeProperty("--pa-variable-picker-z");
+      } catch {
+        // ignore
+      }
+      return;
+    }
+
+    try {
+      document.documentElement.style.setProperty("--pa-variable-picker-backdrop-z", "12050");
+      document.documentElement.style.setProperty("--pa-variable-picker-z", "12060");
+    } catch {
+      // ignore
+    }
+
+    return () => {
+      try {
+        document.documentElement.style.removeProperty("--pa-variable-picker-backdrop-z");
+        document.documentElement.style.removeProperty("--pa-variable-picker-z");
+      } catch {
+        // ignore
+      }
+    };
+  }, [emailComposerOpen]);
 
   function insertAtCursor(
     current: string,
@@ -984,6 +1040,41 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
         </button>
       </div>
 
+      {tab === "email" ? (
+        <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center">
+          <div className="relative flex-1">
+            <div className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-zinc-400" aria-hidden>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+                <path
+                  d="M10.5 18a7.5 7.5 0 1 1 0-15 7.5 7.5 0 0 1 0 15Z"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                />
+                <path
+                  d="M16.5 16.5 21 21"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                />
+              </svg>
+            </div>
+            <input
+              value={threadSearch}
+              onChange={(e) => setThreadSearch(e.target.value)}
+              placeholder="Search mail"
+              className="h-11 w-full rounded-full border border-zinc-200 bg-white pl-11 pr-4 text-sm text-zinc-900 outline-none focus:border-zinc-300"
+            />
+          </div>
+          <button
+            type="button"
+            className="h-11 shrink-0 rounded-full border border-zinc-200 bg-white px-5 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
+            onClick={() => setEmailBox((prev) => (prev === "sent" ? "inbox" : "sent"))}
+          >
+            {emailBox === "sent" ? "Inbox" : "Sent"}
+          </button>
+        </div>
+      ) : null}
+
       <AppModal
         open={Boolean(contactModalOpen && activeThread)}
         title="Contact details"
@@ -1078,53 +1169,19 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
 
       <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-12">
         {/* Left panel: thread list */}
-        <div className={classNames(
-          "overflow-hidden rounded-3xl border border-zinc-200 bg-white lg:col-span-4",
-        )}>
-          {tab === "email" ? (
-            <div className="border-b border-zinc-100 p-3">
-              <div className="flex items-center justify-between gap-3">
-                <div className="text-sm font-semibold text-zinc-900">Mailboxes</div>
-                <button
-                  type="button"
-                  className="inline-flex items-center gap-1 rounded-xl bg-[#007aff] px-3 py-2 text-xs font-semibold text-white hover:bg-[#006ae6]"
-                  onClick={() => {
-                    clearConversationForCompose();
-                    setComposeTo("");
-                    setComposeSubject("");
-                    setComposeBody("");
-                    setComposeAttachments([]);
-                  }}
-                >
-                  <span className="text-sm leading-none">+</span>
-                  <span>New Email</span>
-                </button>
+        {!emailComposerOpen ? (
+          <div
+            className={classNames(
+              "flex min-h-0 flex-col overflow-hidden rounded-3xl border border-zinc-200 bg-white lg:col-span-4",
+              tab === "email" && activeThreadId ? "hidden lg:flex" : "",
+            )}
+          >
+            {tab === "email" ? (
+              <div className="border-b border-zinc-100 px-4 py-3">
+                <div className="text-sm font-semibold text-zinc-900">{emailBox === "sent" ? "Sent" : "Inbox"}</div>
               </div>
-              <div className="mt-2 flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => setEmailBox("inbox")}
-                  className={classNames(
-                    "flex-1 rounded-2xl border px-3 py-2 text-sm font-semibold",
-                    emailBox === "inbox" ? "border-brand-ink bg-brand-ink text-white" : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50",
-                  )}
-                >
-                  Inbox
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setEmailBox("sent")}
-                  className={classNames(
-                    "flex-1 rounded-2xl border px-3 py-2 text-sm font-semibold",
-                    emailBox === "sent" ? "border-(--color-brand-pink) bg-(--color-brand-pink) text-white" : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50",
-                  )}
-                >
-                  Sent
-                </button>
-              </div>
-            </div>
-          ) : (
-            <div className="border-b border-zinc-100 p-3">
+            ) : (
+              <div className="border-b border-zinc-100 p-3">
               <div className="flex items-center justify-between gap-3">
                 <div>
                   <div className="text-sm font-semibold text-zinc-900">Messages</div>
@@ -1144,14 +1201,14 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
                   <span>New SMS</span>
                 </button>
               </div>
-            </div>
-          )}
+              </div>
+            )}
 
-          {loadingThreads ? (
-            <div className="px-3 py-4 text-sm text-zinc-600">Loading…</div>
-          ) : visibleThreads.length ? (
-            <div className="max-h-[76vh] overflow-y-auto p-2">
-              {visibleThreads.map((t) => {
+            {loadingThreads ? (
+              <div className="px-3 py-4 text-sm text-zinc-600">Loading…</div>
+            ) : filteredThreads.length ? (
+              <div className="min-h-0 flex-1 overflow-y-auto">
+                {filteredThreads.map((t) => {
                 const active = t.id === activeThreadId;
 
                 if (tab === "sms") {
@@ -1163,7 +1220,7 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
                       type="button"
                       onClick={() => setActiveThreadId(t.id)}
                       className={classNames(
-                        "w-full rounded-2xl px-3 py-2 text-left transition",
+                        "w-full border-b border-zinc-100 px-4 py-3 text-left transition",
                         active ? "bg-zinc-100" : "hover:bg-zinc-50",
                       )}
                     >
@@ -1183,8 +1240,7 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
                                     color: tag.color || "#0f172a",
                                   }}
                                 >
-                                  {tag.name}
-                                  Upload
+                                    {tag.name}
                                 </span>
                               ))}
                               {t.contactTags.length > 3 ? (
@@ -1210,7 +1266,7 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
                     type="button"
                     onClick={() => setActiveThreadId(t.id)}
                     className={classNames(
-                      "w-full rounded-2xl px-3 py-2 text-left transition",
+                      "w-full border-b border-zinc-100 px-4 py-3 text-left transition",
                       active ? "bg-zinc-100" : "hover:bg-zinc-50",
                     )}
                   >
@@ -1261,13 +1317,17 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
               <div className="mt-2 text-xs text-zinc-500">Send something, or enable inbound webhooks.</div>
             </div>
           )}
-        </div>
+          </div>
+        ) : null}
 
         {/* Right panel: conversation view */}
-        <div className={classNames(
-          "overflow-hidden rounded-3xl border border-zinc-200 bg-white lg:col-span-8",
-          tab === "sms" ? "" : "",
-        )}>
+        {!emailComposerOpen ? (
+          <div
+            className={classNames(
+              "overflow-hidden rounded-3xl border border-zinc-200 bg-white lg:col-span-8",
+              tab === "email" && !activeThreadId ? "hidden lg:block" : "",
+            )}
+          >
           {tab === "sms" ? (
             <div className="flex h-full min-h-[68vh] flex-col">
               <div className="border-b border-zinc-100 px-4 py-3">
@@ -1577,12 +1637,24 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
             <div className="flex h-full min-h-[68vh] flex-col">
               <div className="border-b border-zinc-100 px-4 py-3">
                 <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <div className="truncate text-base font-semibold text-zinc-900">
-                      {activeThread ? activeThread.contact?.name || mailSubjectOrNo(activeThread.subject) : "New Email"}
-                    </div>
-                    <div className="truncate text-xs text-zinc-500">
-                      {activeThread ? activeThread.peerAddress : "Compose a new message"}
+                  <div className="flex min-w-0 items-start gap-2">
+                    {activeThread ? (
+                      <button
+                        type="button"
+                        className="inline-flex shrink-0 items-center rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold hover:bg-zinc-50 lg:hidden"
+                        onClick={() => setActiveThreadId(null)}
+                        aria-label="Back to threads"
+                      >
+                        Back
+                      </button>
+                    ) : null}
+                    <div className="min-w-0">
+                      <div className="truncate text-base font-semibold text-zinc-900">
+                        {activeThread ? activeThread.contact?.name || mailSubjectOrNo(activeThread.subject) : "New Email"}
+                      </div>
+                      <div className="truncate text-xs text-zinc-500">
+                        {activeThread ? activeThread.peerAddress : "Compose a new message"}
+                      </div>
                     </div>
                   </div>
                   {activeThread ? (
@@ -1609,101 +1681,8 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
               </div>
 
               {!activeThread ? (
-                <div className="border-b border-zinc-100 p-4">
-                  {toSuggestionsOpen ? (
-                    <div
-                      className="fixed inset-0 z-65"
-                      onMouseDown={() => setToSuggestionsOpen(false)}
-                      onTouchStart={() => setToSuggestionsOpen(false)}
-                      aria-hidden
-                    />
-                  ) : null}
-                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                    <div>
-                      <div className="flex items-center justify-between gap-2">
-                        <div className="text-xs font-semibold text-zinc-700">To</div>
-                        <div
-                          aria-hidden
-                          className="rounded-xl border border-zinc-200 bg-white px-2 py-1 text-[11px] font-semibold text-zinc-700 opacity-0"
-                        >
-                          Insert variable
-                        </div>
-                      </div>
-                      <div className="relative">
-                        <input
-                          ref={emailToRef}
-                          value={composeTo}
-                          onFocus={() => {
-                            void ensureContactsLoaded();
-                            setToSuggestionsOpen(true);
-                          }}
-                          onChange={(e) => {
-                            void ensureContactsLoaded();
-                            setComposeTo(e.target.value);
-                            setToSuggestionsOpen(true);
-                          }}
-                          onKeyDown={(e) => {
-                            if (e.key === "Escape") setToSuggestionsOpen(false);
-                          }}
-                          placeholder="Email address or contact name"
-                          className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400"
-                        />
-
-                        {toSuggestionsOpen ? (
-                          <div className="absolute left-0 right-0 top-full z-80 mt-2 overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-lg">
-                            {contactsLoading ? (
-                              <div className="px-3 py-3 text-sm text-zinc-600">Loading contacts…</div>
-                            ) : (
-                              (() => {
-                                const suggestions = findContactSuggestions(composeTo);
-                                if (!suggestions.length) {
-                                  return <div className="px-3 py-3 text-sm text-zinc-600">No matching contacts.</div>;
-                                }
-
-                                return (
-                                  <div className="max-h-72 overflow-y-auto py-1">
-                                    {suggestions.map((c) => (
-                                      <button
-                                        key={c.id}
-                                        type="button"
-                                        className="w-full px-3 py-2 text-left hover:bg-zinc-50"
-                                        onMouseDown={(e) => {
-                                          e.preventDefault();
-                                          applyContactToCompose(c);
-                                        }}
-                                      >
-                                        <div className="truncate text-sm font-semibold text-zinc-900">{c.name}</div>
-                                        <div className="mt-0.5 truncate text-xs text-zinc-600">{c.email || "No email"}</div>
-                                      </button>
-                                    ))}
-                                  </div>
-                                );
-                              })()
-                            )}
-                          </div>
-                        ) : null}
-                      </div>
-                    </div>
-                    <div>
-                      <div className="flex items-center justify-between gap-2">
-                        <div className="text-xs font-semibold text-zinc-700">Subject</div>
-                        <button
-                          type="button"
-                          className="rounded-xl border border-zinc-200 bg-white px-2 py-1 text-[11px] font-semibold text-zinc-700 hover:bg-zinc-50"
-                          onClick={() => openVariablePicker("email_subject")}
-                        >
-                          Insert variable
-                        </button>
-                      </div>
-                      <input
-                        ref={emailSubjectRef}
-                        value={composeSubject}
-                        onChange={(e) => setComposeSubject(e.target.value)}
-                        placeholder="Subject"
-                        className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400"
-                      />
-                    </div>
-                  </div>
+                <div className="border-b border-zinc-100 bg-zinc-50 px-4 py-3 text-sm text-zinc-600">
+                  Select a thread to view messages.
                 </div>
               ) : null}
 
@@ -1816,7 +1795,7 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
                     />
                     <button
                       type="button"
-                      onClick={onSend}
+                      onClick={() => void onSend()}
                       disabled={sending}
                       className={classNames(
                         "w-full rounded-2xl bg-[#007aff] px-5 py-2 text-sm font-semibold text-white hover:bg-[#006ae6] sm:w-auto",
@@ -1830,7 +1809,8 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
               </div>
             </div>
           )}
-        </div>
+          </div>
+        ) : null}
       </div>
 
       <PortalMediaPickerModal
@@ -1840,6 +1820,274 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
         confirmLabel="Add"
         title="Add from media library"
       />
+
+      {tab === "email" && !emailComposerOpen ? (
+        <button
+          type="button"
+          className="fixed right-4 z-11001 rounded-full bg-[#007aff] px-5 py-3 text-sm font-semibold text-white shadow-xl hover:bg-[#006ae6]"
+          style={{ bottom: "calc(var(--pa-portal-embed-footer-offset,0px) + 5.75rem)" }}
+          onClick={() => {
+            setEmailComposerOpen(true);
+            setEmailAttachMenuOpen(false);
+            setThreadSearch("");
+            setActiveThreadId(null);
+            clearConversationForCompose();
+            setComposeTo("");
+            setComposeSubject("");
+            setComposeBody("");
+            setComposeAttachments([]);
+          }}
+        >
+          New email
+        </button>
+      ) : null}
+
+      {tab === "email" && emailComposerOpen ? (
+        <>
+          <div className="fixed inset-0 z-12040 bg-black/20" aria-hidden />
+          <div
+            className="fixed left-0 right-0 z-12040 bg-white shadow-2xl"
+            style={{
+              top: "max(var(--pa-portal-topbar-height, 0px), var(--pa-modal-safe-top, 0px))",
+              bottom: "var(--pa-portal-embed-footer-offset, 0px)",
+            }}
+            role="dialog"
+            aria-modal="true"
+            aria-label="Compose email"
+          >
+            <div className="flex h-full flex-col">
+              <div className="flex items-center gap-3 border-b border-zinc-200 px-4 py-3">
+                <button
+                  type="button"
+                  className="rounded-full p-2 text-zinc-700 hover:bg-zinc-100"
+                  onClick={() => {
+                    setEmailComposerOpen(false);
+                    setEmailAttachMenuOpen(false);
+                  }}
+                  aria-label="Close composer"
+                >
+                  <span className="text-lg leading-none">×</span>
+                </button>
+                <div className="min-w-0 flex-1 truncate text-sm font-semibold text-zinc-900">New email</div>
+              </div>
+
+              {toSuggestionsOpen ? (
+                <div
+                  className="fixed inset-0 z-12041"
+                  onMouseDown={() => setToSuggestionsOpen(false)}
+                  onTouchStart={() => setToSuggestionsOpen(false)}
+                  aria-hidden
+                />
+              ) : null}
+
+              <div className="border-b border-zinc-200 px-4">
+                <div className="flex items-center gap-3 py-3">
+                  <div className="shrink-0 text-xs font-semibold text-zinc-600">To</div>
+                  <div className="relative flex-1">
+                    <input
+                      ref={emailToRef}
+                      value={composeTo}
+                      onFocus={() => {
+                        void ensureContactsLoaded();
+                        setToSuggestionsOpen(true);
+                      }}
+                      onChange={(e) => {
+                        void ensureContactsLoaded();
+                        setComposeTo(e.target.value);
+                        setToSuggestionsOpen(true);
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === "Escape") setToSuggestionsOpen(false);
+                      }}
+                      placeholder="Email address or contact name"
+                      className="w-full bg-transparent text-sm text-zinc-900 placeholder:text-zinc-400 outline-none"
+                    />
+
+                    {toSuggestionsOpen ? (
+                      <div className="absolute left-0 right-0 top-full z-12045 mt-2 overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-lg">
+                        {contactsLoading ? (
+                          <div className="px-3 py-3 text-sm text-zinc-600">Loading contacts…</div>
+                        ) : (
+                          (() => {
+                            const suggestions = findContactSuggestions(composeTo);
+                            if (!suggestions.length) {
+                              return <div className="px-3 py-3 text-sm text-zinc-600">No matching contacts.</div>;
+                            }
+
+                            return (
+                              <div className="max-h-72 overflow-y-auto py-1">
+                                {suggestions.map((c) => (
+                                  <button
+                                    key={c.id}
+                                    type="button"
+                                    className="w-full px-3 py-2 text-left hover:bg-zinc-50"
+                                    onMouseDown={(e) => {
+                                      e.preventDefault();
+                                      applyContactToCompose(c);
+                                    }}
+                                  >
+                                    <div className="truncate text-sm font-semibold text-zinc-900">{c.name}</div>
+                                    <div className="mt-0.5 truncate text-xs text-zinc-600">{c.email || "No email"}</div>
+                                  </button>
+                                ))}
+                              </div>
+                            );
+                          })()
+                        )}
+                      </div>
+                    ) : null}
+                  </div>
+                </div>
+              </div>
+
+              <div className="border-b border-zinc-200 px-4">
+                <div className="flex items-center gap-3 py-3">
+                  <div className="shrink-0 text-xs font-semibold text-zinc-600">Subject</div>
+                  <input
+                    ref={emailSubjectRef}
+                    value={composeSubject}
+                    onChange={(e) => setComposeSubject(e.target.value)}
+                    placeholder="Subject"
+                    className="min-w-0 flex-1 bg-transparent text-sm text-zinc-900 placeholder:text-zinc-400 outline-none"
+                  />
+                  <button
+                    type="button"
+                    className="shrink-0 rounded-full border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
+                    onClick={() => openVariablePicker("email_subject")}
+                  >
+                    Insert variable
+                  </button>
+                </div>
+              </div>
+
+              <div className="border-b border-zinc-200 px-4 py-2">
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    className="rounded-full border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+                    onClick={() => openVariablePicker("email_body")}
+                  >
+                    Insert variable
+                  </button>
+
+                  <div className="relative">
+                    {emailAttachMenuOpen ? (
+                      <>
+                        <div
+                          className="fixed inset-0 z-12041"
+                          onMouseDown={() => setEmailAttachMenuOpen(false)}
+                          onTouchStart={() => setEmailAttachMenuOpen(false)}
+                          aria-hidden
+                        />
+                        <div className="absolute left-0 top-full z-12045 mt-2 w-64 overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-lg">
+                          <button
+                            type="button"
+                            className="w-full px-4 py-3 text-left text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
+                            onClick={() => {
+                              setEmailAttachMenuOpen(false);
+                              emailComposerFileRef.current?.click();
+                            }}
+                          >
+                            Upload
+                          </button>
+                          <button
+                            type="button"
+                            className="w-full px-4 py-3 text-left text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
+                            onClick={() => {
+                              setEmailAttachMenuOpen(false);
+                              setMediaPickerOpen(true);
+                            }}
+                          >
+                            Add from media library
+                          </button>
+                        </div>
+                      </>
+                    ) : null}
+
+                    <button
+                      type="button"
+                      className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-zinc-200 bg-white text-zinc-800 hover:bg-zinc-50"
+                      onClick={() => setEmailAttachMenuOpen((v) => !v)}
+                      aria-label="Attach"
+                      aria-expanded={emailAttachMenuOpen ? true : undefined}
+                    >
+                      <span className="text-lg leading-none">📎</span>
+                    </button>
+                  </div>
+
+                  <div className="flex-1" />
+
+                  <button
+                    type="button"
+                    className={classNames(
+                      "inline-flex h-10 w-10 items-center justify-center rounded-full bg-[#007aff] text-white hover:bg-[#006ae6]",
+                      sending && "opacity-60",
+                    )}
+                    onClick={async () => {
+                      const result = await onSend();
+                      if (result && (result as any).ok) {
+                        setEmailComposerOpen(false);
+                        setEmailAttachMenuOpen(false);
+                      }
+                    }}
+                    disabled={sending}
+                    aria-label="Send"
+                  >
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden>
+                      <path
+                        d="M3.5 20.5 21 12 3.5 3.5 5.8 11.2c.1.4.4.7.8.8l8.4 2-8.4 2c-.4.1-.7.4-.8.8L3.5 20.5Z"
+                        stroke="currentColor"
+                        strokeWidth="1.8"
+                        strokeLinejoin="round"
+                      />
+                    </svg>
+                  </button>
+                </div>
+              </div>
+
+              <div className="min-h-0 flex-1 overflow-y-auto p-4">
+                <textarea
+                  ref={emailBodyRef}
+                  value={composeBody}
+                  onChange={(e) => setComposeBody(e.target.value)}
+                  placeholder="Compose email"
+                  className="h-full min-h-[40vh] w-full resize-none bg-transparent text-sm text-zinc-900 outline-none placeholder:text-zinc-400"
+                />
+
+                {composeAttachments.length ? (
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {composeAttachments.map((a) => (
+                      <div key={a.id} className="flex items-center gap-2 rounded-full border border-zinc-200 bg-white px-3 py-1.5">
+                        <div className="max-w-60 truncate text-xs font-semibold text-zinc-900">{a.fileName}</div>
+                        <button
+                          type="button"
+                          onClick={() => removeAttachment(a.id)}
+                          className="rounded-full px-2 py-0.5 text-xs font-semibold text-zinc-600 hover:bg-zinc-50"
+                          aria-label="Remove attachment"
+                        >
+                          ×
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+
+              <input
+                ref={emailComposerFileRef}
+                type="file"
+                multiple
+                className="hidden"
+                onChange={(e) => {
+                  void uploadAttachments(e.currentTarget.files);
+                  e.currentTarget.value = "";
+                }}
+                accept="image/*,video/*,audio/*,application/pdf,text/plain,.csv,.doc,.docx,.xls,.xlsx"
+              />
+            </div>
+          </div>
+        </>
+      ) : null}
     </div>
   );
 }
