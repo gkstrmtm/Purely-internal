@@ -255,9 +255,6 @@ export function PortalPeopleContactsClient() {
   const [q, setQ] = useState("");
   const [mobilePeopleFilter, setMobilePeopleFilter] = useState<"contacts" | "unlinked">("contacts");
 
-  const [expandedContactId, setExpandedContactId] = useState<string | null>(null);
-  const [expandedLeadId, setExpandedLeadId] = useState<string | null>(null);
-
   const [duplicateGroupsCount, setDuplicateGroupsCount] = useState(0);
   const [duplicatesLoading, setDuplicatesLoading] = useState(false);
 
@@ -919,18 +916,6 @@ export function PortalPeopleContactsClient() {
     });
   }, [data?.unlinkedLeads, q]);
 
-  useEffect(() => {
-    if (!expandedContactId) return;
-    if (filteredContacts.some((c) => c.id === expandedContactId)) return;
-    setExpandedContactId(null);
-  }, [expandedContactId, filteredContacts]);
-
-  useEffect(() => {
-    if (!expandedLeadId) return;
-    if (filteredLeads.some((l) => l.id === expandedLeadId)) return;
-    setExpandedLeadId(null);
-  }, [expandedLeadId, filteredLeads]);
-
   const mobileListTotal = useMemo(() => {
     if (!data) return 0;
     if (mobilePeopleFilter === "unlinked") {
@@ -1208,165 +1193,61 @@ export function PortalPeopleContactsClient() {
                   <tbody>
                     {mobileListRows.length ? (
                       mobilePeopleFilter === "unlinked" ? (
-                        (mobileListRows as LeadRow[]).slice(0, 100).map((l) => {
-                          const expanded = expandedLeadId === l.id;
-                          return (
-                            <Fragment key={`l_${l.id}`}>
-                              <tr
-                                className={classNames(
-                                  "border-t border-zinc-200",
-                                  "cursor-pointer hover:bg-zinc-50",
-                                  expanded ? "bg-zinc-50" : "",
-                                )}
-                                onClick={() => setExpandedLeadId((prev) => (prev === l.id ? null : l.id))}
-                              >
-                                <td className="px-3 py-3 min-w-0">
-                                  <div className="flex items-start justify-between gap-3">
-                                    <div className="min-w-0">
-                                      <div className="font-semibold text-zinc-900 truncate">{l.businessName || "N/A"}</div>
-                                    </div>
-                                    <svg
-                                      width="16"
-                                      height="16"
-                                      viewBox="0 0 24 24"
-                                      fill="none"
-                                      className={classNames(
-                                        "mt-0.5 shrink-0 text-zinc-400 transition-transform",
-                                        expanded ? "rotate-180" : "",
-                                      )}
-                                      aria-hidden
-                                    >
-                                      <path d="m6 9 6 6 6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                                    </svg>
-                                  </div>
-                                </td>
-                                <td className="px-3 py-3 min-w-0">
-                                  <div className="truncate">{l.email || "N/A"}</div>
-                                </td>
-                                <td className="px-3 py-3 min-w-0">
-                                  <div className="truncate">{l.phone || "N/A"}</div>
-                                </td>
-                              </tr>
-
-                              {expanded ? (
-                                <tr className="border-t border-zinc-200 bg-white">
-                                  <td className="px-3 py-3" colSpan={3}>
-                                    <div className="flex flex-col gap-2">
-                                      <div className="text-xs text-zinc-600">
-                                        <span
-                                          className={classNames(
-                                            "inline-flex items-center rounded-full px-2 py-1 text-xs font-semibold",
-                                            l.assignedToUserId ? "bg-emerald-50 text-emerald-700" : "bg-zinc-100 text-zinc-600",
-                                          )}
-                                        >
-                                          {l.assignedToUserId ? "Assigned" : "Unassigned"}
-                                        </span>
-                                        {l.website ? <span className="ml-2">• {l.website}</span> : null}
-                                        {l.createdAtIso ? <span className="ml-2">• Created: {new Date(l.createdAtIso).toLocaleString()}</span> : null}
-                                      </div>
-                                      <div>
-                                        <button
-                                          type="button"
-                                          className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
-                                          onClick={(e) => {
-                                            e.stopPropagation();
-                                            openLeadModal(l);
-                                          }}
-                                        >
-                                          Open lead
-                                        </button>
-                                      </div>
-                                    </div>
-                                  </td>
-                                </tr>
-                              ) : null}
-                            </Fragment>
-                          );
-                        })
+                        (mobileListRows as LeadRow[]).slice(0, 100).map((l) => (
+                          <tr
+                            key={`l_${l.id}`}
+                            className={classNames("border-t border-zinc-200", "cursor-pointer hover:bg-zinc-50")}
+                            onClick={() => openLeadModal(l)}
+                          >
+                            <td className="px-3 py-3 min-w-0">
+                              <div className="min-w-0">
+                                <div className="font-semibold text-zinc-900 truncate">{l.businessName || "N/A"}</div>
+                              </div>
+                            </td>
+                            <td className="px-3 py-3 min-w-0">
+                              <div className="truncate">{l.email || "N/A"}</div>
+                            </td>
+                            <td className="px-3 py-3 min-w-0">
+                              <div className="truncate">{l.phone || "N/A"}</div>
+                            </td>
+                          </tr>
+                        ))
                       ) : (
-                        (mobileListRows as ContactRow[]).slice(0, 100).map((c) => {
-                          const expanded = expandedContactId === c.id;
-                          return (
-                            <Fragment key={`c_${c.id}`}>
-                              <tr
-                                className={classNames(
-                                  "border-t border-zinc-200",
-                                  "cursor-pointer hover:bg-zinc-50",
-                                  expanded ? "bg-zinc-50" : "",
-                                )}
-                                onClick={() => setExpandedContactId((prev) => (prev === c.id ? null : c.id))}
-                              >
-                                <td className="px-3 py-3 min-w-0">
-                                  <div className="flex items-start justify-between gap-3">
-                                    <div className="min-w-0">
-                                      <div className="font-semibold text-zinc-900 truncate">{c.name || "N/A"}</div>
-                                      {c.tags?.length ? (
-                                        <div className="mt-1 flex flex-wrap gap-1">
-                                          {c.tags.slice(0, 3).map((t) => (
-                                            <span
-                                              key={t.id}
-                                              className="inline-flex items-center rounded-full border border-zinc-200 bg-white px-2 py-0.5 text-[11px] font-semibold text-zinc-700"
-                                              title={t.name}
-                                            >
-                                              {t.name}
-                                            </span>
-                                          ))}
-                                          {c.tags.length > 3 ? (
-                                            <span className="text-[11px] font-semibold text-zinc-500">+{c.tags.length - 3}</span>
-                                          ) : null}
-                                        </div>
-                                      ) : null}
-                                    </div>
-                                    <svg
-                                      width="16"
-                                      height="16"
-                                      viewBox="0 0 24 24"
-                                      fill="none"
-                                      className={classNames(
-                                        "mt-0.5 shrink-0 text-zinc-400 transition-transform",
-                                        expanded ? "rotate-180" : "",
-                                      )}
-                                      aria-hidden
-                                    >
-                                      <path d="m6 9 6 6 6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                                    </svg>
+                        (mobileListRows as ContactRow[]).slice(0, 100).map((c) => (
+                          <tr
+                            key={`c_${c.id}`}
+                            className={classNames("border-t border-zinc-200", "cursor-pointer hover:bg-zinc-50")}
+                            onClick={() => void openContact(c.id)}
+                          >
+                            <td className="px-3 py-3 min-w-0">
+                              <div className="min-w-0">
+                                <div className="font-semibold text-zinc-900 truncate">{c.name || "N/A"}</div>
+                                {c.tags?.length ? (
+                                  <div className="mt-1 flex flex-wrap gap-1">
+                                    {c.tags.slice(0, 3).map((t) => (
+                                      <span
+                                        key={t.id}
+                                        className="inline-flex items-center rounded-full border border-zinc-200 bg-white px-2 py-0.5 text-[11px] font-semibold text-zinc-700"
+                                        title={t.name}
+                                      >
+                                        {t.name}
+                                      </span>
+                                    ))}
+                                    {c.tags.length > 3 ? (
+                                      <span className="text-[11px] font-semibold text-zinc-500">+{c.tags.length - 3}</span>
+                                    ) : null}
                                   </div>
-                                </td>
-                                <td className="px-3 py-3 min-w-0">
-                                  <div className="truncate">{c.email || "N/A"}</div>
-                                </td>
-                                <td className="px-3 py-3 min-w-0">
-                                  <div className="truncate">{c.phone || "N/A"}</div>
-                                </td>
-                              </tr>
-
-                              {expanded ? (
-                                <tr className="border-t border-zinc-200 bg-white">
-                                  <td className="px-3 py-3" colSpan={3}>
-                                    <div className="flex flex-col gap-2">
-                                      <div className="text-xs text-zinc-600">
-                                        Created: {c.createdAtIso ? new Date(c.createdAtIso).toLocaleString() : "N/A"}
-                                        {c.updatedAtIso ? ` • Updated: ${new Date(c.updatedAtIso).toLocaleString()}` : ""}
-                                      </div>
-                                      <div>
-                                        <button
-                                          type="button"
-                                          className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
-                                          onClick={(e) => {
-                                            e.stopPropagation();
-                                            void openContact(c.id);
-                                          }}
-                                        >
-                                          Open full details
-                                        </button>
-                                      </div>
-                                    </div>
-                                  </td>
-                                </tr>
-                              ) : null}
-                            </Fragment>
-                          );
-                        })
+                                ) : null}
+                              </div>
+                            </td>
+                            <td className="px-3 py-3 min-w-0">
+                              <div className="truncate">{c.email || "N/A"}</div>
+                            </td>
+                            <td className="px-3 py-3 min-w-0">
+                              <div className="truncate">{c.phone || "N/A"}</div>
+                            </td>
+                          </tr>
+                        ))
                       )
                     ) : (
                       <tr className="border-t border-zinc-200">
@@ -1469,86 +1350,41 @@ export function PortalPeopleContactsClient() {
                   </thead>
                   <tbody>
                     {filteredContacts.length ? (
-                      filteredContacts.slice(0, 50).map((c) => {
-                        const expanded = expandedContactId === c.id;
-                        return (
-                          <Fragment key={c.id}>
-                            <tr
-                              className={classNames(
-                                "border-t border-zinc-200",
-                                "cursor-pointer hover:bg-zinc-50",
-                                expanded ? "bg-zinc-50" : "",
-                              )}
-                              onClick={() => setExpandedContactId((prev) => (prev === c.id ? null : c.id))}
-                            >
-                              <td className="px-3 py-2 sm:px-4 sm:py-3 min-w-0">
-                                <div className="flex items-start justify-between gap-3">
-                                  <div className="min-w-0">
-                                    <div className="font-semibold text-zinc-900 truncate">{c.name || "N/A"}</div>
-                                    {c.tags?.length ? (
-                                      <div className="mt-1 flex flex-wrap gap-1">
-                                        {c.tags.slice(0, 3).map((t) => (
-                                          <span
-                                            key={t.id}
-                                            className="inline-flex items-center rounded-full border border-zinc-200 bg-white px-2 py-0.5 text-[11px] font-semibold text-zinc-700"
-                                            title={t.name}
-                                          >
-                                            {t.name}
-                                          </span>
-                                        ))}
-                                        {c.tags.length > 3 ? (
-                                          <span className="text-[11px] font-semibold text-zinc-500">+{c.tags.length - 3}</span>
-                                        ) : null}
-                                      </div>
-                                    ) : null}
-                                  </div>
-                                  <svg
-                                    width="16"
-                                    height="16"
-                                    viewBox="0 0 24 24"
-                                    fill="none"
-                                    className={classNames("mt-1 shrink-0 text-zinc-400 transition-transform", expanded ? "rotate-180" : "")}
-                                    aria-hidden
-                                  >
-                                    <path d="m6 9 6 6 6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                                  </svg>
+                      filteredContacts.slice(0, 50).map((c) => (
+                        <tr
+                          key={c.id}
+                          className={classNames("border-t border-zinc-200", "cursor-pointer hover:bg-zinc-50")}
+                          onClick={() => void openContact(c.id)}
+                        >
+                          <td className="px-3 py-2 sm:px-4 sm:py-3 min-w-0">
+                            <div className="min-w-0">
+                              <div className="font-semibold text-zinc-900 truncate">{c.name || "N/A"}</div>
+                              {c.tags?.length ? (
+                                <div className="mt-1 flex flex-wrap gap-1">
+                                  {c.tags.slice(0, 3).map((t) => (
+                                    <span
+                                      key={t.id}
+                                      className="inline-flex items-center rounded-full border border-zinc-200 bg-white px-2 py-0.5 text-[11px] font-semibold text-zinc-700"
+                                      title={t.name}
+                                    >
+                                      {t.name}
+                                    </span>
+                                  ))}
+                                  {c.tags.length > 3 ? (
+                                    <span className="text-[11px] font-semibold text-zinc-500">+{c.tags.length - 3}</span>
+                                  ) : null}
                                 </div>
-                              </td>
-                              <td className="px-3 py-2 sm:px-4 sm:py-3 min-w-0">
-                                <div className="truncate">{c.email || "N/A"}</div>
-                              </td>
-                              <td className="px-3 py-2 sm:px-4 sm:py-3 min-w-0">
-                                <div className="truncate">{c.phone || "N/A"}</div>
-                              </td>
-                            </tr>
-
-                            {expanded ? (
-                              <tr className="border-t border-zinc-200 bg-white">
-                                <td className="px-3 py-3 sm:px-4" colSpan={3}>
-                                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                                    <div className="text-xs text-zinc-600">
-                                      Created: {c.createdAtIso ? new Date(c.createdAtIso).toLocaleString() : "N/A"}
-                                      {c.updatedAtIso ? ` • Updated: ${new Date(c.updatedAtIso).toLocaleString()}` : ""}
-                                    </div>
-                                    <div className="flex flex-wrap items-center gap-2">
-                                      <button
-                                        type="button"
-                                        className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          void openContact(c.id);
-                                        }}
-                                      >
-                                        Open full details
-                                      </button>
-                                    </div>
-                                  </div>
-                                </td>
-                              </tr>
-                            ) : null}
-                          </Fragment>
-                        );
-                      })
+                              ) : null}
+                            </div>
+                          </td>
+                          <td className="px-3 py-2 sm:px-4 sm:py-3 min-w-0">
+                            <div className="truncate">{c.email || "N/A"}</div>
+                          </td>
+                          <td className="px-3 py-2 sm:px-4 sm:py-3 min-w-0">
+                            <div className="truncate">{c.phone || "N/A"}</div>
+                          </td>
+                        </tr>
+                      ))
                     ) : (
                       <tr className="border-t border-zinc-200">
                         <td className="px-3 py-5 text-sm text-zinc-600 sm:px-4" colSpan={3}>
@@ -1680,78 +1516,25 @@ export function PortalPeopleContactsClient() {
                 </thead>
                 <tbody>
                   {filteredLeads.length ? (
-                    filteredLeads.slice(0, 50).map((l) => {
-                      const expanded = expandedLeadId === l.id;
-                      return (
-                        <Fragment key={l.id}>
-                          <tr
-                            className={classNames(
-                              "border-t border-zinc-200",
-                              "cursor-pointer hover:bg-zinc-50",
-                              expanded ? "bg-zinc-50" : "",
-                            )}
-                            onClick={() => setExpandedLeadId((prev) => (prev === l.id ? null : l.id))}
-                          >
-                            <td className="px-3 py-2 sm:px-4 sm:py-3 min-w-0">
-                              <div className="flex items-start justify-between gap-3">
-                                <div className="min-w-0">
-                                  <div className="font-semibold text-zinc-900 truncate">{l.businessName || "N/A"}</div>
-                                </div>
-                                <svg
-                                  width="16"
-                                  height="16"
-                                  viewBox="0 0 24 24"
-                                  fill="none"
-                                  className={classNames("mt-1 shrink-0 text-zinc-400 transition-transform", expanded ? "rotate-180" : "")}
-                                  aria-hidden
-                                >
-                                  <path d="m6 9 6 6 6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                                </svg>
-                              </div>
-                            </td>
-                            <td className="px-3 py-2 sm:px-4 sm:py-3 min-w-0">
-                              <div className="truncate">{l.email || "N/A"}</div>
-                            </td>
-                            <td className="px-3 py-2 sm:px-4 sm:py-3 min-w-0">
-                              <div className="truncate">{l.phone || "N/A"}</div>
-                            </td>
-                          </tr>
-
-                          {expanded ? (
-                            <tr className="border-t border-zinc-200 bg-white">
-                              <td className="px-3 py-3 sm:px-4" colSpan={3}>
-                                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                                  <div className="text-xs text-zinc-600">
-                                    <span
-                                      className={classNames(
-                                        "inline-flex items-center rounded-full px-2 py-1 text-xs font-semibold",
-                                        l.assignedToUserId ? "bg-emerald-50 text-emerald-700" : "bg-zinc-100 text-zinc-600",
-                                      )}
-                                    >
-                                      {l.assignedToUserId ? "Assigned" : "Unassigned"}
-                                    </span>
-                                    {l.website ? <span className="ml-2">• {l.website}</span> : null}
-                                    {l.createdAtIso ? <span className="ml-2">• Created: {new Date(l.createdAtIso).toLocaleString()}</span> : null}
-                                  </div>
-                                  <div className="flex flex-wrap items-center gap-2">
-                                    <button
-                                      type="button"
-                                      className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        openLeadModal(l);
-                                      }}
-                                    >
-                                      Open lead
-                                    </button>
-                                  </div>
-                                </div>
-                              </td>
-                            </tr>
-                          ) : null}
-                        </Fragment>
-                      );
-                    })
+                    filteredLeads.slice(0, 50).map((l) => (
+                      <tr
+                        key={l.id}
+                        className={classNames("border-t border-zinc-200", "cursor-pointer hover:bg-zinc-50")}
+                        onClick={() => openLeadModal(l)}
+                      >
+                        <td className="px-3 py-2 sm:px-4 sm:py-3 min-w-0">
+                          <div className="min-w-0">
+                            <div className="font-semibold text-zinc-900 truncate">{l.businessName || "N/A"}</div>
+                          </div>
+                        </td>
+                        <td className="px-3 py-2 sm:px-4 sm:py-3 min-w-0">
+                          <div className="truncate">{l.email || "N/A"}</div>
+                        </td>
+                        <td className="px-3 py-2 sm:px-4 sm:py-3 min-w-0">
+                          <div className="truncate">{l.phone || "N/A"}</div>
+                        </td>
+                      </tr>
+                    ))
                   ) : (
                     <tr className="border-t border-zinc-200">
                       <td className="px-3 py-5 text-sm text-zinc-600 sm:px-4" colSpan={3}>
