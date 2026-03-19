@@ -859,7 +859,12 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
           .pa-portal-topbar { display: none !important; }
         `}</style>
 
-        <div className="flex h-[100dvh] flex-col overflow-hidden bg-brand-mist text-brand-ink">
+        <div
+          className="flex h-[100dvh] flex-col overflow-hidden bg-brand-mist text-brand-ink"
+          style={{
+            ["--pa-portal-embed-footer-offset" as any]: "calc(env(safe-area-inset-bottom) + 5.5rem)",
+          }}
+        >
           {/* Top header (single header in embedded mode) */}
           <header className="shrink-0 border-b border-zinc-200 bg-white">
             <div className="mx-auto flex h-16 w-full max-w-md items-center gap-2 px-3">
