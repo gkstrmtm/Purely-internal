@@ -17,6 +17,7 @@ import { normalizePortalContactCustomVarKey, PORTAL_MESSAGE_VARIABLES } from "@/
 
 type Channel = "email" | "sms";
 type EmailBox = "inbox" | "sent" | "all";
+type EmailDateFilter = "any" | "7d" | "30d" | "90d";
 
 type Thread = {
   id: string;
@@ -170,6 +171,9 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
   }, [initialChannel]);
   const [emailBox, setEmailBox] = useState<EmailBox>("inbox");
   const [threadSearch, setThreadSearch] = useState<string>("");
+  const [emailFiltersOpen, setEmailFiltersOpen] = useState(false);
+  const [emailDateFilter, setEmailDateFilter] = useState<EmailDateFilter>("any");
+  const [emailHasAttachmentsOnly, setEmailHasAttachmentsOnly] = useState(false);
   const [threads, setThreads] = useState<Thread[]>([]);
   const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -239,10 +243,48 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
     return threads.filter((t) => t.lastMessageDirection === dir);
   }, [threads, tab, emailBox]);
 
+  const visibleThreadsWithFilters = useMemo(() => {
+    if (tab !== "email") return visibleThreads;
+
+    const now = Date.now();
+    const days = emailDateFilter === "7d" ? 7 : emailDateFilter === "30d" ? 30 : emailDateFilter === "90d" ? 90 : 0;
+
+    const filtered = visibleThreads.filter((t) => {
+      if (days > 0) {
+        const ts = new Date(t.lastMessageAt).getTime();
+        if (!Number.isFinite(ts)) return false;
+        if (now - ts > days * 24 * 60 * 60 * 1000) return false;
+      }
+
+      if (emailHasAttachmentsOnly) {
+        // Threads API doesn't currently expose attachments, so do best-effort:
+        // treat subjects/previews that mention common attachment hints as a match.
+        const hay = `${t.subject ?? ""} ${t.lastMessageSubject ?? ""} ${t.lastMessagePreview ?? ""}`.toLowerCase();
+        const looksLikeAttachment =
+          hay.includes("attachment") ||
+          hay.includes("attached") ||
+          hay.includes(".pdf") ||
+          hay.includes(".doc") ||
+          hay.includes(".docx") ||
+          hay.includes(".xls") ||
+          hay.includes(".xlsx") ||
+          hay.includes(".png") ||
+          hay.includes(".jpg") ||
+          hay.includes(".jpeg") ||
+          hay.includes(".gif");
+        if (!looksLikeAttachment) return false;
+      }
+
+      return true;
+    });
+
+    return filtered;
+  }, [emailDateFilter, emailHasAttachmentsOnly, tab, visibleThreads]);
+
   const filteredThreads = useMemo(() => {
     const q = threadSearch.trim().toLowerCase();
-    if (!q) return visibleThreads;
-    return visibleThreads.filter((t) => {
+    if (!q) return visibleThreadsWithFilters;
+    return visibleThreadsWithFilters.filter((t) => {
       const hay = [
         t.contact?.name,
         t.peerAddress,
@@ -258,7 +300,7 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
         .toLowerCase();
       return hay.includes(q);
     });
-  }, [threadSearch, visibleThreads]);
+  }, [threadSearch, visibleThreadsWithFilters]);
 
   const [composeTo, setComposeTo] = useState<string>("");
   const [composeSubject, setComposeSubject] = useState<string>("");
@@ -1041,8 +1083,17 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
       </div>
 
       {tab === "email" ? (
-        <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center">
-          <div className="relative flex-1">
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            className="h-11 shrink-0 rounded-full border border-zinc-200 bg-white px-4 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
+            onClick={() => setEmailBox((prev) => (prev === "sent" ? "inbox" : "sent"))}
+            aria-label={emailBox === "sent" ? "Show inbox" : "Show sent"}
+          >
+            {emailBox === "sent" ? "Sent" : "Inbox"}
+          </button>
+
+          <div className="relative min-w-[14rem] flex-1">
             <div className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-zinc-400" aria-hidden>
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
                 <path
@@ -1065,13 +1116,108 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
               className="h-11 w-full rounded-full border border-zinc-200 bg-white pl-11 pr-4 text-sm text-zinc-900 outline-none focus:border-zinc-300"
             />
           </div>
-          <button
-            type="button"
-            className="h-11 shrink-0 rounded-full border border-zinc-200 bg-white px-5 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
-            onClick={() => setEmailBox((prev) => (prev === "sent" ? "inbox" : "sent"))}
-          >
-            {emailBox === "sent" ? "Inbox" : "Sent"}
-          </button>
+
+          <div className="relative shrink-0">
+            {emailFiltersOpen ? (
+              <>
+                <div
+                  className="fixed inset-0 z-50"
+                  onMouseDown={() => setEmailFiltersOpen(false)}
+                  onTouchStart={() => setEmailFiltersOpen(false)}
+                  aria-hidden
+                />
+                <div className="absolute right-0 top-full z-60 mt-2 w-72 overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-xl">
+                  <div className="border-b border-zinc-100 px-4 py-3 text-xs font-semibold text-zinc-600">Filters</div>
+                  <div className="px-4 py-3">
+                    <div className="text-xs font-semibold text-zinc-700">Date</div>
+                    <div className="mt-2 grid grid-cols-2 gap-2">
+                      {(
+                        [
+                          { key: "any" as const, label: "Any time" },
+                          { key: "7d" as const, label: "Last 7 days" },
+                          { key: "30d" as const, label: "Last 30 days" },
+                          { key: "90d" as const, label: "Last 90 days" },
+                        ] satisfies Array<{ key: EmailDateFilter; label: string }>
+                      ).map((opt) => (
+                        <button
+                          key={opt.key}
+                          type="button"
+                          className={classNames(
+                            "rounded-xl border px-3 py-2 text-left text-xs font-semibold",
+                            emailDateFilter === opt.key
+                              ? "border-brand-ink bg-brand-ink text-white"
+                              : "border-zinc-200 bg-white text-zinc-800 hover:bg-zinc-50",
+                          )}
+                          onClick={() => setEmailDateFilter(opt.key)}
+                        >
+                          {opt.label}
+                        </button>
+                      ))}
+                    </div>
+
+                    <div className="mt-4 flex items-center justify-between gap-3 rounded-xl border border-zinc-200 bg-white px-3 py-2">
+                      <div>
+                        <div className="text-xs font-semibold text-zinc-900">Has attachments</div>
+                        <div className="text-[11px] text-zinc-500">Best-effort based on subject/preview</div>
+                      </div>
+                      <button
+                        type="button"
+                        className={classNames(
+                          "h-7 w-12 rounded-full border transition",
+                          emailHasAttachmentsOnly
+                            ? "border-brand-ink bg-brand-ink"
+                            : "border-zinc-200 bg-zinc-100",
+                        )}
+                        onClick={() => setEmailHasAttachmentsOnly((v) => !v)}
+                        aria-pressed={emailHasAttachmentsOnly}
+                        aria-label="Toggle attachments filter"
+                      >
+                        <span
+                          className={classNames(
+                            "block h-6 w-6 translate-x-0.5 rounded-full bg-white shadow transition",
+                            emailHasAttachmentsOnly && "translate-x-[1.4rem]",
+                          )}
+                        />
+                      </button>
+                    </div>
+
+                    {(emailDateFilter !== "any" || emailHasAttachmentsOnly) ? (
+                      <button
+                        type="button"
+                        className="mt-3 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+                        onClick={() => {
+                          setEmailDateFilter("any");
+                          setEmailHasAttachmentsOnly(false);
+                        }}
+                      >
+                        Clear filters
+                      </button>
+                    ) : null}
+                  </div>
+                </div>
+              </>
+            ) : null}
+
+            <button
+              type="button"
+              className={classNames(
+                "inline-flex h-11 w-11 items-center justify-center rounded-full border border-zinc-200 bg-white text-zinc-800 hover:bg-zinc-50",
+                (emailDateFilter !== "any" || emailHasAttachmentsOnly) && "border-brand-ink",
+              )}
+              onClick={() => setEmailFiltersOpen((v) => !v)}
+              aria-label="Mail filters"
+              aria-expanded={emailFiltersOpen ? true : undefined}
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden>
+                <path
+                  d="M4 6h16M7 12h10M10 18h4"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                />
+              </svg>
+            </button>
+          </div>
         </div>
       ) : null}
 
@@ -1838,7 +1984,7 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
             setComposeAttachments([]);
           }}
         >
-          New email
+          + New email
         </button>
       ) : null}
 
