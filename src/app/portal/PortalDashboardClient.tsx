@@ -1430,22 +1430,20 @@ export function PortalDashboardClient() {
 
   return (
     <div>
-      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-        <div className="text-xs text-zinc-500">
-          {editMode ? "Edit mode: drag cards and resize from the corner." : "Tip: add widgets from Reporting (⋯ → Add to dashboard)."}
-        </div>
+      <div className="mb-4 flex flex-wrap items-center gap-3">
+        <div className="flex-1 text-xs text-zinc-500">{editMode ? "Edit mode: drag cards and resize from the corner." : null}</div>
         {showEditControls ? (
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              className="rounded-2xl border border-red-200 bg-red-50 px-4 py-2 text-sm font-semibold text-red-800 hover:bg-red-100 disabled:opacity-60"
-              onClick={() => void resetDashboard()}
-              disabled={savingLayout}
-            >
-              Reset
-            </button>
+          <div className="ml-auto flex items-center justify-end gap-2">
             {editMode ? (
               <>
+                <button
+                  type="button"
+                  className="rounded-2xl border border-red-200 bg-red-50 px-4 py-2 text-sm font-semibold text-red-800 hover:bg-red-100 disabled:opacity-60"
+                  onClick={() => void resetDashboard()}
+                  disabled={savingLayout}
+                >
+                  Reset
+                </button>
                 <button
                   type="button"
                   className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-2 text-sm font-semibold text-amber-900 hover:bg-amber-100 disabled:opacity-60"
@@ -1466,7 +1464,7 @@ export function PortalDashboardClient() {
             ) : (
               <button
                 type="button"
-                className="rounded-2xl bg-[color:var(--color-brand-blue)] px-4 py-2 text-sm font-semibold text-white hover:opacity-95"
+                className="rounded-2xl bg-(--color-brand-blue) px-4 py-2 text-sm font-semibold text-white hover:opacity-95"
                 onClick={beginEdit}
               >
                 Edit
