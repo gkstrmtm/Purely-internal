@@ -1836,7 +1836,15 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
                   }}
                   aria-label="Back to threads"
                 >
-                  <span className="text-sm font-semibold">Back</span>
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden>
+                    <path
+                      d="M15 18l-6-6 6-6"
+                      stroke="currentColor"
+                      strokeWidth="2.5"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  </svg>
                 </button>
 
                 <div className="min-w-0 flex-1">

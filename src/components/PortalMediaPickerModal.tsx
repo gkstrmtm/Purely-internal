@@ -121,8 +121,8 @@ export function PortalMediaPickerModal({
 
         <div
           className={classNames(
-            "fixed inset-0 flex items-start justify-center px-4",
-            "pt-[calc(var(--pa-modal-safe-top,0px)+1rem)] pb-[calc(var(--pa-modal-safe-bottom,0px)+1rem)]",
+            "fixed left-0 right-0 top-0 flex items-start justify-center px-4",
+            "pt-[calc(var(--pa-modal-safe-top,0px)+1rem)] pb-[calc(var(--pa-modal-safe-bottom,0px)+var(--pa-portal-embed-footer-offset,0px)+1rem)]",
             "sm:items-center",
           )}
           style={{ zIndex: baseZ + 10 }}
@@ -132,7 +132,7 @@ export function PortalMediaPickerModal({
           <div
             className={classNames(
               "flex w-[min(720px,calc(100vw-32px))] flex-col overflow-hidden rounded-3xl border border-zinc-200 bg-white shadow-xl",
-              "max-h-[calc(100dvh-var(--pa-modal-safe-top,0px)-var(--pa-modal-safe-bottom,0px)-2rem)]",
+              "max-h-[calc(100dvh-var(--pa-modal-safe-top,0px)-var(--pa-modal-safe-bottom,0px)-var(--pa-portal-embed-footer-offset,0px)-2rem)]",
             )}
             onMouseDown={(e) => e.stopPropagation()}
             onTouchStart={(e) => e.stopPropagation()}
