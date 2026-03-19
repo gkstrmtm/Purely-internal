@@ -1204,11 +1204,15 @@ export function PortalBillingClient() {
 
       {cancelModal ? (
         <div
-          className="fixed inset-0 z-9999 overflow-y-auto bg-black/40 p-4"
+          className="fixed inset-0 z-8000 flex items-start justify-center bg-black/40 px-4"
           onMouseDown={() => setCancelModal(null)}
+          style={{
+            paddingTop: "calc(var(--pa-modal-safe-top, 0px) + 16px)",
+            paddingBottom: "calc(var(--pa-modal-safe-bottom, 0px) + 16px)",
+          }}
         >
           <div className="mx-auto w-full max-w-xl" onMouseDown={(e) => e.stopPropagation()}>
-            <div className="rounded-3xl border border-zinc-200 bg-white p-5 shadow-xl">
+            <div className="max-h-[calc(100dvh-var(--pa-modal-safe-top,0px)-var(--pa-modal-safe-bottom,0px)-32px)] overflow-y-auto rounded-3xl border border-zinc-200 bg-white p-5 shadow-xl">
               <div className="text-sm font-semibold text-zinc-900">
                 Cancel {cancelModal.title}
               </div>
@@ -1296,11 +1300,15 @@ export function PortalBillingClient() {
 
       {creditsOnlyCancelModal ? (
         <div
-          className="fixed inset-0 z-9999 overflow-y-auto bg-black/40 p-4"
+          className="fixed inset-0 z-8000 flex items-start justify-center bg-black/40 px-4"
           onMouseDown={() => setCreditsOnlyCancelModal(null)}
+          style={{
+            paddingTop: "calc(var(--pa-modal-safe-top, 0px) + 16px)",
+            paddingBottom: "calc(var(--pa-modal-safe-bottom, 0px) + 16px)",
+          }}
         >
           <div className="mx-auto w-full max-w-xl" onMouseDown={(e) => e.stopPropagation()}>
-            <div className="rounded-3xl border border-zinc-200 bg-white p-5 shadow-xl">
+            <div className="max-h-[calc(100dvh-var(--pa-modal-safe-top,0px)-var(--pa-modal-safe-bottom,0px)-32px)] overflow-y-auto rounded-3xl border border-zinc-200 bg-white p-5 shadow-xl">
               <div className="text-sm font-semibold text-zinc-900">Cancel credits-only billing</div>
               <div className="mt-1 text-sm text-zinc-600">
                 This immediately disables all portal services and prevents any credit-charging actions.

@@ -1806,10 +1806,14 @@ export function PortalPeopleContactsClient() {
 
       {importDupesOpen ? (
         <div
-          className="fixed inset-0 z-90 flex items-center justify-center p-4"
+          className="fixed inset-0 z-8000 flex items-start justify-center px-4"
           role="dialog"
           aria-modal="true"
           aria-label="Duplicates skipped"
+          style={{
+            paddingTop: "calc(var(--pa-modal-safe-top, 0px) + 16px)",
+            paddingBottom: "calc(var(--pa-modal-safe-bottom, 0px) + 16px)",
+          }}
           onClick={() => {
             if (importDupesBusy) return;
             setImportDupesOpen(false);
@@ -1817,7 +1821,7 @@ export function PortalPeopleContactsClient() {
         >
           <div className="absolute inset-0 bg-black/40" />
           <div
-            className="relative w-full max-w-lg rounded-3xl border border-zinc-200 bg-white p-6 shadow-xl"
+            className="relative w-full max-w-lg max-h-[calc(100dvh-var(--pa-modal-safe-top,0px)-var(--pa-modal-safe-bottom,0px)-32px)] overflow-y-auto rounded-3xl border border-zinc-200 bg-white p-6 shadow-xl"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="text-base font-semibold text-zinc-900">Duplicates skipped</div>
@@ -1900,8 +1904,14 @@ export function PortalPeopleContactsClient() {
       ) : null}
 
       {detailOpen ? (
-        <div className="fixed inset-0 z-80 flex items-start justify-center overflow-auto bg-black/40 p-4">
-          <div className="w-full max-w-3xl rounded-3xl border border-zinc-200 bg-white p-6 shadow-xl">
+        <div
+          className="fixed inset-0 z-8000 flex items-start justify-center bg-black/40 px-4"
+          style={{
+            paddingTop: "calc(var(--pa-modal-safe-top, 0px) + 16px)",
+            paddingBottom: "calc(var(--pa-modal-safe-bottom, 0px) + 16px)",
+          }}
+        >
+          <div className="w-full max-w-3xl max-h-[calc(100dvh-var(--pa-modal-safe-top,0px)-var(--pa-modal-safe-bottom,0px)-32px)] overflow-y-auto rounded-3xl border border-zinc-200 bg-white p-6 shadow-xl">
             <div className="flex items-start justify-between gap-3">
               <div>
                 <div className="text-base font-semibold text-zinc-900">Contact details</div>
@@ -2334,8 +2344,14 @@ export function PortalPeopleContactsClient() {
       ) : null}
 
       {leadModalOpen ? (
-        <div className="fixed inset-0 z-90 flex items-start justify-center overflow-auto bg-black/40 p-4">
-          <div className="w-full max-w-xl rounded-3xl border border-zinc-200 bg-white p-6 shadow-xl">
+        <div
+          className="fixed inset-0 z-8000 flex items-start justify-center bg-black/40 px-4"
+          style={{
+            paddingTop: "calc(var(--pa-modal-safe-top, 0px) + 16px)",
+            paddingBottom: "calc(var(--pa-modal-safe-bottom, 0px) + 16px)",
+          }}
+        >
+          <div className="w-full max-w-xl max-h-[calc(100dvh-var(--pa-modal-safe-top,0px)-var(--pa-modal-safe-bottom,0px)-32px)] overflow-y-auto rounded-3xl border border-zinc-200 bg-white p-6 shadow-xl">
             <div className="flex items-start justify-between gap-3">
               <div>
                 <div className="text-base font-semibold text-zinc-900">Lead</div>
