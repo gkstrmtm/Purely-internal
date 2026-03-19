@@ -153,11 +153,6 @@ function DashboardScreen({
     <ScreenShell
       active={active}
       title="Home"
-      right={
-        <Pressable style={styles.smallBtn} onPress={load} disabled={busy}>
-          <Text style={styles.smallBtnText}>{busy ? "Loading…" : "Refresh"}</Text>
-        </Pressable>
-      }
     >
       {error ? <ErrorBox text={error} /> : null}
 
@@ -283,11 +278,6 @@ function ServicesScreen({ active }: { active: boolean }) {
     <ScreenShell
       active={active}
       title="Services"
-      right={
-        <Pressable style={styles.smallBtn} onPress={load} disabled={busy}>
-          <Text style={styles.smallBtnText}>{busy ? "Loading…" : "Refresh"}</Text>
-        </Pressable>
-      }
     >
       {error ? <ErrorBox text={error} /> : null}
       {!data && busy ? <ActivityIndicator size="large" color={BRAND_INK} /> : null}
@@ -405,11 +395,6 @@ function TasksScreen({ active }: { active: boolean }) {
     <ScreenShell
       active={active}
       title="Tasks"
-      right={
-        <Pressable style={styles.smallBtn} onPress={load} disabled={busy}>
-          <Text style={styles.smallBtnText}>{busy ? "Loading…" : "Refresh"}</Text>
-        </Pressable>
-      }
     >
       {error ? <ErrorBox text={error} /> : null}
 
@@ -481,11 +466,6 @@ function InboxScreen({ active }: { active: boolean }) {
     <ScreenShell
       active={active}
       title="Inbox"
-      right={
-        <Pressable style={styles.smallBtn} onPress={() => load()} disabled={busy}>
-          <Text style={styles.smallBtnText}>{busy ? "Loading…" : "Refresh"}</Text>
-        </Pressable>
-      }
     >
       <View style={styles.chipRow}>
         <Pressable
@@ -564,11 +544,6 @@ function BillingScreen({ active }: { active: boolean }) {
     <ScreenShell
       active={active}
       title="Billing"
-      right={
-        <Pressable style={styles.smallBtn} onPress={load} disabled={busy}>
-          <Text style={styles.smallBtnText}>{busy ? "Loading…" : "Refresh"}</Text>
-        </Pressable>
-      }
     >
       {error ? <ErrorBox text={error} /> : null}
       {topLine ? (

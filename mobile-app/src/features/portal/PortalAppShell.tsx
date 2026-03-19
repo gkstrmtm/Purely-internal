@@ -4,6 +4,7 @@ import {
   ActivityIndicator,
   Animated,
   Dimensions,
+  Linking,
   PanResponder,
   Platform,
   Pressable,
@@ -32,6 +33,24 @@ const ZINC_600 = "#52525b";
 const ZINC_900 = "#18181b";
 const BRAND_BLUE = "#1d4ed8";
 const BRAND_PINK = "#fb7185";
+
+const BOOK_A_CALL_URL = "https://purelyautomation.com/book-a-call";
+const HELP_URL = "https://purelyautomation.com/portal/tutorials/getting-started?embed=1";
+
+function openExternalUrl(url: string) {
+  const next = String(url || "").trim();
+  if (!next) return;
+  if (Platform.OS === "web") {
+    try {
+      (window as any)?.open?.(next, "_blank", "noopener,noreferrer");
+    } catch {
+      // ignore
+    }
+    return;
+  }
+
+  void Linking.openURL(next).catch(() => null);
+}
 
 function accentColor(accent?: string) {
   const a = String(accent || "").toLowerCase();
@@ -265,14 +284,25 @@ export function PortalAppShell({
             <Image source={{ uri: portalLogoUrl }} style={styles.logo} />
           </View>
 
-          <Pressable
-            style={styles.headerIconBtn}
-            onPress={() => void onLogout()}
-            accessibilityRole="button"
-            accessibilityLabel="Sign out"
-          >
-            <Ionicons name="log-out-outline" size={22} color={ZINC_600} />
-          </Pressable>
+          <View style={styles.headerRight}>
+            <Pressable
+              style={styles.headerIconBtn}
+              onPress={() => openExternalUrl(BOOK_A_CALL_URL)}
+              accessibilityRole="button"
+              accessibilityLabel="Book a call"
+            >
+              <Ionicons name="calendar-outline" size={22} color={ZINC_600} />
+            </Pressable>
+
+            <Pressable
+              style={styles.headerIconBtn}
+              onPress={() => openExternalUrl(HELP_URL)}
+              accessibilityRole="button"
+              accessibilityLabel="Help"
+            >
+              <Ionicons name="help-circle-outline" size={24} color={ZINC_600} />
+            </Pressable>
+          </View>
         </View>
       ) : null}
 
@@ -414,9 +444,21 @@ export function PortalAppShell({
             )}
 
             <View style={styles.drawerFooter}>
-              <Text style={styles.drawerFooterMeta} numberOfLines={1}>
-                {me?.name ? me.name : ""}
-              </Text>
+              <View style={styles.drawerFooterRow}>
+                <Text style={styles.drawerFooterMeta} numberOfLines={1}>
+                  {me?.name ? me.name : ""}
+                </Text>
+
+                <Pressable
+                  style={styles.drawerFooterBtn}
+                  onPress={() => void onLogout()}
+                  accessibilityRole="button"
+                  accessibilityLabel="Sign out"
+                >
+                  <Ionicons name="log-out-outline" size={18} color={ZINC_600} />
+                  <Text style={styles.drawerFooterBtnText}>Sign out</Text>
+                </Pressable>
+              </View>
             </View>
           </Animated.View>
         </>
@@ -428,8 +470,8 @@ export function PortalAppShell({
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: BRAND_MIST },
   header: {
-    height: 56,
-    paddingHorizontal: 12,
+    height: 64,
+    paddingHorizontal: 10,
     flexDirection: "row",
     alignItems: "center",
     backgroundColor: "white",
@@ -443,8 +485,9 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  headerCenter: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "flex-start", gap: 10 },
-  logo: { width: 28, height: 28, resizeMode: "contain" },
+  headerCenter: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center" },
+  headerRight: { flexDirection: "row", alignItems: "center" },
+  logo: { width: 150, height: 32, resizeMode: "contain", flexShrink: 1 },
   headerTitle: { fontSize: 16, fontWeight: "700", color: ZINC_900, maxWidth: 200 },
 
   body: { flex: 1 },
@@ -563,5 +606,18 @@ const styles = StyleSheet.create({
     borderTopColor: ZINC_200,
     backgroundColor: "white",
   },
-  drawerFooterMeta: { fontSize: 12, color: ZINC_600 },
+  drawerFooterRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10 },
+  drawerFooterMeta: { fontSize: 12, color: ZINC_600, fontWeight: "700", flex: 1 },
+  drawerFooterBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: ZINC_200,
+    backgroundColor: "white",
+  },
+  drawerFooterBtnText: { fontSize: 12, fontWeight: "800", color: ZINC_600 },
 });
