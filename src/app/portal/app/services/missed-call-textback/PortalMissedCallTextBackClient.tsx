@@ -525,14 +525,6 @@ export function PortalMissedCallTextBackClient({ embedded }: { embedded?: boolea
             >
               {saving ? "Saving…" : "Save"}
             </button>
-            <button
-              type="button"
-              onClick={() => void load()}
-              disabled={saving}
-              className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-5 py-3 text-sm font-semibold text-brand-ink hover:bg-zinc-50 disabled:opacity-60"
-            >
-              Refresh
-            </button>
           </div>
         </div>
 

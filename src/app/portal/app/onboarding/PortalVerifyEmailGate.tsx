@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
 type Props = {
@@ -20,6 +20,13 @@ export function PortalVerifyEmailGate(props: Props) {
   const [sending, setSending] = useState(false);
   const [message, setMessage] = useState<string>("");
   const [sentAtOverride, setSentAtOverride] = useState<string | null>(null);
+
+  useEffect(() => {
+    const id = window.setInterval(() => {
+      router.refresh();
+    }, 4000);
+    return () => window.clearInterval(id);
+  }, [router]);
 
   const sentAtLabel = useMemo(
     () => formatSentAt(sentAtOverride ?? props.emailVerificationEmailSentAt),
@@ -73,14 +80,6 @@ export function PortalVerifyEmailGate(props: Props) {
             className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-5 py-3 text-sm font-semibold text-white hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-60"
           >
             {sending ? "Sending…" : "Resend verification email"}
-          </button>
-
-          <button
-            type="button"
-            onClick={() => router.refresh()}
-            className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-5 py-3 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
-          >
-            I verified - refresh
           </button>
         </div>
 

@@ -1247,14 +1247,6 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                     Connect Stripe
                   </Link>
                 ) : null}
-                <button
-                  type="button"
-                  onClick={() => void loadStripeStatus()}
-                  className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50 disabled:opacity-60"
-                  disabled={stripeStatusBusy}
-                >
-                  {stripeStatusBusy ? "Refreshing…" : "Refresh"}
-                </button>
               </div>
             </div>
           </div>

@@ -2099,13 +2099,6 @@ export default function PortalReviewsClient() {
               >
                 {saving ? "Saving…" : isDirty ? "Save" : "Saved"}
               </button>
-              <button
-                className="h-10 rounded-lg border border-zinc-200 bg-white px-4 text-sm hover:bg-zinc-50"
-                onClick={load}
-                type="button"
-              >
-                Refresh
-              </button>
               {saving ? <div className="text-xs text-neutral-500">Please wait…</div> : null}
             </div>
           </div>

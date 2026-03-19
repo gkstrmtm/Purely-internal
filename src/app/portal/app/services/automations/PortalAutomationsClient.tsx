@@ -3253,14 +3253,6 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
                 <div className="text-sm font-semibold text-zinc-900">Canvas</div>
                 <div className="mt-1 text-sm text-zinc-600">Connect nodes by dragging from the right handle to the left handle.</div>
               </div>
-              <button
-                type="button"
-                className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold hover:bg-zinc-50"
-                onClick={() => void load()}
-                disabled={saving}
-              >
-                Refresh
-              </button>
             </div>
 
             {!selectedAutomation ? (

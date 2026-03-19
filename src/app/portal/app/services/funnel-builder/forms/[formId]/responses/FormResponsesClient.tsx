@@ -160,17 +160,6 @@ export function FormResponsesClient({ basePath, formId }: { basePath: string; fo
           >
             Edit form
           </Link>
-          <button
-            type="button"
-            onClick={refresh}
-            disabled={busy}
-            className={classNames(
-              "rounded-2xl px-4 py-2 text-sm font-semibold text-white",
-              busy ? "bg-zinc-400" : "bg-brand-ink hover:opacity-95",
-            )}
-          >
-            {busy ? "Refreshing…" : "Refresh"}
-          </button>
         </div>
       </div>
 

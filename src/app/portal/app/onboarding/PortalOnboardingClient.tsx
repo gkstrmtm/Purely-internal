@@ -169,13 +169,6 @@ export function PortalOnboardingClient() {
           >
             Back to dashboard
           </Link>
-          <button
-            type="button"
-            onClick={() => void refresh()}
-            className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-5 py-3 text-sm font-semibold text-white hover:opacity-95"
-          >
-            Refresh status
-          </button>
         </div>
       </div>
 

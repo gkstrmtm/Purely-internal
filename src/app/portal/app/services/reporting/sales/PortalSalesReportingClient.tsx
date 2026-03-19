@@ -179,14 +179,6 @@ export function PortalSalesReportingClient() {
             }}
             options={rangeOptions.map((o) => ({ value: o.value as any, label: o.label }))}
           />
-          <button
-            type="button"
-            onClick={() => void load(range)}
-            className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
-            disabled={loading}
-          >
-            {loading ? "Refreshing…" : "Refresh"}
-          </button>
         </div>
       </div>
 

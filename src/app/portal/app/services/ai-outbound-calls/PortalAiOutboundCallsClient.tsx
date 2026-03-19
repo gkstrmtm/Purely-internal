@@ -2034,17 +2034,6 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
                             </button>
                           ))}
                         </div>
-                        <button
-                          type="button"
-                          className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold hover:bg-zinc-50 disabled:opacity-60"
-                          disabled={busy || messagesActivityLoading}
-                          onClick={() => {
-                            if (!selected?.id) return;
-                            void loadMessagesActivity(selected.id);
-                          }}
-                        >
-                          Refresh activity
-                        </button>
                       </div>
                     </div>
 
@@ -2185,16 +2174,6 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
                         <div className="text-sm font-semibold text-zinc-900">Manual</div>
                         <div className="mt-1 text-xs text-zinc-500">Type a number, press Call, then review recording + transcript in Activity.</div>
                       </div>
-                      <button
-                        type="button"
-                        className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold hover:bg-zinc-50 disabled:opacity-60"
-                        disabled={busy || manualCallBusy}
-                        onClick={() => {
-                          void loadManualCalls(selected.id);
-                        }}
-                      >
-                        Refresh
-                      </button>
                     </div>
 
                     <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-[1fr,auto]">
@@ -2264,18 +2243,6 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
                             </button>
                           ))}
                         </div>
-                        <button
-                          type="button"
-                          className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold hover:bg-zinc-50 disabled:opacity-60"
-                          disabled={busy || activityLoading || manualCallBusy}
-                          onClick={() => {
-                            if (!selected?.id) return;
-                            void loadActivity(selected.id);
-                            void loadManualCalls(selected.id);
-                          }}
-                        >
-                          Refresh activity
-                        </button>
                       </div>
                     </div>
 
@@ -2419,21 +2386,6 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
                                   <div className="text-right text-xs text-zinc-500">
                                     {manualCall.callSid ? <div className="font-mono">CallSid: {manualCall.callSid}</div> : null}
                                     {manualCall.conversationId ? <div className="font-mono">Conversation: {manualCall.conversationId}</div> : null}
-                                    <button
-                                      type="button"
-                                      disabled={busy || manualCallBusy || manualCallSyncBusy}
-                                      onClick={() => {
-                                        if (manualCall.id) void syncManualCallArtifacts(manualCall.id);
-                                      }}
-                                      className={
-                                        "mt-2 inline-flex items-center justify-center rounded-xl border px-2.5 py-1.5 text-[11px] font-semibold " +
-                                        (busy || manualCallBusy || manualCallSyncBusy
-                                          ? "border-zinc-200 bg-zinc-100 text-zinc-500"
-                                          : "border-zinc-200 bg-white text-zinc-800 hover:bg-zinc-50")
-                                      }
-                                    >
-                                      Refresh recording/transcript
-                                    </button>
                                   </div>
                                 </div>
 

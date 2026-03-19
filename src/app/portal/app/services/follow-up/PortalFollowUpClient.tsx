@@ -1852,13 +1852,6 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
               >
                 {busy ? "Saving…" : "Save settings"}
               </button>
-              <button
-                type="button"
-                onClick={refresh}
-                className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-5 py-3 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
-              >
-                Refresh
-              </button>
             </div>
             </PortalSettingsSection>
           </div>

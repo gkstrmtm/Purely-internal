@@ -1131,18 +1131,15 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                     case "settings":
                       return (
                         <svg width="22" height="22" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                          <path
-                            d="M12 14.75a2.75 2.75 0 110-5.5 2.75 2.75 0 010 5.5z"
-                            stroke="currentColor"
-                            strokeWidth="2"
-                          />
-                          <path
-                            d="M19.4 15a7.97 7.97 0 00.1-1 7.97 7.97 0 00-.1-1l2.1-1.6-2-3.4-2.5 1a7.43 7.43 0 00-1.7-1L15 4h-6l-.3 3a7.43 7.43 0 00-1.7 1l-2.5-1-2 3.4L4.6 13a7.97 7.97 0 00-.1 1c0 .34.03.67.1 1L2.5 16.6l2 3.4 2.5-1c.53.41 1.1.74 1.7 1L9 23h6l.3-3c.6-.26 1.17-.59 1.7-1l2.5 1 2-3.4L19.4 15z"
-                            stroke="currentColor"
-                            strokeWidth="2"
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                          />
+                          <path d="M4 21v-7" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                          <path d="M4 10V3" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                          <path d="M12 21v-9" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                          <path d="M12 8V3" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                          <path d="M20 21v-5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                          <path d="M20 12V3" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                          <path d="M2 14h4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                          <path d="M10 8h4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                          <path d="M18 16h4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
                         </svg>
                       );
                     default:

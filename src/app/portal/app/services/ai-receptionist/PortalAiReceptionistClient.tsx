@@ -1466,14 +1466,6 @@ export function PortalAiReceptionistClient() {
               <div className="text-sm font-semibold text-zinc-900">Recent calls</div>
               <div className="mt-1 text-sm text-zinc-600">Inbound calls will show here as they come in.</div>
             </div>
-            <button
-              type="button"
-              className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold hover:bg-zinc-50 disabled:opacity-60"
-              disabled={saving || loading}
-              onClick={() => void load()}
-            >
-              Refresh
-            </button>
           </div>
 
           {events.length === 0 ? (
@@ -1570,20 +1562,6 @@ export function PortalAiReceptionistClient() {
                           <button
                             type="button"
                             disabled={saving || callSyncBusy}
-                            onClick={() => void syncCallArtifacts(selectedCall.callSid)}
-                            className={
-                              "mt-2 inline-flex items-center justify-center rounded-xl border px-2.5 py-1.5 text-[11px] font-semibold " +
-                              (saving || callSyncBusy
-                                ? "border-zinc-200 bg-zinc-100 text-zinc-500"
-                                : "border-zinc-200 bg-white text-zinc-800 hover:bg-zinc-50")
-                            }
-                          >
-                            {callSyncBusy ? "Refreshing…" : "Refresh recording/transcript"}
-                          </button>
-
-                          <button
-                            type="button"
-                            disabled={saving || callSyncBusy}
                             onClick={() => void deleteCallEvent(selectedCall.callSid)}
                             className={
                               "mt-2 inline-flex items-center justify-center rounded-xl border px-2.5 py-1.5 text-[11px] font-semibold " +
@@ -1638,7 +1616,7 @@ export function PortalAiReceptionistClient() {
                           </div>
                         ) : (
                           <div className="mt-2 text-sm text-zinc-600">
-                            No transcript yet. Click “Refresh recording/transcript” to generate it from the recording.
+                            No transcript yet. It can take a minute to show up after the call ends.
                           </div>
                         )}
                       </div>
