@@ -1256,8 +1256,19 @@ export function PortalPeopleContactsClient() {
       ) : null}
 
       {importOpen ? (
-        <div className="fixed inset-0 z-85 flex items-start justify-center overflow-auto bg-black/40 p-4">
-          <div className="w-full max-w-3xl rounded-3xl border border-zinc-200 bg-white p-5 shadow-xl">
+        <div
+          className={classNames(
+            "fixed inset-0 z-8000 flex items-start justify-center bg-black/40 px-4",
+            "pt-[calc(var(--pa-modal-safe-top,0px)+1rem)] pb-[calc(var(--pa-modal-safe-bottom,0px)+1rem)]",
+            "sm:items-center",
+          )}
+        >
+          <div
+            className={classNames(
+              "w-full max-w-3xl rounded-3xl border border-zinc-200 bg-white p-5 shadow-xl",
+              "max-h-[calc(100dvh-var(--pa-modal-safe-top,0px)-var(--pa-modal-safe-bottom,0px)-2rem)] overflow-y-auto",
+            )}
+          >
             <div className="flex items-start justify-between gap-3">
               <div>
                 <div className="text-base font-semibold text-zinc-900">Add contacts</div>

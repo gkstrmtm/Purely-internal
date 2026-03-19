@@ -895,6 +895,8 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
           className="flex h-[100dvh] flex-col overflow-hidden bg-brand-mist text-brand-ink"
           style={{
             ["--pa-portal-embed-footer-offset" as any]: "calc(env(safe-area-inset-bottom) + 5.5rem)",
+            ["--pa-modal-safe-top" as any]: "calc(env(safe-area-inset-top) + 4rem)",
+            ["--pa-modal-safe-bottom" as any]: "calc(env(safe-area-inset-bottom) + 5.5rem)",
           }}
         >
           {/* Top header (single header in embedded mode) */}

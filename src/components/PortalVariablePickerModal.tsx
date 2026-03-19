@@ -1,5 +1,6 @@
 "use client";
 
+import { createPortal } from "react-dom";
 import { useEffect, useMemo, useState } from "react";
 
 import type { TemplateVariable } from "@/lib/portalTemplateVars";
@@ -74,6 +75,29 @@ export function PortalVariablePickerModal(props: {
     setCreateContactId("");
     setLocalCreatedKeys([]);
   }, [open]);
+
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  useEffect(() => {
+    if (!open) return;
+
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKeyDown);
+
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      document.body.style.overflow = prevOverflow;
+    };
+  }, [onClose, open]);
 
   useEffect(() => {
     if (!open) return;
@@ -236,48 +260,66 @@ export function PortalVariablePickerModal(props: {
   }
 
   if (!open) return null;
+  if (!mounted) return null;
 
-  return (
-    <>
-      <div className="fixed inset-0 z-80 bg-black/30" onMouseDown={onClose} aria-hidden />
-      <div className="fixed inset-0 z-85 flex items-center justify-center p-4" aria-modal role="dialog">
-        <div className="w-full max-w-lg overflow-hidden rounded-3xl border border-zinc-200 bg-white shadow-xl">
-          <div className="flex items-start justify-between gap-3 border-b border-zinc-100 p-4">
-            <div className="min-w-0">
-              <div className="truncate text-sm font-semibold text-zinc-900">{title || "Insert variable"}</div>
-              <div className="mt-1 text-xs text-zinc-500">{subtitle || "Click to insert into your message."}</div>
-            </div>
-            <div className="flex items-center gap-2">
-              {canCreateCustom ? (
-                mode === "pick" ? (
-                  <button
-                    type="button"
-                    className="rounded-xl bg-brand-ink px-3 py-2 text-xs font-semibold text-white hover:opacity-95"
-                    onClick={() => setMode("create")}
-                  >
-                    New
-                  </button>
-                ) : (
-                  <button
-                    type="button"
-                    className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
-                    onClick={() => setMode("pick")}
-                  >
-                    Back
-                  </button>
-                )
-              ) : null}
-              <button
-                type="button"
-                className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
-                onClick={onClose}
-              >
-                Close
-              </button>
+  const body = (
+    <div className="fixed inset-0 z-8100" aria-hidden>
+      <button type="button" className="absolute inset-0 bg-black/30" onMouseDown={onClose} aria-label="Close" />
+      <div
+        className={classNames(
+          "fixed inset-0 z-8110 flex items-start justify-center px-4",
+          "pt-[calc(var(--pa-modal-safe-top,0px)+1rem)] pb-[calc(var(--pa-modal-safe-bottom,0px)+1rem)]",
+          "sm:items-center",
+        )}
+        aria-modal
+        role="dialog"
+      >
+        <div
+          className={classNames(
+            "flex w-full max-w-lg flex-col overflow-hidden rounded-3xl border border-zinc-200 bg-white shadow-xl",
+            "max-h-[calc(100dvh-var(--pa-modal-safe-top,0px)-var(--pa-modal-safe-bottom,0px)-2rem)]",
+          )}
+          onMouseDown={(e) => e.stopPropagation()}
+          onTouchStart={(e) => e.stopPropagation()}
+        >
+          <div className="shrink-0 border-b border-zinc-100 p-4">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <div className="truncate text-sm font-semibold text-zinc-900">{title || "Insert variable"}</div>
+                <div className="mt-1 text-xs text-zinc-500">{subtitle || "Click to insert into your message."}</div>
+              </div>
+              <div className="flex items-center gap-2">
+                {canCreateCustom ? (
+                  mode === "pick" ? (
+                    <button
+                      type="button"
+                      className="rounded-xl bg-brand-ink px-3 py-2 text-xs font-semibold text-white hover:opacity-95"
+                      onClick={() => setMode("create")}
+                    >
+                      New
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
+                      onClick={() => setMode("pick")}
+                    >
+                      Back
+                    </button>
+                  )
+                ) : null}
+                <button
+                  type="button"
+                  className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
+                  onClick={onClose}
+                >
+                  Close
+                </button>
+              </div>
             </div>
           </div>
 
-          <div className="p-4">
+          <div className="min-h-0 flex-1 overflow-y-auto p-4">
             {mode === "create" && canCreateCustom ? (
               <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
                 <div className="text-sm font-semibold text-zinc-900">New variable</div>
@@ -414,6 +456,8 @@ export function PortalVariablePickerModal(props: {
           </div>
         </div>
       </div>
-    </>
+    </div>
   );
+
+  return createPortal(body, document.body);
 }

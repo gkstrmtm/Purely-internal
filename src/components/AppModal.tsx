@@ -51,7 +51,7 @@ export function AppModal({
     if (!open) return null;
 
     return (
-      <div className="fixed inset-0 z-[80]" aria-hidden>
+      <div className="fixed inset-0 z-8000" aria-hidden>
         <button
           type="button"
           className="absolute inset-0 cursor-default bg-black/30"
@@ -61,29 +61,42 @@ export function AppModal({
 
         <div
           className={classNames(
-            "fixed left-1/2 top-1/2 z-[90] max-h-[calc(100vh-32px)] w-[min(720px,calc(100vw-32px))] -translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-3xl border border-zinc-200 bg-white shadow-2xl",
-            widthClassName,
+            "fixed inset-0 z-8010 flex items-start justify-center px-4",
+            "pt-[calc(var(--pa-modal-safe-top,0px)+1rem)] pb-[calc(var(--pa-modal-safe-bottom,0px)+1rem)]",
+            "sm:items-center",
           )}
           onMouseDown={(e) => e.stopPropagation()}
           onTouchStart={(e) => e.stopPropagation()}
         >
-          <div className="flex items-start justify-between gap-4 border-b border-zinc-100 p-5">
-            <div className="min-w-0">
-              <div className="text-base font-semibold text-zinc-900">{title}</div>
-              {description ? <div className="mt-1 text-sm text-zinc-600">{description}</div> : null}
+          <div
+            className={classNames(
+              "flex w-[min(720px,calc(100vw-32px))] flex-col overflow-hidden rounded-3xl border border-zinc-200 bg-white shadow-2xl",
+              "max-h-[calc(100dvh-var(--pa-modal-safe-top,0px)-var(--pa-modal-safe-bottom,0px)-2rem)]",
+              widthClassName,
+            )}
+            onMouseDown={(e) => e.stopPropagation()}
+            onTouchStart={(e) => e.stopPropagation()}
+          >
+            <div className="shrink-0 border-b border-zinc-100 p-5">
+              <div className="flex items-start justify-between gap-4">
+                <div className="min-w-0">
+                  <div className="text-base font-semibold text-zinc-900">{title}</div>
+                  {description ? <div className="mt-1 text-sm text-zinc-600">{description}</div> : null}
+                </div>
+                <button
+                  type="button"
+                  className="shrink-0 rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
+                  onClick={onClose}
+                >
+                  Close
+                </button>
+              </div>
             </div>
-            <button
-              type="button"
-              className="shrink-0 rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
-              onClick={onClose}
-            >
-              Close
-            </button>
+
+            <div className="min-h-0 flex-1 overflow-y-auto p-5">{children}</div>
+
+            {footer ? <div className="shrink-0 border-t border-zinc-100 p-4">{footer}</div> : null}
           </div>
-
-          <div className="max-h-[calc(100vh-32px-78px-72px)] overflow-y-auto p-5">{children}</div>
-
-          {footer ? <div className="border-t border-zinc-100 p-4">{footer}</div> : null}
         </div>
       </div>
     );

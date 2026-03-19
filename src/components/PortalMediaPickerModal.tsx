@@ -109,7 +109,7 @@ export function PortalMediaPickerModal({
 
   const body = useMemo(() => {
     return (
-      <div className="fixed inset-0 z-80" aria-hidden>
+      <div className="fixed inset-0 z-8000" aria-hidden>
         <div
           className="absolute inset-0 bg-black/30"
           onMouseDown={onClose}
@@ -117,101 +117,114 @@ export function PortalMediaPickerModal({
         />
 
         <div
-          className="fixed left-1/2 top-1/2 z-90 w-[min(720px,calc(100vw-32px))] -translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-3xl border border-zinc-200 bg-white shadow-xl"
+          className={classNames(
+            "fixed inset-0 z-8010 flex items-start justify-center px-4",
+            "pt-[calc(var(--pa-modal-safe-top,0px)+1rem)] pb-[calc(var(--pa-modal-safe-bottom,0px)+1rem)]",
+            "sm:items-center",
+          )}
           role="dialog"
           aria-modal="true"
-          onMouseDown={(e) => e.stopPropagation()}
-          onTouchStart={(e) => e.stopPropagation()}
         >
-          <div className="flex items-start justify-between gap-4 border-b border-zinc-100 p-5">
-            <div className="min-w-0">
-              <div className="text-sm font-semibold text-zinc-900">{title || "Media library"}</div>
-              <div className="mt-1 text-xs text-zinc-500">
-                {accept === "video" ? "Videos" : accept === "image" ? "Images" : "Files"} from your media library.
+          <div
+            className={classNames(
+              "flex w-[min(720px,calc(100vw-32px))] flex-col overflow-hidden rounded-3xl border border-zinc-200 bg-white shadow-xl",
+              "max-h-[calc(100dvh-var(--pa-modal-safe-top,0px)-var(--pa-modal-safe-bottom,0px)-2rem)]",
+            )}
+            onMouseDown={(e) => e.stopPropagation()}
+            onTouchStart={(e) => e.stopPropagation()}
+          >
+            <div className="shrink-0 border-b border-zinc-100 p-5">
+              <div className="flex items-start justify-between gap-4">
+                <div className="min-w-0">
+                  <div className="text-sm font-semibold text-zinc-900">{title || "Media library"}</div>
+                  <div className="mt-1 text-xs text-zinc-500">
+                    {accept === "video" ? "Videos" : accept === "image" ? "Images" : "Files"} from your media library.
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
+                  onClick={onClose}
+                >
+                  Close
+                </button>
               </div>
             </div>
 
-            <button
-              type="button"
-              className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
-              onClick={onClose}
-            >
-              Close
-            </button>
-          </div>
+            <div className="min-h-0 flex-1 overflow-y-auto p-5">
+              <input
+                value={q}
+                onChange={(e) => setQ(e.target.value)}
+                placeholder="Search by filename or tag…"
+                className="h-10 w-full rounded-2xl border border-zinc-200 bg-white px-4 text-sm text-zinc-900 placeholder:text-zinc-500"
+              />
 
-          <div className="p-5">
-            <input
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
-              placeholder="Search by filename or tag…"
-              className="h-10 w-full rounded-2xl border border-zinc-200 bg-white px-4 text-sm text-zinc-900 placeholder:text-zinc-500"
-            />
+              {error ? (
+                <div className="mt-3 rounded-2xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</div>
+              ) : null}
 
-            {error ? (
-              <div className="mt-3 rounded-2xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</div>
-            ) : null}
-
-            <div className="mt-4 max-h-[55vh] overflow-auto">
-              {loading ? (
-                <div className="text-sm text-zinc-600">Loading…</div>
-              ) : filteredItems.length ? (
-                <div className="space-y-2">
-                  {filteredItems.map((it) => {
-                    const isImg = it.mimeType.startsWith("image/");
-                    const isVideo = it.mimeType.startsWith("video/");
-                    return (
-                      <div key={it.id} className="flex items-center justify-between gap-3 rounded-2xl border border-zinc-200 bg-white p-3">
-                        <div className="flex min-w-0 items-center gap-3">
-                          {isImg && it.previewUrl ? (
-                            /* eslint-disable-next-line @next/next/no-img-element */
-                            <img src={it.previewUrl} alt={it.fileName} className="h-10 w-10 rounded-2xl object-cover" />
-                          ) : isVideo ? (
-                            <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-zinc-100 text-[10px] font-semibold text-zinc-700">
-                              VIDEO
-                            </div>
-                          ) : (
-                            <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-zinc-100 text-[10px] font-semibold text-zinc-700">
-                              FILE
-                            </div>
-                          )}
-                          <div className="min-w-0">
-                            <div className="truncate text-sm font-semibold text-zinc-900">{it.fileName}</div>
-                            <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-zinc-500">
-                              <span className="font-mono">tag: {it.tag}</span>
-                              <span>•</span>
-                              <span>{formatBytes(it.fileSize)}</span>
+              <div className="mt-4">
+                {loading ? (
+                  <div className="text-sm text-zinc-600">Loading…</div>
+                ) : filteredItems.length ? (
+                  <div className="space-y-2">
+                    {filteredItems.map((it) => {
+                      const isImg = it.mimeType.startsWith("image/");
+                      const isVideo = it.mimeType.startsWith("video/");
+                      return (
+                        <div key={it.id} className="flex items-center justify-between gap-3 rounded-2xl border border-zinc-200 bg-white p-3">
+                          <div className="flex min-w-0 items-center gap-3">
+                            {isImg && it.previewUrl ? (
+                              /* eslint-disable-next-line @next/next/no-img-element */
+                              <img src={it.previewUrl} alt={it.fileName} className="h-10 w-10 rounded-2xl object-cover" />
+                            ) : isVideo ? (
+                              <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-zinc-100 text-[10px] font-semibold text-zinc-700">
+                                VIDEO
+                              </div>
+                            ) : (
+                              <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-zinc-100 text-[10px] font-semibold text-zinc-700">
+                                FILE
+                              </div>
+                            )}
+                            <div className="min-w-0">
+                              <div className="truncate text-sm font-semibold text-zinc-900">{it.fileName}</div>
+                              <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-zinc-500">
+                                <span className="font-mono">tag: {it.tag}</span>
+                                <span>•</span>
+                                <span>{formatBytes(it.fileSize)}</span>
+                              </div>
                             </div>
                           </div>
-                        </div>
 
-                        <button
-                          type="button"
-                          disabled={busy}
-                          className={classNames(
-                            "shrink-0 rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60",
-                          )}
-                          onClick={async () => {
-                            if (busy) return;
-                            setBusy(true);
-                            try {
-                              await onPick(it);
-                            } finally {
-                              setBusy(false);
-                            }
-                          }}
-                        >
-                          {confirmLabel || "Attach"}
-                        </button>
-                      </div>
-                    );
-                  })}
-                </div>
-              ) : (
-                <div className="rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 p-6 text-sm text-zinc-600">
-                  No files found.
-                </div>
-              )}
+                          <button
+                            type="button"
+                            disabled={busy}
+                            className={classNames(
+                              "shrink-0 rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60",
+                            )}
+                            onClick={async () => {
+                              if (busy) return;
+                              setBusy(true);
+                              try {
+                                await onPick(it);
+                              } finally {
+                                setBusy(false);
+                              }
+                            }}
+                          >
+                            {confirmLabel || "Attach"}
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className="rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 p-6 text-sm text-zinc-600">
+                    No files found.
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         </div>

@@ -4,6 +4,14 @@
   --background: #f1f5f9;
   --foreground: #171717;
   color-scheme: light;
+
+  /*
+    Modal safe-area vars:
+    - Define reserved space at top/bottom of the viewport (embedded header/footer, iOS safe areas, etc.)
+    - Used by modal components to keep content visible and scrollable.
+  */
+  --pa-modal-safe-top: var(--pa-portal-topbar-height, 0px);
+  --pa-modal-safe-bottom: env(safe-area-inset-bottom);
 }
 
 @theme inline {

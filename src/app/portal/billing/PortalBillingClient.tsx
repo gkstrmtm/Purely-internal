@@ -794,8 +794,19 @@ export function PortalBillingClient() {
   return (
     <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
       {purchaseModal && !creditsOnly ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="w-full max-w-xl rounded-3xl border border-zinc-200 bg-white p-6 shadow-xl">
+        <div
+          className={[
+            "fixed inset-0 z-8000 flex items-start justify-center bg-black/40 px-4",
+            "pt-[calc(var(--pa-modal-safe-top,0px)+1rem)] pb-[calc(var(--pa-modal-safe-bottom,0px)+1rem)]",
+            "sm:items-center",
+          ].join(" ")}
+        >
+          <div
+            className={[
+              "w-full max-w-xl rounded-3xl border border-zinc-200 bg-white p-6 shadow-xl",
+              "max-h-[calc(100dvh-var(--pa-modal-safe-top,0px)-var(--pa-modal-safe-bottom,0px)-2rem)] overflow-y-auto",
+            ].join(" ")}
+          >
             <div className="flex items-start justify-between gap-3">
               <div>
                 <div className="text-sm font-semibold text-zinc-900">Enable service</div>
