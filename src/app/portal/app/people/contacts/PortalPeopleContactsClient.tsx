@@ -1130,6 +1130,95 @@ export function PortalPeopleContactsClient() {
                 </div>
                 <div>50 per page</div>
               </div>
+
+              {(() => {
+                const contactsTotal = typeof data.totalContacts === "number" ? data.totalContacts : data.contacts.length;
+                const leadsTotal = typeof data.totalUnlinkedLeads === "number" ? data.totalUnlinkedLeads : data.unlinkedLeads.length;
+                const showContacts = mobilePeopleFilter === "all" || mobilePeopleFilter === "contacts";
+                const showLeads = mobilePeopleFilter === "all" || mobilePeopleFilter === "unlinked";
+                const showContactsPages = showContacts && contactsTotal >= 20;
+                const showLeadsPages = showLeads && leadsTotal >= 20;
+
+                if (!showContactsPages && !showLeadsPages) return null;
+
+                return (
+                  <div className="mt-3 space-y-2">
+                    {showContactsPages ? (
+                      <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-zinc-50 px-3 py-2">
+                        <div className="text-xs font-semibold text-zinc-700">Contacts</div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <div className="text-xs text-zinc-500">Page {contactsCursorStack.length}</div>
+                          <button
+                            type="button"
+                            disabled={contactsCursorStack.length <= 1}
+                            onClick={() =>
+                              void (async () => {
+                                const prev = contactsCursorStack[contactsCursorStack.length - 2] ?? null;
+                                const ok = await load({ contactsCursor: prev, leadsCursor });
+                                if (ok) setContactsCursorStack((s) => (s.length > 1 ? s.slice(0, -1) : s));
+                              })()
+                            }
+                            className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-50"
+                          >
+                            Back
+                          </button>
+                          <button
+                            type="button"
+                            disabled={!contactsNextCursor}
+                            onClick={() =>
+                              void (async () => {
+                                if (!contactsNextCursor) return;
+                                const ok = await load({ contactsCursor: contactsNextCursor, leadsCursor });
+                                if (ok) setContactsCursorStack((s) => [...s, contactsNextCursor]);
+                              })()
+                            }
+                            className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-50"
+                          >
+                            Next
+                          </button>
+                        </div>
+                      </div>
+                    ) : null}
+
+                    {showLeadsPages ? (
+                      <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-zinc-50 px-3 py-2">
+                        <div className="text-xs font-semibold text-zinc-700">Unlinked leads</div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <div className="text-xs text-zinc-500">Page {leadsCursorStack.length}</div>
+                          <button
+                            type="button"
+                            disabled={leadsCursorStack.length <= 1}
+                            onClick={() =>
+                              void (async () => {
+                                const prev = leadsCursorStack[leadsCursorStack.length - 2] ?? null;
+                                const ok = await load({ contactsCursor, leadsCursor: prev });
+                                if (ok) setLeadsCursorStack((s) => (s.length > 1 ? s.slice(0, -1) : s));
+                              })()
+                            }
+                            className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-50"
+                          >
+                            Back
+                          </button>
+                          <button
+                            type="button"
+                            disabled={!leadsNextCursor}
+                            onClick={() =>
+                              void (async () => {
+                                if (!leadsNextCursor) return;
+                                const ok = await load({ contactsCursor, leadsCursor: leadsNextCursor });
+                                if (ok) setLeadsCursorStack((s) => [...s, leadsNextCursor]);
+                              })()
+                            }
+                            className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-50"
+                          >
+                            Next
+                          </button>
+                        </div>
+                      </div>
+                    ) : null}
+                  </div>
+                );
+              })()}
             </div>
 
             <div className="mt-3 space-y-3">
