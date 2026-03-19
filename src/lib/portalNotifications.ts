@@ -3,6 +3,7 @@ import { trySendTransactionalEmail } from "@/lib/emailSender";
 import { normalizePhoneStrict } from "@/lib/phone";
 import { hasPortalServiceCapability } from "@/lib/portalPermissions";
 import type { PortalServiceKey } from "@/lib/portalPermissions.shared";
+import { sendExpoPushToUserIds } from "@/lib/expoPush";
 import { sendTwilioEnvSms } from "@/lib/twilioEnvSms";
 
 function safeOneLine(s: string) {
@@ -111,6 +112,20 @@ function serviceForNotificationKind(kind: PortalNotificationKind): PortalService
   }
 }
 
+function portalPathForNotificationKind(kind: PortalNotificationKind): string {
+  switch (kind) {
+    case "inbound_email":
+    case "inbound_sms":
+      return "/portal/app/inbox";
+
+    case "task_created":
+      return "/portal/app/services/tasks";
+
+    default:
+      return "/portal/app";
+  }
+}
+
 export async function tryNotifyPortalUserIds(opts: {
   userIds: string[];
   subject: string;
@@ -138,6 +153,18 @@ export async function tryNotifyPortalUserIds(opts: {
     .filter((r) => r.email && r.email.includes("@"));
 
   if (!recipients.length) return { ok: false, reason: "No recipients" };
+
+  // Best-effort push (do not block email/SMS notification flow).
+  try {
+    void sendExpoPushToUserIds({
+      userIds: recipients.map((r) => r.userId),
+      title: safeOneLine(opts.subject || "Purely Automation"),
+      body: safeOneLine(opts.text || ""),
+      data: { kind: "generic" },
+    });
+  } catch {
+    // ignore
+  }
 
   const res = await trySendTransactionalEmail({
     to: recipients.map((r) => r.email),
@@ -279,6 +306,18 @@ export async function tryNotifyPortalAccountUsers(opts: {
 }): Promise<{ ok: true; recipients: string[] } | { ok: false; reason: string }> {
   const recipients = await getPortalAccountRecipients({ ownerId: opts.ownerId, kind: opts.kind }).catch(() => []);
   if (!recipients.length) return { ok: false, reason: "No recipients" };
+
+  // Best-effort push (even if email config is missing).
+  try {
+    void sendExpoPushToUserIds({
+      userIds: recipients.map((r) => r.userId),
+      title: safeOneLine(opts.subject || "Purely Automation"),
+      body: safeOneLine(opts.text || ""),
+      data: { kind: opts.kind, ownerId: opts.ownerId, path: portalPathForNotificationKind(opts.kind) },
+    });
+  } catch {
+    // ignore
+  }
 
   const profile = await prisma.businessProfile
     .findUnique({ where: { ownerId: opts.ownerId }, select: { businessName: true } })

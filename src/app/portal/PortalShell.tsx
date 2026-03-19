@@ -53,6 +53,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const toast = useToast();
+  const embedded = searchParams?.get("embed") === "1" || searchParams?.get("pa_embed") === "1";
   const variant = typeof pathname === "string" && (pathname === "/credit" || pathname.startsWith("/credit/")) ? "credit" : "portal";
   const basePath = variant === "credit" ? "/credit" : "/portal";
   const logoSrc = variant === "credit" ? "/brand/2.png" : "/brand/1.png";
@@ -812,6 +813,17 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
           <div aria-hidden className="h-[calc(env(safe-area-inset-bottom)+5rem)]" />
         </main>
         {isAutomationsEditor ? <PortalFloatingTools /> : null}
+      </div>
+    );
+  }
+
+  if (embedded) {
+    return (
+      <div className="h-[calc(100dvh-var(--pa-portal-topbar-height,0px))] overflow-hidden bg-brand-mist text-brand-ink">
+        <main className="h-full overflow-y-auto">
+          {children}
+          <div aria-hidden className="h-[calc(env(safe-area-inset-bottom)+2rem)]" />
+        </main>
       </div>
     );
   }

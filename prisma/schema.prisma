@@ -187,6 +187,8 @@ model User {
   portalInboxMessages PortalInboxMessage[]
   portalInboxAttachments PortalInboxAttachment[]
 
+  portalDeviceTokens PortalDeviceToken[]
+
   portalContactTags PortalContactTag[]
   portalContactTagAssignments PortalContactTagAssignment[]
 
@@ -1108,6 +1110,27 @@ model PortalInboxAttachment {
 
   @@index([ownerId, createdAt])
   @@index([messageId])
+}
+
+model PortalDeviceToken {
+  id String @id @default(cuid())
+
+  userId String
+  expoPushToken String @unique
+
+  platform String?
+  deviceName String?
+
+  lastSeenAt DateTime?
+  revokedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, revokedAt])
+  @@index([expoPushToken])
 }
 
 model PortalMailboxAddress {

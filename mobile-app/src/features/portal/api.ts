@@ -23,6 +23,38 @@ export async function getServicesStatus() {
   });
 }
 
+export type ServicesCatalogGroup = {
+  key: string;
+  title: string;
+  services: Array<{
+    slug: string;
+    title: string;
+    description: string;
+    accent: "blue" | "coral" | "ink" | string;
+    hidden: boolean;
+    included: boolean;
+    entitlementKey: string | null;
+  }>;
+};
+
+export async function getServicesCatalog() {
+  return apiFetch<{ ok: true; groups: ServicesCatalogGroup[] } | { ok: false; error: string }>(
+    "/api/portal/services/catalog",
+    {
+      method: "GET",
+      headers: portalHeaders(),
+    },
+  );
+}
+
+export async function registerPushToken(input: { expoPushToken: string; platform?: string; deviceName?: string }) {
+  return apiFetch<{ ok: true } | { ok: false; error: string }>("/api/portal/push/register", {
+    method: "POST",
+    headers: portalHeaders(),
+    body: JSON.stringify(input),
+  });
+}
+
 export type PortalTask = {
   id: string;
   title: string;

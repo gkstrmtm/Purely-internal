@@ -20,10 +20,14 @@ import { portalSignup } from './api/portalSignup';
 import type { PortalSignupInput } from './api/portalSignup';
 import { portalOnboardingCheckout, portalOnboardingConfirm } from './api/portalOnboardingBilling';
 import { portalLogoUrl } from './config/app';
-import { PortalApp } from './features/portal/PortalApp';
+import { PortalAppShell } from './features/portal/PortalAppShell';
+import { registerPushToken } from './features/portal/api';
 import { GetStartedWizard } from './features/getStarted/GetStartedWizard';
 
 import * as WebBrowser from 'expo-web-browser';
+import * as Device from 'expo-device';
+import * as Notifications from 'expo-notifications';
+import Constants from 'expo-constants';
 
 type Screen = 'loading' | 'login' | 'signup' | 'home';
 
@@ -33,11 +37,49 @@ const ZINC_200 = '#e4e4e7';
 const ZINC_600 = '#52525b';
 const ZINC_900 = '#18181b';
 
+Notifications.setNotificationHandler({
+  handleNotification: async () => ({
+    shouldShowAlert: true,
+    shouldPlaySound: false,
+    shouldSetBadge: true,
+  }),
+});
+
+async function registerForPushNotificationsAsync() {
+  if (Platform.OS === 'web') return null;
+  if (!Device.isDevice) return null;
+
+  if (Platform.OS === 'android') {
+    await Notifications.setNotificationChannelAsync('default', {
+      name: 'default',
+      importance: Notifications.AndroidImportance.MAX,
+    });
+  }
+
+  const existing = await Notifications.getPermissionsAsync();
+  let status = existing.status;
+  if (status !== 'granted') {
+    const requested = await Notifications.requestPermissionsAsync();
+    status = requested.status;
+  }
+  if (status !== 'granted') return null;
+
+  const projectId =
+    (Constants as any)?.expoConfig?.extra?.eas?.projectId ||
+    (Constants as any)?.easConfig?.projectId ||
+    (Constants as any)?.expoConfig?.extra?.projectId;
+
+  const token = await Notifications.getExpoPushTokenAsync(projectId ? { projectId } : undefined);
+  return token.data;
+}
+
 export default function RootApp() {
   const [screen, setScreen] = useState<Screen>('loading');
   const [me, setMe] = useState<{ email: string; name: string; role: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [portalDeepLinkPath, setPortalDeepLinkPath] = useState<string | null>(null);
+  const [pushRegisteredForUser, setPushRegisteredForUser] = useState<string | null>(null);
 
   useEffect(() => {
     let mounted = true;
@@ -78,12 +120,60 @@ export default function RootApp() {
     setScreen(user ? 'home' : 'login');
   }
 
+  useEffect(() => {
+    if (!me?.email) return;
+    if (pushRegisteredForUser === me.email) return;
+
+    let cancelled = false;
+    (async () => {
+      const expoPushToken = await registerForPushNotificationsAsync().catch(() => null);
+      if (!expoPushToken || cancelled) return;
+      await registerPushToken({
+        expoPushToken,
+        platform: Platform.OS,
+        deviceName: (Device as any)?.deviceName || null,
+      }).catch(() => null);
+      if (!cancelled) setPushRegisteredForUser(me.email);
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [me?.email, pushRegisteredForUser]);
+
+  useEffect(() => {
+    if (Platform.OS === 'web') return;
+
+    let mounted = true;
+
+    (async () => {
+      const last = await Notifications.getLastNotificationResponseAsync().catch(() => null);
+      if (!mounted || !last) return;
+      const data: any = last.notification.request.content.data;
+      const path = typeof data?.path === 'string' ? data.path : null;
+      setPortalDeepLinkPath(path || '/portal/app/inbox');
+    })();
+
+    const sub = Notifications.addNotificationResponseReceivedListener((response) => {
+      const data: any = response.notification.request.content.data;
+      const path = typeof data?.path === 'string' ? data.path : null;
+      setPortalDeepLinkPath(path || '/portal/app/inbox');
+    });
+
+    return () => {
+      mounted = false;
+      sub.remove();
+    };
+  }, []);
+
   if (screen === 'home') {
     return (
       <SafeAreaView style={styles.safe}>
         <StatusBar barStyle='dark-content' />
-        <PortalApp
+        <PortalAppShell
           me={me}
+          deepLinkPath={portalDeepLinkPath}
+          onDeepLinkHandled={() => setPortalDeepLinkPath(null)}
           onLogout={async () => {
             setBusy(true);
             await portalLogout().catch(() => {});
