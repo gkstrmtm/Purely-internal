@@ -845,11 +845,164 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
 
   if (embedded) {
     return (
-      <div className="h-[calc(100dvh-var(--pa-portal-topbar-height,0px))] overflow-hidden bg-brand-mist text-brand-ink">
-        <main className="h-full overflow-y-auto">
+      <div className="flex h-[100dvh] flex-col overflow-hidden bg-brand-mist text-brand-ink">
+        <header className="shrink-0 border-b border-zinc-200 bg-white">
+          <div className="mx-auto flex h-16 w-full max-w-screen-xl items-center gap-2 px-3">
+            <button
+              type="button"
+              className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-zinc-200 bg-white text-zinc-900"
+              aria-label="Open menu"
+              onClick={() => setMobileOpen(true)}
+            >
+              <IconHamburger />
+            </button>
+
+            <div className="flex min-w-0 flex-1 items-center justify-center">
+              <Link href={`${basePath}/app`} className="flex items-center justify-center">
+                <Image
+                  src={sidebarLogoSrc}
+                  alt="Purely Automation"
+                  width={220}
+                  height={44}
+                  className="h-8 w-auto max-w-[12.5rem] object-contain"
+                  priority
+                />
+              </Link>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <Link
+                href="/book-a-call"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="hidden items-center justify-center rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50 sm:inline-flex"
+              >
+                Book a call
+              </Link>
+              <Link
+                href={`${basePath}/tutorials/getting-started?embed=1`}
+                className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50"
+                aria-label="Help"
+              >
+                ?
+              </Link>
+            </div>
+          </div>
+        </header>
+
+        {/* Embedded drawer */}
+        <div
+          className={classNames(
+            "fixed inset-0 z-40",
+            mobileOpen ? "" : "pointer-events-none",
+          )}
+          aria-hidden={!mobileOpen}
+        >
+          <button
+            type="button"
+            className={classNames(
+              "absolute inset-0 bg-black/30 transition-opacity",
+              mobileOpen ? "opacity-100" : "opacity-0",
+            )}
+            onClick={() => setMobileOpen(false)}
+            aria-label="Close menu"
+          />
+
+          <aside
+            className={classNames(
+              "absolute left-0 top-0 flex h-full w-72.5 flex-col overflow-hidden border-r border-zinc-200 bg-white shadow-xl transition-transform",
+              mobileOpen ? "translate-x-0" : "-translate-x-full",
+            )}
+          >
+            <div className="shrink-0 flex items-center gap-3 border-b border-zinc-200 bg-white p-3">
+              <Link href={`${basePath}/app`} className="flex items-center gap-3" onClick={() => setMobileOpen(false)}>
+                <Image
+                  src={sidebarLogoSrc}
+                  alt="Purely Automation"
+                  width={120}
+                  height={34}
+                  className="h-6 w-auto max-w-32 object-contain"
+                />
+              </Link>
+              <button
+                type="button"
+                onClick={() => setMobileOpen(false)}
+                className="ml-auto inline-flex h-10 w-10 items-center justify-center rounded-xl border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50"
+                aria-label="Close menu"
+              >
+                ×
+              </button>
+            </div>
+
+            <div className="min-h-0 flex-1 overflow-y-auto p-3">
+              <div className="space-y-1">
+                {navItems.map((item) => (
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    onClick={() => setMobileOpen(false)}
+                    className={classNames(
+                      "flex items-center gap-3 rounded-2xl px-3 py-2 text-sm font-semibold",
+                      isActive(item.href)
+                        ? "bg-[rgba(29,78,216,0.10)] text-(--color-brand-blue)"
+                        : "text-zinc-700 hover:bg-zinc-50",
+                    )}
+                  >
+                    {item.icon}
+                    <span className="truncate">{item.label}</span>
+                  </Link>
+                ))}
+              </div>
+
+              <div className="mt-6">
+                <div className="px-3 text-xs font-semibold uppercase tracking-wide text-zinc-500">Services</div>
+                <div className="mt-2 space-y-4">
+                  {sidebarServiceGroups.map((group) => (
+                    <div key={group.key}>
+                      <div className="px-3 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">{group.title}</div>
+                      <div className="mt-1 space-y-1">
+                        {group.services.map((s) => {
+                          const lockBadge = serviceLockBadge(s.slug);
+                          const unlocked = serviceUnlocked(s);
+                          return (
+                            <Link
+                              key={s.slug}
+                              href={`${basePath}/app/services/${s.slug}`}
+                              onClick={() => setMobileOpen(false)}
+                              className={classNames(
+                                "flex items-center gap-3 rounded-2xl px-3 py-2 text-sm font-medium",
+                                pathname.startsWith(`${basePath}/app/services/${s.slug}`)
+                                  ? "bg-zinc-100 text-zinc-900"
+                                  : "text-zinc-700 hover:bg-zinc-50",
+                              )}
+                            >
+                              <span className="text-zinc-500">
+                                <IconServiceGlyph slug={s.slug} />
+                              </span>
+                              <span className="min-w-0 flex-1 truncate">{s.title}</span>
+                              {!unlocked ? (
+                                <span className="inline-flex items-center gap-1 rounded-full border border-zinc-200 bg-white px-2 py-1 text-[11px] font-semibold text-zinc-600">
+                                  <IconLock />
+                                  {lockBadge?.label || "Locked"}
+                                </span>
+                              ) : null}
+                            </Link>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </aside>
+        </div>
+
+        <main className="min-h-0 flex-1 overflow-y-auto">
           {children}
           <div aria-hidden className="h-[calc(env(safe-area-inset-bottom)+2rem)]" />
         </main>
+
         <PortalFloatingTools />
       </div>
     );

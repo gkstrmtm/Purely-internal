@@ -1,5 +1,5 @@
-import React, { useMemo, useRef } from "react";
-import { Platform, View } from "react-native";
+import React, { useEffect, useMemo, useRef } from "react";
+import { ActivityIndicator, Platform, View } from "react-native";
 import { WebView } from "react-native-webview";
 
 import { getPortalBearerToken } from "../../auth/portalToken";
@@ -13,21 +13,27 @@ function toPathWithEmbed(path: string) {
 
 export function PortalWebSurface({ path }: { path: string }) {
   const embeddedPath = useMemo(() => toPathWithEmbed(path), [path]);
+  const isWeb = Platform.OS === "web";
 
-  if (Platform.OS === "web") {
-    // Web builds commonly deploy the app and proxy `/portal/*` back to the main
-    // portal host via rewrites. Using a same-origin iframe source ensures the
-    // portal session cookie (set by `/portal/api/login`) is shared with the
-    // embedded portal pages.
-    const iframeSrc = embeddedPath;
+  useEffect(() => {
+    if (!isWeb) return;
+    if (typeof window === "undefined") return;
+
+    try {
+      const current =
+        window.location.pathname + window.location.search + window.location.hash;
+      if (current !== embeddedPath) window.location.assign(embeddedPath);
+    } catch {
+      // ignore
+    }
+  }, [embeddedPath, isWeb]);
+
+  if (isWeb) {
     return (
       <View style={{ flex: 1 }}>
-        {/* eslint-disable-next-line jsx-a11y/iframe-has-title */}
-        <iframe
-          src={iframeSrc}
-          style={{ border: 0, width: "100%", height: "100%" }}
-          sandbox="allow-same-origin allow-scripts allow-forms allow-popups allow-downloads"
-        />
+        <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
+          <ActivityIndicator />
+        </View>
       </View>
     );
   }
