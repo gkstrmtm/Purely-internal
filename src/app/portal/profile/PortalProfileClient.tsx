@@ -283,17 +283,49 @@ export function PortalProfileClient() {
 
     if (!el) return;
 
+    function findScrollParent(node: HTMLElement): HTMLElement | null {
+      let parent: HTMLElement | null = node.parentElement;
+      while (parent) {
+        const style = window.getComputedStyle(parent);
+        const overflowY = style.overflowY;
+        const canScrollY =
+          (overflowY === "auto" || overflowY === "scroll" || overflowY === "overlay") &&
+          parent.scrollHeight > parent.clientHeight + 1;
+        if (canScrollY) return parent;
+        parent = parent.parentElement;
+      }
+      return null;
+    }
+
+    function scrollToTarget(node: HTMLElement) {
+      const scrollParent = findScrollParent(node);
+      if (scrollParent) {
+        const parentRect = scrollParent.getBoundingClientRect();
+        const rect = node.getBoundingClientRect();
+        const top = scrollParent.scrollTop + (rect.top - parentRect.top) - ADVANCED_SCROLL_OFFSET_PX;
+        scrollParent.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
+        return;
+      }
+
+      const top = window.scrollY + node.getBoundingClientRect().top - ADVANCED_SCROLL_OFFSET_PX;
+      window.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
+    }
+
     let raf1 = 0;
     let raf2 = 0;
+    let t = 0;
     raf1 = window.requestAnimationFrame(() => {
       raf2 = window.requestAnimationFrame(() => {
-        const top = window.scrollY + el.getBoundingClientRect().top - ADVANCED_SCROLL_OFFSET_PX;
-        window.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
-        setPendingAdvancedScrollTarget(null);
+        // Give layout a beat to settle after expanding advanced.
+        t = window.setTimeout(() => {
+          scrollToTarget(el);
+          setPendingAdvancedScrollTarget(null);
+        }, 50);
       });
     });
 
     return () => {
+      if (t) window.clearTimeout(t);
       if (raf1) window.cancelAnimationFrame(raf1);
       if (raf2) window.cancelAnimationFrame(raf2);
     };

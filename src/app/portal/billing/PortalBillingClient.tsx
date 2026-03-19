@@ -874,7 +874,7 @@ export function PortalBillingClient() {
                   const mod = purchaseModal.module;
                   await purchaseModule(mod);
                 }}
-                className="rounded-2xl bg-[color:var(--color-brand-blue)] px-5 py-3 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
+                className="rounded-2xl bg-(--color-brand-blue) px-5 py-3 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
               >
                 {actionBusy?.startsWith("module:") ? "Opening…" : "Buy & enable"}
               </button>
@@ -920,55 +920,6 @@ export function PortalBillingClient() {
             <div className="mt-1 text-lg font-bold text-brand-ink">{spentThisMonthText}</div>
             <div className="mt-1 text-xs text-zinc-500">Paid invoices + one-time charges (credits, installs, etc.)</div>
           </div>
-        </div>
-
-        <div className="mt-3 rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <div className="text-sm font-semibold text-zinc-900">Monthly breakdown</div>
-              <div className="mt-1 text-sm text-zinc-600">Everything you currently have access to (billed or included).</div>
-            </div>
-            {!creditsOnly ? (
-              <div className="text-right">
-                <div className="text-xs text-zinc-500">Subscription status</div>
-                <div className="mt-1 flex items-center justify-end gap-2">
-                  <span className={`h-2.5 w-2.5 rounded-full ${statusDotClass}`} />
-                  <div className="text-sm font-semibold text-brand-ink">{hasActiveSub ? "Active" : "Not active"}</div>
-                  {sub?.cancelAtPeriodEnd ? (
-                    <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-900">
-                      Canceling
-                    </span>
-                  ) : null}
-                </div>
-                {periodEndText ? <div className="mt-1 text-xs text-zinc-500">Renews/ends: {periodEndText}</div> : null}
-              </div>
-            ) : null}
-          </div>
-
-          {accessBreakdownRows.length ? (
-            <div className="mt-3 max-h-65 overflow-auto pr-1 sm:max-h-80">
-              <div className="grid gap-2">
-                {accessBreakdownRows.map((x) => (
-                  <div key={x.slug} className="flex items-center justify-between gap-3 rounded-2xl border border-zinc-200 bg-white px-3 py-2">
-                    <div className="min-w-0">
-                      <div className="truncate text-sm font-semibold text-brand-ink">{x.title}</div>
-                      <div className="mt-0.5 flex items-center gap-2">
-                        <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${badgeClass(x.state)}`}>{x.label}</span>
-                        <span className="text-xs text-zinc-500">
-                          {x.included ? "Included" : creditsOnly ? "Credit-based" : "Billed"}
-                        </span>
-                      </div>
-                    </div>
-                    <div className="shrink-0 text-sm font-semibold text-zinc-900">
-                      {x.included ? "Included" : creditsOnly ? "Credit-based" : `${formatMoney(x.monthlyCents, x.currency)}/mo`}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          ) : (
-            <div className="mt-3 text-sm text-zinc-600">No services found.</div>
-          )}
         </div>
 
         {!creditsOnly ? (
@@ -1042,6 +993,55 @@ export function PortalBillingClient() {
             )}
           </div>
         ) : null}
+
+        <div className="mt-6 rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <div className="text-sm font-semibold text-zinc-900">Monthly breakdown</div>
+              <div className="mt-1 text-sm text-zinc-600">Everything you currently have access to (billed or included).</div>
+            </div>
+            {!creditsOnly ? (
+              <div className="text-right">
+                <div className="text-xs text-zinc-500">Subscription status</div>
+                <div className="mt-1 flex items-center justify-end gap-2">
+                  <span className={`h-2.5 w-2.5 rounded-full ${statusDotClass}`} />
+                  <div className="text-sm font-semibold text-brand-ink">{hasActiveSub ? "Active" : "Not active"}</div>
+                  {sub?.cancelAtPeriodEnd ? (
+                    <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-900">
+                      Canceling
+                    </span>
+                  ) : null}
+                </div>
+                {periodEndText ? <div className="mt-1 text-xs text-zinc-500">Renews/ends: {periodEndText}</div> : null}
+              </div>
+            ) : null}
+          </div>
+
+          {accessBreakdownRows.length ? (
+            <div className="mt-3 max-h-65 overflow-auto pr-1 sm:max-h-80">
+              <div className="grid gap-2">
+                {accessBreakdownRows.map((x) => (
+                  <div key={x.slug} className="flex items-center justify-between gap-3 rounded-2xl border border-zinc-200 bg-white px-3 py-2">
+                    <div className="min-w-0">
+                      <div className="truncate text-sm font-semibold text-brand-ink">{x.title}</div>
+                      <div className="mt-0.5 flex items-center gap-2">
+                        <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${badgeClass(x.state)}`}>{x.label}</span>
+                        <span className="text-xs text-zinc-500">
+                          {x.included ? "Included" : creditsOnly ? "Credit-based" : "Billed"}
+                        </span>
+                      </div>
+                    </div>
+                    <div className="shrink-0 text-sm font-semibold text-zinc-900">
+                      {x.included ? "Included" : creditsOnly ? "Credit-based" : `${formatMoney(x.monthlyCents, x.currency)}/mo`}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <div className="mt-3 text-sm text-zinc-600">No services found.</div>
+          )}
+        </div>
       </div>
 
       <div className="rounded-3xl border border-zinc-200 bg-white p-6">
@@ -1059,6 +1059,58 @@ export function PortalBillingClient() {
         {typeof creditUsdValue === "number" ? (
           <div className="mt-2 text-xs text-zinc-500">1 credit = {formatUsd(creditUsdValue)}.</div>
         ) : null}
+
+        <div className="mt-4 rounded-2xl border border-zinc-200 bg-white p-4">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <div className="text-sm font-semibold text-zinc-900">Refer for free credits</div>
+              <div className="mt-1 text-xs text-zinc-500">
+                Earn 100 credits when someone signs up with your link.
+              </div>
+            </div>
+          </div>
+
+          <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center">
+            <input
+              className="w-full flex-1 rounded-2xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm text-zinc-700"
+              readOnly
+              value={referral?.url ?? ""}
+              placeholder={referralLoading ? "Loading your link…" : ""}
+              aria-label="Your referral link"
+            />
+            <button
+              type="button"
+              className="rounded-2xl bg-(--color-brand-blue) px-4 py-2 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
+              disabled={referralLoading}
+              onClick={async () => {
+                // Always rotate to a fresh link on copy.
+                const next = await rotateReferral();
+                const url = next?.url || referral?.url;
+                if (!url) {
+                  toast.error("Unable to generate referral link");
+                  return;
+                }
+                try {
+                  await navigator.clipboard.writeText(url);
+                  toast.success("Referral link copied");
+                } catch {
+                  toast.error("Unable to copy link");
+                }
+              }}
+            >
+              Copy link
+            </button>
+          </div>
+
+          {referral?.stats ? (
+            <div className="mt-3 text-xs text-zinc-600">
+              Invites: <span className="font-semibold text-zinc-800">{Math.max(0, referral.stats.total)}</span>
+              {" "}• Verified: <span className="font-semibold text-zinc-800">{Math.max(0, referral.stats.verified)}</span>
+              {" "}• Awarded: <span className="font-semibold text-zinc-800">{Math.max(0, referral.stats.awarded)}</span>
+            </div>
+          ) : null}
+
+        </div>
 
         <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
           <div className="flex items-center justify-between gap-3">
@@ -1079,7 +1131,7 @@ export function PortalBillingClient() {
                   onChange={(e) => void saveAutoTopUp(e.target.checked)}
                   aria-label="Enable auto top-up"
                 />
-                <span className="h-6 w-11 rounded-full bg-zinc-200 transition peer-checked:bg-[color:var(--color-brand-blue)] peer-focus-visible:ring-2 peer-focus-visible:ring-brand-ink/40 peer-focus-visible:ring-offset-2 peer-focus-visible:ring-offset-zinc-50 peer-disabled:opacity-60" />
+                <span className="h-6 w-11 rounded-full bg-zinc-200 transition peer-checked:bg-(--color-brand-blue) peer-focus-visible:ring-2 peer-focus-visible:ring-brand-ink/40 peer-focus-visible:ring-offset-2 peer-focus-visible:ring-offset-zinc-50 peer-disabled:opacity-60" />
                 <span className="pointer-events-none absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow-sm transition peer-checked:translate-x-5 peer-disabled:opacity-60" />
               </span>
             </label>
@@ -1136,7 +1188,7 @@ export function PortalBillingClient() {
 
               <button
                 type="button"
-                className="rounded-2xl bg-[color:var(--color-brand-blue)] px-4 py-2 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
+                className="rounded-2xl bg-(--color-brand-blue) px-4 py-2 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
                 disabled={actionBusy !== null}
                 onClick={() => void topUp()}
               >
@@ -1148,57 +1200,6 @@ export function PortalBillingClient() {
           )}
         </div>
 
-        <div className="mt-5 rounded-2xl border border-zinc-200 bg-white p-4">
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <div className="text-sm font-semibold text-zinc-900">Refer for free credits</div>
-              <div className="mt-1 text-xs text-zinc-500">
-                Earn 100 credits when someone signs up with your link.
-              </div>
-            </div>
-          </div>
-
-          <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center">
-            <input
-              className="w-full flex-1 rounded-2xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm text-zinc-700"
-              readOnly
-              value={referral?.url ?? ""}
-              placeholder={referralLoading ? "Loading your link…" : ""}
-              aria-label="Your referral link"
-            />
-            <button
-              type="button"
-              className="rounded-2xl bg-[color:var(--color-brand-blue)] px-4 py-2 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
-              disabled={referralLoading}
-              onClick={async () => {
-                // Always rotate to a fresh link on copy.
-                const next = await rotateReferral();
-                const url = next?.url || referral?.url;
-                if (!url) {
-                  toast.error("Unable to generate referral link");
-                  return;
-                }
-                try {
-                  await navigator.clipboard.writeText(url);
-                  toast.success("Referral link copied");
-                } catch {
-                  toast.error("Unable to copy link");
-                }
-              }}
-            >
-              Copy link
-            </button>
-          </div>
-
-          {referral?.stats ? (
-            <div className="mt-3 text-xs text-zinc-600">
-              Invites: <span className="font-semibold text-zinc-800">{Math.max(0, referral.stats.total)}</span>
-              {" "}• Verified: <span className="font-semibold text-zinc-800">{Math.max(0, referral.stats.verified)}</span>
-              {" "}• Awarded: <span className="font-semibold text-zinc-800">{Math.max(0, referral.stats.awarded)}</span>
-            </div>
-          ) : null}
-
-        </div>
       </div>
 
 
@@ -1640,7 +1641,7 @@ export function PortalBillingClient() {
                   onClick={() => {
                     void setCreditsOnlyLifecycle("resume");
                   }}
-                  className="rounded-2xl bg-[color:var(--color-brand-blue)] px-4 py-2 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
+                  className="rounded-2xl bg-(--color-brand-blue) px-4 py-2 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
                 >
                   {actionBusy === "credits-only:resume" ? "Resuming…" : "Resume services"}
                 </button>
