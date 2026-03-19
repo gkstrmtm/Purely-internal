@@ -1182,74 +1182,73 @@ export function PortalPeopleContactsClient() {
               })()}
             </div>
 
-            <div className="mt-3 space-y-3">
-              {mobileListRows.length ? (
-                mobilePeopleFilter === "unlinked" ? (
-                  (mobileListRows as LeadRow[]).slice(0, 100).map((l) => (
-                    <button
-                      key={`l_${l.id}`}
-                      type="button"
-                      onClick={() => openLeadModal(l)}
-                      className="w-full rounded-2xl border border-zinc-200 bg-white p-4 text-left hover:bg-zinc-50"
-                    >
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="min-w-0">
-                          <div className="font-semibold text-zinc-900 truncate">{l.businessName || "N/A"}</div>
-                          <div className="mt-1 text-sm text-zinc-600 truncate">
-                            {l.email || "N/A"} {l.phone ? `• ${l.phone}` : ""}
+            <div className="mt-3 -mx-4 border-t border-zinc-200">
+              <div className="divide-y divide-zinc-200">
+                {mobileListRows.length ? (
+                  mobilePeopleFilter === "unlinked" ? (
+                    (mobileListRows as LeadRow[]).slice(0, 100).map((l) => (
+                      <button
+                        key={`l_${l.id}`}
+                        type="button"
+                        onClick={() => openLeadModal(l)}
+                        className="w-full bg-white px-4 py-4 text-left hover:bg-zinc-50"
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <div className="font-semibold text-zinc-900 truncate">{l.businessName || "N/A"}</div>
+                            <div className="mt-1 text-sm text-zinc-600 truncate">
+                              {l.email || "N/A"} {l.phone ? `• ${l.phone}` : ""}
+                            </div>
+                            {l.website ? <div className="mt-1 text-xs text-zinc-500 truncate">{l.website}</div> : null}
                           </div>
-                          {l.website ? <div className="mt-1 text-xs text-zinc-500 truncate">{l.website}</div> : null}
-                        </div>
-                        <div className="flex flex-col items-end gap-2">
-                          <span className="inline-flex items-center rounded-full border border-zinc-200 bg-white px-2 py-1 text-[11px] font-semibold text-zinc-700">
-                            Unlinked lead
-                          </span>
-                          <span
-                            className={classNames(
-                              "inline-flex items-center rounded-full px-2 py-1 text-xs font-semibold",
-                              l.assignedToUserId ? "bg-emerald-50 text-emerald-700" : "bg-zinc-100 text-zinc-600",
-                            )}
-                          >
-                            {l.assignedToUserId ? "Assigned" : "Unassigned"}
-                          </span>
-                        </div>
-                      </div>
-                    </button>
-                  ))
-                ) : (
-                  (mobileListRows as ContactRow[]).slice(0, 100).map((c) => (
-                    <button
-                      key={`c_${c.id}`}
-                      type="button"
-                      onClick={() => openContact(c.id)}
-                      className="w-full rounded-2xl border border-zinc-200 bg-white p-4 text-left hover:bg-zinc-50"
-                    >
-                      <div className="font-semibold text-zinc-900 truncate">{c.name || "N/A"}</div>
-                      <div className="mt-1 text-sm text-zinc-600 truncate">
-                        {c.email || "N/A"} {c.phone ? `• ${c.phone}` : ""}
-                      </div>
-                      {c.tags?.length ? (
-                        <div className="mt-2 flex flex-wrap gap-1">
-                          {c.tags.slice(0, 4).map((t) => (
+                          <div className="flex flex-col items-end gap-2">
                             <span
-                              key={t.id}
-                              className="inline-flex items-center rounded-full border border-zinc-200 bg-white px-2 py-0.5 text-[11px] font-semibold text-zinc-700"
-                              title={t.name}
+                              className={classNames(
+                                "inline-flex items-center rounded-full px-2 py-1 text-xs font-semibold",
+                                l.assignedToUserId ? "bg-emerald-50 text-emerald-700" : "bg-zinc-100 text-zinc-600",
+                              )}
                             >
-                              {t.name}
+                              {l.assignedToUserId ? "Assigned" : "Unassigned"}
                             </span>
-                          ))}
-                          {c.tags.length > 4 ? (
-                            <span className="text-[11px] font-semibold text-zinc-500">+{c.tags.length - 4}</span>
-                          ) : null}
+                          </div>
                         </div>
-                      ) : null}
-                    </button>
-                  ))
-                )
-              ) : (
-                <div className="rounded-2xl border border-zinc-200 bg-white p-4 text-sm text-zinc-600">No matches.</div>
-              )}
+                      </button>
+                    ))
+                  ) : (
+                    (mobileListRows as ContactRow[]).slice(0, 100).map((c) => (
+                      <button
+                        key={`c_${c.id}`}
+                        type="button"
+                        onClick={() => openContact(c.id)}
+                        className="w-full bg-white px-4 py-4 text-left hover:bg-zinc-50"
+                      >
+                        <div className="font-semibold text-zinc-900 truncate">{c.name || "N/A"}</div>
+                        <div className="mt-1 text-sm text-zinc-600 truncate">
+                          {c.email || "N/A"} {c.phone ? `• ${c.phone}` : ""}
+                        </div>
+                        {c.tags?.length ? (
+                          <div className="mt-2 flex flex-wrap gap-1">
+                            {c.tags.slice(0, 4).map((t) => (
+                              <span
+                                key={t.id}
+                                className="inline-flex items-center rounded-full border border-zinc-200 bg-white px-2 py-0.5 text-[11px] font-semibold text-zinc-700"
+                                title={t.name}
+                              >
+                                {t.name}
+                              </span>
+                            ))}
+                            {c.tags.length > 4 ? (
+                              <span className="text-[11px] font-semibold text-zinc-500">+{c.tags.length - 4}</span>
+                            ) : null}
+                          </div>
+                        ) : null}
+                      </button>
+                    ))
+                  )
+                ) : (
+                  <div className="bg-white px-4 py-4 text-sm text-zinc-600">No matches.</div>
+                )}
+              </div>
             </div>
 
             {(() => {
@@ -1259,7 +1258,7 @@ export function PortalPeopleContactsClient() {
               const canBack = mobilePeopleFilter === "unlinked" ? leadsCursorStack.length > 1 : contactsCursorStack.length > 1;
               const canNext = mobilePeopleFilter === "unlinked" ? Boolean(leadsNextCursor) : Boolean(contactsNextCursor);
               return (
-                <div className="mt-4 flex flex-wrap items-center justify-between gap-2 rounded-3xl border border-zinc-200 bg-white p-4">
+                <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-zinc-50 px-3 py-2">
                   <div className="text-xs text-zinc-500">
                     Page {page}
                     <span className="mx-1">•</span>
@@ -1314,130 +1313,144 @@ export function PortalPeopleContactsClient() {
 
           <div className="mt-6 hidden grid-cols-1 gap-6 sm:grid lg:grid-cols-2">
             <div className="rounded-3xl border border-zinc-200 bg-white p-6">
-            <div className="flex items-center justify-between gap-3">
-              <div className="text-base font-semibold text-zinc-900">
-                Contacts ({data.contacts.length} of {typeof data.totalContacts === "number" ? data.totalContacts : "N/A"})
-                {q.trim() ? <span className="ml-2 text-xs font-semibold text-zinc-500">Filtered: {filteredContacts.length}</span> : null}
-              </div>
-              <div className="flex flex-wrap items-center gap-2">
-                {duplicateGroupsCount > 0 ? (
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="text-base font-semibold text-zinc-900">
+                    Contacts ({data.contacts.length} of {typeof data.totalContacts === "number" ? data.totalContacts : "N/A"})
+                    {q.trim() ? <span className="ml-2 text-xs font-semibold text-zinc-500">Filtered: {filteredContacts.length}</span> : null}
+                  </div>
+                  <div className="mt-1 text-sm text-zinc-600">Manage and open contact details.</div>
+                </div>
+                <div className="flex flex-wrap items-center justify-end gap-2">
+                  {duplicateGroupsCount > 0 ? (
+                    <button
+                      type="button"
+                      onClick={() => router.push("/portal/app/people/contacts/duplicates")}
+                      className="rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-900 hover:bg-amber-100"
+                      title="Duplicates are grouped by phone number"
+                    >
+                      Duplicates ({duplicateGroupsCount})
+                    </button>
+                  ) : duplicatesLoading ? (
+                    <div className="text-xs font-semibold text-zinc-400">Checking duplicates…</div>
+                  ) : null}
                   <button
                     type="button"
-                    onClick={() => router.push("/portal/app/people/contacts/duplicates")}
-                    className="rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-900 hover:bg-amber-100"
-                    title="Duplicates are grouped by phone number"
+                    onClick={openImportModal}
+                    className="rounded-2xl bg-blue-600 px-3 py-2 text-xs font-semibold text-white hover:bg-blue-700"
                   >
-                    Duplicates ({duplicateGroupsCount})
+                    + New
                   </button>
-                ) : duplicatesLoading ? (
-                  <div className="text-xs font-semibold text-zinc-400">Checking duplicates…</div>
-                ) : null}
-                <button
-                  type="button"
-                  onClick={openImportModal}
-                  className="rounded-2xl bg-blue-600 px-3 py-2 text-xs font-semibold text-white hover:bg-blue-700"
-                >
-                  + New
-                </button>
-                <div className="text-xs text-zinc-500">Page {contactsCursorStack.length}</div>
-                <div className="hidden text-xs text-zinc-500 sm:block">•</div>
-                <div className="hidden text-xs text-zinc-500 sm:block">50 per page</div>
-                <button
-                  type="button"
-                  disabled={contactsCursorStack.length <= 1}
-                  title="Back ([)"
-                  onClick={() =>
-                    void (async () => {
-                      const prev = contactsCursorStack[contactsCursorStack.length - 2] ?? null;
-                      const ok = await load({ contactsCursor: prev, leadsCursor });
-                      if (ok) setContactsCursorStack((s) => (s.length > 1 ? s.slice(0, -1) : s));
-                    })()
-                  }
-                  className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-50"
-                >
-                  Back
-                </button>
-                <button
-                  type="button"
-                  disabled={!contactsNextCursor}
-                  title="Next (])"
-                  onClick={() =>
-                    void (async () => {
-                      if (!contactsNextCursor) return;
-                      const ok = await load({ contactsCursor: contactsNextCursor, leadsCursor });
-                      if (ok) setContactsCursorStack((s) => [...s, contactsNextCursor]);
-                    })()
-                  }
-                  className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-50"
-                >
-                  Next
-                </button>
+                </div>
               </div>
-            </div>
 
-            <div className="mt-4 max-h-[60vh] overflow-auto rounded-2xl border border-zinc-200">
-              <table className="w-full text-left text-sm">
-                <thead className="sticky top-0 z-10 bg-zinc-50 text-xs font-semibold uppercase tracking-wide text-zinc-500">
-                  <tr>
-                    <th className="px-4 py-3">Name</th>
-                    <th className="px-4 py-3">Email</th>
-                    <th className="px-4 py-3">Phone</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredContacts.length ? (
-                    filteredContacts.slice(0, 50).map((c) => (
-                      <tr
-                        key={c.id}
-                        className="cursor-pointer border-t border-zinc-200 hover:bg-zinc-50"
-                        onClick={() => openContact(c.id)}
+              {(() => {
+                const contactsTotal = typeof data.totalContacts === "number" ? data.totalContacts : data.contacts.length;
+                if (contactsTotal < 20) return null;
+                return (
+                  <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-zinc-50 px-3 py-2">
+                    <div className="text-xs text-zinc-500">
+                      Page {contactsCursorStack.length}
+                      <span className="mx-1">•</span>
+                      50 per page
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <button
+                        type="button"
+                        disabled={contactsCursorStack.length <= 1}
+                        onClick={() =>
+                          void (async () => {
+                            const prev = contactsCursorStack[contactsCursorStack.length - 2] ?? null;
+                            const ok = await load({ contactsCursor: prev, leadsCursor });
+                            if (ok) setContactsCursorStack((s) => (s.length > 1 ? s.slice(0, -1) : s));
+                          })()
+                        }
+                        className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-50"
                       >
-                        <td className="px-4 py-3 min-w-0">
-                          <div className="font-semibold text-zinc-900">{c.name || "N/A"}</div>
-                          {c.tags?.length ? (
-                            <div className="mt-1 flex flex-wrap gap-1">
-                              {c.tags.slice(0, 3).map((t) => (
-                                <span
-                                  key={t.id}
-                                  className="inline-flex items-center rounded-full border border-zinc-200 bg-white px-2 py-0.5 text-[11px] font-semibold text-zinc-700"
-                                  title={t.name}
-                                >
-                                  {t.name}
-                                </span>
-                              ))}
-                              {c.tags.length > 3 ? (
-                                <span className="text-[11px] font-semibold text-zinc-500">+{c.tags.length - 3}</span>
-                              ) : null}
-                            </div>
-                          ) : null}
-                        </td>
-                        <td className="px-4 py-3 min-w-0">
-                          <div className="truncate">{c.email || "N/A"}</div>
-                        </td>
-                        <td className="px-4 py-3 min-w-0">
-                          <div className="truncate">{c.phone || "N/A"}</div>
+                        Back
+                      </button>
+                      <button
+                        type="button"
+                        disabled={!contactsNextCursor}
+                        onClick={() =>
+                          void (async () => {
+                            if (!contactsNextCursor) return;
+                            const ok = await load({ contactsCursor: contactsNextCursor, leadsCursor });
+                            if (ok) setContactsCursorStack((s) => [...s, contactsNextCursor]);
+                          })()
+                        }
+                        className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-50"
+                      >
+                        Next
+                      </button>
+                    </div>
+                  </div>
+                );
+              })()}
+
+              <div className="mt-4 rounded-2xl border border-zinc-200 overflow-x-auto">
+                <table className="w-full text-left text-sm">
+                  <thead className="bg-zinc-50 text-xs font-semibold uppercase tracking-wide text-zinc-500">
+                    <tr>
+                      <th className="px-3 py-2 sm:px-4 sm:py-3">Name</th>
+                      <th className="px-3 py-2 sm:px-4 sm:py-3">Email</th>
+                      <th className="px-3 py-2 sm:px-4 sm:py-3">Phone</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredContacts.length ? (
+                      filteredContacts.slice(0, 50).map((c) => (
+                        <tr
+                          key={c.id}
+                          className="cursor-pointer border-t border-zinc-200 hover:bg-zinc-50"
+                          onClick={() => openContact(c.id)}
+                        >
+                          <td className="px-3 py-2 sm:px-4 sm:py-3 min-w-0">
+                            <div className="font-semibold text-zinc-900">{c.name || "N/A"}</div>
+                            {c.tags?.length ? (
+                              <div className="mt-1 flex flex-wrap gap-1">
+                                {c.tags.slice(0, 3).map((t) => (
+                                  <span
+                                    key={t.id}
+                                    className="inline-flex items-center rounded-full border border-zinc-200 bg-white px-2 py-0.5 text-[11px] font-semibold text-zinc-700"
+                                    title={t.name}
+                                  >
+                                    {t.name}
+                                  </span>
+                                ))}
+                                {c.tags.length > 3 ? (
+                                  <span className="text-[11px] font-semibold text-zinc-500">+{c.tags.length - 3}</span>
+                                ) : null}
+                              </div>
+                            ) : null}
+                          </td>
+                          <td className="px-3 py-2 sm:px-4 sm:py-3 min-w-0">
+                            <div className="truncate">{c.email || "N/A"}</div>
+                          </td>
+                          <td className="px-3 py-2 sm:px-4 sm:py-3 min-w-0">
+                            <div className="truncate">{c.phone || "N/A"}</div>
+                          </td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr className="border-t border-zinc-200">
+                        <td className="px-3 py-5 text-sm text-zinc-600 sm:px-4" colSpan={3}>
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <div>No contacts yet.</div>
+                            <button
+                              type="button"
+                              onClick={openImportModal}
+                              className="rounded-2xl bg-blue-600 px-3 py-2 text-xs font-semibold text-white hover:bg-blue-700"
+                            >
+                              + New
+                            </button>
+                          </div>
                         </td>
                       </tr>
-                    ))
-                  ) : (
-                    <tr className="border-t border-zinc-200">
-                      <td className="px-4 py-5 text-sm text-zinc-600" colSpan={3}>
-                        <div className="flex flex-wrap items-center justify-between gap-2">
-                          <div>No contacts yet.</div>
-                          <button
-                            type="button"
-                            onClick={openImportModal}
-                            className="rounded-2xl bg-blue-600 px-3 py-2 text-xs font-semibold text-white hover:bg-blue-700"
-                          >
-                            + New
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
+                    )}
+                  </tbody>
+                </table>
+              </div>
 
             {(() => {
               const contactsTotal = typeof data.totalContacts === "number" ? data.totalContacts : data.contacts.length;
@@ -1492,81 +1505,14 @@ export function PortalPeopleContactsClient() {
                 Unlinked leads ({data.unlinkedLeads.length} of {typeof data.totalUnlinkedLeads === "number" ? data.totalUnlinkedLeads : "N/A"})
                 {q.trim() ? <span className="ml-2 text-xs font-semibold text-zinc-500">Filtered: {filteredLeads.length}</span> : null}
               </div>
-              <div className="flex flex-wrap items-center gap-2">
-                <div className="text-xs text-zinc-500">Page {leadsCursorStack.length}</div>
-                <div className="hidden text-xs text-zinc-500 sm:block">•</div>
-                <div className="hidden text-xs text-zinc-500 sm:block">50 per page</div>
-                <button
-                  type="button"
-                  disabled={leadsCursorStack.length <= 1}
-                  title="Back ({)"
-                  onClick={() =>
-                    void (async () => {
-                      const prev = leadsCursorStack[leadsCursorStack.length - 2] ?? null;
-                      const ok = await load({ contactsCursor, leadsCursor: prev });
-                      if (ok) setLeadsCursorStack((s) => (s.length > 1 ? s.slice(0, -1) : s));
-                    })()
-                  }
-                  className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-50"
-                >
-                  Back
-                </button>
-                <button
-                  type="button"
-                  disabled={!leadsNextCursor}
-                  title="Next (})"
-                  onClick={() =>
-                    void (async () => {
-                      if (!leadsNextCursor) return;
-                      const ok = await load({ contactsCursor, leadsCursor: leadsNextCursor });
-                      if (ok) setLeadsCursorStack((s) => [...s, leadsNextCursor]);
-                    })()
-                  }
-                  className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-50"
-                >
-                  Next
-                </button>
-              </div>
-            </div>
-
-            <div className="mt-4 max-h-[60vh] overflow-auto space-y-3 pr-1">
-              {filteredLeads.length ? (
-                filteredLeads.slice(0, 50).map((l) => (
-                  <button
-                    key={l.id}
-                    type="button"
-                    onClick={() => openLeadModal(l)}
-                    className="w-full rounded-2xl border border-zinc-200 p-4 text-left hover:bg-zinc-50"
-                  >
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <div className="font-semibold text-zinc-900 truncate">{l.businessName || "N/A"}</div>
-                        <div className="mt-1 text-sm text-zinc-600 truncate">
-                          {l.email || "N/A"} {l.phone ? `• ${l.phone}` : ""}
-                        </div>
-                        {l.website ? <div className="mt-1 text-xs text-zinc-500 truncate">{l.website}</div> : null}
-                      </div>
-                      <span
-                        className={classNames(
-                          "inline-flex items-center rounded-full px-2 py-1 text-xs font-semibold",
-                          l.assignedToUserId ? "bg-emerald-50 text-emerald-700" : "bg-zinc-100 text-zinc-600",
-                        )}
-                      >
-                        {l.assignedToUserId ? "Assigned" : "Unassigned"}
-                      </span>
-                    </div>
-                  </button>
-                ))
-              ) : (
-                <div className="text-sm text-zinc-600">No unlinked leads.</div>
-              )}
+              <div className="text-sm text-zinc-600">Review inbound leads that aren’t linked yet.</div>
             </div>
 
             {(() => {
               const leadsTotal = typeof data.totalUnlinkedLeads === "number" ? data.totalUnlinkedLeads : data.unlinkedLeads.length;
               if (leadsTotal < 20) return null;
               return (
-                <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+                <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-zinc-50 px-3 py-2">
                   <div className="text-xs text-zinc-500">
                     Page {leadsCursorStack.length}
                     <span className="mx-1">•</span>
@@ -1605,6 +1551,57 @@ export function PortalPeopleContactsClient() {
                 </div>
               );
             })()}
+
+            <div className="mt-4 rounded-2xl border border-zinc-200 overflow-x-auto">
+              <table className="w-full text-left text-sm">
+                <thead className="bg-zinc-50 text-xs font-semibold uppercase tracking-wide text-zinc-500">
+                  <tr>
+                    <th className="px-3 py-2 sm:px-4 sm:py-3">Business</th>
+                    <th className="px-3 py-2 sm:px-4 sm:py-3">Email</th>
+                    <th className="px-3 py-2 sm:px-4 sm:py-3">Phone</th>
+                    <th className="px-3 py-2 sm:px-4 sm:py-3">Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredLeads.length ? (
+                    filteredLeads.slice(0, 50).map((l) => (
+                      <tr
+                        key={l.id}
+                        className="cursor-pointer border-t border-zinc-200 hover:bg-zinc-50"
+                        onClick={() => openLeadModal(l)}
+                      >
+                        <td className="px-3 py-2 sm:px-4 sm:py-3 min-w-0">
+                          <div className="font-semibold text-zinc-900 truncate">{l.businessName || "N/A"}</div>
+                          {l.website ? <div className="mt-1 text-xs text-zinc-500 truncate">{l.website}</div> : null}
+                        </td>
+                        <td className="px-3 py-2 sm:px-4 sm:py-3 min-w-0">
+                          <div className="truncate">{l.email || "N/A"}</div>
+                        </td>
+                        <td className="px-3 py-2 sm:px-4 sm:py-3 min-w-0">
+                          <div className="truncate">{l.phone || "N/A"}</div>
+                        </td>
+                        <td className="px-3 py-2 sm:px-4 sm:py-3">
+                          <span
+                            className={classNames(
+                              "inline-flex items-center rounded-full px-2 py-1 text-xs font-semibold",
+                              l.assignedToUserId ? "bg-emerald-50 text-emerald-700" : "bg-zinc-100 text-zinc-600",
+                            )}
+                          >
+                            {l.assignedToUserId ? "Assigned" : "Unassigned"}
+                          </span>
+                        </td>
+                      </tr>
+                    ))
+                  ) : (
+                    <tr className="border-t border-zinc-200">
+                      <td className="px-3 py-5 text-sm text-zinc-600 sm:px-4" colSpan={4}>
+                        No unlinked leads.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
 
             <div className="mt-3 text-xs text-zinc-500">Showing {data.unlinkedLeads.length} on this page.</div>
           </div>
