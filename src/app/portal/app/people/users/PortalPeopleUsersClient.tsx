@@ -329,7 +329,7 @@ export function PortalPeopleUsersClient() {
   }
 
   return (
-    <div className="mx-auto w-full max-w-6xl">
+    <div className="mx-auto w-full max-w-6xl pb-[calc(var(--pa-portal-embed-footer-offset,0px)+96px+var(--pa-portal-floating-tools-reserve,0px))]">
       <div className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-end">
         <div>
           <h1 className="text-2xl font-bold text-brand-ink sm:text-3xl">People</h1>
@@ -352,9 +352,9 @@ export function PortalPeopleUsersClient() {
               </div>
             </div>
 
-            <div className="mt-4 max-h-[60vh] overflow-auto rounded-2xl border border-zinc-200">
+            <div className="mt-4 rounded-2xl border border-zinc-200 overflow-hidden">
               <table className="w-full text-left text-sm">
-                <thead className="sticky top-0 z-10 bg-zinc-50 text-xs font-semibold uppercase tracking-wide text-zinc-500">
+                <thead className="bg-zinc-50 text-xs font-semibold uppercase tracking-wide text-zinc-500">
                   <tr>
                     <th className="px-4 py-3">User</th>
                     <th className="px-4 py-3">Role</th>
@@ -380,7 +380,7 @@ export function PortalPeopleUsersClient() {
                           className={classNames(
                             "inline-flex items-center rounded-full px-2 py-1 text-xs font-semibold",
                             m.role === "OWNER"
-                              ? "bg-[color:rgba(29,78,216,0.12)] text-[color:var(--color-brand-blue)]"
+                              ? "bg-[rgba(29,78,216,0.12)] text-(--color-brand-blue)"
                               : m.role === "ADMIN"
                                 ? "bg-zinc-200 text-zinc-800"
                                 : "bg-zinc-100 text-zinc-700",
@@ -420,19 +420,6 @@ export function PortalPeopleUsersClient() {
                 ) : (
                   <div className="text-xs text-zinc-500">Only admins can invite.</div>
                 )}
-                {canInvite ? (
-                  <button
-                    type="button"
-                    className="rounded-2xl bg-[color:var(--color-brand-pink)] px-3 py-2 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
-                    onClick={() => {
-                      setInviteModalOpen(true);
-                      setPermissionsOpen(false);
-                    }}
-                    disabled={inviting}
-                  >
-                    New Invite
-                  </button>
-                ) : null}
               </div>
             </div>
 
@@ -454,7 +441,7 @@ export function PortalPeopleUsersClient() {
                       value={inviteEmail}
                       onChange={(e) => setInviteEmail(e.target.value)}
                       placeholder="teammate@company.com"
-                      className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 outline-none placeholder:text-zinc-500 focus:border-[color:var(--color-brand-blue)]"
+                      className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 outline-none placeholder:text-zinc-500 focus:border-(--color-brand-blue)"
                     />
                   </div>
                   <div>
@@ -581,7 +568,7 @@ export function PortalPeopleUsersClient() {
                       "rounded-2xl px-4 py-2 text-sm font-semibold",
                       inviting || !inviteEmail.trim()
                         ? "cursor-not-allowed bg-zinc-200 text-zinc-600"
-                        : "bg-[color:var(--color-brand-blue)] text-white hover:opacity-95",
+                        : "bg-(--color-brand-blue) text-white hover:opacity-95",
                     )}
                   >
                     {inviting ? "Inviting…" : "Send invite"}
@@ -590,9 +577,9 @@ export function PortalPeopleUsersClient() {
               </div>
             </AppModal>
 
-            <div className="mt-4 max-h-[60vh] overflow-auto rounded-2xl border border-zinc-200">
+            <div className="mt-4 rounded-2xl border border-zinc-200 overflow-hidden">
               <table className="w-full text-left text-sm">
-                <thead className="sticky top-0 z-10 bg-zinc-50 text-xs font-semibold uppercase tracking-wide text-zinc-500">
+                <thead className="bg-zinc-50 text-xs font-semibold uppercase tracking-wide text-zinc-500">
                   <tr>
                     <th className="px-4 py-3">Email</th>
                     <th className="px-4 py-3">Role</th>
@@ -658,8 +645,26 @@ export function PortalPeopleUsersClient() {
         </div>
       ) : null}
 
+      {canInvite && !inviteModalOpen && !editingMember ? (
+        <button
+          type="button"
+          className="fixed right-4 z-12020 rounded-full bg-(--color-brand-pink) px-5 py-3 text-sm font-semibold text-white shadow-lg hover:opacity-95 disabled:opacity-60"
+          style={{
+            bottom:
+              "calc(var(--pa-portal-embed-footer-offset,0px) + 16px + var(--pa-portal-floating-tools-reserve,0px))",
+          }}
+          onClick={() => {
+            setInviteModalOpen(true);
+            setPermissionsOpen(false);
+          }}
+          disabled={inviting}
+        >
+          New Invite
+        </button>
+      ) : null}
+
       {editingMember && memberPermissions ? (
-        <div className="fixed inset-0 z-[9998] flex items-end justify-center bg-black/30 px-4 pt-[calc(var(--pa-modal-safe-top,0px)+1rem)] pb-[calc(var(--pa-modal-safe-bottom,0px)+1rem)] sm:items-center">
+        <div className="fixed inset-0 z-9998 flex items-end justify-center bg-black/30 px-4 pt-[calc(var(--pa-modal-safe-top,0px)+1rem)] pb-[calc(var(--pa-modal-safe-bottom,0px)+1rem)] sm:items-center">
           <div className="w-full max-w-2xl max-h-[calc(100dvh-var(--pa-modal-safe-top,0px)-var(--pa-modal-safe-bottom,0px)-2rem)] overflow-y-auto rounded-3xl border border-zinc-200 bg-white p-5 shadow-xl">
             <div className="flex items-start justify-between gap-3">
               <div>
@@ -737,7 +742,7 @@ export function PortalPeopleUsersClient() {
                                 return next;
                               });
                             }}
-                            className="h-4 w-4 rounded border-zinc-300 text-[color:var(--color-brand-blue)]"
+                            className="h-4 w-4 rounded border-zinc-300 text-(--color-brand-blue)"
                           />
                         </td>
                         <td className="px-4 py-3">
@@ -755,7 +760,7 @@ export function PortalPeopleUsersClient() {
                                 return next;
                               });
                             }}
-                            className="h-4 w-4 rounded border-zinc-300 text-[color:var(--color-brand-blue)]"
+                            className="h-4 w-4 rounded border-zinc-300 text-(--color-brand-blue)"
                           />
                         </td>
                       </tr>
@@ -796,7 +801,7 @@ export function PortalPeopleUsersClient() {
                   "rounded-2xl px-4 py-2 text-sm font-semibold",
                   savingMember
                     ? "cursor-not-allowed bg-zinc-200 text-zinc-600"
-                    : "bg-[color:var(--color-brand-blue)] text-white hover:brightness-95",
+                    : "bg-(--color-brand-blue) text-white hover:brightness-95",
                 )}
               >
                 {savingMember ? "Saving…" : "Save"}
@@ -808,7 +813,7 @@ export function PortalPeopleUsersClient() {
       ) : null}
 
       {demoteConfirmOpen ? (
-        <div className="fixed inset-0 z-[9999] flex items-end justify-center bg-black/30 px-4 pt-[calc(var(--pa-modal-safe-top,0px)+1rem)] pb-[calc(var(--pa-modal-safe-bottom,0px)+1rem)] sm:items-center">
+        <div className="fixed inset-0 z-9999 flex items-end justify-center bg-black/30 px-4 pt-[calc(var(--pa-modal-safe-top,0px)+1rem)] pb-[calc(var(--pa-modal-safe-bottom,0px)+1rem)] sm:items-center">
           <div className="w-full max-w-lg max-h-[calc(100dvh-var(--pa-modal-safe-top,0px)-var(--pa-modal-safe-bottom,0px)-2rem)] overflow-y-auto rounded-3xl border border-zinc-200 bg-white p-5 shadow-xl">
             <div className="text-base font-semibold text-zinc-900">Demote admin?</div>
             <div className="mt-2 text-sm text-zinc-600">

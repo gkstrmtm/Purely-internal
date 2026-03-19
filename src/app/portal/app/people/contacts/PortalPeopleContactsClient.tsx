@@ -253,6 +253,7 @@ export function PortalPeopleContactsClient() {
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState<ContactsPayload | null>(null);
   const [q, setQ] = useState("");
+  const [mobilePeopleFilter, setMobilePeopleFilter] = useState<"all" | "contacts" | "unlinked">("all");
 
   const [duplicateGroupsCount, setDuplicateGroupsCount] = useState(0);
   const [duplicatesLoading, setDuplicatesLoading] = useState(false);
@@ -915,6 +916,23 @@ export function PortalPeopleContactsClient() {
     });
   }, [data?.unlinkedLeads, q]);
 
+  const mobilePeopleItems = useMemo(() => {
+    type Item = { kind: "contact"; row: ContactRow } | { kind: "unlinked"; row: LeadRow };
+
+    const out: Item[] = [];
+    if (mobilePeopleFilter === "all" || mobilePeopleFilter === "contacts") {
+      for (const c of filteredContacts || []) {
+        out.push({ kind: "contact", row: c });
+      }
+    }
+    if (mobilePeopleFilter === "all" || mobilePeopleFilter === "unlinked") {
+      for (const l of filteredLeads || []) {
+        out.push({ kind: "unlinked", row: l });
+      }
+    }
+    return out;
+  }, [filteredContacts, filteredLeads, mobilePeopleFilter]);
+
   const customVarPickerKeys = useMemo(() => {
     const seen = new Set<string>();
     const out: string[] = [];
@@ -980,7 +998,7 @@ export function PortalPeopleContactsClient() {
   );
 
   return (
-    <div className="mx-auto w-full max-w-6xl">
+    <div className="mx-auto w-full max-w-6xl pb-[calc(var(--pa-portal-embed-footer-offset,0px)+96px+var(--pa-portal-floating-tools-reserve,0px))]">
       <div className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-end">
         <div>
           <h1 className="text-2xl font-bold text-brand-ink sm:text-3xl">People</h1>
@@ -1044,8 +1062,240 @@ export function PortalPeopleContactsClient() {
       ) : null}
 
       {data ? (
-        <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-2">
-          <div className="rounded-3xl border border-zinc-200 bg-white p-6">
+        <>
+          <div className="mt-6 sm:hidden">
+            <div className="rounded-3xl border border-zinc-200 bg-white p-4">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <div className="text-base font-semibold text-zinc-900">People</div>
+                  <div className="mt-1 text-sm text-zinc-600">Contacts + unlinked leads</div>
+                </div>
+
+                {duplicateGroupsCount > 0 ? (
+                  <button
+                    type="button"
+                    onClick={() => router.push("/portal/app/people/contacts/duplicates")}
+                    className="rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-900 hover:bg-amber-100"
+                    title="Duplicates are grouped by phone number"
+                  >
+                    Duplicates ({duplicateGroupsCount})
+                  </button>
+                ) : duplicatesLoading ? (
+                  <div className="text-xs font-semibold text-zinc-400">Checking duplicates…</div>
+                ) : null}
+              </div>
+
+              <div className="mt-3 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => setMobilePeopleFilter("all")}
+                  className={classNames(
+                    "rounded-full border px-3 py-2 text-xs font-semibold",
+                    mobilePeopleFilter === "all" ? "border-brand-ink bg-brand-ink text-white" : "border-zinc-200 bg-white text-zinc-800 hover:bg-zinc-50",
+                  )}
+                >
+                  All ({(filteredContacts?.length ?? 0) + (filteredLeads?.length ?? 0)})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setMobilePeopleFilter("contacts")}
+                  className={classNames(
+                    "rounded-full border px-3 py-2 text-xs font-semibold",
+                    mobilePeopleFilter === "contacts"
+                      ? "border-(--color-brand-blue) bg-(--color-brand-blue) text-white"
+                      : "border-zinc-200 bg-white text-zinc-800 hover:bg-zinc-50",
+                  )}
+                >
+                  Contacts ({filteredContacts?.length ?? 0})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setMobilePeopleFilter("unlinked")}
+                  className={classNames(
+                    "rounded-full border px-3 py-2 text-xs font-semibold",
+                    mobilePeopleFilter === "unlinked"
+                      ? "border-(--color-brand-pink) bg-(--color-brand-pink) text-white"
+                      : "border-zinc-200 bg-white text-zinc-800 hover:bg-zinc-50",
+                  )}
+                >
+                  Unlinked ({filteredLeads?.length ?? 0})
+                </button>
+              </div>
+
+              <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs text-zinc-500">
+                <div>
+                  Contacts: page {contactsCursorStack.length}
+                  <span className="mx-1">•</span>
+                  Leads: page {leadsCursorStack.length}
+                </div>
+                <div>50 per page</div>
+              </div>
+            </div>
+
+            <div className="mt-3 space-y-3">
+              {mobilePeopleItems.length ? (
+                mobilePeopleItems.slice(0, 100).map((item) => {
+                  if (item.kind === "contact") {
+                    const c = item.row;
+                    return (
+                      <button
+                        key={`c_${c.id}`}
+                        type="button"
+                        onClick={() => openContact(c.id)}
+                        className="w-full rounded-2xl border border-zinc-200 bg-white p-4 text-left hover:bg-zinc-50"
+                      >
+                        <div className="font-semibold text-zinc-900 truncate">{c.name || "N/A"}</div>
+                        <div className="mt-1 text-sm text-zinc-600 truncate">
+                          {c.email || "N/A"} {c.phone ? `• ${c.phone}` : ""}
+                        </div>
+                        {c.tags?.length ? (
+                          <div className="mt-2 flex flex-wrap gap-1">
+                            {c.tags.slice(0, 4).map((t) => (
+                              <span
+                                key={t.id}
+                                className="inline-flex items-center rounded-full border border-zinc-200 bg-white px-2 py-0.5 text-[11px] font-semibold text-zinc-700"
+                                title={t.name}
+                              >
+                                {t.name}
+                              </span>
+                            ))}
+                            {c.tags.length > 4 ? (
+                              <span className="text-[11px] font-semibold text-zinc-500">+{c.tags.length - 4}</span>
+                            ) : null}
+                          </div>
+                        ) : null}
+                      </button>
+                    );
+                  }
+
+                  const l = item.row;
+                  return (
+                    <button
+                      key={`l_${l.id}`}
+                      type="button"
+                      onClick={() => openLeadModal(l)}
+                      className="w-full rounded-2xl border border-zinc-200 bg-white p-4 text-left hover:bg-zinc-50"
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <div className="font-semibold text-zinc-900 truncate">{l.businessName || "N/A"}</div>
+                          <div className="mt-1 text-sm text-zinc-600 truncate">
+                            {l.email || "N/A"} {l.phone ? `• ${l.phone}` : ""}
+                          </div>
+                          {l.website ? <div className="mt-1 text-xs text-zinc-500 truncate">{l.website}</div> : null}
+                        </div>
+                        <div className="flex flex-col items-end gap-2">
+                          <span className="inline-flex items-center rounded-full border border-zinc-200 bg-white px-2 py-1 text-[11px] font-semibold text-zinc-700">
+                            Unlinked lead
+                          </span>
+                          <span
+                            className={classNames(
+                              "inline-flex items-center rounded-full px-2 py-1 text-xs font-semibold",
+                              l.assignedToUserId ? "bg-emerald-50 text-emerald-700" : "bg-zinc-100 text-zinc-600",
+                            )}
+                          >
+                            {l.assignedToUserId ? "Assigned" : "Unassigned"}
+                          </span>
+                        </div>
+                      </div>
+                    </button>
+                  );
+                })
+              ) : (
+                <div className="rounded-2xl border border-zinc-200 bg-white p-4 text-sm text-zinc-600">
+                  No matches.
+                </div>
+              )}
+            </div>
+
+            {(() => {
+              const contactsTotal = typeof data.totalContacts === "number" ? data.totalContacts : data.contacts.length;
+              const leadsTotal = typeof data.totalUnlinkedLeads === "number" ? data.totalUnlinkedLeads : data.unlinkedLeads.length;
+              const showContacts = mobilePeopleFilter === "all" || mobilePeopleFilter === "contacts";
+              const showLeads = mobilePeopleFilter === "all" || mobilePeopleFilter === "unlinked";
+
+              return (
+                <div className="mt-4 space-y-3">
+                  {showContacts && contactsTotal >= 20 ? (
+                    <div className="rounded-3xl border border-zinc-200 bg-white p-4">
+                      <div className="text-sm font-semibold text-zinc-900">Contacts pages</div>
+                      <div className="mt-2 flex flex-wrap items-center gap-2">
+                        <div className="text-xs text-zinc-500">Page {contactsCursorStack.length}</div>
+                        <button
+                          type="button"
+                          disabled={contactsCursorStack.length <= 1}
+                          onClick={() =>
+                            void (async () => {
+                              const prev = contactsCursorStack[contactsCursorStack.length - 2] ?? null;
+                              const ok = await load({ contactsCursor: prev, leadsCursor });
+                              if (ok) setContactsCursorStack((s) => (s.length > 1 ? s.slice(0, -1) : s));
+                            })()
+                          }
+                          className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-50"
+                        >
+                          Back
+                        </button>
+                        <button
+                          type="button"
+                          disabled={!contactsNextCursor}
+                          onClick={() =>
+                            void (async () => {
+                              if (!contactsNextCursor) return;
+                              const ok = await load({ contactsCursor: contactsNextCursor, leadsCursor });
+                              if (ok) setContactsCursorStack((s) => [...s, contactsNextCursor]);
+                            })()
+                          }
+                          className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-50"
+                        >
+                          Next
+                        </button>
+                      </div>
+                    </div>
+                  ) : null}
+
+                  {showLeads && leadsTotal >= 20 ? (
+                    <div className="rounded-3xl border border-zinc-200 bg-white p-4">
+                      <div className="text-sm font-semibold text-zinc-900">Unlinked leads pages</div>
+                      <div className="mt-2 flex flex-wrap items-center gap-2">
+                        <div className="text-xs text-zinc-500">Page {leadsCursorStack.length}</div>
+                        <button
+                          type="button"
+                          disabled={leadsCursorStack.length <= 1}
+                          onClick={() =>
+                            void (async () => {
+                              const prev = leadsCursorStack[leadsCursorStack.length - 2] ?? null;
+                              const ok = await load({ contactsCursor, leadsCursor: prev });
+                              if (ok) setLeadsCursorStack((s) => (s.length > 1 ? s.slice(0, -1) : s));
+                            })()
+                          }
+                          className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-50"
+                        >
+                          Back
+                        </button>
+                        <button
+                          type="button"
+                          disabled={!leadsNextCursor}
+                          onClick={() =>
+                            void (async () => {
+                              if (!leadsNextCursor) return;
+                              const ok = await load({ contactsCursor, leadsCursor: leadsNextCursor });
+                              if (ok) setLeadsCursorStack((s) => [...s, leadsNextCursor]);
+                            })()
+                          }
+                          className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-50"
+                        >
+                          Next
+                        </button>
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
+              );
+            })()}
+          </div>
+
+          <div className="mt-6 hidden grid-cols-1 gap-6 sm:grid lg:grid-cols-2">
+            <div className="rounded-3xl border border-zinc-200 bg-white p-6">
             <div className="flex items-center justify-between gap-3">
               <div className="text-base font-semibold text-zinc-900">
                 Contacts ({data.contacts.length} of {typeof data.totalContacts === "number" ? data.totalContacts : "N/A"})
@@ -1171,6 +1421,50 @@ export function PortalPeopleContactsClient() {
               </table>
             </div>
 
+            {(() => {
+              const contactsTotal = typeof data.totalContacts === "number" ? data.totalContacts : data.contacts.length;
+              if (contactsTotal < 20) return null;
+              return (
+                <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+                  <div className="text-xs text-zinc-500">
+                    Page {contactsCursorStack.length}
+                    <span className="mx-1">•</span>
+                    50 per page
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      disabled={contactsCursorStack.length <= 1}
+                      onClick={() =>
+                        void (async () => {
+                          const prev = contactsCursorStack[contactsCursorStack.length - 2] ?? null;
+                          const ok = await load({ contactsCursor: prev, leadsCursor });
+                          if (ok) setContactsCursorStack((s) => (s.length > 1 ? s.slice(0, -1) : s));
+                        })()
+                      }
+                      className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-50"
+                    >
+                      Back
+                    </button>
+                    <button
+                      type="button"
+                      disabled={!contactsNextCursor}
+                      onClick={() =>
+                        void (async () => {
+                          if (!contactsNextCursor) return;
+                          const ok = await load({ contactsCursor: contactsNextCursor, leadsCursor });
+                          if (ok) setContactsCursorStack((s) => [...s, contactsNextCursor]);
+                        })()
+                      }
+                      className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-50"
+                    >
+                      Next
+                    </button>
+                  </div>
+                </div>
+              );
+            })()}
+
             <div className="mt-3 text-xs text-zinc-500">Showing {data.contacts.length} on this page.</div>
           </div>
 
@@ -1250,9 +1544,68 @@ export function PortalPeopleContactsClient() {
               )}
             </div>
 
+            {(() => {
+              const leadsTotal = typeof data.totalUnlinkedLeads === "number" ? data.totalUnlinkedLeads : data.unlinkedLeads.length;
+              if (leadsTotal < 20) return null;
+              return (
+                <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+                  <div className="text-xs text-zinc-500">
+                    Page {leadsCursorStack.length}
+                    <span className="mx-1">•</span>
+                    50 per page
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      disabled={leadsCursorStack.length <= 1}
+                      onClick={() =>
+                        void (async () => {
+                          const prev = leadsCursorStack[leadsCursorStack.length - 2] ?? null;
+                          const ok = await load({ contactsCursor, leadsCursor: prev });
+                          if (ok) setLeadsCursorStack((s) => (s.length > 1 ? s.slice(0, -1) : s));
+                        })()
+                      }
+                      className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-50"
+                    >
+                      Back
+                    </button>
+                    <button
+                      type="button"
+                      disabled={!leadsNextCursor}
+                      onClick={() =>
+                        void (async () => {
+                          if (!leadsNextCursor) return;
+                          const ok = await load({ contactsCursor, leadsCursor: leadsNextCursor });
+                          if (ok) setLeadsCursorStack((s) => [...s, leadsNextCursor]);
+                        })()
+                      }
+                      className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-50"
+                    >
+                      Next
+                    </button>
+                  </div>
+                </div>
+              );
+            })()}
+
             <div className="mt-3 text-xs text-zinc-500">Showing {data.unlinkedLeads.length} on this page.</div>
           </div>
-        </div>
+          </div>
+        </>
+      ) : null}
+
+      {!importOpen && !detailOpen && !leadModalOpen ? (
+        <button
+          type="button"
+          onClick={openImportModal}
+          className="sm:hidden fixed right-4 z-12020 rounded-full bg-(--color-brand-pink) px-5 py-3 text-sm font-semibold text-white shadow-lg hover:opacity-95"
+          style={{
+            bottom:
+              "calc(var(--pa-portal-embed-footer-offset,0px) + 16px + var(--pa-portal-floating-tools-reserve,0px))",
+          }}
+        >
+          + New
+        </button>
       ) : null}
 
       {importOpen ? (
