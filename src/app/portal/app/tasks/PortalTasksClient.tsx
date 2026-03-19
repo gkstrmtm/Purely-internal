@@ -305,8 +305,8 @@ export function PortalTasksClient() {
       ) : null}
 
       {createOpen ? (
-        <div className="fixed inset-0 z-[9998] flex items-end justify-center bg-black/30 p-3 sm:items-center">
-          <div className="w-full max-w-2xl rounded-3xl border border-zinc-200 bg-white p-5 shadow-xl">
+        <div className="fixed inset-0 z-[9998] flex items-end justify-center bg-black/30 px-4 pt-[calc(var(--pa-modal-safe-top,0px)+1rem)] pb-[calc(var(--pa-modal-safe-bottom,0px)+1rem)] sm:items-center">
+          <div className="w-full max-w-2xl max-h-[calc(100dvh-var(--pa-modal-safe-top,0px)-var(--pa-modal-safe-bottom,0px)-2rem)] overflow-y-auto rounded-3xl border border-zinc-200 bg-white p-5 shadow-xl">
             <div className="flex items-start justify-between gap-3">
               <div>
                 <div className="text-base font-semibold text-zinc-900">Create task</div>

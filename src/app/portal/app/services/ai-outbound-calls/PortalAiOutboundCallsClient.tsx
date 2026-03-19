@@ -3927,7 +3927,7 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
 
       {createOpen ? (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          className="fixed inset-0 z-50 flex items-center justify-center px-4 pt-[calc(var(--pa-modal-safe-top,0px)+1rem)] pb-[calc(var(--pa-modal-safe-bottom,0px)+1rem)]"
           role="dialog"
           aria-modal="true"
           aria-label="Create campaign"
@@ -3938,7 +3938,7 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
         >
           <div className="absolute inset-0 bg-black/40" />
           <div
-            className="relative w-full max-w-md rounded-3xl border border-zinc-200 bg-white p-5 shadow-xl"
+            className="relative w-full max-w-md max-h-[calc(100dvh-var(--pa-modal-safe-top,0px)-var(--pa-modal-safe-bottom,0px)-2rem)] overflow-y-auto rounded-3xl border border-zinc-200 bg-white p-5 shadow-xl"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="text-base font-bold text-zinc-900">New campaign</div>

@@ -854,9 +854,18 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
     .filter((s) => !s.variants || s.variants.includes(variant));
   const sidebarServiceGroups = groupPortalServices(visibleSidebarServices);
 
+  const floatingToolsReserve = "6.5rem";
+
   if (isFunnelBuilderEditor || isAutomationsEditor) {
     return (
-      <div className="h-[calc(100dvh-var(--pa-portal-topbar-height,0px))] overflow-hidden bg-brand-mist text-brand-ink">
+      <div
+        className="h-[calc(100dvh-var(--pa-portal-topbar-height,0px))] overflow-hidden bg-brand-mist text-brand-ink"
+        style={{
+          ["--pa-modal-safe-bottom" as any]: isAutomationsEditor
+            ? `calc(env(safe-area-inset-bottom) + ${floatingToolsReserve})`
+            : "env(safe-area-inset-bottom)",
+        }}
+      >
         <main className="h-full overflow-y-auto">
           {children}
           <div aria-hidden className="h-[calc(env(safe-area-inset-bottom)+5rem)]" />
@@ -896,7 +905,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
           style={{
             ["--pa-portal-embed-footer-offset" as any]: "calc(env(safe-area-inset-bottom) + 5.5rem)",
             ["--pa-modal-safe-top" as any]: "calc(env(safe-area-inset-top) + 4rem)",
-            ["--pa-modal-safe-bottom" as any]: "calc(env(safe-area-inset-bottom) + 5.5rem)",
+            ["--pa-modal-safe-bottom" as any]: `calc(env(safe-area-inset-bottom) + 5.5rem + ${floatingToolsReserve})`,
           }}
         >
           {/* Top header (single header in embedded mode) */}
@@ -1200,7 +1209,12 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <div className="h-[calc(100dvh-var(--pa-portal-topbar-height,0px))] overflow-hidden bg-brand-mist text-brand-ink">
+    <div
+      className="h-[calc(100dvh-var(--pa-portal-topbar-height,0px))] overflow-hidden bg-brand-mist text-brand-ink"
+      style={{
+        ["--pa-modal-safe-bottom" as any]: `calc(env(safe-area-inset-bottom) + ${floatingToolsReserve})`,
+      }}
+    >
       {showGettingStartedHint ? (
         <div className="pointer-events-none fixed inset-0 z-40 flex items-end justify-center px-4 pb-6 sm:items-center sm:pb-0">
           <button

@@ -915,8 +915,8 @@ export function PortalNurtureCampaignsClient() {
                 </div>
 
                 {templateOpen ? (
-                  <div className="fixed inset-0 z-9998 flex items-end justify-center bg-black/30 p-3 sm:items-center">
-                    <div className="flex w-full max-w-2xl flex-col overflow-hidden rounded-3xl border border-zinc-200 bg-white p-5 shadow-xl sm:max-h-[calc(100vh-2rem)]">
+                  <div className="fixed inset-0 z-9998 flex items-end justify-center bg-black/30 px-3 pt-[calc(var(--pa-modal-safe-top)+0.75rem)] pb-[calc(var(--pa-modal-safe-bottom)+0.75rem)] sm:items-center">
+                    <div className="flex max-h-[calc(100dvh-var(--pa-modal-safe-top)-var(--pa-modal-safe-bottom)-1.5rem)] w-full max-w-2xl flex-col overflow-hidden rounded-3xl border border-zinc-200 bg-white p-5 shadow-xl">
                       <div className="flex items-start justify-between gap-3">
                         <div>
                           <div className="text-base font-semibold text-zinc-900">Load a template</div>
@@ -993,13 +993,13 @@ export function PortalNurtureCampaignsClient() {
 
               {confirm ? (
                 <div
-                  className="fixed inset-0 z-9999 flex items-start justify-center bg-black/20 px-4 pt-8"
+                  className="fixed inset-0 z-9999 flex items-start justify-center bg-black/20 px-4 pt-[calc(var(--pa-modal-safe-top)+2rem)] pb-[calc(var(--pa-modal-safe-bottom)+0.75rem)]"
                   role="dialog"
                   aria-modal="true"
                   onMouseDown={() => setConfirm(null)}
                 >
                   <div
-                    className="w-full max-w-lg rounded-3xl border border-zinc-200 bg-white p-5 shadow-xl"
+                    className="max-h-[calc(100dvh-var(--pa-modal-safe-top)-var(--pa-modal-safe-bottom)-2.75rem)] w-full max-w-lg overflow-auto rounded-3xl border border-zinc-200 bg-white p-5 shadow-xl"
                     onMouseDown={(e) => e.stopPropagation()}
                   >
                     <div className="text-sm font-semibold text-zinc-900">
@@ -1499,9 +1499,12 @@ function StepCard(props: {
       )}
 
       {aiModalOpen ? (
-        <div className="fixed inset-0 z-9999 flex items-end justify-center bg-black/40 p-3 sm:items-center" onMouseDown={() => !aiBusy && setAiModalOpen(false)}>
+        <div
+          className="fixed inset-0 z-9999 flex items-end justify-center bg-black/40 px-3 pt-[calc(var(--pa-modal-safe-top)+0.75rem)] pb-[calc(var(--pa-modal-safe-bottom)+0.75rem)] sm:items-center"
+          onMouseDown={() => !aiBusy && setAiModalOpen(false)}
+        >
           <div
-            className="w-full max-w-xl rounded-3xl border border-zinc-200 bg-white p-5 shadow-xl"
+            className="max-h-[calc(100dvh-var(--pa-modal-safe-top)-var(--pa-modal-safe-bottom)-1.5rem)] w-full max-w-xl overflow-auto rounded-3xl border border-zinc-200 bg-white p-5 shadow-xl"
             onMouseDown={(e) => e.stopPropagation()}
           >
             <div className="flex items-start justify-between gap-3">

@@ -1151,14 +1151,14 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
 
           {composerOpen ? (
             <div
-              className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-3 sm:items-center"
+              className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 px-4 pt-[calc(var(--pa-modal-safe-top,0px)+1rem)] pb-[calc(var(--pa-modal-safe-bottom,0px)+1rem)] sm:items-center"
               onMouseDown={() => setComposerOpen(false)}
             >
               <div
-                className="w-full max-w-5xl max-h-[calc(100vh-2rem)] overflow-hidden rounded-3xl border border-zinc-200 bg-white shadow-xl"
+                className="w-full max-w-5xl max-h-[calc(100dvh-var(--pa-modal-safe-top,0px)-var(--pa-modal-safe-bottom,0px)-2rem)] overflow-hidden rounded-3xl border border-zinc-200 bg-white shadow-xl"
                 onMouseDown={(e) => e.stopPropagation()}
               >
-                <div className="max-h-[calc(100vh-2rem)] overflow-y-auto p-6">
+                <div className="max-h-[calc(100dvh-var(--pa-modal-safe-top,0px)-var(--pa-modal-safe-bottom,0px)-2rem)] overflow-y-auto p-6">
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                   <div className="text-sm font-semibold text-zinc-900">Composer</div>
@@ -1391,14 +1391,14 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
 
                 {manualImagePreviewOpen && manualImagePreview ? (
                   <div
-                    className="fixed inset-0 z-9998 flex items-end justify-center bg-black/40 p-3 sm:items-center"
+                    className="fixed inset-0 z-9998 flex items-end justify-center bg-black/40 px-4 pt-[calc(var(--pa-modal-safe-top,0px)+1rem)] pb-[calc(var(--pa-modal-safe-bottom,0px)+1rem)] sm:items-center"
                     onMouseDown={() => {
                       if (manualImageImporting) return;
                       setManualImagePreviewOpen(false);
                     }}
                   >
                     <div
-                      className="w-full max-w-3xl rounded-3xl border border-zinc-200 bg-white p-4 shadow-xl"
+                      className="w-full max-w-3xl max-h-[calc(100dvh-var(--pa-modal-safe-top,0px)-var(--pa-modal-safe-bottom,0px)-2rem)] overflow-y-auto rounded-3xl border border-zinc-200 bg-white p-4 shadow-xl"
                       onMouseDown={(e) => e.stopPropagation()}
                     >
                       <div className="flex items-start justify-between gap-3">
@@ -2580,9 +2580,12 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
       )}
 
       {draftOpen ? (
-        <div className="fixed inset-0 z-50 overflow-y-auto bg-black/30 p-4" onMouseDown={() => setDraftOpen(false)}>
+        <div
+          className="fixed inset-0 z-50 overflow-y-auto bg-black/30 px-4 pt-[calc(var(--pa-modal-safe-top,0px)+1rem)] pb-[calc(var(--pa-modal-safe-bottom,0px)+1rem)]"
+          onMouseDown={() => setDraftOpen(false)}
+        >
           <div
-            className="mx-auto w-full max-w-5xl max-h-[calc(100vh-2rem)] overflow-y-auto rounded-3xl border border-zinc-200 bg-white p-4 shadow-xl"
+            className="mx-auto w-full max-w-5xl max-h-[calc(100dvh-var(--pa-modal-safe-top,0px)-var(--pa-modal-safe-bottom,0px)-2rem)] overflow-y-auto rounded-3xl border border-zinc-200 bg-white p-4 shadow-xl"
             onMouseDown={(e) => e.stopPropagation()}
           >
             <div className="flex items-start justify-between gap-3">
@@ -2895,14 +2898,14 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
 
       {siteConfigOpen ? (
         <div
-          className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-3 sm:items-center"
+          className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 px-4 pt-[calc(var(--pa-modal-safe-top,0px)+1rem)] pb-[calc(var(--pa-modal-safe-bottom,0px)+1rem)] sm:items-center"
           onMouseDown={() => {
             if (siteConfigBusy) return;
             setSiteConfigOpen(false);
           }}
         >
           <div
-            className="w-full max-w-lg rounded-3xl border border-zinc-200 bg-white p-4 shadow-xl"
+            className="w-full max-w-lg max-h-[calc(100dvh-var(--pa-modal-safe-top,0px)-var(--pa-modal-safe-bottom,0px)-2rem)] overflow-y-auto rounded-3xl border border-zinc-200 bg-white p-4 shadow-xl"
             onMouseDown={(e) => e.stopPropagation()}
           >
             <div className="flex items-start justify-between gap-3">

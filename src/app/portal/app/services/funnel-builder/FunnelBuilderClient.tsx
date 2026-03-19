@@ -1643,8 +1643,8 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
       ) : null}
 
       {creatingKind ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="w-full max-w-lg rounded-3xl bg-white p-6 shadow-xl">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4 pt-[calc(var(--pa-modal-safe-top,0px)+1rem)] pb-[calc(var(--pa-modal-safe-bottom,0px)+1rem)]">
+          <div className="w-full max-w-lg max-h-[calc(100dvh-var(--pa-modal-safe-top,0px)-var(--pa-modal-safe-bottom,0px)-2rem)] overflow-y-auto rounded-3xl bg-white p-6 shadow-xl">
             <div className="text-lg font-bold text-brand-ink">
               {creatingKind === "funnel" ? "Create funnel" : "Create form"}
             </div>

@@ -1906,8 +1906,8 @@ export function PortalBookingClient() {
                 </div>
 
                 {reminderTemplateOpen ? (
-                  <div className="fixed inset-0 z-9998 flex items-end justify-center bg-black/30 p-3 sm:items-center">
-                    <div className="flex w-full max-w-2xl flex-col overflow-hidden rounded-3xl border border-zinc-200 bg-white p-5 shadow-xl sm:max-h-[calc(100vh-2rem)]">
+                  <div className="fixed inset-0 z-9998 flex items-end justify-center bg-black/30 px-4 pt-[calc(var(--pa-modal-safe-top,0px)+1rem)] pb-[calc(var(--pa-modal-safe-bottom,0px)+1rem)] sm:items-center">
+                    <div className="flex w-full max-w-2xl max-h-[calc(100dvh-var(--pa-modal-safe-top,0px)-var(--pa-modal-safe-bottom,0px)-2rem)] flex-col overflow-hidden overflow-y-auto rounded-3xl border border-zinc-200 bg-white p-5 shadow-xl">
                       <div className="flex items-start justify-between gap-3">
                         <div>
                           <div className="text-base font-semibold text-zinc-900">Load a template</div>
@@ -3541,8 +3541,8 @@ export function PortalBookingClient() {
       ) : null}
 
       {contactOpen && contactBooking ? (
-        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/30 p-4 sm:items-center">
-          <div className="w-full max-w-lg max-h-[calc(100vh-2rem)] overflow-y-auto rounded-3xl border border-zinc-200 bg-white p-6 shadow-xl sm:max-h-[calc(100vh-3rem)]">
+        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/30 px-4 pt-[calc(var(--pa-modal-safe-top,0px)+1rem)] pb-[calc(var(--pa-modal-safe-bottom,0px)+1rem)] sm:items-center">
+          <div className="w-full max-w-lg max-h-[calc(100dvh-var(--pa-modal-safe-top,0px)-var(--pa-modal-safe-bottom,0px)-2rem)] overflow-y-auto rounded-3xl border border-zinc-200 bg-white p-6 shadow-xl">
             <div className="text-sm font-semibold text-zinc-900">Send follow-up</div>
             <div className="mt-1 text-sm text-zinc-600">
               {contactBooking.contactName} · {contactBooking.contactEmail}
@@ -3629,8 +3629,8 @@ export function PortalBookingClient() {
       ) : null}
 
       {reschedOpen && reschedBooking ? (
-        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/30 p-4 sm:items-center">
-          <div className="w-full max-w-lg max-h-[calc(100vh-2rem)] overflow-y-auto rounded-3xl border border-zinc-200 bg-white p-6 shadow-xl sm:max-h-[calc(100vh-3rem)]">
+        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/30 px-4 pt-[calc(var(--pa-modal-safe-top,0px)+1rem)] pb-[calc(var(--pa-modal-safe-bottom,0px)+1rem)] sm:items-center">
+          <div className="w-full max-w-lg max-h-[calc(100dvh-var(--pa-modal-safe-top,0px)-var(--pa-modal-safe-bottom,0px)-2rem)] overflow-y-auto rounded-3xl border border-zinc-200 bg-white p-6 shadow-xl">
             <div className="text-sm font-semibold text-zinc-900">Reschedule booking</div>
             <div className="mt-1 text-sm text-zinc-600">
               {reschedBooking.contactName} · {new Date(reschedBooking.startAt).toLocaleString()}

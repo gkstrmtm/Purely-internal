@@ -4,6 +4,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import styles from "./PortalInboxClient.module.css";
+import { AppModal } from "@/components/AppModal";
 import { PortalSettingsSection } from "@/components/PortalSettingsSection";
 import { PortalMediaPickerModal, type PortalMediaPickItem } from "@/components/PortalMediaPickerModal";
 import { ContactTagsEditor, type ContactTag } from "@/components/ContactTagsEditor";
@@ -983,81 +984,67 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
         </button>
       </div>
 
-      {contactModalOpen && activeThread ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4" onMouseDown={() => setContactModalOpen(false)}>
-          <div
-            className="w-full max-w-lg rounded-3xl border border-zinc-200 bg-white p-4 shadow-xl"
-            onMouseDown={(e) => e.stopPropagation()}
-          >
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <div className="text-sm font-semibold text-zinc-900">Contact details</div>
-                <div className="mt-1 text-sm text-zinc-600">Used for tagging and automations.</div>
-              </div>
-              <button
-                type="button"
-                className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
-                onClick={() => setContactModalOpen(false)}
-              >
-                Close
-              </button>
-            </div>
-
-            <div className="mt-4 grid grid-cols-1 gap-3">
-              <div>
-                <label className="text-xs font-semibold text-zinc-600">Name</label>
-                <input
-                  value={contactName}
-                  autoFocus
-                  onChange={(e) => setContactName(e.target.value)}
-                  className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 outline-none focus:border-zinc-300"
-                  placeholder="Jane Doe"
-                  maxLength={80}
-                />
-              </div>
-              <div>
-                <label className="text-xs font-semibold text-zinc-600">Email (optional)</label>
-                <input
-                  value={contactEmail}
-                  onChange={(e) => setContactEmail(e.target.value)}
-                  className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 outline-none focus:border-zinc-300"
-                  placeholder="name@company.com"
-                  maxLength={120}
-                />
-              </div>
-              <div>
-                <label className="text-xs font-semibold text-zinc-600">Phone (optional)</label>
-                <input
-                  value={contactPhone}
-                  onChange={(e) => setContactPhone(e.target.value)}
-                  className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 outline-none focus:border-zinc-300"
-                  placeholder="+15551234567"
-                  maxLength={40}
-                />
-              </div>
-            </div>
-
-            <div className="mt-4 flex items-center justify-end gap-2">
-              <button
-                type="button"
-                className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
-                onClick={() => setContactModalOpen(false)}
-                disabled={savingContact}
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                className="rounded-xl bg-brand-ink px-3 py-2 text-xs font-semibold text-white hover:opacity-95 disabled:opacity-60"
-                onClick={() => void saveActiveThreadContact()}
-                disabled={!String(contactName || "").trim() || savingContact}
-              >
-                {savingContact ? "Saving…" : "Save"}
-              </button>
-            </div>
+      <AppModal
+        open={Boolean(contactModalOpen && activeThread)}
+        title="Contact details"
+        description="Used for tagging and automations."
+        onClose={() => setContactModalOpen(false)}
+        widthClassName="w-[min(560px,calc(100vw-32px))]"
+        footer={
+          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+            <button
+              type="button"
+              className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
+              onClick={() => setContactModalOpen(false)}
+              disabled={savingContact}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              className="rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
+              onClick={() => void saveActiveThreadContact()}
+              disabled={!String(contactName || "").trim() || savingContact}
+            >
+              {savingContact ? "Saving…" : "Save"}
+            </button>
+          </div>
+        }
+      >
+        <div className="grid grid-cols-1 gap-3">
+          <div>
+            <label className="text-xs font-semibold text-zinc-600">Name</label>
+            <input
+              value={contactName}
+              autoFocus
+              onChange={(e) => setContactName(e.target.value)}
+              className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 outline-none focus:border-zinc-300"
+              placeholder="Jane Doe"
+              maxLength={80}
+            />
+          </div>
+          <div>
+            <label className="text-xs font-semibold text-zinc-600">Email (optional)</label>
+            <input
+              value={contactEmail}
+              onChange={(e) => setContactEmail(e.target.value)}
+              className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 outline-none focus:border-zinc-300"
+              placeholder="name@company.com"
+              maxLength={120}
+            />
+          </div>
+          <div>
+            <label className="text-xs font-semibold text-zinc-600">Phone (optional)</label>
+            <input
+              value={contactPhone}
+              onChange={(e) => setContactPhone(e.target.value)}
+              className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 outline-none focus:border-zinc-300"
+              placeholder="+15551234567"
+              maxLength={40}
+            />
           </div>
         </div>
-      ) : null}
+      </AppModal>
 
       <PortalContactDetailsModal
         open={peopleContactModalOpen}

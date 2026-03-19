@@ -3071,7 +3071,7 @@ export function PortalLeadScrapingClient() {
       )}
 
       {leadOpen && activeLead ? (
-        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/30 p-4 sm:items-center">
+        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/30 px-4 pt-[calc(var(--pa-modal-safe-top,0px)+1rem)] pb-[calc(var(--pa-modal-safe-bottom,0px)+1rem)] sm:items-center">
           <button
             type="button"
             className="absolute inset-0"
@@ -3099,7 +3099,7 @@ export function PortalLeadScrapingClient() {
               →
             </button>
 
-            <div className="relative max-h-[calc(100vh-2rem)] overflow-y-auto rounded-3xl border border-zinc-200 bg-white p-6 shadow-xl sm:max-h-[calc(100vh-3rem)]">
+            <div className="relative max-h-[calc(100dvh-var(--pa-modal-safe-top,0px)-var(--pa-modal-safe-bottom,0px)-2rem)] overflow-y-auto rounded-3xl border border-zinc-200 bg-white p-6 shadow-xl">
               <button
                 type="button"
                 onClick={closeLead}

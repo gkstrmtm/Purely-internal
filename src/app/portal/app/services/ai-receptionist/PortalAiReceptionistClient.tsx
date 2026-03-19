@@ -1638,13 +1638,13 @@ export function PortalAiReceptionistClient() {
 
       {confirmDeleteEvent ? (
         <div
-          className="fixed inset-0 z-50 flex items-start justify-center bg-black/20 px-4 pt-8"
+          className="fixed inset-0 z-50 flex items-start justify-center bg-black/20 px-4 pt-[calc(var(--pa-modal-safe-top,0px)+1rem)] pb-[calc(var(--pa-modal-safe-bottom,0px)+1rem)]"
           role="dialog"
           aria-modal="true"
           onMouseDown={() => setConfirmDeleteCallSid(null)}
         >
           <div
-            className="w-full max-w-lg rounded-3xl border border-zinc-200 bg-white p-5 shadow-xl"
+            className="w-full max-w-lg max-h-[calc(100dvh-var(--pa-modal-safe-top,0px)-var(--pa-modal-safe-bottom,0px)-2rem)] overflow-y-auto rounded-3xl border border-zinc-200 bg-white p-5 shadow-xl"
             onMouseDown={(e) => e.stopPropagation()}
           >
             <div className="text-sm font-semibold text-zinc-900">Delete call from activity?</div>

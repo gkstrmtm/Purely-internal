@@ -1003,9 +1003,9 @@ export function PortalMediaLibraryClient() {
 
       {renaming && typeof document !== "undefined"
         ? createPortal(
-            <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+            <div className="fixed inset-0 z-[100] flex items-end justify-center px-4 pt-[calc(var(--pa-modal-safe-top,0px)+1rem)] pb-[calc(var(--pa-modal-safe-bottom,0px)+1rem)] sm:items-center">
               <div className="absolute inset-0 bg-black/40" onMouseDown={() => setRenaming(null)} />
-              <div className="relative w-full max-w-md rounded-3xl border border-zinc-200 bg-white p-5 shadow-xl">
+              <div className="relative max-h-[calc(100dvh-var(--pa-modal-safe-top,0px)-var(--pa-modal-safe-bottom,0px)-2rem)] w-full max-w-md overflow-auto rounded-3xl border border-zinc-200 bg-white p-5 shadow-xl">
                 <div className="text-sm font-semibold text-zinc-900">Rename</div>
                 <div className="mt-1 text-xs text-zinc-500">Update the display name.</div>
 
@@ -1046,9 +1046,9 @@ export function PortalMediaLibraryClient() {
 
       {moving && typeof document !== "undefined"
         ? createPortal(
-            <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+            <div className="fixed inset-0 z-[100] flex items-end justify-center px-4 pt-[calc(var(--pa-modal-safe-top,0px)+1rem)] pb-[calc(var(--pa-modal-safe-bottom,0px)+1rem)] sm:items-center">
               <div className="absolute inset-0 bg-black/40" onMouseDown={() => setMoving(null)} />
-              <div className="relative w-full max-w-lg rounded-3xl border border-zinc-200 bg-white p-5 shadow-xl">
+              <div className="relative max-h-[calc(100dvh-var(--pa-modal-safe-top,0px)-var(--pa-modal-safe-bottom,0px)-2rem)] w-full max-w-lg overflow-auto rounded-3xl border border-zinc-200 bg-white p-5 shadow-xl">
                 <div className="text-sm font-semibold text-zinc-900">
                   {moving.kind === "item" ? "Add to folder" : "Move folder"}
                 </div>

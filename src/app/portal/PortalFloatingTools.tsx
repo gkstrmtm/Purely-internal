@@ -478,13 +478,13 @@ export function PortalFloatingTools() {
   return (
     <>
       {note ? (
-        <div className="fixed bottom-[calc(var(--pa-portal-embed-footer-offset,0px)+6rem)] right-4 z-9999 max-w-sm rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-800 shadow-lg ring-1 ring-[rgba(29,78,216,0.14)]">
+        <div className="fixed bottom-[calc(var(--pa-portal-embed-footer-offset,0px)+6rem)] right-4 z-[11003] max-w-sm rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-800 shadow-lg ring-1 ring-[rgba(29,78,216,0.14)]">
           {note}
         </div>
       ) : null}
 
       {reportOpen ? (
-        <div className="fixed inset-0 z-9998">
+        <div className="fixed inset-0 z-[11002]">
           <button
             type="button"
             className="absolute inset-0 bg-black/30"
@@ -536,7 +536,7 @@ export function PortalFloatingTools() {
       ) : null}
 
       {chatOpen ? (
-        <div className="fixed bottom-[calc(var(--pa-portal-embed-footer-offset,0px)+1.5rem)] right-4 z-9998 w-[min(520px,calc(100vw-2rem))] overflow-hidden rounded-3xl border border-zinc-200 bg-white p-5 shadow-2xl">
+        <div className="fixed bottom-[calc(var(--pa-portal-embed-footer-offset,0px)+1.5rem)] right-4 z-[11001] w-[min(520px,calc(100vw-2rem))] overflow-hidden rounded-3xl border border-zinc-200 bg-white p-5 shadow-2xl">
             <div className="mb-3 h-1.5 w-16 rounded-full bg-[linear-gradient(90deg,rgba(29,78,216,0.9),rgba(251,113,133,0.35))]" />
             <div className="flex items-start justify-between gap-3">
               <div>
@@ -603,7 +603,7 @@ export function PortalFloatingTools() {
         </div>
       ) : null}
 
-      <div className="fixed bottom-[calc(var(--pa-portal-embed-footer-offset,0px)+1rem)] right-4 z-9997">
+      <div className="fixed bottom-[calc(var(--pa-portal-embed-footer-offset,0px)+1rem)] right-4 z-[11000]">
         {minimized ? (
           <button
             type="button"
