@@ -44,6 +44,7 @@ export function PortalMediaPickerModal({
   confirmLabel,
   variant,
   accept,
+  zIndex,
 }: {
   open: boolean;
   onClose: () => void;
@@ -52,6 +53,7 @@ export function PortalMediaPickerModal({
   confirmLabel?: string;
   variant?: PortalVariant;
   accept?: "any" | "image" | "video";
+  zIndex?: number;
 }) {
   const [mounted, setMounted] = useState(false);
   const [q, setQ] = useState("");
@@ -108,8 +110,9 @@ export function PortalMediaPickerModal({
   }, [q, open, load]);
 
   const body = useMemo(() => {
+    const baseZ = typeof zIndex === "number" && Number.isFinite(zIndex) ? zIndex : 8000;
     return (
-      <div className="fixed inset-0 z-8000" aria-hidden>
+      <div className="fixed inset-0" style={{ zIndex: baseZ }} aria-hidden>
         <div
           className="absolute inset-0 bg-black/30"
           onMouseDown={onClose}
@@ -118,10 +121,11 @@ export function PortalMediaPickerModal({
 
         <div
           className={classNames(
-            "fixed inset-0 z-8010 flex items-start justify-center px-4",
+            "fixed inset-0 flex items-start justify-center px-4",
             "pt-[calc(var(--pa-modal-safe-top,0px)+1rem)] pb-[calc(var(--pa-modal-safe-bottom,0px)+1rem)]",
             "sm:items-center",
           )}
+          style={{ zIndex: baseZ + 10 }}
           role="dialog"
           aria-modal="true"
         >
@@ -230,7 +234,7 @@ export function PortalMediaPickerModal({
         </div>
       </div>
     );
-  }, [accept, busy, confirmLabel, error, filteredItems, loading, onClose, onPick, q, title]);
+  }, [accept, busy, confirmLabel, error, filteredItems, loading, onClose, onPick, q, title, zIndex]);
 
   if (!open || !mounted || typeof document === "undefined") return null;
   return createPortal(body, document.body);

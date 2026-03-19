@@ -490,6 +490,7 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
   const [peopleContactThreadId, setPeopleContactThreadId] = useState<string | null>(null);
 
   const contactModalZ = 12110;
+  const mediaPickerZ = 12130;
 
   const smsScrollRef = useRef<HTMLDivElement | null>(null);
   const smsFileRef = useRef<HTMLInputElement | null>(null);
@@ -1106,25 +1107,6 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
 
       {tab === "email" ? (
         <div className="mt-3 flex flex-wrap items-center gap-2">
-          <button
-            type="button"
-            className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[#007aff] text-white shadow-sm hover:bg-[#006ae6]"
-            onClick={() => {
-              setEmailComposerOpen(true);
-              setEmailAttachMenuOpen(false);
-              setThreadSearch("");
-              setActiveThreadId(null);
-              clearConversationForCompose();
-              setComposeTo("");
-              setComposeSubject("");
-              setComposeBody("");
-              setComposeAttachments([]);
-            }}
-            aria-label="New email"
-          >
-            <span className="text-xl leading-none">+</span>
-          </button>
-
           <button
             type="button"
             className="h-11 shrink-0 rounded-full border border-zinc-200 bg-white px-4 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
@@ -1810,6 +1792,7 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
         onPick={attachFromMediaLibrary}
         confirmLabel="Add"
         title="Add from media library"
+        zIndex={mediaPickerZ}
       />
 
       {tab === "sms" && smsSheetOpen && !emailComposerOpen ? (
@@ -2350,12 +2333,16 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
 
                     <button
                       type="button"
-                      className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-zinc-200 bg-white text-zinc-800 hover:bg-zinc-50"
+                      className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-zinc-200 bg-white text-brand-ink hover:bg-zinc-50"
                       onClick={() => setEmailAttachMenuOpen((v) => !v)}
                       aria-label="Attach"
                       aria-expanded={emailAttachMenuOpen ? true : undefined}
                     >
-                      <span className="text-lg leading-none">📎</span>
+                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden>
+                        <path d="M4 6a2 2 0 012-2h12a2 2 0 012 2v12a2 2 0 01-2 2H6a2 2 0 01-2-2V6z" stroke="currentColor" strokeWidth="2" />
+                        <path d="M8 10a2 2 0 104 0 2 2 0 00-4 0z" fill="currentColor" />
+                        <path d="M6 18l5-5 3 3 4-4 2 2" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                      </svg>
                     </button>
                   </div>
 
