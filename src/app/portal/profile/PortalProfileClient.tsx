@@ -233,6 +233,15 @@ export function PortalProfileClient() {
   const [passwordModalOpen, setPasswordModalOpen] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(false);
 
+  type AdvancedScrollTarget =
+    | "advanced"
+    | "webhooks"
+    | "twilio"
+    | "salesReporting"
+    | "businessEmail"
+    | "businessInfo";
+  const [pendingAdvancedScrollTarget, setPendingAdvancedScrollTarget] = useState<AdvancedScrollTarget | null>(null);
+
   const advancedRef = useRef<HTMLDivElement | null>(null);
   const webhooksRef = useRef<HTMLDivElement | null>(null);
   const twilioRef = useRef<HTMLDivElement | null>(null);
@@ -242,22 +251,53 @@ export function PortalProfileClient() {
 
   const ADVANCED_SCROLL_OFFSET_PX = 96;
 
-  function openAdvancedAndScrollToAdvanced() {
+  function requestAdvancedScroll(target: AdvancedScrollTarget) {
     setAdvancedOpen(true);
-    setTimeout(() => {
-      advancedRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-    }, 0);
+    setPendingAdvancedScrollTarget(target);
   }
 
-  function openAdvancedAndScrollToSection(ref: React.RefObject<HTMLDivElement | null>) {
-    setAdvancedOpen(true);
-    setTimeout(() => {
-      const el = ref.current;
-      if (!el) return;
-      const top = window.scrollY + el.getBoundingClientRect().top - ADVANCED_SCROLL_OFFSET_PX;
-      window.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
-    }, 50);
+  function openAdvancedAndScrollToAdvanced() {
+    requestAdvancedScroll("advanced");
   }
+
+  useEffect(() => {
+    if (!pendingAdvancedScrollTarget) return;
+
+    // Advanced sections are only mounted when `advancedOpen` is true.
+    if (pendingAdvancedScrollTarget !== "advanced" && !advancedOpen) return;
+
+    const el =
+      pendingAdvancedScrollTarget === "advanced"
+        ? advancedRef.current
+        : pendingAdvancedScrollTarget === "webhooks"
+          ? webhooksRef.current
+          : pendingAdvancedScrollTarget === "twilio"
+            ? twilioRef.current
+            : pendingAdvancedScrollTarget === "salesReporting"
+              ? salesReportingRef.current
+              : pendingAdvancedScrollTarget === "businessEmail"
+                ? businessEmailRef.current
+                : pendingAdvancedScrollTarget === "businessInfo"
+                  ? businessInfoRef.current
+                  : null;
+
+    if (!el) return;
+
+    let raf1 = 0;
+    let raf2 = 0;
+    raf1 = window.requestAnimationFrame(() => {
+      raf2 = window.requestAnimationFrame(() => {
+        const top = window.scrollY + el.getBoundingClientRect().top - ADVANCED_SCROLL_OFFSET_PX;
+        window.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
+        setPendingAdvancedScrollTarget(null);
+      });
+    });
+
+    return () => {
+      if (raf1) window.cancelAnimationFrame(raf1);
+      if (raf2) window.cancelAnimationFrame(raf2);
+    };
+  }, [advancedOpen, pendingAdvancedScrollTarget]);
 
   const canSaveContact = useMemo(() => {
     if (!me) return false;
@@ -934,7 +974,7 @@ export function PortalProfileClient() {
                   {canViewTwilio ? (
                     <button
                       type="button"
-                      onClick={() => openAdvancedAndScrollToSection(twilioRef)}
+                      onClick={() => requestAdvancedScroll("twilio")}
                       className="rounded-2xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs font-semibold text-brand-ink hover:bg-zinc-100"
                     >
                       Twilio
@@ -943,7 +983,7 @@ export function PortalProfileClient() {
                   {canViewWebhooks ? (
                     <button
                       type="button"
-                      onClick={() => openAdvancedAndScrollToSection(webhooksRef)}
+                      onClick={() => requestAdvancedScroll("webhooks")}
                       className="rounded-2xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs font-semibold text-brand-ink hover:bg-zinc-100"
                     >
                       Webhooks
@@ -951,7 +991,7 @@ export function PortalProfileClient() {
                   ) : null}
                   <button
                     type="button"
-                    onClick={() => openAdvancedAndScrollToSection(salesReportingRef)}
+                    onClick={() => requestAdvancedScroll("salesReporting")}
                     className="rounded-2xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs font-semibold text-brand-ink hover:bg-zinc-100"
                   >
                     Sales reporting
@@ -959,7 +999,7 @@ export function PortalProfileClient() {
                   {portalMe?.ok === true ? (
                     <button
                       type="button"
-                      onClick={() => openAdvancedAndScrollToSection(businessEmailRef)}
+                      onClick={() => requestAdvancedScroll("businessEmail")}
                       className="rounded-2xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs font-semibold text-brand-ink hover:bg-zinc-100"
                     >
                       Business email
@@ -968,7 +1008,7 @@ export function PortalProfileClient() {
                   {canViewBusinessInfo ? (
                     <button
                       type="button"
-                      onClick={() => openAdvancedAndScrollToSection(businessInfoRef)}
+                      onClick={() => requestAdvancedScroll("businessInfo")}
                       className="col-span-2 rounded-2xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs font-semibold text-brand-ink hover:bg-zinc-100"
                     >
                       Business info
@@ -979,7 +1019,7 @@ export function PortalProfileClient() {
             </div>
           </div>
 
-          <div ref={advancedRef} className="rounded-3xl border border-zinc-200 bg-white p-6">
+          <div ref={advancedRef} className="scroll-mt-24 rounded-3xl border border-zinc-200 bg-white p-6">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:pr-16">
               <div>
                 <div className="text-sm font-semibold text-zinc-900">Advanced</div>
@@ -1000,7 +1040,7 @@ export function PortalProfileClient() {
               
 
               {canViewWebhooks ? (
-                <div ref={webhooksRef}>
+                <div ref={webhooksRef} className="scroll-mt-24">
                   <PortalSettingsSection
                     title="Webhooks (copy/paste)"
                     description="Paste these into Twilio so calls flow into your AI Receptionist and Missed-Call Text Back."
@@ -1033,7 +1073,7 @@ export function PortalProfileClient() {
               ) : null}
 
               {canViewTwilio ? (
-                <div ref={twilioRef}>
+                <div ref={twilioRef} className="scroll-mt-24">
                   <PortalSettingsSection
                     title="Twilio"
                     description="Paste your Twilio Account SID, Auth Token, and From number. This powers Inbox (SMS) + AI Receptionist + Missed-Call Text Back."
@@ -1113,7 +1153,7 @@ export function PortalProfileClient() {
                             type="button"
                             onClick={() => void saveTwilio()}
                             disabled={savingTwilio}
-                            className="inline-flex items-center justify-center rounded-2xl bg-[color:var(--color-brand-blue)] px-4 py-2 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
+                            className="inline-flex items-center justify-center rounded-2xl bg-(--color-brand-blue) px-4 py-2 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
                           >
                             {savingTwilio ? "Saving…" : "Save Twilio"}
                           </button>
@@ -1132,7 +1172,7 @@ export function PortalProfileClient() {
                 </div>
               ) : null}
 
-              <div ref={salesReportingRef}>
+              <div ref={salesReportingRef} className="scroll-mt-24">
                 <PortalSettingsSection
                   title="Sales Reporting"
                   description="Connect your payment processor to unlock a sales dashboard."
@@ -1467,7 +1507,7 @@ export function PortalProfileClient() {
                       Disconnect
                     </button>
                   </div>
-                  <Link href="/portal/app/services/reporting/sales" className="text-sm font-semibold text-[color:var(--color-brand-blue)] hover:underline">
+                  <Link href="/portal/app/services/reporting/sales" className="text-sm font-semibold text-(--color-brand-blue) hover:underline">
                     Open sales dashboard →
                   </Link>
                 </div>
@@ -1477,7 +1517,7 @@ export function PortalProfileClient() {
           </div>
 
           {portalMe?.ok === true ? (
-            <div ref={businessEmailRef}>
+            <div ref={businessEmailRef} className="scroll-mt-24">
               <PortalSettingsSection
                 title="Business email"
                 description="Your managed @purelyautomation.com email address (used for inbox sending + receiving)."
@@ -1550,7 +1590,7 @@ export function PortalProfileClient() {
           ) : null}
 
           {canViewBusinessInfo ? (
-            <div ref={businessInfoRef}>
+            <div ref={businessInfoRef} className="scroll-mt-24">
               <PortalSettingsSection
                 title="Business info"
                 description="Update your business details and branding anytime."
@@ -1590,7 +1630,7 @@ export function PortalProfileClient() {
                   type="button"
                   onClick={changePassword}
                   disabled={!canSavePassword || savingPassword}
-                  className="rounded-2xl bg-[color:var(--color-brand-blue)] px-4 py-2 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
+                  className="rounded-2xl bg-(--color-brand-blue) px-4 py-2 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
                 >
                   {savingPassword ? "Updating…" : "Update password"}
                 </button>
