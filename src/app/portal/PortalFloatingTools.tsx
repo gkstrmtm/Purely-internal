@@ -299,6 +299,10 @@ export function PortalFloatingTools() {
   const shouldAutoScrollRef = useRef(true);
   const chatScrollRafRef = useRef<number | null>(null);
 
+  const toolsCardRef = useRef<HTMLDivElement | null>(null);
+  const chatPanelRef = useRef<HTMLDivElement | null>(null);
+  const reportCardRef = useRef<HTMLDivElement | null>(null);
+
   useEffect(() => {
     chatMessagesRef.current = chatMessages;
   }, [chatMessages]);
@@ -343,6 +347,57 @@ export function PortalFloatingTools() {
     if (typeof window === "undefined") return;
     window.localStorage.setItem("pa_portal_floating_tools_minimized", minimized ? "1" : "0");
   }, [minimized]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const root = document.documentElement;
+    const pickEl = () => {
+      if (reportOpen) return reportCardRef.current;
+      if (chatOpen) return chatPanelRef.current;
+      if (!minimized) return toolsCardRef.current;
+      return null;
+    };
+
+    const setReserve = (px: number) => {
+      const v = Number.isFinite(px) ? Math.max(0, Math.floor(px)) : 0;
+      root.style.setProperty("--pa-portal-floating-tools-reserve", `${v}px`);
+    };
+
+    const el = pickEl();
+    if (!el) {
+      setReserve(0);
+      return;
+    }
+
+    const recompute = () => {
+      const h = el.getBoundingClientRect().height;
+      // The inbox floating email button already sits higher than the tools widget
+      // (5.75rem vs 1.5rem). Reserve only the *additional* space needed.
+      const remPx = Number.parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
+      const baselineDeltaPx = (5.75 - 1.5) * remPx;
+      const marginPx = 16;
+      setReserve(Math.ceil(Math.max(0, h + marginPx - baselineDeltaPx)));
+    };
+
+    recompute();
+
+    const ro = typeof ResizeObserver !== "undefined" ? new ResizeObserver(() => recompute()) : null;
+    ro?.observe(el);
+    window.addEventListener("resize", recompute);
+
+    return () => {
+      ro?.disconnect();
+      window.removeEventListener("resize", recompute);
+    };
+  }, [chatOpen, minimized, reportOpen]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    return () => {
+      document.documentElement.style.removeProperty("--pa-portal-floating-tools-reserve");
+    };
+  }, []);
 
   useEffect(() => {
     let mounted = true;
@@ -492,7 +547,10 @@ export function PortalFloatingTools() {
             onClick={() => (!sending ? setReportOpen(false) : null)}
           />
 
-          <div className="absolute bottom-[calc(var(--pa-portal-embed-footer-offset,0px)+1.5rem)] right-4 w-[min(520px,calc(100vw-2rem))] rounded-3xl border border-zinc-200 bg-white p-5 shadow-2xl">
+          <div
+            ref={reportCardRef}
+            className="absolute bottom-[calc(var(--pa-portal-embed-footer-offset,0px)+1.5rem)] right-4 w-[min(520px,calc(100vw-2rem))] rounded-3xl border border-zinc-200 bg-white p-5 shadow-2xl"
+          >
             <div className="mb-3 h-1.5 w-16 rounded-full bg-[linear-gradient(90deg,rgba(29,78,216,0.9),rgba(251,113,133,0.35))]" />
             <div className="flex items-start justify-between gap-3">
               <div>
@@ -536,7 +594,10 @@ export function PortalFloatingTools() {
       ) : null}
 
       {chatOpen ? (
-        <div className="fixed bottom-[calc(var(--pa-portal-embed-footer-offset,0px)+1.5rem)] right-4 z-[11001] w-[min(520px,calc(100vw-2rem))] overflow-hidden rounded-3xl border border-zinc-200 bg-white p-5 shadow-2xl">
+        <div
+          ref={chatPanelRef}
+          className="fixed bottom-[calc(var(--pa-portal-embed-footer-offset,0px)+1.5rem)] right-4 z-[11001] w-[min(520px,calc(100vw-2rem))] overflow-hidden rounded-3xl border border-zinc-200 bg-white p-5 shadow-2xl"
+        >
             <div className="mb-3 h-1.5 w-16 rounded-full bg-[linear-gradient(90deg,rgba(29,78,216,0.9),rgba(251,113,133,0.35))]" />
             <div className="flex items-start justify-between gap-3">
               <div>
@@ -624,7 +685,10 @@ export function PortalFloatingTools() {
             <span className="text-sm font-semibold text-zinc-900">Chat and Report</span>
           </button>
         ) : (
-          <div className="w-[min(320px,calc(100vw-2rem))] rounded-3xl border border-zinc-200 bg-white p-4 shadow-2xl">
+          <div
+            ref={toolsCardRef}
+            className="w-[min(320px,calc(100vw-2rem))] rounded-3xl border border-zinc-200 bg-white p-4 shadow-2xl"
+          >
             <div className="mb-3 h-1.5 w-14 rounded-full bg-[linear-gradient(90deg,rgba(29,78,216,0.9),rgba(29,78,216,0.25))]" />
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">

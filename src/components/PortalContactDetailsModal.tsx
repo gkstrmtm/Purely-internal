@@ -89,10 +89,11 @@ type Props = {
     contact: { id: string; name: string; email: string | null; phone: string | null } | null;
     tags: ContactTag[];
   }) => void;
+  zIndex?: number;
 };
 
 export function PortalContactDetailsModal(props: Props) {
-  const { open, contactId, onClose, onContactUpdated } = props;
+  const { open, contactId, onClose, onContactUpdated, zIndex } = props;
   const toast = useToast();
 
   const [detailLoading, setDetailLoading] = useState(false);
@@ -382,6 +383,7 @@ export function PortalContactDetailsModal(props: Props) {
         "pt-[calc(var(--pa-modal-safe-top,0px)+1rem)] pb-[calc(var(--pa-modal-safe-bottom,0px)+1rem)]",
         "sm:items-center",
       )}
+      style={{ zIndex: Number.isFinite(zIndex as number) ? (zIndex as number) : undefined }}
       onMouseDown={onClose}
     >
       <div

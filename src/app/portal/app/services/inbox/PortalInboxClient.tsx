@@ -489,6 +489,8 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
   const [peopleContactId, setPeopleContactId] = useState<string | null>(null);
   const [peopleContactThreadId, setPeopleContactThreadId] = useState<string | null>(null);
 
+  const contactModalZ = 12110;
+
   const smsScrollRef = useRef<HTMLDivElement | null>(null);
   const smsFileRef = useRef<HTMLInputElement | null>(null);
   const emailFileRef = useRef<HTMLInputElement | null>(null);
@@ -1106,6 +1108,25 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
         <div className="mt-3 flex flex-wrap items-center gap-2">
           <button
             type="button"
+            className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[#007aff] text-white shadow-sm hover:bg-[#006ae6]"
+            onClick={() => {
+              setEmailComposerOpen(true);
+              setEmailAttachMenuOpen(false);
+              setThreadSearch("");
+              setActiveThreadId(null);
+              clearConversationForCompose();
+              setComposeTo("");
+              setComposeSubject("");
+              setComposeBody("");
+              setComposeAttachments([]);
+            }}
+            aria-label="New email"
+          >
+            <span className="text-xl leading-none">+</span>
+          </button>
+
+          <button
+            type="button"
             className="h-11 shrink-0 rounded-full border border-zinc-200 bg-white px-4 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
             onClick={() => setEmailBox((prev) => (prev === "sent" ? "inbox" : "sent"))}
             aria-label={emailBox === "sent" ? "Show inbox" : "Show sent"}
@@ -1392,6 +1413,7 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
         title="Contact details"
         description="Used for tagging and automations."
         onClose={() => setContactModalOpen(false)}
+        zIndex={contactModalZ}
         widthClassName="w-[min(560px,calc(100vw-32px))]"
         footer={
           <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
@@ -1452,6 +1474,7 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
       <PortalContactDetailsModal
         open={peopleContactModalOpen}
         contactId={peopleContactId}
+        zIndex={contactModalZ}
         onClose={() => {
           setPeopleContactModalOpen(false);
           setPeopleContactId(null);
@@ -2143,7 +2166,10 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
         <button
           type="button"
           className="fixed right-4 z-11001 rounded-full bg-[#007aff] px-5 py-3 text-sm font-semibold text-white shadow-xl hover:bg-[#006ae6]"
-          style={{ bottom: "calc(var(--pa-portal-embed-footer-offset,0px) + 5.75rem)" }}
+          style={{
+            bottom:
+              "calc(var(--pa-portal-embed-footer-offset,0px) + 5.75rem + var(--pa-portal-floating-tools-reserve, 0px))",
+          }}
           onClick={() => {
             setEmailComposerOpen(true);
             setEmailAttachMenuOpen(false);

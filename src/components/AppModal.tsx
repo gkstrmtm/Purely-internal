@@ -15,6 +15,7 @@ export function AppModal({
   children,
   footer,
   widthClassName,
+  zIndex,
 }: {
   open: boolean;
   title: string;
@@ -23,6 +24,7 @@ export function AppModal({
   children: React.ReactNode;
   footer?: React.ReactNode;
   widthClassName?: string;
+  zIndex?: number;
 }) {
   const [mounted, setMounted] = useState(false);
 
@@ -50,8 +52,10 @@ export function AppModal({
   const body = useMemo(() => {
     if (!open) return null;
 
+    const baseZ = Number.isFinite(zIndex as number) ? (zIndex as number) : 8000;
+
     return (
-      <div className="fixed inset-0 z-8000" aria-hidden>
+      <div className="fixed inset-0" style={{ zIndex: baseZ }} aria-hidden>
         <button
           type="button"
           className="absolute inset-0 cursor-default bg-black/30"
@@ -61,10 +65,11 @@ export function AppModal({
 
         <div
           className={classNames(
-            "fixed inset-0 z-8010 flex items-start justify-center px-4",
+            "fixed inset-0 flex items-start justify-center px-4",
             "pt-[calc(var(--pa-modal-safe-top,0px)+1rem)] pb-[calc(var(--pa-modal-safe-bottom,0px)+1rem)]",
             "sm:items-center",
           )}
+          style={{ zIndex: baseZ + 10 }}
           onMouseDown={(e) => e.stopPropagation()}
           onTouchStart={(e) => e.stopPropagation()}
         >
@@ -100,7 +105,7 @@ export function AppModal({
         </div>
       </div>
     );
-  }, [children, description, footer, onClose, open, title, widthClassName]);
+  }, [children, description, footer, onClose, open, title, widthClassName, zIndex]);
 
   if (!mounted) return null;
   if (!body) return null;
