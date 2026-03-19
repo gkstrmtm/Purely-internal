@@ -166,8 +166,8 @@ export async function POST(req: Request) {
   }
 
   try {
-    const checkout = await stripePost<{ url: string }>("/v1/checkout/sessions", params);
-    return NextResponse.json({ ok: true, url: checkout.url });
+    const checkout = await stripePost<{ url: string; id: string }>("/v1/checkout/sessions", params);
+    return NextResponse.json({ ok: true, url: checkout.url, sessionId: checkout.id });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Stripe error";
     return NextResponse.json({ ok: false, error: message }, { status: 502 });

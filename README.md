@@ -43,6 +43,32 @@ npm run dev
 
 Open http://localhost:3000
 
+## Mobile app (Expo)
+
+The mobile client lives in `mobile-app/` and runs as:
+
+- Web (Expo Web) for hosting
+- Native (iOS/Android) for a real app experience
+
+### Common commands
+
+From the repo root:
+
+- Dev (mobile web): `npm --prefix mobile-app run web`
+- Typecheck (mobile): `npm --prefix mobile-app run typecheck`
+- Build static web export (mobile): `npm --prefix mobile-app run build`
+
+VS Code tasks are also available in `.vscode/tasks.json`:
+
+- `Dev: mobile web (expo)`
+- `Build: mobile web export`
+- `Typecheck: mobile`
+
+### Stripe checkout UX
+
+- Web: redirects to Stripe Checkout, then returns to the in-app route (no `/portal/*` portal website pages).
+- Native: opens Stripe Checkout in an in-app browser (Safari View Controller / Chrome Custom Tabs via `expo-web-browser`) and then confirms onboarding when the browser closes.
+
 ## Deploy (Vercel + Supabase)
 
 1) Create a Vercel project from this repo.

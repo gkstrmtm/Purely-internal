@@ -1,5 +1,7 @@
 import { AppConfig } from "../config/app";
 
+import { getPortalBearerToken } from "../auth/portalToken";
+
 export class ApiError extends Error {
   constructor(
     message: string,
@@ -11,7 +13,7 @@ export class ApiError extends Error {
   }
 }
 
-export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
+export function resolveApiUrl(path: string): string {
   // Critical for web builds: keep requests same-origin so the portal session cookie
   // (set by `/portal/api/login`) is attached to `/api/*` calls via Vercel rewrites.
   // If we use an absolute base URL on web, the cookie will be stored on that other
@@ -19,16 +21,26 @@ export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> 
   const isBrowser = typeof window !== "undefined";
   const base = isBrowser ? "" : (AppConfig.apiBaseUrl || "").trim();
   const normalizedPath = path.startsWith("/") ? path : `/${path}`;
-  const url = base ? `${base.replace(/\/$/, "")}${normalizedPath}` : normalizedPath;
+  return base ? `${base.replace(/\/$/, "")}${normalizedPath}` : normalizedPath;
+}
 
-  const res = await fetch(url, {
+export async function apiFetchRaw(path: string, init?: RequestInit): Promise<Response> {
+  const url = resolveApiUrl(path);
+
+  const token = await getPortalBearerToken();
+  const headers = new Headers(init?.headers ?? undefined);
+  if (!headers.has("Content-Type")) headers.set("Content-Type", "application/json");
+  if (token && !headers.has("Authorization")) headers.set("Authorization", `Bearer ${token}`);
+
+  return fetch(url, {
     ...init,
     credentials: init?.credentials ?? "include",
-    headers: {
-      "Content-Type": "application/json",
-      ...(init?.headers ?? {}),
-    },
+    headers,
   });
+}
+
+export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
+  const res = await apiFetchRaw(path, init);
 
   if (!res.ok) {
     const text = await res.text().catch(() => undefined);

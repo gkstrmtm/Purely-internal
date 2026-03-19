@@ -1,5 +1,6 @@
-import { apiFetch } from "./client";
+import { apiFetch, apiFetchRaw } from "./client";
 import { AppConfig } from "../config/app";
+import { setPortalBearerToken } from "../auth/portalToken";
 
 export type PortalSignupInput = {
   name: string;
@@ -38,6 +39,35 @@ export type PortalSignupResponse =
   | { ok: false; error?: string; requestId?: string; errorKey?: string };
 
 export async function portalSignup(input: PortalSignupInput): Promise<void> {
+  const isBrowser = typeof window !== "undefined";
+
+  // On native, ask the server to include the JWT in the response body so we can
+  // use bearer auth (cookies can be flaky on device).
+  if (!isBrowser) {
+    const raw = await apiFetchRaw("/api/auth/client-signup", {
+      method: "POST",
+      headers: {
+        [AppConfig.portalVariantHeaderName]: AppConfig.portalVariant,
+        "x-pa-return-token": "1",
+      },
+      body: JSON.stringify({
+        ...input,
+        billingPreference: input.billingPreference ?? "credits",
+        selectedPlanIds: input.selectedPlanIds && input.selectedPlanIds.length > 0 ? input.selectedPlanIds : ["core"],
+      }),
+    });
+
+    const data = (await raw.json().catch(() => null)) as any;
+    if (!raw.ok || data?.ok !== true) {
+      const msg = typeof data?.error === "string" ? String(data.error) : "Unable to create account";
+      throw new Error(msg);
+    }
+
+    const token = typeof data?.token === "string" ? data.token.trim() : "";
+    if (token) await setPortalBearerToken(token);
+    return;
+  }
+
   const res = await apiFetch<PortalSignupResponse>("/api/auth/client-signup", {
     method: "POST",
     headers: {

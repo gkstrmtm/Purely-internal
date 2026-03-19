@@ -32,6 +32,13 @@ function isSecureRequest(req: Request): boolean {
 export async function POST(req: Request) {
   const variant = (normalizePortalVariant(req.headers.get(PORTAL_VARIANT_HEADER)) || "portal") satisfies PortalVariant;
 
+  const wantsToken = (() => {
+    const v = (req.headers.get("x-pa-return-token") ?? "").trim();
+    if (v === "1" || v.toLowerCase() === "true") return true;
+    const client = (req.headers.get("x-pa-client") ?? "").trim().toLowerCase();
+    return client === "native" || client === "mobile";
+  })();
+
   const hasVariantColumn = await dbHasUserClientPortalVariantColumn();
   if (variant === "credit" && !hasVariantColumn) {
     return NextResponse.json(
@@ -140,7 +147,7 @@ export async function POST(req: Request) {
     maxAge: 60 * 60 * 24 * 30,
   });
 
-  const res = NextResponse.json({ ok: true });
+  const res = NextResponse.json(wantsToken ? { ok: true, token } : { ok: true });
   res.cookies.set({
     name: portalVariantToCookieName[variant],
     value: token,

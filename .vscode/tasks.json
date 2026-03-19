@@ -13,6 +13,45 @@
 			"problemMatcher": []
 		},
 		{
+			"label": "Dev: mobile web (expo)",
+			"type": "shell",
+			"command": "npm",
+			"args": [
+				"--prefix",
+				"mobile-app",
+				"run",
+				"web"
+			],
+			"isBackground": true,
+			"problemMatcher": []
+		},
+		{
+			"label": "Build: mobile web export",
+			"type": "shell",
+			"command": "npm",
+			"args": [
+				"--prefix",
+				"mobile-app",
+				"run",
+				"build"
+			],
+			"problemMatcher": []
+		},
+		{
+			"label": "Typecheck: mobile",
+			"type": "shell",
+			"command": "npm",
+			"args": [
+				"--prefix",
+				"mobile-app",
+				"run",
+				"typecheck"
+			],
+			"problemMatcher": [
+				"$tsc"
+			]
+		},
+		{
 			"label": "Lint: eslint",
 			"type": "shell",
 			"command": "npm",

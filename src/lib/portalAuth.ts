@@ -21,6 +21,19 @@ export type PortalSessionUser = {
   portalVariant?: PortalVariant;
 };
 
+async function bearerTokenFromHeaders(): Promise<string | null> {
+  try {
+    const h = await headers();
+    const raw = h.get("authorization") || h.get("Authorization");
+    if (!raw) return null;
+    const m = raw.match(/^Bearer\s+(.+)$/i);
+    const token = m?.[1]?.trim();
+    return token ? token : null;
+  } catch {
+    return null;
+  }
+}
+
 async function portalVariantFromHeaders(): Promise<PortalVariant | null> {
   const h = await headers();
   return normalizePortalVariant(h.get(PORTAL_VARIANT_HEADER));
@@ -48,7 +61,8 @@ export async function getPortalUser(opts?: { variant?: PortalVariant | "auto" })
             : "portal";
 
   const cookieName = variant === "credit" ? CREDIT_PORTAL_SESSION_COOKIE_NAME : PORTAL_SESSION_COOKIE_NAME;
-  const tokenRaw = cookieStore.get(cookieName)?.value;
+  const bearer = await bearerTokenFromHeaders();
+  const tokenRaw = bearer || cookieStore.get(cookieName)?.value;
   if (!tokenRaw) return null;
 
   const secret = process.env.NEXTAUTH_SECRET;

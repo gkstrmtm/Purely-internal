@@ -174,6 +174,13 @@ export async function POST(req: Request) {
   const requestId = createRequestId();
   const variant = (normalizePortalVariant(req.headers.get(PORTAL_VARIANT_HEADER)) || "portal") satisfies PortalVariant;
 
+  const wantsToken = (() => {
+    const v = (req.headers.get("x-pa-return-token") ?? "").trim();
+    if (v === "1" || v.toLowerCase() === "true") return true;
+    const client = (req.headers.get("x-pa-client") ?? "").trim().toLowerCase();
+    return client === "native" || client === "mobile";
+  })();
+
   const jsonResponse = (body: Record<string, unknown>, init?: { status?: number }) => {
     const res = NextResponse.json({ requestId, ...body }, init);
     res.headers.set("x-pa-request-id", requestId);
@@ -558,7 +565,7 @@ export async function POST(req: Request) {
       maxAge: 60 * 60 * 24 * 30,
     });
 
-    const res = jsonResponse({ ok: true, user, signedIn: true });
+    const res = jsonResponse(wantsToken ? { ok: true, user, signedIn: true, token } : { ok: true, user, signedIn: true });
     res.cookies.set({
       name: variant === "credit" ? CREDIT_PORTAL_SESSION_COOKIE_NAME : PORTAL_SESSION_COOKIE_NAME,
       value: token,

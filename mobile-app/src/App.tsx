@@ -17,7 +17,13 @@ import {
 import { portalLogin, portalLogout } from './api/portalAuth';
 import { portalMe } from './api/portalMe';
 import { portalSignup } from './api/portalSignup';
+import type { PortalSignupInput } from './api/portalSignup';
+import { portalOnboardingCheckout, portalOnboardingConfirm } from './api/portalOnboardingBilling';
 import { portalLogoUrl } from './config/app';
+import { PortalApp } from './features/portal/PortalApp';
+import { GetStartedWizard } from './features/getStarted/GetStartedWizard';
+
+import * as WebBrowser from 'expo-web-browser';
 
 type Screen = 'loading' | 'login' | 'signup' | 'home';
 
@@ -33,63 +39,58 @@ export default function RootApp() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const isWeb = Platform.OS === 'web' && typeof window !== 'undefined';
-
   useEffect(() => {
     let mounted = true;
     (async () => {
+      // Web-only: Stripe returns to /portal/get-started/complete with a session_id.
+      // Confirm it here so the app stays "app-like" (no portal-page proxying).
+      if (Platform.OS === 'web' && typeof window !== 'undefined') {
+        try {
+          const url = new URL(window.location.href);
+          if (url.pathname.startsWith('/portal/get-started/complete')) {
+            const sessionId = url.searchParams.get('session_id') || '';
+            if (sessionId) {
+              await portalOnboardingConfirm({ sessionId });
+            }
+
+            // Avoid re-running on reload.
+            window.history.replaceState(null, '', '/');
+          } else if (url.pathname.startsWith('/portal/get-started') && url.searchParams.get('checkout') === 'cancel') {
+            setError('Checkout canceled. You can try again.');
+            window.history.replaceState(null, '', '/');
+          }
+        } catch {
+          // ignore
+        }
+      }
+
       const user = await portalMe().catch(() => null);
       if (!mounted) return;
       setMe(user);
-      if (isWeb && user) {
-        window.location.replace('/portal/app');
-        return;
-      }
       setScreen(user ? 'home' : 'login');
     })();
     return () => { mounted = false; };
-  }, [isWeb]);
+  }, []);
 
   async function refreshMe() {
     const user = await portalMe().catch(() => null);
     setMe(user);
-    if (isWeb && user) {
-      window.location.replace('/portal/app');
-      return;
-    }
     setScreen(user ? 'home' : 'login');
-  }
-
-  if (isWeb && screen === 'signup') {
-    // Don't try to recreate the onboarding wizard in RN-web.
-    // Load the real portal get-started page so it matches exactly.
-    window.location.replace('/portal/get-started');
-    return (
-      <View style={styles.center}>
-        <ActivityIndicator size='large' color={BRAND_INK} />
-      </View>
-    );
   }
 
   if (screen === 'home') {
     return (
       <SafeAreaView style={styles.safe}>
         <StatusBar barStyle='dark-content' />
-        <ScrollView contentContainerStyle={styles.containerCenter}>
-          <View style={styles.card}>
-            <Image source={{ uri: portalLogoUrl }} style={styles.logo} />
-            <Text style={styles.title}>Welcome back</Text>
-            <Text style={styles.subtitle}>{me?.email}</Text>
-            <Pressable style={styles.primaryButton} onPress={async () => {
-              setBusy(true);
-              await portalLogout().catch(() => {});
-              await refreshMe();
-              setBusy(false);
-            }}>
-              <Text style={styles.primaryButtonText}>{busy ? 'Logging out...' : 'Log out'}</Text>
-            </Pressable>
-          </View>
-        </ScrollView>
+        <PortalApp
+          me={me}
+          onLogout={async () => {
+            setBusy(true);
+            await portalLogout().catch(() => {});
+            await refreshMe();
+            setBusy(false);
+          }}
+        />
       </SafeAreaView>
     );
   }
@@ -154,6 +155,49 @@ export default function RootApp() {
                   setBusy(true);
                   try {
                     await portalSignup(form);
+
+                    if (form.billingPreference === 'subscription') {
+                      const planIds = form.selectedPlanIds && form.selectedPlanIds.length ? form.selectedPlanIds : ['core'];
+                      const checkout = await portalOnboardingCheckout({
+                        planIds,
+                        planQuantities: form.selectedPlanQuantities,
+                        couponCode: form.couponCode,
+                      });
+
+                      if (checkout && (checkout as any).ok === true && (checkout as any).bypass) {
+                        await portalOnboardingConfirm({ bypass: true });
+                        await refreshMe();
+                        return;
+                      }
+
+                      const url = checkout && (checkout as any).ok === true ? String((checkout as any).url || '') : '';
+                      const sessionId = checkout && (checkout as any).ok === true ? String((checkout as any).sessionId || '') : '';
+                      if (!url) {
+                        throw new Error((checkout as any)?.error || 'Unable to start checkout');
+                      }
+
+                      if (typeof window !== 'undefined') {
+                        window.location.href = url;
+                        return;
+                      }
+
+                      // Native: open in an in-app browser (SafariViewController / Chrome Custom Tab)
+                      // and then confirm payment using the Stripe session id.
+                      await WebBrowser.openBrowserAsync(url);
+                      if (!sessionId) {
+                        throw new Error('Missing Stripe session id');
+                      }
+                      try {
+                        await portalOnboardingConfirm({ sessionId });
+                      } catch {
+                        throw new Error(
+                          'Checkout may not be complete yet. If you finished payment, open the portal Billing page to finish activation.',
+                        );
+                      }
+                      await refreshMe();
+                      return;
+                    }
+
                     await refreshMe();
                   } catch (err: any) {
                     setError(err.message || 'Unable to create account.');
@@ -173,10 +217,6 @@ export default function RootApp() {
                       style={styles.linkText}
                       onPress={() => {
                         setError(null);
-                        if (Platform.OS === 'web' && typeof window !== 'undefined') {
-                          window.location.assign('/portal/get-started');
-                          return;
-                        }
                         setScreen('signup');
                       }}
                     >
@@ -230,366 +270,8 @@ function LoginForm({ busy, onSubmit }: { busy: boolean; onSubmit: (e: string, p:
   );
 }
 
-function SignupForm({ busy, onSubmit }: { busy: boolean; onSubmit: (f: any) => void; }) {
-  const [step, setStep] = useState<0 | 1 | 2 | 3 | 4>(0);
-  const [name, setName] = useState('');
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [businessName, setBusinessName] = useState('');
-  const [city, setCity] = useState('');
-  const [state, setState] = useState('');
-  const [phone, setPhone] = useState('');
-  const [websiteUrl, setWebsiteUrl] = useState('');
-  const [hasWebsite, setHasWebsite] = useState<'YES' | 'NO' | 'NOT_SURE'>('YES');
-  const [callsPerMonthRange, setCallsPerMonthRange] = useState<'NOT_SURE' | '0_10' | '11_30' | '31_60' | '61_120' | '120_PLUS'>('NOT_SURE');
-  const [acquisitionMethodsText, setAcquisitionMethodsText] = useState('');
-  const [goalIds, setGoalIds] = useState<string[]>([]);
-  const [targetCustomer, setTargetCustomer] = useState('');
-  const [brandVoice, setBrandVoice] = useState('');
-  const [industry, setIndustry] = useState('');
-  const [businessModel, setBusinessModel] = useState('');
-  const [referralCode, setReferralCode] = useState('');
-  const [couponCode, setCouponCode] = useState('');
-
-  const goals = [
-    { id: 'appointments', label: 'Book more appointments' },
-    { id: 'reviews', label: 'Get more reviews' },
-    { id: 'leads', label: 'Get more leads' },
-    { id: 'followup', label: 'Spend less time on follow-up' },
-    { id: 'content', label: 'Publish content regularly (SEO)' },
-    { id: 'inbox', label: 'Keep email + SMS in one inbox' },
-    { id: 'receptionist', label: 'Answer common questions 24/7' },
-    { id: 'outbound', label: 'Do more outbound calling' },
-    { id: 'unsure', label: 'Not sure yet' },
-  ];
-
-  function toggleGoal(id: string) {
-    setGoalIds((prev) => {
-      const s = new Set(prev);
-      if (s.has(id)) s.delete(id); else s.add(id);
-      return Array.from(s);
-    });
-  }
-
-  const acquisitionMethods = acquisitionMethodsText
-    .split(',')
-    .map((s) => s.trim())
-    .filter(Boolean);
-
-  const canNextFromBusiness = businessName.trim().length >= 2 && city.trim().length >= 2 && state.trim().length >= 2;
-  const canSubmit = name && email && password.length >= 8 && businessName && city && state;
-
-  return (
-    <View style={styles.form}>
-      {/* Step indicator: Business → Goals → Plan → Services → Account (match portal get-started pill stepper) */}
-      <View style={styles.stepperPillsRow}>
-        {['Business', 'Goals', 'Plan', 'Services', 'Account'].map((label, index) => {
-          const isActive = index === step;
-          const isComplete = index < step;
-          const isFuture = index > step;
-          return (
-            <Pressable
-              key={label}
-              onPress={() => {
-                if (index > step) return;
-                setStep(index as any);
-              }}
-              style={[
-                styles.stepperPill,
-                isActive ? styles.stepperPillActive : null,
-                isComplete ? styles.stepperPillComplete : null,
-                isFuture ? styles.stepperPillFuture : null,
-              ]}
-            >
-              <Text
-                numberOfLines={1}
-                style={isActive ? styles.stepperPillTextActive : isComplete ? styles.stepperPillTextComplete : styles.stepperPillTextFuture}
-              >
-                {label}
-              </Text>
-            </Pressable>
-          );
-        })}
-      </View>
-
-      {step === 0 && (
-        <>
-          <View style={styles.stepPanel}>
-            <Text style={styles.panelTitle}>Business basics</Text>
-            <Text style={styles.panelSubtitle}>We use this to personalize your portal and recommendations.</Text>
-
-            <View style={styles.field}>
-              <Text style={styles.label}>Business name</Text>
-              <TextInput style={styles.input} value={businessName} onChangeText={setBusinessName} editable={!busy} />
-            </View>
-            <View style={styles.twoColRow}>
-              <View style={styles.twoColItem}>
-                <Text style={styles.label}>City</Text>
-                <TextInput style={styles.input} value={city} onChangeText={setCity} editable={!busy} />
-              </View>
-              <View style={styles.twoColItem}>
-                <Text style={styles.label}>State</Text>
-                <TextInput style={styles.input} value={state} onChangeText={setState} editable={!busy} />
-              </View>
-            </View>
-          <View style={styles.field}>
-            <Text style={styles.label}>Do you already have a website?</Text>
-            <View style={styles.chipRow}>
-              {['YES', 'NO', 'NOT_SURE'].map((v) => (
-                <Pressable
-                  key={v}
-                  style={[styles.chip, hasWebsite === v ? styles.chipSelected : null]}
-                  onPress={() => setHasWebsite(v as any)}
-                >
-                  <Text style={hasWebsite === v ? styles.chipTextSelected : styles.chipText}>{v}</Text>
-                </Pressable>
-              ))}
-            </View>
-          </View>
-          {hasWebsite === 'YES' && (
-            <View style={styles.field}>
-              <Text style={styles.label}>Website URL</Text>
-              <TextInput style={styles.input} value={websiteUrl} onChangeText={setWebsiteUrl} editable={!busy} />
-            </View>
-          )}
-          <View style={styles.field}>
-            <Text style={styles.label}>About how many calls do you get per month?</Text>
-            <View style={styles.chipRow}>
-              {[
-                'NOT_SURE',
-                '0_10',
-                '11_30',
-                '31_60',
-                '61_120',
-                '120_PLUS',
-              ].map((v) => (
-                <Pressable
-                  key={v}
-                  style={[styles.chip, callsPerMonthRange === v ? styles.chipSelected : null]}
-                  onPress={() => setCallsPerMonthRange(v as any)}
-                >
-                  <Text style={callsPerMonthRange === v ? styles.chipTextSelected : styles.chipText}>{v.replace('_', '-')}</Text>
-                </Pressable>
-              ))}
-            </View>
-          </View>
-          <View style={styles.field}>
-            <Text style={styles.label}>How do people find you?</Text>
-            <TextInput
-              style={styles.input}
-              value={acquisitionMethodsText}
-              onChangeText={setAcquisitionMethodsText}
-              editable={!busy}
-              placeholder='Referrals, Google, Facebook'
-            />
-          </View>
-          <View style={styles.field}>
-            <Text style={styles.label}>Industry</Text>
-            <TextInput style={styles.input} value={industry} onChangeText={setIndustry} editable={!busy} />
-          </View>
-          <View style={styles.field}>
-            <Text style={styles.label}>Business model</Text>
-            <TextInput style={styles.input} value={businessModel} onChangeText={setBusinessModel} editable={!busy} />
-          </View>
-          <View style={styles.field}>
-            <Text style={styles.label}>Target customer</Text>
-            <TextInput
-              style={styles.input}
-              value={targetCustomer}
-              onChangeText={setTargetCustomer}
-              editable={!busy}
-              placeholder='e.g., local service businesses in Austin'
-            />
-          </View>
-          <View style={styles.field}>
-            <Text style={styles.label}>Brand voice</Text>
-            <TextInput
-              style={styles.input}
-              value={brandVoice}
-              onChangeText={setBrandVoice}
-              editable={!busy}
-              placeholder='Friendly, professional, casual, etc.'
-            />
-          </View>
-          <View style={styles.field}>
-            <Text style={styles.label}>Referral code (optional)</Text>
-            <TextInput style={styles.input} value={referralCode} onChangeText={setReferralCode} editable={!busy} />
-          </View>
-            <Pressable
-              style={[styles.primaryButton, (!canNextFromBusiness || busy) ? styles.buttonDisabled : null]}
-              onPress={() => canNextFromBusiness && !busy && setStep(1)}
-              disabled={!canNextFromBusiness || busy}
-            >
-              <Text style={styles.primaryButtonText}>Continue</Text>
-            </Pressable>
-          </View>
-        </>
-      )}
-
-      {step === 1 && (
-        <>
-          <View style={styles.stepPanel}>
-            <Text style={styles.panelTitle}>Top goals</Text>
-            <Text style={styles.panelSubtitle}>Pick a few—we’ll recommend services based on these.</Text>
-            <View style={styles.chipRowWrap}>
-              {goals.map((g) => (
-                <Pressable
-                  key={g.id}
-                  style={[styles.chip, goalIds.includes(g.id) ? styles.chipSelected : null]}
-                  onPress={() => toggleGoal(g.id)}
-                >
-                  <Text style={goalIds.includes(g.id) ? styles.chipTextSelected : styles.chipText}>{g.label}</Text>
-                </Pressable>
-              ))}
-            </View>
-            <View style={styles.stepButtonsRow}>
-              <Pressable style={[styles.secondaryButton]} onPress={() => setStep(0)}>
-                <Text style={styles.secondaryButtonText}>Back</Text>
-              </Pressable>
-              <Pressable style={[styles.primaryButton]} onPress={() => setStep(2)}>
-                <Text style={styles.primaryButtonText}>Continue</Text>
-              </Pressable>
-            </View>
-          </View>
-        </>
-      )}
-
-      {step === 2 && (
-        <>
-          <View style={styles.stepPanel}>
-            <Text style={styles.panelTitle}>Plan</Text>
-            <Text style={styles.panelSubtitle}>We’ll start you on the Core plan so you can get into the portal quickly. You can adjust later in Billing.</Text>
-            <View style={styles.stepButtonsRow}>
-              <Pressable style={[styles.secondaryButton]} onPress={() => setStep(1)}>
-                <Text style={styles.secondaryButtonText}>Back</Text>
-              </Pressable>
-              <Pressable style={[styles.primaryButton]} onPress={() => setStep(3)}>
-                <Text style={styles.primaryButtonText}>Continue</Text>
-              </Pressable>
-            </View>
-          </View>
-        </>
-      )}
-
-      {step === 3 && (
-        <>
-          <View style={styles.stepPanel}>
-            <Text style={styles.panelTitle}>Services</Text>
-            <Text style={styles.panelSubtitle}>We’ll start you with the core portal. You can add more services after you’re in.</Text>
-            <View style={styles.stepButtonsRow}>
-              <Pressable style={[styles.secondaryButton]} onPress={() => setStep(2)}>
-                <Text style={styles.secondaryButtonText}>Back</Text>
-              </Pressable>
-              <Pressable style={[styles.primaryButton]} onPress={() => setStep(4)}>
-                <Text style={styles.primaryButtonText}>Continue</Text>
-              </Pressable>
-            </View>
-          </View>
-        </>
-      )}
-
-      {step === 4 && (
-        <>
-          <View style={styles.stepPanel}>
-          <Text style={styles.panelTitle}>Account</Text>
-          <Text style={styles.panelSubtitle}>Create your login so you can access the portal.</Text>
-          <View style={styles.field}>
-            <Text style={styles.label}>Name</Text>
-            <TextInput style={styles.input} value={name} onChangeText={setName} editable={!busy} />
-          </View>
-          <View style={styles.field}>
-            <Text style={styles.label}>Email</Text>
-            <TextInput
-              style={styles.input}
-              value={email}
-              onChangeText={setEmail}
-              autoCapitalize='none'
-              keyboardType='email-address'
-              editable={!busy}
-            />
-          </View>
-          <View style={styles.field}>
-            <Text style={styles.label}>Password</Text>
-            <TextInput
-              style={styles.input}
-              value={password}
-              onChangeText={setPassword}
-              secureTextEntry
-              autoCapitalize='none'
-              editable={!busy}
-            />
-          </View>
-          <View style={styles.field}>
-            <Text style={styles.label}>Who is your ideal customer? (optional)</Text>
-            <TextInput
-              style={styles.input}
-              value={targetCustomer}
-              onChangeText={setTargetCustomer}
-              editable={!busy}
-              placeholder='e.g., local service businesses in Austin'
-            />
-          </View>
-          <View style={styles.field}>
-            <Text style={styles.label}>Describe your brand voice (optional)</Text>
-            <TextInput
-              style={styles.input}
-              value={brandVoice}
-              onChangeText={setBrandVoice}
-              editable={!busy}
-              placeholder='Friendly, professional, casual, etc.'
-            />
-          </View>
-          <View style={styles.field}>
-            <Text style={styles.label}>Coupon code (optional)</Text>
-            <TextInput
-              style={styles.input}
-              value={couponCode}
-              onChangeText={setCouponCode}
-              editable={!busy}
-              autoCapitalize='characters'
-            />
-          </View>
-          <View style={styles.stepButtonsRow}>
-            <Pressable style={[styles.secondaryButton]} onPress={() => setStep(1)}>
-              <Text style={styles.secondaryButtonText}>Back</Text>
-            </Pressable>
-            <Pressable
-              style={[styles.primaryButton, (busy || !canSubmit) ? styles.buttonDisabled : null]}
-              onPress={() => {
-                if (!canSubmit || busy) return;
-                onSubmit({
-                  name,
-                  email,
-                  password,
-                  businessName,
-                  city,
-                  state,
-                  phone,
-                  websiteUrl,
-                  hasWebsite,
-                  callsPerMonthRange,
-                  acquisitionMethods,
-                  goalIds,
-                  targetCustomer,
-                  brandVoice,
-                  industry,
-                  businessModel,
-                  referralCode,
-                  couponCode,
-                  billingPreference: 'credits',
-                  selectedPlanIds: ['core'],
-                });
-              }}
-              disabled={busy || !canSubmit}
-            >
-              <Text style={styles.primaryButtonText}>{busy ? 'Creating account...' : 'Create account'}</Text>
-            </Pressable>
-          </View>
-          </View>
-        </>
-      )}
-    </View>
-  );
+function SignupForm({ busy, onSubmit }: { busy: boolean; onSubmit: (f: PortalSignupInput) => void }) {
+  return <GetStartedWizard busy={busy} onSubmit={onSubmit} />;
 }
 
 const styles = StyleSheet.create({
