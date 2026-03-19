@@ -53,7 +53,33 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const toast = useToast();
-  const embedded = searchParams?.get("embed") === "1" || searchParams?.get("pa_embed") === "1";
+  const embeddedFromQuery = searchParams?.get("embed") === "1" || searchParams?.get("pa_embed") === "1";
+  const [embeddedSticky, setEmbeddedSticky] = useState(embeddedFromQuery);
+
+  useEffect(() => {
+    const key = "pa.portal.embed";
+    if (embeddedFromQuery) {
+      try {
+        window.sessionStorage.setItem(key, "1");
+      } catch {
+        // ignore
+      }
+      if (!embeddedSticky) setEmbeddedSticky(true);
+      return;
+    }
+
+    // Internal portal navigation often drops query params; keep embed mode sticky
+    // for the lifetime of the current browsing context (tab/iframe/webview).
+    try {
+      if (window.sessionStorage.getItem(key) === "1" && !embeddedSticky) {
+        setEmbeddedSticky(true);
+      }
+    } catch {
+      // ignore
+    }
+  }, [embeddedFromQuery, embeddedSticky]);
+
+  const embedded = embeddedFromQuery || embeddedSticky;
   const variant = typeof pathname === "string" && (pathname === "/credit" || pathname.startsWith("/credit/")) ? "credit" : "portal";
   const basePath = variant === "credit" ? "/credit" : "/portal";
   const logoSrc = variant === "credit" ? "/brand/2.png" : "/brand/1.png";

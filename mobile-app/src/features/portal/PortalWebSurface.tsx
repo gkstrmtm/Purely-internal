@@ -15,11 +15,12 @@ export function PortalWebSurface({ path }: { path: string }) {
   const embeddedPath = useMemo(() => toPathWithEmbed(path), [path]);
 
   if (Platform.OS === "web") {
+    const iframeSrc = `${portalBaseUrl}${embeddedPath}`;
     return (
       <View style={{ flex: 1 }}>
         {/* eslint-disable-next-line jsx-a11y/iframe-has-title */}
         <iframe
-          src={embeddedPath}
+          src={iframeSrc}
           style={{ border: 0, width: "100%", height: "100%" }}
           sandbox="allow-same-origin allow-scripts allow-forms allow-popups allow-downloads"
         />
