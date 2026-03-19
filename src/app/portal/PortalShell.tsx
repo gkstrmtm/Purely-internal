@@ -19,7 +19,7 @@ import {
   IconServiceGlyph,
 } from "@/app/portal/PortalIcons";
 import { PORTAL_SERVICES, type PortalService } from "@/app/portal/services/catalog";
-import { groupPortalServices } from "@/app/portal/services/categories";
+import { groupPortalServices, portalServiceCategoryForSlug, type PortalServiceCategory } from "@/app/portal/services/categories";
 import { PortalFloatingTools } from "@/app/portal/PortalFloatingTools";
 import { PORTAL_SERVICE_KEYS, type PortalServiceKey } from "@/lib/portalPermissions.shared";
 import type { Entitlements } from "@/lib/entitlements.shared";
@@ -45,6 +45,29 @@ type PortalMe =
 
 function classNames(...xs: Array<string | false | null | undefined>) {
   return xs.filter(Boolean).join(" ");
+}
+
+function sidebarIconToneClassForCategory(category: PortalServiceCategory) {
+  switch (category) {
+    case "communication":
+    case "leads":
+      return "text-(--color-brand-blue)";
+    case "marketing":
+    case "operations":
+      return "text-(--color-brand-pink)";
+    case "automation":
+    case "analytics":
+      // Match the "View details" dashboard button tone (bg-brand-ink).
+      return "text-brand-ink";
+    case "credit":
+    case "other":
+    default:
+      return "text-zinc-700";
+  }
+}
+
+function sidebarIconToneClassForSlug(slug: string) {
+  return sidebarIconToneClassForCategory(portalServiceCategoryForSlug(slug));
 }
 
 export function PortalShell({ children }: { children: React.ReactNode }) {
@@ -1008,7 +1031,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                                   : "text-zinc-700 hover:bg-zinc-50",
                               )}
                             >
-                              <span className="text-zinc-500">
+                              <span className={sidebarIconToneClassForSlug(s.slug)}>
                                 <IconServiceGlyph slug={s.slug} />
                               </span>
                               <span className="min-w-0 flex-1 truncate">{s.title}</span>
@@ -1299,15 +1322,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                               )}
                             >
                               <span className="inline-flex h-9 w-9 items-center justify-center rounded-2xl border border-zinc-200 bg-white">
-                                <span
-                                  className={classNames(
-                                    s.accent === "blue"
-                                      ? "text-(--color-brand-blue)"
-                                      : s.accent === "coral"
-                                        ? "text-(--color-brand-pink)"
-                                        : "text-zinc-700",
-                                  )}
-                                >
+                                <span className={sidebarIconToneClassForSlug(s.slug)}>
                                   <IconServiceGlyph slug={s.slug} />
                                 </span>
                               </span>
@@ -1473,15 +1488,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                         title={s.title}
                       >
                         <span className="inline-flex h-8 w-8 items-center justify-center rounded-2xl border border-zinc-200 bg-white">
-                          <span
-                            className={classNames(
-                              s.accent === "blue"
-                                ? "text-(--color-brand-blue)"
-                                : s.accent === "coral"
-                                  ? "text-(--color-brand-pink)"
-                                  : "text-zinc-700",
-                            )}
-                          >
+                          <span className={sidebarIconToneClassForSlug(s.slug)}>
                             <IconServiceGlyph slug={s.slug} />
                           </span>
                         </span>
@@ -1510,15 +1517,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                               )}
                             >
                               <span className="inline-flex h-8 w-8 items-center justify-center rounded-2xl border border-zinc-200 bg-white">
-                                <span
-                                  className={classNames(
-                                    s.accent === "blue"
-                                      ? "text-(--color-brand-blue)"
-                                      : s.accent === "coral"
-                                        ? "text-(--color-brand-pink)"
-                                        : "text-zinc-700",
-                                  )}
-                                >
+                                <span className={sidebarIconToneClassForSlug(s.slug)}>
                                   <IconServiceGlyph slug={s.slug} />
                                 </span>
                               </span>
