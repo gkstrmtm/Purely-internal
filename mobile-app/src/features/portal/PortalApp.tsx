@@ -33,43 +33,11 @@ const ZINC_900 = "#18181b";
 export function PortalApp({
   me,
   onLogout,
-  deepLinkPath,
-  onDeepLinkHandled,
 }: {
   me: { email: string; name: string; role: string } | null;
   onLogout: () => Promise<void>;
-  deepLinkPath?: string | null;
-  onDeepLinkHandled?: () => void;
 }) {
   const [tab, setTab] = useState<PortalTab>("dashboard");
-
-  useEffect(() => {
-    if (!deepLinkPath) return;
-    const p = String(deepLinkPath);
-
-    if (p.includes("/services/inbox") || p.includes("/app/inbox")) {
-      setTab("inbox");
-      onDeepLinkHandled?.();
-      return;
-    }
-    if (p.includes("/services/tasks") || p.includes("/app/tasks")) {
-      setTab("tasks");
-      onDeepLinkHandled?.();
-      return;
-    }
-    if (p.includes("/app/profile")) {
-      setTab("profile");
-      onDeepLinkHandled?.();
-      return;
-    }
-    if (p.includes("/app/billing")) {
-      setTab("billing");
-      onDeepLinkHandled?.();
-      return;
-    }
-
-    onDeepLinkHandled?.();
-  }, [deepLinkPath, onDeepLinkHandled]);
 
   return (
     <View style={styles.safe}>

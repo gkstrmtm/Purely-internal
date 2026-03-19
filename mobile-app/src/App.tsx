@@ -20,7 +20,7 @@ import { portalSignup } from './api/portalSignup';
 import type { PortalSignupInput } from './api/portalSignup';
 import { portalOnboardingCheckout, portalOnboardingConfirm } from './api/portalOnboardingBilling';
 import { portalLogoUrl } from './config/app';
-import { PortalApp } from './features/portal/PortalApp';
+import { PortalAppShell } from './features/portal/PortalAppShell';
 import { registerPushToken } from './features/portal/api';
 import { GetStartedWizard } from './features/getStarted/GetStartedWizard';
 
@@ -170,7 +170,7 @@ export default function RootApp() {
     return (
       <SafeAreaView style={styles.safe}>
         <StatusBar barStyle='dark-content' />
-        <PortalApp
+        <PortalAppShell
           me={me}
           deepLinkPath={portalDeepLinkPath}
           onDeepLinkHandled={() => setPortalDeepLinkPath(null)}
