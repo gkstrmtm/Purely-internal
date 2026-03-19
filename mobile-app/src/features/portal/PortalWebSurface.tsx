@@ -15,7 +15,11 @@ export function PortalWebSurface({ path }: { path: string }) {
   const embeddedPath = useMemo(() => toPathWithEmbed(path), [path]);
 
   if (Platform.OS === "web") {
-    const iframeSrc = `${portalBaseUrl}${embeddedPath}`;
+    // Web builds commonly deploy the app and proxy `/portal/*` back to the main
+    // portal host via rewrites. Using a same-origin iframe source ensures the
+    // portal session cookie (set by `/portal/api/login`) is shared with the
+    // embedded portal pages.
+    const iframeSrc = embeddedPath;
     return (
       <View style={{ flex: 1 }}>
         {/* eslint-disable-next-line jsx-a11y/iframe-has-title */}

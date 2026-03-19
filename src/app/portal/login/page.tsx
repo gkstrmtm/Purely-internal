@@ -1,21 +1,19 @@
-import { redirect } from "next/navigation";
+import { Suspense } from "react";
 
-function safeFrom(raw: unknown) {
-  if (typeof raw !== "string") return null;
-  if (!raw.startsWith("/")) return null;
-  if (raw.startsWith("//")) return null;
-  return raw;
-}
+import PortalLoginClient from "@/app/(auth)/login/PortalLoginClient";
 
-export default async function PortalLoginRedirectPage({
-  searchParams,
-}: {
-  searchParams?: Promise<{ from?: string | string[] | undefined }>;
-}) {
-  const resolvedSearchParams = searchParams ? await searchParams : undefined;
-  const from = safeFrom(
-    Array.isArray(resolvedSearchParams?.from) ? resolvedSearchParams?.from[0] : resolvedSearchParams?.from,
+export const dynamic = "force-dynamic";
+
+export default function PortalLoginPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-screen bg-brand-mist text-brand-ink">
+          <div className="mx-auto flex min-h-screen max-w-lg flex-col justify-center px-6 py-12" />
+        </div>
+      }
+    >
+      <PortalLoginClient />
+    </Suspense>
   );
-  const qs = from ? `?from=${encodeURIComponent(from)}` : "";
-  redirect(`/login${qs}`);
 }

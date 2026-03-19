@@ -31,6 +31,53 @@ const ZINC_500 = "#71717a";
 const ZINC_600 = "#52525b";
 const ZINC_900 = "#18181b";
 const BRAND_BLUE = "#1d4ed8";
+const BRAND_PINK = "#f97316";
+
+function accentColor(accent?: string) {
+  const a = String(accent || "").toLowerCase();
+  if (a === "blue") return BRAND_BLUE;
+  if (a === "coral" || a === "pink" || a === "orange") return BRAND_PINK;
+  return ZINC_900;
+}
+
+function iconForServiceSlug(slug: string): keyof typeof Ionicons.glyphMap {
+  switch (slug) {
+    case "inbox":
+    case "outbox":
+      return "mail-outline";
+    case "tasks":
+      return "checkbox-outline";
+    case "people":
+      return "people-outline";
+    case "media-library":
+      return "images-outline";
+    case "booking":
+      return "calendar-outline";
+    case "review-requests":
+      return "star-outline";
+    case "newsletter":
+      return "newspaper-outline";
+    case "nurture-campaigns":
+      return "send-outline";
+    case "blogs":
+      return "document-text-outline";
+    case "automations":
+      return "git-branch-outline";
+    case "funnel-builder":
+      return "shapes-outline";
+    case "ai-receptionist":
+    case "ai-outbound-calls":
+      return "call-outline";
+    case "lead-scraping":
+      return "search-outline";
+    case "missed-call-textback":
+      return "chatbubble-ellipses-outline";
+    case "follow-up":
+      return "repeat-outline";
+    default:
+      return "apps-outline";
+  }
+}
 
 function tabTitle(tab: RootTab) {
   switch (tab) {
@@ -346,6 +393,8 @@ export function PortalAppShell({
                   const state = typeof st?.state === "string" ? st.state : "";
                   const lockLabel = typeof st?.label === "string" ? st.label : "";
                   const showLock = state && ["locked", "paused", "canceled", "coming_soon"].includes(state);
+                  const tone = accentColor(s.accent);
+                  const glyph = iconForServiceSlug(s.slug);
 
                   return (
                     <Pressable
@@ -356,6 +405,10 @@ export function PortalAppShell({
                         setView({ kind: "service", slug: s.slug, title: s.title });
                       }}
                     >
+                      <View style={styles.drawerItemIconChip}>
+                        <Ionicons name={glyph} size={18} color={tone} />
+                      </View>
+
                       <View style={styles.drawerItemLeft}>
                         <Text style={styles.drawerItemTitle} numberOfLines={1}>
                           {s.title}
@@ -493,8 +546,18 @@ const styles = StyleSheet.create({
     marginBottom: 8,
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
+    justifyContent: "flex-start",
     gap: 10,
+  },
+  drawerItemIconChip: {
+    width: 36,
+    height: 36,
+    borderRadius: 16,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "white",
+    borderWidth: 1,
+    borderColor: ZINC_200,
   },
   drawerItemLeft: { flex: 1, minWidth: 0 },
   drawerItemTitle: { fontSize: 14, fontWeight: "800", color: ZINC_900 },

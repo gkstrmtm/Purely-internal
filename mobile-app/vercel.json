@@ -13,6 +13,10 @@
       "destination": "https://purelyautomation.com/portal/api/:path*"
     },
     {
+      "source": "/portal/:path*",
+      "destination": "https://purelyautomation.com/portal/:path*"
+    },
+    {
       "source": "/api/:path*",
       "destination": "https://purelyautomation.com/api/:path*"
     },

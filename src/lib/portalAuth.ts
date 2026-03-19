@@ -84,7 +84,8 @@ export async function getPortalUser(opts?: { variant?: PortalVariant | "auto" })
 export async function requirePortalUser() {
   const user = await getPortalUser();
   const variant = (await portalVariantFromHeaders()) || "portal";
-  const loginPath = variant === "credit" ? "/credit/login" : "/login";
+  const base = portalBasePath(variant);
+  const loginPath = `${base}/login`;
   if (!user) redirect(loginPath);
   if (user.role !== "CLIENT" && user.role !== "ADMIN") redirect(loginPath);
   return user;
