@@ -667,7 +667,9 @@ export function PortalBillingClient() {
       : "") ||
     (internalMonthlyBreakdown[0]?.currency || summaryCurrency || "usd");
 
-  const monthlyText = creditsOnly ? "No subscription" : status?.configured ? formatMoney(displayMonthlyCents, displayCurrency) : "N/A";
+  const upgradeHref = creditsFirstForMobileApp ? "/portal/app/billing/upgrade?pa_mobileapp=1" : "/portal/app/billing/upgrade";
+
+  const monthlyText = creditsOnly ? "Upgrade" : status?.configured ? formatMoney(displayMonthlyCents, displayCurrency) : "N/A";
 
   const creditsCanceled = creditsOnly && creditsLifecycle?.state === "canceled";
 
@@ -675,7 +677,7 @@ export function PortalBillingClient() {
   const hasActiveSub = creditsOnly ? false : Boolean(sub?.id && ["active", "trialing", "past_due"].includes(String(sub.status)));
 
   const monthlyNote = creditsOnly
-    ? "You’re on a credits-only plan. There is no monthly subscription."
+    ? "Upgrade to a monthly plan to activate subscriptions and monthly billing."
     : !status?.configured
       ? "Billing isn’t configured on this environment yet."
       : summary && "ok" in summary && summary.ok === false
@@ -925,7 +927,17 @@ export function PortalBillingClient() {
         <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2">
           <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
             <div className="text-xs text-zinc-500">Monthly payment</div>
-            <div className="mt-1 text-lg font-bold text-brand-ink">{monthlyText}</div>
+            {creditsOnly ? (
+              <button
+                type="button"
+                className="mt-1 text-left text-lg font-bold text-[color:var(--color-brand-blue)] hover:underline"
+                onClick={() => router.push(upgradeHref)}
+              >
+                Upgrade
+              </button>
+            ) : (
+              <div className="mt-1 text-lg font-bold text-brand-ink">{monthlyText}</div>
+            )}
             <div className="mt-1 text-xs text-zinc-500">{monthlyNote}</div>
           </div>
 
