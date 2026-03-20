@@ -202,6 +202,13 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
   const toast = useToast();
   const [knownContactCustomVarKeys, setKnownContactCustomVarKeys] = useState<string[]>([]);
 
+  const isMobileApp = useMemo(() => {
+    if (typeof window === "undefined") return false;
+    const sp = new URLSearchParams(window.location.search);
+    if (sp.get("pa_mobileapp") === "1") return true;
+    return (window.location.host || "").includes("purely-mobile");
+  }, []);
+
   useEffect(() => {
     let canceled = false;
     (async () => {
@@ -1525,9 +1532,9 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
                                           />
                                         </div>
                                         <div>
-                                          <div className="flex items-center justify-between gap-3">
+                                          <div className={isMobileApp ? "flex flex-col items-start gap-2" : "flex items-center justify-between gap-3"}>
                                             <label className="text-xs font-semibold text-zinc-600">Email body</label>
-                                            <div className="flex items-center gap-2">
+                                            <div className={isMobileApp ? "flex w-full flex-wrap items-center gap-2" : "flex items-center gap-2"}>
                                               <button
                                                 type="button"
                                                 disabled={busy}
@@ -1684,9 +1691,9 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
 
                                     {s.kind === "SMS" ? (
                                       <div>
-                                        <div className="flex items-center justify-between gap-3">
+                                        <div className={isMobileApp ? "flex flex-col items-start gap-2" : "flex items-center justify-between gap-3"}>
                                           <label className="text-xs font-semibold text-zinc-600">SMS body</label>
-                                          <div className="flex items-center gap-2">
+                                          <div className={isMobileApp ? "flex w-full flex-wrap items-center gap-2" : "flex items-center gap-2"}>
                                             <button
                                               type="button"
                                               disabled={busy}

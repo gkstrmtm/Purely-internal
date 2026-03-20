@@ -309,6 +309,13 @@ export function PortalBookingClient() {
   const toast = useToast();
   const [knownContactCustomVarKeys, setKnownContactCustomVarKeys] = useState<string[]>([]);
 
+  const isMobileApp = useMemo(() => {
+    if (typeof window === "undefined") return false;
+    const sp = new URLSearchParams(window.location.search);
+    if (sp.get("pa_mobileapp") === "1") return true;
+    return (window.location.host || "").includes("purely-mobile");
+  }, []);
+
   useEffect(() => {
     let canceled = false;
     (async () => {
@@ -426,6 +433,7 @@ export function PortalBookingClient() {
 
   const [calMonth, setCalMonth] = useState(() => startOfMonth(new Date()));
   const [calSelectedYmd, setCalSelectedYmd] = useState<string | null>(null);
+  const [weekDayModalYmd, setWeekDayModalYmd] = useState<string | null>(null);
 
   const [topTab, setTopTab] = useState<"settings" | "appointments" | "reminders" | "follow-up">("appointments");
   const [appointmentsView, setAppointmentsView] = useState<"week" | "month">("week");
@@ -1406,8 +1414,54 @@ export function PortalBookingClient() {
     : upcoming.filter((b) => toYmd(new Date(b.startAt)) === focusYmd)
   ).sort((a, b) => new Date(a.startAt).getTime() - new Date(b.startAt).getTime());
 
+  const weekDayModalBookings = useMemo(() => {
+    if (!weekDayModalYmd) return [] as Booking[];
+    return upcoming
+      .filter((b) => toYmd(new Date(b.startAt)) === weekDayModalYmd)
+      .sort((a, b) => new Date(a.startAt).getTime() - new Date(b.startAt).getTime());
+  }, [upcoming, weekDayModalYmd]);
+
   return (
     <div className="mx-auto w-full max-w-7xl">
+      <AppModal
+        open={Boolean(weekDayModalYmd)}
+        onClose={() => setWeekDayModalYmd(null)}
+        title={
+          weekDayModalYmd
+            ? `Appointments — ${new Date(`${weekDayModalYmd}T00:00:00`).toLocaleDateString(undefined, {
+                weekday: "short",
+                month: "short",
+                day: "numeric",
+              })}`
+            : "Appointments"
+        }
+        maxWidthClass="max-w-lg"
+      >
+        <div className="space-y-3">
+          {weekDayModalBookings.length === 0 ? (
+            <div className="text-sm text-zinc-600">No bookings for this day.</div>
+          ) : (
+            weekDayModalBookings.map((b) => (
+              <div key={b.id} className="rounded-2xl border border-zinc-200 bg-white px-4 py-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="truncate text-sm font-semibold text-zinc-900">
+                      {new Date(b.startAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })} · {b.contactName}
+                    </div>
+                    <div className="truncate text-xs text-zinc-600">{b.contactEmail}</div>
+                  </div>
+                  {b.status ? (
+                    <span className="shrink-0 rounded-full bg-zinc-100 px-2 py-1 text-xs text-zinc-700">
+                      {b.status}
+                    </span>
+                  ) : null}
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      </AppModal>
+
       <div className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-end">
         <div>
           <h1 className="text-2xl font-bold text-brand-ink sm:text-3xl">Booking Automation</h1>
@@ -1415,59 +1469,77 @@ export function PortalBookingClient() {
         </div>
       </div>
 
-      <div className="mt-6 flex w-full flex-wrap gap-2">
-        <button
-          type="button"
-          onClick={() => setTopTabWithUrl("appointments")}
-          aria-current={topTab === "appointments" ? "page" : undefined}
-          className={
-            "flex-1 min-w-[160px] rounded-2xl border px-4 py-2.5 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
-            (topTab === "appointments"
-              ? "border-brand-blue bg-brand-blue text-white shadow-sm focus-visible:ring-brand-blue/40"
-              : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
-          }
-        >
-          Appointments
-        </button>
-        <button
-          type="button"
-          onClick={() => setTopTabWithUrl("reminders")}
-          aria-current={topTab === "reminders" ? "page" : undefined}
-          className={
-            "flex-1 min-w-[160px] rounded-2xl border px-4 py-2.5 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
-            (topTab === "reminders"
-              ? "border-brand-pink bg-brand-pink text-white shadow-sm focus-visible:ring-brand-pink/40"
-              : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
-          }
-        >
-          Reminders
-        </button>
-        <button
-          type="button"
-          onClick={() => setTopTabWithUrl("follow-up")}
-          aria-current={topTab === "follow-up" ? "page" : undefined}
-          className={
-            "flex-1 min-w-[160px] rounded-2xl border px-4 py-2.5 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
-            (topTab === "follow-up"
-              ? "border-brand-blue bg-brand-blue text-white shadow-sm focus-visible:ring-brand-blue/40"
-              : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
-          }
-        >
-          Follow-up
-        </button>
-        <button
-          type="button"
-          onClick={() => setTopTabWithUrl("settings")}
-          aria-current={topTab === "settings" ? "page" : undefined}
-          className={
-            "flex-1 min-w-[160px] rounded-2xl border px-4 py-2.5 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
-            (topTab === "settings"
-              ? "border-brand-ink bg-brand-ink text-white shadow-sm focus-visible:ring-brand-ink/40"
-              : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
-          }
-        >
-          Settings
-        </button>
+      <div className="mt-6">
+        {isMobileApp ? (
+          <div className="flex items-center gap-3">
+            <div className="text-xs font-semibold text-zinc-600">Section</div>
+            <select
+              value={topTab}
+              onChange={(e) => setTopTabWithUrl(e.target.value as any)}
+              className="w-full max-w-sm rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-900"
+            >
+              <option value="appointments">Appointments</option>
+              <option value="reminders">Reminders</option>
+              <option value="follow-up">Follow-up</option>
+              <option value="settings">Settings</option>
+            </select>
+          </div>
+        ) : (
+          <div className="flex w-full flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => setTopTabWithUrl("appointments")}
+              aria-current={topTab === "appointments" ? "page" : undefined}
+              className={
+                "flex-1 min-w-[160px] rounded-2xl border px-4 py-2.5 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
+                (topTab === "appointments"
+                  ? "border-brand-blue bg-brand-blue text-white shadow-sm focus-visible:ring-brand-blue/40"
+                  : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
+              }
+            >
+              Appointments
+            </button>
+            <button
+              type="button"
+              onClick={() => setTopTabWithUrl("reminders")}
+              aria-current={topTab === "reminders" ? "page" : undefined}
+              className={
+                "flex-1 min-w-[160px] rounded-2xl border px-4 py-2.5 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
+                (topTab === "reminders"
+                  ? "border-brand-pink bg-brand-pink text-white shadow-sm focus-visible:ring-brand-pink/40"
+                  : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
+              }
+            >
+              Reminders
+            </button>
+            <button
+              type="button"
+              onClick={() => setTopTabWithUrl("follow-up")}
+              aria-current={topTab === "follow-up" ? "page" : undefined}
+              className={
+                "flex-1 min-w-[160px] rounded-2xl border px-4 py-2.5 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
+                (topTab === "follow-up"
+                  ? "border-brand-blue bg-brand-blue text-white shadow-sm focus-visible:ring-brand-blue/40"
+                  : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
+              }
+            >
+              Follow-up
+            </button>
+            <button
+              type="button"
+              onClick={() => setTopTabWithUrl("settings")}
+              aria-current={topTab === "settings" ? "page" : undefined}
+              className={
+                "flex-1 min-w-[160px] rounded-2xl border px-4 py-2.5 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
+                (topTab === "settings"
+                  ? "border-brand-ink bg-brand-ink text-white shadow-sm focus-visible:ring-brand-ink/40"
+                  : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
+              }
+            >
+              Settings
+            </button>
+          </div>
+        )}
       </div>
 
       {topTab === "appointments" ? (
@@ -1554,6 +1626,16 @@ export function PortalBookingClient() {
                     </button>
                   </div>
                 )}
+
+                {isMobileApp && appointmentsView === "week" ? (
+                  <button
+                    type="button"
+                    className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+                    onClick={openAvailability}
+                  >
+                    Edit availability
+                  </button>
+                ) : null}
               </div>
             </div>
 
@@ -1576,7 +1658,15 @@ export function PortalBookingClient() {
                     : `${cardBase} border-zinc-200 bg-white hover:bg-zinc-50`;
 
                   return (
-                    <button key={ymd} type="button" className={cardCls} onClick={() => setCalSelectedYmd(ymd)}>
+                    <button
+                      key={ymd}
+                      type="button"
+                      className={cardCls}
+                      onClick={() => {
+                        setCalSelectedYmd(ymd);
+                        if (isMobileApp) setWeekDayModalYmd(ymd);
+                      }}
+                    >
                       <div className="flex h-10 items-start justify-between gap-2">
                         <div className="min-w-0">
                           <div className="truncate text-sm font-semibold text-zinc-900">
@@ -1634,15 +1724,21 @@ export function PortalBookingClient() {
                   <div className="text-xs text-zinc-500">Click a day to focus the sidebar.</div>
                 </div>
 
-                <div className="mt-3 grid grid-cols-7 gap-2 text-xs font-semibold text-zinc-500">
+                <div
+                  className={
+                    isMobileApp
+                      ? "mt-3 grid grid-cols-7 gap-1 text-[10px] font-semibold text-zinc-500"
+                      : "mt-3 grid grid-cols-7 gap-2 text-xs font-semibold text-zinc-500"
+                  }
+                >
                   {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((d) => (
-                    <div key={d} className="px-2">
+                    <div key={d} className={isMobileApp ? "px-1 text-center" : "px-2"}>
                       {d}
                     </div>
                   ))}
                 </div>
 
-                <div className="mt-2 grid grid-cols-7 gap-2">
+                <div className={isMobileApp ? "mt-2 grid grid-cols-7 gap-1" : "mt-2 grid grid-cols-7 gap-2"}>
                   {makeMonthGrid(calMonth).map((day) => {
                     const ymd = toYmd(day);
                     const inMonth = day.getMonth() === calMonth.getMonth();
@@ -1655,8 +1751,9 @@ export function PortalBookingClient() {
                     const bookingCount = upcoming.reduce((acc, b) => (toYmd(new Date(b.startAt)) === ymd ? acc + 1 : acc), 0);
                     const hasCoverage = blocks.some((b) => new Date(b.startAt) < dayEnd && new Date(b.endAt) > dayStart);
 
-                    const baseCls =
-                      "h-24 rounded-3xl border px-3 py-3 text-left hover:bg-zinc-50 focus:outline-none focus:ring-2 focus:ring-zinc-300";
+                    const baseCls = isMobileApp
+                      ? "h-16 rounded-2xl border px-2 py-2 text-left hover:bg-zinc-50 focus:outline-none focus:ring-2 focus:ring-zinc-300"
+                      : "h-24 rounded-3xl border px-3 py-3 text-left hover:bg-zinc-50 focus:outline-none focus:ring-2 focus:ring-zinc-300";
                     const borderCls = selected
                       ? "border-brand-ink bg-white"
                       : inMonth
@@ -1671,11 +1768,23 @@ export function PortalBookingClient() {
                         onClick={() => setCalSelectedYmd(ymd)}
                       >
                         <div className="flex items-center justify-between">
-                          <div className={inMonth ? "text-sm font-semibold text-zinc-900" : "text-sm font-semibold text-zinc-400"}>
+                          <div
+                            className={
+                              isMobileApp
+                                ? inMonth
+                                  ? "text-xs font-semibold text-zinc-900"
+                                  : "text-xs font-semibold text-zinc-400"
+                                : inMonth
+                                  ? "text-sm font-semibold text-zinc-900"
+                                  : "text-sm font-semibold text-zinc-400"
+                            }
+                          >
                             {day.getDate()}
                           </div>
                           {today ? (
-                            <div className="rounded-full bg-brand-ink px-2 py-0.5 text-[10px] font-semibold text-white">Today</div>
+                            <div className={isMobileApp ? "rounded-full bg-brand-ink px-1.5 py-0.5 text-[9px] font-semibold text-white" : "rounded-full bg-brand-ink px-2 py-0.5 text-[10px] font-semibold text-white"}>
+                              Today
+                            </div>
                           ) : null}
                         </div>
 
@@ -1684,7 +1793,9 @@ export function PortalBookingClient() {
                             {hasCoverage ? "Avail" : "No avail"}
                           </div>
                           {bookingCount ? (
-                            <div className="rounded-full bg-brand-ink px-2 py-0.5 text-[10px] font-semibold text-white">{bookingCount}</div>
+                            <div className={isMobileApp ? "rounded-full bg-brand-ink px-1.5 py-0.5 text-[9px] font-semibold text-white" : "rounded-full bg-brand-ink px-2 py-0.5 text-[10px] font-semibold text-white"}>
+                              {bookingCount}
+                            </div>
                           ) : null}
                         </div>
                       </button>
@@ -1695,6 +1806,7 @@ export function PortalBookingClient() {
             )}
           </div>
 
+          {isMobileApp && appointmentsView === "week" ? null : (
           <div className="rounded-3xl border border-zinc-200 bg-white p-6 lg:col-span-3">
             <div className="flex items-center justify-between gap-3">
               <div>
@@ -2051,11 +2163,11 @@ export function PortalBookingClient() {
                         </label>
 
                         <label className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm sm:col-span-2">
-                          <div className="flex items-center justify-between gap-3">
+                          <div className={isMobileApp ? "flex flex-col items-start gap-2" : "flex items-center justify-between gap-3"}>
                             <div className="font-medium text-zinc-800">
                               {s.kind === "EMAIL" ? "Email" : s.kind === "TAG" ? "Tag" : "SMS"} content
                             </div>
-                            <div className="flex items-center gap-2">
+                            <div className={isMobileApp ? "flex w-full flex-wrap items-center gap-2" : "flex items-center gap-2"}>
                               {s.kind !== "TAG" ? (
                                 <>
                                   <button
@@ -2329,6 +2441,7 @@ export function PortalBookingClient() {
               )}
             </div>
           </div>
+          )}
         </div>
       ) : null}
 

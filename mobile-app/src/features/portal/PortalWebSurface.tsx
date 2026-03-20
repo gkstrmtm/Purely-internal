@@ -7,8 +7,18 @@ import { portalBaseUrl } from "../../config/app";
 
 function toPathWithEmbed(path: string) {
   const p = path.startsWith("/") ? path : `/${path}`;
-  if (p.includes("embed=1") || p.includes("pa_embed=1")) return p;
-  return p.includes("?") ? `${p}&embed=1` : `${p}?embed=1`;
+  try {
+    const u = new URL(p, "http://local");
+    // Portal pages render inside the app shell.
+    if (!u.searchParams.has("embed") && !u.searchParams.has("pa_embed")) u.searchParams.set("embed", "1");
+    // Enable mobile-wrapper-only portal layouts.
+    if (!u.searchParams.has("pa_mobileapp")) u.searchParams.set("pa_mobileapp", "1");
+    return `${u.pathname}${u.search}${u.hash}`;
+  } catch {
+    // Fallback to the previous (string-based) behavior.
+    if (p.includes("embed=1") || p.includes("pa_embed=1")) return p;
+    return p.includes("?") ? `${p}&embed=1` : `${p}?embed=1`;
+  }
 }
 
 export function PortalWebSurface({ path }: { path: string }) {
