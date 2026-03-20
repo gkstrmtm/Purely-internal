@@ -1151,14 +1151,28 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
 
           {composerOpen ? (
             <div
-              className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 px-4 pt-[calc(var(--pa-modal-safe-top,0px)+1rem)] pb-[calc(var(--pa-modal-safe-bottom,0px)+1rem)] sm:items-center"
+              className={
+                mode === "manual"
+                  ? "fixed inset-0 z-9997 flex items-stretch justify-center bg-black/40 px-0 pt-[var(--pa-modal-safe-top,0px)] pb-0 sm:px-4"
+                  : "fixed inset-0 z-50 flex items-end justify-center bg-black/40 px-4 pt-[calc(var(--pa-modal-safe-top,0px)+1rem)] pb-[calc(var(--pa-modal-safe-bottom,0px)+1rem)] sm:items-center"
+              }
               onMouseDown={() => setComposerOpen(false)}
             >
               <div
-                className="w-full max-w-5xl max-h-[calc(100dvh-var(--pa-modal-safe-top,0px)-var(--pa-modal-safe-bottom,0px)-2rem)] overflow-hidden rounded-3xl border border-zinc-200 bg-white shadow-xl"
+                className={
+                  mode === "manual"
+                    ? "w-full h-[calc(100dvh-var(--pa-modal-safe-top,0px))] overflow-hidden bg-white shadow-xl sm:my-4 sm:max-w-5xl sm:max-h-[calc(100dvh-var(--pa-modal-safe-top,0px)-2rem)] sm:rounded-3xl sm:border sm:border-zinc-200"
+                    : "w-full max-w-5xl max-h-[calc(100dvh-var(--pa-modal-safe-top,0px)-var(--pa-modal-safe-bottom,0px)-2rem)] overflow-hidden rounded-3xl border border-zinc-200 bg-white shadow-xl"
+                }
                 onMouseDown={(e) => e.stopPropagation()}
               >
-                <div className="max-h-[calc(100dvh-var(--pa-modal-safe-top,0px)-var(--pa-modal-safe-bottom,0px)-2rem)] overflow-y-auto p-6">
+                <div
+                  className={
+                    mode === "manual"
+                      ? "h-full overflow-y-auto p-6"
+                      : "max-h-[calc(100dvh-var(--pa-modal-safe-top,0px)-var(--pa-modal-safe-bottom,0px)-2rem)] overflow-y-auto p-6"
+                  }
+                >
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                   <div className="text-sm font-semibold text-zinc-900">Composer</div>
@@ -2581,11 +2595,11 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
 
       {draftOpen ? (
         <div
-          className="fixed inset-0 z-50 overflow-y-auto bg-black/30 px-4 pt-[calc(var(--pa-modal-safe-top,0px)+1rem)] pb-[calc(var(--pa-modal-safe-bottom,0px)+1rem)]"
+          className="fixed inset-0 z-9997 flex items-stretch justify-center bg-black/30 px-0 pt-[var(--pa-modal-safe-top,0px)] pb-0 sm:px-4 sm:pt-[calc(var(--pa-modal-safe-top,0px)+1rem)]"
           onMouseDown={() => setDraftOpen(false)}
         >
           <div
-            className="mx-auto w-full max-w-5xl max-h-[calc(100dvh-var(--pa-modal-safe-top,0px)-var(--pa-modal-safe-bottom,0px)-2rem)] overflow-y-auto rounded-3xl border border-zinc-200 bg-white p-4 shadow-xl"
+            className="w-full h-[calc(100dvh-var(--pa-modal-safe-top,0px))] overflow-y-auto bg-white p-4 shadow-xl sm:my-4 sm:max-w-5xl sm:max-h-[calc(100dvh-var(--pa-modal-safe-top,0px)-2rem)] sm:rounded-3xl sm:border sm:border-zinc-200"
             onMouseDown={(e) => e.stopPropagation()}
           >
             <div className="flex items-start justify-between gap-3">
