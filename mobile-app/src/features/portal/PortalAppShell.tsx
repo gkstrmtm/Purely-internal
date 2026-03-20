@@ -19,6 +19,7 @@ import { Image } from "react-native";
 import { portalLogoUrl } from "../../config/app";
 import { PortalWebSurface } from "./PortalWebSurface";
 import { getServicesCatalog, getServicesStatus, type ServicesCatalogGroup } from "./api";
+import { MobileBillingScreen } from "./MobileBillingScreen";
 
 type RootTab = "home" | "inbox" | "tasks" | "people" | "settings";
 
@@ -345,7 +346,11 @@ export function PortalAppShell({
         ) : null}
 
         <View style={styles.webSurfaceWrap}>
-          <PortalWebSurface path={targetPath} />
+          {showChrome && view.kind === "tab" && view.tab === "settings" && settingsSection === "billing" ? (
+            <MobileBillingScreen catalog={catalog} statuses={statuses} />
+          ) : (
+            <PortalWebSurface path={targetPath} />
+          )}
         </View>
       </View>
 
