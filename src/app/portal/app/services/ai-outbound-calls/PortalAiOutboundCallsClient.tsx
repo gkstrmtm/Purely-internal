@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { InlineElevenLabsAgentTester } from "@/components/InlineElevenLabsAgentTester";
@@ -374,6 +374,7 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
 
   const router = useRouter();
   const pathname = usePathname();
+  const searchParams = useSearchParams();
   const { initialTab } = props;
 
   const basePath = useMemo(() => {
@@ -383,6 +384,16 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
     if (p.endsWith("/settings")) return p.slice(0, -"/settings".length);
     return p;
   }, [pathname]);
+
+  const isMobileApp = useMemo(() => {
+    const q = String(searchParams?.get("pa_mobileapp") ?? "").trim();
+    if (q === "1") return true;
+    if (typeof window !== "undefined") {
+      const host = String(window.location.hostname || "").toLowerCase();
+      if (host.includes("purely-mobile")) return true;
+    }
+    return false;
+  }, [searchParams]);
 
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -1742,64 +1753,111 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
         </div>
       </div>
 
-      <div className="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-[320px,1fr]">
-        <div className="rounded-3xl border border-zinc-200 bg-white p-4">
-          <div className="flex items-center justify-between gap-3">
-            <div className="text-sm font-semibold text-zinc-800">Campaigns</div>
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() => {
-                setCreateName("");
-                setCreateOpen(true);
-              }}
-              className={classNames(
-                "inline-flex h-9 w-9 items-center justify-center rounded-xl text-base font-semibold",
-                busy
-                  ? "border border-zinc-200 bg-zinc-100 text-zinc-500"
-                  : "bg-[color:var(--color-brand-blue)] text-white shadow-sm hover:opacity-90",
-              )}
-              title="Create campaign"
-              aria-label="Create campaign"
-            >
-              +
-            </button>
-          </div>
-          <div className="mt-3 space-y-2">
-            {loading ? (
-              <div className="text-sm text-zinc-500">Loading…</div>
-            ) : campaigns.length === 0 ? (
-              <div className="text-sm text-zinc-500">No campaigns yet.</div>
-            ) : (
-              campaigns.map((c) => {
-                const active = c.id === selectedId;
-                return (
-                  <button
-                    key={c.id}
-                    type="button"
-                    onClick={() => setSelectedId(c.id)}
-                    className={classNames(
-                      "w-full rounded-2xl border px-3 py-3 text-left",
-                      active ? "border-zinc-900 bg-zinc-50" : "border-zinc-200 hover:bg-zinc-50",
-                    )}
-                  >
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="truncate text-sm font-semibold text-zinc-900">{c.name}</div>
-                      <div className="shrink-0 rounded-full border border-zinc-200 bg-white px-2 py-0.5 text-[11px] font-semibold text-zinc-700">
-                        {c.status}
+      <div
+        className={classNames(
+          "mt-6 grid grid-cols-1 gap-4",
+          isMobileApp ? "" : "lg:grid-cols-[320px,1fr]",
+        )}
+      >
+        {!isMobileApp ? (
+          <div className="rounded-3xl border border-zinc-200 bg-white p-4">
+            <div className="flex items-center justify-between gap-3">
+              <div className="text-sm font-semibold text-zinc-800">Campaigns</div>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => {
+                  setCreateName("");
+                  setCreateOpen(true);
+                }}
+                className={classNames(
+                  "inline-flex h-9 w-9 items-center justify-center rounded-xl text-base font-semibold",
+                  busy
+                    ? "border border-zinc-200 bg-zinc-100 text-zinc-500"
+                    : "bg-[color:var(--color-brand-blue)] text-white shadow-sm hover:opacity-90",
+                )}
+                title="Create campaign"
+                aria-label="Create campaign"
+              >
+                +
+              </button>
+            </div>
+            <div className="mt-3 space-y-2">
+              {loading ? (
+                <div className="text-sm text-zinc-500">Loading…</div>
+              ) : campaigns.length === 0 ? (
+                <div className="text-sm text-zinc-500">No campaigns yet.</div>
+              ) : (
+                campaigns.map((c) => {
+                  const active = c.id === selectedId;
+                  return (
+                    <button
+                      key={c.id}
+                      type="button"
+                      onClick={() => setSelectedId(c.id)}
+                      className={classNames(
+                        "w-full rounded-2xl border px-3 py-3 text-left",
+                        active ? "border-zinc-900 bg-zinc-50" : "border-zinc-200 hover:bg-zinc-50",
+                      )}
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="truncate text-sm font-semibold text-zinc-900">{c.name}</div>
+                        <div className="shrink-0 rounded-full border border-zinc-200 bg-white px-2 py-0.5 text-[11px] font-semibold text-zinc-700">
+                          {c.status}
+                        </div>
                       </div>
-                    </div>
-                    <div className="mt-1 text-xs text-zinc-500">
-                      Queued: {c.enrollQueued} • Completed: {c.enrollCompleted}
-                    </div>
-                  </button>
-                );
-              })
-            )}
+                      <div className="mt-1 text-xs text-zinc-500">
+                        Queued: {c.enrollQueued} • Completed: {c.enrollCompleted}
+                      </div>
+                    </button>
+                  );
+                })
+              )}
+            </div>
           </div>
-        </div>
+        ) : null}
 
         <div className="rounded-3xl border border-zinc-200 bg-white p-4">
+          {isMobileApp ? (
+            <div className="flex items-end justify-between gap-3">
+              <div className="min-w-0 flex-1">
+                <div className="text-sm font-semibold text-zinc-800">Campaign</div>
+                <div className="mt-1">
+                  {loading ? (
+                    <div className="text-sm text-zinc-500">Loading…</div>
+                  ) : campaigns.length === 0 ? (
+                    <div className="text-sm text-zinc-500">No campaigns yet.</div>
+                  ) : (
+                    <PortalSelectDropdown
+                      value={selectedId ?? ""}
+                      onChange={(v) => setSelectedId(String(v))}
+                      options={campaigns.map((c) => ({ value: c.id, label: `${c.name} · ${c.status}` }))}
+                      className="w-full"
+                      buttonClassName="flex w-full items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-900 hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
+                    />
+                  )}
+                </div>
+              </div>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => {
+                  setCreateName("");
+                  setCreateOpen(true);
+                }}
+                className={classNames(
+                  "inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-base font-semibold",
+                  busy
+                    ? "border border-zinc-200 bg-zinc-100 text-zinc-500"
+                    : "bg-[color:var(--color-brand-blue)] text-white shadow-sm hover:opacity-90",
+                )}
+                title="Create campaign"
+                aria-label="Create campaign"
+              >
+                +
+              </button>
+            </div>
+          ) : null}
           {!selected ? (
             <div className="text-sm text-zinc-500">Select a campaign.</div>
           ) : (
@@ -1830,17 +1888,20 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
                 </div>
               </div>
 
-              <div className="mt-4 flex w-full flex-wrap gap-2">
+              <div className={classNames("mt-4 flex w-full gap-2", isMobileApp ? "flex-nowrap" : "flex-wrap")}>
                 <button
                   type="button"
                   onClick={() => setTabAndRoute("calls")}
                   aria-current={tab === "calls" ? "page" : undefined}
-                  className={
-                    "flex-1 min-w-40 rounded-2xl border px-4 py-2.5 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
-                    (tab === "calls"
+                  className={classNames(
+                    "flex-1 rounded-2xl border font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60",
+                    isMobileApp
+                      ? "min-w-0 whitespace-nowrap px-3 py-2 text-xs"
+                      : "min-w-40 px-4 py-2.5 text-sm",
+                    tab === "calls"
                       ? "border-[color:var(--color-brand-blue)] bg-[color:var(--color-brand-blue)] text-white shadow-sm"
-                      : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
-                  }
+                      : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50",
+                  )}
                 >
                   Calls
                 </button>
@@ -1848,12 +1909,15 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
                   type="button"
                   onClick={() => setTabAndRoute("messages")}
                   aria-current={tab === "messages" ? "page" : undefined}
-                  className={
-                    "flex-1 min-w-40 rounded-2xl border px-4 py-2.5 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
-                    (tab === "messages"
+                  className={classNames(
+                    "flex-1 rounded-2xl border font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60",
+                    isMobileApp
+                      ? "min-w-0 whitespace-nowrap px-3 py-2 text-xs"
+                      : "min-w-40 px-4 py-2.5 text-sm",
+                    tab === "messages"
                       ? "border-[color:var(--color-brand-blue)] bg-[color:var(--color-brand-blue)] text-white shadow-sm"
-                      : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
-                  }
+                      : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50",
+                  )}
                 >
                   Messages
                 </button>
@@ -1861,12 +1925,15 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
                   type="button"
                   onClick={() => setTabAndRoute("settings")}
                   aria-current={tab === "settings" ? "page" : undefined}
-                  className={
-                    "flex-1 min-w-40 rounded-2xl border px-4 py-2.5 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
-                    (tab === "settings"
+                  className={classNames(
+                    "flex-1 rounded-2xl border font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60",
+                    isMobileApp
+                      ? "min-w-0 whitespace-nowrap px-3 py-2 text-xs"
+                      : "min-w-40 px-4 py-2.5 text-sm",
+                    tab === "settings"
                       ? "border-[color:var(--color-brand-blue)] bg-[color:var(--color-brand-blue)] text-white shadow-sm"
-                      : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
-                  }
+                      : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50",
+                  )}
                 >
                   Settings
                 </button>

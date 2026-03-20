@@ -119,7 +119,7 @@ function pathForView(view: ViewState): string {
     case "service":
       {
         const base = `/portal/app/services/${encodeURIComponent(view.slug)}`;
-        if (view.slug === "ai-receptionist") return `${base}?pa_mobileapp=1`;
+        if (view.slug === "ai-receptionist" || view.slug === "ai-outbound-calls") return `${base}?pa_mobileapp=1`;
         return base;
       }
     default:
