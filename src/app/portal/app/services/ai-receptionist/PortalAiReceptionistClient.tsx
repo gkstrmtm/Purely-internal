@@ -944,7 +944,7 @@ export function PortalAiReceptionistClient() {
         <div>
           <h1 className="text-2xl font-bold text-brand-ink sm:text-3xl">AI Receptionist</h1>
           <p className="mt-2 max-w-2xl text-sm text-zinc-600">
-            Configure call answering + routing, or forward calls to your team.
+            Save hours with a dedicated AI receptionist — answer calls, capture details, and follow up automatically.
           </p>
         </div>
         <div className="flex items-start gap-3">
@@ -963,25 +963,7 @@ export function PortalAiReceptionistClient() {
         </div>
       </div>
 
-      {isMobileApp ? (
-        <div className="mt-6 rounded-2xl border border-zinc-200 bg-white p-4">
-          <div className="text-xs font-semibold text-zinc-600">Section</div>
-          <div className="mt-2">
-            <PortalSelectDropdown
-              value={tab}
-              onChange={(v) => setTabWithUrl(v as any)}
-              options={[
-                { value: "activity", label: "Activity" },
-                { value: "settings", label: "Settings" },
-                { value: "testing", label: "Testing" },
-                { value: "missed-call-textback", label: "Missed Call Text Back" },
-              ]}
-              className="w-full"
-              buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-900 hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
-            />
-          </div>
-        </div>
-      ) : (
+      {!isMobileApp ? (
         <div className="mt-6 flex w-full flex-wrap gap-2">
           <button
             type="button"
@@ -1036,7 +1018,7 @@ export function PortalAiReceptionistClient() {
             Settings
           </button>
         </div>
-      )}
+      ) : null}
 
       {note ? <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800">{note}</div> : null}
 
@@ -1057,6 +1039,24 @@ export function PortalAiReceptionistClient() {
       {tab === "settings" ? (
         <div className="mt-4">
           <div className="min-w-0 rounded-3xl border border-zinc-200 bg-white p-6">
+            {isMobileApp ? (
+              <div className="mb-4 flex items-center justify-between gap-3">
+                <div className="text-sm font-semibold text-zinc-900">Settings</div>
+                <PortalSelectDropdown
+                  value={tab}
+                  onChange={(v) => setTabWithUrl(v as any)}
+                  options={[
+                    { value: "activity", label: "Activity" },
+                    { value: "settings", label: "Settings" },
+                    { value: "testing", label: "Testing" },
+                    { value: "missed-call-textback", label: "Missed Call Text Back" },
+                  ]}
+                  className="w-[230px] max-w-[60vw]"
+                  buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-900 hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
+                />
+              </div>
+            ) : null}
+
             <div className="mb-6 flex flex-wrap items-center gap-2">
               <button
                 type="button"
@@ -1480,7 +1480,23 @@ export function PortalAiReceptionistClient() {
 
       {tab === "testing" ? (
         <div className="mt-4 rounded-3xl border border-zinc-200 bg-white p-6">
-          <div className="text-sm font-semibold text-zinc-900">Testing</div>
+          <div className="flex items-center justify-between gap-3">
+            <div className="text-sm font-semibold text-zinc-900">Testing</div>
+            {isMobileApp ? (
+              <PortalSelectDropdown
+                value={tab}
+                onChange={(v) => setTabWithUrl(v as any)}
+                options={[
+                  { value: "activity", label: "Activity" },
+                  { value: "settings", label: "Settings" },
+                  { value: "testing", label: "Testing" },
+                  { value: "missed-call-textback", label: "Missed Call Text Back" },
+                ]}
+                className="w-[230px] max-w-[60vw]"
+                buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-900 hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
+              />
+            ) : null}
+          </div>
 
           <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
             <div className="text-xs font-semibold text-zinc-600">Calls agent</div>
@@ -1621,7 +1637,24 @@ export function PortalAiReceptionistClient() {
       ) : null}
 
       {tab === "missed-call-textback" ? (
-        <div className="mt-4">
+        <div className={isMobileApp ? "mt-4 rounded-3xl border border-zinc-200 bg-white p-6" : "mt-4"}>
+          {isMobileApp ? (
+            <div className="mb-4 flex items-center justify-between gap-3">
+              <div className="text-sm font-semibold text-zinc-900">Missed Call Text Back</div>
+              <PortalSelectDropdown
+                value={tab}
+                onChange={(v) => setTabWithUrl(v as any)}
+                options={[
+                  { value: "activity", label: "Activity" },
+                  { value: "settings", label: "Settings" },
+                  { value: "testing", label: "Testing" },
+                  { value: "missed-call-textback", label: "Missed Call Text Back" },
+                ]}
+                className="w-[230px] max-w-[60vw]"
+                buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-900 hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
+              />
+            </div>
+          ) : null}
           <PortalMissedCallTextBackClient embedded />
         </div>
       ) : null}
@@ -1633,6 +1666,20 @@ export function PortalAiReceptionistClient() {
               <div className="text-sm font-semibold text-zinc-900">Recent calls</div>
               <div className="mt-1 text-sm text-zinc-600">Inbound calls will show here as they come in.</div>
             </div>
+            {isMobileApp ? (
+              <PortalSelectDropdown
+                value={tab}
+                onChange={(v) => setTabWithUrl(v as any)}
+                options={[
+                  { value: "activity", label: "Activity" },
+                  { value: "settings", label: "Settings" },
+                  { value: "testing", label: "Testing" },
+                  { value: "missed-call-textback", label: "Missed Call Text Back" },
+                ]}
+                className="w-[230px] max-w-[60vw]"
+                buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-900 hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
+              />
+            ) : null}
           </div>
 
           {events.length === 0 ? (
@@ -1642,10 +1689,10 @@ export function PortalAiReceptionistClient() {
           ) : (
             isMobileApp ? (
               <div className="mt-4 overflow-hidden rounded-2xl border border-zinc-200">
-                <div className="grid grid-cols-[minmax(0,1fr)_9.5rem_4.75rem] gap-3 bg-zinc-50 px-4 py-2 text-[11px] font-semibold text-zinc-600">
+                <div className="grid grid-cols-[minmax(0,1fr)_12ch_8ch] gap-4 bg-zinc-50 px-4 py-2 text-[11px] font-semibold text-zinc-600">
                   <div>Name</div>
-                  <div className="text-left">Date</div>
-                  <div className="text-right">Time</div>
+                  <div className="text-left tabular-nums">Date</div>
+                  <div className="text-right tabular-nums">Time</div>
                 </div>
                 <div className="divide-y divide-zinc-100 bg-white">
                   {events.slice(0, 80).map((e) => {
@@ -1661,13 +1708,13 @@ export function PortalAiReceptionistClient() {
                           (isSelected ? "bg-brand-blue/5" : "hover:bg-zinc-50")
                         }
                       >
-                        <div className="grid grid-cols-[minmax(0,1fr)_9.5rem_4.75rem] items-start gap-3">
+                        <div className="grid grid-cols-[minmax(0,1fr)_12ch_8ch] items-start gap-4">
                           <div className="min-w-0">
                             <div className="truncate text-sm font-semibold text-zinc-900">{nameLine}</div>
                             {e.contactEmail ? <div className="mt-0.5 truncate text-xs text-zinc-600">{e.contactEmail}</div> : null}
                           </div>
-                          <div className="whitespace-nowrap text-left text-xs font-medium text-zinc-700">{formatDate(e.createdAtIso)}</div>
-                          <div className="whitespace-nowrap text-right text-xs font-medium text-zinc-700">{formatTimeOfDay(e.createdAtIso)}</div>
+                          <div className="whitespace-nowrap text-left text-xs font-medium tabular-nums text-zinc-700">{formatDate(e.createdAtIso)}</div>
+                          <div className="whitespace-nowrap text-right text-xs font-medium tabular-nums text-zinc-700">{formatTimeOfDay(e.createdAtIso)}</div>
                         </div>
                       </button>
                     );
