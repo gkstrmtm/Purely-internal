@@ -90,7 +90,7 @@ function formatDate(iso: string) {
   }
 }
 
-function formatTime(iso: string) {
+function formatTimeOfDay(iso: string) {
   try {
     return new Date(iso).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
   } catch {
@@ -1642,7 +1642,7 @@ export function PortalAiReceptionistClient() {
                             {e.contactEmail ? <div className="mt-0.5 truncate text-xs text-zinc-600">{e.contactEmail}</div> : null}
                           </div>
                           <div className="whitespace-nowrap text-right text-xs font-medium text-zinc-700">{formatDate(e.createdAtIso)}</div>
-                          <div className="whitespace-nowrap text-right text-xs font-medium text-zinc-700">{formatTime(e.createdAtIso)}</div>
+                          <div className="whitespace-nowrap text-right text-xs font-medium text-zinc-700">{formatTimeOfDay(e.createdAtIso)}</div>
                         </div>
                       </button>
                     );
