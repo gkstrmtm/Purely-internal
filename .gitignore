@@ -89,3 +89,6 @@ next-env.d.ts
 
 # local-only portal thread context (do not commit)
 /src/app/portal/app/settings/thread.md
+
+# local-only Copilot transcript scratch files (do not commit)
+/src/**/chatchatchat.md
