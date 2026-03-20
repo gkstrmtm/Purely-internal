@@ -630,7 +630,7 @@ function ProfileScreen({
       </Card>
 
       <Pressable
-        style={[styles.primaryButton, busy ? styles.buttonDisabled : null]}
+        style={[styles.primaryButton, styles.dangerButton, busy ? styles.buttonDisabled : null]}
         onPress={async () => {
           if (busy) return;
           setBusy(true);
@@ -809,6 +809,9 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     paddingHorizontal: 20,
     alignItems: "center",
+  },
+  dangerButton: {
+    backgroundColor: "#dc2626",
   },
   primaryButtonText: { fontSize: 16, fontWeight: "700", color: "#ffffff" },
   buttonDisabled: { opacity: 0.6 },

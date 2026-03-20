@@ -13,6 +13,10 @@ function toPathWithEmbed(path: string) {
     if (!u.searchParams.has("embed") && !u.searchParams.has("pa_embed")) u.searchParams.set("embed", "1");
     // Enable mobile-wrapper-only portal layouts.
     if (!u.searchParams.has("pa_mobileapp")) u.searchParams.set("pa_mobileapp", "1");
+
+     // Vercel/edge caching can occasionally pin an older HTML response for portal routes.
+     // Adding a cache-bust param ensures a new deployment is always fetched immediately.
+     if (!u.searchParams.has("pa_cb")) u.searchParams.set("pa_cb", String(Date.now()));
     return `${u.pathname}${u.search}${u.hash}`;
   } catch {
     // Fallback to the previous (string-based) behavior.

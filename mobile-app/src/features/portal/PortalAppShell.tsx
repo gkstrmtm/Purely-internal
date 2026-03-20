@@ -33,6 +33,9 @@ const ZINC_600 = "#52525b";
 const ZINC_900 = "#18181b";
 const BRAND_BLUE = "#1d4ed8";
 const BRAND_PINK = "#fb7185";
+const RED_50 = "#fef2f2";
+const RED_200 = "#fecaca";
+const RED_700 = "#b91c1c";
 
 const BOOK_A_CALL_URL = "https://purelyautomation.com/book-a-call";
 const HELP_URL = "https://purelyautomation.com/portal/tutorials/getting-started?embed=1";
@@ -454,13 +457,13 @@ export function PortalAppShell({
                 </Text>
 
                 <Pressable
-                  style={styles.drawerFooterBtn}
+                  style={[styles.drawerFooterBtn, styles.drawerFooterBtnDanger]}
                   onPress={() => void onLogout()}
                   accessibilityRole="button"
                   accessibilityLabel="Sign out"
                 >
-                  <Ionicons name="log-out-outline" size={18} color={ZINC_600} />
-                  <Text style={styles.drawerFooterBtnText}>Sign out</Text>
+                  <Ionicons name="log-out-outline" size={18} color={RED_700} />
+                  <Text style={[styles.drawerFooterBtnText, styles.drawerFooterBtnTextDanger]}>Sign out</Text>
                 </Pressable>
               </View>
             </View>
@@ -623,5 +626,10 @@ const styles = StyleSheet.create({
     borderColor: ZINC_200,
     backgroundColor: "white",
   },
+  drawerFooterBtnDanger: {
+    borderColor: RED_200,
+    backgroundColor: RED_50,
+  },
   drawerFooterBtnText: { fontSize: 12, fontWeight: "800", color: ZINC_600 },
+  drawerFooterBtnTextDanger: { color: RED_700 },
 });

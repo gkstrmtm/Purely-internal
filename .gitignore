@@ -48,6 +48,7 @@
 /chathistory
 
 # additional local chat history file (copilot transcript)
+/src/app/api/portal/billing/upgrade-checkout/copilotchat.md
 
 # local-only Copilot context (do not commit)
 /newchathistory.md

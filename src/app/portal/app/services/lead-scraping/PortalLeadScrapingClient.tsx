@@ -378,8 +378,18 @@ function ToggleSwitch({
 
 export function PortalLeadScrapingClient() {
   const toast = useToast();
+  const isMobileApp = useMemo(() => {
+    if (typeof window === "undefined") return false;
+    const sp = new URLSearchParams(window.location.search);
+    if (sp.get("pa_mobileapp") === "1") return true;
+    return (window.location.host || "").includes("purely-mobile");
+  }, []);
   const [tab, setTab] = useState<"b2b" | "b2c">("b2b");
-  const [b2bSubTab, setB2bSubTab] = useState<"pull" | "settings">("pull");
+  const [b2bSubTab, setB2bSubTab] = useState<"pull" | "leads" | "settings">(() => {
+    if (typeof window === "undefined") return "pull";
+    const sp = new URLSearchParams(window.location.search);
+    return sp.get("pa_mobileapp") === "1" ? "leads" : "pull";
+  });
 
   const [leadOutboundEntitled, setLeadOutboundEntitled] = useState(false);
 
@@ -2186,31 +2196,43 @@ export function PortalLeadScrapingClient() {
 
       {tab === "b2b" ? (
         <>
+          <div className={isMobileApp ? "mt-4" : "mt-4"}>
+            <div className={isMobileApp ? "flex flex-wrap items-center gap-2" : "flex justify-end pr-2"}>
+              <div className={isMobileApp ? "flex w-full flex-wrap gap-2" : "-mb-px flex items-end gap-1"} role="tablist" aria-label="B2B view">
+                <button
+                  type="button"
+                  onClick={() => setB2bSubTab("pull")}
+                  className={subTabButtonClass(b2bSubTab === "pull")}
+                  role="tab"
+                  aria-selected={b2bSubTab === "pull"}
+                >
+                  Pull
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setB2bSubTab("leads")}
+                  className={subTabButtonClass(b2bSubTab === "leads")}
+                  role="tab"
+                  aria-selected={b2bSubTab === "leads"}
+                >
+                  Leads
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setB2bSubTab("settings")}
+                  className={subTabButtonClass(b2bSubTab === "settings")}
+                  role="tab"
+                  aria-selected={b2bSubTab === "settings"}
+                >
+                  Settings
+                </button>
+              </div>
+            </div>
+          </div>
+
           {b2bSubTab === "pull" ? (
             <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-3">
               <div className="lg:col-span-2">
-                <div className="flex justify-end pr-2">
-                  <div className="-mb-px flex items-end gap-1" role="tablist" aria-label="B2B view">
-                    <button
-                      type="button"
-                      onClick={() => setB2bSubTab("pull")}
-                      className={subTabButtonClass(true)}
-                      role="tab"
-                      aria-selected={true}
-                    >
-                      Pull
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setB2bSubTab("settings")}
-                      className={subTabButtonClass(false)}
-                      role="tab"
-                      aria-selected={false}
-                    >
-                      Settings
-                    </button>
-                  </div>
-                </div>
 
                 <div className="rounded-3xl border border-zinc-200 bg-white p-6">
                   <div className="flex items-start justify-between gap-4">
@@ -2550,6 +2572,7 @@ export function PortalLeadScrapingClient() {
               </div>
               </div>
 
+              {!isMobileApp ? (
               <div className="flex flex-col rounded-3xl border border-zinc-200 bg-white p-6 lg:sticky lg:top-8 lg:h-[calc(100vh-4rem)]">
                 <div className="flex items-start justify-between gap-4">
                   <div>
@@ -2641,32 +2664,93 @@ export function PortalLeadScrapingClient() {
                   )}
                 </div>
               </div>
+              ) : null}
+            </div>
+          ) : b2bSubTab === "leads" ? (
+            <div className="mt-4">
+              <div className="rounded-3xl border border-zinc-200 bg-white p-6">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <div className="text-base font-semibold text-brand-ink">Leads</div>
+                    <div className="mt-1 text-xs text-zinc-500">
+                      {typeof leadTotalCount === "number" ? (
+                        leadQueryDebounced
+                          ? `Showing ${leads.length} of ${leadMatchedCount ?? leads.length} matched • ${leadTotalCount} total`
+                          : `${leadTotalCount} total`
+                      ) : (
+                        `${leads.length} loaded`
+                      )}
+                      {typeof leadTotalCount === "number" && leadTotalCount > leadsTake ? ` • Loaded first ${leadsTake}` : ""}
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => downloadText(`leads_${new Date().toISOString().slice(0, 10)}.csv`, toCsv(leads))}
+                    disabled={!leads.length}
+                    className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50 disabled:opacity-60"
+                  >
+                    Export CSV
+                  </button>
+                </div>
+
+                <div className="mt-4">
+                  <input
+                    className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm"
+                    value={leadQuery}
+                    onChange={(e) => setLeadQuery(e.target.value)}
+                    placeholder="Search leads (name, email, phone, website, address, niche…)"
+                  />
+                </div>
+
+                <div className="mt-4 space-y-3">
+                  {leads.length ? (
+                    leads.map((l, idx) => (
+                      <button
+                        key={l.id}
+                        type="button"
+                        onClick={() => openLeadAtIndex(idx)}
+                        className="w-full rounded-2xl border border-zinc-200 p-3 text-left hover:bg-zinc-50"
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <div className="text-sm font-semibold text-brand-ink">
+                              {l.starred ? <span className="mr-1 text-amber-500">★</span> : null}
+                              {l.businessName}
+                            </div>
+                          </div>
+                          {l.tag ? (
+                            <span
+                              className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold ${pickTagTextColor(
+                                isHexColor(l.tagColor || "") ? (l.tagColor as string) : "#111827",
+                              )}`}
+                              style={{
+                                backgroundColor: isHexColor(l.tagColor || "") ? (l.tagColor as string) : "#111827",
+                              }}
+                            >
+                              {l.tag}
+                            </span>
+                          ) : null}
+                        </div>
+                        <div className="mt-1 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-xs text-zinc-600">
+                          {l.phone ? <span className="whitespace-nowrap">{l.phone}</span> : null}
+                          {l.phone && l.website ? <span>•</span> : null}
+                          {l.website ? <span className="min-w-0 max-w-full truncate">{l.website}</span> : null}
+                        </div>
+                        <div className="mt-1 text-xs text-zinc-600">{[l.niche, l.address].filter(Boolean).join(" • ")}</div>
+                        <div className="mt-1 text-[11px] text-zinc-500">{safeFormatDateTime(l.createdAtIso)}</div>
+                      </button>
+                    ))
+                  ) : (
+                    <div className="rounded-2xl border border-dashed border-zinc-200 p-4 text-sm text-zinc-600">
+                      No leads yet. Run your first pull.
+                    </div>
+                  )}
+                </div>
+              </div>
             </div>
           ) : (
             <div className="mt-4">
-              <div className="flex justify-end pr-2">
-                <div className="-mb-px flex items-end gap-1" role="tablist" aria-label="B2B view">
-                  <button
-                    type="button"
-                    onClick={() => setB2bSubTab("pull")}
-                    className={subTabButtonClass(false)}
-                    role="tab"
-                    aria-selected={false}
-                  >
-                    Pull
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setB2bSubTab("settings")}
-                    className={subTabButtonClass(true)}
-                    role="tab"
-                    aria-selected={true}
-                  >
-                    Settings
-                  </button>
-                </div>
-              </div>
-
               <div className="rounded-3xl border border-zinc-200 bg-white p-6">
                 <div className="text-base font-semibold text-brand-ink">B2B settings</div>
                 <div className="mt-1 text-sm text-zinc-600">Manage exclusions, scheduling, and auto-outbound.</div>

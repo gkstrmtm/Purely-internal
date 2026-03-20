@@ -1414,12 +1414,11 @@ export function PortalBookingClient() {
     : upcoming.filter((b) => toYmd(new Date(b.startAt)) === focusYmd)
   ).sort((a, b) => new Date(a.startAt).getTime() - new Date(b.startAt).getTime());
 
-  const weekDayModalBookings = useMemo(() => {
-    if (!weekDayModalYmd) return [] as Booking[];
-    return upcoming
-      .filter((b) => toYmd(new Date(b.startAt)) === weekDayModalYmd)
-      .sort((a, b) => new Date(a.startAt).getTime() - new Date(b.startAt).getTime());
-  }, [upcoming, weekDayModalYmd]);
+  const weekDayModalBookings: Booking[] = weekDayModalYmd
+    ? upcoming
+        .filter((b) => toYmd(new Date(b.startAt)) === weekDayModalYmd)
+        .sort((a, b) => new Date(a.startAt).getTime() - new Date(b.startAt).getTime())
+    : [];
 
   return (
     <div className="mx-auto w-full max-w-7xl">
@@ -1435,7 +1434,7 @@ export function PortalBookingClient() {
               })}`
             : "Appointments"
         }
-        maxWidthClass="max-w-lg"
+        widthClassName="max-w-lg"
       >
         <div className="space-y-3">
           {weekDayModalBookings.length === 0 ? (
@@ -1807,124 +1806,125 @@ export function PortalBookingClient() {
           </div>
 
           {isMobileApp && appointmentsView === "week" ? null : (
-          <div className="rounded-3xl border border-zinc-200 bg-white p-6 lg:col-span-3">
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <div className="text-sm font-semibold text-zinc-900">Appointments</div>
-                <div className="mt-1 text-sm text-zinc-600">
-                  {appointmentsView === "week"
-                    ? `Week of ${weekStart.toLocaleDateString(undefined, { month: "short", day: "numeric" })}`
-                    : focusDate.toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric", year: "numeric" })}
+            <div className="rounded-3xl border border-zinc-200 bg-white p-6 lg:col-span-3">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <div className="text-sm font-semibold text-zinc-900">Appointments</div>
+                  <div className="mt-1 text-sm text-zinc-600">
+                    {appointmentsView === "week"
+                      ? `Week of ${weekStart.toLocaleDateString(undefined, { month: "short", day: "numeric" })}`
+                      : focusDate.toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric", year: "numeric" })}
+                  </div>
                 </div>
+
+                <button
+                  type="button"
+                  className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+                  onClick={openAvailability}
+                >
+                  Edit availability
+                </button>
               </div>
 
-              <button
-                type="button"
-                className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
-                onClick={openAvailability}
-              >
-                Edit availability
-              </button>
-            </div>
-
-            <div className="mt-4 space-y-3">
-              {sidebarBookings.length === 0 ? (
-                <div className="rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">
-                  No appointments.
-                </div>
-              ) : (
-                sidebarBookings.map((b) => {
-                  const joinUrl = getPurelyConnectJoinUrl(b.notes);
-                  return (
-                  <div key={b.id} className="rounded-2xl border border-zinc-200 p-4">
-                    <div className="text-sm font-semibold text-zinc-900">
-                      {new Date(b.startAt).toLocaleString()} → {new Date(b.endAt).toLocaleTimeString()}
-                    </div>
-                    <div className="mt-1 text-sm text-zinc-700">
-                      {b.contactName} · {b.contactEmail}
-                      {b.contactPhone ? ` · ${b.contactPhone}` : ""}
-                    </div>
-                    {joinUrl ? (
-                      <div className="mt-2 flex justify-start">
-                        <a
-                          href={joinUrl}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="inline-flex items-center justify-center rounded-xl bg-[color:var(--color-brand-blue)] px-3 py-2 text-sm font-semibold text-white hover:opacity-95"
-                        >
-                          Join meeting
-                        </a>
-                      </div>
-                    ) : null}
-                    {b.contactId ? (
-                      <div className="mt-2">
-                        <ContactTagsEditor
-                          compact
-                          contactId={b.contactId}
-                          tags={Array.isArray(b.contactTags) ? b.contactTags : []}
-                          onChange={(next) => updateBookingTags(b.id, next)}
-                        />
-                      </div>
-                    ) : null}
-                    {b.notes ? <div className="mt-2 text-sm text-zinc-600">{b.notes}</div> : null}
-                    <div className="mt-3 flex flex-wrap justify-end gap-2">
-                      <button
-                        type="button"
-                        className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50"
-                        onClick={() => {
-                          setReschedBooking(b);
-                          setReschedWhen(toLocalDateTimeInputValue(new Date(b.startAt)));
-                          setReschedForce(false);
-                          setReschedOpen(true);
-                          void loadReschedSlots(b.startAt);
-                        }}
-                      >
-                        Reschedule
-                      </button>
-                      <button
-                        type="button"
-                        className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50"
-                        onClick={() => {
-                          setContactBooking(b);
-                          setContactSubject(`Follow-up: ${site?.title ?? "Booking"}`);
-                          setContactMessage("");
-                          setContactSendEmail(true);
-                          setContactSendSms(Boolean(b.contactPhone));
-                          setContactOpen(true);
-                        }}
-                      >
-                        Send follow-up
-                      </button>
-                      <button
-                        type="button"
-                        className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50"
-                        onClick={() => cancelBooking(b.id)}
-                      >
-                        Cancel
-                      </button>
-                    </div>
+              <div className="mt-4 space-y-3">
+                {sidebarBookings.length === 0 ? (
+                  <div className="rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">
+                    No appointments.
                   </div>
-                  );
-                })
-              )}
-            </div>
-
-            {recent.length ? (
-              <>
-                <div className="mt-6 text-sm font-semibold text-zinc-900">Recent</div>
-                <div className="mt-3 space-y-2">
-                  {recent.slice(0, 6).map((b) => (
-                    <div key={b.id} className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm">
-                      <div className="font-medium text-zinc-800">
-                        {new Date(b.startAt).toLocaleString()} · {b.status.toLowerCase()}
+                ) : (
+                  sidebarBookings.map((b) => {
+                    const joinUrl = getPurelyConnectJoinUrl(b.notes);
+                    return (
+                      <div key={b.id} className="rounded-2xl border border-zinc-200 p-4">
+                        <div className="text-sm font-semibold text-zinc-900">
+                          {new Date(b.startAt).toLocaleString()} → {new Date(b.endAt).toLocaleTimeString()}
+                        </div>
+                        <div className="mt-1 text-sm text-zinc-700">
+                          {b.contactName} · {b.contactEmail}
+                          {b.contactPhone ? ` · ${b.contactPhone}` : ""}
+                        </div>
+                        {joinUrl ? (
+                          <div className="mt-2 flex justify-start">
+                            <a
+                              href={joinUrl}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="inline-flex items-center justify-center rounded-xl bg-[color:var(--color-brand-blue)] px-3 py-2 text-sm font-semibold text-white hover:opacity-95"
+                            >
+                              Join meeting
+                            </a>
+                          </div>
+                        ) : null}
+                        {b.contactId ? (
+                          <div className="mt-2">
+                            <ContactTagsEditor
+                              compact
+                              contactId={b.contactId}
+                              tags={Array.isArray(b.contactTags) ? b.contactTags : []}
+                              onChange={(next) => updateBookingTags(b.id, next)}
+                            />
+                          </div>
+                        ) : null}
+                        {b.notes ? <div className="mt-2 text-sm text-zinc-600">{b.notes}</div> : null}
+                        <div className="mt-3 flex flex-wrap justify-end gap-2">
+                          <button
+                            type="button"
+                            className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50"
+                            onClick={() => {
+                              setReschedBooking(b);
+                              setReschedWhen(toLocalDateTimeInputValue(new Date(b.startAt)));
+                              setReschedForce(false);
+                              setReschedOpen(true);
+                              void loadReschedSlots(b.startAt);
+                            }}
+                          >
+                            Reschedule
+                          </button>
+                          <button
+                            type="button"
+                            className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50"
+                            onClick={() => {
+                              setContactBooking(b);
+                              setContactSubject(`Follow-up: ${site?.title ?? "Booking"}`);
+                              setContactMessage("");
+                              setContactSendEmail(true);
+                              setContactSendSms(Boolean(b.contactPhone));
+                              setContactOpen(true);
+                            }}
+                          >
+                            Send follow-up
+                          </button>
+                          <button
+                            type="button"
+                            className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50"
+                            onClick={() => cancelBooking(b.id)}
+                          >
+                            Cancel
+                          </button>
+                        </div>
                       </div>
-                      <div className="mt-1 text-zinc-600">{b.contactName}</div>
-                    </div>
-                  ))}
-                </div>
-              </>
-            ) : null}
-          </div>
+                    );
+                  })
+                )}
+              </div>
+
+              {recent.length ? (
+                <>
+                  <div className="mt-6 text-sm font-semibold text-zinc-900">Recent</div>
+                  <div className="mt-3 space-y-2">
+                    {recent.slice(0, 6).map((b) => (
+                      <div key={b.id} className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm">
+                        <div className="font-medium text-zinc-800">
+                          {new Date(b.startAt).toLocaleString()} · {b.status.toLowerCase()}
+                        </div>
+                        <div className="mt-1 text-zinc-600">{b.contactName}</div>
+                      </div>
+                    ))}
+                  </div>
+                </>
+              ) : null}
+            </div>
+          )}
         </div>
       ) : null}
 
@@ -2441,7 +2441,6 @@ export function PortalBookingClient() {
               )}
             </div>
           </div>
-          )}
         </div>
       ) : null}
 

@@ -71,8 +71,16 @@ export function PortalMediaLibraryClient() {
     if (typeof window === "undefined") return "portal" as const;
     return portalVariantFromPathname(window.location.pathname);
   }, []);
+  const isMobileApp = useMemo(() => {
+    if (typeof window === "undefined") return false;
+    const sp = new URLSearchParams(window.location.search);
+    if (sp.get("pa_mobileapp") === "1") return true;
+    return (window.location.host || "").includes("purely-mobile");
+  }, []);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  const [previewOpen, setPreviewOpen] = useState(false);
 
   useEffect(() => {
     if (error) toastNotify.error(error);
@@ -130,6 +138,19 @@ export function PortalMediaLibraryClient() {
     if (!selected || selected.kind !== "item") return null;
     return items.find((i) => i.id === selected.id) || null;
   }, [selected, items]);
+
+  useEffect(() => {
+    if (!previewOpen) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setPreviewOpen(false);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [previewOpen]);
+
+  useEffect(() => {
+    if (selected?.kind !== "item") setPreviewOpen(false);
+  }, [selected?.kind]);
 
   const load = useCallback(async (nextFolderId: string | null) => {
     setLoading(true);
@@ -629,7 +650,10 @@ export function PortalMediaLibraryClient() {
                               type="button"
                               className="rounded-xl px-2 py-1 text-sm font-semibold text-zinc-600 hover:bg-zinc-100"
                               aria-label="Folder actions"
-                              onClick={(e) => openDotsMenu(e, "folder", f.id)}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                openDotsMenu(e, "folder", f.id);
+                              }}
                             >
                               ⋯
                             </button>
@@ -650,7 +674,10 @@ export function PortalMediaLibraryClient() {
                           <button
                             key={it.id}
                             type="button"
-                            onClick={() => setSelected({ kind: "item", id: it.id })}
+                            onClick={() => {
+                              setSelected({ kind: "item", id: it.id });
+                              if (isMobileApp) setPreviewOpen(true);
+                            }}
                             className={classNames(
                               "flex w-full items-center justify-between gap-3 rounded-2xl border px-4 py-3 text-left hover:bg-zinc-50",
                               selected?.kind === "item" && selected.id === it.id ? "border-zinc-900" : "border-zinc-200",
@@ -687,7 +714,10 @@ export function PortalMediaLibraryClient() {
                                 type="button"
                                 className="rounded-xl px-2 py-1 text-sm font-semibold text-zinc-600 hover:bg-zinc-100"
                                 aria-label="File actions"
-                                onClick={(e) => openDotsMenu(e, "item", it.id)}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  openDotsMenu(e, "item", it.id);
+                                }}
                               >
                                 ⋯
                               </button>
@@ -703,142 +733,146 @@ export function PortalMediaLibraryClient() {
           </div>
         </div>
 
-        <div className="rounded-3xl border border-zinc-200 bg-white lg:col-span-5">
-          <div className="border-b border-zinc-100 p-4">
-            <div className="text-sm font-semibold text-zinc-900">Preview</div>
-            <div className="mt-1 text-xs text-zinc-500">Select a file to view actions.</div>
+        {!isMobileApp ? (
+          <div className="rounded-3xl border border-zinc-200 bg-white lg:col-span-5">
+            <div className="border-b border-zinc-100 p-4">
+              <div className="text-sm font-semibold text-zinc-900">Preview</div>
+              <div className="mt-1 text-xs text-zinc-500">Select a file to view actions.</div>
+            </div>
+
+            <div className="p-4">
+              {selectedItem ? (
+                <div>
+                  <div className="text-base font-semibold text-zinc-900">{selectedItem.fileName}</div>
+                  <div className="mt-1 text-xs text-zinc-500">
+                    {selectedItem.mimeType} • {formatBytes(selectedItem.fileSize)}
+                  </div>
+
+                  {selectedItem.previewUrl && selectedItem.mimeType.startsWith("image/") ? (
+                    <div className="mt-4 overflow-hidden rounded-2xl border border-zinc-200 bg-white">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={selectedItem.previewUrl} alt={selectedItem.fileName} className="w-full object-cover" />
+                    </div>
+                  ) : (
+                    <div className="mt-4 rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 p-6 text-sm text-zinc-600">
+                      Preview not available for this file type.
+                    </div>
+                  )}
+
+                  <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                    <button
+                      type="button"
+                      onClick={(e) => void copyAbsoluteUrl(selectedItem.shareUrl, e.currentTarget)}
+                      className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
+                    >
+                      Copy link
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => triggerDownload(selectedItem.downloadUrl, selectedItem.fileName)}
+                      className="inline-flex items-center justify-center rounded-2xl bg-[color:var(--color-brand-blue)] px-4 py-2 text-sm font-semibold text-white hover:opacity-95"
+                    >
+                      Download
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => openRename("item", selectedItem.id, selectedItem.fileName)}
+                      className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
+                    >
+                      Rename
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void openMove("item", selectedItem.id)}
+                      className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
+                    >
+                      Add to folder
+                    </button>
+                    <a
+                      href={selectedItem.openUrl || selectedItem.previewUrl || selectedItem.downloadUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
+                    >
+                      Open
+                    </a>
+                    <button
+                      type="button"
+                      onClick={() => void removeItemById(selectedItem.id, selectedItem.fileName)}
+                      className="rounded-2xl border border-red-200 bg-red-50 px-4 py-2 text-sm font-semibold text-red-700 hover:bg-red-100"
+                    >
+                      Delete
+                    </button>
+                  </div>
+                </div>
+              ) : selectedFolder ? (
+                <div>
+                  <div className="text-base font-semibold text-zinc-900">{selectedFolder.name}</div>
+                  <div className="mt-1 font-mono text-xs text-zinc-500">tag: {selectedFolder.tag}</div>
+                  <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                    <button
+                      type="button"
+                      onClick={(e) => void copyAbsoluteUrl(selectedFolder.shareUrl, e.currentTarget)}
+                      className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
+                    >
+                      Copy folder link
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => triggerDownload(selectedFolder.downloadUrl || selectedFolder.shareUrl, `${selectedFolder.name}.zip`)}
+                      className="rounded-2xl bg-[color:var(--color-brand-blue)] px-4 py-2 text-sm font-semibold text-white hover:opacity-95"
+                    >
+                      Download zip
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => openRename("folder", selectedFolder.id, selectedFolder.name)}
+                      className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
+                    >
+                      Rename
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void openMove("folder", selectedFolder.id)}
+                      className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
+                    >
+                      Move to folder
+                    </button>
+                  </div>
+
+                  <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+                    <div className="text-xs font-semibold text-zinc-700">Folder color</div>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      {[
+                        { k: null, c: "bg-zinc-400", label: "Gray" },
+                        { k: "blue", c: "bg-[color:var(--color-brand-blue)]", label: "Blue" },
+                        { k: "green", c: "bg-emerald-500", label: "Green" },
+                        { k: "amber", c: "bg-amber-500", label: "Amber" },
+                        { k: "purple", c: "bg-violet-500", label: "Purple" },
+                        { k: "pink", c: "bg-pink-500", label: "Pink" },
+                        { k: "red", c: "bg-red-500", label: "Red" },
+                      ].map((x) => (
+                        <button
+                          key={String(x.k)}
+                          type="button"
+                          className={classNames(
+                            "h-8 w-8 rounded-2xl border",
+                            x.c,
+                            (selectedFolder.color ?? null) === x.k ? "border-zinc-900" : "border-white",
+                          )}
+                          title={x.label}
+                          onClick={() => void setFolderColor(selectedFolder.id, x.k)}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="text-sm text-zinc-600">Select a folder or file.</div>
+              )}
+            </div>
           </div>
-
-          <div className="p-4">
-            {selectedItem ? (
-              <div>
-                <div className="text-base font-semibold text-zinc-900">{selectedItem.fileName}</div>
-                <div className="mt-1 text-xs text-zinc-500">{selectedItem.mimeType} • {formatBytes(selectedItem.fileSize)}</div>
-
-                {selectedItem.previewUrl && selectedItem.mimeType.startsWith("image/") ? (
-                  <div className="mt-4 overflow-hidden rounded-2xl border border-zinc-200 bg-white">
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={selectedItem.previewUrl} alt={selectedItem.fileName} className="w-full object-cover" />
-                  </div>
-                ) : (
-                  <div className="mt-4 rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 p-6 text-sm text-zinc-600">
-                    Preview not available for this file type.
-                  </div>
-                )}
-
-                <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2">
-                  <button
-                    type="button"
-                    onClick={(e) => void copyAbsoluteUrl(selectedItem.shareUrl, e.currentTarget)}
-                    className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
-                  >
-                    Copy link
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => triggerDownload(selectedItem.downloadUrl, selectedItem.fileName)}
-                    className="inline-flex items-center justify-center rounded-2xl bg-[color:var(--color-brand-blue)] px-4 py-2 text-sm font-semibold text-white hover:opacity-95"
-                  >
-                    Download
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => openRename("item", selectedItem.id, selectedItem.fileName)}
-                    className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
-                  >
-                    Rename
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => void openMove("item", selectedItem.id)}
-                    className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
-                  >
-                    Add to folder
-                  </button>
-                  <a
-                    href={selectedItem.openUrl || selectedItem.previewUrl || selectedItem.downloadUrl}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
-                  >
-                    Open
-                  </a>
-                  <button
-                    type="button"
-                    onClick={() => void removeItemById(selectedItem.id, selectedItem.fileName)}
-                    className="rounded-2xl border border-red-200 bg-red-50 px-4 py-2 text-sm font-semibold text-red-700 hover:bg-red-100"
-                  >
-                    Delete
-                  </button>
-                </div>
-              </div>
-            ) : selectedFolder ? (
-              <div>
-                <div className="text-base font-semibold text-zinc-900">{selectedFolder.name}</div>
-                <div className="mt-1 font-mono text-xs text-zinc-500">tag: {selectedFolder.tag}</div>
-                <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2">
-                  <button
-                    type="button"
-                    onClick={(e) => void copyAbsoluteUrl(selectedFolder.shareUrl, e.currentTarget)}
-                    className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
-                  >
-                    Copy folder link
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => triggerDownload(selectedFolder.downloadUrl || selectedFolder.shareUrl, `${selectedFolder.name}.zip`)}
-                    className="rounded-2xl bg-[color:var(--color-brand-blue)] px-4 py-2 text-sm font-semibold text-white hover:opacity-95"
-                  >
-                    Download zip
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => openRename("folder", selectedFolder.id, selectedFolder.name)}
-                    className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
-                  >
-                    Rename
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => void openMove("folder", selectedFolder.id)}
-                    className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
-                  >
-                    Move to folder
-                  </button>
-                </div>
-
-                <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
-                  <div className="text-xs font-semibold text-zinc-700">Folder color</div>
-                  <div className="mt-2 flex flex-wrap gap-2">
-                    {[
-                      { k: null, c: "bg-zinc-400", label: "Gray" },
-                      { k: "blue", c: "bg-[color:var(--color-brand-blue)]", label: "Blue" },
-                      { k: "green", c: "bg-emerald-500", label: "Green" },
-                      { k: "amber", c: "bg-amber-500", label: "Amber" },
-                      { k: "purple", c: "bg-violet-500", label: "Purple" },
-                      { k: "pink", c: "bg-pink-500", label: "Pink" },
-                      { k: "red", c: "bg-red-500", label: "Red" },
-                    ].map((x) => (
-                      <button
-                        key={String(x.k)}
-                        type="button"
-                        className={classNames(
-                          "h-8 w-8 rounded-2xl border",
-                          x.c,
-                          (selectedFolder.color ?? null) === x.k ? "border-zinc-900" : "border-white",
-                        )}
-                        title={x.label}
-                        onClick={() => void setFolderColor(selectedFolder.id, x.k)}
-                      />
-                    ))}
-                  </div>
-                </div>
-              </div>
-            ) : (
-              <div className="text-sm text-zinc-600">Select a folder or file.</div>
-            )}
-          </div>
-        </div>
+        ) : null}
       </div>
 
       {openMenu && menuTarget && typeof document !== "undefined"
@@ -1109,6 +1143,99 @@ export function PortalMediaLibraryClient() {
                     disabled={moveWorking}
                   >
                     Save
+                  </button>
+                </div>
+              </div>
+            </div>,
+            document.body,
+          )
+        : null}
+
+      {isMobileApp && previewOpen && selectedItem && typeof document !== "undefined"
+        ? createPortal(
+            <div className="fixed inset-0 z-[110] flex items-end justify-center px-4 pt-[calc(var(--pa-modal-safe-top,0px)+1rem)] pb-[calc(var(--pa-modal-safe-bottom,0px)+1rem)] sm:items-center">
+              <div className="absolute inset-0 bg-black/40" onMouseDown={() => setPreviewOpen(false)} />
+              <div className="relative max-h-[calc(100dvh-var(--pa-modal-safe-top,0px)-var(--pa-modal-safe-bottom,0px)-2rem)] w-full max-w-md overflow-auto rounded-3xl border border-zinc-200 bg-white p-5 shadow-xl">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="truncate text-sm font-semibold text-zinc-900">{selectedItem.fileName}</div>
+                    <div className="mt-1 text-xs text-zinc-500">
+                      {selectedItem.mimeType} • {formatBytes(selectedItem.fileSize)}
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    className="shrink-0 rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
+                    onClick={() => setPreviewOpen(false)}
+                  >
+                    Close
+                  </button>
+                </div>
+
+                {selectedItem.previewUrl && selectedItem.mimeType.startsWith("image/") ? (
+                  <div className="mt-4 overflow-hidden rounded-2xl border border-zinc-200 bg-white">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={selectedItem.previewUrl} alt={selectedItem.fileName} className="w-full object-cover" />
+                  </div>
+                ) : (
+                  <div className="mt-4 rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 p-6 text-sm text-zinc-600">
+                    Preview not available for this file type.
+                  </div>
+                )}
+
+                <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                  <button
+                    type="button"
+                    onClick={(e) => void copyAbsoluteUrl(selectedItem.shareUrl, e.currentTarget)}
+                    className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
+                  >
+                    Copy link
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => triggerDownload(selectedItem.downloadUrl, selectedItem.fileName)}
+                    className="inline-flex items-center justify-center rounded-2xl bg-[color:var(--color-brand-blue)] px-4 py-2 text-sm font-semibold text-white hover:opacity-95"
+                  >
+                    Download
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPreviewOpen(false);
+                      openRename("item", selectedItem.id, selectedItem.fileName);
+                    }}
+                    className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
+                  >
+                    Rename
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPreviewOpen(false);
+                      void openMove("item", selectedItem.id);
+                    }}
+                    className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
+                  >
+                    Add to folder
+                  </button>
+                  <a
+                    href={selectedItem.openUrl || selectedItem.previewUrl || selectedItem.downloadUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
+                    onClick={() => setPreviewOpen(false)}
+                  >
+                    Open
+                  </a>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPreviewOpen(false);
+                      void removeItemById(selectedItem.id, selectedItem.fileName);
+                    }}
+                    className="rounded-2xl border border-red-200 bg-red-50 px-4 py-2 text-sm font-semibold text-red-700 hover:bg-red-100"
+                  >
+                    Delete
                   </button>
                 </div>
               </div>
