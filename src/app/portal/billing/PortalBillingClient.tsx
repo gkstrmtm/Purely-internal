@@ -892,7 +892,7 @@ export function PortalBillingClient() {
       <div
         className={[
           "rounded-3xl border border-zinc-200 bg-white p-6 lg:col-span-2",
-          creditsFirstForMobileApp ? "order-last" : null,
+          creditsFirstForMobileApp ? "order-2" : null,
         ]
           .filter(Boolean)
           .join(" ")}
@@ -1384,7 +1384,14 @@ export function PortalBillingClient() {
       ) : null}
 
       {!creditsOnly ? (
-        <div className="rounded-3xl border border-zinc-200 bg-white p-6 lg:col-span-2">
+        <div
+          className={[
+            "rounded-3xl border border-zinc-200 bg-white p-6 lg:col-span-2",
+            creditsFirstForMobileApp ? "order-3" : null,
+          ]
+            .filter(Boolean)
+            .join(" ")}
+        >
           <div className="text-sm font-semibold text-zinc-900">Add services</div>
           <div className="mt-2 text-sm text-zinc-600">Enable add-ons right here in the portal.</div>
 
@@ -1430,7 +1437,14 @@ export function PortalBillingClient() {
         </div>
       ) : null}
 
-      <div className="rounded-3xl border border-zinc-200 bg-white p-6">
+      <div
+        className={[
+          "rounded-3xl border border-zinc-200 bg-white p-6",
+          creditsFirstForMobileApp ? "order-last" : null,
+        ]
+          .filter(Boolean)
+          .join(" ")}
+      >
         <div className="flex items-start justify-between gap-3">
           <div>
             <div className="text-sm font-semibold text-zinc-900">Services & status</div>
