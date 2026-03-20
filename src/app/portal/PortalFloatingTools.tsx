@@ -278,6 +278,7 @@ function classNames(...xs: Array<string | false | null | undefined>) {
 
 export function PortalFloatingTools() {
   const [minimized, setMinimized] = useState(true);
+  const [hidden, setHidden] = useState(false);
   const [version, setVersion] = useState<VersionPayload | null>(null);
   const [reportOpen, setReportOpen] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
@@ -306,6 +307,26 @@ export function PortalFloatingTools() {
   useEffect(() => {
     chatMessagesRef.current = chatMessages;
   }, [chatMessages]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const root = document.documentElement;
+    const readHidden = () => root.getAttribute("data-pa-hide-floating-tools") === "1";
+    setHidden(readHidden());
+
+    const mo = new MutationObserver(() => {
+      setHidden(readHidden());
+    });
+    mo.observe(root, { attributes: true, attributeFilter: ["data-pa-hide-floating-tools"] });
+    return () => mo.disconnect();
+  }, []);
+
+  useEffect(() => {
+    if (!hidden) return;
+    setReportOpen(false);
+    setChatOpen(false);
+    setMinimized(true);
+  }, [hidden]);
 
   function scheduleChatScrollToBottom(force = false) {
     if (typeof window === "undefined") return;
@@ -352,16 +373,22 @@ export function PortalFloatingTools() {
     if (typeof window === "undefined") return;
 
     const root = document.documentElement;
+
+    const setReserve = (px: number) => {
+      const v = Number.isFinite(px) ? Math.max(0, Math.floor(px)) : 0;
+      root.style.setProperty("--pa-portal-floating-tools-reserve", `${v}px`);
+    };
+
+    if (hidden) {
+      setReserve(0);
+      return;
+    }
+
     const pickEl = () => {
       if (reportOpen) return reportCardRef.current;
       if (chatOpen) return chatPanelRef.current;
       if (!minimized) return toolsCardRef.current;
       return null;
-    };
-
-    const setReserve = (px: number) => {
-      const v = Number.isFinite(px) ? Math.max(0, Math.floor(px)) : 0;
-      root.style.setProperty("--pa-portal-floating-tools-reserve", `${v}px`);
     };
 
     const el = pickEl();
@@ -390,7 +417,7 @@ export function PortalFloatingTools() {
       ro?.disconnect();
       window.removeEventListener("resize", recompute);
     };
-  }, [chatOpen, minimized, reportOpen]);
+  }, [chatOpen, hidden, minimized, reportOpen]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -421,6 +448,8 @@ export function PortalFloatingTools() {
     const sha = shortSha(version?.buildSha);
     return `v ${sha}`;
   }, [version?.buildSha]);
+
+  if (hidden) return null;
 
   function persistMinimized(next: boolean) {
     setMinimized(next);

@@ -172,6 +172,15 @@ function validateMarkdownForPublish(md: string): string | null {
 
 export function PortalBlogPostClient({ postId }: { postId: string }) {
   const toast = useToast();
+
+  const isPaMobileApp = useMemo(() => {
+    if (typeof window === "undefined") return false;
+    const sp = new URLSearchParams(window.location.search);
+    const byParam = (sp.get("pa_mobileapp") || "").trim() === "1";
+    const byHost = String(window.location.hostname || "").toLowerCase().includes("purely-mobile");
+    return byParam || byHost;
+  }, []);
+
   const [loading, setLoading] = useState(true);
   const [working, setWorking] = useState<"save" | "publish" | "delete" | "archive" | "generate" | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -681,7 +690,13 @@ export function PortalBlogPostClient({ postId }: { postId: string }) {
           </div>
         </div>
 
-        <div className="flex w-full flex-col gap-3 sm:w-auto sm:flex-row">
+        <div
+          className={
+            isPaMobileApp
+              ? "flex w-full items-center gap-2 overflow-x-auto pb-1 sm:w-auto"
+              : "flex w-full flex-col gap-3 sm:w-auto sm:flex-row"
+          }
+        >
           <button
             type="button"
             onClick={() => {
@@ -691,15 +706,21 @@ export function PortalBlogPostClient({ postId }: { postId: string }) {
               }
               window.location.href = "/portal/app/services/blogs";
             }}
-            className="inline-flex items-center justify-center rounded-2xl border border-red-200 bg-white px-4 py-2 text-sm font-semibold text-red-700 hover:bg-red-50"
+            className={
+              "inline-flex shrink-0 items-center justify-center border border-red-200 bg-white font-semibold text-red-700 hover:bg-red-50 " +
+              (isPaMobileApp ? "rounded-xl px-3 py-2 text-xs" : "rounded-2xl px-4 py-2 text-sm")
+            }
           >
             Cancel
           </button>
           <a
             href={exportUrl}
-            className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+            className={
+              "inline-flex shrink-0 items-center justify-center border border-zinc-200 bg-white font-semibold text-brand-ink hover:bg-zinc-50 " +
+              (isPaMobileApp ? "rounded-xl px-3 py-2 text-xs" : "rounded-2xl px-4 py-2 text-sm")
+            }
           >
-            Export Markdown
+            {isPaMobileApp ? "Export" : "Export Markdown"}
           </a>
           <button
             type="button"
@@ -707,12 +728,15 @@ export function PortalBlogPostClient({ postId }: { postId: string }) {
               void generateWithAi();
             }}
             disabled={working !== null}
-            className="inline-flex items-center justify-center gap-2 rounded-2xl px-4 py-2 text-sm font-semibold text-white bg-linear-to-r from-(--color-brand-blue) via-violet-500 to-(--color-brand-pink) shadow-sm hover:opacity-90 disabled:bg-zinc-400 disabled:opacity-60"
+            className={
+              "inline-flex shrink-0 items-center justify-center gap-2 font-semibold text-white bg-linear-to-r from-(--color-brand-blue) via-violet-500 to-(--color-brand-pink) shadow-sm hover:opacity-90 disabled:bg-zinc-400 disabled:opacity-60 " +
+              (isPaMobileApp ? "rounded-xl px-3 py-2 text-xs" : "rounded-2xl px-4 py-2 text-sm")
+            }
           >
             <svg
               aria-hidden="true"
               viewBox="0 0 24 24"
-              className="h-4 w-4"
+              className={isPaMobileApp ? "h-3.5 w-3.5" : "h-4 w-4"}
               fill="none"
               stroke="currentColor"
               strokeWidth="2"
@@ -722,7 +746,13 @@ export function PortalBlogPostClient({ postId }: { postId: string }) {
               <path d="M12 2l1.5 5.5L19 9l-5.5 1.5L12 16l-1.5-5.5L5 9l5.5-1.5L12 2z" />
               <path d="M19 14l.8 2.6L22 17l-2.2.4L19 20l-.8-2.6L16 17l2.2-.4L19 14z" />
             </svg>
-            <span>{working === "generate" ? "Generating…" : "Generate with AI"}</span>
+            <span>
+              {working === "generate"
+                ? "Generating…"
+                : isPaMobileApp
+                  ? "Generate"
+                  : "Generate with AI"}
+            </span>
           </button>
           {working === "generate" ? (
             <button
@@ -732,7 +762,10 @@ export function PortalBlogPostClient({ postId }: { postId: string }) {
                 generateAbortRef.current = null;
                 setWorking(null);
               }}
-              className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+              className={
+                "inline-flex shrink-0 items-center justify-center border border-zinc-200 bg-white font-semibold text-brand-ink hover:bg-zinc-50 " +
+                (isPaMobileApp ? "rounded-xl px-3 py-2 text-xs" : "rounded-2xl px-4 py-2 text-sm")
+              }
             >
               Stop
             </button>
@@ -741,7 +774,10 @@ export function PortalBlogPostClient({ postId }: { postId: string }) {
             type="button"
             onClick={save}
             disabled={saveDisabled}
-            className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
+            className={
+              "inline-flex shrink-0 items-center justify-center bg-brand-ink font-semibold text-white hover:opacity-95 disabled:opacity-60 " +
+              (isPaMobileApp ? "rounded-xl px-3 py-2 text-xs" : "rounded-2xl px-4 py-2 text-sm")
+            }
           >
             {working === "save" ? "Saving…" : "Save"}
           </button>
@@ -749,7 +785,10 @@ export function PortalBlogPostClient({ postId }: { postId: string }) {
             type="button"
             onClick={publish}
             disabled={publishDisabled}
-            className="inline-flex items-center justify-center rounded-2xl bg-(--color-brand-blue) px-4 py-2 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
+            className={
+              "inline-flex shrink-0 items-center justify-center bg-(--color-brand-blue) font-semibold text-white hover:opacity-95 disabled:opacity-60 " +
+              (isPaMobileApp ? "rounded-xl px-3 py-2 text-xs" : "rounded-2xl px-4 py-2 text-sm")
+            }
           >
             {working === "publish" ? "Publishing…" : publishLabel}
           </button>

@@ -116,6 +116,13 @@ export function PortalBlogsClient({
   const searchParams = useSearchParams();
   const fromOnboarding = (searchParams?.get("from") || "").trim().toLowerCase() === "onboarding";
 
+  const isPaMobileApp = useMemo(() => {
+    const byParam = (searchParams?.get("pa_mobileapp") || "").trim() === "1";
+    if (typeof window === "undefined") return byParam;
+    const byHost = String(window.location.hostname || "").toLowerCase().includes("purely-mobile");
+    return byParam || byHost;
+  }, [searchParams]);
+
   function withFromOnboarding(href: string) {
     if (!fromOnboarding) return href;
     if (!href) return href;
@@ -625,13 +632,20 @@ export function PortalBlogsClient({
             Draft posts here, then publish them on your own website.
           </p>
         </div>
-        <div className="flex w-full flex-col gap-3 sm:w-auto sm:flex-row">
+        <div
+          className={
+            isPaMobileApp
+              ? "flex w-full items-center gap-2 overflow-x-auto sm:w-auto"
+              : "flex w-full flex-col gap-3 sm:w-auto sm:flex-row"
+          }
+        >
           <a
             href={previewBlogsHref ?? undefined}
             target="_blank"
             rel="noreferrer"
             className={
-              "inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50 " +
+              "inline-flex shrink-0 items-center justify-center border border-zinc-200 bg-white font-semibold text-brand-ink hover:bg-zinc-50 " +
+              (isPaMobileApp ? "rounded-xl px-3 py-2 text-xs " : "rounded-2xl px-4 py-2 text-sm ") +
               (!previewBlogsHref ? "pointer-events-none opacity-60" : "")
             }
           >
@@ -642,31 +656,35 @@ export function PortalBlogsClient({
             target="_blank"
             rel="noreferrer"
             className={
-              "inline-flex items-center justify-center rounded-2xl bg-(--color-brand-blue) px-4 py-2 text-sm font-semibold text-white hover:opacity-95 " +
+              "inline-flex shrink-0 items-center justify-center bg-(--color-brand-blue) font-semibold text-white hover:opacity-95 " +
+              (isPaMobileApp ? "rounded-xl px-3 py-2 text-xs " : "rounded-2xl px-4 py-2 text-sm ") +
               (!liveBlogsHref ? "pointer-events-none opacity-60" : "")
             }
           >
             Live
           </a>
-          <button
-            type="button"
-            onClick={newDraft}
-            aria-label="New blog"
-            className="inline-flex items-center justify-center gap-2 rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95"
-          >
-            <span className="text-lg leading-none">+</span>
-            <span>New blog</span>
-          </button>
+          {!isPaMobileApp ? (
+            <button
+              type="button"
+              onClick={newDraft}
+              aria-label="New blog"
+              className="inline-flex items-center justify-center gap-2 rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95"
+            >
+              <span className="text-lg leading-none">+</span>
+              <span>New blog</span>
+            </button>
+          ) : null}
         </div>
       </div>
 
-      <div className="mt-6 flex w-full flex-wrap gap-2">
+      <div className={isPaMobileApp ? "mt-6 flex w-full gap-2 overflow-x-auto" : "mt-6 flex w-full flex-wrap gap-2"}>
         <button
           type="button"
           onClick={() => onTabChange("posts")}
           aria-current={routeTab === "posts" ? "page" : undefined}
           className={
-            "flex-1 min-w-35 rounded-2xl border px-4 py-2.5 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
+            (isPaMobileApp ? "shrink-0 whitespace-nowrap rounded-xl border px-3 py-2 text-xs font-semibold " : "flex-1 min-w-35 rounded-2xl border px-4 py-2.5 text-sm font-semibold ") +
+            "transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
             (routeTab === "posts"
               ? "border-(--color-brand-blue) bg-(--color-brand-blue) text-white shadow-sm"
               : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
@@ -679,20 +697,22 @@ export function PortalBlogsClient({
           onClick={() => onTabChange("automation")}
           aria-current={routeTab === "automation" ? "page" : undefined}
           className={
-            "flex-1 min-w-35 rounded-2xl border px-4 py-2.5 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
+            (isPaMobileApp ? "shrink-0 whitespace-nowrap rounded-xl border px-3 py-2 text-xs font-semibold " : "flex-1 min-w-35 rounded-2xl border px-4 py-2.5 text-sm font-semibold ") +
+            "transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
             (routeTab === "automation"
               ? "border-(--color-brand-pink) bg-(--color-brand-pink) text-white shadow-sm"
               : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
           }
         >
-          Blog Automation
+          {isPaMobileApp ? "Automation" : "Blog Automation"}
         </button>
         <button
           type="button"
           onClick={() => onTabChange("settings")}
           aria-current={routeTab === "settings" ? "page" : undefined}
           className={
-            "flex-1 min-w-35 rounded-2xl border px-4 py-2.5 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
+            (isPaMobileApp ? "shrink-0 whitespace-nowrap rounded-xl border px-3 py-2 text-xs font-semibold " : "flex-1 min-w-35 rounded-2xl border px-4 py-2.5 text-sm font-semibold ") +
+            "transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
             (routeTab === "settings"
               ? "border-brand-ink bg-brand-ink text-white shadow-sm"
               : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
@@ -728,8 +748,8 @@ export function PortalBlogsClient({
               </div>
             </div>
 
-            <div className="mt-5 overflow-hidden rounded-2xl border border-zinc-200">
-              <table className="w-full text-left text-sm">
+            <div className={isPaMobileApp ? "mt-5 overflow-x-auto rounded-2xl border border-zinc-200" : "mt-5 overflow-hidden rounded-2xl border border-zinc-200"}>
+              <table className={isPaMobileApp ? "min-w-[720px] w-full text-left text-sm" : "w-full text-left text-sm"}>
                 <thead className="bg-zinc-50 text-xs font-semibold text-zinc-600">
                   <tr>
                     <th className="px-4 py-3">Title</th>
@@ -1516,6 +1536,22 @@ export function PortalBlogsClient({
             document.body,
           )
         : null}
+
+      {isPaMobileApp && routeTab === "posts" ? (
+        <button
+          type="button"
+          className="fixed right-4 z-11001 rounded-full bg-[#007aff] px-5 py-3 text-sm font-semibold text-white shadow-xl hover:bg-[#006ae6]"
+          style={{
+            bottom:
+              "calc(var(--pa-portal-embed-footer-offset,0px) + 5.75rem + var(--pa-portal-floating-tools-reserve, 0px))",
+          }}
+          onClick={() => {
+            void newDraft();
+          }}
+        >
+          + New blog
+        </button>
+      ) : null}
     </div>
   );
 }

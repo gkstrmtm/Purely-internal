@@ -139,6 +139,14 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
     return p;
   }, [pathname]);
 
+  const isPaMobileApp = useMemo(() => {
+    if (typeof window === "undefined") return false;
+    const sp = new URLSearchParams(window.location.search);
+    const byParam = (sp.get("pa_mobileapp") || "").trim() === "1";
+    const byHost = String(window.location.hostname || "").toLowerCase().includes("purely-mobile");
+    return byParam || byHost;
+  }, []);
+
   const audienceRef = useRef<AudienceTab>(initialAudience);
 
   const [audience, setAudience] = useState<AudienceTab>(initialAudience);
@@ -238,6 +246,20 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
   const [siteConfigName, setSiteConfigName] = useState("Newsletter site");
   const [siteConfigSlug, setSiteConfigSlug] = useState("");
   const [siteConfigDomain, setSiteConfigDomain] = useState("");
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (!isPaMobileApp) return;
+
+    const root = document.documentElement;
+    const shouldHideFloatingTools = (composerOpen && mode === "manual") || draftOpen;
+    if (shouldHideFloatingTools) root.setAttribute("data-pa-hide-floating-tools", "1");
+    else root.removeAttribute("data-pa-hide-floating-tools");
+
+    return () => {
+      root.removeAttribute("data-pa-hide-floating-tools");
+    };
+  }, [composerOpen, draftOpen, isPaMobileApp, mode]);
 
   const [funnelDomains, setFunnelDomains] = useState<FunnelBuilderDomain[] | null>(null);
   const [funnelDomainsBusy, setFunnelDomainsBusy] = useState(false);
@@ -1033,17 +1055,19 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
             </div>
 
             <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
-              <button
-                type="button"
-                className="inline-flex items-center justify-center rounded-2xl bg-[color:var(--color-brand-blue)] px-4 py-2 text-sm font-semibold text-white shadow-sm hover:opacity-90"
-                onClick={() => {
-                  setComposerOpen(true);
-                  setMode("ai");
-                  setAiStep("delivery");
-                }}
-              >
-                + New newsletter
-              </button>
+              {!isPaMobileApp ? (
+                <button
+                  type="button"
+                  className="inline-flex items-center justify-center rounded-2xl bg-[color:var(--color-brand-blue)] px-4 py-2 text-sm font-semibold text-white shadow-sm hover:opacity-90"
+                  onClick={() => {
+                    setComposerOpen(true);
+                    setMode("ai");
+                    setAiStep("delivery");
+                  }}
+                >
+                  + New newsletter
+                </button>
+              ) : null}
             </div>
 
             <div className="mt-4 overflow-hidden rounded-2xl border border-zinc-200">
@@ -3036,6 +3060,24 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
             </div>
           </div>
         </div>
+      ) : null}
+
+      {isPaMobileApp && tab === "newsletters" && !composerOpen && !draftOpen ? (
+        <button
+          type="button"
+          className="fixed right-4 z-11001 rounded-full bg-[#007aff] px-5 py-3 text-sm font-semibold text-white shadow-xl hover:bg-[#006ae6]"
+          style={{
+            bottom:
+              "calc(var(--pa-portal-embed-footer-offset,0px) + 5.75rem + var(--pa-portal-floating-tools-reserve, 0px))",
+          }}
+          onClick={() => {
+            setComposerOpen(true);
+            setMode("ai");
+            setAiStep("delivery");
+          }}
+        >
+          + New newsletter
+        </button>
       ) : null}
     </div>
   );
