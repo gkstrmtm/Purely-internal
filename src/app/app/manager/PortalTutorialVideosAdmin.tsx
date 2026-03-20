@@ -60,11 +60,27 @@ export default function PortalTutorialVideosAdmin() {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ slug, url }),
+      credentials: "include",
     }).catch(() => null as any);
 
     if (!res?.ok) {
-      const msg = await res?.json().catch(() => null as any);
-      const error = (msg && typeof msg.error === "string" && msg.error) || "Could not save video URL.";
+      const contentType = String(res?.headers?.get?.("content-type") ?? "");
+      let error = "Could not save video URL.";
+      try {
+        if (contentType.includes("application/json")) {
+          const msg = await res.json().catch(() => null as any);
+          if (msg && typeof msg.error === "string" && msg.error) error = msg.error;
+        } else {
+          const text = await res.text().catch(() => "");
+          const trimmed = text.trim();
+          if (trimmed) error = trimmed.slice(0, 240);
+        }
+      } catch {
+        // ignore
+      }
+
+      const status = typeof res?.status === "number" ? res.status : 0;
+      if (status) error = `(${status}) ${error}`;
       setOpState({ slug: null, status: "idle" });
       window.alert(error);
       return false;

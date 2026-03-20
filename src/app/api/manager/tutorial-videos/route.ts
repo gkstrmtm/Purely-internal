@@ -109,21 +109,24 @@ export async function GET() {
     );
   }
 
-  const tutorials = allTutorials();
+  try {
+    const tutorials = allTutorials();
 
-  const anyPrisma = prisma as any;
-  const table = anyPrisma.tutorialVideoSettings as {
-    findUnique: (args: any) => Promise<{ videosJson: unknown } | null>;
-  };
+    const anyPrisma = prisma as any;
+    const table = anyPrisma.tutorialVideoSettings as {
+      findUnique: (args: any) => Promise<{ videosJson: unknown } | null>;
+    };
 
-  const row = await table
-    .findUnique({ where: { id: "singleton" }, select: { videosJson: true } })
-    .catch(() => null);
+    const row = await table.findUnique({ where: { id: "singleton" }, select: { videosJson: true } });
+    const settings = parseTutorialSettingsJson(row?.videosJson as unknown);
+    const videos = tutorialVideoMap(settings);
 
-  const settings = parseTutorialSettingsJson(row?.videosJson as unknown);
-  const videos = tutorialVideoMap(settings);
-
-  return NextResponse.json({ ok: true, tutorials, videos });
+    return NextResponse.json({ ok: true, tutorials, videos });
+  } catch (err) {
+    console.error("/api/manager/tutorial-videos GET failed", err);
+    const message = (err as any)?.message ? String((err as any).message) : "Failed to load tutorial videos";
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
 }
 
 export async function POST(req: Request) {
@@ -136,60 +139,64 @@ export async function POST(req: Request) {
     );
   }
 
-  const json = (await req.json().catch(() => null)) as { slug?: string; url?: string | null } | null;
-  const slug = (json?.slug ?? "").trim();
-  if (!slug) {
-    return NextResponse.json({ error: "Missing slug" }, { status: 400 });
-  }
-
-  const tutorials = allTutorials();
-  const allowed = new Set(tutorials.map((t) => t.slug));
-  if (!allowed.has(slug)) {
-    return NextResponse.json({ error: "Unknown tutorial slug" }, { status: 400 });
-  }
-
-  const url: string | null = typeof json?.url === "string" ? json.url.trim() : null;
-  if (url && !/^https?:\/\//i.test(url)) {
-    return NextResponse.json({ error: "URL must start with http:// or https://" }, { status: 400 });
-  }
-
-  const anyPrisma2 = prisma as any;
-  const table2 = anyPrisma2.tutorialVideoSettings as {
-    findUnique: (args: any) => Promise<{ videosJson: unknown } | null>;
-  };
-
-  const existingRow = await table2
-    .findUnique({ where: { id: "singleton" }, select: { videosJson: true } })
-    .catch(() => null);
-
-  const current = parseTutorialSettingsJson(existingRow?.videosJson as unknown);
-  const prev = current[slug] ?? {};
-
-  if (!url) {
-    const next = { ...prev };
-    delete next.url;
-    if (next.photos?.length) {
-      current[slug] = next;
-    } else {
-      delete current[slug];
+  try {
+    const json = (await req.json().catch(() => null)) as { slug?: string; url?: string | null } | null;
+    const slug = (json?.slug ?? "").trim();
+    if (!slug) {
+      return NextResponse.json({ error: "Missing slug" }, { status: 400 });
     }
-  } else {
-    current[slug] = { ...prev, url };
+
+    const tutorials = allTutorials();
+    const allowed = new Set(tutorials.map((t) => t.slug));
+    if (!allowed.has(slug)) {
+      return NextResponse.json({ error: "Unknown tutorial slug" }, { status: 400 });
+    }
+
+    const url: string | null = typeof json?.url === "string" ? json.url.trim() : null;
+    if (url && !/^https?:\/\//i.test(url)) {
+      return NextResponse.json({ error: "URL must start with http:// or https://" }, { status: 400 });
+    }
+
+    const anyPrisma2 = prisma as any;
+    const table2 = anyPrisma2.tutorialVideoSettings as {
+      findUnique: (args: any) => Promise<{ videosJson: unknown } | null>;
+    };
+
+    const existingRow = await table2.findUnique({ where: { id: "singleton" }, select: { videosJson: true } });
+
+    const current = parseTutorialSettingsJson(existingRow?.videosJson as unknown);
+    const prev = current[slug] ?? {};
+
+    if (!url) {
+      const next = { ...prev };
+      delete next.url;
+      if (next.photos?.length) {
+        current[slug] = next;
+      } else {
+        delete current[slug];
+      }
+    } else {
+      current[slug] = { ...prev, url };
+    }
+
+    const nextJson = encodeTutorialSettingsJson(current);
+
+    const upsertAnyPrisma = prisma as any;
+    const upsertTable = upsertAnyPrisma.tutorialVideoSettings as {
+      upsert: (args: any) => Promise<{ id: string }>;
+    };
+
+    await upsertTable.upsert({
+      where: { id: "singleton" },
+      update: { videosJson: nextJson as any },
+      create: { id: "singleton", videosJson: nextJson as any },
+      select: { id: true },
+    });
+
+    return NextResponse.json({ ok: true });
+  } catch (err) {
+    console.error("/api/manager/tutorial-videos POST failed", err);
+    const message = (err as any)?.message ? String((err as any).message) : "Could not save video URL";
+    return NextResponse.json({ error: message }, { status: 500 });
   }
-
-  const nextJson = encodeTutorialSettingsJson(current);
-
-  const upsertAnyPrisma = prisma as any;
-  const upsertTable = upsertAnyPrisma.tutorialVideoSettings as {
-    upsert: (args: any) => Promise<{ id: string }>;
-  };
-
-  await upsertTable.upsert({
-    where: { id: "singleton" },
-    update: { videosJson: nextJson as any },
-    create: { id: "singleton", videosJson: nextJson as any },
-    select: { id: true },
-  });
-
-  return NextResponse.json({ ok: true });
 }
