@@ -84,7 +84,12 @@ function formatMoney(cents: number, currency: string) {
 export function PortalBillingClient() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const creditsFirstForMobileApp = searchParams?.get("pa_mobileapp") === "1";
+  const creditsFirstForMobileApp = (() => {
+    if (searchParams?.get("pa_mobileapp") === "1") return true;
+    if (typeof window === "undefined") return false;
+    const host = String(window.location.hostname || "").toLowerCase();
+    return host.includes("purely-mobile");
+  })();
   const toast = useToast();
   const [status, setStatus] = useState<BillingStatus | null>(null);
   const [summary, setSummary] = useState<BillingSummary | null>(null);
@@ -887,7 +892,7 @@ export function PortalBillingClient() {
       <div
         className={[
           "rounded-3xl border border-zinc-200 bg-white p-6 lg:col-span-2",
-          creditsFirstForMobileApp ? "order-2" : null,
+          creditsFirstForMobileApp ? "order-last" : null,
         ]
           .filter(Boolean)
           .join(" ")}
@@ -1056,7 +1061,7 @@ export function PortalBillingClient() {
       <div
         className={[
           "rounded-3xl border border-zinc-200 bg-white p-6",
-          creditsFirstForMobileApp ? "order-1" : null,
+          creditsFirstForMobileApp ? "order-first" : null,
         ]
           .filter(Boolean)
           .join(" ")}
