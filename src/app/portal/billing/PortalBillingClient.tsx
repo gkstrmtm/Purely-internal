@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 
 import { useToast } from "@/components/ToastProvider";
 import { formatUsd } from "@/lib/pricing.shared";
@@ -83,6 +83,8 @@ function formatMoney(cents: number, currency: string) {
 
 export function PortalBillingClient() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const creditsFirstForMobileApp = searchParams?.get("pa_mobileapp") === "1";
   const toast = useToast();
   const [status, setStatus] = useState<BillingStatus | null>(null);
   const [summary, setSummary] = useState<BillingSummary | null>(null);
@@ -882,7 +884,14 @@ export function PortalBillingClient() {
           </div>
         </div>
       ) : null}
-      <div className="rounded-3xl border border-zinc-200 bg-white p-6 lg:col-span-2">
+      <div
+        className={[
+          "rounded-3xl border border-zinc-200 bg-white p-6 lg:col-span-2",
+          creditsFirstForMobileApp ? "order-2" : null,
+        ]
+          .filter(Boolean)
+          .join(" ")}
+      >
         <div className="flex items-start justify-between gap-3">
           <div>
             <div className="text-sm font-semibold text-zinc-900">Billing</div>
@@ -1044,7 +1053,14 @@ export function PortalBillingClient() {
         </div>
       </div>
 
-      <div className="rounded-3xl border border-zinc-200 bg-white p-6">
+      <div
+        className={[
+          "rounded-3xl border border-zinc-200 bg-white p-6",
+          creditsFirstForMobileApp ? "order-1" : null,
+        ]
+          .filter(Boolean)
+          .join(" ")}
+      >
         <div className="flex items-start justify-between gap-3">
           <div>
             <div className="text-sm font-semibold text-zinc-900">Credits</div>

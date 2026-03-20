@@ -145,7 +145,7 @@ export function PortalAppShell({
 
   const targetPath = useMemo(() => {
     if (view.kind === "tab" && view.tab === "settings") {
-      return settingsSection === "billing" ? "/portal/app/billing" : "/portal/app/profile";
+      return settingsSection === "billing" ? "/portal/app/billing?pa_mobileapp=1" : "/portal/app/profile";
     }
     return pathForView(view);
   }, [settingsSection, view]);
