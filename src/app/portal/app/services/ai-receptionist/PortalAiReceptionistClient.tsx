@@ -1691,7 +1691,7 @@ export function PortalAiReceptionistClient() {
               <div className="mt-4 overflow-hidden rounded-2xl border border-zinc-200">
                 <div className="grid grid-cols-[minmax(0,1fr)_12ch_8ch] gap-4 bg-zinc-50 px-4 py-2 text-xs font-semibold text-zinc-600">
                   <div>Name</div>
-                  <div className="text-left tabular-nums">Date</div>
+                  <div className="pl-0.5 text-left tabular-nums">Date</div>
                   <div className="text-right tabular-nums">Time</div>
                 </div>
                 <div className="divide-y divide-zinc-100 bg-white">
@@ -1713,7 +1713,7 @@ export function PortalAiReceptionistClient() {
                             <div className="truncate text-sm font-semibold text-zinc-900">{nameLine}</div>
                             {e.contactEmail ? <div className="mt-0.5 truncate text-xs text-zinc-600">{e.contactEmail}</div> : null}
                           </div>
-                          <div className="whitespace-nowrap text-left text-xs font-medium tabular-nums text-zinc-700">{formatDate(e.createdAtIso)}</div>
+                          <div className="whitespace-nowrap pl-0.5 text-left text-xs font-medium tabular-nums text-zinc-700">{formatDate(e.createdAtIso)}</div>
                           <div className="whitespace-nowrap text-right text-xs font-medium tabular-nums text-zinc-700">{formatTimeOfDay(e.createdAtIso)}</div>
                         </div>
                       </button>
