@@ -251,6 +251,18 @@ function idFromLabel(label: string) {
 export default function PortalReviewsClient() {
   const toast = useToast();
 
+  const isMobileApp = useMemo(() => {
+    if (typeof window === "undefined") return false;
+    try {
+      const qs = new URLSearchParams(window.location.search || "");
+      if (String(qs.get("pa_mobileapp") || "").trim() === "1") return true;
+    } catch {
+      // ignore
+    }
+    const host = String(window.location.hostname || "").toLowerCase();
+    return host.includes("purely-mobile");
+  }, []);
+
   const [knownContactCustomVarKeys, setKnownContactCustomVarKeys] = useState<string[]>([]);
 
   useEffect(() => {
@@ -1084,13 +1096,15 @@ export default function PortalReviewsClient() {
         </div>
       </div>
 
-      <div className="mt-6 flex w-full flex-wrap gap-2">
+      <div className={isMobileApp ? "mt-6 grid w-full grid-cols-2 gap-2" : "mt-6 flex w-full flex-wrap gap-2"}>
         <button
           type="button"
           onClick={() => setTabWithUrl("reviews")}
           aria-current={tab === "reviews" ? "page" : undefined}
           className={
-            "flex-1 min-w-40 rounded-2xl border px-4 py-2.5 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
+            (isMobileApp
+              ? "w-full rounded-2xl border px-3 py-2 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 "
+              : "flex-1 min-w-40 rounded-2xl border px-4 py-2.5 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 ") +
             (tab === "reviews"
               ? "border-(--color-brand-blue) bg-(--color-brand-blue) text-white shadow-sm"
               : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
@@ -1103,7 +1117,9 @@ export default function PortalReviewsClient() {
           onClick={() => setTabWithUrl("settings")}
           aria-current={tab === "settings" ? "page" : undefined}
           className={
-            "flex-1 min-w-50 rounded-2xl border px-4 py-2.5 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
+            (isMobileApp
+              ? "w-full rounded-2xl border px-3 py-2 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 "
+              : "flex-1 min-w-50 rounded-2xl border px-4 py-2.5 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 ") +
             (tab === "settings"
               ? "border-(--color-brand-pink) bg-(--color-brand-pink) text-white shadow-sm"
               : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")

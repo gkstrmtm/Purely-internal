@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import dynamic from "next/dynamic";
 
 import { useToast } from "@/components/ToastProvider";
 import { PortalListboxDropdown } from "@/components/PortalListboxDropdown";
@@ -10,6 +11,11 @@ import { PortalBackToOnboardingLink } from "@/components/PortalBackToOnboardingL
 import { DEFAULT_TAG_COLORS } from "@/lib/tagColors.shared";
 import { PORTAL_LINK_VARIABLES, PORTAL_MESSAGE_VARIABLES, type TemplateVariable } from "@/lib/portalTemplateVars";
 import { NURTURE_TEMPLATES, type NurtureTemplate, type StepKind } from "@/lib/portalNurtureTemplates";
+
+const PortalMediaPickerModalCompact = dynamic(
+  () => import("./PortalMediaPickerModalCompact").then((m) => m.PortalMediaPickerModalCompact),
+  { ssr: false },
+);
 
 type CampaignStatus = "DRAFT" | "ACTIVE" | "PAUSED" | "ARCHIVED";
 
@@ -83,6 +89,18 @@ function toMinutes(value: number, unit: "minutes" | "hours" | "days" | "weeks" |
 
 export function PortalNurtureCampaignsClient() {
   const toast = useToast();
+
+  const isMobileApp = useMemo(() => {
+    if (typeof window === "undefined") return false;
+    try {
+      const qs = new URLSearchParams(window.location.search || "");
+      if (String(qs.get("pa_mobileapp") || "").trim() === "1") return true;
+    } catch {
+      // ignore
+    }
+    const host = String(window.location.hostname || "").toLowerCase();
+    return host.includes("purely-mobile");
+  }, []);
 
   const [knownContactCustomVarKeys, setKnownContactCustomVarKeys] = useState<string[]>([]);
 
@@ -549,49 +567,74 @@ export function PortalNurtureCampaignsClient() {
         </div>
       </div>
 
-      <div className="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-[320px_1fr]">
-        <div className="rounded-3xl border border-zinc-200 bg-white p-3">
-          <div className="px-2 pb-2 text-xs font-semibold text-zinc-600">Your campaigns</div>
-          {loadingList ? (
-            <div className="p-2 text-sm text-zinc-600">Loading…</div>
-          ) : campaigns.length ? (
-            <div className="space-y-2">
-              {campaigns.map((c) => {
-                const active = c.id === selectedId;
-                return (
-                  <button
-                    key={c.id}
-                    type="button"
-                    className={classNames(
-                      "w-full rounded-2xl border px-3 py-3 text-left transition",
-                      active
-                        ? "border-(--color-brand-blue) bg-brand-blue/5 text-zinc-900 ring-2 ring-brand-blue/15"
-                        : "border-zinc-200 bg-white hover:bg-zinc-50",
-                    )}
-                    onClick={() => setSelectedId(c.id)}
-                  >
-                    <div className="flex items-start justify-between gap-2">
-                      <div className={classNames("min-w-0", active ? "text-zinc-900" : "text-zinc-900")}>
-                        <div className="truncate text-sm font-semibold">{c.name}</div>
-                        <div className={classNames("mt-1 text-xs", active ? "text-(--color-brand-blue)" : "text-zinc-500")}>
-                          {c.status} · {c.stepsCount} step{c.stepsCount === 1 ? "" : "s"}
+      <div className={classNames("mt-6 grid grid-cols-1 gap-4", isMobileApp ? "" : "lg:grid-cols-[320px_1fr]")}>
+        {!isMobileApp ? (
+          <div className="rounded-3xl border border-zinc-200 bg-white p-3">
+            <div className="px-2 pb-2 text-xs font-semibold text-zinc-600">Your campaigns</div>
+            {loadingList ? (
+              <div className="p-2 text-sm text-zinc-600">Loading…</div>
+            ) : campaigns.length ? (
+              <div className="space-y-2">
+                {campaigns.map((c) => {
+                  const active = c.id === selectedId;
+                  return (
+                    <button
+                      key={c.id}
+                      type="button"
+                      className={classNames(
+                        "w-full rounded-2xl border px-3 py-3 text-left transition",
+                        active
+                          ? "border-(--color-brand-blue) bg-brand-blue/5 text-zinc-900 ring-2 ring-brand-blue/15"
+                          : "border-zinc-200 bg-white hover:bg-zinc-50",
+                      )}
+                      onClick={() => setSelectedId(c.id)}
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div className={classNames("min-w-0", active ? "text-zinc-900" : "text-zinc-900")}>
+                          <div className="truncate text-sm font-semibold">{c.name}</div>
+                          <div className={classNames("mt-1 text-xs", active ? "text-(--color-brand-blue)" : "text-zinc-500")}>
+                            {c.status} · {c.stepsCount} step{c.stepsCount === 1 ? "" : "s"}
+                          </div>
+                        </div>
+                        <div className={classNames("shrink-0 text-right text-xs", active ? "text-zinc-600" : "text-zinc-500")}>
+                          <div title="Active enrollments">{c.enrollments.active} active</div>
+                          <div title="Completed enrollments">{c.enrollments.completed} done</div>
                         </div>
                       </div>
-                      <div className={classNames("shrink-0 text-right text-xs", active ? "text-zinc-600" : "text-zinc-500")}>
-                        <div title="Active enrollments">{c.enrollments.active} active</div>
-                        <div title="Completed enrollments">{c.enrollments.completed} done</div>
-                      </div>
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
-          ) : (
-            <div className="p-2 text-sm text-zinc-600">No campaigns yet. Create one to get started.</div>
-          )}
-        </div>
+                    </button>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="p-2 text-sm text-zinc-600">No campaigns yet. Create one to get started.</div>
+            )}
+          </div>
+        ) : null}
 
         <div className="rounded-3xl border border-zinc-200 bg-white p-5">
+          {isMobileApp ? (
+            <div className="mb-4">
+              <div className="text-sm font-semibold text-zinc-800">Campaign</div>
+              <div className="mt-1">
+                {loadingList ? (
+                  <div className="text-sm text-zinc-600">Loading…</div>
+                ) : campaigns.length === 0 ? (
+                  <div className="text-sm text-zinc-600">No campaigns yet. Create one to get started.</div>
+                ) : (
+                  <PortalListboxDropdown
+                    value={selectedId ?? campaigns[0]?.id ?? ""}
+                    options={campaigns.map((c) => ({
+                      value: c.id,
+                      label: c.name,
+                      hint: `${c.status} · ${c.stepsCount} step${c.stepsCount === 1 ? "" : "s"}`,
+                    }))}
+                    onChange={(next) => setSelectedId(next)}
+                    className="w-full"
+                  />
+                )}
+              </div>
+            </div>
+          ) : null}
           {!selectedId ? (
             <div className="text-sm text-zinc-600">Select a campaign to edit.</div>
           ) : loadingDetail ? (
@@ -1125,6 +1168,18 @@ function StepCard(props: {
 
   const toast = useToast();
 
+  const isMobileApp = useMemo(() => {
+    if (typeof window === "undefined") return false;
+    try {
+      const qs = new URLSearchParams(window.location.search || "");
+      if (String(qs.get("pa_mobileapp") || "").trim() === "1") return true;
+    } catch {
+      // ignore
+    }
+    const host = String(window.location.hostname || "").toLowerCase();
+    return host.includes("purely-mobile");
+  }, []);
+
   const delay = useMemo(() => bestUnit(step.delayMinutes), [step.delayMinutes]);
   const [kind, setKind] = useState<StepKind>(step.kind);
   const [delayValue, setDelayValue] = useState<number>(delay.value);
@@ -1231,21 +1286,39 @@ function StepCard(props: {
         onClose={() => setVarPickerOpen(false)}
       />
 
-      <PortalMediaPickerModal
-        open={mediaOpen}
-        onClose={() => setMediaOpen(false)}
-        confirmLabel="Insert link"
-        onPick={(it: PortalMediaPickItem) => {
-          const token = it.shareUrl || it.downloadUrl;
-          const el = bodyRef.current;
-          const withSpace = body && !/\s$/.test(body) ? ` ${token}` : token;
-          const { next, caret } = insertAtCursor(body, withSpace, el);
-          setBody(next);
-          setDirty(true);
-          setCaretSoon(el, caret);
-          setMediaOpen(false);
-        }}
-      />
+      {isMobileApp ? (
+        <PortalMediaPickerModalCompact
+          open={mediaOpen}
+          onClose={() => setMediaOpen(false)}
+          confirmLabel="Insert link"
+          onPick={(it: PortalMediaPickItem) => {
+            const token = it.shareUrl || it.downloadUrl;
+            const el = bodyRef.current;
+            const withSpace = body && !/\s$/.test(body) ? ` ${token}` : token;
+            const { next, caret } = insertAtCursor(body, withSpace, el);
+            setBody(next);
+            setDirty(true);
+            setCaretSoon(el, caret);
+            setMediaOpen(false);
+          }}
+        />
+      ) : (
+        <PortalMediaPickerModal
+          open={mediaOpen}
+          onClose={() => setMediaOpen(false)}
+          confirmLabel="Insert link"
+          onPick={(it: PortalMediaPickItem) => {
+            const token = it.shareUrl || it.downloadUrl;
+            const el = bodyRef.current;
+            const withSpace = body && !/\s$/.test(body) ? ` ${token}` : token;
+            const { next, caret } = insertAtCursor(body, withSpace, el);
+            setBody(next);
+            setDirty(true);
+            setCaretSoon(el, caret);
+            setMediaOpen(false);
+          }}
+        />
+      )}
 
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
