@@ -1689,7 +1689,7 @@ export function PortalAiReceptionistClient() {
           ) : (
             isMobileApp ? (
               <div className="mt-4 overflow-hidden rounded-2xl border border-zinc-200">
-                <div className="grid grid-cols-[minmax(0,1fr)_12ch_8ch] gap-4 bg-zinc-50 px-4 py-2 text-[11px] font-semibold text-zinc-600">
+                <div className="grid grid-cols-[minmax(0,1fr)_12ch_8ch] gap-4 bg-zinc-50 px-4 py-2 text-xs font-semibold text-zinc-600">
                   <div>Name</div>
                   <div className="text-left tabular-nums">Date</div>
                   <div className="text-right tabular-nums">Time</div>
@@ -1708,7 +1708,7 @@ export function PortalAiReceptionistClient() {
                           (isSelected ? "bg-brand-blue/5" : "hover:bg-zinc-50")
                         }
                       >
-                        <div className="grid grid-cols-[minmax(0,1fr)_12ch_8ch] items-start gap-4">
+                        <div className="grid grid-cols-[minmax(0,1fr)_12ch_8ch] items-start gap-4 text-xs">
                           <div className="min-w-0">
                             <div className="truncate text-sm font-semibold text-zinc-900">{nameLine}</div>
                             {e.contactEmail ? <div className="mt-0.5 truncate text-xs text-zinc-600">{e.contactEmail}</div> : null}
