@@ -10,7 +10,7 @@
     },
     {
       "source": "/_next/:path*",
-      "destination": "https://purely-internal-i5d62brbc-tabari-ropers-projects-6f2e090b.vercel.app/_next/:path*"
+      "destination": "https://purelyautomation.com/_next/:path*"
     },
     {
       "source": "/uploads/:path*",
@@ -22,7 +22,7 @@
     },
     {
       "source": "/portal/:path*",
-      "destination": "https://purely-internal-i5d62brbc-tabari-ropers-projects-6f2e090b.vercel.app/portal/:path*"
+      "destination": "https://purelyautomation.com/portal/:path*"
     },
     {
       "source": "/api/:path*",
