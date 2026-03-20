@@ -63,6 +63,19 @@ const CORE_TUTORIAL_PAGES: Record<string, TutorialUiService> = {
   },
 };
 
+function isDirectVideoUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    const host = parsed.hostname.toLowerCase();
+    if (host.includes("vercel-storage.com")) return true;
+
+    const path = parsed.pathname.toLowerCase();
+    return /\.(mp4|mov|webm|m4v|mkv|avi|wmv|ogg|mpeg|mpg|3gp|3g2)$/i.test(path);
+  } catch {
+    return false;
+  }
+}
+
 const TUTORIALS: Record<string, TutorialConfig> = {
   "funnel-builder": {
     intro:
@@ -1156,9 +1169,9 @@ export default async function PortalTutorialDetailPage(props: { params: Promise<
             <span
               className={
                 service.accent === "blue"
-                  ? "text-[color:var(--color-brand-blue)]"
+                  ? "text-(--color-brand-blue)"
                   : service.accent === "coral"
-                    ? "text-[color:var(--color-brand-pink)]"
+                    ? "text-(--color-brand-pink)"
                     : "text-zinc-700"
               }
             >
@@ -1174,13 +1187,23 @@ export default async function PortalTutorialDetailPage(props: { params: Promise<
         {videoUrl ? (
           <div className="mt-6 overflow-hidden rounded-3xl border border-zinc-200 bg-black/5">
             <div className="aspect-video w-full">
-              <iframe
-                src={videoUrl}
-                title={`${service.title} tutorial video`}
-                className="h-full w-full border-0"
-                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-                allowFullScreen
-              />
+              {isDirectVideoUrl(videoUrl) ? (
+                <video
+                  src={videoUrl}
+                  className="h-full w-full"
+                  controls
+                  playsInline
+                  preload="metadata"
+                />
+              ) : (
+                <iframe
+                  src={videoUrl}
+                  title={`${service.title} tutorial video`}
+                  className="h-full w-full border-0"
+                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                  allowFullScreen
+                />
+              )}
             </div>
           </div>
         ) : null}

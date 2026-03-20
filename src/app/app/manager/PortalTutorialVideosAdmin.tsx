@@ -1,5 +1,6 @@
 "use client";
 
+import { upload as uploadToVercelBlob } from "@vercel/blob/client";
 import { useEffect, useState } from "react";
 
 type TutorialMeta = {
@@ -14,16 +15,17 @@ type LoadState =
   | { status: "loaded" }
   | { status: "error"; message: string };
 
-type SaveState =
+type OpState =
   | { slug: string | null; status: "idle" }
+  | { slug: string; status: "uploading" }
   | { slug: string; status: "saving" }
-  | { slug: string | null; status: "saved" };
+  | { slug: string; status: "saved" };
 
 export default function PortalTutorialVideosAdmin() {
   const [tutorials, setTutorials] = useState<TutorialMeta[]>([]);
   const [values, setValues] = useState<Record<string, string>>({});
   const [loadState, setLoadState] = useState<LoadState>({ status: "idle" });
-  const [saveState, setSaveState] = useState<SaveState>({ slug: null, status: "idle" });
+  const [opState, setOpState] = useState<OpState>({ slug: null, status: "idle" });
 
   useEffect(() => {
     let mounted = true;
@@ -51,9 +53,8 @@ export default function PortalTutorialVideosAdmin() {
     };
   }, []);
 
-  async function save(slug: string) {
-    const url = (values[slug] ?? "").trim();
-    setSaveState({ slug, status: "saving" });
+  async function persist(slug: string, url: string) {
+    setOpState({ slug, status: "saving" });
 
     const res = await fetch("/api/manager/tutorial-videos", {
       method: "POST",
@@ -64,15 +65,43 @@ export default function PortalTutorialVideosAdmin() {
     if (!res?.ok) {
       const msg = await res?.json().catch(() => null as any);
       const error = (msg && typeof msg.error === "string" && msg.error) || "Could not save video URL.";
-      setSaveState({ slug: null, status: "idle" });
+      setOpState({ slug: null, status: "idle" });
       window.alert(error);
+      return false;
+    }
+
+    setOpState({ slug, status: "saved" });
+    window.setTimeout(() => {
+      setOpState({ slug: null, status: "idle" });
+    }, 1500);
+    return true;
+  }
+
+  async function save(slug: string) {
+    const url = (values[slug] ?? "").trim();
+    await persist(slug, url);
+  }
+
+  async function uploadFile(slug: string, file: File) {
+    setOpState({ slug, status: "uploading" });
+
+    let blobUrl: string;
+    try {
+      const blob = await uploadToVercelBlob(file.name || "tutorial-video.mp4", file, {
+        access: "public",
+        handleUploadUrl: "/api/manager/blob-upload",
+      });
+      blobUrl = blob.url;
+    } catch (err) {
+      const msg = (err as any)?.message ? String((err as any).message) : "Upload failed";
+      setOpState({ slug: null, status: "idle" });
+      window.alert(msg);
       return;
     }
 
-    setSaveState({ slug, status: "saved" });
-    window.setTimeout(() => {
-      setSaveState({ slug: null, status: "idle" });
-    }, 1500);
+    setValues((prev) => ({ ...prev, [slug]: blobUrl }));
+    const ok = await persist(slug, blobUrl);
+    if (!ok) return;
   }
 
   if (loadState.status === "loading" || loadState.status === "idle") {
@@ -107,7 +136,7 @@ export default function PortalTutorialVideosAdmin() {
         </div>
       </div>
 
-      <div className="mt-4 max-h-[460px] overflow-y-auto rounded-2xl border border-zinc-200">
+      <div className="mt-4 max-h-115 overflow-y-auto rounded-2xl border border-zinc-200">
         <table className="min-w-full text-left text-sm">
           <thead className="bg-zinc-50 text-xs font-semibold uppercase tracking-wide text-zinc-500">
             <tr>
@@ -120,8 +149,9 @@ export default function PortalTutorialVideosAdmin() {
           <tbody>
             {tutorials.map((t) => {
               const value = values[t.slug] ?? "";
-              const isSaving = saveState.status === "saving" && saveState.slug === t.slug;
-              const isSaved = saveState.status === "saved" && saveState.slug === t.slug;
+              const isBusy =
+                (opState.status === "uploading" || opState.status === "saving") && opState.slug === t.slug;
+              const isSaved = opState.status === "saved" && opState.slug === t.slug;
               return (
                 <tr key={t.slug} className="border-t border-zinc-200">
                   <td className="px-4 py-3 align-top text-sm text-zinc-900">
@@ -135,9 +165,10 @@ export default function PortalTutorialVideosAdmin() {
                   <td className="px-4 py-3 align-top text-xs text-zinc-500">{t.slug}</td>
                   <td className="px-4 py-3 align-top">
                     <input
-                      className="w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 outline-none focus:border-[color:var(--color-brand-blue)]"
+                      className="w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 outline-none focus:border-(--color-brand-blue) disabled:opacity-60"
                       placeholder="https://… (YouTube, Loom, etc.)"
                       value={value}
+                      disabled={isBusy}
                       onChange={(e) =>
                         setValues((prev) => ({
                           ...prev,
@@ -145,6 +176,35 @@ export default function PortalTutorialVideosAdmin() {
                         }))
                       }
                     />
+
+                    <div className="mt-2 flex flex-wrap items-center gap-2">
+                      <label className="inline-flex cursor-pointer items-center justify-center rounded-2xl border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-brand-ink hover:bg-zinc-50">
+                        <input
+                          type="file"
+                          accept="video/*"
+                          className="hidden"
+                          disabled={isBusy}
+                          onChange={(e) => {
+                            const f = e.target.files?.[0];
+                            e.currentTarget.value = "";
+                            if (!f) return;
+                            void uploadFile(t.slug, f);
+                          }}
+                        />
+                        {opState.status === "uploading" && opState.slug === t.slug ? "Uploading…" : "Upload video"}
+                      </label>
+
+                      {value ? (
+                        <a
+                          href={value}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-xs font-semibold text-(--color-brand-blue) hover:underline"
+                        >
+                          Open URL
+                        </a>
+                      ) : null}
+                    </div>
                   </td>
                   <td className="px-4 py-3 align-top text-right">
                     <div className="flex items-center justify-end gap-2">
@@ -160,9 +220,9 @@ export default function PortalTutorialVideosAdmin() {
                         type="button"
                         className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-3 py-1.5 text-xs font-semibold text-white hover:opacity-95 disabled:opacity-60"
                         onClick={() => void save(t.slug)}
-                        disabled={isSaving}
+                        disabled={isBusy}
                       >
-                        {isSaving ? "Saving…" : isSaved ? "Saved" : "Save"}
+                        {opState.status === "saving" && opState.slug === t.slug ? "Saving…" : isSaved ? "Saved" : "Save"}
                       </button>
                     </div>
                   </td>

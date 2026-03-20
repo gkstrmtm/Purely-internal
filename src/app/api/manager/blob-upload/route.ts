@@ -74,12 +74,33 @@ export async function POST(request: Request): Promise<NextResponse> {
           access: "public",
           addRandomSuffix: true,
           allowedContentTypes: [
+            // images
             "image/jpeg",
             "image/png",
             "image/webp",
             "image/gif",
             "image/svg+xml",
             "image/avif",
+            // videos
+            "video/mp4",
+            "video/quicktime", // .mov
+            "video/webm",
+            "video/ogg",
+            "video/mpeg",
+            "video/x-m4v",
+            "video/x-msvideo", // .avi
+            "video/x-ms-wmv",
+            "video/3gpp",
+            "video/3gpp2",
+            "video/x-matroska", // .mkv
+            // audio
+            "audio/mpeg",
+            "audio/mp4",
+            "audio/x-m4a",
+            "audio/ogg",
+            "audio/wav",
+            // docs
+            "application/pdf",
             "application/octet-stream",
           ],
           tokenPayload: JSON.stringify({ uploadedById: auth.session.user.id }),

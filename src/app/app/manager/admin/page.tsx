@@ -31,7 +31,7 @@ export default async function ManagerAdminPage() {
         <div className="mt-8 rounded-3xl border border-zinc-200 bg-white p-6">
           <div className="text-base font-semibold text-brand-ink">Portal tutorial videos</div>
           <div className="mt-2 text-sm text-zinc-600">
-            Manage the video links that appear at the top of each help &amp; tutorial page in the client portal.
+            Manage the video URL (or upload a video file) that appears at the top of each help &amp; tutorial page in the client portal.
           </div>
           <div className="mt-4">
             <PortalTutorialVideosAdmin />
