@@ -6,27 +6,27 @@
   "rewrites": [
     {
       "source": "/brand/:path*",
-      "destination": "https://purelyautomation.com/brand/:path*"
+      "destination": "https://purely-internal-i5d62brbc-tabari-ropers-projects-6f2e090b.vercel.app/brand/:path*"
     },
     {
       "source": "/_next/:path*",
-      "destination": "https://purelyautomation.com/_next/:path*"
+      "destination": "https://purely-internal-i5d62brbc-tabari-ropers-projects-6f2e090b.vercel.app/_next/:path*"
     },
     {
       "source": "/uploads/:path*",
-      "destination": "https://purelyautomation.com/uploads/:path*"
+      "destination": "https://purely-internal-i5d62brbc-tabari-ropers-projects-6f2e090b.vercel.app/uploads/:path*"
     },
     {
       "source": "/portal/api/:path*",
-      "destination": "https://purelyautomation.com/portal/api/:path*"
+      "destination": "https://purely-internal-i5d62brbc-tabari-ropers-projects-6f2e090b.vercel.app/portal/api/:path*"
     },
     {
       "source": "/portal/:path*",
-      "destination": "https://purelyautomation.com/portal/:path*"
+      "destination": "https://purely-internal-i5d62brbc-tabari-ropers-projects-6f2e090b.vercel.app/portal/:path*"
     },
     {
       "source": "/api/:path*",
-      "destination": "https://purelyautomation.com/api/:path*"
+      "destination": "https://purely-internal-i5d62brbc-tabari-ropers-projects-6f2e090b.vercel.app/api/:path*"
     },
     { "source": "/(.*)", "destination": "/index.html" }
   ]
