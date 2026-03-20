@@ -82,6 +82,22 @@ function formatWhen(iso: string) {
   }
 }
 
+function formatDate(iso: string) {
+  try {
+    return new Date(iso).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
+  } catch {
+    return iso;
+  }
+}
+
+function formatTime(iso: string) {
+  try {
+    return new Date(iso).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+  } catch {
+    return "";
+  }
+}
+
 function badgeClass(kind: string) {
   switch (kind) {
     case "IN_PROGRESS":
@@ -294,6 +310,21 @@ function MiniAudioPlayer(props: { src: string; durationHintSec?: number | null }
 
 export function PortalAiReceptionistClient() {
   const toast = useToast();
+
+  const isMobileApp = useMemo(() => {
+    try {
+      const url = new URL(window.location.href);
+      const p = String(url.searchParams.get("pa_mobileapp") || "").toLowerCase();
+      if (p === "1" || p === "true" || p === "yes") return true;
+      const host = String(window.location.hostname || "").toLowerCase();
+      if (host.includes("purely-mobile")) return true;
+    } catch {
+      // ignore
+    }
+    return false;
+  }, []);
+
+  const [mobileCallDetailsOpen, setMobileCallDetailsOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [savingEnabled, setSavingEnabled] = useState(false);
@@ -443,6 +474,21 @@ export function PortalAiReceptionistClient() {
       // ignore
     }
   }
+
+  function openCallDetails(nextId: string) {
+    setSelectedCallWithUrl(nextId);
+    if (isMobileApp) setMobileCallDetailsOpen(true);
+  }
+
+  function closeCallDetails() {
+    if (isMobileApp) setMobileCallDetailsOpen(false);
+    setSelectedCallWithUrl(null);
+  }
+
+  useEffect(() => {
+    if (!isMobileApp) return;
+    if (tab !== "activity" && mobileCallDetailsOpen) closeCallDetails();
+  }, [closeCallDetails, isMobileApp, mobileCallDetailsOpen, tab]);
 
   const loadCredits = useCallback(async () => {
     const res = await fetch("/api/portal/credits", { cache: "no-store" }).catch(() => null as any);
@@ -663,11 +709,14 @@ export function PortalAiReceptionistClient() {
       }
 
       const call = url.searchParams.get("call");
-      if (call && call.trim()) setSelectedCallId(call.trim());
+      if (call && call.trim()) {
+        setSelectedCallId(call.trim());
+        if (isMobileApp) setMobileCallDetailsOpen(true);
+      }
     } catch {
       // ignore
     }
-  }, []);
+  }, [isMobileApp]);
 
   useEffect(() => {
     // Default selection: first call in list.
@@ -676,14 +725,107 @@ export function PortalAiReceptionistClient() {
       return;
     }
 
+    if (isMobileApp) {
+      if (selectedCallId && !events.some((e) => e.id === selectedCallId)) setSelectedCallId(null);
+      return;
+    }
+
     if (selectedCallId && events.some((e) => e.id === selectedCallId)) return;
     setSelectedCallId(events[0]?.id ?? null);
-  }, [events, selectedCallId]);
+  }, [events, isMobileApp, selectedCallId]);
 
   const selectedCall = useMemo(() => {
     if (!selectedCallId) return null;
     return events.find((e) => e.id === selectedCallId) ?? null;
   }, [events, selectedCallId]);
+
+  function CallDetailsContent({ call }: { call: EventRow }) {
+    return (
+      <>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="min-w-0">
+            <div className="text-sm font-semibold text-zinc-900">Call details</div>
+            <div className="mt-1 text-sm text-zinc-700">{(call.contactName || "").trim() || "Unknown caller"}</div>
+            <div className="mt-1 text-xs text-zinc-600">
+              Phone: {(call.contactPhone || "").trim() || call.from}
+              {call.contactEmail ? ` · Email: ${call.contactEmail}` : ""}
+            </div>
+            <div className="mt-1 text-xs text-zinc-500">
+              {formatWhen(call.createdAtIso)} · Status: {call.status.toLowerCase()}
+            </div>
+          </div>
+
+          <div className="text-right text-xs text-zinc-500">
+            <div className="font-mono">CallSid: {call.callSid}</div>
+            {call.recordingDurationSec ? <div>{Math.max(0, Math.floor(call.recordingDurationSec))}s</div> : null}
+
+            <button
+              type="button"
+              disabled={saving || callSyncBusy}
+              onClick={() => void deleteCallEvent(call.callSid)}
+              className={
+                "mt-2 inline-flex items-center justify-center rounded-xl border px-2.5 py-1.5 text-[11px] font-semibold " +
+                (saving || callSyncBusy
+                  ? "border-zinc-200 bg-zinc-100 text-zinc-500"
+                  : "border-red-200 bg-red-50 text-red-800 hover:bg-red-100")
+              }
+              title="Remove this call from the Activity list"
+            >
+              Delete
+            </button>
+          </div>
+        </div>
+
+        {call.contactId ? (
+          <div className="mt-3">
+            <div className="text-xs font-semibold text-zinc-600">Tags</div>
+            <div className="mt-2">
+              <ContactTagsEditor
+                compact
+                contactId={call.contactId}
+                tags={Array.isArray(call.contactTags) ? call.contactTags : []}
+                onChange={(next) => updateEventTags(call.id, next)}
+              />
+            </div>
+          </div>
+        ) : null}
+
+        <div className="mt-4">
+          <div className="text-xs font-semibold text-zinc-600">Recording</div>
+          {(() => {
+            const src =
+              (call.recordingSid && call.recordingSid.trim())
+                ? `/api/portal/ai-receptionist/recordings/${encodeURIComponent(call.recordingSid)}`
+                : (call.demoRecordingId && call.demoRecordingId.trim())
+                    ? `/api/portal/ai-receptionist/recordings/demo/${encodeURIComponent(call.demoRecordingId)}`
+                    : "";
+            if (!src) {
+              return <div className="mt-2 text-sm text-zinc-600">No recording available for this call.</div>;
+            }
+            return <MiniAudioPlayer src={src} durationHintSec={call.recordingDurationSec ?? null} />;
+          })()}
+        </div>
+
+        <div className="mt-5">
+          <div className="text-xs font-semibold text-zinc-600">Transcript</div>
+          {call.transcript && call.transcript.trim() ? (
+            <div className="mt-2 max-h-[520px] overflow-auto rounded-xl border border-zinc-200 bg-zinc-50 p-4">
+              <div className="whitespace-pre-wrap text-sm text-zinc-800">{call.transcript}</div>
+            </div>
+          ) : (
+            <div className="mt-2 text-sm text-zinc-600">No transcript yet. It can take a minute to show up after the call ends.</div>
+          )}
+        </div>
+
+        {deriveClientNotesFromEvent(call) ? (
+          <div className="mt-5">
+            <div className="text-xs font-semibold text-zinc-600">Notes</div>
+            <div className="mt-2 whitespace-pre-wrap text-sm text-zinc-700">{deriveClientNotesFromEvent(call)}</div>
+          </div>
+        ) : null}
+      </>
+    );
+  }
 
   const confirmDeleteEvent = useMemo(() => {
     const sid = String(confirmDeleteCallSid || "").trim();
@@ -1473,166 +1615,144 @@ export function PortalAiReceptionistClient() {
               No calls yet.
             </div>
           ) : (
-            <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-5">
-              <div className="lg:col-span-2">
-                <div className="max-h-[520px] overflow-auto pr-2 sm:max-h-[60vh] lg:max-h-[calc(100vh-320px)]">
-                  <div className="space-y-2">
-                    {events.slice(0, 80).map((e) => {
-                      const isSelected = e.id === selectedCallId;
-                      const nameLine = (e.contactName || "").trim() || e.from;
-                      const hasAudio = Boolean((e.recordingSid && e.recordingSid.trim()) || (e.demoRecordingId && e.demoRecordingId.trim()));
-                      const hasTranscript = Boolean(e.transcript && e.transcript.trim());
-                      return (
-                        <button
-                          key={e.id}
-                          type="button"
-                          onClick={() => setSelectedCallWithUrl(e.id)}
-                          className={
-                            "w-full rounded-2xl border px-4 py-3 text-left text-sm transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
-                            (isSelected ? "border-brand-blue bg-brand-blue text-white" : "border-zinc-200 bg-zinc-50 hover:bg-zinc-100")
-                          }
-                        >
-                          <div className="flex items-center justify-between gap-3">
-                            <div className={"min-w-0 font-medium " + (isSelected ? "text-white" : "text-zinc-800")}>
-                              <div className="truncate">{nameLine}</div>
-                              {e.contactEmail ? (
-                                <div className={"mt-0.5 truncate text-xs " + (isSelected ? "text-zinc-200" : "text-zinc-600")}>
-                                  {e.contactEmail}
-                                </div>
+            isMobileApp ? (
+              <div className="mt-4 overflow-hidden rounded-2xl border border-zinc-200">
+                <div className="grid grid-cols-[minmax(0,1fr)_auto_auto] gap-3 bg-zinc-50 px-4 py-2 text-[11px] font-semibold text-zinc-600">
+                  <div>Name</div>
+                  <div className="text-right">Date</div>
+                  <div className="text-right">Time</div>
+                </div>
+                <div className="divide-y divide-zinc-100 bg-white">
+                  {events.slice(0, 80).map((e) => {
+                    const isSelected = e.id === selectedCallId;
+                    const nameLine = (e.contactName || "").trim() || e.from;
+                    return (
+                      <button
+                        key={e.id}
+                        type="button"
+                        onClick={() => openCallDetails(e.id)}
+                        className={
+                          "w-full px-4 py-3 text-left transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
+                          (isSelected ? "bg-brand-blue/5" : "hover:bg-zinc-50")
+                        }
+                      >
+                        <div className="grid grid-cols-[minmax(0,1fr)_auto_auto] items-start gap-3">
+                          <div className="min-w-0">
+                            <div className="truncate text-sm font-semibold text-zinc-900">{nameLine}</div>
+                            {e.contactEmail ? <div className="mt-0.5 truncate text-xs text-zinc-600">{e.contactEmail}</div> : null}
+                          </div>
+                          <div className="whitespace-nowrap text-right text-xs font-medium text-zinc-700">{formatDate(e.createdAtIso)}</div>
+                          <div className="whitespace-nowrap text-right text-xs font-medium text-zinc-700">{formatTime(e.createdAtIso)}</div>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            ) : (
+              <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-5">
+                <div className="lg:col-span-2">
+                  <div className="max-h-[520px] overflow-auto pr-2 sm:max-h-[60vh] lg:max-h-[calc(100vh-320px)]">
+                    <div className="space-y-2">
+                      {events.slice(0, 80).map((e) => {
+                        const isSelected = e.id === selectedCallId;
+                        const nameLine = (e.contactName || "").trim() || e.from;
+                        const hasAudio = Boolean((e.recordingSid && e.recordingSid.trim()) || (e.demoRecordingId && e.demoRecordingId.trim()));
+                        const hasTranscript = Boolean(e.transcript && e.transcript.trim());
+                        return (
+                          <button
+                            key={e.id}
+                            type="button"
+                            onClick={() => setSelectedCallWithUrl(e.id)}
+                            className={
+                              "w-full rounded-2xl border px-4 py-3 text-left text-sm transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
+                              (isSelected ? "border-brand-blue bg-brand-blue text-white" : "border-zinc-200 bg-zinc-50 hover:bg-zinc-100")
+                            }
+                          >
+                            <div className="flex items-center justify-between gap-3">
+                              <div className={"min-w-0 font-medium " + (isSelected ? "text-white" : "text-zinc-800")}>
+                                <div className="truncate">{nameLine}</div>
+                                {e.contactEmail ? (
+                                  <div className={"mt-0.5 truncate text-xs " + (isSelected ? "text-zinc-200" : "text-zinc-600")}>
+                                    {e.contactEmail}
+                                  </div>
+                                ) : null}
+                              </div>
+                              <div className={`shrink-0 rounded-full border px-2 py-0.5 text-xs font-semibold ${badgeClass(e.status)}`}>
+                                {e.status.toLowerCase()}
+                              </div>
+                            </div>
+                            <div className={"mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs " + (isSelected ? "text-zinc-200" : "text-zinc-600")}>
+                              <span>{formatWhen(e.createdAtIso)}</span>
+                              <span>•</span>
+                              <span className="truncate">To: {e.to ?? "N/A"}</span>
+                              {hasAudio ? (
+                                <>
+                                  <span>•</span>
+                                  <span className={isSelected ? "text-emerald-200" : "text-emerald-700"}>Audio</span>
+                                </>
+                              ) : null}
+                              {hasTranscript ? (
+                                <>
+                                  <span>•</span>
+                                  <span className={isSelected ? "text-sky-200" : "text-sky-700"}>Transcript</span>
+                                </>
                               ) : null}
                             </div>
-                            <div className={`shrink-0 rounded-full border px-2 py-0.5 text-xs font-semibold ${badgeClass(e.status)}`}>
-                              {e.status.toLowerCase()}
-                            </div>
-                          </div>
-                          <div className={"mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs " + (isSelected ? "text-zinc-200" : "text-zinc-600")}>
-                            <span>{formatWhen(e.createdAtIso)}</span>
-                            <span>•</span>
-                            <span className="truncate">To: {e.to ?? "N/A"}</span>
-                            {hasAudio ? (
-                              <>
-                                <span>•</span>
-                                <span className={isSelected ? "text-emerald-200" : "text-emerald-700"}>Audio</span>
-                              </>
+                            {deriveClientNotesFromEvent(e) ? (
+                              <div className={"mt-1 line-clamp-2 text-xs " + (isSelected ? "text-zinc-200" : "text-zinc-600")}>
+                                {deriveClientNotesFromEvent(e)}
+                              </div>
                             ) : null}
-                            {hasTranscript ? (
-                              <>
-                                <span>•</span>
-                                <span className={isSelected ? "text-sky-200" : "text-sky-700"}>Transcript</span>
-                              </>
-                            ) : null}
-                          </div>
-                          {deriveClientNotesFromEvent(e) ? (
-                            <div className={"mt-1 line-clamp-2 text-xs " + (isSelected ? "text-zinc-200" : "text-zinc-600")}>
-                              {deriveClientNotesFromEvent(e)}
-                            </div>
-                          ) : null}
-                        </button>
-                      );
-                    })}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="lg:col-span-3">
+                  <div className="max-h-[520px] overflow-auto pr-1 sm:max-h-[60vh] lg:max-h-[calc(100vh-320px)] rounded-2xl border border-zinc-200 bg-white p-5">
+                    {!selectedCall ? <div className="text-sm text-zinc-600">Select a call to view details.</div> : <CallDetailsContent call={selectedCall} />}
                   </div>
                 </div>
               </div>
-
-              <div className="lg:col-span-3">
-                <div className="max-h-[520px] overflow-auto pr-1 sm:max-h-[60vh] lg:max-h-[calc(100vh-320px)] rounded-2xl border border-zinc-200 bg-white p-5">
-                  {!selectedCall ? (
-                    <div className="text-sm text-zinc-600">Select a call to view details.</div>
-                  ) : (
-                    <>
-                      <div className="flex flex-wrap items-start justify-between gap-3">
-                        <div className="min-w-0">
-                          <div className="text-sm font-semibold text-zinc-900">Call details</div>
-                          <div className="mt-1 text-sm text-zinc-700">
-                            {(selectedCall.contactName || "").trim() || "Unknown caller"}
-                          </div>
-                          <div className="mt-1 text-xs text-zinc-600">
-                            Phone: {(selectedCall.contactPhone || "").trim() || selectedCall.from}
-                            {selectedCall.contactEmail ? ` · Email: ${selectedCall.contactEmail}` : ""}
-                          </div>
-                          <div className="mt-1 text-xs text-zinc-500">{formatWhen(selectedCall.createdAtIso)} · Status: {selectedCall.status.toLowerCase()}</div>
-                        </div>
-
-                        <div className="text-right text-xs text-zinc-500">
-                          <div className="font-mono">CallSid: {selectedCall.callSid}</div>
-                          {selectedCall.recordingDurationSec ? (
-                            <div>{Math.max(0, Math.floor(selectedCall.recordingDurationSec))}s</div>
-                          ) : null}
-
-                          <button
-                            type="button"
-                            disabled={saving || callSyncBusy}
-                            onClick={() => void deleteCallEvent(selectedCall.callSid)}
-                            className={
-                              "mt-2 inline-flex items-center justify-center rounded-xl border px-2.5 py-1.5 text-[11px] font-semibold " +
-                              (saving || callSyncBusy
-                                ? "border-zinc-200 bg-zinc-100 text-zinc-500"
-                                : "border-red-200 bg-red-50 text-red-800 hover:bg-red-100")
-                            }
-                            title="Remove this call from the Activity list"
-                          >
-                            Delete
-                          </button>
-                        </div>
-                      </div>
-
-                      {selectedCall.contactId ? (
-                        <div className="mt-3">
-                          <div className="text-xs font-semibold text-zinc-600">Tags</div>
-                          <div className="mt-2">
-                            <ContactTagsEditor
-                              compact
-                              contactId={selectedCall.contactId}
-                              tags={Array.isArray(selectedCall.contactTags) ? selectedCall.contactTags : []}
-                              onChange={(next) => updateEventTags(selectedCall.id, next)}
-                            />
-                          </div>
-                        </div>
-                      ) : null}
-
-                      <div className="mt-4">
-                        <div className="text-xs font-semibold text-zinc-600">Recording</div>
-                        {(() => {
-                          const src =
-                            (selectedCall.recordingSid && selectedCall.recordingSid.trim())
-                              ? `/api/portal/ai-receptionist/recordings/${encodeURIComponent(selectedCall.recordingSid)}`
-                              : (selectedCall.demoRecordingId && selectedCall.demoRecordingId.trim())
-                                  ? `/api/portal/ai-receptionist/recordings/demo/${encodeURIComponent(selectedCall.demoRecordingId)}`
-                                  : "";
-                          if (!src) {
-                            return <div className="mt-2 text-sm text-zinc-600">No recording available for this call.</div>;
-                          }
-                          return (
-                            <MiniAudioPlayer src={src} durationHintSec={selectedCall.recordingDurationSec ?? null} />
-                          );
-                        })()}
-                      </div>
-
-                      <div className="mt-5">
-                        <div className="text-xs font-semibold text-zinc-600">Transcript</div>
-                        {selectedCall.transcript && selectedCall.transcript.trim() ? (
-                          <div className="mt-2 max-h-[520px] overflow-auto rounded-xl border border-zinc-200 bg-zinc-50 p-4">
-                            <div className="whitespace-pre-wrap text-sm text-zinc-800">{selectedCall.transcript}</div>
-                          </div>
-                        ) : (
-                          <div className="mt-2 text-sm text-zinc-600">
-                            No transcript yet. It can take a minute to show up after the call ends.
-                          </div>
-                        )}
-                      </div>
-
-                      {deriveClientNotesFromEvent(selectedCall) ? (
-                        <div className="mt-5">
-                          <div className="text-xs font-semibold text-zinc-600">Notes</div>
-                          <div className="mt-2 whitespace-pre-wrap text-sm text-zinc-700">{deriveClientNotesFromEvent(selectedCall)}</div>
-                        </div>
-                      ) : null}
-                    </>
-                  )}
-                </div>
-              </div>
-            </div>
+            )
           )}
+        </div>
+      ) : null}
+
+      {isMobileApp && mobileCallDetailsOpen && selectedCall ? (
+        <div
+          className="fixed inset-0 z-40 flex items-start justify-center bg-black/30 px-4 pt-[calc(var(--pa-modal-safe-top,0px)+1rem)] pb-[calc(var(--pa-modal-safe-bottom,0px)+1rem)]"
+          role="dialog"
+          aria-modal="true"
+          onMouseDown={() => closeCallDetails()}
+          onClick={() => closeCallDetails()}
+        >
+          <div
+            className="flex w-full max-w-2xl max-h-[calc(100dvh-var(--pa-modal-safe-top,0px)-var(--pa-modal-safe-bottom,0px)-2rem)] flex-col overflow-hidden rounded-3xl border border-zinc-200 bg-white shadow-xl"
+            onMouseDown={(e) => e.stopPropagation()}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between gap-3 border-b border-zinc-100 px-5 py-4">
+              <div className="min-w-0">
+                <div className="text-sm font-semibold text-zinc-900">Call</div>
+                <div className="mt-0.5 truncate text-xs text-zinc-500">Tap outside to close</div>
+              </div>
+              <button
+                type="button"
+                className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50"
+                onClick={() => closeCallDetails()}
+                aria-label="Close"
+              >
+                ×
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-5">
+              <CallDetailsContent call={selectedCall} />
+            </div>
+          </div>
         </div>
       ) : null}
 
