@@ -739,24 +739,29 @@ export function PortalAiReceptionistClient() {
     return events.find((e) => e.id === selectedCallId) ?? null;
   }, [events, selectedCallId]);
 
-  function CallDetailsContent({ call }: { call: EventRow }) {
+  function CallDetailsContent({ call, variant }: { call: EventRow; variant: "desktop" | "mobile" }) {
+    const notes = deriveClientNotesFromEvent(call);
+    const nameLine = (call.contactName || "").trim() || "Unknown caller";
+    const phoneLine = (call.contactPhone || "").trim() || call.from;
+    const dt = `${formatDate(call.createdAtIso)} ${formatTimeOfDay(call.createdAtIso)}`.trim();
     return (
       <>
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="min-w-0">
-            <div className="text-sm font-semibold text-zinc-900">Call details</div>
-            <div className="mt-1 text-sm text-zinc-700">{(call.contactName || "").trim() || "Unknown caller"}</div>
+            {variant === "desktop" ? <div className="text-sm font-semibold text-zinc-900">Call details</div> : null}
+            <div className={classNames("mt-1 text-sm font-semibold text-zinc-900", variant === "desktop" ? "font-medium" : "")}>
+              {nameLine}
+            </div>
             <div className="mt-1 text-xs text-zinc-600">
-              Phone: {(call.contactPhone || "").trim() || call.from}
-              {call.contactEmail ? ` · Email: ${call.contactEmail}` : ""}
+              {phoneLine}
+              {call.contactEmail ? ` · ${call.contactEmail}` : ""}
             </div>
             <div className="mt-1 text-xs text-zinc-500">
-              {formatWhen(call.createdAtIso)} · Status: {call.status.toLowerCase()}
+              {dt} · {call.status.toLowerCase()}
             </div>
           </div>
 
           <div className="text-right text-xs text-zinc-500">
-            <div className="font-mono">CallSid: {call.callSid}</div>
             {call.recordingDurationSec ? <div>{Math.max(0, Math.floor(call.recordingDurationSec))}s</div> : null}
 
             <button
@@ -790,6 +795,13 @@ export function PortalAiReceptionistClient() {
           </div>
         ) : null}
 
+        {notes ? (
+          <div className="mt-4">
+            <div className="text-xs font-semibold text-zinc-600">Notes</div>
+            <div className="mt-2 whitespace-pre-wrap text-sm text-zinc-700">{notes}</div>
+          </div>
+        ) : null}
+
         <div className="mt-4">
           <div className="text-xs font-semibold text-zinc-600">Recording</div>
           {(() => {
@@ -816,13 +828,6 @@ export function PortalAiReceptionistClient() {
             <div className="mt-2 text-sm text-zinc-600">No transcript yet. It can take a minute to show up after the call ends.</div>
           )}
         </div>
-
-        {deriveClientNotesFromEvent(call) ? (
-          <div className="mt-5">
-            <div className="text-xs font-semibold text-zinc-600">Notes</div>
-            <div className="mt-2 whitespace-pre-wrap text-sm text-zinc-700">{deriveClientNotesFromEvent(call)}</div>
-          </div>
-        ) : null}
       </>
     );
   }
@@ -958,60 +963,80 @@ export function PortalAiReceptionistClient() {
         </div>
       </div>
 
-      <div className="mt-6 flex w-full flex-wrap gap-2">
-        <button
-          type="button"
-          onClick={() => setTabWithUrl("activity")}
-          aria-current={tab === "activity" ? "page" : undefined}
-          className={
-            "flex-1 min-w-[160px] rounded-2xl border px-4 py-2.5 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
-            (tab === "activity"
-              ? "border-brand-blue bg-brand-blue text-white shadow-sm focus-visible:ring-brand-blue/40"
-              : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
-          }
-        >
-          Activity
-        </button>
-        <button
-          type="button"
-          onClick={() => setTabWithUrl("testing")}
-          aria-current={tab === "testing" ? "page" : undefined}
-          className={
-            "flex-1 min-w-[160px] rounded-2xl border px-4 py-2.5 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
-            (tab === "testing"
-              ? "border-brand-pink bg-brand-pink text-white shadow-sm focus-visible:ring-brand-pink/40"
-              : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
-          }
-        >
-          Testing
-        </button>
-        <button
-          type="button"
-          onClick={() => setTabWithUrl("missed-call-textback")}
-          aria-current={tab === "missed-call-textback" ? "page" : undefined}
-          className={
-            "flex-1 min-w-[220px] rounded-2xl border px-4 py-2.5 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
-            (tab === "missed-call-textback"
-              ? "border-brand-blue bg-brand-blue text-white shadow-sm focus-visible:ring-brand-blue/40"
-              : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
-          }
-        >
-          Missed Call Text Back
-        </button>
-        <button
-          type="button"
-          onClick={() => setTabWithUrl("settings")}
-          aria-current={tab === "settings" ? "page" : undefined}
-          className={
-            "flex-1 min-w-[160px] rounded-2xl border px-4 py-2.5 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
-            (tab === "settings"
-              ? "border-brand-ink bg-brand-ink text-white shadow-sm focus-visible:ring-brand-ink/40"
-              : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
-          }
-        >
-          Settings
-        </button>
-      </div>
+      {isMobileApp ? (
+        <div className="mt-6 rounded-2xl border border-zinc-200 bg-white p-4">
+          <div className="text-xs font-semibold text-zinc-600">Section</div>
+          <div className="mt-2">
+            <PortalSelectDropdown
+              value={tab}
+              onChange={(v) => setTabWithUrl(v as any)}
+              options={[
+                { value: "activity", label: "Activity" },
+                { value: "settings", label: "Settings" },
+                { value: "testing", label: "Testing" },
+                { value: "missed-call-textback", label: "Missed Call Text Back" },
+              ]}
+              className="w-full"
+              buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-900 hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
+            />
+          </div>
+        </div>
+      ) : (
+        <div className="mt-6 flex w-full flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={() => setTabWithUrl("activity")}
+            aria-current={tab === "activity" ? "page" : undefined}
+            className={
+              "flex-1 min-w-[160px] rounded-2xl border px-4 py-2.5 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
+              (tab === "activity"
+                ? "border-brand-blue bg-brand-blue text-white shadow-sm focus-visible:ring-brand-blue/40"
+                : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
+            }
+          >
+            Activity
+          </button>
+          <button
+            type="button"
+            onClick={() => setTabWithUrl("testing")}
+            aria-current={tab === "testing" ? "page" : undefined}
+            className={
+              "flex-1 min-w-[160px] rounded-2xl border px-4 py-2.5 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
+              (tab === "testing"
+                ? "border-brand-pink bg-brand-pink text-white shadow-sm focus-visible:ring-brand-pink/40"
+                : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
+            }
+          >
+            Testing
+          </button>
+          <button
+            type="button"
+            onClick={() => setTabWithUrl("missed-call-textback")}
+            aria-current={tab === "missed-call-textback" ? "page" : undefined}
+            className={
+              "flex-1 min-w-[220px] rounded-2xl border px-4 py-2.5 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
+              (tab === "missed-call-textback"
+                ? "border-brand-blue bg-brand-blue text-white shadow-sm focus-visible:ring-brand-blue/40"
+                : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
+            }
+          >
+            Missed Call Text Back
+          </button>
+          <button
+            type="button"
+            onClick={() => setTabWithUrl("settings")}
+            aria-current={tab === "settings" ? "page" : undefined}
+            className={
+              "flex-1 min-w-[160px] rounded-2xl border px-4 py-2.5 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
+              (tab === "settings"
+                ? "border-brand-ink bg-brand-ink text-white shadow-sm focus-visible:ring-brand-ink/40"
+                : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
+            }
+          >
+            Settings
+          </button>
+        </div>
+      )}
 
       {note ? <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800">{note}</div> : null}
 
@@ -1617,9 +1642,9 @@ export function PortalAiReceptionistClient() {
           ) : (
             isMobileApp ? (
               <div className="mt-4 overflow-hidden rounded-2xl border border-zinc-200">
-                <div className="grid grid-cols-[minmax(0,1fr)_auto_auto] gap-3 bg-zinc-50 px-4 py-2 text-[11px] font-semibold text-zinc-600">
+                <div className="grid grid-cols-[minmax(0,1fr)_9.5rem_4.75rem] gap-3 bg-zinc-50 px-4 py-2 text-[11px] font-semibold text-zinc-600">
                   <div>Name</div>
-                  <div className="text-right">Date</div>
+                  <div className="text-left">Date</div>
                   <div className="text-right">Time</div>
                 </div>
                 <div className="divide-y divide-zinc-100 bg-white">
@@ -1636,12 +1661,12 @@ export function PortalAiReceptionistClient() {
                           (isSelected ? "bg-brand-blue/5" : "hover:bg-zinc-50")
                         }
                       >
-                        <div className="grid grid-cols-[minmax(0,1fr)_auto_auto] items-start gap-3">
+                        <div className="grid grid-cols-[minmax(0,1fr)_9.5rem_4.75rem] items-start gap-3">
                           <div className="min-w-0">
                             <div className="truncate text-sm font-semibold text-zinc-900">{nameLine}</div>
                             {e.contactEmail ? <div className="mt-0.5 truncate text-xs text-zinc-600">{e.contactEmail}</div> : null}
                           </div>
-                          <div className="whitespace-nowrap text-right text-xs font-medium text-zinc-700">{formatDate(e.createdAtIso)}</div>
+                          <div className="whitespace-nowrap text-left text-xs font-medium text-zinc-700">{formatDate(e.createdAtIso)}</div>
                           <div className="whitespace-nowrap text-right text-xs font-medium text-zinc-700">{formatTimeOfDay(e.createdAtIso)}</div>
                         </div>
                       </button>
@@ -1713,7 +1738,11 @@ export function PortalAiReceptionistClient() {
 
                 <div className="lg:col-span-3">
                   <div className="max-h-[520px] overflow-auto pr-1 sm:max-h-[60vh] lg:max-h-[calc(100vh-320px)] rounded-2xl border border-zinc-200 bg-white p-5">
-                    {!selectedCall ? <div className="text-sm text-zinc-600">Select a call to view details.</div> : <CallDetailsContent call={selectedCall} />}
+                    {!selectedCall ? (
+                      <div className="text-sm text-zinc-600">Select a call to view details.</div>
+                    ) : (
+                      <CallDetailsContent call={selectedCall} variant="desktop" />
+                    )}
                   </div>
                 </div>
               </div>
@@ -1724,21 +1753,24 @@ export function PortalAiReceptionistClient() {
 
       {isMobileApp && mobileCallDetailsOpen && selectedCall ? (
         <div
-          className="fixed inset-0 z-40 flex items-start justify-center bg-black/30 px-4 pt-[calc(var(--pa-modal-safe-top,0px)+1rem)] pb-[calc(var(--pa-modal-safe-bottom,0px)+1rem)]"
+          className="fixed inset-0 z-40 flex items-start justify-center bg-black/30 px-4 pt-[calc(var(--pa-modal-safe-top,0px)+1rem)] pb-[calc(var(--pa-portal-embed-footer-offset,0px)+1rem)]"
           role="dialog"
           aria-modal="true"
           onMouseDown={() => closeCallDetails()}
           onClick={() => closeCallDetails()}
         >
           <div
-            className="flex w-full max-w-2xl max-h-[calc(100dvh-var(--pa-modal-safe-top,0px)-var(--pa-modal-safe-bottom,0px)-2rem)] flex-col overflow-hidden rounded-3xl border border-zinc-200 bg-white shadow-xl"
+            className="flex w-full max-w-2xl max-h-[calc(100dvh-var(--pa-modal-safe-top,0px)-var(--pa-portal-embed-footer-offset,0px)-2rem)] flex-col overflow-hidden rounded-3xl border border-zinc-200 bg-white shadow-xl"
             onMouseDown={(e) => e.stopPropagation()}
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between gap-3 border-b border-zinc-100 px-5 py-4">
               <div className="min-w-0">
-                <div className="text-sm font-semibold text-zinc-900">Call</div>
-                <div className="mt-0.5 truncate text-xs text-zinc-500">Tap outside to close</div>
+                <div className="truncate text-sm font-semibold text-zinc-900">{(selectedCall.contactName || "").trim() || selectedCall.from}</div>
+                <div className="mt-0.5 truncate text-xs text-zinc-600">{(selectedCall.contactPhone || "").trim() || selectedCall.from}</div>
+                <div className="mt-0.5 truncate text-[11px] text-zinc-500">
+                  {formatDate(selectedCall.createdAtIso)} {formatTimeOfDay(selectedCall.createdAtIso)} · {selectedCall.status.toLowerCase()}
+                </div>
               </div>
               <button
                 type="button"
@@ -1750,7 +1782,7 @@ export function PortalAiReceptionistClient() {
               </button>
             </div>
             <div className="flex-1 overflow-y-auto p-5">
-              <CallDetailsContent call={selectedCall} />
+              <CallDetailsContent call={selectedCall} variant="mobile" />
             </div>
           </div>
         </div>
