@@ -4,6 +4,7 @@ import { generateText } from "@/lib/ai";
 import { portalCreditCostsForSupportText } from "@/lib/portalCreditCosts";
 import { PORTAL_ONBOARDING_PLANS } from "@/lib/portalOnboardingWizardCatalog";
 import { PORTAL_SERVICES } from "@/app/portal/services/catalog";
+import { portalSupportManualText } from "@/lib/portalSupportManual";
 
 const SupportChatRequestSchema = z.object({
   message: z.string().trim().min(1).max(4000),
@@ -120,6 +121,8 @@ export async function POST(req: Request) {
     "- Max URLs: max 1000",
   ].join("\n");
 
+  const fullManual = portalSupportManualText();
+
   const portalKnowledge = [
     "Portal navigation:",
     "- Main portal app: /portal/app",
@@ -137,6 +140,8 @@ export async function POST(req: Request) {
     serviceHowToIndex,
     "",
     agentHowTo,
+    "",
+    "ALL-SERVICES CLICK-PATH MANUAL (authoritative):\n" + fullManual,
     "",
     "Core included services:",
     "- Inbox (inbox/outbox, threads, sending)",
