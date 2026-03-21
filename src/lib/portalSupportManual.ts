@@ -6,6 +6,7 @@ export type PortalSupportServiceGuide = {
   quickStartSteps: string[];
   commonTasks?: string[];
   troubleshooting?: string[];
+  tags?: string[];
 };
 
 // This is a deliberately concise but comprehensive “how to click it” manual for portal support chat.
@@ -17,6 +18,7 @@ export const PORTAL_SUPPORT_MANUAL: PortalSupportServiceGuide[] = [
     title: "Portal basics",
     urlPath: "/portal/app",
     clickPath: "Sidebar → Dashboard",
+    tags: ["portal", "dashboard", "navigation", "sidebar"],
     quickStartSteps: [
       "Open Services: Sidebar → Services (/portal/app/services)",
       "Check Billing/entitlements: Sidebar → Billing (/portal/app/billing)",
@@ -30,10 +32,85 @@ export const PORTAL_SUPPORT_MANUAL: PortalSupportServiceGuide[] = [
   },
 
   {
+    slug: "services-home",
+    title: "Services home",
+    urlPath: "/portal/app/services",
+    clickPath: "Sidebar → Services",
+    tags: ["services", "service", "modules", "apps"],
+    quickStartSteps: [
+      "Use the service cards to open a service.",
+      "If a service card is missing, it may not be enabled for your account.",
+      "If you were sent a direct link to a service, open it and then use the sidebar to navigate back to Services.",
+    ],
+    troubleshooting: [
+      "If a service isn’t visible, check Billing for module enablement (and confirm you’re in the correct portal variant).",
+    ],
+  },
+
+  {
+    slug: "billing",
+    title: "Billing",
+    urlPath: "/portal/app/billing",
+    clickPath: "Sidebar → Billing",
+    tags: ["billing", "plan", "subscription", "credits", "enable", "entitlement"],
+    quickStartSteps: [
+      "Open Billing to see which modules are enabled and whether the account is subscription vs credits-only.",
+      "Enable a module (if the UI offers it), then return to Services and refresh.",
+    ],
+    troubleshooting: [
+      "If a feature/button is missing, it’s often because the module isn’t enabled or the user role doesn’t have edit permissions.",
+    ],
+  },
+
+  {
+    slug: "profile",
+    title: "Profile",
+    urlPath: "/portal/app/profile",
+    clickPath: "Sidebar → Profile",
+    tags: ["profile", "settings", "integrations", "twilio", "webhooks"],
+    quickStartSteps: [
+      "Set basic contact info (name/phone/city/state) so automation messages and routing can work consistently.",
+      "Open Advanced to access integrations and copy/paste webhook values when available.",
+      "If you’re configuring calling/SMS, check Advanced → Twilio and Advanced → Webhooks.",
+    ],
+    troubleshooting: [
+      "If you can’t edit a section, your role may be view-only (ask an owner/admin).",
+    ],
+  },
+
+  {
+    slug: "people",
+    title: "People / Team",
+    urlPath: "/portal/app/people",
+    clickPath: "Sidebar → People",
+    tags: ["people", "team", "members", "permissions", "roles"],
+    quickStartSteps: [
+      "Invite team members (if enabled) and assign the correct role.",
+      "Use People when services need an owner/assignee for tasks, routing, or handoff.",
+    ],
+    troubleshooting: [
+      "If assignments/owners aren’t available in a service, confirm People is set up and you have the right permissions.",
+    ],
+  },
+
+  {
+    slug: "onboarding",
+    title: "Onboarding",
+    urlPath: "/portal/app/onboarding",
+    clickPath: "Sidebar → Onboarding",
+    tags: ["onboarding", "setup", "getting started"],
+    quickStartSteps: [
+      "Complete the onboarding checklist to enable core modules and set required account details.",
+      "If a service says setup is missing, come here and complete the related step.",
+    ],
+  },
+
+  {
     slug: "inbox",
     title: "Inbox / Outbox",
     urlPath: "/portal/app/services/inbox",
     clickPath: "Sidebar → Services → Inbox / Outbox",
+    tags: ["inbox", "outbox", "sms", "email", "messages", "threads"],
     quickStartSteps: [
       "Use the left list to pick a thread (SMS/email).",
       "Reply from the thread composer; attach media via the media picker when available.",
@@ -54,6 +131,7 @@ export const PORTAL_SUPPORT_MANUAL: PortalSupportServiceGuide[] = [
     title: "Media Library",
     urlPath: "/portal/app/services/media-library",
     clickPath: "Sidebar → Services → Media Library",
+    tags: ["media", "uploads", "files", "images", "library"],
     quickStartSteps: [
       "Upload: click Upload, pick file(s).",
       "Organize: create folders and move items as needed.",
@@ -70,6 +148,7 @@ export const PORTAL_SUPPORT_MANUAL: PortalSupportServiceGuide[] = [
     title: "Tasks",
     urlPath: "/portal/app/services/tasks",
     clickPath: "Sidebar → Services → Tasks",
+    tags: ["tasks", "to do", "assign", "due date"],
     quickStartSteps: [
       "Create a task list (if needed), then add tasks.",
       "Assign owners and due dates.",
@@ -85,6 +164,7 @@ export const PORTAL_SUPPORT_MANUAL: PortalSupportServiceGuide[] = [
     title: "Reporting",
     urlPath: "/portal/app/services/reporting",
     clickPath: "Sidebar → Services → Reporting",
+    tags: ["reporting", "analytics", "dashboard"],
     quickStartSteps: [
       "Open reporting dashboards to view summaries.",
       "Use filters/date ranges (when available).",
@@ -97,6 +177,7 @@ export const PORTAL_SUPPORT_MANUAL: PortalSupportServiceGuide[] = [
     title: "Funnel Builder",
     urlPath: "/portal/app/services/funnel-builder",
     clickPath: "Sidebar → Services → Funnel Builder",
+    tags: ["funnel", "landing page", "forms", "publish", "domain"],
     quickStartSteps: [
       "Create a funnel, then add/edit pages.",
       "Add forms to capture leads.",
@@ -112,6 +193,7 @@ export const PORTAL_SUPPORT_MANUAL: PortalSupportServiceGuide[] = [
     title: "Automation Builder",
     urlPath: "/portal/app/services/automations",
     clickPath: "Sidebar → Services → Automation Builder",
+    tags: ["automation", "workflow", "trigger", "steps"],
     quickStartSteps: [
       "Create a workflow.",
       "Choose a trigger, then add steps (SMS/email/tasks/etc.).",
@@ -128,6 +210,7 @@ export const PORTAL_SUPPORT_MANUAL: PortalSupportServiceGuide[] = [
     title: "Booking Automation",
     urlPath: "/portal/app/services/booking",
     clickPath: "Sidebar → Services → Booking Automation",
+    tags: ["booking", "appointments", "calendar", "availability", "reminders", "follow up"],
     quickStartSteps: [
       "Set availability rules.",
       "Connect a calendar (if required by UI).",
@@ -140,10 +223,47 @@ export const PORTAL_SUPPORT_MANUAL: PortalSupportServiceGuide[] = [
   },
 
   {
+    slug: "appointment-reminders",
+    title: "Appointment Reminders",
+    urlPath: "/portal/app/services/appointment-reminders",
+    clickPath: "Sidebar → Services → Booking Automation → Reminders tab",
+    tags: ["appointment", "reminder", "reminders", "booking"],
+    quickStartSteps: [
+      "Open Booking Automation.",
+      "Open the Reminders tab.",
+      "Enable reminders and set the timing (example: 24 hours before + 2 hours before).",
+      "Customize the reminder message template and save.",
+      "Test: create a test booking and verify the reminder schedule is correct.",
+    ],
+    troubleshooting: [
+      "If reminders don’t send, confirm messaging/SMS is configured and the contact has a valid phone number.",
+      "If timing looks wrong, confirm timezone and that the reminder delay is set relative to the appointment time.",
+    ],
+  },
+
+  {
+    slug: "follow-up",
+    title: "Follow-up Automation",
+    urlPath: "/portal/app/services/follow-up",
+    clickPath: "Sidebar → Services → Booking Automation → Follow-up tab",
+    tags: ["follow up", "follow-up", "sequence", "booking"],
+    quickStartSteps: [
+      "Open Booking Automation.",
+      "Open the Follow-up tab.",
+      "Enable follow-up and configure the sequence (delay + message).",
+      "Save, then run a test booking to confirm the follow-up triggers.",
+    ],
+    troubleshooting: [
+      "If follow-ups don’t trigger, confirm the booking completed successfully and the follow-up feature is enabled.",
+    ],
+  },
+
+  {
     slug: "newsletter",
     title: "Newsletter",
     urlPath: "/portal/app/services/newsletter",
     clickPath: "Sidebar → Services → Newsletter",
+    tags: ["newsletter", "audience", "email", "send", "schedule"],
     quickStartSteps: [
       "Create/select an audience.",
       "Compose newsletter (AI or manual mode depending on UI).",
@@ -159,6 +279,7 @@ export const PORTAL_SUPPORT_MANUAL: PortalSupportServiceGuide[] = [
     title: "Nurture Campaigns",
     urlPath: "/portal/app/services/nurture-campaigns",
     clickPath: "Sidebar → Services → Nurture Campaigns",
+    tags: ["nurture", "campaign", "sequence", "drip"],
     quickStartSteps: [
       "Create a campaign.",
       "Add steps (delays + actions).",
@@ -175,6 +296,7 @@ export const PORTAL_SUPPORT_MANUAL: PortalSupportServiceGuide[] = [
     title: "Automated Blogs",
     urlPath: "/portal/app/services/blogs",
     clickPath: "Sidebar → Services → Automated Blogs",
+    tags: ["blogs", "blog", "seo", "publish", "draft"],
     quickStartSteps: [
       "Set branding/settings.",
       "Generate drafts (AI) and review.",
@@ -187,6 +309,7 @@ export const PORTAL_SUPPORT_MANUAL: PortalSupportServiceGuide[] = [
     title: "Reviews",
     urlPath: "/portal/app/services/reviews",
     clickPath: "Sidebar → Services → Reviews",
+    tags: ["reviews", "review request", "google", "replies"],
     quickStartSteps: [
       "Configure review request template.",
       "Choose who to send to, then send requests.",
@@ -199,6 +322,7 @@ export const PORTAL_SUPPORT_MANUAL: PortalSupportServiceGuide[] = [
     title: "Lead Scraping",
     urlPath: "/portal/app/services/lead-scraping",
     clickPath: "Sidebar → Services → Lead Scraping",
+    tags: ["lead", "scraping", "prospects", "search"],
     quickStartSteps: [
       "Enter search criteria (industry/location/filters).",
       "Run scrape/search to fetch leads.",
@@ -214,6 +338,7 @@ export const PORTAL_SUPPORT_MANUAL: PortalSupportServiceGuide[] = [
     title: "AI Receptionist",
     urlPath: "/portal/app/services/ai-receptionist",
     clickPath: "Sidebar → Services → AI Receptionist",
+    tags: ["ai receptionist", "receptionist", "calls", "voice", "sms", "agent", "knowledge base"],
     quickStartSteps: [
       "Configure voice behavior (system prompt, routing fields).",
       "Configure SMS behavior (enable SMS, set SMS prompt) if needed.",
@@ -235,6 +360,7 @@ export const PORTAL_SUPPORT_MANUAL: PortalSupportServiceGuide[] = [
     title: "AI Outbound Calls",
     urlPath: "/portal/app/services/ai-outbound-calls",
     clickPath: "Sidebar → Services → AI outbound",
+    tags: ["ai outbound", "outbound calls", "campaign", "agent", "calls", "messages", "knowledge base"],
     quickStartSteps: [
       "Select a campaign.",
       "Configure Calls agent (voice) and Sync.",
@@ -251,12 +377,74 @@ export const PORTAL_SUPPORT_MANUAL: PortalSupportServiceGuide[] = [
     ],
   },
 
+  {
+    slug: "missed-call-textback",
+    title: "Missed-Call Text Back",
+    urlPath: "/portal/app/services/missed-call-textback",
+    clickPath: "Sidebar → Services → Missed-Call Text Back",
+    tags: ["missed call", "text back", "textback", "sms", "webhook", "twilio"],
+    quickStartSteps: [
+      "Enable Missed-Call Text Back.",
+      "Set the reply delay and reply message body (use variables if available).",
+      "Optional: attach media and/or set a forwarding phone number.",
+      "Save settings.",
+      "Test: call your business number and let it ring/miss; then check the Events/Activity list to confirm an SMS was sent.",
+    ],
+    commonTasks: [
+      "If you need the webhook URL, open the Missed-Call Text Back page and copy the webhook URL/token shown in the UI.",
+      "Use the variable picker to personalize the reply (lead name, callback link, etc.).",
+    ],
+    troubleshooting: [
+      "If it says it’s not enabled, open Billing and enable the AI Receptionist module (this feature is tied to calling/SMS setup).",
+      "If SMS shows FAILED in Events, confirm Twilio is configured in Profile → Advanced → Twilio.",
+      "If calls aren’t triggering events, confirm your call webhooks are set in Profile → Advanced → Webhooks and pasted into your Twilio phone number settings.",
+    ],
+  },
+
+  {
+    slug: "integrations-twilio",
+    title: "Calling/SMS integration (Twilio)",
+    urlPath: "/portal/app/profile",
+    clickPath: "Sidebar → Profile → Advanced → Twilio/Webhooks",
+    tags: ["twilio", "phone number", "sms", "calls", "webhooks", "account sid", "auth token"],
+    quickStartSteps: [
+      "Open Profile.",
+      "Open Advanced.",
+      "Open Twilio and paste: Account SID, Auth Token, and From number (E.164, like +15551234567), then save.",
+      "Open Webhooks and copy the Calls webhook values.",
+      "In Twilio Console: Phone Numbers → Manage → Active numbers → click your number → Voice & Fax → paste the Calls webhook(s) into the matching fields.",
+    ],
+    troubleshooting: [
+      "If SMS doesn’t arrive in Inbox, confirm Twilio is configured and your Twilio number is SMS-capable.",
+      "If calls don’t hit AI Receptionist, confirm the Twilio phone-number voice webhook is set to the portal’s Calls handler.",
+    ],
+  },
+
+  {
+    slug: "integrations-voice-agent",
+    title: "Voice agent platform (ElevenLabs)",
+    urlPath: "/portal/app/services/ai-receptionist",
+    clickPath: "Sidebar → Services → AI Receptionist (or AI outbound) → Sync/Test",
+    tags: ["elevenlabs", "11 labs", "voice agent", "agent", "sync", "test call", "voice preview"],
+    quickStartSteps: [
+      "Use the AI Receptionist or AI Outbound page to edit the agent behavior and click Sync.",
+      "Use Testing to place a test call (or preview voice) and confirm the agent answers correctly.",
+      "If a manual agent ID override is set, Sync applies to that agent ID.",
+    ],
+    troubleshooting: [
+      "If testing can’t place a call, confirm Twilio is configured and call webhooks are pasted correctly.",
+      "If Sync fails with a missing-credentials message, check Profile → Advanced for any required integration fields and try again.",
+      "If behavior doesn’t change after Sync, confirm you synced the correct section (calls vs messages) and test again.",
+    ],
+  },
+
   // Credit variant services (still listed so support chat knows they exist).
   {
     slug: "dispute-letters",
     title: "Dispute Letters",
     urlPath: "/portal/app/services/dispute-letters",
     clickPath: "Sidebar → Services → Dispute Letters (credit mode)",
+    tags: ["credit", "dispute", "letters"],
     quickStartSteps: [
       "Pick a contact.",
       "Generate a letter (AI) then edit.",
@@ -268,6 +456,7 @@ export const PORTAL_SUPPORT_MANUAL: PortalSupportServiceGuide[] = [
     title: "Credit Reports",
     urlPath: "/portal/app/services/credit-reports",
     clickPath: "Sidebar → Services → Credit Reports (credit mode)",
+    tags: ["credit", "reports", "audit"],
     quickStartSteps: [
       "Import a credit report.",
       "Audit and tag items.",
@@ -276,25 +465,45 @@ export const PORTAL_SUPPORT_MANUAL: PortalSupportServiceGuide[] = [
   },
 ];
 
+function renderGuideText(g: PortalSupportServiceGuide): string {
+  return [
+    `SERVICE: ${g.title}`,
+    `- Slug: ${g.slug}`,
+    `- URL: ${g.urlPath}`,
+    `- Click path: ${g.clickPath}`,
+    `- Quick start:`,
+    ...g.quickStartSteps.map((s) => `  - ${s}`),
+    ...(g.commonTasks && g.commonTasks.length ? ["- Common tasks:", ...g.commonTasks.map((s) => `  - ${s}`)] : []),
+    ...(g.troubleshooting && g.troubleshooting.length
+      ? ["- Troubleshooting:", ...g.troubleshooting.map((s) => `  - ${s}`)]
+      : []),
+  ].join("\n");
+}
+
+export function portalSupportManualTextForSlugs(
+  slugs: string[],
+  opts: { includeGlobalLimits?: boolean } = {},
+): string {
+  const want = new Set(slugs.map((s) => String(s || "").trim()).filter(Boolean));
+  const selected = PORTAL_SUPPORT_MANUAL.filter((g) => want.has(g.slug));
+
+  const sections = selected.map(renderGuideText);
+  if (opts.includeGlobalLimits !== false) {
+    sections.push(
+      [
+        "GLOBAL LIMITS:",
+        "- Knowledge base Crawl depth max: 5",
+        "- Knowledge base Max URLs max: 1000",
+      ].join("\n"),
+    );
+  }
+  return sections.join("\n\n");
+}
+
 export function portalSupportManualText(): string {
   const sections: string[] = [];
   for (const g of PORTAL_SUPPORT_MANUAL) {
-    sections.push(
-      [
-        `SERVICE: ${g.title}`,
-        `- Slug: ${g.slug}`,
-        `- URL: ${g.urlPath}`,
-        `- Click path: ${g.clickPath}`,
-        `- Quick start:`,
-        ...g.quickStartSteps.map((s) => `  - ${s}`),
-        ...(g.commonTasks && g.commonTasks.length
-          ? ["- Common tasks:", ...g.commonTasks.map((s) => `  - ${s}`)]
-          : []),
-        ...(g.troubleshooting && g.troubleshooting.length
-          ? ["- Troubleshooting:", ...g.troubleshooting.map((s) => `  - ${s}`)]
-          : []),
-      ].join("\n"),
-    );
+    sections.push(renderGuideText(g));
   }
 
   sections.push(
