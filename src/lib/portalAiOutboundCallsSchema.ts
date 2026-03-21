@@ -51,8 +51,12 @@ SELECT
     "audienceTagIdsJson",
     "chatAudienceTagIdsJson",
     "voiceAgentId",
+    "manualVoiceAgentId",
     "voiceAgentConfigJson",
+    "voiceId",
+    "knowledgeBaseJson",
     "chatAgentId",
+    "manualChatAgentId",
     "chatAgentConfigJson",
     "messageChannelPolicy",
     "callOutcomeTaggingJson",
@@ -166,8 +170,12 @@ CREATE TABLE IF NOT EXISTS "PortalAiOutboundCallCampaign" (
   "chatAudienceTagIdsJson" JSONB,
   "script" TEXT NOT NULL DEFAULT 'Hi, this is an automated call. Please call us back when you have a moment.',
   "voiceAgentId" TEXT,
+  "manualVoiceAgentId" TEXT,
   "voiceAgentConfigJson" JSONB,
+  "voiceId" TEXT,
+  "knowledgeBaseJson" JSONB,
   "chatAgentId" TEXT,
+  "manualChatAgentId" TEXT,
   "chatAgentConfigJson" JSONB,
   "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
   "updatedAt" TIMESTAMP(3) NOT NULL,
@@ -182,7 +190,22 @@ ALTER TABLE "PortalAiOutboundCallCampaign"
 
     `
 ALTER TABLE "PortalAiOutboundCallCampaign"
+  ADD COLUMN IF NOT EXISTS "manualVoiceAgentId" TEXT;
+    `.trim(),
+
+    `
+ALTER TABLE "PortalAiOutboundCallCampaign"
   ADD COLUMN IF NOT EXISTS "voiceAgentConfigJson" JSONB;
+    `.trim(),
+
+    `
+ALTER TABLE "PortalAiOutboundCallCampaign"
+  ADD COLUMN IF NOT EXISTS "voiceId" TEXT;
+    `.trim(),
+
+    `
+ALTER TABLE "PortalAiOutboundCallCampaign"
+  ADD COLUMN IF NOT EXISTS "knowledgeBaseJson" JSONB;
     `.trim(),
 
     `
@@ -193,6 +216,11 @@ ALTER TABLE "PortalAiOutboundCallCampaign"
     `
 ALTER TABLE "PortalAiOutboundCallCampaign"
   ADD COLUMN IF NOT EXISTS "chatAgentId" TEXT;
+    `.trim(),
+
+    `
+ALTER TABLE "PortalAiOutboundCallCampaign"
+  ADD COLUMN IF NOT EXISTS "manualChatAgentId" TEXT;
     `.trim(),
 
     `

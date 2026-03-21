@@ -413,7 +413,7 @@ export async function GET(req: Request) {
       campaignId: true,
       contactId: true,
       attemptCount: true,
-      campaign: { select: { id: true, status: true, voiceAgentId: true, callOutcomeTaggingJson: true } },
+      campaign: { select: { id: true, status: true, voiceAgentId: true, manualVoiceAgentId: true, callOutcomeTaggingJson: true } },
       contact: { select: { id: true, name: true, email: true, phone: true } },
     },
     orderBy: [{ nextCallAt: "asc" }, { id: "asc" }],
@@ -493,6 +493,7 @@ export async function GET(req: Request) {
       }
 
       const agentId =
+        String((e.campaign as any).manualVoiceAgentId || "").trim() ||
         String(e.campaign.voiceAgentId || "").trim() ||
         String(profileAgentId || "").trim() ||
         rec.agentId; // legacy fallback

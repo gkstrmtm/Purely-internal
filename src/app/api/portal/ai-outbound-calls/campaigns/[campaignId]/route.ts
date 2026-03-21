@@ -44,6 +44,25 @@ const messageOutcomeTaggingPatchSchema = z
   })
   .strict();
 
+const knowledgeBaseLocatorSchema = z
+  .object({
+    id: z.string().trim().min(1).max(200),
+    name: z.string().trim().min(1).max(200),
+    type: z.enum(["file", "url", "text", "folder"]),
+    usage_mode: z.enum(["auto", "prompt"]).optional(),
+  })
+  .strict();
+
+const knowledgeBasePatchSchema = z
+  .object({
+    seedUrl: z.string().trim().max(500).optional(),
+    crawlDepth: z.number().int().min(0).max(3).optional(),
+    maxUrls: z.number().int().min(0).max(100).optional(),
+    text: z.string().trim().max(20000).optional(),
+    locators: z.array(knowledgeBaseLocatorSchema).max(200).optional(),
+  })
+  .strict();
+
 const patchSchema = z
   .object({
     name: z.string().trim().min(1).max(80).optional(),
@@ -52,8 +71,12 @@ const patchSchema = z
     chatAudienceTagIds: z.array(z.string().trim().min(1).max(120)).max(50).optional(),
     messageChannelPolicy: z.enum(["SMS", "EMAIL", "BOTH"]).optional(),
     voiceAgentId: z.string().trim().max(120).optional(),
+    manualVoiceAgentId: z.string().trim().max(120).optional(),
     voiceAgentConfig: voiceAgentConfigPatchSchema.optional(),
+    voiceId: z.string().trim().max(200).optional(),
+    knowledgeBase: knowledgeBasePatchSchema.optional(),
     chatAgentId: z.string().trim().max(120).optional(),
+    manualChatAgentId: z.string().trim().max(120).optional(),
     chatAgentConfig: voiceAgentConfigPatchSchema.optional(),
     callOutcomeTagging: callOutcomeTaggingPatchSchema.optional(),
     messageOutcomeTagging: messageOutcomeTaggingPatchSchema.optional(),
@@ -105,7 +128,15 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ campaignId: s
 
   const existing = await prisma.portalAiOutboundCallCampaign.findFirst({
     where: { ownerId, id: campaignId.data },
-    select: { id: true, voiceAgentConfigJson: true, chatAgentConfigJson: true, callOutcomeTaggingJson: true, messageOutcomeTaggingJson: true },
+    select: {
+      id: true,
+      voiceAgentConfigJson: true,
+      chatAgentConfigJson: true,
+      callOutcomeTaggingJson: true,
+      messageOutcomeTaggingJson: true,
+      voiceId: true,
+      knowledgeBaseJson: true,
+    },
   });
   if (!existing) return NextResponse.json({ ok: false, error: "Not found" }, { status: 404 });
 
@@ -121,9 +152,24 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ campaignId: s
     data.voiceAgentId = id ? id : null;
   }
 
+  if (parsed.data.manualVoiceAgentId !== undefined) {
+    const id = parsed.data.manualVoiceAgentId.trim().slice(0, 120);
+    data.manualVoiceAgentId = id ? id : null;
+  }
+
+  if (parsed.data.voiceId !== undefined) {
+    const voiceId = parsed.data.voiceId.trim().slice(0, 200);
+    data.voiceId = voiceId ? voiceId : null;
+  }
+
   if (parsed.data.chatAgentId !== undefined) {
     const id = parsed.data.chatAgentId.trim().slice(0, 120);
     data.chatAgentId = id ? id : null;
+  }
+
+  if (parsed.data.manualChatAgentId !== undefined) {
+    const id = parsed.data.manualChatAgentId.trim().slice(0, 120);
+    data.manualChatAgentId = id ? id : null;
   }
 
   if (parsed.data.voiceAgentConfig !== undefined) {
@@ -143,6 +189,31 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ campaignId: s
     };
 
     data.voiceAgentConfigJson = next as any;
+  }
+
+  if (parsed.data.knowledgeBase !== undefined) {
+    const baseRec = safeRecord((existing as any).knowledgeBaseJson);
+    const base = {
+      version: 1,
+      seedUrl: typeof baseRec.seedUrl === "string" ? String(baseRec.seedUrl).trim().slice(0, 500) : "",
+      crawlDepth: typeof baseRec.crawlDepth === "number" && Number.isFinite(baseRec.crawlDepth) ? Math.max(0, Math.min(3, Math.floor(baseRec.crawlDepth))) : 0,
+      maxUrls: typeof baseRec.maxUrls === "number" && Number.isFinite(baseRec.maxUrls) ? Math.max(0, Math.min(100, Math.floor(baseRec.maxUrls))) : 0,
+      text: typeof baseRec.text === "string" ? String(baseRec.text).trim().slice(0, 20000) : "",
+      locators: Array.isArray(baseRec.locators) ? baseRec.locators : [],
+    };
+
+    const patch = parsed.data.knowledgeBase;
+    const next = {
+      ...base,
+      ...(patch.seedUrl !== undefined ? { seedUrl: patch.seedUrl.trim().slice(0, 500) } : {}),
+      ...(patch.crawlDepth !== undefined ? { crawlDepth: patch.crawlDepth } : {}),
+      ...(patch.maxUrls !== undefined ? { maxUrls: patch.maxUrls } : {}),
+      ...(patch.text !== undefined ? { text: patch.text.trim().slice(0, 20000) } : {}),
+      ...(patch.locators !== undefined ? { locators: patch.locators.slice(0, 200) } : {}),
+      updatedAtIso: new Date().toISOString(),
+    };
+
+    data.knowledgeBaseJson = next as any;
   }
 
   if (parsed.data.chatAgentConfig !== undefined) {

@@ -206,7 +206,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ campaignId: st
 
   const campaign = await prisma.portalAiOutboundCallCampaign.findFirst({
     where: { ownerId, id: campaignId },
-    select: { id: true, voiceAgentId: true },
+    select: { id: true, voiceAgentId: true, manualVoiceAgentId: true },
   });
   if (!campaign) return jsonError("Not found", 404);
 
@@ -217,7 +217,10 @@ export async function POST(req: Request, ctx: { params: Promise<{ campaignId: st
   if (!apiKey) return jsonError("Missing voice API key. Set it in Profile first.", 400);
 
   const profileAgentId = await getProfileVoiceAgentId(ownerId);
-  const agentId = String(campaign.voiceAgentId || "").trim() || String(profileAgentId || "").trim();
+  const agentId =
+    String((campaign as any).manualVoiceAgentId || "").trim() ||
+    String(campaign.voiceAgentId || "").trim() ||
+    String(profileAgentId || "").trim();
   if (!agentId) return jsonError("Missing agent id. Set one on this campaign or in Profile.", 400);
 
   const manualCallId = crypto.randomUUID();

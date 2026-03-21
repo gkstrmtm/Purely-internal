@@ -465,6 +465,17 @@ export async function PUT(req: Request) {
     }
   }
 
+  // Manual override for messaging/SMS agent: use as-is and do not auto-create/patch.
+  const manualChatAgentId = String((next as any).manualChatAgentId || "").trim().slice(0, 120);
+  if (manualChatAgentId && String(next.chatAgentId || "").trim() !== manualChatAgentId) {
+    try {
+      next = await setAiReceptionistSettings(ownerId, { ...next, chatAgentId: manualChatAgentId });
+    } catch {
+      await setAiReceptionistSettings(ownerId, current.settings).catch(() => null);
+      return NextResponse.json({ ok: false, error: "Failed to persist messaging agent ID" }, { status: 500 });
+    }
+  }
+
   // Sync agent config (first message + prompt) to ElevenLabs at save-time.
   // Do not attempt per-call overrides during the Twilio webhook.
   const profileAgentId = await getProfileVoiceAgentId(ownerId).catch(() => null);
@@ -512,6 +523,7 @@ export async function PUT(req: Request) {
         firstMessage: firstMessage || undefined,
         prompt: prompt || undefined,
         toolIds: toolIds.length ? toolIds : undefined,
+        voiceId: String((next as any).voiceId || "").trim() || undefined,
       });
 
       if (!created.ok) {
@@ -535,6 +547,7 @@ export async function PUT(req: Request) {
         firstMessage: firstMessage || undefined,
         prompt: prompt || undefined,
         toolIds: toolIds.length ? toolIds : undefined,
+        voiceId: String((next as any).voiceId || "").trim() || undefined,
       });
 
       if (!patched.ok) {
@@ -546,7 +559,7 @@ export async function PUT(req: Request) {
 
   // Optional: sync (create/patch) messaging agent for SMS / chat experiences.
   // This must be explicitly requested because API keys may be shared.
-  if (parsed.data.syncChatAgent) {
+  if (parsed.data.syncChatAgent && !manualChatAgentId) {
     if (!apiKey) {
       await setAiReceptionistSettings(ownerId, current.settings).catch(() => null);
       return NextResponse.json(

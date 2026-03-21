@@ -1316,11 +1316,25 @@ model PortalAiOutboundCallCampaign {
   // Optional voice agent id override for this campaign.
   voiceAgentId String?
 
+  // Optional manual override for the voice agent id (support-provided).
+  // When set, use this agent id as-is and do not auto-sync/patch it.
+  manualVoiceAgentId String?
+
   // Optional ElevenLabs agent configuration payload (personality/goal/tone/tools/first message).
   voiceAgentConfigJson Json?
 
+  // Optional selected voice id (applied during agent sync).
+  voiceId String?
+
+  // Optional knowledge base configuration + stored document locators.
+  knowledgeBaseJson Json?
+
   // Optional chat agent id override for this campaign.
   chatAgentId String?
+
+  // Optional manual override for the chat/messages agent id (support-provided).
+  // When set, use this agent id as-is and do not auto-sync/patch it.
+  manualChatAgentId String?
 
   // Optional chat agent configuration payload.
   chatAgentConfigJson Json?

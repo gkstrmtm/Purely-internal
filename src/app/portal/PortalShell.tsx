@@ -869,7 +869,10 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
       >
         <main className="h-full overflow-y-auto">
           {children}
-          <div aria-hidden className="h-[calc(env(safe-area-inset-bottom)+5rem)]" />
+          <div
+            aria-hidden
+            className="h-[calc(env(safe-area-inset-bottom)+5rem)] sm:h-[calc(env(safe-area-inset-bottom)+2rem)]"
+          />
         </main>
         {isAutomationsEditor ? <PortalFloatingTools /> : null}
       </div>
@@ -1727,7 +1730,10 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
             ) : null}
 
             {children}
-            <div aria-hidden className="h-[calc(env(safe-area-inset-bottom)+5rem)]" />
+            <div
+              aria-hidden
+              className="h-[calc(env(safe-area-inset-bottom)+5rem)] sm:h-[calc(env(safe-area-inset-bottom)+2rem)]"
+            />
           </main>
 
           {rewardCampaign && rewardEligible ? (

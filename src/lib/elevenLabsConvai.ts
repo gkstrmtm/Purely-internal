@@ -18,6 +18,21 @@ type ElevenLabsConvaiTool = {
   description?: string;
 };
 
+export type VoiceLibraryVoice = {
+  id: string;
+  name: string;
+  category?: string;
+  description?: string;
+  labels?: Record<string, string>;
+};
+
+export type KnowledgeBaseLocator = {
+  id: string;
+  name: string;
+  type: "file" | "url" | "text" | "folder";
+  usage_mode?: "auto" | "prompt";
+};
+
 function normalizeToolKey(raw: unknown): string {
   const s = typeof raw === "string" ? raw.trim() : "";
   if (!s) return "";
@@ -112,6 +127,18 @@ function toolIdFromTool(t: ElevenLabsConvaiTool): string {
 
 function asRecord(value: unknown): Record<string, any> {
   return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, any>) : {};
+}
+
+function normalizeKnowledgeBaseLocator(raw: unknown): KnowledgeBaseLocator | null {
+  const rec = asRecord(raw);
+  const id = typeof rec.id === "string" ? rec.id.trim().slice(0, 200) : "";
+  const name = typeof rec.name === "string" ? rec.name.trim().slice(0, 200) : "";
+  const typeRaw = typeof rec.type === "string" ? rec.type.trim().toLowerCase() : "";
+  const type = typeRaw === "file" || typeRaw === "url" || typeRaw === "text" || typeRaw === "folder" ? (typeRaw as any) : null;
+  const usageRaw = typeof rec.usage_mode === "string" ? rec.usage_mode.trim().toLowerCase() : "";
+  const usage_mode = usageRaw === "prompt" ? "prompt" : usageRaw === "auto" ? "auto" : undefined;
+  if (!id || !name || !type) return null;
+  return { id, name, type, ...(usage_mode ? { usage_mode } : {}) };
 }
 
 function extractTranscriptFromConversationJson(json: unknown): string {
@@ -768,6 +795,8 @@ export async function patchElevenLabsAgent(opts: {
   firstMessage?: string;
   prompt?: string;
   toolIds?: string[];
+  voiceId?: string;
+  knowledgeBase?: KnowledgeBaseLocator[];
 }): Promise<{ ok: true; agent: any; noop?: true } | { ok: false; error: string; status?: number }> {
   const apiKey = String(opts.apiKey || "").trim();
   const agentId = String(opts.agentId || "").trim();
@@ -778,6 +807,7 @@ export async function patchElevenLabsAgent(opts: {
 
   const firstMessage = typeof opts.firstMessage === "string" ? opts.firstMessage.trim().slice(0, 360) : "";
   const prompt = typeof opts.prompt === "string" ? opts.prompt.trim().slice(0, 6000) : "";
+  const voiceId = typeof opts.voiceId === "string" ? opts.voiceId.trim().slice(0, 200) : "";
   const toolIds = Array.isArray(opts.toolIds)
     ? opts.toolIds
         .map((x) => (typeof x === "string" ? x.trim() : ""))
@@ -788,16 +818,29 @@ export async function patchElevenLabsAgent(opts: {
   const conversationConfig: any = {};
   const agentCfg: any = {};
 
+  const knowledgeBase = Array.isArray(opts.knowledgeBase)
+    ? (opts.knowledgeBase
+        .map((x) => normalizeKnowledgeBaseLocator(x))
+        .filter(Boolean) as KnowledgeBaseLocator[])
+    : [];
+
   if (firstMessage) agentCfg.first_message = firstMessage;
-  if (prompt || toolIds.length) {
+  if (prompt || toolIds.length || knowledgeBase.length) {
     agentCfg.prompt = {
       ...(prompt ? { prompt } : {}),
       ...(toolIds.length ? { tool_ids: toolIds } : {}),
+      ...(knowledgeBase.length ? { knowledge_base: knowledgeBase.slice(0, 120) } : {}),
     };
   }
 
   if (Object.keys(agentCfg).length) {
     conversationConfig.agent = agentCfg;
+  }
+
+  if (voiceId) {
+    conversationConfig.tts = {
+      voice_id: voiceId,
+    };
   }
 
   if (Object.keys(conversationConfig).length) {
@@ -918,6 +961,8 @@ export async function createElevenLabsAgent(opts: {
   firstMessage?: string;
   prompt?: string;
   toolIds?: string[];
+  voiceId?: string;
+  knowledgeBase?: KnowledgeBaseLocator[];
 }): Promise<{ ok: true; agentId: string; agent?: any } | { ok: false; error: string; status?: number }> {
   const apiKey = String(opts.apiKey || "").trim();
   if (!apiKey) return { ok: false, error: "Missing voice agent API key" };
@@ -927,6 +972,7 @@ export async function createElevenLabsAgent(opts: {
   const name = typeof opts.name === "string" ? opts.name.trim().slice(0, 160) : "";
   const firstMessage = typeof opts.firstMessage === "string" ? opts.firstMessage.trim().slice(0, 360) : "";
   const prompt = typeof opts.prompt === "string" ? opts.prompt.trim().slice(0, 6000) : "";
+  const voiceId = typeof opts.voiceId === "string" ? opts.voiceId.trim().slice(0, 200) : "";
   const toolIds = Array.isArray(opts.toolIds)
     ? opts.toolIds
         .map((x) => (typeof x === "string" ? x.trim() : ""))
@@ -939,16 +985,24 @@ export async function createElevenLabsAgent(opts: {
   const agentCfg: any = {};
   if (firstMessage) agentCfg.first_message = firstMessage;
 
-  if (prompt || toolIds.length) {
+  const knowledgeBase = Array.isArray(opts.knowledgeBase)
+    ? (opts.knowledgeBase
+        .map((x) => normalizeKnowledgeBaseLocator(x))
+        .filter(Boolean) as KnowledgeBaseLocator[])
+    : [];
+
+  if (prompt || toolIds.length || knowledgeBase.length) {
     agentCfg.prompt = {
       ...(prompt ? { prompt } : {}),
       ...(toolIds.length ? { tool_ids: toolIds } : {}),
+      ...(knowledgeBase.length ? { knowledge_base: knowledgeBase.slice(0, 120) } : {}),
     };
   }
 
   // ElevenLabs requires `conversation_config` on create.
   body.conversation_config = {
     agent: agentCfg,
+    ...(voiceId ? { tts: { voice_id: voiceId } } : {}),
   };
 
   const url = `https://api.elevenlabs.io/v1/convai/agents/create`;
@@ -989,4 +1043,235 @@ export async function createElevenLabsAgent(opts: {
   } catch {
     return { ok: false, error: "Voice agent create returned an unexpected response." };
   }
+}
+
+export async function listElevenLabsVoices(opts: {
+  apiKey: string;
+}): Promise<{ ok: true; voices: VoiceLibraryVoice[] } | { ok: false; error: string; status?: number }> {
+  const apiKey = String(opts.apiKey || "").trim();
+  if (!apiKey) return { ok: false, error: "Missing voice agent API key" };
+
+  const res = await fetch(`https://api.elevenlabs.io/v1/voices`, {
+    method: "GET",
+    headers: {
+      "xi-api-key": apiKey,
+      accept: "application/json",
+    },
+  });
+
+  const text = await res.text().catch(() => "");
+  if (!res.ok) {
+    return { ok: false, error: `Voice library request failed (${res.status}): ${text.slice(0, 400)}`, status: res.status };
+  }
+
+  let json: any = {};
+  try {
+    json = text.trim() ? JSON.parse(text) : {};
+  } catch {
+    json = {};
+  }
+
+  const rawVoices = Array.isArray(json?.voices) ? json.voices : Array.isArray(json) ? json : [];
+  const voices: VoiceLibraryVoice[] = rawVoices
+    .map((v: any) => {
+      const id =
+        typeof v?.voice_id === "string"
+          ? v.voice_id
+          : typeof v?.voiceId === "string"
+            ? v.voiceId
+            : typeof v?.id === "string"
+              ? v.id
+              : "";
+      const name = typeof v?.name === "string" ? v.name : "";
+      const category = typeof v?.category === "string" ? v.category : undefined;
+      const description = typeof v?.description === "string" ? v.description : undefined;
+      const labels = v?.labels && typeof v.labels === "object" && !Array.isArray(v.labels) ? (v.labels as Record<string, string>) : undefined;
+
+      const cleanedId = String(id || "").trim().slice(0, 200);
+      const cleanedName = String(name || "").trim().slice(0, 200);
+      if (!cleanedId || !cleanedName) return null;
+
+      return {
+        id: cleanedId,
+        name: cleanedName,
+        ...(category ? { category: String(category).trim().slice(0, 80) } : {}),
+        ...(description ? { description: String(description).trim().slice(0, 280) } : {}),
+        ...(labels ? { labels } : {}),
+      } as VoiceLibraryVoice;
+    })
+    .filter(Boolean) as VoiceLibraryVoice[];
+
+  return { ok: true, voices };
+}
+
+export async function synthesizeElevenLabsVoicePreview(opts: {
+  apiKey: string;
+  voiceId: string;
+  text: string;
+}): Promise<{ ok: true; audio: ArrayBuffer; contentType: string } | { ok: false; error: string; status?: number }> {
+  const apiKey = String(opts.apiKey || "").trim();
+  const voiceId = String(opts.voiceId || "").trim();
+  const text = String(opts.text || "").trim();
+  if (!apiKey) return { ok: false, error: "Missing voice agent API key" };
+  if (!voiceId) return { ok: false, error: "Missing voice id" };
+  if (!text) return { ok: false, error: "Missing preview text" };
+
+  const res = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(voiceId)}`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "xi-api-key": apiKey,
+      accept: "audio/mpeg",
+    },
+    body: JSON.stringify({ text: text.slice(0, 500) }),
+  });
+
+  if (!res.ok) {
+    const errText = await res.text().catch(() => "");
+    return { ok: false, error: `Voice preview request failed (${res.status}): ${errText.slice(0, 400)}`, status: res.status };
+  }
+
+  const audio = await res.arrayBuffer();
+  const contentType = String(res.headers.get("content-type") || "audio/mpeg");
+  return { ok: true, audio, contentType };
+}
+
+export async function createElevenLabsKnowledgeBaseUrl(opts: {
+  apiKey: string;
+  url: string;
+  name?: string;
+  enableAutoSync?: boolean;
+  parentFolderId?: string;
+}): Promise<{ ok: true; doc: KnowledgeBaseLocator } | { ok: false; error: string; status?: number }> {
+  const apiKey = String(opts.apiKey || "").trim();
+  const urlVal = String(opts.url || "").trim();
+  if (!apiKey) return { ok: false, error: "Missing voice agent API key" };
+  if (!urlVal) return { ok: false, error: "Missing URL" };
+
+  const body: any = {
+    url: urlVal,
+    ...(typeof opts.name === "string" && opts.name.trim() ? { name: opts.name.trim().slice(0, 200) } : {}),
+    ...(typeof opts.parentFolderId === "string" && opts.parentFolderId.trim() ? { parent_folder_id: opts.parentFolderId.trim().slice(0, 120) } : {}),
+    ...(typeof opts.enableAutoSync === "boolean" ? { enable_auto_sync: opts.enableAutoSync } : {}),
+  };
+
+  const res = await fetch(`https://api.elevenlabs.io/v1/convai/knowledge-base/url`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "xi-api-key": apiKey,
+      accept: "application/json",
+    },
+    body: JSON.stringify(body),
+  });
+
+  const text = await res.text().catch(() => "");
+  if (!res.ok) {
+    return { ok: false, error: `Knowledge base request failed (${res.status}): ${text.slice(0, 400)}`, status: res.status };
+  }
+
+  let json: any = {};
+  try {
+    json = text.trim() ? JSON.parse(text) : {};
+  } catch {
+    json = {};
+  }
+
+  const id = typeof json?.id === "string" ? json.id : typeof json?.document_id === "string" ? json.document_id : "";
+  const name = typeof json?.name === "string" ? json.name : typeof opts.name === "string" ? opts.name : urlVal;
+  const cleanedId = String(id || "").trim().slice(0, 200);
+  const cleanedName = String(name || "").trim().slice(0, 200);
+  if (!cleanedId) return { ok: false, error: "Knowledge base URL create returned an unexpected response." };
+  return { ok: true, doc: { id: cleanedId, name: cleanedName || urlVal.slice(0, 200), type: "url", usage_mode: "auto" } };
+}
+
+export async function createElevenLabsKnowledgeBaseText(opts: {
+  apiKey: string;
+  text: string;
+  name?: string;
+  parentFolderId?: string;
+}): Promise<{ ok: true; doc: KnowledgeBaseLocator } | { ok: false; error: string; status?: number }> {
+  const apiKey = String(opts.apiKey || "").trim();
+  const textVal = String(opts.text || "").trim();
+  if (!apiKey) return { ok: false, error: "Missing voice agent API key" };
+  if (!textVal) return { ok: false, error: "Missing text" };
+
+  const body: any = {
+    text: textVal.slice(0, 20000),
+    ...(typeof opts.name === "string" && opts.name.trim() ? { name: opts.name.trim().slice(0, 200) } : {}),
+    ...(typeof opts.parentFolderId === "string" && opts.parentFolderId.trim() ? { parent_folder_id: opts.parentFolderId.trim().slice(0, 120) } : {}),
+  };
+
+  const res = await fetch(`https://api.elevenlabs.io/v1/convai/knowledge-base/text`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "xi-api-key": apiKey,
+      accept: "application/json",
+    },
+    body: JSON.stringify(body),
+  });
+
+  const text = await res.text().catch(() => "");
+  if (!res.ok) {
+    return { ok: false, error: `Knowledge base request failed (${res.status}): ${text.slice(0, 400)}`, status: res.status };
+  }
+
+  let json: any = {};
+  try {
+    json = text.trim() ? JSON.parse(text) : {};
+  } catch {
+    json = {};
+  }
+
+  const id = typeof json?.id === "string" ? json.id : typeof json?.document_id === "string" ? json.document_id : "";
+  const name = typeof json?.name === "string" ? json.name : typeof opts.name === "string" ? opts.name : "Notes";
+  const cleanedId = String(id || "").trim().slice(0, 200);
+  const cleanedName = String(name || "").trim().slice(0, 200);
+  if (!cleanedId) return { ok: false, error: "Knowledge base text create returned an unexpected response." };
+  return { ok: true, doc: { id: cleanedId, name: cleanedName || "Notes", type: "text", usage_mode: "auto" } };
+}
+
+export async function createElevenLabsKnowledgeBaseFile(opts: {
+  apiKey: string;
+  file: File;
+  name?: string;
+  parentFolderId?: string;
+}): Promise<{ ok: true; doc: KnowledgeBaseLocator } | { ok: false; error: string; status?: number }> {
+  const apiKey = String(opts.apiKey || "").trim();
+  if (!apiKey) return { ok: false, error: "Missing voice agent API key" };
+  if (!opts.file) return { ok: false, error: "Missing file" };
+
+  const fd = new FormData();
+  fd.set("file", opts.file);
+  if (typeof opts.name === "string" && opts.name.trim()) fd.set("name", opts.name.trim().slice(0, 200));
+  if (typeof opts.parentFolderId === "string" && opts.parentFolderId.trim()) fd.set("parent_folder_id", opts.parentFolderId.trim().slice(0, 120));
+
+  const res = await fetch(`https://api.elevenlabs.io/v1/convai/knowledge-base/file`, {
+    method: "POST",
+    headers: {
+      "xi-api-key": apiKey,
+      accept: "application/json",
+    },
+    body: fd,
+  });
+
+  const text = await res.text().catch(() => "");
+  if (!res.ok) {
+    return { ok: false, error: `Knowledge base request failed (${res.status}): ${text.slice(0, 400)}`, status: res.status };
+  }
+
+  let json: any = {};
+  try {
+    json = text.trim() ? JSON.parse(text) : {};
+  } catch {
+    json = {};
+  }
+
+  const id = typeof json?.id === "string" ? json.id : typeof json?.document_id === "string" ? json.document_id : "";
+  const name = typeof json?.name === "string" ? json.name : typeof opts.name === "string" ? opts.name : (opts.file as any)?.name;
+  const cleanedId = String(id || "").trim().slice(0, 200);
+  const cleanedName = String(name || "").trim().slice(0, 200) || "Uploaded file";
+  if (!cleanedId) return { ok: false, error: "Knowledge base file upload returned an unexpected response." };
+  return { ok: true, doc: { id: cleanedId, name: cleanedName, type: "file", usage_mode: "auto" } };
 }

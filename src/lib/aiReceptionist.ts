@@ -50,11 +50,17 @@ export type AiReceptionistSettings = {
   // Messaging/chat agent (used by portal tools like funnels; separate from voice).
   chatAgentId: string;
 
+  // Optional manual override for the messaging/chat agent id (support-provided).
+  // When set, the system should use this agent id as-is.
+  manualChatAgentId: string;
+
   // Optional manual override for the voice agent id (support-provided).
   // When set, the system should use this agent id as-is.
   manualAgentId: string;
 
   voiceAgentId: string;
+  // Optional selected voice id (applied during agent sync).
+  voiceId: string;
   voiceAgentApiKey: string | null;
 };
 
@@ -132,9 +138,12 @@ export function parseAiReceptionistSettings(
 
     chatAgentId: prev?.chatAgentId ?? "",
 
+    manualChatAgentId: prev?.manualChatAgentId ?? "",
+
     manualAgentId: prev?.manualAgentId ?? "",
 
     voiceAgentId: "",
+    voiceId: prev?.voiceId ?? "",
     voiceAgentApiKey: prev?.voiceAgentApiKey ?? null,
   };
 
@@ -194,6 +203,16 @@ export function parseAiReceptionistSettings(
           : "";
   const chatAgentId = String(chatAgentIdRaw || "").trim().slice(0, 120) || base.chatAgentId;
 
+  const manualChatAgentIdRaw =
+    typeof (rec as any).manualChatAgentId === "string"
+      ? (rec as any).manualChatAgentId
+      : typeof (rec as any).manualMessagingAgentId === "string"
+        ? (rec as any).manualMessagingAgentId
+        : typeof (rec as any).manualSmsAgentId === "string"
+          ? (rec as any).manualSmsAgentId
+          : "";
+  const manualChatAgentId = String(manualChatAgentIdRaw || "").trim().slice(0, 120) || base.manualChatAgentId;
+
   const manualAgentIdRaw =
     typeof (rec as any).manualAgentId === "string"
       ? (rec as any).manualAgentId
@@ -209,6 +228,9 @@ export function parseAiReceptionistSettings(
       ? rec.voiceAgentId
       : (typeof rec.elevenLabsAgentId === "string" ? rec.elevenLabsAgentId : "");
   const voiceAgentId = voiceAgentIdRaw.trim().slice(0, 120) || base.voiceAgentId;
+
+  const voiceIdRaw = typeof (rec as any).voiceId === "string" ? String((rec as any).voiceId) : "";
+  const voiceId = voiceIdRaw.trim().slice(0, 200) || base.voiceId;
 
   let voiceAgentApiKey = base.voiceAgentApiKey;
   const voiceAgentApiKeyRaw =
@@ -236,8 +258,10 @@ export function parseAiReceptionistSettings(
     aiCanTransferToHuman,
     forwardToPhoneE164,
     chatAgentId,
+    manualChatAgentId,
     manualAgentId,
     voiceAgentId,
+    voiceId,
     voiceAgentApiKey,
   };
 }

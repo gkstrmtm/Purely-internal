@@ -29,6 +29,25 @@ type MessageOutcomeTagging = {
   onSkippedTagIds: string[];
 };
 
+type KnowledgeBaseLocator = {
+  id: string;
+  name: string;
+  type: "file" | "url" | "text" | "folder";
+  usage_mode?: "auto" | "prompt";
+};
+
+type CampaignKnowledgeBase = {
+  version: 1;
+  seedUrl: string;
+  crawlDepth: number;
+  maxUrls: number;
+  text: string;
+  locators?: KnowledgeBaseLocator[];
+  lastSyncedAtIso?: string;
+  lastSyncError?: string;
+  updatedAtIso?: string;
+};
+
 type Campaign = {
   id: string;
   name: string;
@@ -36,8 +55,12 @@ type Campaign = {
   audienceTagIds: string[];
   chatAudienceTagIds: string[];
   voiceAgentId: string;
+  manualVoiceAgentId: string;
   voiceAgentConfig: VoiceAgentConfig;
+  voiceId: string | null;
+  knowledgeBase: CampaignKnowledgeBase | null;
   chatAgentId: string;
+  manualChatAgentId: string;
   chatAgentConfig: VoiceAgentConfig;
   messageChannelPolicy: "SMS" | "EMAIL" | "BOTH";
   callOutcomeTagging: CallOutcomeTagging;
@@ -56,6 +79,19 @@ type VoiceTool = {
   description: string;
   toolId: string | null;
 };
+
+type VoiceLibraryVoice = {
+  id: string;
+  name: string;
+  category?: string;
+  description?: string;
+};
+
+type ApiGetVoiceLibraryVoicesResponse =
+  | { ok: true; voices: VoiceLibraryVoice[] }
+  | { ok: false; error?: string };
+
+type ApiVoicePreviewResponse = Blob;
 
 type ApiGetVoiceToolsResponse =
   | { ok: true; tools: VoiceTool[]; apiKeyConfigured?: boolean }
@@ -404,6 +440,16 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
   const [voiceTools, setVoiceTools] = useState<VoiceTool[]>([]);
   const [voiceToolsApiKeyConfigured, setVoiceToolsApiKeyConfigured] = useState(true);
 
+  const [voiceLibraryVoices, setVoiceLibraryVoices] = useState<VoiceLibraryVoice[]>([]);
+  const [voiceLibraryLoading, setVoiceLibraryLoading] = useState(false);
+  const [voicePreviewText, setVoicePreviewText] = useState("Hi! This is a voice preview.");
+  const [voicePreviewBusy, setVoicePreviewBusy] = useState(false);
+  const voicePreviewAudioRef = useRef<HTMLAudioElement | null>(null);
+  const voicePreviewUrlRef = useRef<string | null>(null);
+
+  const [knowledgeBaseSyncBusy, setKnowledgeBaseSyncBusy] = useState(false);
+  const [knowledgeBaseUploadBusy, setKnowledgeBaseUploadBusy] = useState(false);
+
   const [callsAgentSyncRequired, setCallsAgentSyncRequired] = useState(false);
   const [callsAgentSyncedAtIso, setCallsAgentSyncedAtIso] = useState<string | null>(null);
 
@@ -424,6 +470,15 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const selected = useMemo(() => campaigns.find((c) => c.id === selectedId) ?? null, [campaigns, selectedId]);
+
+  const callsManualAgentId = String(selected?.manualVoiceAgentId || "").trim();
+  const messagesManualAgentId = String(selected?.manualChatAgentId || "").trim();
+
+  const callsManualActive = Boolean(callsManualAgentId);
+  const messagesManualActive = Boolean(messagesManualAgentId);
+
+  const callsEffectiveAgentId = callsManualAgentId || String(selected?.voiceAgentId || "").trim();
+  const messagesEffectiveAgentId = messagesManualAgentId || String(selected?.chatAgentId || "").trim();
 
   const [callsToolsPreset, setCallsToolsPreset] = useState<"none" | "recommended" | "all">("recommended");
 
@@ -1012,6 +1067,92 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
     };
   }, []);
 
+  const loadVoiceLibrary = useCallback(async () => {
+    if (voiceLibraryLoading) return;
+    setVoiceLibraryLoading(true);
+    try {
+      const res = await fetch("/api/portal/voice-agent/voices", { cache: "no-store" });
+      const json = (await res.json().catch(() => null)) as ApiGetVoiceLibraryVoicesResponse | null;
+      if (!res.ok || !json || (json as any).ok !== true) {
+        setVoiceLibraryVoices([]);
+        return;
+      }
+
+      const voices = Array.isArray((json as any).voices) ? ((json as any).voices as VoiceLibraryVoice[]) : [];
+      const cleaned = voices
+        .map((v) => ({
+          id: String((v as any)?.id || "").trim(),
+          name: String((v as any)?.name || "").trim(),
+          category: String((v as any)?.category || "").trim() || undefined,
+          description: String((v as any)?.description || "").trim() || undefined,
+        }))
+        .filter((v) => Boolean(v.id && v.name))
+        .slice(0, 200);
+      setVoiceLibraryVoices(cleaned);
+    } finally {
+      setVoiceLibraryLoading(false);
+    }
+  }, [voiceLibraryLoading]);
+
+  const playVoicePreview = useCallback(
+    async (voiceId: string) => {
+      const id = String(voiceId || "").trim();
+      if (!id) {
+        toast.error("Pick a voice first");
+        return;
+      }
+      if (voicePreviewBusy) return;
+      setVoicePreviewBusy(true);
+
+      try {
+        const text = String(voicePreviewText || "").trim() || "Hi! This is a voice preview.";
+        const res = await fetch("/api/portal/voice-agent/voices/preview", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ voiceId: id, text }),
+        });
+
+        if (!res.ok) {
+          const json = (await res.json().catch(() => null)) as any;
+          throw new Error(String(json?.error || "Preview failed"));
+        }
+
+        const blob = (await res.blob().catch(() => null)) as ApiVoicePreviewResponse | null;
+        if (!blob) throw new Error("Preview failed");
+
+        const prev = voicePreviewUrlRef.current;
+        if (prev) {
+          URL.revokeObjectURL(prev);
+          voicePreviewUrlRef.current = null;
+        }
+
+        const url = URL.createObjectURL(blob);
+        voicePreviewUrlRef.current = url;
+        const el = voicePreviewAudioRef.current;
+        if (el) {
+          el.src = url;
+          try {
+            await el.play();
+          } catch {
+            // ignore autoplay restrictions
+          }
+        }
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : "Preview failed");
+      } finally {
+        setVoicePreviewBusy(false);
+      }
+    },
+    [toast, voicePreviewBusy, voicePreviewText],
+  );
+
+  useEffect(() => {
+    return () => {
+      const prev = voicePreviewUrlRef.current;
+      if (prev) URL.revokeObjectURL(prev);
+    };
+  }, []);
+
   useEffect(() => {
     if (error) toast.error(error);
   }, [error, toast]);
@@ -1036,9 +1177,36 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
         throw new Error((tagsJson as any)?.error || "Failed to load tags");
       }
 
-      const nextCampaigns = Array.isArray((campaignsJson as any).campaigns)
-        ? ((campaignsJson as any).campaigns as Campaign[])
+      const nextCampaignsRaw = Array.isArray((campaignsJson as any).campaigns)
+        ? ((campaignsJson as any).campaigns as any[])
         : [];
+
+      const nextCampaigns: Campaign[] = nextCampaignsRaw.map((c: any) => {
+        const voiceId = typeof c?.voiceId === "string" ? c.voiceId.trim() : "";
+        const kb = c?.knowledgeBase && typeof c.knowledgeBase === "object" ? (c.knowledgeBase as any) : null;
+        const locators = kb && Array.isArray(kb.locators) ? kb.locators : undefined;
+
+        return {
+          ...c,
+          voiceAgentConfig: { ...DEFAULT_VOICE_AGENT_CONFIG, ...(c.voiceAgentConfig ?? {}) },
+          chatAgentConfig: { ...DEFAULT_VOICE_AGENT_CONFIG, ...(c.chatAgentConfig ?? {}) },
+          voiceId: voiceId || null,
+          knowledgeBase:
+            kb && typeof kb === "object"
+              ? {
+                  version: 1,
+                  seedUrl: typeof kb.seedUrl === "string" ? kb.seedUrl : "",
+                  crawlDepth: typeof kb.crawlDepth === "number" && Number.isFinite(kb.crawlDepth) ? kb.crawlDepth : 0,
+                  maxUrls: typeof kb.maxUrls === "number" && Number.isFinite(kb.maxUrls) ? kb.maxUrls : 0,
+                  text: typeof kb.text === "string" ? kb.text : "",
+                  ...(Array.isArray(locators) ? { locators } : {}),
+                  ...(typeof kb.lastSyncedAtIso === "string" ? { lastSyncedAtIso: kb.lastSyncedAtIso } : {}),
+                  ...(typeof kb.lastSyncError === "string" ? { lastSyncError: kb.lastSyncError } : {}),
+                  ...(typeof kb.updatedAtIso === "string" ? { updatedAtIso: kb.updatedAtIso } : {}),
+                }
+              : null,
+        } as Campaign;
+      });
 
       setCampaigns(nextCampaigns);
       setTags(Array.isArray((tagsJson as any).tags) ? ((tagsJson as any).tags as ContactTag[]) : []);
@@ -1053,6 +1221,10 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
       setLoading(false);
     }
   }, []);
+
+  useEffect(() => {
+    void loadVoiceLibrary();
+  }, [loadVoiceLibrary]);
 
   useEffect(() => {
     void loadAll();
@@ -1133,11 +1305,21 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
     patch: Partial<
       Pick<
         Campaign,
-        "name" | "status" | "audienceTagIds" | "chatAudienceTagIds" | "voiceAgentId" | "chatAgentId" | "messageChannelPolicy"
+        | "name"
+        | "status"
+        | "audienceTagIds"
+        | "chatAudienceTagIds"
+        | "voiceAgentId"
+        | "voiceId"
+        | "manualVoiceAgentId"
+        | "chatAgentId"
+        | "manualChatAgentId"
+        | "messageChannelPolicy"
       >
     > & {
       voiceAgentConfig?: Partial<VoiceAgentConfig>;
       chatAgentConfig?: Partial<VoiceAgentConfig>;
+      knowledgeBase?: CampaignKnowledgeBase | null;
       callOutcomeTagging?: Partial<CallOutcomeTagging>;
       messageOutcomeTagging?: Partial<MessageOutcomeTagging>;
     },
@@ -1145,15 +1327,35 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
     if (!selected) return;
 
     // Hint UX: when agent-related fields change, users must sync to apply changes to their live agent.
-    if (patch.voiceAgentId !== undefined || patch.voiceAgentConfig !== undefined) {
+    const nextManualCalls =
+      patch.manualVoiceAgentId !== undefined
+        ? String(patch.manualVoiceAgentId || "").trim()
+        : String(selected.manualVoiceAgentId || "").trim();
+    const callsManualActive = Boolean(nextManualCalls);
+
+    if (patch.manualVoiceAgentId !== undefined && callsManualActive) {
+      setCallsAgentSyncRequired(false);
+      setCallsAgentSyncedAtIso(null);
+    } else if (
+      !callsManualActive &&
+      (patch.voiceAgentId !== undefined || patch.voiceAgentConfig !== undefined || patch.voiceId !== undefined)
+    ) {
       setCallsAgentSyncRequired(true);
       setCallsAgentSyncedAtIso(null);
     }
 
-    if (
-      patch.chatAgentId !== undefined ||
-      patch.chatAgentConfig !== undefined ||
-      patch.messageChannelPolicy !== undefined
+    const nextManualMessages =
+      patch.manualChatAgentId !== undefined
+        ? String(patch.manualChatAgentId || "").trim()
+        : String(selected.manualChatAgentId || "").trim();
+    const messagesManualActive = Boolean(nextManualMessages);
+
+    if (patch.manualChatAgentId !== undefined && messagesManualActive) {
+      setMessagesAgentSyncRequired(false);
+      setMessagesAgentSyncedAtIso(null);
+    } else if (
+      !messagesManualActive &&
+      (patch.chatAgentId !== undefined || patch.chatAgentConfig !== undefined || patch.messageChannelPolicy !== undefined)
     ) {
       setMessagesAgentSyncRequired(true);
       setMessagesAgentSyncedAtIso(null);
@@ -1187,6 +1389,10 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
 
   async function syncCallsAgent() {
     if (!selected) return;
+    if (callsManualActive) {
+      toast.error("Manual agent ID is set for Calls. Sync is disabled.");
+      return;
+    }
     if (busy) return;
     setBusy(true);
     setError(null);
@@ -1219,6 +1425,10 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
 
   async function syncMessagesAgent() {
     if (!selected) return;
+    if (messagesManualActive) {
+      toast.error("Manual agent ID is set for Messages. Sync is disabled.");
+      return;
+    }
     if (busy) return;
     setBusy(true);
     setError(null);
@@ -1256,6 +1466,7 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
     await updateCampaign({
       messageChannelPolicy: selected.messageChannelPolicy,
       chatAgentId: (selected.chatAgentId ?? "").trim(),
+      manualChatAgentId: (selected.manualChatAgentId ?? "").trim(),
       chatAgentConfig: selected.chatAgentConfig ?? {},
     });
 
@@ -1268,10 +1479,83 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
 
     await updateCampaign({
       voiceAgentId: (selected.voiceAgentId ?? "").trim(),
+      voiceId: typeof selected.voiceId === "string" ? selected.voiceId.trim() : null,
+      manualVoiceAgentId: (selected.manualVoiceAgentId ?? "").trim(),
       voiceAgentConfig: selected.voiceAgentConfig ?? {},
+      knowledgeBase: selected.knowledgeBase ?? null,
     });
 
     toast.success("Saved");
+  }
+
+  function ensureKnowledgeBase(kb: CampaignKnowledgeBase | null): CampaignKnowledgeBase {
+    const base: CampaignKnowledgeBase = {
+      version: 1,
+      seedUrl: "",
+      crawlDepth: 0,
+      maxUrls: 0,
+      text: "",
+      locators: [],
+    };
+    if (!kb) return base;
+    return {
+      ...base,
+      ...kb,
+      version: 1,
+      seedUrl: String(kb.seedUrl || ""),
+      crawlDepth: Number.isFinite(kb.crawlDepth) ? Math.max(0, Math.min(3, Math.floor(kb.crawlDepth))) : 0,
+      maxUrls: Number.isFinite(kb.maxUrls) ? Math.max(0, Math.min(100, Math.floor(kb.maxUrls))) : 0,
+      text: String(kb.text || ""),
+      locators: Array.isArray(kb.locators) ? kb.locators : [],
+    };
+  }
+
+  async function syncKnowledgeBase() {
+    if (!selected?.id) return;
+    if (knowledgeBaseSyncBusy || busy) return;
+    setKnowledgeBaseSyncBusy(true);
+    setError(null);
+    try {
+      const res = await fetch(
+        `/api/portal/ai-outbound-calls/campaigns/${encodeURIComponent(selected.id)}/knowledge-base/sync`,
+        { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({}) },
+      );
+      const json = (await res.json().catch(() => null)) as any;
+      if (!res.ok || !json || json.ok !== true) throw new Error(json?.error || "Sync failed");
+      const count = Array.isArray(json.locators) ? json.locators.length : 0;
+      toast.success(count ? `Knowledge base synced (${count} docs)` : "Knowledge base synced");
+      if (Array.isArray(json.errors) && json.errors.length) toast.error(String(json.errors[0] || ""));
+      await loadAll();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Sync failed");
+    } finally {
+      setKnowledgeBaseSyncBusy(false);
+    }
+  }
+
+  async function uploadKnowledgeBaseFile(file: File) {
+    if (!selected?.id) return;
+    if (knowledgeBaseUploadBusy || busy) return;
+    if (!(file instanceof File)) return;
+    setKnowledgeBaseUploadBusy(true);
+    setError(null);
+    try {
+      const fd = new FormData();
+      fd.set("file", file);
+      fd.set("name", file.name || "");
+      const res = await fetch(
+        `/api/portal/ai-outbound-calls/campaigns/${encodeURIComponent(selected.id)}/knowledge-base/upload`,
+        { method: "POST", body: fd },
+      );
+      const json = (await res.json().catch(() => null)) as any;
+      if (!res.ok || !json || json.ok !== true) throw new Error(json?.error || "Upload failed");
+      toast.success("File added to knowledge base");
+      await loadAll();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Upload failed");
+    } finally {
+      setKnowledgeBaseUploadBusy(false);
+    }
   }
 
   function extractFirstJsonObjectFromText(text: string): any | null {
@@ -2647,20 +2931,301 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
                             </button>
                             <button
                               type="button"
-                              disabled={busy}
+                              disabled={busy || callsManualActive}
                               onClick={syncCallsAgent}
                               className={classNames(
                                 "rounded-2xl px-4 py-2 text-xs font-semibold",
-                                busy
+                                busy || callsManualActive
                                   ? "bg-zinc-200 text-zinc-600"
                                   : "bg-[color:var(--color-brand-blue)] text-white hover:opacity-95",
                               )}
                               title={
-                                "Sync calls agent"
+                                callsManualActive
+                                  ? "Sync is disabled while a manual Calls agent ID is set"
+                                  : "Sync calls agent"
                               }
                             >
                               {busy ? "Syncing…" : "Sync calls agent"}
                             </button>
+                          </div>
+                        </div>
+
+                        <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
+                          <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                            <div>
+                              <div className="text-xs font-semibold text-zinc-700">Voice</div>
+                              <div className="mt-1 text-[11px] text-zinc-600">
+                                Pick a voice for the calls agent. Changes apply after you sync the calls agent.
+                              </div>
+                            </div>
+                            <button
+                              type="button"
+                              disabled={busy || voiceLibraryLoading}
+                              onClick={() => void loadVoiceLibrary()}
+                              className={classNames(
+                                "rounded-xl border px-3 py-2 text-xs font-semibold",
+                                busy || voiceLibraryLoading
+                                  ? "border-zinc-200 bg-zinc-200 text-zinc-600"
+                                  : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50",
+                              )}
+                            >
+                              {voiceLibraryLoading ? "Loading…" : "Refresh voices"}
+                            </button>
+                          </div>
+
+                          <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                            <div>
+                              <div className="text-xs font-semibold text-zinc-700">Selected voice</div>
+                              <PortalSelectDropdown<string>
+                                value={selected.voiceId ?? ""}
+                                onChange={(voiceId) => {
+                                  const v = String(voiceId || "").trim();
+                                  setCampaigns((prev) =>
+                                    prev.map((c) => (c.id === selected.id ? { ...c, voiceId: v || null } : c)),
+                                  );
+                                  updateCampaign({ voiceId: v || null });
+                                }}
+                                disabled={busy}
+                                placeholder={voiceLibraryLoading ? "Loading voices…" : "Default voice"}
+                                options={[
+                                  { value: "", label: "Default voice" },
+                                  ...voiceLibraryVoices.map((v) => ({
+                                    value: v.id,
+                                    label: v.category ? `${v.name} (${v.category})` : v.name,
+                                    hint: v.description || "",
+                                  })),
+                                ]}
+                                buttonClassName="flex h-9 w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-2 text-xs hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
+                              />
+                              {selected.voiceId ? (
+                                <div className="mt-1 text-[11px] text-zinc-500">Voice ID: {selected.voiceId}</div>
+                              ) : (
+                                <div className="mt-1 text-[11px] text-zinc-500">Using the default voice.</div>
+                              )}
+                            </div>
+
+                            <div>
+                              <div className="text-xs font-semibold text-zinc-700">Preview</div>
+                              <div className="mt-1 flex gap-2">
+                                <input
+                                  value={voicePreviewText}
+                                  onChange={(e) => setVoicePreviewText(e.target.value)}
+                                  disabled={busy}
+                                  className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs"
+                                  placeholder="Type preview text…"
+                                />
+                                <button
+                                  type="button"
+                                  disabled={busy || voicePreviewBusy || !selected.voiceId}
+                                  onClick={() => void playVoicePreview(String(selected.voiceId || ""))}
+                                  className={classNames(
+                                    "shrink-0 rounded-xl px-3 py-2 text-xs font-semibold",
+                                    busy || voicePreviewBusy || !selected.voiceId
+                                      ? "bg-zinc-200 text-zinc-600"
+                                      : "bg-[color:var(--color-brand-blue)] text-white hover:opacity-95",
+                                  )}
+                                >
+                                  {voicePreviewBusy ? "Generating…" : "Play"}
+                                </button>
+                              </div>
+                              <audio ref={voicePreviewAudioRef} controls className="mt-2 w-full" preload="none" />
+                              {!selected.voiceId ? (
+                                <div className="mt-1 text-[11px] text-zinc-500">Select a voice to preview.</div>
+                              ) : null}
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
+                          <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                            <div>
+                              <div className="text-xs font-semibold text-zinc-700">Knowledge base</div>
+                              <div className="mt-1 text-[11px] text-zinc-600">
+                                Add a website, notes, or files. Use Sync to ingest/update documents.
+                              </div>
+                            </div>
+                            <button
+                              type="button"
+                              disabled={busy || knowledgeBaseSyncBusy}
+                              onClick={() => void syncKnowledgeBase()}
+                              className={classNames(
+                                "rounded-xl px-3 py-2 text-xs font-semibold",
+                                busy || knowledgeBaseSyncBusy
+                                  ? "bg-zinc-200 text-zinc-600"
+                                  : "bg-[color:var(--color-brand-blue)] text-white hover:opacity-95",
+                              )}
+                            >
+                              {knowledgeBaseSyncBusy ? "Syncing…" : "Sync knowledge base"}
+                            </button>
+                          </div>
+
+                          <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                            <div>
+                              <div className="text-xs font-semibold text-zinc-700">Seed URL</div>
+                              <input
+                                value={ensureKnowledgeBase(selected.knowledgeBase).seedUrl}
+                                onChange={(e) => {
+                                  const seedUrl = e.target.value;
+                                  setCampaigns((prev) =>
+                                    prev.map((c) =>
+                                      c.id === selected.id
+                                        ? { ...c, knowledgeBase: { ...ensureKnowledgeBase(c.knowledgeBase), seedUrl } }
+                                        : c,
+                                    ),
+                                  );
+                                }}
+                                onBlur={() => updateCampaign({ knowledgeBase: ensureKnowledgeBase(selected.knowledgeBase) })}
+                                disabled={busy}
+                                placeholder="https://example.com"
+                                className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                              />
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-3">
+                              <div>
+                                <div className="text-xs font-semibold text-zinc-700">Crawl depth</div>
+                                <input
+                                  type="number"
+                                  min={0}
+                                  max={3}
+                                  value={ensureKnowledgeBase(selected.knowledgeBase).crawlDepth}
+                                  onChange={(e) => {
+                                    const crawlDepth = Number(e.target.value || 0);
+                                    setCampaigns((prev) =>
+                                      prev.map((c) =>
+                                        c.id === selected.id
+                                          ? { ...c, knowledgeBase: { ...ensureKnowledgeBase(c.knowledgeBase), crawlDepth } }
+                                          : c,
+                                      ),
+                                    );
+                                  }}
+                                  onBlur={() => updateCampaign({ knowledgeBase: ensureKnowledgeBase(selected.knowledgeBase) })}
+                                  disabled={busy}
+                                  className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                                />
+                              </div>
+                              <div>
+                                <div className="text-xs font-semibold text-zinc-700">Max URLs</div>
+                                <input
+                                  type="number"
+                                  min={0}
+                                  max={100}
+                                  value={ensureKnowledgeBase(selected.knowledgeBase).maxUrls}
+                                  onChange={(e) => {
+                                    const maxUrls = Number(e.target.value || 0);
+                                    setCampaigns((prev) =>
+                                      prev.map((c) =>
+                                        c.id === selected.id
+                                          ? { ...c, knowledgeBase: { ...ensureKnowledgeBase(c.knowledgeBase), maxUrls } }
+                                          : c,
+                                      ),
+                                    );
+                                  }}
+                                  onBlur={() => updateCampaign({ knowledgeBase: ensureKnowledgeBase(selected.knowledgeBase) })}
+                                  disabled={busy}
+                                  className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                                />
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="mt-3">
+                            <div className="flex items-center justify-between gap-3">
+                              <div className="text-xs font-semibold text-zinc-700">Notes</div>
+                              <label className="text-[11px] text-zinc-600">
+                                <input
+                                  type="file"
+                                  className="hidden"
+                                  disabled={busy || knowledgeBaseUploadBusy}
+                                  onChange={(e) => {
+                                    const file = e.target.files?.[0] || null;
+                                    e.currentTarget.value = "";
+                                    if (file) void uploadKnowledgeBaseFile(file);
+                                  }}
+                                />
+                                <span
+                                  className={classNames(
+                                    "inline-flex cursor-pointer items-center rounded-xl border px-3 py-2 text-xs font-semibold",
+                                    busy || knowledgeBaseUploadBusy
+                                      ? "border-zinc-200 bg-zinc-200 text-zinc-600"
+                                      : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50",
+                                  )}
+                                >
+                                  {knowledgeBaseUploadBusy ? "Uploading…" : "Upload file"}
+                                </span>
+                              </label>
+                            </div>
+                            <textarea
+                              value={ensureKnowledgeBase(selected.knowledgeBase).text}
+                              onChange={(e) => {
+                                const text = e.target.value;
+                                setCampaigns((prev) =>
+                                  prev.map((c) =>
+                                    c.id === selected.id
+                                      ? { ...c, knowledgeBase: { ...ensureKnowledgeBase(c.knowledgeBase), text } }
+                                      : c,
+                                  ),
+                                );
+                              }}
+                              onBlur={() => updateCampaign({ knowledgeBase: ensureKnowledgeBase(selected.knowledgeBase) })}
+                              disabled={busy}
+                              rows={4}
+                              placeholder="Add any important context, FAQs, pricing notes…"
+                              className="mt-2 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                            />
+                          </div>
+
+                          <div className="mt-3 text-[11px] text-zinc-600">
+                            {(() => {
+                              const kb = selected.knowledgeBase;
+                              const count = kb && Array.isArray(kb.locators) ? kb.locators.length : 0;
+                              if (!kb) return "No knowledge base configured yet.";
+                              return (
+                                <div>
+                                  <div>Attached docs: {count || 0}</div>
+                                  {kb.lastSyncedAtIso ? <div>Last synced: {formatWhen(kb.lastSyncedAtIso)}</div> : null}
+                                  {kb.lastSyncError ? <div className="mt-1 text-amber-700">Sync warning: {kb.lastSyncError}</div> : null}
+                                </div>
+                              );
+                            })()}
+                          </div>
+                        </div>
+
+                        <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
+                          <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                            <div>
+                              <div className="text-xs font-semibold text-zinc-700">Advanced</div>
+                              <div className="mt-1 text-[11px] text-zinc-600">
+                                Optional manual override. When set, we use this agent ID as-is and disable Sync.
+                              </div>
+                            </div>
+                            {callsManualActive ? (
+                              <span className="inline-flex items-center rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-800 ring-1 ring-amber-200">
+                                Manual override active
+                              </span>
+                            ) : null}
+                          </div>
+
+                          <div className="mt-3">
+                            <div className="text-xs font-semibold text-zinc-700">Manual agent ID</div>
+                            <input
+                              value={selected.manualVoiceAgentId ?? ""}
+                              onChange={(e) => {
+                                const manualVoiceAgentId = e.target.value;
+                                setCampaigns((prev) =>
+                                  prev.map((c) => (c.id === selected.id ? { ...c, manualVoiceAgentId } : c)),
+                                );
+                              }}
+                              onBlur={() =>
+                                updateCampaign({ manualVoiceAgentId: (selected.manualVoiceAgentId ?? "").trim() })
+                              }
+                              disabled={busy}
+                              placeholder="Paste an agent ID (support-provided)"
+                              className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                            />
+                            <div className="mt-1 text-[11px] text-zinc-500">
+                              Effective agent ID: {callsEffectiveAgentId || "(none)"}
+                            </div>
                           </div>
                         </div>
 
@@ -2988,16 +3553,20 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
                               type="button"
                               className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
                               onClick={() => void syncCallsAgent()}
-                              disabled={busy}
-                              title="Ensure the agent is created/synced before testing"
+                              disabled={busy || callsManualActive}
+                              title={
+                                callsManualActive
+                                  ? "Sync is disabled while a manual Calls agent ID is set"
+                                  : "Ensure the agent is created/synced before testing"
+                              }
                             >
                               {busy ? "Syncing…" : "Sync first"}
                             </button>
                           </div>
 
-                          {selected.voiceAgentId ? (
+                          {callsEffectiveAgentId ? (
                             <div className="mt-3">
-                              <InlineElevenLabsAgentTester agentId={selected.voiceAgentId} />
+                              <InlineElevenLabsAgentTester agentId={callsEffectiveAgentId} />
                             </div>
                           ) : (
                             <div className="mt-3 text-xs text-zinc-600">
@@ -3048,18 +3617,56 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
                             </button>
                             <button
                               type="button"
-                              disabled={busy}
+                              disabled={busy || messagesManualActive}
                               onClick={syncMessagesAgent}
                               className={classNames(
                                 "rounded-2xl px-4 py-2 text-xs font-semibold",
-                                busy
+                                busy || messagesManualActive
                                   ? "bg-zinc-200 text-zinc-600"
                                   : "bg-[color:var(--color-brand-blue)] text-white hover:opacity-95",
                               )}
-                              title="Sync messages agent"
+                              title={
+                                messagesManualActive
+                                  ? "Sync is disabled while a manual Messages agent ID is set"
+                                  : "Sync messages agent"
+                              }
                             >
                               {busy ? "Syncing…" : "Sync messages agent"}
                             </button>
+                          </div>
+                        </div>
+
+                        <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
+                          <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                            <div>
+                              <div className="text-xs font-semibold text-zinc-700">Advanced</div>
+                              <div className="mt-1 text-[11px] text-zinc-600">
+                                Optional manual override. When set, we use this agent ID as-is and disable Sync.
+                              </div>
+                            </div>
+                            {messagesManualActive ? (
+                              <span className="inline-flex items-center rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-800 ring-1 ring-amber-200">
+                                Manual override active
+                              </span>
+                            ) : null}
+                          </div>
+
+                          <div className="mt-3">
+                            <div className="text-xs font-semibold text-zinc-700">Manual agent ID</div>
+                            <input
+                              value={selected.manualChatAgentId ?? ""}
+                              onChange={(e) => {
+                                const manualChatAgentId = e.target.value;
+                                setCampaigns((prev) => prev.map((c) => (c.id === selected.id ? { ...c, manualChatAgentId } : c)));
+                              }}
+                              onBlur={() => updateCampaign({ manualChatAgentId: (selected.manualChatAgentId ?? "").trim() })}
+                              disabled={busy}
+                              placeholder="Paste an agent ID (support-provided)"
+                              className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                            />
+                            <div className="mt-1 text-[11px] text-zinc-500">
+                              Effective agent ID: {messagesEffectiveAgentId || "(none)"}
+                            </div>
                           </div>
                         </div>
 

@@ -8,6 +8,7 @@ import {
   buildElevenLabsAgentPrompt,
   createElevenLabsAgent,
   getElevenLabsAgent,
+  type KnowledgeBaseLocator,
   parseElevenLabsAgentPromptToVoiceAgentConfig,
   patchElevenLabsAgent,
 } from "@/lib/elevenLabsConvai";
@@ -44,6 +45,29 @@ function normalizeToolKey(raw: unknown): string {
     .replace(/^_+|_+$/g, "");
 }
 
+function safeRecord(raw: unknown): Record<string, unknown> {
+  return raw && typeof raw === "object" && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {};
+}
+
+function parseKnowledgeBaseLocators(raw: unknown): KnowledgeBaseLocator[] {
+  const rec = safeRecord(raw);
+  const xs = Array.isArray((rec as any).locators) ? ((rec as any).locators as any[]) : [];
+  const out: KnowledgeBaseLocator[] = [];
+  for (const x of xs) {
+    const xr = safeRecord(x);
+    const id = typeof xr.id === "string" ? xr.id.trim().slice(0, 200) : "";
+    const name = typeof xr.name === "string" ? xr.name.trim().slice(0, 200) : "";
+    const typeRaw = typeof xr.type === "string" ? xr.type.trim().toLowerCase() : "";
+    const type = typeRaw === "file" || typeRaw === "url" || typeRaw === "text" || typeRaw === "folder" ? (typeRaw as any) : null;
+    const usageRaw = typeof (xr as any).usage_mode === "string" ? String((xr as any).usage_mode).trim().toLowerCase() : "";
+    const usage_mode = usageRaw === "prompt" ? "prompt" : usageRaw === "auto" ? "auto" : undefined;
+    if (!id || !name || !type) continue;
+    out.push({ id, name, type, ...(usage_mode ? { usage_mode } : {}) });
+    if (out.length >= 120) break;
+  }
+  return out;
+}
+
 async function getProfileVoiceAgentApiKey(ownerId: string): Promise<string | null> {
   const row = await prisma.portalServiceSetup.findUnique({
     where: { ownerId_serviceSlug: { ownerId, serviceSlug: PROFILE_EXTRAS_SERVICE_SLUG } },
@@ -78,10 +102,21 @@ export async function POST(req: Request, ctx: { params: Promise<{ campaignId: st
 
   const campaign = await prisma.portalAiOutboundCallCampaign.findFirst({
     where: { ownerId, id: campaignId.data },
-    select: { id: true, name: true, chatAgentId: true, chatAgentConfigJson: true },
+    select: { id: true, name: true, chatAgentId: true, manualChatAgentId: true, chatAgentConfigJson: true, knowledgeBaseJson: true },
   });
 
   if (!campaign) return NextResponse.json({ ok: false, error: "Not found" }, { status: 404 });
+
+  const manualAgentId = String((campaign as any).manualChatAgentId || "").trim();
+  if (manualAgentId) {
+    return NextResponse.json({
+      ok: true,
+      agentId: manualAgentId,
+      skipped: true,
+      reason:
+        "Manual agent ID override is set for this campaign. Sync is disabled to avoid overwriting the agent configuration.",
+    });
+  }
 
   const apiKey = ((await getProfileVoiceAgentApiKey(ownerId).catch(() => null)) || "").trim();
   if (!apiKey) {
@@ -92,6 +127,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ campaignId: st
   }
 
   const config = parseVoiceAgentConfig(campaign.chatAgentConfigJson);
+  const knowledgeBase = parseKnowledgeBaseLocators((campaign as any).knowledgeBaseJson);
 
   const [profile, ownerUser] = await Promise.all([
     prisma.businessProfile
@@ -152,6 +188,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ campaignId: st
       firstMessage: firstMessage || undefined,
       prompt: prompt || undefined,
       toolIds: resolvedToolIds,
+      knowledgeBase: knowledgeBase.length ? knowledgeBase : undefined,
     });
 
     if (!create.ok) {
@@ -203,6 +240,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ campaignId: st
     firstMessage: firstMessage || undefined,
     prompt: prompt || undefined,
     toolIds: resolvedToolIds,
+    knowledgeBase: knowledgeBase.length ? knowledgeBase : undefined,
   });
 
   if (!result.ok) {
