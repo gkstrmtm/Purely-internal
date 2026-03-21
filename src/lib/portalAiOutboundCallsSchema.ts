@@ -58,6 +58,7 @@ SELECT
     "chatAgentId",
     "manualChatAgentId",
     "chatAgentConfigJson",
+    "chatKnowledgeBaseJson",
     "messageChannelPolicy",
     "callOutcomeTaggingJson",
     "messageOutcomeTaggingJson",

@@ -127,10 +127,10 @@ function parseKnowledgeBase(raw: unknown, prev?: AiReceptionistKnowledgeBase | n
   const seedUrl = typeof rec.seedUrl === "string" ? normalizeUrl(rec.seedUrl.trim().slice(0, 500)) : "";
   const crawlDepth =
     typeof rec.crawlDepth === "number" && Number.isFinite(rec.crawlDepth)
-      ? Math.max(0, Math.min(3, Math.floor(rec.crawlDepth)))
+      ? Math.max(0, Math.min(5, Math.floor(rec.crawlDepth)))
       : 0;
   const maxUrls =
-    typeof rec.maxUrls === "number" && Number.isFinite(rec.maxUrls) ? Math.max(0, Math.min(100, Math.floor(rec.maxUrls))) : 0;
+    typeof rec.maxUrls === "number" && Number.isFinite(rec.maxUrls) ? Math.max(0, Math.min(1000, Math.floor(rec.maxUrls))) : 0;
   const text = typeof rec.text === "string" ? rec.text.trim().slice(0, 20000) : "";
   const locators = normalizeKnowledgeBaseLocators(rec.locators);
   const lastSyncedAtIso = typeof rec.lastSyncedAtIso === "string" ? rec.lastSyncedAtIso.trim().slice(0, 40) : "";

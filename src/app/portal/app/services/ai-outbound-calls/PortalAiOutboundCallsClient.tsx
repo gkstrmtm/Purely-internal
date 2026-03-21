@@ -1558,8 +1558,8 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
       ...kb,
       version: 1,
       seedUrl: String(kb.seedUrl || ""),
-      crawlDepth: Number.isFinite(kb.crawlDepth) ? Math.max(0, Math.min(3, Math.floor(kb.crawlDepth))) : 0,
-      maxUrls: Number.isFinite(kb.maxUrls) ? Math.max(0, Math.min(100, Math.floor(kb.maxUrls))) : 0,
+      crawlDepth: Number.isFinite(kb.crawlDepth) ? Math.max(0, Math.min(5, Math.floor(kb.crawlDepth))) : 0,
+      maxUrls: Number.isFinite(kb.maxUrls) ? Math.max(0, Math.min(1000, Math.floor(kb.maxUrls))) : 0,
       text: String(kb.text || ""),
       locators: Array.isArray(kb.locators) ? kb.locators : [],
     };
@@ -3188,10 +3188,7 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
                             <div className="grid grid-cols-2 gap-3">
                               <div>
                                 <div className="text-xs font-semibold text-zinc-700">Crawl depth</div>
-                                <input
-                                  type="number"
-                                  min={0}
-                                  max={3}
+                                <select
                                   value={ensureKnowledgeBase(selected.knowledgeBase).crawlDepth}
                                   onChange={(e) => {
                                     const crawlDepth = Number(e.target.value || 0);
@@ -3206,14 +3203,18 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
                                   onBlur={() => updateCampaign({ knowledgeBase: ensureKnowledgeBase(selected.knowledgeBase) })}
                                   disabled={busy}
                                   className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                                />
+                                >
+                                  <option value={0}>0</option>
+                                  <option value={1}>1</option>
+                                  <option value={2}>2</option>
+                                  <option value={3}>3</option>
+                                  <option value={4}>4</option>
+                                  <option value={5}>5</option>
+                                </select>
                               </div>
                               <div>
                                 <div className="text-xs font-semibold text-zinc-700">Max URLs</div>
-                                <input
-                                  type="number"
-                                  min={0}
-                                  max={100}
+                                <select
                                   value={ensureKnowledgeBase(selected.knowledgeBase).maxUrls}
                                   onChange={(e) => {
                                     const maxUrls = Number(e.target.value || 0);
@@ -3228,7 +3229,16 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
                                   onBlur={() => updateCampaign({ knowledgeBase: ensureKnowledgeBase(selected.knowledgeBase) })}
                                   disabled={busy}
                                   className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                                />
+                                >
+                                  <option value={0}>0</option>
+                                  <option value={25}>25</option>
+                                  <option value={50}>50</option>
+                                  <option value={100}>100</option>
+                                  <option value={250}>250</option>
+                                  <option value={500}>500</option>
+                                  <option value={1000}>1000</option>
+                                </select>
+                                <div className="mt-1 text-[11px] text-zinc-600">Max 1000</div>
                               </div>
                             </div>
                           </div>
@@ -3858,10 +3868,7 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
                             <div className="grid grid-cols-2 gap-3">
                               <div>
                                 <div className="text-xs font-semibold text-zinc-700">Crawl depth</div>
-                                <input
-                                  type="number"
-                                  min={0}
-                                  max={3}
+                                <select
                                   value={ensureKnowledgeBase(selected.messagesKnowledgeBase).crawlDepth}
                                   onChange={(e) => {
                                     const crawlDepth = Number(e.target.value || 0);
@@ -3884,14 +3891,18 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
                                   }
                                   disabled={busy}
                                   className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                                />
+                                >
+                                  <option value={0}>0</option>
+                                  <option value={1}>1</option>
+                                  <option value={2}>2</option>
+                                  <option value={3}>3</option>
+                                  <option value={4}>4</option>
+                                  <option value={5}>5</option>
+                                </select>
                               </div>
                               <div>
                                 <div className="text-xs font-semibold text-zinc-700">Max URLs</div>
-                                <input
-                                  type="number"
-                                  min={0}
-                                  max={100}
+                                <select
                                   value={ensureKnowledgeBase(selected.messagesKnowledgeBase).maxUrls}
                                   onChange={(e) => {
                                     const maxUrls = Number(e.target.value || 0);
@@ -3914,7 +3925,16 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
                                   }
                                   disabled={busy}
                                   className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                                />
+                                >
+                                  <option value={0}>0</option>
+                                  <option value={25}>25</option>
+                                  <option value={50}>50</option>
+                                  <option value={100}>100</option>
+                                  <option value={250}>250</option>
+                                  <option value={500}>500</option>
+                                  <option value={1000}>1000</option>
+                                </select>
+                                <div className="mt-1 text-[11px] text-zinc-600">Max 1000</div>
                               </div>
                             </div>
                           </div>

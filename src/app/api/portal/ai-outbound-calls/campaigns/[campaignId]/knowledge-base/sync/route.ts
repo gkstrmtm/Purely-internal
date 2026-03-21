@@ -73,8 +73,10 @@ function parseKnowledgeBase(raw: unknown): {
 } {
   const rec = safeRecord(raw);
   const seedUrl = typeof rec.seedUrl === "string" ? normalizeUrl(rec.seedUrl.trim().slice(0, 500)) : "";
-  const crawlDepth = typeof rec.crawlDepth === "number" && Number.isFinite(rec.crawlDepth) ? Math.max(0, Math.min(3, Math.floor(rec.crawlDepth))) : 0;
-  const maxUrls = typeof rec.maxUrls === "number" && Number.isFinite(rec.maxUrls) ? Math.max(0, Math.min(100, Math.floor(rec.maxUrls))) : 0;
+  const crawlDepth =
+    typeof rec.crawlDepth === "number" && Number.isFinite(rec.crawlDepth) ? Math.max(0, Math.min(5, Math.floor(rec.crawlDepth))) : 0;
+  const maxUrls =
+    typeof rec.maxUrls === "number" && Number.isFinite(rec.maxUrls) ? Math.max(0, Math.min(1000, Math.floor(rec.maxUrls))) : 0;
   const text = typeof rec.text === "string" ? rec.text.trim().slice(0, 20000) : "";
 
   const locatorsRaw = Array.isArray(rec.locators) ? rec.locators : [];
@@ -275,7 +277,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ campaignId: st
     }
   }
 
-  const maxUrls = Math.max(0, Math.min(100, Math.floor(kb.maxUrls || 0)));
+  const maxUrls = Math.max(0, Math.min(1000, Math.floor(kb.maxUrls || 0)));
   if (kb.seedUrl && maxUrls > 0) {
     const discovered = await crawlSite(kb.seedUrl, kb.crawlDepth, maxUrls).catch(() => []);
 

@@ -59,32 +59,66 @@ export async function GET(req: Request) {
   const url = new URL(req.url);
   const lite = url.searchParams.get("lite") === "1";
 
-  const campaigns = await prisma.portalAiOutboundCallCampaign.findMany({
-    where: { ownerId },
-    select: {
-      id: true,
-      name: true,
-      status: true,
-      audienceTagIdsJson: true,
-      chatAudienceTagIdsJson: true,
-      voiceAgentId: true,
-      manualVoiceAgentId: true,
-      voiceAgentConfigJson: true,
-      voiceId: true,
-      knowledgeBaseJson: true,
-      chatKnowledgeBaseJson: true,
-      chatAgentId: true,
-      manualChatAgentId: true,
-      chatAgentConfigJson: true,
-      messageChannelPolicy: true,
-      callOutcomeTaggingJson: true,
-      messageOutcomeTaggingJson: true,
-      createdAt: true,
-      updatedAt: true,
-    },
-    orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
-    take: 200,
-  });
+  // Backward-compatible fetch:
+  // If the DB hasn't applied the latest migration yet, selecting new columns can hard-fail.
+  // In that case, retry with an older select so the page can still load.
+  let campaigns: Array<any> = [];
+  let supportsChatKnowledgeBase = true;
+  try {
+    campaigns = await prisma.portalAiOutboundCallCampaign.findMany({
+      where: { ownerId },
+      select: {
+        id: true,
+        name: true,
+        status: true,
+        audienceTagIdsJson: true,
+        chatAudienceTagIdsJson: true,
+        voiceAgentId: true,
+        manualVoiceAgentId: true,
+        voiceAgentConfigJson: true,
+        voiceId: true,
+        knowledgeBaseJson: true,
+        chatKnowledgeBaseJson: true,
+        chatAgentId: true,
+        manualChatAgentId: true,
+        chatAgentConfigJson: true,
+        messageChannelPolicy: true,
+        callOutcomeTaggingJson: true,
+        messageOutcomeTaggingJson: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+      orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
+      take: 200,
+    });
+  } catch {
+    supportsChatKnowledgeBase = false;
+    campaigns = await prisma.portalAiOutboundCallCampaign.findMany({
+      where: { ownerId },
+      select: {
+        id: true,
+        name: true,
+        status: true,
+        audienceTagIdsJson: true,
+        chatAudienceTagIdsJson: true,
+        voiceAgentId: true,
+        manualVoiceAgentId: true,
+        voiceAgentConfigJson: true,
+        voiceId: true,
+        knowledgeBaseJson: true,
+        chatAgentId: true,
+        manualChatAgentId: true,
+        chatAgentConfigJson: true,
+        messageChannelPolicy: true,
+        callOutcomeTaggingJson: true,
+        messageOutcomeTaggingJson: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+      orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
+      take: 200,
+    });
+  }
 
   const campaignIds = campaigns.map((c) => c.id);
   const enrollAgg = lite
@@ -128,7 +162,7 @@ export async function GET(req: Request) {
         voiceAgentConfig: parseVoiceAgentConfig(c.voiceAgentConfigJson),
         voiceId: typeof (c as any).voiceId === "string" ? String((c as any).voiceId) : "",
         knowledgeBase: (c as any).knowledgeBaseJson ?? null,
-        messagesKnowledgeBase: (c as any).chatKnowledgeBaseJson ?? null,
+        messagesKnowledgeBase: supportsChatKnowledgeBase ? (c as any).chatKnowledgeBaseJson ?? null : null,
         chatAgentId: c.chatAgentId ? String(c.chatAgentId) : "",
         manualChatAgentId: (c as any).manualChatAgentId ? String((c as any).manualChatAgentId) : "",
         chatAgentConfig: parseVoiceAgentConfig(c.chatAgentConfigJson),
