@@ -108,15 +108,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ campaignId: st
   if (!campaign) return NextResponse.json({ ok: false, error: "Not found" }, { status: 404 });
 
   const manualAgentId = String((campaign as any).manualChatAgentId || "").trim();
-  if (manualAgentId) {
-    return NextResponse.json({
-      ok: true,
-      agentId: manualAgentId,
-      skipped: true,
-      reason:
-        "Manual agent ID override is set for this campaign. Sync is disabled to avoid overwriting the agent configuration.",
-    });
-  }
+  const hasManualOverride = Boolean(manualAgentId);
 
   const apiKey = ((await getProfileVoiceAgentApiKey(ownerId).catch(() => null)) || "").trim();
   if (!apiKey) {
@@ -178,10 +170,10 @@ export async function POST(req: Request, ctx: { params: Promise<{ campaignId: st
     .filter((v, i, a) => a.indexOf(v) === i)
     .slice(0, 50);
 
-  let agentId = String(campaign.chatAgentId || "").trim();
+  let agentId = manualAgentId || String(campaign.chatAgentId || "").trim();
   let createdAgentId: string | null = null;
 
-  if (!agentId) {
+  if (!agentId && !hasManualOverride) {
     const create = await createElevenLabsAgent({
       apiKey,
       name: `Purely AI outbound - Chat - ${campaign.name}`.slice(0, 160),

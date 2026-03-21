@@ -235,6 +235,7 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
   const [tab, setTab] = useState<"settings" | "activity">("activity");
 
   const [settings, setSettings] = useState<Settings | null>(null);
+  const lastSavedSettingsJsonRef = useRef<string>("{}");
   const [queue, setQueue] = useState<QueueItem[]>([]);
   const [calendars, setCalendars] = useState<Calendar[]>([]);
   const [siteNotificationEmails, setSiteNotificationEmails] = useState<string[]>([]);
@@ -242,6 +243,11 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
   const [builtinVariables, setBuiltinVariables] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const isDirty = useMemo(() => {
+    if (!settings) return false;
+    return JSON.stringify(settings) !== lastSavedSettingsJsonRef.current;
+  }, [settings]);
 
   useEffect(() => {
     if (error) toast.error(error);
@@ -494,6 +500,7 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
         };
         if (json.ok && json.settings) {
           setSettings(json.settings);
+          lastSavedSettingsJsonRef.current = JSON.stringify(json.settings);
           setQueue(Array.isArray(json.queue) ? json.queue : []);
           setCalendars(Array.isArray(json.calendars) ? json.calendars : []);
           setSiteNotificationEmails(Array.isArray(json.siteNotificationEmails) ? json.siteNotificationEmails : []);
@@ -734,6 +741,7 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
       return;
     }
     setSettings(json.settings);
+    lastSavedSettingsJsonRef.current = JSON.stringify(json.settings);
     setQueue(Array.isArray(json.queue) ? json.queue : []);
     setCalendars(Array.isArray(json.calendars) ? json.calendars : []);
     setSiteNotificationEmails(Array.isArray(json.siteNotificationEmails) ? json.siteNotificationEmails : []);
@@ -764,6 +772,7 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
       return;
     }
     setSettings(json.settings);
+    lastSavedSettingsJsonRef.current = JSON.stringify(json.settings);
     setQueue(Array.isArray(json.queue) ? json.queue : []);
     setCalendars(Array.isArray(json.calendars) ? json.calendars : []);
     setSiteNotificationEmails(Array.isArray(json.siteNotificationEmails) ? json.siteNotificationEmails : []);
@@ -1854,10 +1863,10 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
               <button
                 type="button"
                 onClick={save}
-                disabled={!canSave || busy}
+                disabled={!canSave || busy || !isDirty}
                 className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-5 py-3 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
               >
-                {busy ? "Saving…" : "Save settings"}
+                {busy ? "Saving…" : isDirty ? "Save" : "Saved"}
               </button>
             </div>
             </PortalSettingsSection>

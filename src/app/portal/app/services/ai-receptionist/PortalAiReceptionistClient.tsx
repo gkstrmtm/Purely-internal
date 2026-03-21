@@ -46,6 +46,8 @@ type VoiceLibraryVoice = {
   description?: string;
 };
 
+const DEFAULT_VOICE_PREVIEW_TEXT = "Hi! This is a voice preview.";
+
 type ApiGetVoiceLibraryVoicesResponse =
   | { ok: true; voices: VoiceLibraryVoice[] }
   | { ok: false; error?: string };
@@ -393,9 +395,15 @@ export function PortalAiReceptionistClient() {
   const [settingsSubTab, setSettingsSubTab] = useState<"voice" | "sms">("voice");
 
   const [settings, setSettings] = useState<Settings | null>(null);
+  const lastSavedSettingsJsonRef = useRef<string>("null");
   const [events, setEvents] = useState<EventRow[]>([]);
   const [webhookUrl, setWebhookUrl] = useState<string>("");
   const [twilioConfigured, setTwilioConfigured] = useState<boolean>(false);
+
+  const isDirty = useMemo(() => {
+    if (!settings) return false;
+    return JSON.stringify(settings) !== lastSavedSettingsJsonRef.current;
+  }, [settings]);
 
   const [contactTags, setContactTags] = useState<ContactTag[]>([]);
   const [smsIncludeTagSearch, setSmsIncludeTagSearch] = useState("");
@@ -418,8 +426,8 @@ export function PortalAiReceptionistClient() {
 
   const [voiceLibraryVoices, setVoiceLibraryVoices] = useState<VoiceLibraryVoice[]>([]);
   const [voiceLibraryLoading, setVoiceLibraryLoading] = useState(false);
-  const [voicePreviewText, setVoicePreviewText] = useState("Hi! This is a voice preview.");
-  const [voicePreviewBusy, setVoicePreviewBusy] = useState(false);
+  const [voicePreviewBusyVoiceId, setVoicePreviewBusyVoiceId] = useState<string | null>(null);
+  const [voicePreviewShowControls, setVoicePreviewShowControls] = useState(false);
   const voicePreviewAudioRef = useRef<HTMLAudioElement | null>(null);
   const voicePreviewUrlRef = useRef<string | null>(null);
 
@@ -466,10 +474,11 @@ export function PortalAiReceptionistClient() {
         toast.error("Pick a voice first");
         return;
       }
-      if (voicePreviewBusy) return;
-      setVoicePreviewBusy(true);
+      if (voicePreviewBusyVoiceId) return;
+      setVoicePreviewBusyVoiceId(id);
+      setVoicePreviewShowControls(false);
       try {
-        const text = String(voicePreviewText || "").trim() || "Hi! This is a voice preview.";
+        const text = DEFAULT_VOICE_PREVIEW_TEXT;
         const res = await fetch("/api/portal/voice-agent/voices/preview", {
           method: "POST",
           headers: { "content-type": "application/json" },
@@ -478,7 +487,9 @@ export function PortalAiReceptionistClient() {
 
         if (!res.ok) {
           const json = (await res.json().catch(() => null)) as any;
-          throw new Error(String(json?.error || "Preview failed"));
+          const msg = typeof json?.error === "string" ? json.error : "";
+          if (msg && /missing voice agent api key/i.test(msg)) throw new Error(msg);
+          throw new Error("Voice preview failed");
         }
 
         const blob = await res.blob().catch(() => null);
@@ -498,16 +509,17 @@ export function PortalAiReceptionistClient() {
           try {
             await el.play();
           } catch {
-            // ignore autoplay restrictions
+            // Safari can block async-initiated playback. Fall back to showing controls.
+            setVoicePreviewShowControls(true);
           }
         }
       } catch (e) {
-        toast.error(e instanceof Error ? e.message : "Preview failed");
+        toast.error(e instanceof Error ? e.message : "Voice preview failed");
       } finally {
-        setVoicePreviewBusy(false);
+        setVoicePreviewBusyVoiceId(null);
       }
     },
-    [toast, voicePreviewBusy, voicePreviewText],
+    [toast, voicePreviewBusyVoiceId],
   );
 
   useEffect(() => {
@@ -670,6 +682,7 @@ export function PortalAiReceptionistClient() {
     }
 
     setSettings(settingsToUse);
+    lastSavedSettingsJsonRef.current = JSON.stringify(data.settings);
     setEvents(Array.isArray(data.events) ? data.events : []);
     setWebhookUrl(data.webhookUrl || "");
     setTwilioConfigured(Boolean(data.twilioConfigured ?? data.twilio?.configured));
@@ -985,6 +998,7 @@ export function PortalAiReceptionistClient() {
     }
 
     setSettings(data.settings);
+    lastSavedSettingsJsonRef.current = JSON.stringify(data.settings);
     setEvents(Array.isArray(data.events) ? data.events : []);
     setWebhookUrl(data.webhookUrl || webhookUrl);
     setSaving(false);
@@ -1013,6 +1027,7 @@ export function PortalAiReceptionistClient() {
     }
 
     setSettings(data.settings);
+    lastSavedSettingsJsonRef.current = JSON.stringify(data.settings);
     setEvents(Array.isArray(data.events) ? data.events : []);
     setWebhookUrl(data.webhookUrl || webhookUrl);
     setSaving(false);
@@ -1047,6 +1062,12 @@ export function PortalAiReceptionistClient() {
       return;
     }
 
+    setSettings((cur) => {
+      if (!cur) return cur;
+      const next = { ...cur, enabled: nextEnabled };
+      lastSavedSettingsJsonRef.current = JSON.stringify(next);
+      return next;
+    });
     setSavingEnabled(false);
   }
 
@@ -1332,7 +1353,7 @@ export function PortalAiReceptionistClient() {
                     <div className="mt-1 text-xs text-zinc-600">Pick a voice for inbound calls.</div>
                     {settings?.manualAgentId?.trim() ? (
                       <div className="mt-1 text-[11px] text-amber-700">
-                        Manual agent ID is set. Voice changes won’t apply until you clear the manual override.
+                        Manual agent ID is set. Saving will apply changes to that agent.
                       </div>
                     ) : null}
                   </div>
@@ -1354,57 +1375,71 @@ export function PortalAiReceptionistClient() {
                 <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
                   <div>
                     <div className="text-xs font-semibold text-zinc-600">Selected voice</div>
-                    <PortalSelectDropdown<string>
+                    <PortalListboxDropdown<string>
                       value={settings?.voiceId ?? ""}
                       onChange={(voiceId) => settings && setSettings({ ...settings, voiceId: String(voiceId || "").trim() })}
                       disabled={saving || savingEnabled || !settings}
                       placeholder={voiceLibraryLoading ? "Loading voices…" : "Default voice"}
                       options={[
-                        { value: "", label: "Default voice" },
+                        { value: "", label: "Default voice", hint: "" },
                         ...voiceLibraryVoices.map((v) => ({
                           value: v.id,
                           label: v.category ? `${v.name} (${v.category})` : v.name,
                           hint: v.description || "",
                         })),
                       ]}
+                      renderOptionRight={(opt) => {
+                        if (!opt.value) return null;
+                        const isBusy = voicePreviewBusyVoiceId === opt.value;
+                        const canClick = !saving && !savingEnabled && !voicePreviewBusyVoiceId;
+                        return (
+                          <span
+                            role="button"
+                            tabIndex={canClick ? 0 : -1}
+                            aria-label={isBusy ? "Generating preview" : "Play preview"}
+                            title={isBusy ? "Generating…" : "Play preview"}
+                            className={classNames(
+                              "inline-flex h-7 w-7 items-center justify-center rounded-lg text-xs font-semibold",
+                              canClick ? "bg-white/15 hover:bg-white/25" : "opacity-60",
+                            )}
+                            onMouseDown={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                            }}
+                            onClick={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              if (!canClick) return;
+                              void playVoicePreview(opt.value);
+                            }}
+                            onKeyDown={(e) => {
+                              if (!canClick) return;
+                              if (e.key === "Enter" || e.key === " ") {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                void playVoicePreview(opt.value);
+                              }
+                            }}
+                          >
+                            {isBusy ? "…" : "▶"}
+                          </span>
+                        );
+                      }}
                       className="mt-2"
                       buttonClassName="flex h-10 w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
                     />
-                    {settings?.voiceId?.trim() ? (
-                      <div className="mt-1 text-[11px] text-zinc-500">Voice ID: {settings.voiceId}</div>
-                    ) : (
-                      <div className="mt-1 text-[11px] text-zinc-500">Using the default voice.</div>
-                    )}
+                    <div className="mt-1 text-[11px] text-zinc-500">
+                      {settings?.voiceId?.trim() ? "Click ▶ next to a voice to preview." : "Using the default voice."}
+                    </div>
                   </div>
 
                   <div>
-                    <div className="text-xs font-semibold text-zinc-600">Preview</div>
-                    <div className="mt-2 flex gap-2">
-                      <input
-                        value={voicePreviewText}
-                        onChange={(e) => setVoicePreviewText(e.target.value)}
-                        disabled={saving || savingEnabled}
-                        className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs"
-                        placeholder="Type preview text…"
-                      />
-                      <button
-                        type="button"
-                        disabled={saving || savingEnabled || voicePreviewBusy || !settings?.voiceId?.trim()}
-                        onClick={() => void playVoicePreview(String(settings?.voiceId || ""))}
-                        className={classNames(
-                          "shrink-0 rounded-xl px-3 py-2 text-xs font-semibold",
-                          saving || savingEnabled || voicePreviewBusy || !settings?.voiceId?.trim()
-                            ? "bg-zinc-200 text-zinc-600"
-                            : "bg-[color:var(--color-brand-blue)] text-white hover:opacity-95",
-                        )}
-                      >
-                        {voicePreviewBusy ? "Generating…" : "Play"}
-                      </button>
-                    </div>
-                    <audio ref={voicePreviewAudioRef} controls className="mt-2 w-full" preload="none" />
-                    {!settings?.voiceId?.trim() ? (
-                      <div className="mt-1 text-[11px] text-zinc-500">Select a voice to preview.</div>
-                    ) : null}
+                    <audio
+                      ref={voicePreviewAudioRef}
+                      controls={voicePreviewShowControls}
+                      className={voicePreviewShowControls ? "mt-7 w-full" : "hidden"}
+                      preload="none"
+                    />
                   </div>
                 </div>
               </div>
@@ -1467,22 +1502,6 @@ export function PortalAiReceptionistClient() {
                       />
                       <div className="mt-2 text-xs text-zinc-600">
                         Optional. Use this when support provides an agent ID you want to use as-is.
-                      </div>
-                    </label>
-
-                    <label className="rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm sm:col-span-2">
-                      <div className="text-xs font-semibold text-zinc-600">Manual messaging agent ID</div>
-                      <input
-                        className="mt-2 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                        value={settings?.manualChatAgentId ?? ""}
-                        onChange={(e) => settings && setSettings({ ...settings, manualChatAgentId: e.target.value })}
-                        placeholder="agent_…"
-                        autoCapitalize="off"
-                        autoCorrect="off"
-                        spellCheck={false}
-                      />
-                      <div className="mt-2 text-xs text-zinc-600">
-                        Optional. If set, we use this messaging/SMS agent ID as-is and won’t auto-sync it.
                       </div>
                     </label>
                   </div>
@@ -1694,6 +1713,26 @@ export function PortalAiReceptionistClient() {
                   </div>
                 </div>
 
+                <div className="mt-8">
+                  <div className="text-sm font-semibold text-zinc-900">Advanced</div>
+                  <div className="mt-2 grid grid-cols-1 gap-4 sm:grid-cols-2">
+                    <label className="rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm sm:col-span-2">
+                      <div className="text-xs font-semibold text-zinc-600">Manual messaging agent ID</div>
+                      <div className="mt-1 text-xs text-zinc-600">Only used for inbound SMS auto-replies.</div>
+                      <input
+                        className="mt-2 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                        value={settings?.manualChatAgentId ?? ""}
+                        onChange={(e) => settings && setSettings({ ...settings, manualChatAgentId: e.target.value })}
+                        placeholder="agent_…"
+                        autoCapitalize="off"
+                        autoCorrect="off"
+                        spellCheck={false}
+                      />
+                      <div className="mt-2 text-xs text-zinc-600">Optional. If set, we use this messaging agent ID.</div>
+                    </label>
+                  </div>
+                </div>
+
                 <div className="mt-8" />
               </>
             )}
@@ -1710,10 +1749,10 @@ export function PortalAiReceptionistClient() {
               <button
                 type="button"
                 className="rounded-2xl bg-[color:var(--color-brand-blue)] px-4 py-2 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
-                disabled={saving || !settings || !canSave}
+                disabled={saving || !settings || !canSave || !isDirty}
                 onClick={() => settings && void (settingsSubTab === "sms" ? saveSms(settings) : save(settings))}
               >
-                {saving ? "Saving…" : "Save"}
+                {saving ? "Saving…" : isDirty ? "Save" : "Saved"}
               </button>
             </div>
           </div>

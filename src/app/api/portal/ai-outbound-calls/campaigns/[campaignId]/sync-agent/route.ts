@@ -129,15 +129,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ campaignId: st
   if (!campaign) return NextResponse.json({ ok: false, error: "Not found" }, { status: 404 });
 
   const manualAgentId = String((campaign as any).manualVoiceAgentId || "").trim();
-  if (manualAgentId) {
-    return NextResponse.json({
-      ok: true,
-      agentId: manualAgentId,
-      skipped: true,
-      reason:
-        "Manual agent ID override is set for this campaign. Sync is disabled to avoid overwriting the agent configuration.",
-    });
-  }
+  const hasManualOverride = Boolean(manualAgentId);
 
   const apiKeyFromProfile = (await getProfileVoiceAgentApiKey(ownerId).catch(() => null)) || "";
   const receptionist = await getAiReceptionistServiceData(ownerId).catch(() => null);
@@ -204,17 +196,18 @@ export async function POST(req: Request, ctx: { params: Promise<{ campaignId: st
     .slice(0, 50);
 
   const profileAgentId = await getProfileVoiceAgentId(ownerId);
-  let agentId = (campaign.voiceAgentId || "").trim() || (profileAgentId || "").trim();
+  let agentId = manualAgentId || (campaign.voiceAgentId || "").trim() || (profileAgentId || "").trim();
   let createdAgentId: string | null = null;
 
   // If a Profile agent exists but the campaign doesn't, persist it so the UI (and campaign) have a stable agent id.
-  if (!campaign.voiceAgentId && profileAgentId) {
+  // Skip this when a manual override is set.
+  if (!hasManualOverride && !campaign.voiceAgentId && profileAgentId) {
     await prisma.portalAiOutboundCallCampaign
       .updateMany({ where: { id: campaign.id, ownerId }, data: { voiceAgentId: profileAgentId } })
       .catch(() => null);
   }
 
-  if (!agentId) {
+  if (!agentId && !hasManualOverride) {
     const create = await createElevenLabsAgent({
       apiKey,
       name: `Purely AI outbound - ${campaign.name}`.slice(0, 160),

@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { IconServiceGlyph } from "@/app/portal/PortalIcons";
 
@@ -30,11 +29,8 @@ export function PortalHeaderCta({ canOpenPortalApp }: { canOpenPortalApp: boolea
   }
 
   return (
-    <Link
-      href={appHref}
-      className="rounded-xl bg-brand-ink px-3 py-2 text-sm font-semibold text-white hover:opacity-95"
-    >
+    <a href={appHref} className="rounded-xl bg-brand-ink px-3 py-2 text-sm font-semibold text-white hover:opacity-95">
       Open portal
-    </Link>
+    </a>
   );
 }

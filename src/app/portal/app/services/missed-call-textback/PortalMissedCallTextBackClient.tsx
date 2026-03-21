@@ -161,10 +161,16 @@ export function PortalMissedCallTextBackClient({ embedded }: { embedded?: boolea
   const [pickerOpen, setPickerOpen] = useState(false);
 
   const [settings, setSettings] = useState<Settings | null>(null);
+  const lastSavedSettingsJsonRef = useRef<string>("{}");
   const [events, setEvents] = useState<EventRow[]>([]);
   const [profilePhone, setProfilePhone] = useState<string | null>(null);
   const [twilioConfigured, setTwilioConfigured] = useState<boolean>(false);
   const [twilioReason, setTwilioReason] = useState<string | undefined>(undefined);
+
+  const isDirty = useMemo(() => {
+    if (!settings) return false;
+    return JSON.stringify(settings) !== lastSavedSettingsJsonRef.current;
+  }, [settings]);
 
   const [replyDelayUnit, setReplyDelayUnit] = useState<"seconds" | "minutes">("seconds");
   const [replyDelayUnitTouched, setReplyDelayUnitTouched] = useState(false);
@@ -200,6 +206,7 @@ export function PortalMissedCallTextBackClient({ embedded }: { embedded?: boolea
       return;
     }
     setSettings(data.settings);
+    lastSavedSettingsJsonRef.current = JSON.stringify(data.settings);
     setEvents(Array.isArray(data.events) ? data.events : []);
     setProfilePhone(data.profilePhone ?? null);
     setTwilioConfigured(Boolean(data.twilioConfigured));
@@ -307,6 +314,7 @@ export function PortalMissedCallTextBackClient({ embedded }: { embedded?: boolea
       return;
     }
     setSettings(data.settings);
+    lastSavedSettingsJsonRef.current = JSON.stringify(data.settings);
     setEvents(Array.isArray(data.events) ? data.events : []);
     setProfilePhone(data.profilePhone ?? null);
     setTwilioConfigured(Boolean(data.twilioConfigured));
@@ -529,10 +537,10 @@ export function PortalMissedCallTextBackClient({ embedded }: { embedded?: boolea
             <button
               type="button"
               onClick={() => void save(settings)}
-              disabled={saving}
+              disabled={saving || !isDirty}
               className="inline-flex items-center justify-center rounded-2xl bg-(--color-brand-blue) px-5 py-3 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
             >
-              {saving ? "Saving…" : "Save"}
+              {saving ? "Saving…" : isDirty ? "Save" : "Saved"}
             </button>
           </div>
         </div>

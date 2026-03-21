@@ -87,6 +87,8 @@ type VoiceLibraryVoice = {
   description?: string;
 };
 
+const DEFAULT_VOICE_PREVIEW_TEXT = "Hi! This is a voice preview.";
+
 type ApiGetVoiceLibraryVoicesResponse =
   | { ok: true; voices: VoiceLibraryVoice[] }
   | { ok: false; error?: string };
@@ -433,6 +435,8 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
 
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
+  const [callsSaving, setCallsSaving] = useState(false);
+  const [messagesSaving, setMessagesSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
@@ -442,8 +446,8 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
 
   const [voiceLibraryVoices, setVoiceLibraryVoices] = useState<VoiceLibraryVoice[]>([]);
   const [voiceLibraryLoading, setVoiceLibraryLoading] = useState(false);
-  const [voicePreviewText, setVoicePreviewText] = useState("Hi! This is a voice preview.");
-  const [voicePreviewBusy, setVoicePreviewBusy] = useState(false);
+  const [voicePreviewBusyVoiceId, setVoicePreviewBusyVoiceId] = useState<string | null>(null);
+  const [voicePreviewShowControls, setVoicePreviewShowControls] = useState(false);
   const voicePreviewAudioRef = useRef<HTMLAudioElement | null>(null);
   const voicePreviewUrlRef = useRef<string | null>(null);
 
@@ -470,6 +474,39 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const selected = useMemo(() => campaigns.find((c) => c.id === selectedId) ?? null, [campaigns, selectedId]);
+
+  const lastSavedAgentSigByCampaignIdRef = useRef<Record<string, { calls: string; messages: string }>>({});
+
+  const callsAgentSig = useCallback((c: Campaign) => {
+    return JSON.stringify({
+      voiceAgentId: (c.voiceAgentId ?? "").trim(),
+      voiceId: typeof c.voiceId === "string" ? c.voiceId.trim() : null,
+      manualVoiceAgentId: (c.manualVoiceAgentId ?? "").trim(),
+      voiceAgentConfig: c.voiceAgentConfig ?? {},
+      knowledgeBase: c.knowledgeBase ?? null,
+    });
+  }, []);
+
+  const messagesAgentSig = useCallback((c: Campaign) => {
+    return JSON.stringify({
+      messageChannelPolicy: c.messageChannelPolicy,
+      chatAgentId: (c.chatAgentId ?? "").trim(),
+      manualChatAgentId: (c.manualChatAgentId ?? "").trim(),
+      chatAgentConfig: c.chatAgentConfig ?? {},
+    });
+  }, []);
+
+  const callsAgentDirty = useMemo(() => {
+    if (!selected) return false;
+    const saved = lastSavedAgentSigByCampaignIdRef.current[selected.id]?.calls;
+    return callsAgentSig(selected) !== (saved ?? "");
+  }, [callsAgentSig, selected]);
+
+  const messagesAgentDirty = useMemo(() => {
+    if (!selected) return false;
+    const saved = lastSavedAgentSigByCampaignIdRef.current[selected.id]?.messages;
+    return messagesAgentSig(selected) !== (saved ?? "");
+  }, [messagesAgentSig, selected]);
 
   const callsManualAgentId = String(selected?.manualVoiceAgentId || "").trim();
   const messagesManualAgentId = String(selected?.manualChatAgentId || "").trim();
@@ -1101,11 +1138,11 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
         toast.error("Pick a voice first");
         return;
       }
-      if (voicePreviewBusy) return;
-      setVoicePreviewBusy(true);
-
+      if (voicePreviewBusyVoiceId) return;
+      setVoicePreviewBusyVoiceId(id);
+      setVoicePreviewShowControls(false);
       try {
-        const text = String(voicePreviewText || "").trim() || "Hi! This is a voice preview.";
+        const text = DEFAULT_VOICE_PREVIEW_TEXT;
         const res = await fetch("/api/portal/voice-agent/voices/preview", {
           method: "POST",
           headers: { "content-type": "application/json" },
@@ -1114,10 +1151,12 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
 
         if (!res.ok) {
           const json = (await res.json().catch(() => null)) as any;
-          throw new Error(String(json?.error || "Preview failed"));
+          const msg = typeof json?.error === "string" ? json.error : "";
+          if (msg && /missing voice agent api key/i.test(msg)) throw new Error(msg);
+          throw new Error("Voice preview failed");
         }
 
-        const blob = (await res.blob().catch(() => null)) as ApiVoicePreviewResponse | null;
+        const blob = await res.blob().catch(() => null);
         if (!blob) throw new Error("Preview failed");
 
         const prev = voicePreviewUrlRef.current;
@@ -1134,16 +1173,17 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
           try {
             await el.play();
           } catch {
-            // ignore autoplay restrictions
+            // Safari can block async-initiated playback. Fall back to showing controls.
+            setVoicePreviewShowControls(true);
           }
         }
       } catch (e) {
-        toast.error(e instanceof Error ? e.message : "Preview failed");
+        toast.error(e instanceof Error ? e.message : "Voice preview failed");
       } finally {
-        setVoicePreviewBusy(false);
+        setVoicePreviewBusyVoiceId(null);
       }
     },
-    [toast, voicePreviewBusy, voicePreviewText],
+    [toast, voicePreviewBusyVoiceId],
   );
 
   useEffect(() => {
@@ -1208,6 +1248,10 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
         } as Campaign;
       });
 
+      lastSavedAgentSigByCampaignIdRef.current = Object.fromEntries(
+        nextCampaigns.map((c) => [c.id, { calls: callsAgentSig(c), messages: messagesAgentSig(c) }]),
+      );
+
       setCampaigns(nextCampaigns);
       setTags(Array.isArray((tagsJson as any).tags) ? ((tagsJson as any).tags as ContactTag[]) : []);
 
@@ -1220,7 +1264,7 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [callsAgentSig, messagesAgentSig]);
 
   useEffect(() => {
     void loadVoiceLibrary();
@@ -1327,35 +1371,15 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
     if (!selected) return;
 
     // Hint UX: when agent-related fields change, users must sync to apply changes to their live agent.
-    const nextManualCalls =
-      patch.manualVoiceAgentId !== undefined
-        ? String(patch.manualVoiceAgentId || "").trim()
-        : String(selected.manualVoiceAgentId || "").trim();
-    const callsManualActive = Boolean(nextManualCalls);
-
-    if (patch.manualVoiceAgentId !== undefined && callsManualActive) {
-      setCallsAgentSyncRequired(false);
-      setCallsAgentSyncedAtIso(null);
-    } else if (
-      !callsManualActive &&
-      (patch.voiceAgentId !== undefined || patch.voiceAgentConfig !== undefined || patch.voiceId !== undefined)
-    ) {
+    if (patch.voiceAgentConfig !== undefined || patch.voiceId !== undefined || patch.manualVoiceAgentId !== undefined) {
       setCallsAgentSyncRequired(true);
       setCallsAgentSyncedAtIso(null);
     }
 
-    const nextManualMessages =
-      patch.manualChatAgentId !== undefined
-        ? String(patch.manualChatAgentId || "").trim()
-        : String(selected.manualChatAgentId || "").trim();
-    const messagesManualActive = Boolean(nextManualMessages);
-
-    if (patch.manualChatAgentId !== undefined && messagesManualActive) {
-      setMessagesAgentSyncRequired(false);
-      setMessagesAgentSyncedAtIso(null);
-    } else if (
-      !messagesManualActive &&
-      (patch.chatAgentId !== undefined || patch.chatAgentConfig !== undefined || patch.messageChannelPolicy !== undefined)
+    if (
+      patch.chatAgentConfig !== undefined ||
+      patch.manualChatAgentId !== undefined ||
+      patch.messageChannelPolicy !== undefined
     ) {
       setMessagesAgentSyncRequired(true);
       setMessagesAgentSyncedAtIso(null);
@@ -1389,10 +1413,6 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
 
   async function syncCallsAgent() {
     if (!selected) return;
-    if (callsManualActive) {
-      toast.error("Manual agent ID is set for Calls. Sync is disabled.");
-      return;
-    }
     if (busy) return;
     setBusy(true);
     setError(null);
@@ -1425,10 +1445,6 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
 
   async function syncMessagesAgent() {
     if (!selected) return;
-    if (messagesManualActive) {
-      toast.error("Manual agent ID is set for Messages. Sync is disabled.");
-      return;
-    }
     if (busy) return;
     setBusy(true);
     setError(null);
@@ -1461,31 +1477,44 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
 
   async function saveMessagesAgentSettings() {
     if (!selected) return;
-    if (busy) return;
+    if (busy || messagesSaving) return;
 
-    await updateCampaign({
-      messageChannelPolicy: selected.messageChannelPolicy,
-      chatAgentId: (selected.chatAgentId ?? "").trim(),
-      manualChatAgentId: (selected.manualChatAgentId ?? "").trim(),
-      chatAgentConfig: selected.chatAgentConfig ?? {},
-    });
+    if (!messagesAgentDirty) return;
 
-    toast.success("Saved");
+    setMessagesSaving(true);
+    try {
+      await updateCampaign({
+        messageChannelPolicy: selected.messageChannelPolicy,
+        chatAgentId: (selected.chatAgentId ?? "").trim(),
+        manualChatAgentId: (selected.manualChatAgentId ?? "").trim(),
+        chatAgentConfig: selected.chatAgentConfig ?? {},
+      });
+      toast.success("Saved");
+    } finally {
+      setMessagesSaving(false);
+    }
   }
 
   async function saveCallsAgentSettings() {
     if (!selected) return;
-    if (busy) return;
+    if (busy || callsSaving) return;
 
-    await updateCampaign({
-      voiceAgentId: (selected.voiceAgentId ?? "").trim(),
-      voiceId: typeof selected.voiceId === "string" ? selected.voiceId.trim() : null,
-      manualVoiceAgentId: (selected.manualVoiceAgentId ?? "").trim(),
-      voiceAgentConfig: selected.voiceAgentConfig ?? {},
-      knowledgeBase: selected.knowledgeBase ?? null,
-    });
+    if (!callsAgentDirty) return;
 
-    toast.success("Saved");
+    setCallsSaving(true);
+    try {
+      await updateCampaign({
+        voiceAgentId: (selected.voiceAgentId ?? "").trim(),
+        voiceId: typeof selected.voiceId === "string" ? selected.voiceId.trim() : null,
+        manualVoiceAgentId: (selected.manualVoiceAgentId ?? "").trim(),
+        voiceAgentConfig: selected.voiceAgentConfig ?? {},
+        knowledgeBase: selected.knowledgeBase ?? null,
+      });
+
+      toast.success("Saved");
+    } finally {
+      setCallsSaving(false);
+    }
   }
 
   function ensureKnowledgeBase(kb: CampaignKnowledgeBase | null): CampaignKnowledgeBase {
@@ -2058,7 +2087,7 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
                   "inline-flex h-9 w-9 items-center justify-center rounded-xl text-base font-semibold",
                   busy
                     ? "border border-zinc-200 bg-zinc-100 text-zinc-500"
-                    : "bg-[color:var(--color-brand-blue)] text-white shadow-sm hover:opacity-90",
+                    : "bg-(--color-brand-blue) text-white shadow-sm hover:opacity-90",
                 )}
                 title="Create campaign"
                 aria-label="Create campaign"
@@ -2133,7 +2162,7 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
                   "inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-base font-semibold",
                   busy
                     ? "border border-zinc-200 bg-zinc-100 text-zinc-500"
-                    : "bg-[color:var(--color-brand-blue)] text-white shadow-sm hover:opacity-90",
+                    : "bg-(--color-brand-blue) text-white shadow-sm hover:opacity-90",
                 )}
                 title="Create campaign"
                 aria-label="Create campaign"
@@ -2183,7 +2212,7 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
                       ? "min-w-0 whitespace-nowrap px-3 py-2 text-xs"
                       : "min-w-40 px-4 py-2.5 text-sm",
                     tab === "calls"
-                      ? "border-[color:var(--color-brand-blue)] bg-[color:var(--color-brand-blue)] text-white shadow-sm"
+                      ? "border-[color:var(--color-brand-blue)] bg-(--color-brand-blue) text-white shadow-sm"
                       : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50",
                   )}
                 >
@@ -2199,7 +2228,7 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
                       ? "min-w-0 whitespace-nowrap px-3 py-2 text-xs"
                       : "min-w-40 px-4 py-2.5 text-sm",
                     tab === "messages"
-                      ? "border-[color:var(--color-brand-blue)] bg-[color:var(--color-brand-blue)] text-white shadow-sm"
+                      ? "border-[color:var(--color-brand-blue)] bg-(--color-brand-blue) text-white shadow-sm"
                       : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50",
                   )}
                 >
@@ -2215,7 +2244,7 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
                       ? "min-w-0 whitespace-nowrap px-3 py-2 text-xs"
                       : "min-w-40 px-4 py-2.5 text-sm",
                     tab === "settings"
-                      ? "border-[color:var(--color-brand-blue)] bg-[color:var(--color-brand-blue)] text-white shadow-sm"
+                      ? "border-[color:var(--color-brand-blue)] bg-(--color-brand-blue) text-white shadow-sm"
                       : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50",
                   )}
                 >
@@ -2509,7 +2538,7 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
                             updateCampaign({ status: nextStatus });
                           }}
                         />
-                        <span className="absolute inset-0 rounded-full bg-zinc-200 transition peer-checked:bg-[color:var(--color-brand-blue)] peer-disabled:opacity-60" />
+                        <span className="absolute inset-0 rounded-full bg-zinc-200 transition peer-checked:bg-(--color-brand-blue) peer-disabled:opacity-60" />
                         <span className="absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow-sm transition peer-checked:translate-x-5 peer-disabled:opacity-80" />
                       </span>
                     </div>
@@ -2917,33 +2946,29 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
                           <div className="flex flex-wrap items-center gap-2">
                             <button
                               type="button"
-                              disabled={busy}
+                              disabled={busy || callsSaving || !callsAgentDirty}
                               onClick={() => void saveCallsAgentSettings()}
                               className={classNames(
                                 "rounded-2xl border px-4 py-2 text-xs font-semibold",
-                                busy
+                                busy || callsSaving || !callsAgentDirty
                                   ? "border-zinc-200 bg-zinc-200 text-zinc-600"
                                   : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50",
                               )}
                               title="Save calls agent settings"
                             >
-                              Save
+                              {callsSaving ? "Saving…" : callsAgentDirty ? "Save" : "Saved"}
                             </button>
                             <button
                               type="button"
-                              disabled={busy || callsManualActive}
+                              disabled={busy}
                               onClick={syncCallsAgent}
                               className={classNames(
                                 "rounded-2xl px-4 py-2 text-xs font-semibold",
-                                busy || callsManualActive
+                                busy
                                   ? "bg-zinc-200 text-zinc-600"
                                   : "bg-[color:var(--color-brand-blue)] text-white hover:opacity-95",
                               )}
-                              title={
-                                callsManualActive
-                                  ? "Sync is disabled while a manual Calls agent ID is set"
-                                  : "Sync calls agent"
-                              }
+                              title="Sync calls agent"
                             >
                               {busy ? "Syncing…" : "Sync calls agent"}
                             </button>
@@ -2976,7 +3001,7 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
                           <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
                             <div>
                               <div className="text-xs font-semibold text-zinc-700">Selected voice</div>
-                              <PortalSelectDropdown<string>
+                              <PortalListboxDropdown<string>
                                 value={selected.voiceId ?? ""}
                                 onChange={(voiceId) => {
                                   const v = String(voiceId || "").trim();
@@ -2988,50 +3013,64 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
                                 disabled={busy}
                                 placeholder={voiceLibraryLoading ? "Loading voices…" : "Default voice"}
                                 options={[
-                                  { value: "", label: "Default voice" },
+                                  { value: "", label: "Default voice", hint: "" },
                                   ...voiceLibraryVoices.map((v) => ({
                                     value: v.id,
                                     label: v.category ? `${v.name} (${v.category})` : v.name,
                                     hint: v.description || "",
                                   })),
                                 ]}
+                                renderOptionRight={(opt) => {
+                                  if (!opt.value) return null;
+                                  const isBusy = voicePreviewBusyVoiceId === opt.value;
+                                  const canClick = !busy && !voicePreviewBusyVoiceId;
+                                  return (
+                                    <span
+                                      role="button"
+                                      tabIndex={canClick ? 0 : -1}
+                                      aria-label={isBusy ? "Generating preview" : "Play preview"}
+                                      title={isBusy ? "Generating…" : "Play preview"}
+                                      className={classNames(
+                                        "inline-flex h-7 w-7 items-center justify-center rounded-lg text-xs font-semibold",
+                                        canClick ? "bg-white/15 hover:bg-white/25" : "opacity-60",
+                                      )}
+                                      onMouseDown={(e) => {
+                                        e.preventDefault();
+                                        e.stopPropagation();
+                                      }}
+                                      onClick={(e) => {
+                                        e.preventDefault();
+                                        e.stopPropagation();
+                                        if (!canClick) return;
+                                        void playVoicePreview(opt.value);
+                                      }}
+                                      onKeyDown={(e) => {
+                                        if (!canClick) return;
+                                        if (e.key === "Enter" || e.key === " ") {
+                                          e.preventDefault();
+                                          e.stopPropagation();
+                                          void playVoicePreview(opt.value);
+                                        }
+                                      }}
+                                    >
+                                      {isBusy ? "…" : "▶"}
+                                    </span>
+                                  );
+                                }}
                                 buttonClassName="flex h-9 w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-2 text-xs hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
                               />
-                              {selected.voiceId ? (
-                                <div className="mt-1 text-[11px] text-zinc-500">Voice ID: {selected.voiceId}</div>
-                              ) : (
-                                <div className="mt-1 text-[11px] text-zinc-500">Using the default voice.</div>
-                              )}
+                              <div className="mt-1 text-[11px] text-zinc-500">
+                                {selected.voiceId?.trim() ? "Click ▶ next to a voice to preview." : "Using the default voice."}
+                              </div>
                             </div>
 
                             <div>
-                              <div className="text-xs font-semibold text-zinc-700">Preview</div>
-                              <div className="mt-1 flex gap-2">
-                                <input
-                                  value={voicePreviewText}
-                                  onChange={(e) => setVoicePreviewText(e.target.value)}
-                                  disabled={busy}
-                                  className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs"
-                                  placeholder="Type preview text…"
-                                />
-                                <button
-                                  type="button"
-                                  disabled={busy || voicePreviewBusy || !selected.voiceId}
-                                  onClick={() => void playVoicePreview(String(selected.voiceId || ""))}
-                                  className={classNames(
-                                    "shrink-0 rounded-xl px-3 py-2 text-xs font-semibold",
-                                    busy || voicePreviewBusy || !selected.voiceId
-                                      ? "bg-zinc-200 text-zinc-600"
-                                      : "bg-[color:var(--color-brand-blue)] text-white hover:opacity-95",
-                                  )}
-                                >
-                                  {voicePreviewBusy ? "Generating…" : "Play"}
-                                </button>
-                              </div>
-                              <audio ref={voicePreviewAudioRef} controls className="mt-2 w-full" preload="none" />
-                              {!selected.voiceId ? (
-                                <div className="mt-1 text-[11px] text-zinc-500">Select a voice to preview.</div>
-                              ) : null}
+                              <audio
+                                ref={voicePreviewAudioRef}
+                                controls={voicePreviewShowControls}
+                                className={voicePreviewShowControls ? "mt-7 w-full" : "hidden"}
+                                preload="none"
+                              />
                             </div>
                           </div>
                         </div>
@@ -3196,7 +3235,7 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
                             <div>
                               <div className="text-xs font-semibold text-zinc-700">Advanced</div>
                               <div className="mt-1 text-[11px] text-zinc-600">
-                                Optional manual override. When set, we use this agent ID as-is and disable Sync.
+                                Optional manual override. When set, Sync applies changes to this agent ID (we won’t create a new agent).
                               </div>
                             </div>
                             {callsManualActive ? (
@@ -3603,33 +3642,29 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
                           <div className="flex flex-wrap items-center gap-2">
                             <button
                               type="button"
-                              disabled={busy}
+                              disabled={busy || messagesSaving || !messagesAgentDirty}
                               onClick={() => void saveMessagesAgentSettings()}
                               className={classNames(
                                 "rounded-2xl px-4 py-2 text-xs font-semibold",
-                                busy
+                                busy || messagesSaving || !messagesAgentDirty
                                   ? "bg-zinc-200 text-zinc-600"
                                   : "border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50",
                               )}
                               title="Save messages settings"
                             >
-                              Save
+                              {messagesSaving ? "Saving…" : messagesAgentDirty ? "Save" : "Saved"}
                             </button>
                             <button
                               type="button"
-                              disabled={busy || messagesManualActive}
+                              disabled={busy}
                               onClick={syncMessagesAgent}
                               className={classNames(
                                 "rounded-2xl px-4 py-2 text-xs font-semibold",
-                                busy || messagesManualActive
+                                busy
                                   ? "bg-zinc-200 text-zinc-600"
                                   : "bg-[color:var(--color-brand-blue)] text-white hover:opacity-95",
                               )}
-                              title={
-                                messagesManualActive
-                                  ? "Sync is disabled while a manual Messages agent ID is set"
-                                  : "Sync messages agent"
-                              }
+                              title="Sync messages agent"
                             >
                               {busy ? "Syncing…" : "Sync messages agent"}
                             </button>
@@ -3641,7 +3676,7 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
                             <div>
                               <div className="text-xs font-semibold text-zinc-700">Advanced</div>
                               <div className="mt-1 text-[11px] text-zinc-600">
-                                Optional manual override. When set, we use this agent ID as-is and disable Sync.
+                                Optional manual override. When set, Sync applies changes to this agent ID (we won’t create a new agent).
                               </div>
                             </div>
                             {messagesManualActive ? (

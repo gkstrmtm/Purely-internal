@@ -162,6 +162,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
 
   const [site, setSite] = useState<Site | null>(null);
   const [settings, setSettings] = useState<Settings | null>(null);
+  const lastSavedSettingsJsonRef = useRef<{ external: string; internal: string }>({ external: "null", internal: "null" });
   const [settingsCache, setSettingsCache] = useState<{ external: Settings | null; internal: Settings | null }>({
     external: null,
     internal: null,
@@ -390,6 +391,11 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
     setSettingsCache(nextSettingsCache);
     setSettings(nextSettingsCache[audienceRef.current] ?? null);
 
+    lastSavedSettingsJsonRef.current = {
+      external: JSON.stringify(nextSettingsCache.external),
+      internal: JSON.stringify(nextSettingsCache.internal),
+    };
+
     setTags(Array.isArray(tagsJson?.tags) ? tagsJson.tags : []);
 
     if (creditsRes.ok) {
@@ -410,6 +416,12 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
 
     setLoading(false);
   }, [toast]);
+
+  const isDirty = useMemo(() => {
+    if (!settings) return false;
+    const key = audience === "internal" ? "internal" : "external";
+    return JSON.stringify(settings) !== lastSavedSettingsJsonRef.current[key];
+  }, [audience, settings]);
 
   useEffect(() => {
     void refresh();
@@ -1243,15 +1255,15 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                   <button
                     type="button"
                     onClick={saveSettings}
-                    disabled={saving || !settings}
+                    disabled={saving || !settings || !isDirty}
                     className={
                       "inline-flex items-center justify-center rounded-2xl px-4 py-2 text-xs font-semibold shadow-sm transition " +
-                      (saving || !settings
+                      (saving || !settings || !isDirty
                         ? "bg-zinc-200 text-zinc-600"
                         : "bg-[color:var(--color-brand-blue)] text-white hover:opacity-90")
                     }
                   >
-                    {saving ? "Saving…" : "Save"}
+                    {saving ? "Saving…" : isDirty ? "Save" : "Saved"}
                   </button>
 
                   <button
@@ -2020,12 +2032,14 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                       type="button"
                       className={
                         "rounded-2xl px-4 py-2 text-sm font-semibold shadow-sm transition " +
-                        (saving || !settings ? "bg-zinc-200 text-zinc-600" : "bg-[color:var(--color-brand-blue)] text-white hover:opacity-90")
+                        (saving || !settings || !isDirty
+                          ? "bg-zinc-200 text-zinc-600"
+                          : "bg-[color:var(--color-brand-blue)] text-white hover:opacity-90")
                       }
-                      disabled={saving || !settings}
+                      disabled={saving || !settings || !isDirty}
                       onClick={saveSettings}
                     >
-                      {saving ? "Saving…" : "Save"}
+                      {saving ? "Saving…" : isDirty ? "Save" : "Saved"}
                     </button>
                     <button
                       type="button"

@@ -1,6 +1,6 @@
 "use client";
 
-import type { CSSProperties } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
@@ -23,6 +23,7 @@ export function PortalListboxDropdown<T extends string>(props: {
   placeholder?: string;
   getOptionStyle?: (opt: PortalListboxOption<T>) => CSSProperties | undefined;
   getButtonLabelStyle?: (opt: PortalListboxOption<T> | null) => CSSProperties | undefined;
+  renderOptionRight?: (opt: PortalListboxOption<T>, state: { selected: boolean; disabled: boolean }) => ReactNode;
 }) {
   const {
     value,
@@ -36,6 +37,7 @@ export function PortalListboxDropdown<T extends string>(props: {
     placeholder,
     getOptionStyle,
     getButtonLabelStyle,
+    renderOptionRight,
   } = props;
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement | null>(null);
@@ -88,10 +90,11 @@ export function PortalListboxDropdown<T extends string>(props: {
           e.stopPropagation();
         }}
       >
-        <div className="max-h-[260px] overflow-auto p-1">
+        <div className="max-h-65 overflow-auto p-1">
           {options.map((o) => {
             const isSel = o.value === value;
             const disabled = Boolean(o.disabled);
+            const hintClassName = disabled ? "text-zinc-400" : isSel ? "text-white/80" : "text-zinc-600";
             return (
               <button
                 key={o.value}
@@ -102,7 +105,7 @@ export function PortalListboxDropdown<T extends string>(props: {
                   (disabled
                     ? "cursor-not-allowed text-zinc-400"
                     : isSel
-                      ? "bg-[color:var(--color-brand-blue)] text-white"
+                      ? "bg-(--color-brand-blue) text-white"
                       : "hover:bg-zinc-50 text-zinc-900")
                 }
                 onClick={() => {
@@ -115,10 +118,13 @@ export function PortalListboxDropdown<T extends string>(props: {
                   <div className="truncate font-semibold" title={o.label} style={getOptionStyle?.(o)}>
                     {o.label}
                   </div>
-                  {isSel ? <div className="text-xs">✓</div> : null}
+                  <div className="flex shrink-0 items-center gap-2">
+                    {renderOptionRight ? renderOptionRight(o, { selected: isSel, disabled }) : null}
+                    {isSel ? <div className="text-xs">✓</div> : null}
+                  </div>
                 </div>
                 {o.hint ? (
-                  <div className={"mt-0.5 text-xs " + (disabled ? "text-zinc-400" : "text-zinc-500")}>{o.hint}</div>
+                  <div className={"mt-0.5 text-xs " + hintClassName}>{o.hint}</div>
                 ) : null}
               </button>
             );
@@ -133,7 +139,7 @@ export function PortalListboxDropdown<T extends string>(props: {
 
     if (typeof document === "undefined") return null;
     return createPortal(menu, document.body);
-  }, [getOptionStyle, menuRect, onChange, open, options, portal, value]);
+  }, [getOptionStyle, menuRect, onChange, open, options, portal, renderOptionRight, value]);
 
   useEffect(() => {
     if (!open) return;
@@ -200,7 +206,7 @@ export function PortalListboxDropdown<T extends string>(props: {
             (!current && placeholder
               ? "text-zinc-500"
               : current
-                ? "font-semibold text-[color:var(--color-brand-blue)]"
+                ? "font-semibold text-(--color-brand-blue)"
                 : "")
           }
           title={typeof currentLabel === "string" ? currentLabel : String(currentLabel)}

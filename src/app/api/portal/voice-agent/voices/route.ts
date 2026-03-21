@@ -38,6 +38,12 @@ async function getProfileVoiceAgentApiKey(ownerId: string): Promise<string | nul
   return key || envVoiceAgentApiKey() || null;
 }
 
+function friendlyVoiceAgentError(status?: number): string {
+  if (status === 401 || status === 403) return "Voice agent API key is invalid. Update it in Profile and try again.";
+  if (status === 429) return "Voice agent is temporarily rate-limited. Please try again in a minute.";
+  return "Unable to load voices. Please try again.";
+}
+
 export async function GET() {
   const auth = await requireClientSessionForAnyService(["aiOutboundCalls", "aiReceptionist"], "view");
   if (!auth.ok) {
@@ -58,7 +64,10 @@ export async function GET() {
 
   const result = await listElevenLabsVoices({ apiKey });
   if (!result.ok) {
-    return NextResponse.json({ ok: false, error: result.error }, { status: result.status || 502 });
+    return NextResponse.json(
+      { ok: false, error: friendlyVoiceAgentError(result.status) },
+      { status: result.status || 502 },
+    );
   }
 
   return NextResponse.json({ ok: true, voices: result.voices });

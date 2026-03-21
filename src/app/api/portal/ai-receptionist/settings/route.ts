@@ -454,7 +454,7 @@ export async function PUT(req: Request) {
   let next = await setAiReceptionistSettings(ownerId, normalized);
 
   // Manual override: if the user supplied an agent id (typically from support),
-  // use it as-is and do not auto-create/patch agent prompts/tools.
+  // use it as-is as the target agent ID. (We still allow syncing prompt/tools/voice to that agent.)
   const manualAgentId = String((next as any).manualAgentId || "").trim().slice(0, 120);
   if (manualAgentId && String(next.voiceAgentId || "").trim() !== manualAgentId) {
     try {
@@ -465,7 +465,7 @@ export async function PUT(req: Request) {
     }
   }
 
-  // Manual override for messaging/SMS agent: use as-is and do not auto-create/patch.
+  // Manual override for messaging/SMS agent: use as-is as the target messaging agent ID.
   const manualChatAgentId = String((next as any).manualChatAgentId || "").trim().slice(0, 120);
   if (manualChatAgentId && String(next.chatAgentId || "").trim() !== manualChatAgentId) {
     try {
@@ -484,7 +484,7 @@ export async function PUT(req: Request) {
   const apiKeyLegacy = typeof (next as any)?.voiceAgentApiKey === "string" ? String((next as any).voiceAgentApiKey).trim() : "";
   const apiKey = apiKeyFromProfile.trim() || apiKeyLegacy.trim();
 
-  if (apiKey && !manualAgentId) {
+  if (apiKey) {
     const profilePhone = await getOwnerProfilePhoneE164(ownerId).catch(() => null);
     const transferTo = (next.aiCanTransferToHuman ? (next.forwardToPhoneE164 || profilePhone) : null) || null;
 
@@ -559,7 +559,7 @@ export async function PUT(req: Request) {
 
   // Optional: sync (create/patch) messaging agent for SMS / chat experiences.
   // This must be explicitly requested because API keys may be shared.
-  if (parsed.data.syncChatAgent && !manualChatAgentId) {
+  if (parsed.data.syncChatAgent) {
     if (!apiKey) {
       await setAiReceptionistSettings(ownerId, current.settings).catch(() => null);
       return NextResponse.json(
