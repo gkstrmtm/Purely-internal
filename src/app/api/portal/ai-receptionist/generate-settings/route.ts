@@ -28,6 +28,49 @@ const outSchema = z
   })
   .strict();
 
+function stripCodeFences(text: string): string {
+  let s = String(text || "").trim();
+  if (s.startsWith("```")) {
+    s = s.replace(/^```[a-zA-Z0-9_-]*\n?/, "");
+    s = s.replace(/\n?```$/, "");
+  }
+  return s.trim();
+}
+
+function normalizeGeneratedSystemPrompt(opts: { raw: string; businessName: string }): string {
+  let s = stripCodeFences(opts.raw);
+
+  // Remove common wrapper prefixes.
+  s = s.replace(/^system\s*prompt\s*:\s*/i, "").trim();
+  s = s.replace(/^here(?:'|’)s\s+the\s+system\s+prompt\s*:\s*/i, "").trim();
+
+  // If the model wrote instructions to the human ("Make sure the AI...") instead of direct-to-AI.
+  const looksLikeHumanInstructions = /\bmake\s+sure\s+(the\s+ai|your\s+ai|it\s+always)\b/i.test(s);
+  const mentionsReceptionist = /\b(ai\s+receptionist|receptionist)\b/i.test(s);
+  const startsDirectToAi = /^you\s+are\b/i.test(s);
+
+  if (!startsDirectToAi) {
+    const business = opts.businessName.trim() ? opts.businessName.trim() : "the business";
+    const prefix = `You are an AI receptionist for ${business}.`;
+    s = `${prefix}\n\n${s}`.trim();
+  }
+
+  if (!mentionsReceptionist) {
+    s = `You are an AI receptionist.\n\n${s}`.trim();
+  }
+
+  if (looksLikeHumanInstructions) {
+    // Reframe to direct-to-AI imperative.
+    s = s
+      .replace(/\bmake\s+sure\s+the\s+ai\b/gi, "Always")
+      .replace(/\bmake\s+sure\s+your\s+ai\b/gi, "Always")
+      .replace(/\bmake\s+sure\s+it\b/gi, "Always")
+      .trim();
+  }
+
+  return s.slice(0, 6000).trim();
+}
+
 function extractFirstJsonObject(text: string): any | null {
   const s = String(text || "");
   const start = s.indexOf("{");
@@ -71,8 +114,11 @@ export async function POST(req: Request) {
     "You generate AI receptionist settings JSON for a small-business phone answering product.",
     "Return ONLY valid JSON. No markdown, no commentary.",
     "JSON keys: businessName, greeting, systemPrompt.",
+    "The systemPrompt MUST be directly usable as an AI system prompt. Write it as instructions to the AI (direct second-person), not instructions to a human developer.",
+    "No matter what the user asks for, ALWAYS output a receptionist systemPrompt and a receptionist greeting.",
     "Do not invent facts. If something is unknown, omit it or keep it generic.",
-    "Keep greeting friendly and short. Keep systemPrompt practical and safe.",
+    "Keep greeting friendly and short. Keep systemPrompt detailed, structured, practical, and safe.",
+    "The systemPrompt should include: role, goals, what to ask/collect, what to do when missing info, tone, safety constraints, and call flow (greet → identify intent → help → capture details → next step).",
   ].join("\n");
 
   const user = [
@@ -93,7 +139,7 @@ export async function POST(req: Request) {
     "Write JSON with:",
     "- businessName: the business name (use Business Profile if present)",
     "- greeting: what the receptionist says first (1-2 sentences)",
-    "- systemPrompt: concise instructions (include lead capture + booking help; avoid legal claims; never be creepy)",
+    "- systemPrompt: DETAILED AI system prompt instructions (direct-to-AI). Include lead capture + booking help; avoid legal claims; never be creepy; ask one question at a time; do not wait for a response before offering helpful next steps.",
   ]
     .filter(Boolean)
     .join("\n");
@@ -112,7 +158,10 @@ export async function POST(req: Request) {
   if (validated.success) {
     const businessName = (validated.data.businessName || businessNameFallback || "").trim().slice(0, 120);
     const greeting = String(validated.data.greeting || "").trim().slice(0, 360);
-    const systemPrompt = String(validated.data.systemPrompt || "").trim().slice(0, 6000);
+    const systemPrompt = normalizeGeneratedSystemPrompt({
+      raw: String(validated.data.systemPrompt || ""),
+      businessName,
+    });
 
     return NextResponse.json({
       ok: true,

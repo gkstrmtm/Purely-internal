@@ -17,6 +17,40 @@ const postSchema = z
   })
   .strict();
 
+function stripCodeFences(text: string): string {
+  let s = String(text || "").trim();
+  if (s.startsWith("```")) {
+    s = s.replace(/^```[a-zA-Z0-9_-]*\n?/, "");
+    s = s.replace(/\n?```$/, "");
+  }
+  return s.trim();
+}
+
+function normalizeSmsSystemPrompt(opts: { raw: string; businessName: string }): string {
+  let s = stripCodeFences(opts.raw);
+  s = s.replace(/^system\s*prompt\s*:\s*/i, "").trim();
+
+  // Ensure it is clearly a system prompt for an AI receptionist.
+  const mentionsSms = /\b(sms|text|inbound\s+sms)\b/i.test(s);
+  const startsDirectToAi = /^you\s+are\b/i.test(s);
+  const business = opts.businessName.trim() ? opts.businessName.trim() : "the business";
+
+  if (!startsDirectToAi) {
+    s = `You are an AI receptionist for ${business}.\n\n${s}`.trim();
+  }
+  if (!mentionsSms) {
+    s = `You handle inbound SMS auto-replies (text messages).\n\n${s}`.trim();
+  }
+
+  // Avoid telling a human what to do.
+  s = s
+    .replace(/\bmake\s+sure\s+the\s+ai\b/gi, "Always")
+    .replace(/\bmake\s+sure\s+it\b/gi, "Always")
+    .trim();
+
+  return s.slice(0, 6000).trim();
+}
+
 export async function POST(req: Request) {
   const auth = await requireClientSessionForService("aiReceptionist", "edit");
   if (!auth.ok) {
@@ -46,6 +80,7 @@ export async function POST(req: Request) {
     "You write system prompts for an AI receptionist product.",
     "Return ONLY the system prompt text. No markdown. No JSON.",
     "The prompt is for INBOUND SMS auto-replies.",
+    "No matter what the user asks, ALWAYS output an inbound-SMS AI receptionist system prompt.",
     "Constraints: keep replies short (1-3 sentences), under 320 characters when possible; no markdown; ask at most one question.",
     "Do not invent facts. If hours/pricing are unknown, ask or keep it generic.",
     "Keep it practical: answer basic questions, capture lead details when appropriate, and offer next steps.",
@@ -70,7 +105,10 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: msg }, { status: 502 });
   }
 
-  const smsSystemPrompt = String(raw || "").trim().slice(0, 6000);
+  const smsSystemPrompt = normalizeSmsSystemPrompt({
+    raw: String(raw || ""),
+    businessName: businessNameFallback,
+  });
   if (!smsSystemPrompt) {
     return NextResponse.json({ ok: false, error: "Empty AI response" }, { status: 502 });
   }

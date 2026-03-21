@@ -395,6 +395,7 @@ export function PortalAiReceptionistClient() {
   const [generateContext, setGenerateContext] = useState("");
   const [smsGenerateContext, setSmsGenerateContext] = useState("");
   const [generateBusy, setGenerateBusy] = useState(false);
+  const [polishBusy, setPolishBusy] = useState<null | "voiceGreeting" | "voiceSystemPrompt" | "smsSystemPrompt">(null);
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
 
@@ -634,6 +635,58 @@ export function PortalAiReceptionistClient() {
       setError(e instanceof Error ? e.message : "Failed to generate");
     } finally {
       setSmsPromptBusy(false);
+    }
+  }
+
+  async function polishReceptionistText(target: "voiceGreeting" | "voiceSystemPrompt" | "smsSystemPrompt") {
+    if (!settings) return;
+    if (polishBusy) return;
+
+    const inputText =
+      target === "voiceGreeting"
+        ? settings.greeting
+        : target === "voiceSystemPrompt"
+          ? settings.systemPrompt
+          : settings.smsSystemPrompt;
+
+    if (!String(inputText || "").trim()) {
+      toast.error("Add some text to polish first");
+      return;
+    }
+
+    setPolishBusy(target);
+    try {
+      const kind = target === "voiceGreeting" ? "greeting" : "systemPrompt";
+      const channel = target === "smsSystemPrompt" ? "sms" : "voice";
+
+      const res = await fetch("/api/portal/ai-receptionist/polish", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ kind, channel, text: inputText }),
+      }).catch(() => null as any);
+
+      if (!res?.ok) {
+        const rawError = res ? await readJsonError(res) : null;
+        throw new Error(rawError || "Failed to polish");
+      }
+
+      const json = (await res.json().catch(() => null)) as any;
+      if (!json?.ok || typeof json.polished !== "string") throw new Error(json?.error || "Failed to polish");
+      const polished = String(json.polished || "").trim();
+      if (!polished) throw new Error("Empty AI response");
+
+      setSettings((prev) => {
+        if (!prev) return prev;
+        if (target === "voiceGreeting") return { ...prev, greeting: polished };
+        if (target === "voiceSystemPrompt") return { ...prev, systemPrompt: polished };
+        return { ...prev, smsSystemPrompt: polished };
+      });
+
+      toast.success("Polished");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to polish");
+    } finally {
+      setPolishBusy(null);
     }
   }
 
@@ -1486,7 +1539,35 @@ export function PortalAiReceptionistClient() {
               </label>
 
               <label className="rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm sm:col-span-2">
-                <div className="text-xs font-semibold text-zinc-600">Greeting</div>
+                <div className="flex items-center justify-between gap-3">
+                  <div className="text-xs font-semibold text-zinc-600">Greeting</div>
+                  <button
+                    type="button"
+                    disabled={saving || !settings || polishBusy === "voiceGreeting"}
+                    onClick={() => void polishReceptionistText("voiceGreeting")}
+                    className={classNames(
+                      "inline-flex items-center gap-2 rounded-2xl px-3 py-1.5 text-[11px] font-semibold",
+                      saving || !settings || polishBusy === "voiceGreeting"
+                        ? "bg-zinc-200 text-zinc-600"
+                        : "bg-linear-to-r from-(--color-brand-blue) via-violet-500 to-(--color-brand-pink) text-white shadow-sm hover:opacity-90",
+                    )}
+                  >
+                    <svg
+                      aria-hidden="true"
+                      viewBox="0 0 24 24"
+                      className="h-3.5 w-3.5"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    >
+                      <path d="M12 2l1.5 5.5L19 9l-5.5 1.5L12 16l-1.5-5.5L5 9l5.5-1.5L12 2z" />
+                      <path d="M19 14l.8 2.6L22 17l-2.2.4L19 20l-.8-2.6L16 17l2.2-.4L19 14z" />
+                    </svg>
+                    <span>{polishBusy === "voiceGreeting" ? "Polishing…" : "AI Polish"}</span>
+                  </button>
+                </div>
                 <textarea
                   className="mt-2 min-h-[90px] w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
                   value={settings?.greeting ?? ""}
@@ -1495,7 +1576,35 @@ export function PortalAiReceptionistClient() {
               </label>
 
               <label className="rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm sm:col-span-2">
-                <div className="text-xs font-semibold text-zinc-600">System prompt</div>
+                <div className="flex items-center justify-between gap-3">
+                  <div className="text-xs font-semibold text-zinc-600">System prompt</div>
+                  <button
+                    type="button"
+                    disabled={saving || !settings || polishBusy === "voiceSystemPrompt"}
+                    onClick={() => void polishReceptionistText("voiceSystemPrompt")}
+                    className={classNames(
+                      "inline-flex items-center gap-2 rounded-2xl px-3 py-1.5 text-[11px] font-semibold",
+                      saving || !settings || polishBusy === "voiceSystemPrompt"
+                        ? "bg-zinc-200 text-zinc-600"
+                        : "bg-linear-to-r from-(--color-brand-blue) via-violet-500 to-(--color-brand-pink) text-white shadow-sm hover:opacity-90",
+                    )}
+                  >
+                    <svg
+                      aria-hidden="true"
+                      viewBox="0 0 24 24"
+                      className="h-3.5 w-3.5"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    >
+                      <path d="M12 2l1.5 5.5L19 9l-5.5 1.5L12 16l-1.5-5.5L5 9l5.5-1.5L12 2z" />
+                      <path d="M19 14l.8 2.6L22 17l-2.2.4L19 20l-.8-2.6L16 17l2.2-.4L19 14z" />
+                    </svg>
+                    <span>{polishBusy === "voiceSystemPrompt" ? "Polishing…" : "AI Polish"}</span>
+                  </button>
+                </div>
                 <textarea
                   className="mt-2 min-h-[160px] w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
                   value={settings?.systemPrompt ?? ""}
@@ -1569,7 +1678,13 @@ export function PortalAiReceptionistClient() {
                               }
                             }}
                           >
-                            {isBusy ? "…" : "▶"}
+                            {isBusy ? (
+                              "…"
+                            ) : (
+                              <svg aria-hidden="true" viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor">
+                                <path d="M8 5v14l11-7z" />
+                              </svg>
+                            )}
                           </span>
                         );
                       }}
@@ -1577,7 +1692,7 @@ export function PortalAiReceptionistClient() {
                       buttonClassName="flex h-10 w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
                     />
                     <div className="mt-1 text-[11px] text-zinc-500">
-                      {settings?.voiceId?.trim() ? "Click ▶ next to a voice to preview." : "Using the default voice."}
+                      {settings?.voiceId?.trim() ? "Click the play icon next to a voice to preview." : "Using the default voice."}
                     </div>
                   </div>
 
@@ -1890,7 +2005,35 @@ export function PortalAiReceptionistClient() {
 
                   <div className="rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm sm:col-span-2">
                     <div className="min-w-0">
-                      <div className="text-xs font-semibold text-zinc-600">SMS system prompt</div>
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="text-xs font-semibold text-zinc-600">SMS system prompt</div>
+                        <button
+                          type="button"
+                          disabled={saving || !settings || polishBusy === "smsSystemPrompt"}
+                          onClick={() => void polishReceptionistText("smsSystemPrompt")}
+                          className={classNames(
+                            "inline-flex items-center gap-2 rounded-2xl px-3 py-1.5 text-[11px] font-semibold",
+                            saving || !settings || polishBusy === "smsSystemPrompt"
+                              ? "bg-zinc-200 text-zinc-600"
+                              : "bg-linear-to-r from-(--color-brand-blue) via-violet-500 to-(--color-brand-pink) text-white shadow-sm hover:opacity-90",
+                          )}
+                        >
+                          <svg
+                            aria-hidden="true"
+                            viewBox="0 0 24 24"
+                            className="h-3.5 w-3.5"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          >
+                            <path d="M12 2l1.5 5.5L19 9l-5.5 1.5L12 16l-1.5-5.5L5 9l5.5-1.5L12 2z" />
+                            <path d="M19 14l.8 2.6L22 17l-2.2.4L19 20l-.8-2.6L16 17l2.2-.4L19 14z" />
+                          </svg>
+                          <span>{polishBusy === "smsSystemPrompt" ? "Polishing…" : "AI Polish"}</span>
+                        </button>
+                      </div>
                       <div className="mt-1 text-xs text-zinc-600">
                         Used only for inbound SMS auto-replies. If blank, we’ll fall back to the main System prompt.
                       </div>
