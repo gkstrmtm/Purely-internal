@@ -1847,7 +1847,7 @@ export function PortalBookingClient() {
             <div className="flex items-start justify-between gap-3">
               <div>
                 <div className="text-sm font-semibold text-zinc-900">Bookings</div>
-                <div className="mt-1 text-sm text-zinc-600">All upcoming bookings, ordered nearest to farthest.</div>
+                <div className="mt-1 text-sm text-zinc-600">Upcoming bookings.</div>
               </div>
               <div className="shrink-0 rounded-full bg-zinc-100 px-3 py-1 text-xs font-semibold text-zinc-700">
                 {bookingsChronological.length} upcoming
