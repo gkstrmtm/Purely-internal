@@ -2898,9 +2898,10 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
           headers: { [PORTAL_VARIANT_HEADER]: portalVariant },
         });
         const json = (await res.json().catch(() => null)) as any;
+        const websiteId = typeof json?.settings?.websiteAgentId === "string" ? json.settings.websiteAgentId.trim() : "";
         const chatId = typeof json?.settings?.chatAgentId === "string" ? json.settings.chatAgentId.trim() : "";
         if (!cancelled) {
-          setAiReceptionistChatAgentId(chatId || null);
+          setAiReceptionistChatAgentId((websiteId || chatId) ? (websiteId || chatId) : null);
         }
       } catch {
         // ignore

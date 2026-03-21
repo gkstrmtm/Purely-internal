@@ -50,6 +50,9 @@ export type AiReceptionistSettings = {
   // Messaging/chat agent (used by portal tools like funnels; separate from voice).
   chatAgentId: string;
 
+  // Optional override for website embed/chat experiences.
+  websiteAgentId: string;
+
   voiceAgentId: string;
   voiceAgentApiKey: string | null;
 };
@@ -128,6 +131,8 @@ export function parseAiReceptionistSettings(
 
     chatAgentId: prev?.chatAgentId ?? "",
 
+    websiteAgentId: prev?.websiteAgentId ?? "",
+
     voiceAgentId: "",
     voiceAgentApiKey: prev?.voiceAgentApiKey ?? null,
   };
@@ -188,6 +193,14 @@ export function parseAiReceptionistSettings(
           : "";
   const chatAgentId = String(chatAgentIdRaw || "").trim().slice(0, 120) || base.chatAgentId;
 
+  const websiteAgentIdRaw =
+    typeof (rec as any).websiteAgentId === "string"
+      ? (rec as any).websiteAgentId
+      : typeof (rec as any).websiteChatAgentId === "string"
+        ? (rec as any).websiteChatAgentId
+        : "";
+  const websiteAgentId = String(websiteAgentIdRaw || "").trim().slice(0, 120) || base.websiteAgentId;
+
   const voiceAgentIdRaw =
     typeof rec.voiceAgentId === "string"
       ? rec.voiceAgentId
@@ -220,6 +233,7 @@ export function parseAiReceptionistSettings(
     aiCanTransferToHuman,
     forwardToPhoneE164,
     chatAgentId,
+    websiteAgentId,
     voiceAgentId,
     voiceAgentApiKey,
   };

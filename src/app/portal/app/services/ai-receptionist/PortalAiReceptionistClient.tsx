@@ -31,6 +31,7 @@ type Settings = {
   aiCanTransferToHuman: boolean;
   forwardToPhoneE164: string | null;
   chatAgentId: string;
+  websiteAgentId: string;
   voiceAgentId: string;
   voiceAgentConfigured: boolean;
 };
@@ -1245,6 +1246,27 @@ export function PortalAiReceptionistClient() {
                 </label>
               ) : null}
             </div>
+
+                <div className="mt-8">
+                  <div className="text-sm font-semibold text-zinc-900">Advanced</div>
+                  <div className="mt-2 grid grid-cols-1 gap-4 sm:grid-cols-2">
+                    <label className="rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm sm:col-span-2">
+                      <div className="text-xs font-semibold text-zinc-600">Agent ID (website)</div>
+                      <input
+                        className="mt-2 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                        value={settings?.websiteAgentId ?? ""}
+                        onChange={(e) => settings && setSettings({ ...settings, websiteAgentId: e.target.value })}
+                        placeholder="agent_…"
+                        autoCapitalize="off"
+                        autoCorrect="off"
+                        spellCheck={false}
+                      />
+                      <div className="mt-2 text-xs text-zinc-600">
+                        Optional. If set, this agent will be used for website embeds and chat widgets.
+                      </div>
+                    </label>
+                  </div>
+                </div>
                 <div className="mt-8" />
               </>
             ) : (
