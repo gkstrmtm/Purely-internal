@@ -119,7 +119,6 @@ async function getOwnerChatAgentIds(ownerId: string): Promise<string[]> {
 
   const receptionist = await getAiReceptionistServiceData(ownerId).catch(() => null);
   if (receptionist) {
-    push((receptionist.settings as any).websiteAgentId);
     push(receptionist.settings.chatAgentId);
   }
 

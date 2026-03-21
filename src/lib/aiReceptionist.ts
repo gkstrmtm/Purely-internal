@@ -50,8 +50,9 @@ export type AiReceptionistSettings = {
   // Messaging/chat agent (used by portal tools like funnels; separate from voice).
   chatAgentId: string;
 
-  // Optional override for website embed/chat experiences.
-  websiteAgentId: string;
+  // Optional manual override for the voice agent id (support-provided).
+  // When set, the system should use this agent id as-is.
+  manualAgentId: string;
 
   voiceAgentId: string;
   voiceAgentApiKey: string | null;
@@ -131,7 +132,7 @@ export function parseAiReceptionistSettings(
 
     chatAgentId: prev?.chatAgentId ?? "",
 
-    websiteAgentId: prev?.websiteAgentId ?? "",
+    manualAgentId: prev?.manualAgentId ?? "",
 
     voiceAgentId: "",
     voiceAgentApiKey: prev?.voiceAgentApiKey ?? null,
@@ -193,13 +194,15 @@ export function parseAiReceptionistSettings(
           : "";
   const chatAgentId = String(chatAgentIdRaw || "").trim().slice(0, 120) || base.chatAgentId;
 
-  const websiteAgentIdRaw =
-    typeof (rec as any).websiteAgentId === "string"
-      ? (rec as any).websiteAgentId
-      : typeof (rec as any).websiteChatAgentId === "string"
-        ? (rec as any).websiteChatAgentId
-        : "";
-  const websiteAgentId = String(websiteAgentIdRaw || "").trim().slice(0, 120) || base.websiteAgentId;
+  const manualAgentIdRaw =
+    typeof (rec as any).manualAgentId === "string"
+      ? (rec as any).manualAgentId
+      : typeof (rec as any).websiteAgentId === "string"
+        ? (rec as any).websiteAgentId
+        : typeof (rec as any).websiteChatAgentId === "string"
+          ? (rec as any).websiteChatAgentId
+          : "";
+  const manualAgentId = String(manualAgentIdRaw || "").trim().slice(0, 120) || base.manualAgentId;
 
   const voiceAgentIdRaw =
     typeof rec.voiceAgentId === "string"
@@ -233,7 +236,7 @@ export function parseAiReceptionistSettings(
     aiCanTransferToHuman,
     forwardToPhoneE164,
     chatAgentId,
-    websiteAgentId,
+    manualAgentId,
     voiceAgentId,
     voiceAgentApiKey,
   };

@@ -453,6 +453,18 @@ export async function PUT(req: Request) {
   const normalized = parseAiReceptionistSettings(rawRec, current.settings);
   let next = await setAiReceptionistSettings(ownerId, normalized);
 
+  // Manual override: if the user supplied an agent id (typically from support),
+  // use it as-is and do not auto-create/patch agent prompts/tools.
+  const manualAgentId = String((next as any).manualAgentId || "").trim().slice(0, 120);
+  if (manualAgentId && String(next.voiceAgentId || "").trim() !== manualAgentId) {
+    try {
+      next = await setAiReceptionistSettings(ownerId, { ...next, voiceAgentId: manualAgentId });
+    } catch {
+      await setAiReceptionistSettings(ownerId, current.settings).catch(() => null);
+      return NextResponse.json({ ok: false, error: "Failed to persist agent ID" }, { status: 500 });
+    }
+  }
+
   // Sync agent config (first message + prompt) to ElevenLabs at save-time.
   // Do not attempt per-call overrides during the Twilio webhook.
   const profileAgentId = await getProfileVoiceAgentId(ownerId).catch(() => null);
@@ -461,7 +473,7 @@ export async function PUT(req: Request) {
   const apiKeyLegacy = typeof (next as any)?.voiceAgentApiKey === "string" ? String((next as any).voiceAgentApiKey).trim() : "";
   const apiKey = apiKeyFromProfile.trim() || apiKeyLegacy.trim();
 
-  if (apiKey) {
+  if (apiKey && !manualAgentId) {
     const profilePhone = await getOwnerProfilePhoneE164(ownerId).catch(() => null);
     const transferTo = (next.aiCanTransferToHuman ? (next.forwardToPhoneE164 || profilePhone) : null) || null;
 

@@ -85,7 +85,6 @@ export async function GET() {
         (settings as any).chatAgentId ?? (settings as any).messagingAgentId,
         "AI Receptionist — SMS",
       );
-      addAgent(agentsMap, (settings as any).websiteAgentId ?? (settings as any).websiteChatAgentId, "AI Receptionist — Website");
       continue;
     }
   }
