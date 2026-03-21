@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import { ToggleSwitch } from "@/components/ToggleSwitch";
+import { toPurelyHostedUrl } from "@/lib/publicHostedOrigin";
 
 import { ConnectAuthPanel } from "../ConnectAuthPanel";
 import { defaultConnectUserDefaults, readConnectUserDefaultsFromStorage, writeConnectUserDefaultsToStorage, type ConnectUserDefaults } from "../connectDefaults";
@@ -172,8 +173,12 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 	const toastTimersRef = useRef<Map<string, number>>(new Map());
 
 	const meetingUrl = useMemo(() => {
-		if (typeof window === "undefined") return "";
-		return `${window.location.origin}/connect/${encodeURIComponent(roomId)}`;
+		const path = `/connect/${encodeURIComponent(roomId)}`;
+		const hosted = toPurelyHostedUrl(path);
+		if (typeof window === "undefined") return hosted;
+		const host = window.location.hostname;
+		const isLocal = host === "localhost" || host === "127.0.0.1";
+		return isLocal ? `${window.location.origin}${path}` : hosted;
 	}, [roomId]);
 
 	useEffect(() => {
@@ -1832,7 +1837,7 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 								))
 							) : pendingAdmission ? (
 								<div className="relative overflow-hidden rounded-2xl bg-zinc-950" onClick={(e) => e.stopPropagation()}>
-									<div className="absolute inset-0 bg-gradient-to-b from-black/40 to-black/80" />
+									<div className="absolute inset-0 bg-linear-to-b from-black/40 to-black/80" />
 									<div className="relative h-full p-6 text-white">
 										<div className="text-lg font-semibold">Request to join sent</div>
 										<div className="mt-2 text-base text-white/80">Waiting for the host to approve you.</div>
@@ -1956,7 +1961,7 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 								</div>
 							) : otherParticipants.length ? (
 								<div className="relative overflow-hidden rounded-2xl bg-zinc-950">
-									<div className="absolute inset-0 bg-gradient-to-b from-black/40 to-black/80" />
+									<div className="absolute inset-0 bg-linear-to-b from-black/40 to-black/80" />
 									<div className="relative h-full p-6 text-white">
 										<div className="text-lg font-semibold">Connecting…</div>
 										<div className="mt-2 text-base text-white/80">
@@ -1967,7 +1972,7 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 								</div>
 							) : (
 								<div className="relative overflow-hidden rounded-2xl bg-zinc-950">
-									<div className="absolute inset-0 bg-gradient-to-b from-black/40 to-black/80" />
+									<div className="absolute inset-0 bg-linear-to-b from-black/40 to-black/80" />
 									<div className="relative h-full p-6 text-white">
 										<div className="text-lg font-semibold">Waiting for someone to join</div>
 										<div className="mt-2 text-base text-white/80">Share the link and they’ll appear here.</div>

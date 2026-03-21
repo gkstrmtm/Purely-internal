@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { useToast } from "@/components/ToastProvider";
+import { toPurelyHostedUrl } from "@/lib/publicHostedOrigin";
 
 type PublicFolderRes =
   | {
@@ -137,7 +138,7 @@ export function PublicMediaFolderClient(props: { folderId: string; token: string
     <div className="mx-auto w-full max-w-5xl p-6">
       <div className="rounded-3xl border border-zinc-200 bg-white p-6">
         <div className="text-xs font-semibold text-zinc-500">Shared folder</div>
-        <h1 className="mt-2 break-words text-2xl font-bold text-brand-ink">{folder.name}</h1>
+        <h1 className="mt-2 wrap-break-word text-2xl font-bold text-brand-ink">{folder.name}</h1>
         <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-zinc-500">
           <span className="font-mono">tag: {folder.tag}</span>
           <span>•</span>
@@ -233,7 +234,7 @@ export function PublicMediaFolderClient(props: { folderId: string; token: string
                         className={classNames(
                           "rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50",
                         )}
-                        onClick={() => void copy(window.location.origin + it.shareUrl)}
+                        onClick={() => void copy(toPurelyHostedUrl(it.shareUrl))}
                       >
                         Copy link
                       </button>

@@ -9,6 +9,7 @@ import { upload as uploadToVercelBlob } from "@vercel/blob/client";
 import { PortalListboxDropdown } from "@/components/PortalListboxDropdown";
 import { useToast } from "@/components/ToastProvider";
 import { PORTAL_VARIANT_HEADER, portalVariantFromPathname } from "@/lib/portalVariant";
+import { toPurelyHostedUrl } from "@/lib/publicHostedOrigin";
 
 type Folder = {
   id: string;
@@ -306,14 +307,14 @@ export function PortalMediaLibraryClient() {
   }
 
   async function copyAbsoluteUrl(urlPath: string, el?: HTMLElement | null) {
-    const absolute = urlPath.startsWith("http") ? urlPath : window.location.origin + urlPath;
+    const absolute = urlPath.startsWith("http") ? urlPath : toPurelyHostedUrl(urlPath);
     await copy(absolute);
     showToastNear(el ?? null, "Link copied");
   }
 
   function triggerDownload(urlPath: string, fileName?: string) {
     const a = document.createElement("a");
-    a.href = urlPath.startsWith("http") ? urlPath : window.location.origin + urlPath;
+    a.href = urlPath.startsWith("http") ? urlPath : toPurelyHostedUrl(urlPath);
     a.download = fileName || "";
     a.rel = "noreferrer";
     document.body.appendChild(a);

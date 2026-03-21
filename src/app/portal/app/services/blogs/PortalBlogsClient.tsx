@@ -10,6 +10,7 @@ import { PortalListboxDropdown, type PortalListboxOption } from "@/components/Po
 import { useToast } from "@/components/ToastProvider";
 import { PortalBackToOnboardingLink } from "@/components/PortalBackToOnboardingLink";
 import { buildFontDropdownOptions } from "@/lib/portalHostedFonts";
+import { toPurelyHostedUrl } from "@/lib/publicHostedOrigin";
 
 export type BlogsTab = "posts" | "automation" | "settings";
 type FrequencyUnit = "days" | "weeks" | "months";
@@ -208,13 +209,13 @@ export function PortalBlogsClient({
 
   const previewBlogsHref = useMemo(() => {
     // Preview is always the Purely Automation hosted page.
-    return hostedBlogPath;
+    return hostedBlogPath ? toPurelyHostedUrl(hostedBlogPath) : null;
   }, [hostedBlogPath]);
 
   const liveBlogsHref = useMemo(() => {
     // Live prefers the verified custom domain, otherwise falls back to the hosted preview.
     if (site?.primaryDomain && savedDomainStatus === "VERIFIED") return `https://${site.primaryDomain}/blogs`;
-    return hostedBlogPath;
+    return hostedBlogPath ? toPurelyHostedUrl(hostedBlogPath) : null;
   }, [hostedBlogPath, savedDomainStatus, site?.primaryDomain]);
 
   const openPostMenuPost = useMemo(() => {
@@ -225,8 +226,7 @@ export function PortalBlogsClient({
   const publicBlogUrlPreview = useMemo(() => {
     const handle = siteSlug.trim() || site?.slug || site?.id;
     if (!handle) return null;
-    if (typeof window === "undefined") return `/${handle}/blogs`;
-    return `${window.location.origin}/${handle}/blogs`;
+    return toPurelyHostedUrl(`/${handle}/blogs`);
   }, [site?.id, site?.slug, siteSlug]);
 
   const liveBlogUrlPreview = useMemo(() => {
@@ -749,7 +749,7 @@ export function PortalBlogsClient({
             </div>
 
             <div className={isPaMobileApp ? "mt-5 overflow-x-auto rounded-2xl border border-zinc-200" : "mt-5 overflow-hidden rounded-2xl border border-zinc-200"}>
-              <table className={isPaMobileApp ? "min-w-[720px] w-full text-left text-sm" : "w-full text-left text-sm"}>
+              <table className={isPaMobileApp ? "min-w-180 w-full text-left text-sm" : "w-full text-left text-sm"}>
                 <thead className="bg-zinc-50 text-xs font-semibold text-zinc-600">
                   <tr>
                     <th className="px-4 py-3">Title</th>

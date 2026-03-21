@@ -10,6 +10,7 @@ import { PortalMediaPickerModal } from "@/components/PortalMediaPickerModal";
 import { ContactTagsEditor, type ContactTag } from "@/components/ContactTagsEditor";
 import { PortalFontDropdown } from "@/components/PortalFontDropdown";
 import { PortalListboxDropdown } from "@/components/PortalListboxDropdown";
+import { toPurelyHostedUrl } from "@/lib/publicHostedOrigin";
 
 type AudienceTab = "external" | "internal";
 
@@ -276,8 +277,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
 
   const publicBaseUrl = useMemo(() => {
     if (!publicBasePath) return null;
-    if (typeof window === "undefined") return publicBasePath;
-    return `${window.location.origin}${publicBasePath}`;
+    return toPurelyHostedUrl(publicBasePath);
   }, [publicBasePath]);
 
   const normalizedPrimaryDomain = useMemo(() => {
@@ -2871,7 +2871,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                           ? `${customHostedBaseUrl}${audience === "internal" ? "/internal-newsletters" : "/newsletters"}/${draftSlug}`
                           : typeof window === "undefined"
                             ? `${audience === "internal" ? `/${siteHandle}/internal-newsletters` : `/${siteHandle}/newsletters`}/${draftSlug}`
-                            : `${window.location.origin}${audience === "internal" ? `/${siteHandle}/internal-newsletters` : `/${siteHandle}/newsletters`}/${draftSlug}`}
+                            : toPurelyHostedUrl(`${audience === "internal" ? `/${siteHandle}/internal-newsletters` : `/${siteHandle}/newsletters`}/${draftSlug}`)}
                       </div>
                     </div>
                   ) : null}
@@ -2895,7 +2895,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                               ? "(hosted link)"
                               : customHostedBaseUrl
                                 ? `${customHostedBaseUrl}${audience === "internal" ? "/internal-newsletters" : "/newsletters"}/${draftSlug}`
-                                : `${window.location.origin}${audience === "internal" ? `/${siteHandle}/internal-newsletters` : `/${siteHandle}/newsletters`}/${draftSlug}`,
+                                : toPurelyHostedUrl(`${audience === "internal" ? `/${siteHandle}/internal-newsletters` : `/${siteHandle}/newsletters`}/${draftSlug}`),
                         })}
                       </pre>
                     </div>
@@ -2912,7 +2912,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                               ? "(hosted link)"
                               : customHostedBaseUrl
                                 ? `${customHostedBaseUrl}${audience === "internal" ? "/internal-newsletters" : "/newsletters"}/${draftSlug}`
-                                : `${window.location.origin}${audience === "internal" ? `/${siteHandle}/internal-newsletters` : `/${siteHandle}/newsletters`}/${draftSlug}`,
+                                : toPurelyHostedUrl(`${audience === "internal" ? `/${siteHandle}/internal-newsletters` : `/${siteHandle}/newsletters`}/${draftSlug}`),
                         })}
                       </pre>
                     </div>

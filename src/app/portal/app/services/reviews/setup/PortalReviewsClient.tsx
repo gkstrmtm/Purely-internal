@@ -11,6 +11,7 @@ import { useToast } from "@/components/ToastProvider";
 import { DEFAULT_TAG_COLORS } from "@/lib/tagColors.shared";
 import type { TemplateVariable } from "@/lib/portalTemplateVars";
 import { buildFontDropdownOptions } from "@/lib/portalHostedFonts";
+import { toPurelyHostedUrl } from "@/lib/publicHostedOrigin";
 
 type ReviewDelayUnit = "minutes" | "hours" | "days" | "weeks";
 
@@ -440,7 +441,7 @@ export default function PortalReviewsClient() {
       return null;
     })();
     if (settings.publicPage.enabled && verifiedDomain) return `https://${verifiedDomain}/reviews`;
-    if (settings.publicPage.enabled && publicSiteSlug) return `/${publicSiteSlug}/reviews`;
+    if (settings.publicPage.enabled && publicSiteSlug) return toPurelyHostedUrl(`/${publicSiteSlug}/reviews`);
     const preferred = settings.defaultDestinationId
       ? settings.destinations.find((d) => d.id === settings.defaultDestinationId)
       : null;
@@ -462,7 +463,7 @@ export default function PortalReviewsClient() {
       return null;
     })();
     if (verifiedDomain) return `https://${verifiedDomain}/reviews`;
-    if (publicSiteSlug) return `/${publicSiteSlug}/reviews`;
+    if (publicSiteSlug) return toPurelyHostedUrl(`/${publicSiteSlug}/reviews`);
     return "";
   }, [funnelDomains, publicSiteSlug, settings.publicPage.enabled, site?.primaryDomain, site?.verifiedAt]);
 
@@ -1159,7 +1160,7 @@ export default function PortalReviewsClient() {
                       "inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50 " +
                       (!canPreview ? "pointer-events-none opacity-50" : "")
                     }
-                    href={canPreview ? `/${publicSiteSlug}/reviews` : "#"}
+                    href={canPreview ? toPurelyHostedUrl(`/${publicSiteSlug}/reviews`) : "#"}
                     target="_blank"
                     rel="noreferrer"
                     aria-disabled={!canPreview}

@@ -8,6 +8,7 @@ import { PortalListboxDropdown } from "@/components/PortalListboxDropdown";
 import { AppConfirmModal } from "@/components/AppModal";
 import { PortalBackToOnboardingLink } from "@/components/PortalBackToOnboardingLink";
 import { hostedFunnelPath, hostedFormPath } from "@/lib/publicHostedKeys";
+import { toPurelyHostedUrl } from "@/lib/publicHostedOrigin";
 
 type CreditFunnel = {
   id: string;
@@ -348,8 +349,8 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
     return opts;
   }, [domains]);
 
-  const funnelPreviewBase = useMemo(() => `${basePath}/f`, [basePath]);
-  const formPreviewBase = useMemo(() => `${basePath}/forms`, [basePath]);
+  const funnelPreviewBase = useMemo(() => toPurelyHostedUrl("/f"), []);
+  const formPreviewBase = useMemo(() => toPurelyHostedUrl("/forms"), []);
   const platformTargetHost = useMemo(() => coercePlatformTargetHost(), []);
   const isLocalPreview = useMemo(() => {
     const h = (platformTargetHost || "").trim().toLowerCase();
@@ -368,7 +369,8 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
         return `https://${cleanDomain}/${encodeURIComponent(cleanSlug)}`;
       }
 
-      return hostedFunnelPath(cleanSlug, cleanId);
+      const hostedPath = hostedFunnelPath(cleanSlug, cleanId);
+      return hostedPath ? toPurelyHostedUrl(hostedPath) : null;
     },
     [isLocalPreview],
   );
@@ -377,7 +379,8 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
     const cleanSlug = String(slug || "").trim();
     const cleanId = String(formId || "").trim();
     if (!cleanSlug || !cleanId) return null;
-    return hostedFormPath(cleanSlug, cleanId);
+    const hostedPath = hostedFormPath(cleanSlug, cleanId);
+    return hostedPath ? toPurelyHostedUrl(hostedPath) : null;
   }, []);
 
   const loadFunnels = useCallback(async () => {
@@ -995,7 +998,7 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                               </Link>
 
                               <Link
-                                href={hostedFunnelPath(f.slug, f.id) || `${funnelPreviewBase}/${encodeURIComponent(f.slug)}`}
+                                href={toPurelyHostedUrl(hostedFunnelPath(f.slug, f.id) || `/f/${encodeURIComponent(f.slug)}`)}
                                 target="_blank"
                                 className="flex w-full items-center rounded-xl px-3 py-2 text-sm font-semibold text-[color:var(--color-brand-blue)] hover:bg-zinc-50"
                                 onClick={() => setOpenFunnelMenuId(null)}
@@ -1165,7 +1168,7 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                               Responses
                             </Link>
                             <Link
-                              href={getFormLiveHref(f.slug, f.id) || `${formPreviewBase}/${encodeURIComponent(f.slug)}`}
+                                href={getFormLiveHref(f.slug, f.id) || toPurelyHostedUrl(`/forms/${encodeURIComponent(f.slug)}`)}
                               target="_blank"
                               className="flex w-full items-center rounded-xl px-3 py-2 text-sm font-semibold text-[color:var(--color-brand-blue)] hover:bg-zinc-50"
                               onClick={() => setOpenFormMenuId(null)}

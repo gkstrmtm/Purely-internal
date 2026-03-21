@@ -16,6 +16,7 @@ import { normalizePortalPermissions } from "@/lib/portalPermissions";
 import { PortalListboxDropdown } from "@/components/PortalListboxDropdown";
 import { AppModal } from "@/components/AppModal";
 import { useToast } from "@/components/ToastProvider";
+import { toPurelyHostedUrl } from "@/lib/publicHostedOrigin";
 
 type MemberRow = {
   userId: string;
@@ -616,8 +617,7 @@ export function PortalPeopleUsersClient() {
                             type="button"
                             onClick={async () => {
                               try {
-                                const base = typeof window !== "undefined" ? window.location.origin : "https://purelyautomation.com";
-                                const link = `${base}/portalinvite/${inv.token}`;
+                                const link = toPurelyHostedUrl(`/portalinvite/${inv.token}`);
                                 await copyToClipboard(link);
                                 toast.success("Invite link copied to clipboard.");
                               } catch {

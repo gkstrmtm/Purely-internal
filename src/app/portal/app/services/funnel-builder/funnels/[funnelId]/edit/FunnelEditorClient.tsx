@@ -29,6 +29,7 @@ import { useToast } from "@/components/ToastProvider";
 import { PORTAL_VARIANT_HEADER, type PortalVariant } from "@/lib/portalVariant";
 import { FONT_PRESETS, applyFontPresetToStyle, fontPresetKeyFromStyle, googleFontImportCss } from "@/lib/fontPresets";
 import { hostedFunnelPath } from "@/lib/publicHostedKeys";
+import { toPurelyHostedUrl } from "@/lib/publicHostedOrigin";
 
 function formatMoney(cents: number | null | undefined, currency: string) {
   if (typeof cents !== "number" || !Number.isFinite(cents)) return "";
@@ -2641,7 +2642,8 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
       return `https://${assignedDomain}/${encodeURIComponent(slug)}`;
     }
 
-    return hostedFunnelPath(slug, funnelId);
+    const hostedPath = hostedFunnelPath(slug, funnelId);
+    return hostedPath ? toPurelyHostedUrl(hostedPath) : null;
   }, [funnel?.assignedDomain, funnel?.slug, funnel?.id, isLocalPreview]);
 
   const [brandPalette, setBrandPalette] = useState<null | { primary?: string; accent?: string; text?: string }>(null);
@@ -8699,7 +8701,9 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                             onClick={() => {
                               if (!bookingSiteSlug || !selectedBlock.props.calendarId) return;
                               window.open(
-                                `/book/${encodeURIComponent(bookingSiteSlug)}/c/${encodeURIComponent(selectedBlock.props.calendarId)}`,
+                                toPurelyHostedUrl(
+                                  `/book/${encodeURIComponent(bookingSiteSlug)}/c/${encodeURIComponent(selectedBlock.props.calendarId)}`,
+                                ),
                                 "_blank",
                                 "noopener,noreferrer",
                               );

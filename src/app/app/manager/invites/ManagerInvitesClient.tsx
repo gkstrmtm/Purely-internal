@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { PortalSelectDropdown } from "@/components/PortalSelectDropdown";
+import { toPurelyHostedUrl } from "@/lib/publicHostedOrigin";
 
 type InviteRow = {
   id: string;
@@ -96,8 +97,11 @@ export default function ManagerInvitesClient() {
   }
 
   const signupUrl = useMemo(() => {
-    if (typeof window === "undefined") return "";
-    return window.location.origin + "/signup";
+    const hosted = toPurelyHostedUrl("/signup");
+    if (typeof window === "undefined") return hosted;
+    const host = window.location.hostname;
+    const isLocal = host === "localhost" || host === "127.0.0.1";
+    return isLocal ? window.location.origin + "/signup" : hosted;
   }, []);
 
   const canSendEmail = useMemo(() => {

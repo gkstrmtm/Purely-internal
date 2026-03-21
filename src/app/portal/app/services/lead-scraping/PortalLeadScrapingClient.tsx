@@ -8,6 +8,7 @@ import { PortalListboxDropdown, type PortalListboxOption } from "@/components/Po
 import { AppModal } from "@/components/AppModal";
 import { useToast } from "@/components/ToastProvider";
 import { LEAD_OUTBOUND_VARIABLES, type TemplateVariable } from "@/lib/portalTemplateVars";
+import { toPurelyHostedUrl } from "@/lib/publicHostedOrigin";
 
 const TAG_COLORS = [
   "#0EA5E9", // sky
@@ -2201,21 +2202,21 @@ export function PortalLeadScrapingClient() {
               <div className={isMobileApp ? "flex w-full flex-wrap gap-2" : "-mb-px flex items-end gap-1"} role="tablist" aria-label="B2B view">
                 <button
                   type="button"
-                  onClick={() => setB2bSubTab("pull")}
-                  className={subTabButtonClass(b2bSubTab === "pull")}
-                  role="tab"
-                  aria-selected={b2bSubTab === "pull"}
-                >
-                  Pull
-                </button>
-                <button
-                  type="button"
                   onClick={() => setB2bSubTab("leads")}
                   className={subTabButtonClass(b2bSubTab === "leads")}
                   role="tab"
                   aria-selected={b2bSubTab === "leads"}
                 >
                   Leads
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setB2bSubTab("pull")}
+                  className={subTabButtonClass(b2bSubTab === "pull")}
+                  role="tab"
+                  aria-selected={b2bSubTab === "pull"}
+                >
+                  Pull
                 </button>
                 <button
                   type="button"
@@ -2231,7 +2232,7 @@ export function PortalLeadScrapingClient() {
           </div>
 
           {b2bSubTab === "pull" ? (
-            <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-3">
+            <div className="mt-0 grid grid-cols-1 gap-4 lg:grid-cols-3">
               <div className="lg:col-span-2">
 
                 <div className="rounded-3xl border border-zinc-200 bg-white p-6">
@@ -2667,7 +2668,7 @@ export function PortalLeadScrapingClient() {
               ) : null}
             </div>
           ) : b2bSubTab === "leads" ? (
-            <div className="mt-4">
+            <div className="mt-0">
               <div className="rounded-3xl border border-zinc-200 bg-white p-6">
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                   <div>
@@ -2750,7 +2751,7 @@ export function PortalLeadScrapingClient() {
               </div>
             </div>
           ) : (
-            <div className="mt-4">
+            <div className="mt-0">
               <div className="rounded-3xl border border-zinc-200 bg-white p-6">
                 <div className="text-base font-semibold text-brand-ink">B2B settings</div>
                 <div className="mt-1 text-sm text-zinc-600">Manage exclusions, scheduling, and auto-outbound.</div>
@@ -2803,16 +2804,16 @@ export function PortalLeadScrapingClient() {
                           <div className="mt-3 text-xs text-zinc-500">None</div>
                         )}
 
-                        <div className="mt-3 flex gap-2">
+                        <div className="mt-3 flex flex-col gap-2 sm:flex-row">
                           <input
-                            className="h-10 flex-1 rounded-xl border border-zinc-200 bg-white px-3 text-sm"
+                            className="h-10 w-full flex-1 rounded-xl border border-zinc-200 bg-white px-3 text-sm"
                             placeholder="e.g. walmart"
                             value={excludeNameDraft}
                             onChange={(e) => setExcludeNameDraft(e.target.value)}
                           />
                           <button
                             type="button"
-                            className="inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-(--color-brand-blue) px-4 text-sm font-semibold text-white hover:opacity-95"
+                            className="inline-flex h-10 w-full shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-xl bg-(--color-brand-blue) px-4 text-sm font-semibold text-white hover:opacity-95 sm:w-auto"
                             onClick={() => {
                               const nextValue = excludeNameDraft.trim();
                               if (!nextValue) return;
@@ -2886,16 +2887,16 @@ export function PortalLeadScrapingClient() {
                           <div className="mt-3 text-xs text-zinc-500">None</div>
                         )}
 
-                        <div className="mt-3 flex gap-2">
+                        <div className="mt-3 flex flex-col gap-2 sm:flex-row">
                           <input
-                            className="h-10 flex-1 rounded-xl border border-zinc-200 bg-white px-3 text-sm"
+                            className="h-10 w-full flex-1 rounded-xl border border-zinc-200 bg-white px-3 text-sm"
                             placeholder="e.g. facebook.com"
                             value={excludeDomainDraft}
                             onChange={(e) => setExcludeDomainDraft(e.target.value)}
                           />
                           <button
                             type="button"
-                            className="inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-(--color-brand-blue) px-4 text-sm font-semibold text-white hover:opacity-95"
+                            className="inline-flex h-10 w-full shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-xl bg-(--color-brand-blue) px-4 text-sm font-semibold text-white hover:opacity-95 sm:w-auto"
                             onClick={() => {
                               const nextValue = excludeDomainDraft.trim().toLowerCase();
                               if (!nextValue) return;
@@ -2969,16 +2970,16 @@ export function PortalLeadScrapingClient() {
                           <div className="mt-3 text-xs text-zinc-500">None</div>
                         )}
 
-                        <div className="mt-3 flex gap-2">
+                        <div className="mt-3 flex flex-col gap-2 sm:flex-row">
                           <input
-                            className="h-10 flex-1 rounded-xl border border-zinc-200 bg-white px-3 text-sm"
+                            className="h-10 w-full flex-1 rounded-xl border border-zinc-200 bg-white px-3 text-sm"
                             placeholder="e.g. +15551234567"
                             value={excludePhoneDraft}
                             onChange={(e) => setExcludePhoneDraft(e.target.value)}
                           />
                           <button
                             type="button"
-                            className="inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-(--color-brand-blue) px-4 text-sm font-semibold text-white hover:opacity-95"
+                            className="inline-flex h-10 w-full shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-xl bg-(--color-brand-blue) px-4 text-sm font-semibold text-white hover:opacity-95 sm:w-auto"
                             onClick={() => {
                               const nextValue = excludePhoneDraft.trim();
                               if (!nextValue) return;
@@ -3143,7 +3144,7 @@ export function PortalLeadScrapingClient() {
               Book a call and we’ll tailor sources, filters, and follow-up for your market.
             </div>
             <a
-              href="/book-a-call"
+              href={toPurelyHostedUrl("/book-a-call")}
               target="_blank"
               rel="noreferrer"
               className="mt-5 inline-flex items-center justify-center rounded-2xl bg-(--color-brand-pink) px-5 py-3 text-sm font-semibold text-white shadow-sm hover:opacity-95"

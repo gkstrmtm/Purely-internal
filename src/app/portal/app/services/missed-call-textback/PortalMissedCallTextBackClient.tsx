@@ -7,6 +7,7 @@ import { PortalMediaPickerModal, type PortalMediaPickItem } from "@/components/P
 import { PortalVariablePickerModal } from "@/components/PortalVariablePickerModal";
 import { useToast } from "@/components/ToastProvider";
 import { PORTAL_MISSED_CALL_VARIABLES, PORTAL_MESSAGE_VARIABLES, type TemplateVariable } from "@/lib/portalTemplateVars";
+import { toPurelyHostedUrl } from "@/lib/publicHostedOrigin";
 
 type Settings = {
   version: 1;
@@ -236,8 +237,16 @@ export function PortalMissedCallTextBackClient({ embedded }: { embedded?: boolea
 
   function toAbsoluteUrl(pathOrUrl: string) {
     if (pathOrUrl.startsWith("http://") || pathOrUrl.startsWith("https://")) return pathOrUrl;
-    if (typeof window === "undefined") return pathOrUrl;
-    return new URL(pathOrUrl, window.location.origin).toString();
+
+    const hosted = toPurelyHostedUrl(pathOrUrl);
+    if (typeof window === "undefined") return hosted;
+
+    const host = window.location.hostname;
+    const isLocal = host === "localhost" || host === "127.0.0.1";
+    if (!isLocal) return hosted;
+
+    const p = pathOrUrl.startsWith("/") ? pathOrUrl : `/${pathOrUrl}`;
+    return new URL(p, window.location.origin).toString();
   }
 
   function addMediaUrl(url: string) {
@@ -384,7 +393,7 @@ export function PortalMissedCallTextBackClient({ embedded }: { embedded?: boolea
                   onChange={(e) => void save({ ...settings, enabled: e.target.checked })}
                   aria-label="Enable Missed-Call Text Back"
                 />
-                <span className="h-6 w-11 rounded-full bg-zinc-200 transition peer-checked:bg-[color:var(--color-brand-blue)] peer-focus-visible:ring-2 peer-focus-visible:ring-brand-ink/40 peer-focus-visible:ring-offset-2 peer-focus-visible:ring-offset-white peer-disabled:opacity-60" />
+                <span className="h-6 w-11 rounded-full bg-zinc-200 transition peer-checked:bg-(--color-brand-blue) peer-focus-visible:ring-2 peer-focus-visible:ring-brand-ink/40 peer-focus-visible:ring-offset-2 peer-focus-visible:ring-offset-white peer-disabled:opacity-60" />
                 <span className="pointer-events-none absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow-sm transition peer-checked:translate-x-5" />
               </span>
             </label>
@@ -521,7 +530,7 @@ export function PortalMissedCallTextBackClient({ embedded }: { embedded?: boolea
               type="button"
               onClick={() => void save(settings)}
               disabled={saving}
-              className="inline-flex items-center justify-center rounded-2xl bg-[color:var(--color-brand-blue)] px-5 py-3 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
+              className="inline-flex items-center justify-center rounded-2xl bg-(--color-brand-blue) px-5 py-3 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
             >
               {saving ? "Saving…" : "Save"}
             </button>

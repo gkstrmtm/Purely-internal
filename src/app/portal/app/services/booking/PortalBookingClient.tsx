@@ -17,6 +17,7 @@ import { LocalDateTimePicker } from "@/components/LocalDateTimePicker";
 import { useToast } from "@/components/ToastProvider";
 import { REMINDER_TEMPLATES, type ReminderTemplate } from "@/lib/portalReminderTemplates";
 import { PORTAL_BOOKING_VARIABLES, PORTAL_MESSAGE_VARIABLES } from "@/lib/portalTemplateVars";
+import { toPurelyHostedUrl } from "@/lib/publicHostedOrigin";
 
 type BookingFormConfig = {
   version: 1;
@@ -752,8 +753,7 @@ export function PortalBookingClient() {
 
   const previewBookingUrl = useMemo(() => {
     if (!site?.slug) return null;
-    if (typeof window === "undefined") return `/book/${site.slug}`;
-    return `${window.location.origin}/book/${encodeURIComponent(site.slug)}`;
+    return toPurelyHostedUrl(`/book/${encodeURIComponent(site.slug)}`);
   }, [site?.slug]);
 
   const liveBookingUrl = useMemo(() => {
@@ -764,8 +764,7 @@ export function PortalBookingClient() {
 
   const previewCalendarUrlBase = useMemo(() => {
     if (!site?.slug) return null;
-    if (typeof window === "undefined") return null;
-    return `${window.location.origin}/book/${encodeURIComponent(site.slug)}/c`;
+    return toPurelyHostedUrl(`/book/${encodeURIComponent(site.slug)}/c`);
   }, [site?.slug]);
 
   const liveCalendarUrlBase = useMemo(() => {
@@ -1472,16 +1471,18 @@ export function PortalBookingClient() {
         {isMobileApp ? (
           <div className="flex items-center gap-3">
             <div className="text-xs font-semibold text-zinc-600">Section</div>
-            <select
+            <PortalListboxDropdown
               value={topTab}
-              onChange={(e) => setTopTabWithUrl(e.target.value as any)}
-              className="w-full max-w-sm rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-900"
-            >
-              <option value="appointments">Appointments</option>
-              <option value="reminders">Reminders</option>
-              <option value="follow-up">Follow-up</option>
-              <option value="settings">Settings</option>
-            </select>
+              onChange={(v) => setTopTabWithUrl(v as any)}
+              options={[
+                { value: "appointments", label: "Appointments" },
+                { value: "reminders", label: "Reminders" },
+                { value: "follow-up", label: "Follow-up" },
+                { value: "settings", label: "Settings" },
+              ]}
+              className="w-full max-w-sm"
+              buttonClassName="flex w-full items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-900 hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
+            />
           </div>
         ) : (
           <div className="flex w-full flex-wrap gap-2">

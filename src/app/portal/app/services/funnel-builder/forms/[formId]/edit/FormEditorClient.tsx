@@ -8,6 +8,7 @@ import { PortalFontDropdown } from "@/components/PortalFontDropdown";
 import { PortalListboxDropdown } from "@/components/PortalListboxDropdown";
 import { applyFontPresetToStyle, fontPresetKeyFromStyle, googleFontImportCss } from "@/lib/fontPresets";
 import { hostedFormPath } from "@/lib/publicHostedKeys";
+import { toPurelyHostedUrl } from "@/lib/publicHostedOrigin";
 
 type Form = {
   id: string;
@@ -695,7 +696,7 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
               );
             })()}
             <Link
-              href={hostedFormPath(form?.slug || "", form?.id || "") || `/forms/${encodeURIComponent(form?.slug || "")}`}
+              href={toPurelyHostedUrl(hostedFormPath(form?.slug || "", form?.id || "") || `/forms/${encodeURIComponent(form?.slug || "")}`)}
               target="_blank"
               className="font-semibold text-[color:var(--color-brand-blue)] hover:underline"
             >
