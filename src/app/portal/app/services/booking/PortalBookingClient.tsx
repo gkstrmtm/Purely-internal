@@ -1721,13 +1721,13 @@ export function PortalBookingClient() {
               <div className="mt-5">
                 <div className="flex items-center justify-between">
                   <div className="text-sm font-semibold text-zinc-900">{monthLabel(calMonth)}</div>
-                  <div className="text-xs text-zinc-500">Click a day to focus the sidebar.</div>
+                  <div className="text-xs text-zinc-500">Tap a day to view appointments.</div>
                 </div>
 
                 <div
                   className={
                     isMobileApp
-                      ? "mt-3 grid grid-cols-7 gap-1 text-[10px] font-semibold text-zinc-500"
+                      ? "mt-3 grid grid-cols-7 gap-1.5 text-[11px] font-semibold text-zinc-500"
                       : "mt-3 grid grid-cols-7 gap-2 text-xs font-semibold text-zinc-500"
                   }
                 >
@@ -1738,7 +1738,7 @@ export function PortalBookingClient() {
                   ))}
                 </div>
 
-                <div className={isMobileApp ? "mt-2 grid grid-cols-7 gap-1" : "mt-2 grid grid-cols-7 gap-2"}>
+                <div className={isMobileApp ? "mt-2 grid grid-cols-7 gap-1.5" : "mt-2 grid grid-cols-7 gap-2"}>
                   {makeMonthGrid(calMonth).map((day) => {
                     const ymd = toYmd(day);
                     const inMonth = day.getMonth() === calMonth.getMonth();
@@ -1752,52 +1752,74 @@ export function PortalBookingClient() {
                     const hasCoverage = blocks.some((b) => new Date(b.startAt) < dayEnd && new Date(b.endAt) > dayStart);
 
                     const baseCls = isMobileApp
-                      ? "h-16 rounded-2xl border px-2 py-2 text-left hover:bg-zinc-50 focus:outline-none focus:ring-2 focus:ring-zinc-300"
-                      : "h-24 rounded-3xl border px-3 py-3 text-left hover:bg-zinc-50 focus:outline-none focus:ring-2 focus:ring-zinc-300";
+                      ? "aspect-square rounded-md border p-2 text-left hover:bg-zinc-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-zinc-300"
+                      : "h-24 rounded-lg border px-3 py-3 text-left hover:bg-zinc-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-zinc-300";
+
                     const borderCls = selected
                       ? "border-brand-ink bg-white"
-                      : inMonth
-                        ? "border-zinc-200 bg-white"
-                        : "border-zinc-200 bg-zinc-50";
+                      : today
+                        ? "border-(--color-brand-blue) bg-blue-50"
+                        : inMonth
+                          ? "border-zinc-200 bg-white"
+                          : "border-zinc-200 bg-zinc-50";
 
                     return (
                       <button
                         key={ymd}
                         type="button"
                         className={`${baseCls} ${borderCls}`}
-                        onClick={() => setCalSelectedYmd(ymd)}
+                        onClick={() => {
+                          setCalSelectedYmd(ymd);
+                          setWeekDayModalYmd(ymd);
+                        }}
                       >
                         <div className="flex items-center justify-between">
                           <div
                             className={
                               isMobileApp
                                 ? inMonth
-                                  ? "text-xs font-semibold text-zinc-900"
-                                  : "text-xs font-semibold text-zinc-400"
+                                  ? "text-[12px] font-semibold text-zinc-900"
+                                  : "text-[12px] font-semibold text-zinc-400"
                                 : inMonth
                                   ? "text-sm font-semibold text-zinc-900"
                                   : "text-sm font-semibold text-zinc-400"
                             }
                           >
-                            {day.getDate()}
+                            <span
+                              className={
+                                today
+                                  ? "inline-flex min-w-6 items-center justify-center rounded-sm bg-(--color-brand-blue) px-1.5 py-0.5 text-[11px] font-semibold text-white"
+                                  : undefined
+                              }
+                            >
+                              {day.getDate()}
+                            </span>
                           </div>
-                          {today ? (
-                            <div className={isMobileApp ? "rounded-full bg-brand-ink px-1.5 py-0.5 text-[9px] font-semibold text-white" : "rounded-full bg-brand-ink px-2 py-0.5 text-[10px] font-semibold text-white"}>
-                              Today
-                            </div>
-                          ) : null}
-                        </div>
 
-                        <div className="mt-3 flex items-center justify-between">
-                          <div className={hasCoverage ? "text-[11px] font-medium text-emerald-700" : "text-[11px] text-zinc-400"}>
-                            {hasCoverage ? "Avail" : "No avail"}
-                          </div>
                           {bookingCount ? (
-                            <div className={isMobileApp ? "rounded-full bg-brand-ink px-1.5 py-0.5 text-[9px] font-semibold text-white" : "rounded-full bg-brand-ink px-2 py-0.5 text-[10px] font-semibold text-white"}>
+                            <div className={isMobileApp ? "rounded-sm bg-brand-ink px-1.5 py-0.5 text-[10px] font-semibold text-white" : "rounded-sm bg-brand-ink px-2 py-0.5 text-[10px] font-semibold text-white"}>
                               {bookingCount}
                             </div>
                           ) : null}
                         </div>
+
+                        {isMobileApp ? (
+                          <div className="mt-2 flex items-center justify-between">
+                            <div className={hasCoverage ? "text-[11px] font-medium text-emerald-700" : "text-[11px] text-zinc-400"}>
+                              {hasCoverage ? "Avail" : "No"}
+                            </div>
+                            <div className={hasCoverage ? "h-2 w-2 rounded-sm bg-emerald-500" : "h-2 w-2 rounded-sm bg-zinc-300"} aria-hidden="true" />
+                          </div>
+                        ) : (
+                          <div className="mt-3 flex items-center justify-between">
+                            <div className={hasCoverage ? "text-[11px] font-medium text-emerald-700" : "text-[11px] text-zinc-400"}>
+                              {hasCoverage ? "Avail" : "No avail"}
+                            </div>
+                            {bookingCount ? (
+                              <div className="rounded-sm bg-brand-ink px-2 py-0.5 text-[10px] font-semibold text-white">{bookingCount}</div>
+                            ) : null}
+                          </div>
+                        )}
                       </button>
                     );
                   })}

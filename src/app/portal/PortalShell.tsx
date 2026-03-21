@@ -24,6 +24,7 @@ import { PortalFloatingTools } from "@/app/portal/PortalFloatingTools";
 import { PORTAL_SERVICE_KEYS, type PortalServiceKey } from "@/lib/portalPermissions.shared";
 import type { Entitlements } from "@/lib/entitlements.shared";
 import { usePortalActiveTimeTracker } from "@/lib/portalActiveTime.client";
+import { toPurelyHostedUrl } from "@/lib/publicHostedOrigin";
 
 const DEFAULT_FULL_DEMO_EMAIL = "demo-full@purelyautomation.dev";
 
@@ -901,7 +902,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
         `}</style>
 
         <div
-          className="flex h-[100dvh] flex-col overflow-hidden bg-brand-mist text-brand-ink"
+          className="flex h-dvh flex-col overflow-hidden bg-brand-mist text-brand-ink"
           style={{
             ["--pa-portal-embed-footer-offset" as any]: "calc(env(safe-area-inset-bottom) + 5.5rem)",
             ["--pa-modal-safe-top" as any]: "calc(env(safe-area-inset-top) + 4rem)",
@@ -914,7 +915,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
               <div className="flex min-w-0 flex-1 items-center gap-2">
                 <button
                   type="button"
-                  className="inline-flex h-10 w-10 items-center justify-center rounded-xl bg-transparent text-zinc-900 transition-colors hover:text-zinc-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--color-brand-blue)]"
+                  className="inline-flex h-10 w-10 items-center justify-center rounded-xl bg-transparent text-zinc-900 transition-colors hover:text-zinc-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--color-brand-blue)"
                   aria-label="Open menu"
                   onClick={() => setMobileOpen(true)}
                 >
@@ -927,7 +928,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                     alt="Purely Automation"
                     width={180}
                     height={44}
-                    className="h-8 w-auto max-w-[10.5rem] object-contain"
+                    className="h-8 w-auto max-w-42 object-contain"
                     priority
                   />
                 </Link>
@@ -935,10 +936,10 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
 
               <div className="ml-auto flex items-center gap-2">
                 <Link
-                  href="/book-a-call"
+                  href={toPurelyHostedUrl("/book-a-call")}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="inline-flex h-10 w-10 items-center justify-center rounded-xl bg-transparent text-zinc-700 transition-colors hover:text-zinc-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--color-brand-blue)]"
+                  className="inline-flex h-10 w-10 items-center justify-center rounded-xl bg-transparent text-zinc-700 transition-colors hover:text-zinc-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--color-brand-blue)"
                   aria-label="Book a call"
                 >
                   <svg width="22" height="22" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -956,7 +957,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                 </Link>
                 <Link
                   href={`${basePath}/tutorials/getting-started?embed=1`}
-                  className="inline-flex h-10 w-10 items-center justify-center rounded-xl bg-transparent text-zinc-700 transition-colors hover:text-zinc-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--color-brand-blue)]"
+                  className="inline-flex h-10 w-10 items-center justify-center rounded-xl bg-transparent text-zinc-700 transition-colors hover:text-zinc-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--color-brand-blue)"
                   aria-label="Help"
                 >
                   <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -1015,7 +1016,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                 <button
                   type="button"
                   onClick={() => setMobileOpen(false)}
-                  className="ml-auto inline-flex h-10 w-10 items-center justify-center rounded-xl bg-transparent text-zinc-700 transition-colors hover:text-zinc-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--color-brand-blue)]"
+                  className="ml-auto inline-flex h-10 w-10 items-center justify-center rounded-xl bg-transparent text-zinc-700 transition-colors hover:text-zinc-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--color-brand-blue)"
                   aria-label="Close menu"
                 >
                   ×

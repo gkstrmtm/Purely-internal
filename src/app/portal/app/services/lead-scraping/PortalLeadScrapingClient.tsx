@@ -387,9 +387,7 @@ export function PortalLeadScrapingClient() {
   }, []);
   const [tab, setTab] = useState<"b2b" | "b2c">("b2b");
   const [b2bSubTab, setB2bSubTab] = useState<"pull" | "leads" | "settings">(() => {
-    if (typeof window === "undefined") return "pull";
-    const sp = new URLSearchParams(window.location.search);
-    return sp.get("pa_mobileapp") === "1" ? "leads" : "pull";
+    return "leads";
   });
 
   const [leadOutboundEntitled, setLeadOutboundEntitled] = useState(false);
