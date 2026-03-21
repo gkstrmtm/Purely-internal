@@ -3188,56 +3188,62 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
                             <div className="grid grid-cols-2 gap-3">
                               <div>
                                 <div className="text-xs font-semibold text-zinc-700">Crawl depth</div>
-                                <select
-                                  value={ensureKnowledgeBase(selected.knowledgeBase).crawlDepth}
-                                  onChange={(e) => {
-                                    const crawlDepth = Number(e.target.value || 0);
-                                    setCampaigns((prev) =>
-                                      prev.map((c) =>
-                                        c.id === selected.id
-                                          ? { ...c, knowledgeBase: { ...ensureKnowledgeBase(c.knowledgeBase), crawlDepth } }
-                                          : c,
-                                      ),
-                                    );
-                                  }}
-                                  onBlur={() => updateCampaign({ knowledgeBase: ensureKnowledgeBase(selected.knowledgeBase) })}
-                                  disabled={busy}
-                                  className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                                >
-                                  <option value={0}>0</option>
-                                  <option value={1}>1</option>
-                                  <option value={2}>2</option>
-                                  <option value={3}>3</option>
-                                  <option value={4}>4</option>
-                                  <option value={5}>5</option>
-                                </select>
+                                  <PortalListboxDropdown<string>
+                                    value={String(ensureKnowledgeBase(selected.knowledgeBase).crawlDepth ?? 0)}
+                                    options={[
+                                      { value: "0", label: "0" },
+                                      { value: "1", label: "1" },
+                                      { value: "2", label: "2" },
+                                      { value: "3", label: "3" },
+                                      { value: "4", label: "4" },
+                                      { value: "5", label: "5" },
+                                    ]}
+                                    onChange={(v) => {
+                                      const crawlDepth = Number(v || 0);
+                                      const knowledgeBase = {
+                                        ...ensureKnowledgeBase(selected.knowledgeBase),
+                                        crawlDepth,
+                                      };
+                                      setCampaigns((prev) =>
+                                        prev.map((c) =>
+                                          c.id === selected.id ? { ...c, knowledgeBase: { ...knowledgeBase } } : c,
+                                        ),
+                                      );
+                                      void updateCampaign({ knowledgeBase });
+                                    }}
+                                    disabled={busy}
+                                    buttonClassName="mt-1 flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50"
+                                  />
                               </div>
                               <div>
                                 <div className="text-xs font-semibold text-zinc-700">Max URLs</div>
-                                <select
-                                  value={ensureKnowledgeBase(selected.knowledgeBase).maxUrls}
-                                  onChange={(e) => {
-                                    const maxUrls = Number(e.target.value || 0);
-                                    setCampaigns((prev) =>
-                                      prev.map((c) =>
-                                        c.id === selected.id
-                                          ? { ...c, knowledgeBase: { ...ensureKnowledgeBase(c.knowledgeBase), maxUrls } }
-                                          : c,
-                                      ),
-                                    );
-                                  }}
-                                  onBlur={() => updateCampaign({ knowledgeBase: ensureKnowledgeBase(selected.knowledgeBase) })}
-                                  disabled={busy}
-                                  className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                                >
-                                  <option value={0}>0</option>
-                                  <option value={25}>25</option>
-                                  <option value={50}>50</option>
-                                  <option value={100}>100</option>
-                                  <option value={250}>250</option>
-                                  <option value={500}>500</option>
-                                  <option value={1000}>1000</option>
-                                </select>
+                                  <PortalListboxDropdown<string>
+                                    value={String(ensureKnowledgeBase(selected.knowledgeBase).maxUrls ?? 0)}
+                                    options={[
+                                      { value: "0", label: "0" },
+                                      { value: "25", label: "25" },
+                                      { value: "50", label: "50" },
+                                      { value: "100", label: "100" },
+                                      { value: "250", label: "250" },
+                                      { value: "500", label: "500" },
+                                      { value: "1000", label: "1000" },
+                                    ]}
+                                    onChange={(v) => {
+                                      const maxUrls = Number(v || 0);
+                                      const knowledgeBase = {
+                                        ...ensureKnowledgeBase(selected.knowledgeBase),
+                                        maxUrls,
+                                      };
+                                      setCampaigns((prev) =>
+                                        prev.map((c) =>
+                                          c.id === selected.id ? { ...c, knowledgeBase: { ...knowledgeBase } } : c,
+                                        ),
+                                      );
+                                      void updateCampaign({ knowledgeBase });
+                                    }}
+                                    disabled={busy}
+                                    buttonClassName="mt-1 flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50"
+                                  />
                                 <div className="mt-1 text-[11px] text-zinc-600">Max 1000</div>
                               </div>
                             </div>
@@ -3868,72 +3874,72 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
                             <div className="grid grid-cols-2 gap-3">
                               <div>
                                 <div className="text-xs font-semibold text-zinc-700">Crawl depth</div>
-                                <select
-                                  value={ensureKnowledgeBase(selected.messagesKnowledgeBase).crawlDepth}
-                                  onChange={(e) => {
-                                    const crawlDepth = Number(e.target.value || 0);
-                                    setCampaigns((prev) =>
-                                      prev.map((c) =>
-                                        c.id === selected.id
-                                          ? {
-                                              ...c,
-                                              messagesKnowledgeBase: {
-                                                ...ensureKnowledgeBase(c.messagesKnowledgeBase),
-                                                crawlDepth,
-                                              },
-                                            }
-                                          : c,
-                                      ),
-                                    );
-                                  }}
-                                  onBlur={() =>
-                                    updateCampaign({ messagesKnowledgeBase: ensureKnowledgeBase(selected.messagesKnowledgeBase) })
-                                  }
-                                  disabled={busy}
-                                  className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                                >
-                                  <option value={0}>0</option>
-                                  <option value={1}>1</option>
-                                  <option value={2}>2</option>
-                                  <option value={3}>3</option>
-                                  <option value={4}>4</option>
-                                  <option value={5}>5</option>
-                                </select>
+                                  <PortalListboxDropdown<string>
+                                    value={String(ensureKnowledgeBase(selected.messagesKnowledgeBase).crawlDepth ?? 0)}
+                                    options={[
+                                      { value: "0", label: "0" },
+                                      { value: "1", label: "1" },
+                                      { value: "2", label: "2" },
+                                      { value: "3", label: "3" },
+                                      { value: "4", label: "4" },
+                                      { value: "5", label: "5" },
+                                    ]}
+                                    onChange={(v) => {
+                                      const crawlDepth = Number(v || 0);
+                                      const messagesKnowledgeBase = {
+                                        ...ensureKnowledgeBase(selected.messagesKnowledgeBase),
+                                        crawlDepth,
+                                      };
+                                      setCampaigns((prev) =>
+                                        prev.map((c) =>
+                                          c.id === selected.id
+                                            ? {
+                                                ...c,
+                                                messagesKnowledgeBase: { ...messagesKnowledgeBase },
+                                              }
+                                            : c,
+                                        ),
+                                      );
+                                      void updateCampaign({ messagesKnowledgeBase });
+                                    }}
+                                    disabled={busy}
+                                    buttonClassName="mt-1 flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50"
+                                  />
                               </div>
                               <div>
                                 <div className="text-xs font-semibold text-zinc-700">Max URLs</div>
-                                <select
-                                  value={ensureKnowledgeBase(selected.messagesKnowledgeBase).maxUrls}
-                                  onChange={(e) => {
-                                    const maxUrls = Number(e.target.value || 0);
-                                    setCampaigns((prev) =>
-                                      prev.map((c) =>
-                                        c.id === selected.id
-                                          ? {
-                                              ...c,
-                                              messagesKnowledgeBase: {
-                                                ...ensureKnowledgeBase(c.messagesKnowledgeBase),
-                                                maxUrls,
-                                              },
-                                            }
-                                          : c,
-                                      ),
-                                    );
-                                  }}
-                                  onBlur={() =>
-                                    updateCampaign({ messagesKnowledgeBase: ensureKnowledgeBase(selected.messagesKnowledgeBase) })
-                                  }
-                                  disabled={busy}
-                                  className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                                >
-                                  <option value={0}>0</option>
-                                  <option value={25}>25</option>
-                                  <option value={50}>50</option>
-                                  <option value={100}>100</option>
-                                  <option value={250}>250</option>
-                                  <option value={500}>500</option>
-                                  <option value={1000}>1000</option>
-                                </select>
+                                  <PortalListboxDropdown<string>
+                                    value={String(ensureKnowledgeBase(selected.messagesKnowledgeBase).maxUrls ?? 0)}
+                                    options={[
+                                      { value: "0", label: "0" },
+                                      { value: "25", label: "25" },
+                                      { value: "50", label: "50" },
+                                      { value: "100", label: "100" },
+                                      { value: "250", label: "250" },
+                                      { value: "500", label: "500" },
+                                      { value: "1000", label: "1000" },
+                                    ]}
+                                    onChange={(v) => {
+                                      const maxUrls = Number(v || 0);
+                                      const messagesKnowledgeBase = {
+                                        ...ensureKnowledgeBase(selected.messagesKnowledgeBase),
+                                        maxUrls,
+                                      };
+                                      setCampaigns((prev) =>
+                                        prev.map((c) =>
+                                          c.id === selected.id
+                                            ? {
+                                                ...c,
+                                                messagesKnowledgeBase: { ...messagesKnowledgeBase },
+                                              }
+                                            : c,
+                                        ),
+                                      );
+                                      void updateCampaign({ messagesKnowledgeBase });
+                                    }}
+                                    disabled={busy}
+                                    buttonClassName="mt-1 flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50"
+                                  />
                                 <div className="mt-1 text-[11px] text-zinc-600">Max 1000</div>
                               </div>
                             </div>

@@ -146,8 +146,8 @@ export async function POST(req: Request, ctx: { params: Promise<{ campaignId: st
   const nextKb = {
     version: 1,
     seedUrl: typeof kbRec.seedUrl === "string" ? String(kbRec.seedUrl).trim().slice(0, 500) : "",
-    crawlDepth: typeof kbRec.crawlDepth === "number" && Number.isFinite(kbRec.crawlDepth) ? Math.max(0, Math.min(3, Math.floor(kbRec.crawlDepth))) : 0,
-    maxUrls: typeof kbRec.maxUrls === "number" && Number.isFinite(kbRec.maxUrls) ? Math.max(0, Math.min(100, Math.floor(kbRec.maxUrls))) : 0,
+    crawlDepth: typeof kbRec.crawlDepth === "number" && Number.isFinite(kbRec.crawlDepth) ? Math.max(0, Math.min(5, Math.floor(kbRec.crawlDepth))) : 0,
+    maxUrls: typeof kbRec.maxUrls === "number" && Number.isFinite(kbRec.maxUrls) ? Math.max(0, Math.min(1000, Math.floor(kbRec.maxUrls))) : 0,
     text: typeof kbRec.text === "string" ? String(kbRec.text).trim().slice(0, 20000) : "",
     locators: nextLocators,
     updatedAtIso: new Date().toISOString(),
@@ -162,8 +162,9 @@ export async function POST(req: Request, ctx: { params: Promise<{ campaignId: st
   const manualVoice = String((campaign as any).manualVoiceAgentId || "").trim();
   const voiceAgentId = String((campaign as any).voiceAgentId || "").trim();
 
-  if (voiceAgentId && !manualVoice) {
-    const r = await patchElevenLabsAgent({ apiKey, agentId: voiceAgentId, knowledgeBase: nextLocators }).catch(() => null);
+  const agentIdToPatch = manualVoice || voiceAgentId;
+  if (agentIdToPatch) {
+    const r = await patchElevenLabsAgent({ apiKey, agentId: agentIdToPatch, knowledgeBase: nextLocators }).catch(() => null);
     applied.voice = Boolean(r && (r as any).ok === true);
   }
 

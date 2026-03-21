@@ -327,8 +327,9 @@ export async function POST(req: Request, ctx: { params: Promise<{ campaignId: st
   const manualVoice = String((campaign as any).manualVoiceAgentId || "").trim();
   const voiceAgentId = String((campaign as any).voiceAgentId || "").trim();
 
-  if (voiceAgentId && !manualVoice) {
-    const r = await patchElevenLabsAgent({ apiKey, agentId: voiceAgentId, knowledgeBase: nextLocators }).catch(() => null);
+  const agentIdToPatch = manualVoice || voiceAgentId;
+  if (agentIdToPatch) {
+    const r = await patchElevenLabsAgent({ apiKey, agentId: agentIdToPatch, knowledgeBase: nextLocators }).catch(() => null);
     applied.voice = Boolean(r && (r as any).ok === true);
   }
 

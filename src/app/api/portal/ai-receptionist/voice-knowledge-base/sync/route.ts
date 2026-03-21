@@ -309,8 +309,9 @@ export async function POST(req: Request) {
   const manualAgentId = String(nextSettings.manualAgentId || "").trim();
   const agentId = String(nextSettings.voiceAgentId || "").trim();
 
-  if (agentId && !manualAgentId) {
-    const r = await patchElevenLabsAgent({ apiKey, agentId, knowledgeBase: nextLocators }).catch(() => null);
+  const agentIdToPatch = manualAgentId || agentId;
+  if (agentIdToPatch) {
+    const r = await patchElevenLabsAgent({ apiKey, agentId: agentIdToPatch, knowledgeBase: nextLocators }).catch(() => null);
     applied.voice = Boolean(r && (r as any).ok === true);
   }
 

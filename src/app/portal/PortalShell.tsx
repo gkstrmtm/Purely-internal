@@ -867,7 +867,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
             : "env(safe-area-inset-bottom)",
         }}
       >
-        <main className="h-full overflow-y-auto">
+        <main className="h-full overflow-y-auto overscroll-y-contain">
           {children}
           <div
             aria-hidden
@@ -1026,7 +1026,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                 </button>
               </div>
 
-              <div className="min-h-0 flex-1 overflow-y-auto p-3">
+              <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain p-3">
                 <div className="px-3 text-xs font-semibold uppercase tracking-wide text-zinc-500">Services</div>
                 <div className="mt-2 space-y-4">
                   {embeddedSidebarServiceGroups.map((group) => (
@@ -1074,7 +1074,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
           </div>
 
           {/* Main content */}
-          <main className="min-h-0 flex-1 overflow-y-auto">
+          <main className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain">
             <div className="mx-auto w-full max-w-md px-3 pb-[calc(env(safe-area-inset-bottom)+1rem)] pt-3">
               {children}
             </div>
@@ -1301,7 +1301,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
               </button>
             </div>
 
-            <div className="min-h-0 flex-1 overflow-y-auto p-3">
+            <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain p-3">
               <div className="space-y-1">
                 {navItems.map((item) => (
                   <Link
@@ -1467,7 +1467,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
             </button>
           </div>
 
-          <div className="min-h-0 flex-1 overflow-y-auto p-2">
+          <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain p-2">
             <div className="space-y-1">
               {navItems.map((item) => (
                 <Link
@@ -1631,7 +1631,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
           </div>
         </aside>
 
-        <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto">
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto overscroll-y-contain">
           <header className="sticky top-0 z-10 border-b border-zinc-200 bg-white/80 backdrop-blur sm:hidden">
             <div className="flex items-center justify-between px-4 py-3">
               <button

@@ -145,8 +145,9 @@ export async function POST(req: Request, ctx: { params: Promise<{ campaignId: st
   const manualMessages = String((campaign as any).manualChatAgentId || "").trim();
   const chatAgentId = String((campaign as any).chatAgentId || "").trim();
 
-  if (chatAgentId && !manualMessages) {
-    const r = await patchElevenLabsAgent({ apiKey, agentId: chatAgentId, knowledgeBase: nextLocators }).catch(() => null);
+  const agentIdToPatch = manualMessages || chatAgentId;
+  if (agentIdToPatch) {
+    const r = await patchElevenLabsAgent({ apiKey, agentId: agentIdToPatch, knowledgeBase: nextLocators }).catch(() => null);
     applied.messages = Boolean(r && (r as any).ok === true);
   }
 

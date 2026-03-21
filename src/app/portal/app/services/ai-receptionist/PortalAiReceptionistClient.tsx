@@ -1601,7 +1601,7 @@ export function PortalAiReceptionistClient() {
                     </div>
                     {settings?.manualAgentId?.trim() ? (
                       <div className="mt-1 text-[11px] text-amber-700">
-                        Manual agent ID is set. Sync will update stored docs but won’t auto-apply to the agent.
+                        Manual agent ID is set. Sync will apply the knowledge base to that agent ID.
                       </div>
                     ) : null}
                   </div>
@@ -1642,50 +1642,52 @@ export function PortalAiReceptionistClient() {
                   <div className="grid grid-cols-2 gap-3">
                     <div>
                       <div className="text-xs font-semibold text-zinc-700">Crawl depth</div>
-                      <select
-                        value={ensureKnowledgeBase(settings?.voiceKnowledgeBase ?? null).crawlDepth}
-                        onChange={(e) => {
+                      <PortalListboxDropdown<string>
+                        value={String(ensureKnowledgeBase(settings?.voiceKnowledgeBase ?? null).crawlDepth ?? 0)}
+                        options={[
+                          { value: "0", label: "0" },
+                          { value: "1", label: "1" },
+                          { value: "2", label: "2" },
+                          { value: "3", label: "3" },
+                          { value: "4", label: "4" },
+                          { value: "5", label: "5" },
+                        ]}
+                        onChange={(v) => {
                           if (!settings) return;
-                          const crawlDepth = Number(e.target.value || 0);
+                          const crawlDepth = Number(v || 0);
                           setSettings({
                             ...settings,
                             voiceKnowledgeBase: { ...ensureKnowledgeBase(settings.voiceKnowledgeBase), crawlDepth },
                           });
                         }}
                         disabled={saving || savingEnabled || !settings}
-                        className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                      >
-                        <option value={0}>0</option>
-                        <option value={1}>1</option>
-                        <option value={2}>2</option>
-                        <option value={3}>3</option>
-                        <option value={4}>4</option>
-                        <option value={5}>5</option>
-                      </select>
+                        buttonClassName="mt-1 flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50"
+                      />
                     </div>
                     <div>
                       <div className="text-xs font-semibold text-zinc-700">Max URLs</div>
-                      <select
-                        value={ensureKnowledgeBase(settings?.voiceKnowledgeBase ?? null).maxUrls}
-                        onChange={(e) => {
+                      <PortalListboxDropdown<string>
+                        value={String(ensureKnowledgeBase(settings?.voiceKnowledgeBase ?? null).maxUrls ?? 0)}
+                        options={[
+                          { value: "0", label: "0" },
+                          { value: "25", label: "25" },
+                          { value: "50", label: "50" },
+                          { value: "100", label: "100" },
+                          { value: "250", label: "250" },
+                          { value: "500", label: "500" },
+                          { value: "1000", label: "1000" },
+                        ]}
+                        onChange={(v) => {
                           if (!settings) return;
-                          const maxUrls = Number(e.target.value || 0);
+                          const maxUrls = Number(v || 0);
                           setSettings({
                             ...settings,
                             voiceKnowledgeBase: { ...ensureKnowledgeBase(settings.voiceKnowledgeBase), maxUrls },
                           });
                         }}
                         disabled={saving || savingEnabled || !settings}
-                        className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                      >
-                        <option value={0}>0</option>
-                        <option value={25}>25</option>
-                        <option value={50}>50</option>
-                        <option value={100}>100</option>
-                        <option value={250}>250</option>
-                        <option value={500}>500</option>
-                        <option value={1000}>1000</option>
-                      </select>
+                        buttonClassName="mt-1 flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50"
+                      />
                       <div className="mt-1 text-[11px] text-zinc-600">Max 1000</div>
                     </div>
                   </div>
@@ -1911,7 +1913,7 @@ export function PortalAiReceptionistClient() {
                         </div>
                         {settings?.manualChatAgentId?.trim() ? (
                           <div className="mt-1 text-[11px] text-amber-700">
-                            Manual messaging agent ID is set. Sync will update stored docs but won’t auto-apply to the agent.
+                            Manual messaging agent ID is set. Sync will apply the knowledge base to that agent ID.
                           </div>
                         ) : null}
                       </div>
@@ -1952,50 +1954,52 @@ export function PortalAiReceptionistClient() {
                       <div className="grid grid-cols-2 gap-3">
                         <div>
                           <div className="text-xs font-semibold text-zinc-700">Crawl depth</div>
-                          <select
-                            value={ensureKnowledgeBase(settings?.smsKnowledgeBase ?? null).crawlDepth}
-                            onChange={(e) => {
+                          <PortalListboxDropdown<string>
+                            value={String(ensureKnowledgeBase(settings?.smsKnowledgeBase ?? null).crawlDepth ?? 0)}
+                            options={[
+                              { value: "0", label: "0" },
+                              { value: "1", label: "1" },
+                              { value: "2", label: "2" },
+                              { value: "3", label: "3" },
+                              { value: "4", label: "4" },
+                              { value: "5", label: "5" },
+                            ]}
+                            onChange={(v) => {
                               if (!settings) return;
-                              const crawlDepth = Number(e.target.value || 0);
+                              const crawlDepth = Number(v || 0);
                               setSettings({
                                 ...settings,
                                 smsKnowledgeBase: { ...ensureKnowledgeBase(settings.smsKnowledgeBase), crawlDepth },
                               });
                             }}
                             disabled={saving || savingEnabled || !settings}
-                            className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                          >
-                            <option value={0}>0</option>
-                            <option value={1}>1</option>
-                            <option value={2}>2</option>
-                            <option value={3}>3</option>
-                            <option value={4}>4</option>
-                            <option value={5}>5</option>
-                          </select>
+                            buttonClassName="mt-1 flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50"
+                          />
                         </div>
                         <div>
                           <div className="text-xs font-semibold text-zinc-700">Max URLs</div>
-                          <select
-                            value={ensureKnowledgeBase(settings?.smsKnowledgeBase ?? null).maxUrls}
-                            onChange={(e) => {
+                          <PortalListboxDropdown<string>
+                            value={String(ensureKnowledgeBase(settings?.smsKnowledgeBase ?? null).maxUrls ?? 0)}
+                            options={[
+                              { value: "0", label: "0" },
+                              { value: "25", label: "25" },
+                              { value: "50", label: "50" },
+                              { value: "100", label: "100" },
+                              { value: "250", label: "250" },
+                              { value: "500", label: "500" },
+                              { value: "1000", label: "1000" },
+                            ]}
+                            onChange={(v) => {
                               if (!settings) return;
-                              const maxUrls = Number(e.target.value || 0);
+                              const maxUrls = Number(v || 0);
                               setSettings({
                                 ...settings,
                                 smsKnowledgeBase: { ...ensureKnowledgeBase(settings.smsKnowledgeBase), maxUrls },
                               });
                             }}
                             disabled={saving || savingEnabled || !settings}
-                            className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                          >
-                            <option value={0}>0</option>
-                            <option value={25}>25</option>
-                            <option value={50}>50</option>
-                            <option value={100}>100</option>
-                            <option value={250}>250</option>
-                            <option value={500}>500</option>
-                            <option value={1000}>1000</option>
-                          </select>
+                            buttonClassName="mt-1 flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50"
+                          />
                           <div className="mt-1 text-[11px] text-zinc-600">Max 1000</div>
                         </div>
                       </div>
