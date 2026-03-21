@@ -1075,7 +1075,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
 
           {/* Main content */}
           <main className="min-h-0 flex-1 overflow-y-auto">
-            <div className="mx-auto w-full max-w-md px-3 pb-[calc(env(safe-area-inset-bottom)+5.5rem)] pt-3">
+            <div className="mx-auto w-full max-w-md px-3 pb-[calc(env(safe-area-inset-bottom)+1rem)] pt-3">
               {children}
             </div>
           </main>

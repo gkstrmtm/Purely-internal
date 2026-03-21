@@ -102,7 +102,14 @@ export async function POST(req: Request, ctx: { params: Promise<{ campaignId: st
 
   const campaign = await prisma.portalAiOutboundCallCampaign.findFirst({
     where: { ownerId, id: campaignId.data },
-    select: { id: true, name: true, chatAgentId: true, manualChatAgentId: true, chatAgentConfigJson: true, knowledgeBaseJson: true },
+    select: {
+      id: true,
+      name: true,
+      chatAgentId: true,
+      manualChatAgentId: true,
+      chatAgentConfigJson: true,
+      chatKnowledgeBaseJson: true,
+    },
   });
 
   if (!campaign) return NextResponse.json({ ok: false, error: "Not found" }, { status: 404 });
@@ -119,7 +126,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ campaignId: st
   }
 
   const config = parseVoiceAgentConfig(campaign.chatAgentConfigJson);
-  const knowledgeBase = parseKnowledgeBaseLocators((campaign as any).knowledgeBaseJson);
+  const knowledgeBase = parseKnowledgeBaseLocators((campaign as any).chatKnowledgeBaseJson);
 
   const [profile, ownerUser] = await Promise.all([
     prisma.businessProfile

@@ -22,6 +22,25 @@ function newToken(): string {
 
 export type AiReceptionistMode = "AI" | "FORWARD";
 
+export type AiReceptionistKnowledgeBaseLocator = {
+  id: string;
+  name: string;
+  type: "file" | "url" | "text" | "folder";
+  usage_mode?: "auto" | "prompt";
+};
+
+export type AiReceptionistKnowledgeBase = {
+  version: 1;
+  seedUrl: string;
+  crawlDepth: number;
+  maxUrls: number;
+  text: string;
+  locators?: AiReceptionistKnowledgeBaseLocator[];
+  lastSyncedAtIso?: string;
+  lastSyncError?: string;
+  updatedAtIso?: string;
+};
+
 export type AiReceptionistSettings = {
   version: 1;
   enabled: boolean;
@@ -58,11 +77,78 @@ export type AiReceptionistSettings = {
   // When set, the system should use this agent id as-is.
   manualAgentId: string;
 
+  // Knowledge bases applied to the voice and SMS/chat agents.
+  voiceKnowledgeBase: AiReceptionistKnowledgeBase | null;
+  smsKnowledgeBase: AiReceptionistKnowledgeBase | null;
+
   voiceAgentId: string;
   // Optional selected voice id (applied during agent sync).
   voiceId: string;
   voiceAgentApiKey: string | null;
 };
+
+function normalizeUrl(raw: string): string {
+  try {
+    const u = new URL(raw);
+    if (u.protocol !== "http:" && u.protocol !== "https:") return "";
+    u.hash = "";
+    return u.toString();
+  } catch {
+    return "";
+  }
+}
+
+function normalizeKnowledgeBaseLocators(raw: unknown): AiReceptionistKnowledgeBaseLocator[] {
+  const xs = Array.isArray(raw) ? raw : [];
+  const out: AiReceptionistKnowledgeBaseLocator[] = [];
+  const seen = new Set<string>();
+  for (const x of xs) {
+    if (!x || typeof x !== "object" || Array.isArray(x)) continue;
+    const r = x as Record<string, unknown>;
+    const id = typeof r.id === "string" ? r.id.trim().slice(0, 200) : "";
+    const name = typeof r.name === "string" ? r.name.trim().slice(0, 200) : "";
+    const typeRaw = typeof r.type === "string" ? r.type.trim().toLowerCase() : "";
+    const type =
+      typeRaw === "file" || typeRaw === "url" || typeRaw === "text" || typeRaw === "folder" ? (typeRaw as any) : null;
+    const usageRaw = typeof (r as any).usage_mode === "string" ? String((r as any).usage_mode).trim().toLowerCase() : "";
+    const usage_mode = usageRaw === "prompt" ? "prompt" : usageRaw === "auto" ? "auto" : undefined;
+    if (!id || !name || !type) continue;
+    if (seen.has(id)) continue;
+    seen.add(id);
+    out.push({ id, name, type, ...(usage_mode ? { usage_mode } : {}) });
+    if (out.length >= 120) break;
+  }
+  return out;
+}
+
+function parseKnowledgeBase(raw: unknown, prev?: AiReceptionistKnowledgeBase | null): AiReceptionistKnowledgeBase | null {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return prev ?? null;
+  const rec = raw as Record<string, unknown>;
+  const seedUrl = typeof rec.seedUrl === "string" ? normalizeUrl(rec.seedUrl.trim().slice(0, 500)) : "";
+  const crawlDepth =
+    typeof rec.crawlDepth === "number" && Number.isFinite(rec.crawlDepth)
+      ? Math.max(0, Math.min(3, Math.floor(rec.crawlDepth)))
+      : 0;
+  const maxUrls =
+    typeof rec.maxUrls === "number" && Number.isFinite(rec.maxUrls) ? Math.max(0, Math.min(100, Math.floor(rec.maxUrls))) : 0;
+  const text = typeof rec.text === "string" ? rec.text.trim().slice(0, 20000) : "";
+  const locators = normalizeKnowledgeBaseLocators(rec.locators);
+  const lastSyncedAtIso = typeof rec.lastSyncedAtIso === "string" ? rec.lastSyncedAtIso.trim().slice(0, 40) : "";
+  const lastSyncError = typeof rec.lastSyncError === "string" ? rec.lastSyncError.trim().slice(0, 800) : "";
+  const updatedAtIso = typeof rec.updatedAtIso === "string" ? rec.updatedAtIso.trim().slice(0, 40) : "";
+
+  return {
+    version: 1,
+    seedUrl,
+    crawlDepth,
+    maxUrls,
+    text,
+    locators,
+    ...(lastSyncedAtIso ? { lastSyncedAtIso } : {}),
+    ...(lastSyncError ? { lastSyncError } : {}),
+    ...(updatedAtIso ? { updatedAtIso } : {}),
+  };
+}
 
 export type AiReceptionistCallEvent = {
   id: string;
@@ -141,6 +227,9 @@ export function parseAiReceptionistSettings(
     manualChatAgentId: prev?.manualChatAgentId ?? "",
 
     manualAgentId: prev?.manualAgentId ?? "",
+
+    voiceKnowledgeBase: prev?.voiceKnowledgeBase ?? null,
+    smsKnowledgeBase: prev?.smsKnowledgeBase ?? null,
 
     voiceAgentId: "",
     voiceId: prev?.voiceId ?? "",
@@ -223,6 +312,18 @@ export function parseAiReceptionistSettings(
           : "";
   const manualAgentId = String(manualAgentIdRaw || "").trim().slice(0, 120) || base.manualAgentId;
 
+  const voiceKnowledgeBaseRaw =
+    (rec as any).voiceKnowledgeBase ??
+    (rec as any).voiceKB ??
+    (rec as any).voiceKnowledge ??
+    (rec as any).knowledgeBase ??
+    null;
+  const smsKnowledgeBaseRaw =
+    (rec as any).smsKnowledgeBase ?? (rec as any).smsKB ?? (rec as any).smsKnowledge ?? (rec as any).chatKnowledgeBase ?? null;
+
+  const voiceKnowledgeBase = parseKnowledgeBase(voiceKnowledgeBaseRaw, base.voiceKnowledgeBase);
+  const smsKnowledgeBase = parseKnowledgeBase(smsKnowledgeBaseRaw, base.smsKnowledgeBase);
+
   const voiceAgentIdRaw =
     typeof rec.voiceAgentId === "string"
       ? rec.voiceAgentId
@@ -260,6 +361,8 @@ export function parseAiReceptionistSettings(
     chatAgentId,
     manualChatAgentId,
     manualAgentId,
+    voiceKnowledgeBase,
+    smsKnowledgeBase,
     voiceAgentId,
     voiceId,
     voiceAgentApiKey,

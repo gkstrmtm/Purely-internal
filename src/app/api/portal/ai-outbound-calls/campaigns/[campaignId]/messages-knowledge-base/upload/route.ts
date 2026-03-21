@@ -16,7 +16,6 @@ export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 const idSchema = z.string().trim().min(1).max(120);
-
 const PROFILE_EXTRAS_SERVICE_SLUG = "profile";
 
 function envFirst(keys: string[]): string {
@@ -80,14 +79,24 @@ export async function POST(req: Request, ctx: { params: Promise<{ campaignId: st
 
   await ensurePortalAiOutboundCallsSchema();
 
+  const form = await req.formData().catch(() => null);
+  if (!form) return NextResponse.json({ ok: false, error: "Expected multipart/form-data" }, { status: 400 });
+
+  const file = form.get("file");
+  if (!(file instanceof File)) {
+    return NextResponse.json({ ok: false, error: "Missing file" }, { status: 400 });
+  }
+
+  const fileName = (file.name || "document").slice(0, 200);
+
   const campaign = await prisma.portalAiOutboundCallCampaign.findFirst({
     where: { ownerId, id: campaignId.data },
     select: {
       id: true,
       name: true,
-      voiceAgentId: true,
-      manualVoiceAgentId: true,
-      knowledgeBaseJson: true,
+      chatAgentId: true,
+      manualChatAgentId: true,
+      chatKnowledgeBaseJson: true,
     },
   });
 
@@ -104,68 +113,42 @@ export async function POST(req: Request, ctx: { params: Promise<{ campaignId: st
     );
   }
 
-  const fd = await req.formData().catch(() => null);
-  if (!fd) return NextResponse.json({ ok: false, error: "Invalid form data" }, { status: 400 });
-
-  const file = fd.get("file");
-  if (!(file instanceof File)) {
-    return NextResponse.json({ ok: false, error: "Missing file" }, { status: 400 });
-  }
-
-  const nameRaw = fd.get("name");
-  const name = typeof nameRaw === "string" ? nameRaw.trim().slice(0, 200) : "";
+  const kbRec = safeRecord((campaign as any).chatKnowledgeBaseJson);
+  const prevLocators = Array.isArray(kbRec.locators) ? (kbRec.locators as KnowledgeBaseLocator[]) : [];
 
   const created = await createElevenLabsKnowledgeBaseFile({
     apiKey,
     file,
-    name: name || undefined,
-  });
+    name: `Campaign: ${campaign.name} - ${fileName}`.slice(0, 200),
+  }).catch((e) => ({ ok: false as const, error: String(e || "File upload failed") }));
 
-  if (!created.ok) {
-    return NextResponse.json({ ok: false, error: created.error }, { status: created.status || 502 });
+  if ((created as any).ok !== true) {
+    return NextResponse.json({ ok: false, error: String((created as any).error || "Upload failed") }, { status: 500 });
   }
 
-  const kbRec = safeRecord((campaign as any).knowledgeBaseJson);
-  const existingLocators = Array.isArray(kbRec.locators) ? (kbRec.locators as any[]) : [];
-  const locators: KnowledgeBaseLocator[] = [];
-  for (const x of existingLocators) {
-    const xr = safeRecord(x);
-    const id = typeof xr.id === "string" ? xr.id.trim().slice(0, 200) : "";
-    const nm = typeof xr.name === "string" ? xr.name.trim().slice(0, 200) : "";
-    const typeRaw = typeof xr.type === "string" ? xr.type.trim().toLowerCase() : "";
-    const type = typeRaw === "file" || typeRaw === "url" || typeRaw === "text" || typeRaw === "folder" ? (typeRaw as any) : null;
-    const usageRaw = typeof xr.usage_mode === "string" ? xr.usage_mode.trim().toLowerCase() : "";
-    const usage_mode = usageRaw === "prompt" ? "prompt" : usageRaw === "auto" ? "auto" : undefined;
-    if (!id || !nm || !type) continue;
-    locators.push({ id, name: nm, type, ...(usage_mode ? { usage_mode } : {}) });
-    if (locators.length >= 120) break;
-  }
-
-  const nextLocators = dedupeLocators([...locators, created.doc]);
+  const nextLocators = dedupeLocators([...prevLocators, (created as any).doc]);
 
   const nextKb = {
+    ...kbRec,
     version: 1,
-    seedUrl: typeof kbRec.seedUrl === "string" ? String(kbRec.seedUrl).trim().slice(0, 500) : "",
-    crawlDepth: typeof kbRec.crawlDepth === "number" && Number.isFinite(kbRec.crawlDepth) ? Math.max(0, Math.min(3, Math.floor(kbRec.crawlDepth))) : 0,
-    maxUrls: typeof kbRec.maxUrls === "number" && Number.isFinite(kbRec.maxUrls) ? Math.max(0, Math.min(100, Math.floor(kbRec.maxUrls))) : 0,
-    text: typeof kbRec.text === "string" ? String(kbRec.text).trim().slice(0, 20000) : "",
     locators: nextLocators,
     updatedAtIso: new Date().toISOString(),
   };
 
   await prisma.portalAiOutboundCallCampaign.updateMany({
     where: { ownerId, id: campaign.id },
-    data: { knowledgeBaseJson: nextKb as any, updatedAt: new Date() },
+    data: { chatKnowledgeBaseJson: nextKb as any, updatedAt: new Date() },
   });
 
-  const applied: { voice?: boolean } = {};
-  const manualVoice = String((campaign as any).manualVoiceAgentId || "").trim();
-  const voiceAgentId = String((campaign as any).voiceAgentId || "").trim();
+  const applied: { messages?: boolean } = {};
 
-  if (voiceAgentId && !manualVoice) {
-    const r = await patchElevenLabsAgent({ apiKey, agentId: voiceAgentId, knowledgeBase: nextLocators }).catch(() => null);
-    applied.voice = Boolean(r && (r as any).ok === true);
+  const manualMessages = String((campaign as any).manualChatAgentId || "").trim();
+  const chatAgentId = String((campaign as any).chatAgentId || "").trim();
+
+  if (chatAgentId && !manualMessages) {
+    const r = await patchElevenLabsAgent({ apiKey, agentId: chatAgentId, knowledgeBase: nextLocators }).catch(() => null);
+    applied.messages = Boolean(r && (r as any).ok === true);
   }
 
-  return NextResponse.json({ ok: true, locator: created.doc, locators: nextLocators, applied });
+  return NextResponse.json({ ok: true, locator: (created as any).doc, locators: nextLocators, applied });
 }

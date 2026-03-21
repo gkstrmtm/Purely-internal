@@ -1,10 +1,8 @@
 import { NextResponse } from "next/server";
-import { z } from "zod";
 
 import { prisma } from "@/lib/db";
 import { requireClientSessionForService } from "@/lib/portalAccess";
-import { ensurePortalAiOutboundCallsSchema } from "@/lib/portalAiOutboundCallsSchema";
-import { getAiReceptionistServiceData } from "@/lib/aiReceptionist";
+import { getAiReceptionistServiceData, setAiReceptionistSettings } from "@/lib/aiReceptionist";
 import {
   createElevenLabsKnowledgeBaseText,
   createElevenLabsKnowledgeBaseUrl,
@@ -15,8 +13,6 @@ import {
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
-
-const idSchema = z.string().trim().min(1).max(120);
 
 const PROFILE_EXTRAS_SERVICE_SLUG = "profile";
 
@@ -73,8 +69,12 @@ function parseKnowledgeBase(raw: unknown): {
 } {
   const rec = safeRecord(raw);
   const seedUrl = typeof rec.seedUrl === "string" ? normalizeUrl(rec.seedUrl.trim().slice(0, 500)) : "";
-  const crawlDepth = typeof rec.crawlDepth === "number" && Number.isFinite(rec.crawlDepth) ? Math.max(0, Math.min(3, Math.floor(rec.crawlDepth))) : 0;
-  const maxUrls = typeof rec.maxUrls === "number" && Number.isFinite(rec.maxUrls) ? Math.max(0, Math.min(100, Math.floor(rec.maxUrls))) : 0;
+  const crawlDepth =
+    typeof rec.crawlDepth === "number" && Number.isFinite(rec.crawlDepth)
+      ? Math.max(0, Math.min(3, Math.floor(rec.crawlDepth)))
+      : 0;
+  const maxUrls =
+    typeof rec.maxUrls === "number" && Number.isFinite(rec.maxUrls) ? Math.max(0, Math.min(100, Math.floor(rec.maxUrls))) : 0;
   const text = typeof rec.text === "string" ? rec.text.trim().slice(0, 20000) : "";
 
   const locatorsRaw = Array.isArray(rec.locators) ? rec.locators : [];
@@ -212,8 +212,8 @@ function dedupeLocators(locators: KnowledgeBaseLocator[]): KnowledgeBaseLocator[
   return out;
 }
 
-export async function POST(req: Request, ctx: { params: Promise<{ campaignId: string }> }) {
-  const auth = await requireClientSessionForService("aiOutboundCalls", "edit");
+export async function POST(req: Request) {
+  const auth = await requireClientSessionForService("aiReceptionist", "edit");
   if (!auth.ok) {
     return NextResponse.json(
       { ok: false, error: auth.status === 401 ? "Unauthorized" : "Forbidden" },
@@ -221,32 +221,14 @@ export async function POST(req: Request, ctx: { params: Promise<{ campaignId: st
     );
   }
 
+  const body = (await req.json().catch(() => null)) as any;
+
   const ownerId = auth.session.user.id;
-  const params = await ctx.params;
-  const campaignId = idSchema.safeParse(params.campaignId);
-  if (!campaignId.success) return NextResponse.json({ ok: false, error: "Invalid campaign id" }, { status: 400 });
 
-  // Body is optional; we currently sync using the persisted campaign config.
-  await req.json().catch(() => null);
-
-  await ensurePortalAiOutboundCallsSchema();
-
-  const campaign = await prisma.portalAiOutboundCallCampaign.findFirst({
-    where: { ownerId, id: campaignId.data },
-    select: {
-      id: true,
-      name: true,
-      voiceAgentId: true,
-      manualVoiceAgentId: true,
-      knowledgeBaseJson: true,
-    },
-  });
-
-  if (!campaign) return NextResponse.json({ ok: false, error: "Not found" }, { status: 404 });
+  const current = await getAiReceptionistServiceData(ownerId);
 
   const apiKeyFromProfile = (await getProfileVoiceAgentApiKey(ownerId).catch(() => null)) || "";
-  const receptionist = await getAiReceptionistServiceData(ownerId).catch(() => null);
-  const apiKeyLegacy = receptionist?.settings?.voiceAgentApiKey?.trim() || "";
+  const apiKeyLegacy = current.settings.voiceAgentApiKey?.trim() || "";
   const apiKey = (apiKeyFromProfile.trim() || apiKeyLegacy.trim()).trim();
   if (!apiKey) {
     return NextResponse.json(
@@ -255,17 +237,21 @@ export async function POST(req: Request, ctx: { params: Promise<{ campaignId: st
     );
   }
 
-  const kb = parseKnowledgeBase((campaign as any).knowledgeBaseJson);
+  const storedKb = parseKnowledgeBase((current.settings as any).smsKnowledgeBase);
+  const inputKbRaw = body && typeof body === "object" && !Array.isArray(body) ? (body as any).knowledgeBase : null;
+  const inputKb = inputKbRaw ? parseKnowledgeBase(inputKbRaw) : storedKb;
 
-  const keep = kb.locators.filter((l) => l.type === "file");
+  const keep = dedupeLocators(
+    [...storedKb.locators, ...inputKb.locators].filter((l) => l.type === "file"),
+  );
   const nextDocs: KnowledgeBaseLocator[] = [];
   const errors: string[] = [];
 
-  if (kb.text.trim()) {
+  if (inputKb.text.trim()) {
     const create = await createElevenLabsKnowledgeBaseText({
       apiKey,
-      text: kb.text,
-      name: `Campaign: ${campaign.name} - Notes`.slice(0, 200),
+      text: inputKb.text,
+      name: "AI Receptionist - SMS notes".slice(0, 200),
     }).catch((e) => ({ ok: false as const, error: String(e || "Text document create failed") }));
 
     if ((create as any).ok === true) {
@@ -275,9 +261,9 @@ export async function POST(req: Request, ctx: { params: Promise<{ campaignId: st
     }
   }
 
-  const maxUrls = Math.max(0, Math.min(100, Math.floor(kb.maxUrls || 0)));
-  if (kb.seedUrl && maxUrls > 0) {
-    const discovered = await crawlSite(kb.seedUrl, kb.crawlDepth, maxUrls).catch(() => []);
+  const maxUrls = Math.max(0, Math.min(100, Math.floor(inputKb.maxUrls || 0)));
+  if (inputKb.seedUrl && maxUrls > 0) {
+    const discovered = await crawlSite(inputKb.seedUrl, inputKb.crawlDepth, maxUrls).catch(() => []);
 
     for (const u of discovered) {
       const name = (() => {
@@ -308,32 +294,25 @@ export async function POST(req: Request, ctx: { params: Promise<{ campaignId: st
   }
 
   const nextLocators = dedupeLocators([...keep, ...nextDocs]);
-
   const nextKb = {
-    ...kb,
+    ...storedKb,
+    ...inputKb,
     locators: nextLocators,
     lastSyncedAtIso: new Date().toISOString(),
+    updatedAtIso: new Date().toISOString(),
     ...(errors.length ? { lastSyncError: errors.slice(0, 5).join(" | ").slice(0, 800) } : { lastSyncError: "" }),
   };
 
-  await prisma.portalAiOutboundCallCampaign.updateMany({
-    where: { ownerId, id: campaign.id },
-    data: { knowledgeBaseJson: nextKb as any, updatedAt: new Date() },
-  });
+  const nextSettings = await setAiReceptionistSettings(ownerId, { ...current.settings, smsKnowledgeBase: nextKb as any });
 
-  const applied: { voice?: boolean } = {};
-  const manualVoice = String((campaign as any).manualVoiceAgentId || "").trim();
-  const voiceAgentId = String((campaign as any).voiceAgentId || "").trim();
+  const applied: { sms?: boolean } = {};
+  const manualChatAgentId = String(nextSettings.manualChatAgentId || "").trim();
+  const agentId = String(nextSettings.chatAgentId || "").trim();
 
-  if (voiceAgentId && !manualVoice) {
-    const r = await patchElevenLabsAgent({ apiKey, agentId: voiceAgentId, knowledgeBase: nextLocators }).catch(() => null);
-    applied.voice = Boolean(r && (r as any).ok === true);
+  if (agentId && !manualChatAgentId) {
+    const r = await patchElevenLabsAgent({ apiKey, agentId, knowledgeBase: nextLocators }).catch(() => null);
+    applied.sms = Boolean(r && (r as any).ok === true);
   }
 
-  return NextResponse.json({
-    ok: true,
-    locators: nextLocators,
-    applied,
-    errors: errors.slice(0, 10),
-  });
+  return NextResponse.json({ ok: true, locators: nextLocators, applied, errors: errors.slice(0, 10) });
 }

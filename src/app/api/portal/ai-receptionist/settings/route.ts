@@ -13,7 +13,12 @@ import {
   toPublicSettings,
   upsertAiReceptionistCallEvent,
 } from "@/lib/aiReceptionist";
-import { createElevenLabsAgent, patchElevenLabsAgent, resolveElevenLabsConvaiToolIdsByKeys } from "@/lib/elevenLabsConvai";
+import {
+  createElevenLabsAgent,
+  patchElevenLabsAgent,
+  resolveElevenLabsConvaiToolIdsByKeys,
+  type KnowledgeBaseLocator,
+} from "@/lib/elevenLabsConvai";
 import { normalizeEmailKey, normalizeNameKey, normalizePhoneKey } from "@/lib/portalContacts";
 import { ensurePortalContactTagsReady, listContactTagsForContact } from "@/lib/portalContactTags";
 import { ensurePortalContactsSchema } from "@/lib/portalContactsSchema";
@@ -225,6 +230,35 @@ function buildReceptionistAgentPrompt(opts: {
   }
 
   return prompt.slice(0, 6000);
+}
+
+function normalizeKnowledgeBaseLocators(raw: unknown): KnowledgeBaseLocator[] {
+  const xs = Array.isArray(raw) ? raw : [];
+  const out: KnowledgeBaseLocator[] = [];
+  const seen = new Set<string>();
+  for (const x of xs) {
+    if (!x || typeof x !== "object" || Array.isArray(x)) continue;
+    const r = x as Record<string, unknown>;
+    const id = typeof r.id === "string" ? r.id.trim().slice(0, 200) : "";
+    const name = typeof r.name === "string" ? r.name.trim().slice(0, 200) : "";
+    const typeRaw = typeof r.type === "string" ? r.type.trim().toLowerCase() : "";
+    const type =
+      typeRaw === "file" || typeRaw === "url" || typeRaw === "text" || typeRaw === "folder" ? (typeRaw as any) : null;
+    const usageRaw = typeof (r as any).usage_mode === "string" ? String((r as any).usage_mode).trim().toLowerCase() : "";
+    const usage_mode = usageRaw === "prompt" ? "prompt" : usageRaw === "auto" ? "auto" : undefined;
+    if (!id || !name || !type) continue;
+    if (seen.has(id)) continue;
+    seen.add(id);
+    out.push({ id, name, type, ...(usage_mode ? { usage_mode } : {}) });
+    if (out.length >= 120) break;
+  }
+  return out;
+}
+
+function knowledgeBaseLocatorsFromSettings(settings: any, field: "voiceKnowledgeBase" | "smsKnowledgeBase"): KnowledgeBaseLocator[] {
+  const kb = settings && typeof settings === "object" ? (settings as any)[field] : null;
+  const loc = kb && typeof kb === "object" && !Array.isArray(kb) ? (kb as any).locators : null;
+  return normalizeKnowledgeBaseLocators(loc);
 }
 
 async function upsertContactFromEvent(ownerId: string, input: { name: string; email: string | null; phone: string | null }) {
@@ -524,6 +558,10 @@ export async function PUT(req: Request) {
         prompt: prompt || undefined,
         toolIds: toolIds.length ? toolIds : undefined,
         voiceId: String((next as any).voiceId || "").trim() || undefined,
+        knowledgeBase: (() => {
+          const loc = knowledgeBaseLocatorsFromSettings(next as any, "voiceKnowledgeBase");
+          return loc.length ? loc : undefined;
+        })(),
       });
 
       if (!created.ok) {
@@ -548,6 +586,10 @@ export async function PUT(req: Request) {
         prompt: prompt || undefined,
         toolIds: toolIds.length ? toolIds : undefined,
         voiceId: String((next as any).voiceId || "").trim() || undefined,
+        knowledgeBase: (() => {
+          const loc = knowledgeBaseLocatorsFromSettings(next as any, "voiceKnowledgeBase");
+          return loc.length ? loc : undefined;
+        })(),
       });
 
       if (!patched.ok) {
@@ -578,6 +620,10 @@ export async function PUT(req: Request) {
         apiKey,
         name,
         prompt: smsPrompt || undefined,
+        knowledgeBase: (() => {
+          const loc = knowledgeBaseLocatorsFromSettings(next as any, "smsKnowledgeBase");
+          return loc.length ? loc : undefined;
+        })(),
       });
 
       if (!created.ok) {
@@ -597,6 +643,10 @@ export async function PUT(req: Request) {
         apiKey,
         agentId: chatAgentId,
         prompt: smsPrompt || undefined,
+        knowledgeBase: (() => {
+          const loc = knowledgeBaseLocatorsFromSettings(next as any, "smsKnowledgeBase");
+          return loc.length ? loc : undefined;
+        })(),
       });
 
       if (!patched.ok) {

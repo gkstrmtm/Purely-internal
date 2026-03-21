@@ -35,8 +35,31 @@ type Settings = {
   chatAgentId: string;
   manualChatAgentId: string;
   manualAgentId: string;
+
+  voiceKnowledgeBase: ReceptionistKnowledgeBase | null;
+  smsKnowledgeBase: ReceptionistKnowledgeBase | null;
+
   voiceAgentId: string;
   voiceAgentConfigured: boolean;
+};
+
+type KnowledgeBaseLocator = {
+  id: string;
+  name: string;
+  type: "file" | "url" | "text" | "folder";
+  usage_mode?: "auto" | "prompt";
+};
+
+type ReceptionistKnowledgeBase = {
+  version: 1;
+  seedUrl: string;
+  crawlDepth: number;
+  maxUrls: number;
+  text: string;
+  locators?: KnowledgeBaseLocator[];
+  lastSyncedAtIso?: string;
+  lastSyncError?: string;
+  updatedAtIso?: string;
 };
 
 type VoiceLibraryVoice = {
@@ -134,6 +157,28 @@ function formatTime(sec: number) {
   const m = Math.floor(s / 60);
   const r = s % 60;
   return `${m}:${String(r).padStart(2, "0")}`;
+}
+
+function ensureKnowledgeBase(kb: ReceptionistKnowledgeBase | null): ReceptionistKnowledgeBase {
+  const base: ReceptionistKnowledgeBase = {
+    version: 1,
+    seedUrl: "",
+    crawlDepth: 0,
+    maxUrls: 0,
+    text: "",
+    locators: [],
+  };
+  if (!kb) return base;
+  return {
+    ...base,
+    ...kb,
+    version: 1,
+    seedUrl: String(kb.seedUrl || ""),
+    crawlDepth: Number.isFinite(kb.crawlDepth) ? Math.max(0, Math.min(3, Math.floor(kb.crawlDepth))) : 0,
+    maxUrls: Number.isFinite(kb.maxUrls) ? Math.max(0, Math.min(100, Math.floor(kb.maxUrls))) : 0,
+    text: String(kb.text || ""),
+    locators: Array.isArray(kb.locators) ? kb.locators : [],
+  };
 }
 
 function buildAddTagOptionsFromTags(tags: ContactTag[], excludeTagIds: string[], search: string) {
@@ -424,6 +469,11 @@ export function PortalAiReceptionistClient() {
 
   const [smsPromptBusy, setSmsPromptBusy] = useState<boolean>(false);
 
+  const [voiceKnowledgeBaseSyncBusy, setVoiceKnowledgeBaseSyncBusy] = useState(false);
+  const [voiceKnowledgeBaseUploadBusy, setVoiceKnowledgeBaseUploadBusy] = useState(false);
+  const [smsKnowledgeBaseSyncBusy, setSmsKnowledgeBaseSyncBusy] = useState(false);
+  const [smsKnowledgeBaseUploadBusy, setSmsKnowledgeBaseUploadBusy] = useState(false);
+
   const [voiceLibraryVoices, setVoiceLibraryVoices] = useState<VoiceLibraryVoice[]>([]);
   const [voiceLibraryLoading, setVoiceLibraryLoading] = useState(false);
   const [voicePreviewBusyVoiceId, setVoicePreviewBusyVoiceId] = useState<string | null>(null);
@@ -584,6 +634,114 @@ export function PortalAiReceptionistClient() {
       setError(e instanceof Error ? e.message : "Failed to generate");
     } finally {
       setSmsPromptBusy(false);
+    }
+  }
+
+  async function syncVoiceKnowledgeBase() {
+    if (!settings) return;
+    if (voiceKnowledgeBaseSyncBusy) return;
+    setVoiceKnowledgeBaseSyncBusy(true);
+    try {
+      const res = await fetch("/api/portal/ai-receptionist/voice-knowledge-base/sync", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ knowledgeBase: ensureKnowledgeBase(settings.voiceKnowledgeBase) }),
+      }).catch(() => null as any);
+
+      const json = (await res?.json?.().catch(() => null)) as any;
+      if (!res?.ok || !json || json.ok !== true) {
+        throw new Error(String(json?.error || "Knowledge base sync failed"));
+      }
+
+      const count = Array.isArray(json.locators) ? json.locators.length : 0;
+      toast.success(count ? `Knowledge base synced (${count} docs)` : "Knowledge base synced");
+      await load();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Knowledge base sync failed");
+    } finally {
+      setVoiceKnowledgeBaseSyncBusy(false);
+    }
+  }
+
+  async function uploadVoiceKnowledgeBaseFile(file: File) {
+    if (!settings) return;
+    if (voiceKnowledgeBaseUploadBusy) return;
+    setVoiceKnowledgeBaseUploadBusy(true);
+    try {
+      const fd = new FormData();
+      fd.set("file", file);
+      fd.set("knowledgeBase", JSON.stringify(ensureKnowledgeBase(settings.voiceKnowledgeBase)));
+
+      const res = await fetch("/api/portal/ai-receptionist/voice-knowledge-base/upload", {
+        method: "POST",
+        body: fd,
+      }).catch(() => null as any);
+
+      const json = (await res?.json?.().catch(() => null)) as any;
+      if (!res?.ok || !json || json.ok !== true) {
+        throw new Error(String(json?.error || "File upload failed"));
+      }
+
+      toast.success("File added to knowledge base");
+      await load();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "File upload failed");
+    } finally {
+      setVoiceKnowledgeBaseUploadBusy(false);
+    }
+  }
+
+  async function syncSmsKnowledgeBase() {
+    if (!settings) return;
+    if (smsKnowledgeBaseSyncBusy) return;
+    setSmsKnowledgeBaseSyncBusy(true);
+    try {
+      const res = await fetch("/api/portal/ai-receptionist/sms-knowledge-base/sync", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ knowledgeBase: ensureKnowledgeBase(settings.smsKnowledgeBase) }),
+      }).catch(() => null as any);
+
+      const json = (await res?.json?.().catch(() => null)) as any;
+      if (!res?.ok || !json || json.ok !== true) {
+        throw new Error(String(json?.error || "Knowledge base sync failed"));
+      }
+
+      const count = Array.isArray(json.locators) ? json.locators.length : 0;
+      toast.success(count ? `Knowledge base synced (${count} docs)` : "Knowledge base synced");
+      await load();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Knowledge base sync failed");
+    } finally {
+      setSmsKnowledgeBaseSyncBusy(false);
+    }
+  }
+
+  async function uploadSmsKnowledgeBaseFile(file: File) {
+    if (!settings) return;
+    if (smsKnowledgeBaseUploadBusy) return;
+    setSmsKnowledgeBaseUploadBusy(true);
+    try {
+      const fd = new FormData();
+      fd.set("file", file);
+      fd.set("knowledgeBase", JSON.stringify(ensureKnowledgeBase(settings.smsKnowledgeBase)));
+
+      const res = await fetch("/api/portal/ai-receptionist/sms-knowledge-base/upload", {
+        method: "POST",
+        body: fd,
+      }).catch(() => null as any);
+
+      const json = (await res?.json?.().catch(() => null)) as any;
+      if (!res?.ok || !json || json.ok !== true) {
+        throw new Error(String(json?.error || "File upload failed"));
+      }
+
+      toast.success("File added to knowledge base");
+      await load();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "File upload failed");
+    } finally {
+      setSmsKnowledgeBaseUploadBusy(false);
     }
   }
 
@@ -1357,19 +1515,6 @@ export function PortalAiReceptionistClient() {
                       </div>
                     ) : null}
                   </div>
-                  <button
-                    type="button"
-                    disabled={saving || savingEnabled || voiceLibraryLoading}
-                    onClick={() => void loadVoiceLibrary()}
-                    className={classNames(
-                      "rounded-xl border px-3 py-2 text-xs font-semibold",
-                      saving || savingEnabled || voiceLibraryLoading
-                        ? "border-zinc-200 bg-zinc-200 text-zinc-600"
-                        : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50",
-                    )}
-                  >
-                    {voiceLibraryLoading ? "Loading…" : "Refresh voices"}
-                  </button>
                 </div>
 
                 <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -1379,12 +1524,15 @@ export function PortalAiReceptionistClient() {
                       value={settings?.voiceId ?? ""}
                       onChange={(voiceId) => settings && setSettings({ ...settings, voiceId: String(voiceId || "").trim() })}
                       disabled={saving || savingEnabled || !settings}
-                      placeholder={voiceLibraryLoading ? "Loading voices…" : "Default voice"}
+                      placeholder="Default voice"
                       options={[
                         { value: "", label: "Default voice", hint: "" },
                         ...voiceLibraryVoices.map((v) => ({
                           value: v.id,
-                          label: v.category ? `${v.name} (${v.category})` : v.name,
+                          label:
+                            v.category && !/^pre[-\s]?made$/i.test(v.category)
+                              ? `${v.name} (${v.category})`
+                              : v.name,
                           hint: v.description || "",
                         })),
                       ]}
@@ -1441,6 +1589,154 @@ export function PortalAiReceptionistClient() {
                       preload="none"
                     />
                   </div>
+                </div>
+              </div>
+
+              <div className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm sm:col-span-2">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                  <div>
+                    <div className="text-xs font-semibold text-zinc-700">Knowledge base</div>
+                    <div className="mt-1 text-[11px] text-zinc-600">
+                      Add a website, notes, or files for the voice agent. Use Sync to ingest/update documents.
+                    </div>
+                    {settings?.manualAgentId?.trim() ? (
+                      <div className="mt-1 text-[11px] text-amber-700">
+                        Manual agent ID is set. Sync will update stored docs but won’t auto-apply to the agent.
+                      </div>
+                    ) : null}
+                  </div>
+                  <button
+                    type="button"
+                    disabled={saving || savingEnabled || !settings || voiceKnowledgeBaseSyncBusy}
+                    onClick={() => void syncVoiceKnowledgeBase()}
+                    className={classNames(
+                      "rounded-xl px-3 py-2 text-xs font-semibold",
+                      saving || savingEnabled || !settings || voiceKnowledgeBaseSyncBusy
+                        ? "bg-zinc-200 text-zinc-600"
+                        : "bg-[color:var(--color-brand-blue)] text-white hover:opacity-95",
+                    )}
+                  >
+                    {voiceKnowledgeBaseSyncBusy ? "Syncing…" : "Sync knowledge base"}
+                  </button>
+                </div>
+
+                <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <div>
+                    <div className="text-xs font-semibold text-zinc-700">Seed URL</div>
+                    <input
+                      value={ensureKnowledgeBase(settings?.voiceKnowledgeBase ?? null).seedUrl}
+                      onChange={(e) => {
+                        if (!settings) return;
+                        const seedUrl = e.target.value;
+                        setSettings({
+                          ...settings,
+                          voiceKnowledgeBase: { ...ensureKnowledgeBase(settings.voiceKnowledgeBase), seedUrl },
+                        });
+                      }}
+                      disabled={saving || savingEnabled || !settings}
+                      placeholder="https://example.com"
+                      className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <div className="text-xs font-semibold text-zinc-700">Crawl depth</div>
+                      <input
+                        type="number"
+                        min={0}
+                        max={3}
+                        value={ensureKnowledgeBase(settings?.voiceKnowledgeBase ?? null).crawlDepth}
+                        onChange={(e) => {
+                          if (!settings) return;
+                          const crawlDepth = Number(e.target.value || 0);
+                          setSettings({
+                            ...settings,
+                            voiceKnowledgeBase: { ...ensureKnowledgeBase(settings.voiceKnowledgeBase), crawlDepth },
+                          });
+                        }}
+                        disabled={saving || savingEnabled || !settings}
+                        className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                      />
+                    </div>
+                    <div>
+                      <div className="text-xs font-semibold text-zinc-700">Max URLs</div>
+                      <input
+                        type="number"
+                        min={0}
+                        max={100}
+                        value={ensureKnowledgeBase(settings?.voiceKnowledgeBase ?? null).maxUrls}
+                        onChange={(e) => {
+                          if (!settings) return;
+                          const maxUrls = Number(e.target.value || 0);
+                          setSettings({
+                            ...settings,
+                            voiceKnowledgeBase: { ...ensureKnowledgeBase(settings.voiceKnowledgeBase), maxUrls },
+                          });
+                        }}
+                        disabled={saving || savingEnabled || !settings}
+                        className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                <div className="mt-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="text-xs font-semibold text-zinc-700">Notes</div>
+                    <label className="text-[11px] text-zinc-600">
+                      <input
+                        type="file"
+                        className="hidden"
+                        disabled={saving || savingEnabled || !settings || voiceKnowledgeBaseUploadBusy}
+                        onChange={(e) => {
+                          const file = e.target.files?.[0] || null;
+                          e.currentTarget.value = "";
+                          if (file) void uploadVoiceKnowledgeBaseFile(file);
+                        }}
+                      />
+                      <span
+                        className={classNames(
+                          "inline-flex cursor-pointer items-center rounded-xl border px-3 py-2 text-xs font-semibold",
+                          saving || savingEnabled || !settings || voiceKnowledgeBaseUploadBusy
+                            ? "border-zinc-200 bg-zinc-200 text-zinc-600"
+                            : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50",
+                        )}
+                      >
+                        {voiceKnowledgeBaseUploadBusy ? "Uploading…" : "Upload file"}
+                      </span>
+                    </label>
+                  </div>
+                  <textarea
+                    value={ensureKnowledgeBase(settings?.voiceKnowledgeBase ?? null).text}
+                    onChange={(e) => {
+                      if (!settings) return;
+                      const text = e.target.value;
+                      setSettings({
+                        ...settings,
+                        voiceKnowledgeBase: { ...ensureKnowledgeBase(settings.voiceKnowledgeBase), text },
+                      });
+                    }}
+                    disabled={saving || savingEnabled || !settings}
+                    rows={4}
+                    placeholder="Add any important context, FAQs, pricing notes…"
+                    className="mt-2 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                  />
+                </div>
+
+                <div className="mt-3 text-[11px] text-zinc-600">
+                  {(() => {
+                    const kb = settings?.voiceKnowledgeBase;
+                    const count = kb && Array.isArray(kb.locators) ? kb.locators.length : 0;
+                    if (!kb) return "No knowledge base configured yet.";
+                    return (
+                      <div>
+                        <div>Attached docs: {count || 0}</div>
+                        {kb.lastSyncedAtIso ? <div>Last synced: {formatWhen(kb.lastSyncedAtIso)}</div> : null}
+                        {kb.lastSyncError ? <div className="mt-1 text-amber-700">Sync warning: {kb.lastSyncError}</div> : null}
+                      </div>
+                    );
+                  })()}
                 </div>
               </div>
 
@@ -1594,6 +1890,156 @@ export function PortalAiReceptionistClient() {
                       onChange={(e) => settings && setSettings({ ...settings, smsSystemPrompt: e.target.value })}
                       placeholder="Write how the AI should respond via SMS…"
                     />
+                  </div>
+
+                  <div className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm sm:col-span-2">
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                      <div>
+                        <div className="text-xs font-semibold text-zinc-700">Knowledge base</div>
+                        <div className="mt-1 text-[11px] text-zinc-600">
+                          Add a website, notes, or files for the SMS agent. Use Sync to ingest/update documents.
+                        </div>
+                        {settings?.manualChatAgentId?.trim() ? (
+                          <div className="mt-1 text-[11px] text-amber-700">
+                            Manual messaging agent ID is set. Sync will update stored docs but won’t auto-apply to the agent.
+                          </div>
+                        ) : null}
+                      </div>
+                      <button
+                        type="button"
+                        disabled={saving || savingEnabled || !settings || smsKnowledgeBaseSyncBusy}
+                        onClick={() => void syncSmsKnowledgeBase()}
+                        className={classNames(
+                          "rounded-xl px-3 py-2 text-xs font-semibold",
+                          saving || savingEnabled || !settings || smsKnowledgeBaseSyncBusy
+                            ? "bg-zinc-200 text-zinc-600"
+                            : "bg-[color:var(--color-brand-blue)] text-white hover:opacity-95",
+                        )}
+                      >
+                        {smsKnowledgeBaseSyncBusy ? "Syncing…" : "Sync knowledge base"}
+                      </button>
+                    </div>
+
+                    <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                      <div>
+                        <div className="text-xs font-semibold text-zinc-700">Seed URL</div>
+                        <input
+                          value={ensureKnowledgeBase(settings?.smsKnowledgeBase ?? null).seedUrl}
+                          onChange={(e) => {
+                            if (!settings) return;
+                            const seedUrl = e.target.value;
+                            setSettings({
+                              ...settings,
+                              smsKnowledgeBase: { ...ensureKnowledgeBase(settings.smsKnowledgeBase), seedUrl },
+                            });
+                          }}
+                          disabled={saving || savingEnabled || !settings}
+                          placeholder="https://example.com"
+                          className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                        />
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <div className="text-xs font-semibold text-zinc-700">Crawl depth</div>
+                          <input
+                            type="number"
+                            min={0}
+                            max={3}
+                            value={ensureKnowledgeBase(settings?.smsKnowledgeBase ?? null).crawlDepth}
+                            onChange={(e) => {
+                              if (!settings) return;
+                              const crawlDepth = Number(e.target.value || 0);
+                              setSettings({
+                                ...settings,
+                                smsKnowledgeBase: { ...ensureKnowledgeBase(settings.smsKnowledgeBase), crawlDepth },
+                              });
+                            }}
+                            disabled={saving || savingEnabled || !settings}
+                            className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                          />
+                        </div>
+                        <div>
+                          <div className="text-xs font-semibold text-zinc-700">Max URLs</div>
+                          <input
+                            type="number"
+                            min={0}
+                            max={100}
+                            value={ensureKnowledgeBase(settings?.smsKnowledgeBase ?? null).maxUrls}
+                            onChange={(e) => {
+                              if (!settings) return;
+                              const maxUrls = Number(e.target.value || 0);
+                              setSettings({
+                                ...settings,
+                                smsKnowledgeBase: { ...ensureKnowledgeBase(settings.smsKnowledgeBase), maxUrls },
+                              });
+                            }}
+                            disabled={saving || savingEnabled || !settings}
+                            className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="mt-3">
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="text-xs font-semibold text-zinc-700">Notes</div>
+                        <label className="text-[11px] text-zinc-600">
+                          <input
+                            type="file"
+                            className="hidden"
+                            disabled={saving || savingEnabled || !settings || smsKnowledgeBaseUploadBusy}
+                            onChange={(e) => {
+                              const file = e.target.files?.[0] || null;
+                              e.currentTarget.value = "";
+                              if (file) void uploadSmsKnowledgeBaseFile(file);
+                            }}
+                          />
+                          <span
+                            className={classNames(
+                              "inline-flex cursor-pointer items-center rounded-xl border px-3 py-2 text-xs font-semibold",
+                              saving || savingEnabled || !settings || smsKnowledgeBaseUploadBusy
+                                ? "border-zinc-200 bg-zinc-200 text-zinc-600"
+                                : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50",
+                            )}
+                          >
+                            {smsKnowledgeBaseUploadBusy ? "Uploading…" : "Upload file"}
+                          </span>
+                        </label>
+                      </div>
+                      <textarea
+                        value={ensureKnowledgeBase(settings?.smsKnowledgeBase ?? null).text}
+                        onChange={(e) => {
+                          if (!settings) return;
+                          const text = e.target.value;
+                          setSettings({
+                            ...settings,
+                            smsKnowledgeBase: { ...ensureKnowledgeBase(settings.smsKnowledgeBase), text },
+                          });
+                        }}
+                        disabled={saving || savingEnabled || !settings}
+                        rows={4}
+                        placeholder="Add any important context, FAQs, pricing notes…"
+                        className="mt-2 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                      />
+                    </div>
+
+                    <div className="mt-3 text-[11px] text-zinc-600">
+                      {(() => {
+                        const kb = settings?.smsKnowledgeBase;
+                        const count = kb && Array.isArray(kb.locators) ? kb.locators.length : 0;
+                        if (!kb) return "No knowledge base configured yet.";
+                        return (
+                          <div>
+                            <div>Attached docs: {count || 0}</div>
+                            {kb.lastSyncedAtIso ? <div>Last synced: {formatWhen(kb.lastSyncedAtIso)}</div> : null}
+                            {kb.lastSyncError ? (
+                              <div className="mt-1 text-amber-700">Sync warning: {kb.lastSyncError}</div>
+                            ) : null}
+                          </div>
+                        );
+                      })()}
+                    </div>
                   </div>
 
                   <div className="rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm sm:col-span-2">

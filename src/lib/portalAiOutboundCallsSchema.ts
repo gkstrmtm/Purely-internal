@@ -177,6 +177,7 @@ CREATE TABLE IF NOT EXISTS "PortalAiOutboundCallCampaign" (
   "chatAgentId" TEXT,
   "manualChatAgentId" TEXT,
   "chatAgentConfigJson" JSONB,
+  "chatKnowledgeBaseJson" JSONB,
   "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
   "updatedAt" TIMESTAMP(3) NOT NULL,
   CONSTRAINT "PortalAiOutboundCallCampaign_pkey" PRIMARY KEY ("id")
@@ -226,6 +227,11 @@ ALTER TABLE "PortalAiOutboundCallCampaign"
     `
 ALTER TABLE "PortalAiOutboundCallCampaign"
   ADD COLUMN IF NOT EXISTS "chatAgentConfigJson" JSONB;
+    `.trim(),
+
+    `
+ALTER TABLE "PortalAiOutboundCallCampaign"
+  ADD COLUMN IF NOT EXISTS "chatKnowledgeBaseJson" JSONB;
     `.trim(),
 
     `

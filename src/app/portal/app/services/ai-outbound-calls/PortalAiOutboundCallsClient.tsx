@@ -59,6 +59,7 @@ type Campaign = {
   voiceAgentConfig: VoiceAgentConfig;
   voiceId: string | null;
   knowledgeBase: CampaignKnowledgeBase | null;
+  messagesKnowledgeBase: CampaignKnowledgeBase | null;
   chatAgentId: string;
   manualChatAgentId: string;
   chatAgentConfig: VoiceAgentConfig;
@@ -92,8 +93,6 @@ const DEFAULT_VOICE_PREVIEW_TEXT = "Hi! This is a voice preview.";
 type ApiGetVoiceLibraryVoicesResponse =
   | { ok: true; voices: VoiceLibraryVoice[] }
   | { ok: false; error?: string };
-
-type ApiVoicePreviewResponse = Blob;
 
 type ApiGetVoiceToolsResponse =
   | { ok: true; tools: VoiceTool[]; apiKeyConfigured?: boolean }
@@ -454,6 +453,9 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
   const [knowledgeBaseSyncBusy, setKnowledgeBaseSyncBusy] = useState(false);
   const [knowledgeBaseUploadBusy, setKnowledgeBaseUploadBusy] = useState(false);
 
+  const [messagesKnowledgeBaseSyncBusy, setMessagesKnowledgeBaseSyncBusy] = useState(false);
+  const [messagesKnowledgeBaseUploadBusy, setMessagesKnowledgeBaseUploadBusy] = useState(false);
+
   const [callsAgentSyncRequired, setCallsAgentSyncRequired] = useState(false);
   const [callsAgentSyncedAtIso, setCallsAgentSyncedAtIso] = useState<string | null>(null);
 
@@ -493,6 +495,7 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
       chatAgentId: (c.chatAgentId ?? "").trim(),
       manualChatAgentId: (c.manualChatAgentId ?? "").trim(),
       chatAgentConfig: c.chatAgentConfig ?? {},
+      messagesKnowledgeBase: c.messagesKnowledgeBase ?? null,
     });
   }, []);
 
@@ -1226,6 +1229,10 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
         const kb = c?.knowledgeBase && typeof c.knowledgeBase === "object" ? (c.knowledgeBase as any) : null;
         const locators = kb && Array.isArray(kb.locators) ? kb.locators : undefined;
 
+        const messagesKb =
+          c?.messagesKnowledgeBase && typeof c.messagesKnowledgeBase === "object" ? (c.messagesKnowledgeBase as any) : null;
+        const messagesLocators = messagesKb && Array.isArray(messagesKb.locators) ? messagesKb.locators : undefined;
+
         return {
           ...c,
           voiceAgentConfig: { ...DEFAULT_VOICE_AGENT_CONFIG, ...(c.voiceAgentConfig ?? {}) },
@@ -1243,6 +1250,23 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
                   ...(typeof kb.lastSyncedAtIso === "string" ? { lastSyncedAtIso: kb.lastSyncedAtIso } : {}),
                   ...(typeof kb.lastSyncError === "string" ? { lastSyncError: kb.lastSyncError } : {}),
                   ...(typeof kb.updatedAtIso === "string" ? { updatedAtIso: kb.updatedAtIso } : {}),
+                }
+              : null,
+          messagesKnowledgeBase:
+            messagesKb && typeof messagesKb === "object"
+              ? {
+                  version: 1,
+                  seedUrl: typeof messagesKb.seedUrl === "string" ? messagesKb.seedUrl : "",
+                  crawlDepth:
+                    typeof messagesKb.crawlDepth === "number" && Number.isFinite(messagesKb.crawlDepth)
+                      ? messagesKb.crawlDepth
+                      : 0,
+                  maxUrls: typeof messagesKb.maxUrls === "number" && Number.isFinite(messagesKb.maxUrls) ? messagesKb.maxUrls : 0,
+                  text: typeof messagesKb.text === "string" ? messagesKb.text : "",
+                  ...(Array.isArray(messagesLocators) ? { locators: messagesLocators } : {}),
+                  ...(typeof messagesKb.lastSyncedAtIso === "string" ? { lastSyncedAtIso: messagesKb.lastSyncedAtIso } : {}),
+                  ...(typeof messagesKb.lastSyncError === "string" ? { lastSyncError: messagesKb.lastSyncError } : {}),
+                  ...(typeof messagesKb.updatedAtIso === "string" ? { updatedAtIso: messagesKb.updatedAtIso } : {}),
                 }
               : null,
         } as Campaign;
@@ -1364,6 +1388,7 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
       voiceAgentConfig?: Partial<VoiceAgentConfig>;
       chatAgentConfig?: Partial<VoiceAgentConfig>;
       knowledgeBase?: CampaignKnowledgeBase | null;
+      messagesKnowledgeBase?: CampaignKnowledgeBase | null;
       callOutcomeTagging?: Partial<CallOutcomeTagging>;
       messageOutcomeTagging?: Partial<MessageOutcomeTagging>;
     },
@@ -1488,6 +1513,7 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
         chatAgentId: (selected.chatAgentId ?? "").trim(),
         manualChatAgentId: (selected.manualChatAgentId ?? "").trim(),
         chatAgentConfig: selected.chatAgentConfig ?? {},
+        messagesKnowledgeBase: selected.messagesKnowledgeBase ?? null,
       });
       toast.success("Saved");
     } finally {
@@ -1584,6 +1610,54 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
       toast.error(e instanceof Error ? e.message : "Upload failed");
     } finally {
       setKnowledgeBaseUploadBusy(false);
+    }
+  }
+
+  async function syncMessagesKnowledgeBase() {
+    if (!selected?.id) return;
+    if (messagesKnowledgeBaseSyncBusy || busy) return;
+    setMessagesKnowledgeBaseSyncBusy(true);
+    setError(null);
+    try {
+      const res = await fetch(
+        `/api/portal/ai-outbound-calls/campaigns/${encodeURIComponent(selected.id)}/messages-knowledge-base/sync`,
+        { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({}) },
+      );
+      const json = (await res.json().catch(() => null)) as any;
+      if (!res.ok || !json || json.ok !== true) throw new Error(json?.error || "Sync failed");
+      const count = Array.isArray(json.locators) ? json.locators.length : 0;
+      toast.success(count ? `Knowledge base synced (${count} docs)` : "Knowledge base synced");
+      if (Array.isArray(json.errors) && json.errors.length) toast.error(String(json.errors[0] || ""));
+      await loadAll();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Sync failed");
+    } finally {
+      setMessagesKnowledgeBaseSyncBusy(false);
+    }
+  }
+
+  async function uploadMessagesKnowledgeBaseFile(file: File) {
+    if (!selected?.id) return;
+    if (messagesKnowledgeBaseUploadBusy || busy) return;
+    if (!(file instanceof File)) return;
+    setMessagesKnowledgeBaseUploadBusy(true);
+    setError(null);
+    try {
+      const fd = new FormData();
+      fd.set("file", file);
+      fd.set("name", file.name || "");
+      const res = await fetch(
+        `/api/portal/ai-outbound-calls/campaigns/${encodeURIComponent(selected.id)}/messages-knowledge-base/upload`,
+        { method: "POST", body: fd },
+      );
+      const json = (await res.json().catch(() => null)) as any;
+      if (!res.ok || !json || json.ok !== true) throw new Error(json?.error || "Upload failed");
+      toast.success("File added to knowledge base");
+      await loadAll();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Upload failed");
+    } finally {
+      setMessagesKnowledgeBaseUploadBusy(false);
     }
   }
 
@@ -2046,7 +2120,7 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
   }
 
   return (
-    <div className="mx-auto w-full max-w-6xl">
+    <div className="mx-auto w-full max-w-6xl px-4 pb-24 sm:px-6">
       <PortalVariablePickerModal
         open={variablePickerOpen}
         variables={variablePickerVariables}
@@ -2983,19 +3057,6 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
                                 Pick a voice for the calls agent. Changes apply after you sync the calls agent.
                               </div>
                             </div>
-                            <button
-                              type="button"
-                              disabled={busy || voiceLibraryLoading}
-                              onClick={() => void loadVoiceLibrary()}
-                              className={classNames(
-                                "rounded-xl border px-3 py-2 text-xs font-semibold",
-                                busy || voiceLibraryLoading
-                                  ? "border-zinc-200 bg-zinc-200 text-zinc-600"
-                                  : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50",
-                              )}
-                            >
-                              {voiceLibraryLoading ? "Loading…" : "Refresh voices"}
-                            </button>
                           </div>
 
                           <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -3011,14 +3072,18 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
                                   updateCampaign({ voiceId: v || null });
                                 }}
                                 disabled={busy}
-                                placeholder={voiceLibraryLoading ? "Loading voices…" : "Default voice"}
+                                placeholder="Default voice"
                                 options={[
                                   { value: "", label: "Default voice", hint: "" },
-                                  ...voiceLibraryVoices.map((v) => ({
-                                    value: v.id,
-                                    label: v.category ? `${v.name} (${v.category})` : v.name,
-                                    hint: v.description || "",
-                                  })),
+                                  ...voiceLibraryVoices.map((v) => {
+                                    const cat = String(v.category || "").trim();
+                                    const showCat = Boolean(cat) && !/^pre[-\s]?made$/i.test(cat);
+                                    return {
+                                      value: v.id,
+                                      label: showCat ? `${v.name} (${cat})` : v.name,
+                                      hint: v.description || "",
+                                    };
+                                  }),
                                 ]}
                                 renderOptionRight={(opt) => {
                                   if (!opt.value) return null;
@@ -3734,6 +3799,192 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
                               disabled={busy}
                               buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-2 py-2 text-sm font-semibold text-zinc-900 hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
                             />
+                          </div>
+                        </div>
+
+                        <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
+                          <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                            <div>
+                              <div className="text-xs font-semibold text-zinc-700">Knowledge base</div>
+                              <div className="mt-1 text-[11px] text-zinc-600">
+                                Add a website, notes, or files for the messages agent. Use Sync to ingest/update documents.
+                              </div>
+                            </div>
+                            <button
+                              type="button"
+                              disabled={busy || messagesKnowledgeBaseSyncBusy}
+                              onClick={() => void syncMessagesKnowledgeBase()}
+                              className={classNames(
+                                "rounded-xl px-3 py-2 text-xs font-semibold",
+                                busy || messagesKnowledgeBaseSyncBusy
+                                  ? "bg-zinc-200 text-zinc-600"
+                                  : "bg-[color:var(--color-brand-blue)] text-white hover:opacity-95",
+                              )}
+                            >
+                              {messagesKnowledgeBaseSyncBusy ? "Syncing…" : "Sync knowledge base"}
+                            </button>
+                          </div>
+
+                          <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                            <div>
+                              <div className="text-xs font-semibold text-zinc-700">Seed URL</div>
+                              <input
+                                value={ensureKnowledgeBase(selected.messagesKnowledgeBase).seedUrl}
+                                onChange={(e) => {
+                                  const seedUrl = e.target.value;
+                                  setCampaigns((prev) =>
+                                    prev.map((c) =>
+                                      c.id === selected.id
+                                        ? {
+                                            ...c,
+                                            messagesKnowledgeBase: {
+                                              ...ensureKnowledgeBase(c.messagesKnowledgeBase),
+                                              seedUrl,
+                                            },
+                                          }
+                                        : c,
+                                    ),
+                                  );
+                                }}
+                                onBlur={() =>
+                                  updateCampaign({ messagesKnowledgeBase: ensureKnowledgeBase(selected.messagesKnowledgeBase) })
+                                }
+                                disabled={busy}
+                                placeholder="https://example.com"
+                                className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                              />
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-3">
+                              <div>
+                                <div className="text-xs font-semibold text-zinc-700">Crawl depth</div>
+                                <input
+                                  type="number"
+                                  min={0}
+                                  max={3}
+                                  value={ensureKnowledgeBase(selected.messagesKnowledgeBase).crawlDepth}
+                                  onChange={(e) => {
+                                    const crawlDepth = Number(e.target.value || 0);
+                                    setCampaigns((prev) =>
+                                      prev.map((c) =>
+                                        c.id === selected.id
+                                          ? {
+                                              ...c,
+                                              messagesKnowledgeBase: {
+                                                ...ensureKnowledgeBase(c.messagesKnowledgeBase),
+                                                crawlDepth,
+                                              },
+                                            }
+                                          : c,
+                                      ),
+                                    );
+                                  }}
+                                  onBlur={() =>
+                                    updateCampaign({ messagesKnowledgeBase: ensureKnowledgeBase(selected.messagesKnowledgeBase) })
+                                  }
+                                  disabled={busy}
+                                  className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                                />
+                              </div>
+                              <div>
+                                <div className="text-xs font-semibold text-zinc-700">Max URLs</div>
+                                <input
+                                  type="number"
+                                  min={0}
+                                  max={100}
+                                  value={ensureKnowledgeBase(selected.messagesKnowledgeBase).maxUrls}
+                                  onChange={(e) => {
+                                    const maxUrls = Number(e.target.value || 0);
+                                    setCampaigns((prev) =>
+                                      prev.map((c) =>
+                                        c.id === selected.id
+                                          ? {
+                                              ...c,
+                                              messagesKnowledgeBase: {
+                                                ...ensureKnowledgeBase(c.messagesKnowledgeBase),
+                                                maxUrls,
+                                              },
+                                            }
+                                          : c,
+                                      ),
+                                    );
+                                  }}
+                                  onBlur={() =>
+                                    updateCampaign({ messagesKnowledgeBase: ensureKnowledgeBase(selected.messagesKnowledgeBase) })
+                                  }
+                                  disabled={busy}
+                                  className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                                />
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="mt-3">
+                            <div className="flex items-center justify-between gap-3">
+                              <div className="text-xs font-semibold text-zinc-700">Notes</div>
+                              <label className="text-[11px] text-zinc-600">
+                                <input
+                                  type="file"
+                                  className="hidden"
+                                  disabled={busy || messagesKnowledgeBaseUploadBusy}
+                                  onChange={(e) => {
+                                    const file = e.target.files?.[0] || null;
+                                    e.currentTarget.value = "";
+                                    if (file) void uploadMessagesKnowledgeBaseFile(file);
+                                  }}
+                                />
+                                <span
+                                  className={classNames(
+                                    "inline-flex cursor-pointer items-center rounded-xl border px-3 py-2 text-xs font-semibold",
+                                    busy || messagesKnowledgeBaseUploadBusy
+                                      ? "border-zinc-200 bg-zinc-200 text-zinc-600"
+                                      : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50",
+                                  )}
+                                >
+                                  {messagesKnowledgeBaseUploadBusy ? "Uploading…" : "Upload file"}
+                                </span>
+                              </label>
+                            </div>
+                            <textarea
+                              value={ensureKnowledgeBase(selected.messagesKnowledgeBase).text}
+                              onChange={(e) => {
+                                const text = e.target.value;
+                                setCampaigns((prev) =>
+                                  prev.map((c) =>
+                                    c.id === selected.id
+                                      ? {
+                                          ...c,
+                                          messagesKnowledgeBase: { ...ensureKnowledgeBase(c.messagesKnowledgeBase), text },
+                                        }
+                                      : c,
+                                  ),
+                                );
+                              }}
+                              onBlur={() =>
+                                updateCampaign({ messagesKnowledgeBase: ensureKnowledgeBase(selected.messagesKnowledgeBase) })
+                              }
+                              disabled={busy}
+                              rows={4}
+                              placeholder="Add any important context, FAQs, pricing notes…"
+                              className="mt-2 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                            />
+                          </div>
+
+                          <div className="mt-3 text-[11px] text-zinc-600">
+                            {(() => {
+                              const kb = selected.messagesKnowledgeBase;
+                              const count = kb && Array.isArray(kb.locators) ? kb.locators.length : 0;
+                              if (!kb) return "No knowledge base configured yet.";
+                              return (
+                                <div>
+                                  <div>Attached docs: {count || 0}</div>
+                                  {kb.lastSyncedAtIso ? <div>Last synced: {formatWhen(kb.lastSyncedAtIso)}</div> : null}
+                                  {kb.lastSyncError ? (
+                                    <div className="mt-1 text-amber-700">Sync warning: {kb.lastSyncError}</div>
+                                  ) : null}
+                                </div>
+                              );
+                            })()}
                           </div>
                         </div>
 

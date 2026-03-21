@@ -1329,6 +1329,9 @@ model PortalAiOutboundCallCampaign {
   // Optional knowledge base configuration + stored document locators.
   knowledgeBaseJson Json?
 
+  // Optional knowledge base configuration for the messages/chat agent.
+  chatKnowledgeBaseJson Json?
+
   // Optional chat agent id override for this campaign.
   chatAgentId String?
 

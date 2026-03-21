@@ -73,8 +73,12 @@ function parseKnowledgeBase(raw: unknown): {
 } {
   const rec = safeRecord(raw);
   const seedUrl = typeof rec.seedUrl === "string" ? normalizeUrl(rec.seedUrl.trim().slice(0, 500)) : "";
-  const crawlDepth = typeof rec.crawlDepth === "number" && Number.isFinite(rec.crawlDepth) ? Math.max(0, Math.min(3, Math.floor(rec.crawlDepth))) : 0;
-  const maxUrls = typeof rec.maxUrls === "number" && Number.isFinite(rec.maxUrls) ? Math.max(0, Math.min(100, Math.floor(rec.maxUrls))) : 0;
+  const crawlDepth =
+    typeof rec.crawlDepth === "number" && Number.isFinite(rec.crawlDepth)
+      ? Math.max(0, Math.min(3, Math.floor(rec.crawlDepth)))
+      : 0;
+  const maxUrls =
+    typeof rec.maxUrls === "number" && Number.isFinite(rec.maxUrls) ? Math.max(0, Math.min(100, Math.floor(rec.maxUrls))) : 0;
   const text = typeof rec.text === "string" ? rec.text.trim().slice(0, 20000) : "";
 
   const locatorsRaw = Array.isArray(rec.locators) ? rec.locators : [];
@@ -226,7 +230,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ campaignId: st
   const campaignId = idSchema.safeParse(params.campaignId);
   if (!campaignId.success) return NextResponse.json({ ok: false, error: "Invalid campaign id" }, { status: 400 });
 
-  // Body is optional; we currently sync using the persisted campaign config.
+  // Body is optional; we sync using the persisted campaign config.
   await req.json().catch(() => null);
 
   await ensurePortalAiOutboundCallsSchema();
@@ -236,9 +240,9 @@ export async function POST(req: Request, ctx: { params: Promise<{ campaignId: st
     select: {
       id: true,
       name: true,
-      voiceAgentId: true,
-      manualVoiceAgentId: true,
-      knowledgeBaseJson: true,
+      chatAgentId: true,
+      manualChatAgentId: true,
+      chatKnowledgeBaseJson: true,
     },
   });
 
@@ -255,7 +259,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ campaignId: st
     );
   }
 
-  const kb = parseKnowledgeBase((campaign as any).knowledgeBaseJson);
+  const kb = parseKnowledgeBase((campaign as any).chatKnowledgeBaseJson);
 
   const keep = kb.locators.filter((l) => l.type === "file");
   const nextDocs: KnowledgeBaseLocator[] = [];
@@ -265,7 +269,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ campaignId: st
     const create = await createElevenLabsKnowledgeBaseText({
       apiKey,
       text: kb.text,
-      name: `Campaign: ${campaign.name} - Notes`.slice(0, 200),
+      name: `Campaign: ${campaign.name} - Messages notes`.slice(0, 200),
     }).catch((e) => ({ ok: false as const, error: String(e || "Text document create failed") }));
 
     if ((create as any).ok === true) {
@@ -318,22 +322,18 @@ export async function POST(req: Request, ctx: { params: Promise<{ campaignId: st
 
   await prisma.portalAiOutboundCallCampaign.updateMany({
     where: { ownerId, id: campaign.id },
-    data: { knowledgeBaseJson: nextKb as any, updatedAt: new Date() },
+    data: { chatKnowledgeBaseJson: nextKb as any, updatedAt: new Date() },
   });
 
-  const applied: { voice?: boolean } = {};
-  const manualVoice = String((campaign as any).manualVoiceAgentId || "").trim();
-  const voiceAgentId = String((campaign as any).voiceAgentId || "").trim();
+  const applied: { messages?: boolean } = {};
 
-  if (voiceAgentId && !manualVoice) {
-    const r = await patchElevenLabsAgent({ apiKey, agentId: voiceAgentId, knowledgeBase: nextLocators }).catch(() => null);
-    applied.voice = Boolean(r && (r as any).ok === true);
+  const manualMessages = String((campaign as any).manualChatAgentId || "").trim();
+  const chatAgentId = String((campaign as any).chatAgentId || "").trim();
+
+  if (chatAgentId && !manualMessages) {
+    const r = await patchElevenLabsAgent({ apiKey, agentId: chatAgentId, knowledgeBase: nextLocators }).catch(() => null);
+    applied.messages = Boolean(r && (r as any).ok === true);
   }
 
-  return NextResponse.json({
-    ok: true,
-    locators: nextLocators,
-    applied,
-    errors: errors.slice(0, 10),
-  });
+  return NextResponse.json({ ok: true, locators: nextLocators, applied, errors: errors.slice(0, 10) });
 }
