@@ -115,7 +115,10 @@ export async function POST(req: Request) {
   const body = (await req.json().catch(() => null)) as any;
   const domain = normalizeDomain(body?.domain);
   if (!domain) {
-    return NextResponse.json({ ok: false, error: "Invalid domain" }, { status: 400 });
+    return NextResponse.json(
+      { ok: false, error: "Please enter a valid domain like example.com (no https://, no paths)." },
+      { status: 400 },
+    );
   }
 
   const row = await prisma.creditCustomDomain
@@ -160,7 +163,12 @@ export async function PATCH(req: Request) {
 
   const body = (await req.json().catch(() => null)) as any;
   const domain = normalizeDomain(body?.domain);
-  if (!domain) return NextResponse.json({ ok: false, error: "Invalid domain" }, { status: 400 });
+  if (!domain) {
+    return NextResponse.json(
+      { ok: false, error: "Please enter a valid domain like example.com (no https://, no paths)." },
+      { status: 400 },
+    );
+  }
 
   const exists = await prisma.creditCustomDomain.findUnique({
     where: { ownerId_domain: { ownerId, domain } },

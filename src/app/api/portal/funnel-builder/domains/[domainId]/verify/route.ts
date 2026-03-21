@@ -123,7 +123,12 @@ export async function POST(req: Request, ctx: { params: Promise<{ domainId: stri
   if (!domainRow) return NextResponse.json({ ok: false, error: "Domain not found" }, { status: 404 });
 
   const domain = normalizeDnsName(domainRow.domain);
-  if (!domain) return NextResponse.json({ ok: false, error: "Invalid domain" }, { status: 400 });
+  if (!domain) {
+    return NextResponse.json(
+      { ok: false, error: "Please enter a valid domain like example.com (no https://, no paths)." },
+      { status: 400 },
+    );
+  }
 
   const expectedTargetHost = normalizeDnsName(coerceExpectedTargetHost() || "");
   if (!expectedTargetHost) {
@@ -210,9 +215,6 @@ export async function POST(req: Request, ctx: { params: Promise<{ domainId: stri
       }
 
       if (!vercel.ok) {
-        const scopeHint = process.env.VERCEL_TEAM_ID
-          ? " If your Vercel project is NOT under a Team, the configured team scope may be wrong. Remove the Team ID and retry."
-          : "";
         if (domainRow.status === "VERIFIED") {
           await prisma.creditCustomDomain.update({ where: { id: domainRow.id }, data: { status: "PENDING", verifiedAt: null } });
         }
@@ -224,7 +226,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ domainId: stri
           ok: true,
           verified: false,
           error:
-            `DNS is pointing correctly, but hosting verification/provisioning failed (${vercel.error}).${scopeHint}`,
+            `DNS is pointing correctly, but we couldn’t finish hosting setup for this domain yet. ${vercel.error}`,
           domain: current,
           debug,
         });
@@ -383,7 +385,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ domainId: stri
           ok: true,
           verified: false,
           error:
-            `DNS is pointing correctly, but hosting verification/provisioning failed (${vercel.error}). Please contact support.`,
+            `DNS is pointing correctly, but we couldn’t finish hosting setup for this domain yet. ${vercel.error}`,
           domain: current,
           debug: { ...debug, isApex },
         });

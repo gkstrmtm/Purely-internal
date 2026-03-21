@@ -63,6 +63,51 @@ function extractVercelError(json: any): { code: string | null; message: string |
   return { code, message };
 }
 
+function toCustomerFacingDomainProvisioningError(opts: { code: string | null; message: string | null }): string {
+  const code = (opts.code || "").trim().toLowerCase();
+  const message = (opts.message || "").trim();
+  const hay = `${code} ${message}`.toLowerCase();
+
+  if (hay.includes("not assigned to a project") || hay.includes("not assigned") || hay.includes("domain is not assigned")) {
+    return (
+      "We can’t finish hosting setup for this domain yet because it’s already connected to another website/project on the hosting provider. " +
+      "Next step: disconnect the domain from the other project (or choose a different domain/subdomain), then click Verify again."
+    );
+  }
+
+  if (
+    hay.includes("already in use") ||
+    hay.includes("domain_already_in_use") ||
+    hay.includes("belongs to another") ||
+    hay.includes("belongs to a different") ||
+    hay.includes("domain_taken")
+  ) {
+    return (
+      "This domain is already in use on another website/project. " +
+      "Next step: remove it from the other host/project (or use a different domain/subdomain), then try again."
+    );
+  }
+
+  if (hay.includes("invalid domain") || hay.includes("malformed") || hay.includes("invalid_hostname")) {
+    return "Please enter a valid domain like example.com (no https://, no paths).";
+  }
+
+  if (hay.includes("rate limit") || hay.includes("too many requests") || hay.includes("429")) {
+    return "Hosting verification is temporarily busy. Please wait 30–60 seconds and try again.";
+  }
+
+  if (hay.includes("unauthorized") || hay.includes("forbidden") || hay.includes("401") || hay.includes("403")) {
+    return "We couldn’t access the hosting provider to verify this domain right now. Please try again in a minute.";
+  }
+
+  if (!message) {
+    return "We couldn’t complete hosting verification for this domain yet. Please try again in a minute.";
+  }
+
+  // Avoid leaking raw provider phrasing; keep it short and generic.
+  return "We couldn’t complete hosting verification for this domain yet. Please double-check your DNS records and try again in a minute.";
+}
+
 function normalizeVercelDomain(raw: string): string {
   return String(raw || "")
     .trim()
@@ -126,7 +171,7 @@ export async function ensureVercelProjectDomain(domain: string): Promise<EnsureV
 
   const normalizedDomain = normalizeVercelDomain(domain);
   if (!normalizedDomain) {
-    return { ok: false, configured: true, error: "Invalid domain" };
+    return { ok: false, configured: true, error: "Please enter a valid domain like example.com (no https://, no paths)." };
   }
 
   const qpCandidates = getTeamQueryCandidates(teamId);
@@ -233,14 +278,13 @@ export async function ensureVercelProjectDomain(domain: string): Promise<EnsureV
             continue;
           }
 
-          const suffix = message ? ` (${message})` : "";
           const domainInUse = isLikelyDomainInUseError(finalAddJson);
           return {
             ok: false,
             configured: true,
             error: domainInUse
-              ? `Domain is already in use on another hosting project${suffix}`
-              : `Failed to add domain to hosting project${suffix}`,
+              ? "This domain is already in use on another website/project. Next step: remove it from the other host/project (or use a different domain/subdomain), then try again."
+              : toCustomerFacingDomainProvisioningError({ code, message }),
             debug: { attempts },
           };
         }
@@ -297,7 +341,7 @@ export async function ensureVercelProjectDomain(domain: string): Promise<EnsureV
       return {
         ok: false,
         configured: true,
-        error: `Failed to verify domain on hosting project${message ? ` (${message})` : ""}`,
+        error: toCustomerFacingDomainProvisioningError({ code, message }),
         debug: { attempts },
       };
     }
@@ -310,7 +354,7 @@ export async function ensureVercelProjectDomain(domain: string): Promise<EnsureV
     return {
       ok: false,
       configured: true,
-      error: `Failed to verify domain on hosting project${message ? ` (${message})` : ""}`,
+      error: toCustomerFacingDomainProvisioningError({ code: null, message }),
       debug: { attempts },
     };
   }

@@ -7,6 +7,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { PortalListboxDropdown } from "@/components/PortalListboxDropdown";
 import { AppConfirmModal } from "@/components/AppModal";
 import { PortalBackToOnboardingLink } from "@/components/PortalBackToOnboardingLink";
+import { useToast } from "@/components/ToastProvider";
 import { hostedFunnelPath, hostedFormPath } from "@/lib/publicHostedKeys";
 import { toPurelyHostedUrl } from "@/lib/publicHostedOrigin";
 
@@ -178,6 +179,8 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
   const pathname = usePathname();
   const basePath = pathname === "/credit" || pathname.startsWith("/credit/") ? "/credit" : "/portal";
 
+  const toast = useToast();
+
   const [tab, setTab] = useState<TabKey>(initialTab ?? "funnels");
 
   useEffect(() => {
@@ -193,7 +196,6 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
   const [createName, setCreateName] = useState("");
   const [createSlug, setCreateSlug] = useState("");
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
   const [funnelDeleteBusy, setFunnelDeleteBusy] = useState<Record<string, boolean>>({});
   const [formDeleteBusy, setFormDeleteBusy] = useState<Record<string, boolean>>({});
@@ -220,18 +222,14 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
   const [domainBusy, setDomainBusy] = useState(false);
   const [domainVercelVerificationById, setDomainVercelVerificationById] = useState<Record<string, VercelVerificationRecord[]>>({});
   const [domainSettingsBusy, setDomainSettingsBusy] = useState<Record<string, boolean>>({});
-  const [domainSettingsError, setDomainSettingsError] = useState<Record<string, string | null>>({});
   const [domainVerifyBusy, setDomainVerifyBusy] = useState<Record<string, boolean>>({});
-  const [domainVerifyError, setDomainVerifyError] = useState<Record<string, string | null>>({});
 
   const [stripeStatus, setStripeStatus] = useState<StripeIntegrationStatus | null>(null);
   const [stripeStatusBusy, setStripeStatusBusy] = useState(false);
 
   const [funnelDomainBusy, setFunnelDomainBusy] = useState<Record<string, boolean>>({});
-  const [funnelDomainError, setFunnelDomainError] = useState<Record<string, string | null>>({});
 
   const [funnelStatusBusy, setFunnelStatusBusy] = useState<Record<string, boolean>>({});
-  const [funnelStatusError, setFunnelStatusError] = useState<Record<string, string | null>>({});
 
   const [openFunnelMenuId, setOpenFunnelMenuId] = useState<string | null>(null);
   const funnelMenuRootRef = useRef<HTMLDivElement | null>(null);
@@ -408,7 +406,6 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
     async (f: CreditFunnel) => {
       if (funnelDeleteBusy[f.id]) return;
       setFunnelDeleteBusy((m) => ({ ...m, [f.id]: true }));
-      setError(null);
       try {
         const res = await fetch(`/api/portal/funnel-builder/funnels/${encodeURIComponent(f.id)}`, {
           method: "DELETE",
@@ -416,25 +413,25 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
         const json = (await res.json().catch(() => ({}))) as any;
         if (!res.ok || json?.ok !== true) throw new Error(json?.error || "Failed to delete funnel");
         setFunnels((prev) => (prev ? prev.filter((row) => row.id !== f.id) : prev));
+        toast.success("Funnel deleted.");
         try {
           await loadDomains();
         } catch {
           // ignore
         }
       } catch (e) {
-        setError((e as any)?.message ? String((e as any).message) : "Failed to delete funnel");
+        toast.error((e as any)?.message ? String((e as any).message) : "Failed to delete funnel");
       } finally {
         setFunnelDeleteBusy((m) => ({ ...m, [f.id]: false }));
       }
     },
-    [funnelDeleteBusy, loadDomains],
+    [funnelDeleteBusy, loadDomains, toast],
   );
 
   const deleteForm = useCallback(
     async (f: CreditForm) => {
       if (formDeleteBusy[f.id]) return;
       setFormDeleteBusy((m) => ({ ...m, [f.id]: true }));
-      setError(null);
       try {
         const res = await fetch(`/api/portal/funnel-builder/forms/${encodeURIComponent(f.id)}`, {
           method: "DELETE",
@@ -442,13 +439,14 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
         const json = (await res.json().catch(() => ({}))) as any;
         if (!res.ok || json?.ok !== true) throw new Error(json?.error || "Failed to delete form");
         setForms((prev) => (prev ? prev.filter((row) => row.id !== f.id) : prev));
+        toast.success("Form deleted.");
       } catch (e) {
-        setError((e as any)?.message ? String((e as any).message) : "Failed to delete form");
+        toast.error((e as any)?.message ? String((e as any).message) : "Failed to delete form");
       } finally {
         setFormDeleteBusy((m) => ({ ...m, [f.id]: false }));
       }
     },
-    [formDeleteBusy],
+    [formDeleteBusy, toast],
   );
 
   const copyText = useCallback(async (text: string) => {
@@ -462,7 +460,6 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
   const verifyDomain = useCallback(
     async (domain: CreditDomain) => {
       setDomainVerifyBusy((m) => ({ ...m, [domain.id]: true }));
-      setDomainVerifyError((m) => ({ ...m, [domain.id]: null }));
 
       try {
         const res = await fetch(`/api/portal/funnel-builder/domains/${encodeURIComponent(domain.id)}/verify`, {
@@ -496,6 +493,7 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
             if (!prev) return prev;
             return prev.map((d) => (d.id === domain.id ? { ...d, ...json.domain } : d));
           });
+          toast.success("Domain verified.");
           return;
         }
 
@@ -523,26 +521,21 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
         const hasHostingRecords = vercelRecords.length > 0 || (domainVercelVerificationById[domain.id] || []).length > 0;
         const hostingHint = hasHostingRecords ? " See hosting verification records below." : "";
 
-        setDomainVerifyError((m) => ({
-          ...m,
-          [domain.id]: `${base}${hint}${hostingHint}${isActionable ? "" : " Double-check the records below and try again in a few minutes."}`,
-        }));
+        toast.info(
+          `${base}${hint}${hostingHint}${isActionable ? "" : " Double-check the records below and try again in a few minutes."}`,
+        );
       } catch (e) {
-        setDomainVerifyError((m) => ({
-          ...m,
-          [domain.id]: (e as any)?.message ? String((e as any).message) : "Verification failed",
-        }));
+        toast.error((e as any)?.message ? String((e as any).message) : "Verification failed");
       } finally {
         setDomainVerifyBusy((m) => ({ ...m, [domain.id]: false }));
       }
     },
-    [domainVercelVerificationById],
+    [domainVercelVerificationById, toast],
   );
 
   const patchDomainSettings = useCallback(
     async (domain: CreditDomain, next: { rootMode: "DISABLED" | "DIRECTORY" | "REDIRECT"; rootFunnelSlug: string | null }) => {
       setDomainSettingsBusy((m) => ({ ...m, [domain.id]: true }));
-      setDomainSettingsError((m) => ({ ...m, [domain.id]: null }));
 
       // Optimistic update
       setDomains((prev) => {
@@ -567,11 +560,9 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
               : d,
           );
         });
+        toast.success("Domain settings updated.");
       } catch (e) {
-        setDomainSettingsError((m) => ({
-          ...m,
-          [domain.id]: (e as any)?.message ? String((e as any).message) : "Failed to update domain settings",
-        }));
+        toast.error((e as any)?.message ? String((e as any).message) : "Failed to update domain settings");
         // Re-sync from server in case optimistic state diverged.
         try {
           await loadDomains();
@@ -582,13 +573,12 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
         setDomainSettingsBusy((m) => ({ ...m, [domain.id]: false }));
       }
     },
-    [loadDomains],
+    [loadDomains, toast],
   );
 
   const patchFunnelDomain = useCallback(
     async (funnel: CreditFunnel, nextDomain: string | null) => {
       setFunnelDomainBusy((m) => ({ ...m, [funnel.id]: true }));
-      setFunnelDomainError((m) => ({ ...m, [funnel.id]: null }));
 
       // Optimistic update
       setFunnels((prev) => {
@@ -622,11 +612,9 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
               : f,
           );
         });
+        toast.success("Funnel domain updated.");
       } catch (e) {
-        setFunnelDomainError((m) => ({
-          ...m,
-          [funnel.id]: (e as any)?.message ? String((e as any).message) : "Failed to update funnel domain",
-        }));
+        toast.error((e as any)?.message ? String((e as any).message) : "Failed to update funnel domain");
         try {
           await loadFunnels();
         } catch {
@@ -636,7 +624,7 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
         setFunnelDomainBusy((m) => ({ ...m, [funnel.id]: false }));
       }
     },
-    [loadFunnels],
+    [loadFunnels, toast],
   );
 
   const patchFunnelStatus = useCallback(
@@ -645,7 +633,6 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
       if (funnel.status === nextStatus) return true;
 
       setFunnelStatusBusy((m) => ({ ...m, [funnel.id]: true }));
-      setFunnelStatusError((m) => ({ ...m, [funnel.id]: null }));
 
       // Optimistic update
       setFunnels((prev) => {
@@ -670,12 +657,10 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
           });
         }
 
+        toast.success("Funnel status updated.");
         return true;
       } catch (e) {
-        setFunnelStatusError((m) => ({
-          ...m,
-          [funnel.id]: (e as any)?.message ? String((e as any).message) : "Failed to update funnel status",
-        }));
+        toast.error((e as any)?.message ? String((e as any).message) : "Failed to update funnel status");
         try {
           await loadFunnels();
         } catch {
@@ -687,33 +672,30 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
         setFunnelStatusBusy((m) => ({ ...m, [funnel.id]: false }));
       }
     },
-    [funnelStatusBusy, loadFunnels],
+    [funnelStatusBusy, loadFunnels, toast],
   );
 
   useEffect(() => {
     let mounted = true;
-    (async () => {
+    void (async () => {
       try {
-        await loadFunnels();
-        if (!mounted) return;
-        await loadForms();
+        await Promise.all([loadFunnels(), loadForms()]);
         if (!mounted) return;
         await loadDomains();
       } catch (e) {
         if (!mounted) return;
-        setError((e as any)?.message ? String((e as any).message) : "Failed to load funnel builder data");
+        toast.error((e as any)?.message ? String((e as any).message) : "Failed to load funnel builder data");
       }
     })();
     return () => {
       mounted = false;
     };
-  }, [loadDomains, loadForms, loadFunnels]);
+  }, [loadDomains, loadForms, loadFunnels, toast]);
 
   useEffect(() => {
     if (!creatingKind) return;
     setCreateSlug("");
     setCreateName("");
-    setError(null);
   }, [creatingKind]);
 
   const openCreate = (kind: "funnel" | "form") => {
@@ -723,13 +705,11 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
   const closeCreate = () => {
     setCreatingKind(null);
     setBusy(false);
-    setError(null);
   };
 
   const submitCreate = async () => {
     if (!creatingKind) return;
     setBusy(true);
-    setError(null);
 
     try {
       const slug = normalizeSlug(createSlug);
@@ -748,15 +728,15 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
       else await loadForms();
 
       closeCreate();
+      toast.success(creatingKind === "funnel" ? "Funnel created." : "Form created.");
     } catch (e) {
-      setError((e as any)?.message ? String((e as any).message) : "Create failed");
+      toast.error((e as any)?.message ? String((e as any).message) : "Create failed");
       setBusy(false);
     }
   };
 
   const saveDomain = async () => {
     setDomainBusy(true);
-    setError(null);
     try {
       const res = await fetch("/api/portal/funnel-builder/domains", {
         method: "POST",
@@ -774,8 +754,9 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
 
       setDomainInput("");
       await loadDomains();
+      toast.success("Domain saved.");
     } catch (e) {
-      setError((e as any)?.message ? String((e as any).message) : "Failed to save domain");
+      toast.error((e as any)?.message ? String((e as any).message) : "Failed to save domain");
     } finally {
       setDomainBusy(false);
     }
@@ -873,10 +854,6 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
         </button>
       </div>
 
-      {error ? (
-        <div className="mt-6 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">{error}</div>
-      ) : null}
-
       {tab === "funnels" ? (
         <section className="mt-6">
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -940,12 +917,6 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                         </span>
                       ) : null}
                     </div>
-
-                    {funnelDomainError[f.id] ? (
-                      <div className="rounded-2xl border border-red-200 bg-red-50 p-2 text-xs text-red-700">
-                        {funnelDomainError[f.id]}
-                      </div>
-                    ) : null}
                   </div>
                 </div>
 
@@ -1056,12 +1027,6 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                                   Status: Archived
                                 </div>
                               )}
-
-                              {funnelStatusError[f.id] ? (
-                                <div className="mt-2 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-medium text-red-700">
-                                  {funnelStatusError[f.id]}
-                                </div>
-                              ) : null}
 
                               <div className="my-2 h-px bg-zinc-100" />
 
@@ -1311,12 +1276,6 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                           </button>
                         </div>
 
-                        {domainVerifyError[d.id] ? (
-                          <div className="mt-2 rounded-2xl border border-amber-200 bg-amber-50 p-2 text-xs text-amber-900">
-                            {domainVerifyError[d.id]}
-                          </div>
-                        ) : null}
-
                         {(domainVercelVerificationById[d.id] || []).length ? (
                           <div className="mt-3 rounded-2xl border border-zinc-200 bg-white p-3">
                             <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Hosting verification records</div>
@@ -1448,12 +1407,6 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                               />
                             ) : null}
                           </div>
-
-                          {domainSettingsError[d.id] ? (
-                            <div className="mt-2 rounded-2xl border border-red-200 bg-red-50 p-2 text-xs text-red-700">
-                              {domainSettingsError[d.id]}
-                            </div>
-                          ) : null}
 
                           <div className="mt-2 text-xs text-zinc-600">
                             Requests to <span className="font-mono">https://{d.domain}/</span> follow this rule.
@@ -1677,10 +1630,6 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                 />
               </div>
             </div>
-
-            {error ? (
-              <div className="mt-4 rounded-2xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</div>
-            ) : null}
 
             <div className="mt-6 flex flex-col gap-2 sm:flex-row sm:justify-end">
               <button
