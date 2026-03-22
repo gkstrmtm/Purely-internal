@@ -10,17 +10,11 @@ import { findOwnerIdByStoredBlogSiteSlug } from "@/lib/blogSiteSlug";
 import { getReviewRequestsServiceData } from "@/lib/reviewRequests";
 import { getHostedBrandFont } from "@/lib/hostedBrandFont";
 import { resolveHostedFont } from "@/lib/portalHostedFonts";
+import { deriveHostedBrandTheme } from "@/lib/hostedBrandTheme";
 import { PublicReviewsClient } from "./PublicReviewsClient";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
-
-function normalizeHex(value: string | null | undefined): string | null {
-  if (!value) return null;
-  const v = value.trim();
-  if (!/^#([0-9a-fA-F]{6})$/.test(v)) return null;
-  return v;
-}
 
 export default async function PublicReviewsPage({ params }: { params: Promise<{ siteSlug: string }> }) {
   const { siteSlug } = await params;
@@ -58,9 +52,10 @@ export default async function PublicReviewsPage({ params }: { params: Promise<{ 
     ? (canUseSlugColumn ? String((blogSite as any).slug ?? (blogSite as any).id) : siteSlug)
     : String(bookingSite?.slug || siteSlug);
 
-  const [hasLogoUrl, hasPrimaryHex, hasAccentHex, hasTextHex] = await Promise.all([
+  const [hasLogoUrl, hasPrimaryHex, hasSecondaryHex, hasAccentHex, hasTextHex] = await Promise.all([
     hasPublicColumn("BusinessProfile", "logoUrl"),
     hasPublicColumn("BusinessProfile", "brandPrimaryHex"),
+    hasPublicColumn("BusinessProfile", "brandSecondaryHex"),
     hasPublicColumn("BusinessProfile", "brandAccentHex"),
     hasPublicColumn("BusinessProfile", "brandTextHex"),
   ]);
@@ -68,6 +63,7 @@ export default async function PublicReviewsPage({ params }: { params: Promise<{ 
   const profileSelect: Record<string, boolean> = { businessName: true };
   if (hasLogoUrl) profileSelect.logoUrl = true;
   if (hasPrimaryHex) profileSelect.brandPrimaryHex = true;
+  if (hasSecondaryHex) profileSelect.brandSecondaryHex = true;
   if (hasAccentHex) profileSelect.brandAccentHex = true;
   if (hasTextHex) profileSelect.brandTextHex = true;
 
@@ -89,9 +85,14 @@ export default async function PublicReviewsPage({ params }: { params: Promise<{ 
     brandGoogleImportCss: hostedBrandFont.googleCss,
   });
 
-  const brandPrimary = normalizeHex((profile as any)?.brandPrimaryHex) ?? "#1d4ed8";
-  const brandAccent = normalizeHex((profile as any)?.brandAccentHex) ?? "#f472b6";
-  const brandText = normalizeHex((profile as any)?.brandTextHex) ?? "#18181b";
+  const theme = deriveHostedBrandTheme({
+    brandPrimaryHex: (profile as any)?.brandPrimaryHex ?? null,
+    brandSecondaryHex: (profile as any)?.brandSecondaryHex ?? null,
+    brandAccentHex: (profile as any)?.brandAccentHex ?? null,
+    brandTextHex: (profile as any)?.brandTextHex ?? null,
+  });
+
+  const brandPrimary = theme.surfaceHex;
 
   const businessName = (profile as any)?.businessName?.trim() || (blogSite as any)?.name || bookingSite?.title || "Reviews";
   const logoUrl = (profile as any)?.logoUrl || null;
@@ -178,11 +179,7 @@ export default async function PublicReviewsPage({ params }: { params: Promise<{ 
     }
   }
 
-  const themeStyle = {
-    ["--client-primary" as any]: brandPrimary,
-    ["--client-accent" as any]: brandAccent,
-    ["--client-text" as any]: brandText,
-  } as CSSProperties;
+  const themeStyle = theme.cssVars;
 
   const pageFontStyle = hostedFont.fontFamily ? ({ fontFamily: hostedFont.fontFamily } as CSSProperties) : null;
 
@@ -291,7 +288,10 @@ export default async function PublicReviewsPage({ params }: { params: Promise<{ 
         <section style={{ backgroundColor: "var(--client-primary)" }}>
           <div className="mx-auto max-w-6xl px-6 py-14">
             <div className="max-w-3xl">
-              <div className="inline-flex items-center gap-2 rounded-full bg-white/15 px-3 py-1 text-sm font-semibold text-white">
+              <div
+                className="inline-flex items-center gap-2 rounded-full bg-white/15 px-3 py-1 text-sm font-semibold"
+                style={{ color: "var(--client-on-primary)" }}
+              >
                 <span className="grid h-6 w-6 place-items-center rounded-full bg-white/20">
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
                     <path
@@ -306,8 +306,14 @@ export default async function PublicReviewsPage({ params }: { params: Promise<{ 
                 Verified by Purely
               </div>
 
-              <h1 className="mt-4 font-brand text-4xl text-white sm:text-5xl">{title}</h1>
-              {description ? <p className="mt-4 text-lg leading-relaxed text-white/90">{description}</p> : null}
+              <h1 className="mt-4 font-brand text-4xl sm:text-5xl" style={{ color: "var(--client-on-primary)" }}>
+                {title}
+              </h1>
+              {description ? (
+                <p className="mt-4 text-lg leading-relaxed" style={{ color: "var(--client-on-primary-muted)" }}>
+                  {description}
+                </p>
+              ) : null}
             </div>
           </div>
         </section>
@@ -428,12 +434,12 @@ export default async function PublicReviewsPage({ params }: { params: Promise<{ 
               <Link
                 href={`/${siteHandle}/blogs`}
                 className="text-sm font-semibold hover:underline"
-                style={{ color: "var(--client-primary)" }}
+                style={{ color: "var(--client-link)" }}
               >
                 blogs
               </Link>
             ) : null}
-            <Link href="/" className="text-sm font-semibold hover:underline" style={{ color: "var(--client-primary)" }}>
+            <Link href="/" className="text-sm font-semibold hover:underline" style={{ color: "var(--client-link)" }}>
               purelyautomation.com
             </Link>
           </div>

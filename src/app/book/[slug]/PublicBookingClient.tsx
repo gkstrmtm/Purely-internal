@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { useToast } from "@/components/ToastProvider";
+import { deriveHostedBrandTheme } from "@/lib/hostedBrandTheme";
 
 type Site = {
   enabled: boolean;
@@ -16,6 +17,7 @@ type Site = {
   businessName?: string | null;
   logoUrl?: string | null;
   brandPrimaryHex?: string | null;
+  brandSecondaryHex?: string | null;
   brandAccentHex?: string | null;
   brandTextHex?: string | null;
   photoUrl?: string | null;
@@ -47,13 +49,6 @@ type Booking = {
 };
 
 type Step = "date" | "time" | "details";
-
-function normalizeHex(value: string | null | undefined): string | null {
-  if (!value) return null;
-  const v = value.trim();
-  if (!/^#([0-9a-fA-F]{6})$/.test(v)) return null;
-  return v;
-}
 
 function pad2(n: number) {
   return String(n).padStart(2, "0");
@@ -170,11 +165,24 @@ export function PublicBookingClient({
   }, [answers, email, name, notes, phone, selected, site?.form]);
 
   const theme = useMemo(() => {
-    const primary = normalizeHex(site?.brandPrimaryHex) ?? "#1d4ed8";
-    const accent = normalizeHex(site?.brandAccentHex) ?? "#f472b6";
-    const text = normalizeHex(site?.brandTextHex) ?? "#18181b";
-    return { primary, accent, text };
-  }, [site?.brandAccentHex, site?.brandPrimaryHex, site?.brandTextHex]);
+    return deriveHostedBrandTheme({
+      brandPrimaryHex: site?.brandPrimaryHex ?? null,
+      brandSecondaryHex: site?.brandSecondaryHex ?? null,
+      brandAccentHex: site?.brandAccentHex ?? null,
+      brandTextHex: site?.brandTextHex ?? null,
+    });
+  }, [site?.brandAccentHex, site?.brandPrimaryHex, site?.brandSecondaryHex, site?.brandTextHex]);
+
+  const bookingStyleVars = useMemo(
+    () =>
+      ({
+        ["--booking-primary" as any]: theme.ctaHex,
+        ["--booking-on-primary" as any]: theme.onCtaHex,
+        ["--booking-link" as any]: theme.linkHex,
+        ["--booking-text" as any]: theme.textHex,
+      }) as any,
+    [theme.ctaHex, theme.linkHex, theme.onCtaHex, theme.textHex],
+  );
 
   const slotsByDay = useMemo(() => {
     const map = new Map<string, Slot[]>();
@@ -364,9 +372,7 @@ export function PublicBookingClient({
       <div
         className="min-h-screen bg-[#f5f9ff]"
         style={{
-          ["--booking-primary" as any]: theme.primary,
-          ["--booking-accent" as any]: theme.accent,
-          ["--booking-text" as any]: theme.text,
+          ...(bookingStyleVars as any),
         }}
       >
         <div className="mx-auto max-w-3xl px-6 py-12">
@@ -405,11 +411,11 @@ export function PublicBookingClient({
 
             {showBranding ? (
               <div className="mt-8 border-t border-zinc-200 pt-6 text-center text-xs text-zinc-600">
-                <Link href="/" className="font-semibold hover:underline" style={{ color: "var(--booking-primary)" }}>
+                <Link href="/" className="font-semibold hover:underline" style={{ color: "var(--booking-link)" }}>
                   Powered by Purely Automation
                 </Link>
                 <span className="px-2">•</span>
-                <Link href="/#demo" className="font-semibold hover:underline" style={{ color: "var(--booking-primary)" }}>
+                <Link href="/#demo" className="font-semibold hover:underline" style={{ color: "var(--booking-link)" }}>
                   Create your own booking link
                 </Link>
               </div>
@@ -424,10 +430,7 @@ export function PublicBookingClient({
     <div
       className="min-h-screen bg-[#f5f9ff]"
       style={{
-        // CSS variables for themed colors
-        ["--booking-primary" as any]: theme.primary,
-        ["--booking-accent" as any]: theme.accent,
-        ["--booking-text" as any]: theme.text,
+        ...(bookingStyleVars as any),
       }}
     >
       <div className="mx-auto max-w-5xl px-6 py-12">
@@ -523,7 +526,7 @@ export function PublicBookingClient({
                           "rounded-2xl border px-2 py-3 text-sm font-semibold transition " +
                           (hasTimes
                             ? isSelected
-                              ? "border-[color:var(--booking-primary)] bg-[color:color-mix(in_srgb,var(--booking-primary)_10%,white)] text-zinc-900"
+                              ? "border-(--booking-link) bg-[color-mix(in_srgb,var(--booking-link)_10%,white)] text-zinc-900"
                               : "border-zinc-200 bg-white text-zinc-900 hover:bg-zinc-50"
                             : "cursor-not-allowed border-zinc-100 bg-zinc-50 text-zinc-300") +
                           (!inMonth ? " opacity-60" : "")
@@ -586,7 +589,7 @@ export function PublicBookingClient({
                           className={
                             "rounded-2xl border px-4 py-3 text-left text-sm transition-colors " +
                             (selected === s.startAt
-                              ? "border-[color:var(--booking-primary)] bg-[color:color-mix(in_srgb,var(--booking-primary)_10%,white)]"
+                              ? "border-(--booking-link) bg-[color-mix(in_srgb,var(--booking-link)_10%,white)]"
                               : "border-zinc-200 hover:bg-zinc-50")
                           }
                         >
@@ -734,8 +737,8 @@ export function PublicBookingClient({
                 type="button"
                 disabled={!canBook || bookingBusy}
                 onClick={() => book()}
-                className="inline-flex w-full items-center justify-center rounded-2xl px-4 py-3 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
-                style={{ backgroundColor: "var(--booking-primary)" }}
+                className="inline-flex w-full items-center justify-center rounded-2xl px-4 py-3 text-sm font-semibold hover:opacity-95 disabled:opacity-60"
+                style={{ backgroundColor: "var(--booking-primary)", color: "var(--booking-on-primary)" }}
               >
                 {bookingBusy ? "Booking…" : "Confirm booking"}
               </button>
@@ -746,11 +749,11 @@ export function PublicBookingClient({
 
         {showBranding ? (
           <div className="mt-10 border-t border-zinc-200 pt-6 text-center text-xs text-zinc-600">
-            <Link href="/" className="font-semibold hover:underline" style={{ color: "var(--booking-primary)" }}>
+            <Link href="/" className="font-semibold hover:underline" style={{ color: "var(--booking-link)" }}>
               Powered by Purely Automation
             </Link>
             <span className="px-2">•</span>
-            <Link href="/#demo" className="font-semibold hover:underline" style={{ color: "var(--booking-primary)" }}>
+            <Link href="/#demo" className="font-semibold hover:underline" style={{ color: "var(--booking-link)" }}>
               Create your own booking link
             </Link>
           </div>
