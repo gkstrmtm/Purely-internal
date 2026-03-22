@@ -14,7 +14,7 @@ export const revalidate = 0;
 
 const upsertSchema = z.object({
   businessName: z.string().trim().min(2, "Business name is required"),
-  websiteUrl: z.string().trim().url().optional().or(z.literal("")),
+  websiteUrl: z.string().trim().max(500).optional().or(z.literal("")),
   industry: z.string().trim().max(120).optional().or(z.literal("")),
   businessModel: z.string().trim().max(200).optional().or(z.literal("")),
   primaryGoals: z.array(z.string().trim().min(1)).max(10).optional(),
@@ -54,6 +54,24 @@ const upsertSchema = z.object({
 function emptyToNull(value: string | undefined) {
   const v = typeof value === "string" ? value.trim() : "";
   return v.length ? v : null;
+}
+
+function coerceWebsiteUrl(value: string | undefined): { ok: true; url: string | null } | { ok: false; error: string } {
+  const raw = typeof value === "string" ? value.trim() : "";
+  if (!raw) return { ok: true, url: null };
+
+  // Allow users to paste domains without a protocol.
+  const withProtocol = /^(https?:\/\/)/i.test(raw) ? raw : `https://${raw}`;
+
+  try {
+    const u = new URL(withProtocol);
+    if (!u.hostname) return { ok: false, error: "Website URL is invalid" };
+    if (!/\./.test(u.hostname)) return { ok: false, error: "Website URL must include a valid domain" };
+    if (!['http:', 'https:'].includes(u.protocol)) return { ok: false, error: "Website URL must start with http:// or https://" };
+    return { ok: true, url: u.toString() };
+  } catch {
+    return { ok: false, error: "Website URL is invalid (try including https://)" };
+  }
 }
 
 type ProfileColumnFlags = {
@@ -203,6 +221,11 @@ export async function PUT(req: Request) {
     return NextResponse.json({ error: parsed.error.issues[0]?.message ?? "Invalid input" }, { status: 400 });
   }
 
+  const website = coerceWebsiteUrl(parsed.data.websiteUrl);
+  if (!website.ok) {
+    return NextResponse.json({ error: website.error }, { status: 400 });
+  }
+
   const ownerId = auth.session.user.id;
 
   const prevProfile = await prisma.businessProfile
@@ -217,7 +240,7 @@ export async function PUT(req: Request) {
     businessName: parsed.data.businessName.trim(),
   };
 
-  if (flags.websiteUrl) baseData.websiteUrl = emptyToNull(parsed.data.websiteUrl);
+  if (flags.websiteUrl) baseData.websiteUrl = website.url;
   if (flags.industry) baseData.industry = emptyToNull(parsed.data.industry);
   if (flags.businessModel) baseData.businessModel = emptyToNull(parsed.data.businessModel);
   if (flags.primaryGoals) {
@@ -236,7 +259,7 @@ export async function PUT(req: Request) {
   const updateData: Record<string, unknown> = {
     businessName: parsed.data.businessName.trim(),
   };
-  if (flags.websiteUrl) updateData.websiteUrl = emptyToNull(parsed.data.websiteUrl);
+  if (flags.websiteUrl) updateData.websiteUrl = website.url;
   if (flags.industry) updateData.industry = emptyToNull(parsed.data.industry);
   if (flags.businessModel) updateData.businessModel = emptyToNull(parsed.data.businessModel);
   if (flags.primaryGoals) {
