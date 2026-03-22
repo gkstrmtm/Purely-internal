@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { PortalMediaPickerModal } from "@/components/PortalMediaPickerModal";
 import { useToast } from "@/components/ToastProvider";
 import { PortalFontDropdown } from "@/components/PortalFontDropdown";
@@ -67,6 +67,7 @@ export function BusinessProfileForm({
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const lastSavedSigRef = useRef<string>("{}");
 
   useEffect(() => {
     if (error) toast.error(error);
@@ -97,6 +98,48 @@ export function BusinessProfileForm({
 
   const canSave = useMemo(() => !readOnly && businessName.trim().length >= 2, [businessName, readOnly]);
 
+  const currentSig = useMemo(() => {
+    const normalize = (v: string) => String(v || "").trim();
+    const goals = (primaryGoals || [])
+      .map((g) => String(g || "").trim())
+      .filter(Boolean)
+      .slice(0, 10);
+
+    return JSON.stringify({
+      businessName: normalize(businessName),
+      websiteUrl: normalize(websiteUrl),
+      industry: normalize(industry),
+      businessModel: normalize(businessModel),
+      primaryGoals: goals,
+      targetCustomer: normalize(targetCustomer),
+      brandVoice: normalize(brandVoice),
+
+      logoUrl: normalize(logoUrl),
+      brandPrimaryHex: normalize(brandPrimaryHex),
+      brandAccentHex: normalize(brandAccentHex),
+      brandTextHex: normalize(brandTextHex),
+
+      brandFontFamily: normalize(brandFontFamily),
+      brandFontGoogleFamily: normalize(brandFontGoogleFamily),
+    });
+  }, [
+    businessName,
+    websiteUrl,
+    industry,
+    businessModel,
+    primaryGoals,
+    targetCustomer,
+    brandVoice,
+    logoUrl,
+    brandPrimaryHex,
+    brandAccentHex,
+    brandTextHex,
+    brandFontFamily,
+    brandFontGoogleFamily,
+  ]);
+
+  const dirty = currentSig !== lastSavedSigRef.current;
+
   useEffect(() => {
     let mounted = true;
     (async () => {
@@ -113,21 +156,58 @@ export function BusinessProfileForm({
 
       const p = json.profile;
       if (p) {
-        setBusinessName(p.businessName ?? "");
-        setWebsiteUrl(p.websiteUrl ?? "");
-        setIndustry(p.industry ?? "");
-        setBusinessModel(p.businessModel ?? "");
-        setPrimaryGoals(normalizeGoals(p.primaryGoals));
-        setTargetCustomer(p.targetCustomer ?? "");
-        setBrandVoice(p.brandVoice ?? "");
+        const nextBusinessName = p.businessName ?? "";
+        const nextWebsiteUrl = p.websiteUrl ?? "";
+        const nextIndustry = p.industry ?? "";
+        const nextBusinessModel = p.businessModel ?? "";
+        const nextPrimaryGoals = normalizeGoals(p.primaryGoals);
+        const nextTargetCustomer = p.targetCustomer ?? "";
+        const nextBrandVoice = p.brandVoice ?? "";
 
-        setLogoUrl(p.logoUrl ?? "");
-        setBrandPrimaryHex(p.brandPrimaryHex ?? "");
-        setBrandAccentHex(p.brandAccentHex ?? "");
-        setBrandTextHex(p.brandTextHex ?? "");
+        const nextLogoUrl = p.logoUrl ?? "";
+        const nextBrandPrimaryHex = p.brandPrimaryHex ?? "";
+        const nextBrandAccentHex = p.brandAccentHex ?? "";
+        const nextBrandTextHex = p.brandTextHex ?? "";
 
-        setBrandFontFamily(p.brandFontFamily ?? "");
-        setBrandFontGoogleFamily(p.brandFontGoogleFamily ?? "");
+        const nextBrandFontFamily = p.brandFontFamily ?? "";
+        const nextBrandFontGoogleFamily = p.brandFontGoogleFamily ?? "";
+
+        setBusinessName(nextBusinessName);
+        setWebsiteUrl(nextWebsiteUrl);
+        setIndustry(nextIndustry);
+        setBusinessModel(nextBusinessModel);
+        setPrimaryGoals(nextPrimaryGoals);
+        setTargetCustomer(nextTargetCustomer);
+        setBrandVoice(nextBrandVoice);
+
+        setLogoUrl(nextLogoUrl);
+        setBrandPrimaryHex(nextBrandPrimaryHex);
+        setBrandAccentHex(nextBrandAccentHex);
+        setBrandTextHex(nextBrandTextHex);
+
+        setBrandFontFamily(nextBrandFontFamily);
+        setBrandFontGoogleFamily(nextBrandFontGoogleFamily);
+
+        lastSavedSigRef.current = JSON.stringify({
+          businessName: String(nextBusinessName || "").trim(),
+          websiteUrl: String(nextWebsiteUrl || "").trim(),
+          industry: String(nextIndustry || "").trim(),
+          businessModel: String(nextBusinessModel || "").trim(),
+          primaryGoals: (nextPrimaryGoals || [])
+            .map((g) => String(g || "").trim())
+            .filter(Boolean)
+            .slice(0, 10),
+          targetCustomer: String(nextTargetCustomer || "").trim(),
+          brandVoice: String(nextBrandVoice || "").trim(),
+
+          logoUrl: String(nextLogoUrl || "").trim(),
+          brandPrimaryHex: String(nextBrandPrimaryHex || "").trim(),
+          brandAccentHex: String(nextBrandAccentHex || "").trim(),
+          brandTextHex: String(nextBrandTextHex || "").trim(),
+
+          brandFontFamily: String(nextBrandFontFamily || "").trim(),
+          brandFontGoogleFamily: String(nextBrandFontGoogleFamily || "").trim(),
+        });
       }
 
       setLoading(false);
@@ -171,6 +251,8 @@ export function BusinessProfileForm({
       setError(json.error ?? "Unable to save");
       return;
     }
+
+    lastSavedSigRef.current = currentSig;
 
     onSaved?.();
   }
@@ -510,10 +592,10 @@ export function BusinessProfileForm({
           <button
             type="button"
             onClick={save}
-            disabled={!canSave || saving}
+            disabled={!canSave || saving || !dirty}
             className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-5 py-3 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
           >
-            {saving ? "Saving…" : "Save"}
+            {saving ? "Saving…" : dirty ? "Save" : "Saved"}
           </button>
         ) : (
           <div className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm text-zinc-600">

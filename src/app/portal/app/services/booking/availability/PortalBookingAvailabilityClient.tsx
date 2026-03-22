@@ -279,7 +279,7 @@ export function PortalBookingAvailabilityClient({ variant = "page" }: { variant?
               onClick={() => saveWeek()}
               disabled={!dirty || saving}
             >
-              {saving ? "Saving…" : "Save"}
+              {saving ? "Saving…" : dirty ? "Save" : "Saved"}
             </button>
           </div>
         </div>

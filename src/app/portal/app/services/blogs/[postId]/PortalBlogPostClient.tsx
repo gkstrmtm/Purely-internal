@@ -779,7 +779,7 @@ export function PortalBlogPostClient({ postId }: { postId: string }) {
               (isPaMobileApp ? "rounded-xl px-3 py-2 text-xs" : "rounded-2xl px-4 py-2 text-sm")
             }
           >
-            {working === "save" ? "Saving…" : "Save"}
+            {working === "save" ? "Saving…" : isDirty ? "Save" : "Saved"}
           </button>
           <button
             type="button"

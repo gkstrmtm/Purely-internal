@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { PortalSelectDropdown } from "@/components/PortalSelectDropdown";
 import { useToast } from "@/components/ToastProvider";
@@ -77,6 +77,26 @@ function mergeRowsWithKnownKeys(existing: CustomVarRow[], knownKeys: string[]): 
   return out;
 }
 
+function stableContactEditSignature(input: {
+  name: string;
+  email: string;
+  phone: string;
+  customVariables: Record<string, string> | null;
+}) {
+  const sortedCustomVariables = Object.fromEntries(
+    Object.entries(input.customVariables || {})
+      .map(([k, v]) => [String(k || "").toLowerCase(), String(v ?? "").trim()] as const)
+      .filter(([k, v]) => k.trim() && v)
+      .sort(([a], [b]) => a.localeCompare(b)),
+  );
+  return JSON.stringify({
+    name: String(input.name || "").trim(),
+    email: String(input.email || "").trim(),
+    phone: String(input.phone || "").trim(),
+    customVariables: sortedCustomVariables,
+  });
+}
+
 async function readJson(res: Response) {
   return (await res.json().catch(() => ({}))) as any;
 }
@@ -116,6 +136,19 @@ export function PortalContactDetailsModal(props: Props) {
   const [editPhone, setEditPhone] = useState("");
   const [editCustomVarRows, setEditCustomVarRows] = useState<CustomVarRow[]>([]);
   const [saving, setSaving] = useState(false);
+
+  const lastSavedEditSigRef = useRef<string>("");
+  const editSig = useMemo(
+    () =>
+      stableContactEditSignature({
+        name: editName,
+        email: editEmail,
+        phone: editPhone,
+        customVariables: customVariablesFromRows(editCustomVarRows),
+      }),
+    [editCustomVarRows, editEmail, editName, editPhone],
+  );
+  const editDirty = editing && editSig !== lastSavedEditSigRef.current;
 
   const addableOwnerTagOptions = useMemo(() => {
     const existing = new Set(detailTags.map((t) => t.id));
@@ -214,9 +247,14 @@ export function PortalContactDetailsModal(props: Props) {
         setEditName(nextDetail.name);
         setEditEmail(nextDetail.email || "");
         setEditPhone(nextDetail.phone || "");
-        setEditCustomVarRows(
-          mergeRowsWithKnownKeys(rowsFromCustomVariables(nextDetail.customVariables), nextKnownCustomVarKeys),
-        );
+        const nextRows = mergeRowsWithKnownKeys(rowsFromCustomVariables(nextDetail.customVariables), nextKnownCustomVarKeys);
+        setEditCustomVarRows(nextRows);
+        lastSavedEditSigRef.current = stableContactEditSignature({
+          name: nextDetail.name,
+          email: nextDetail.email || "",
+          phone: nextDetail.phone || "",
+          customVariables: customVariablesFromRows(nextRows),
+        });
 
         onContactUpdated?.({
           contact: {
@@ -257,9 +295,11 @@ export function PortalContactDetailsModal(props: Props) {
       return;
     }
 
+    const customVariables = customVariablesFromRows(editCustomVarRows);
+    const nextSig = stableContactEditSignature({ name, email: editEmail, phone: editPhone, customVariables });
+
     setSaving(true);
     try {
-      const customVariables = customVariablesFromRows(editCustomVarRows);
       const res = await fetch(`/api/portal/contacts/${encodeURIComponent(contactId)}`, {
         method: "PATCH",
         headers: { "content-type": "application/json" },
@@ -269,7 +309,7 @@ export function PortalContactDetailsModal(props: Props) {
       if (!res.ok || !json?.ok) throw new Error(String(json?.error || "Failed to save"));
 
       toast.success("Contact updated.");
-      setEditing(false);
+  lastSavedEditSigRef.current = nextSig;
 
       // Refresh detail so parent callers can update names in-place.
       const refreshed = await fetch(`/api/portal/contacts/${encodeURIComponent(contactId)}`, { cache: "no-store" });
@@ -286,6 +326,17 @@ export function PortalContactDetailsModal(props: Props) {
           updatedAtIso: typeof rjson.contact.updatedAtIso === "string" ? rjson.contact.updatedAtIso : null,
         };
         setDetail(next);
+        setEditName(next.name);
+        setEditEmail(next.email || "");
+        setEditPhone(next.phone || "");
+        const nextRows = mergeRowsWithKnownKeys(rowsFromCustomVariables(next.customVariables), knownCustomVarKeys);
+        setEditCustomVarRows(nextRows);
+        lastSavedEditSigRef.current = stableContactEditSignature({
+          name: next.name,
+          email: next.email || "",
+          phone: next.phone || "",
+          customVariables: customVariablesFromRows(nextRows),
+        });
         onContactUpdated?.({
           contact: { id: next.id, name: next.name, email: next.email, phone: next.phone },
           tags: detailTags,
@@ -554,7 +605,18 @@ export function PortalContactDetailsModal(props: Props) {
                   <button
                     type="button"
                     className="rounded-xl bg-brand-ink px-3 py-2 text-xs font-semibold text-white hover:opacity-95"
-                    onClick={() => setEditing(true)}
+                    onClick={() => {
+                      if (!detail) return;
+                      lastSavedEditSigRef.current = stableContactEditSignature({
+                        name: detail.name,
+                        email: detail.email || "",
+                        phone: detail.phone || "",
+                        customVariables: customVariablesFromRows(
+                          mergeRowsWithKnownKeys(rowsFromCustomVariables(detail.customVariables), knownCustomVarKeys),
+                        ),
+                      });
+                      setEditing(true);
+                    }}
                     disabled={!detail}
                   >
                     Edit
@@ -579,9 +641,9 @@ export function PortalContactDetailsModal(props: Props) {
                       type="button"
                       className="rounded-xl bg-brand-ink px-3 py-2 text-xs font-semibold text-white hover:opacity-95 disabled:opacity-60"
                       onClick={() => void saveEdits()}
-                      disabled={saving}
+                      disabled={saving || !editDirty}
                     >
-                      {saving ? "Saving…" : "Save"}
+                      {saving ? "Saving…" : editDirty ? "Save" : "Saved"}
                     </button>
                   </>
                 )}

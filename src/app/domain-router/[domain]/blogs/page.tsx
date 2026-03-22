@@ -10,6 +10,7 @@ import { resolveCustomDomain } from "@/lib/customDomainResolver";
 import { getHostedBrandFont } from "@/lib/hostedBrandFont";
 import { getBlogAppearance } from "@/lib/blogAppearance";
 import { resolveHostedFont } from "@/lib/portalHostedFonts";
+import { pickReadableAccentColorOnWhite, pickReadableTextColor, rgba } from "@/lib/colorUtils";
 import { HostedPortalAdBanner } from "@/components/HostedPortalAdBanner";
 
 export const dynamic = "force-dynamic";
@@ -151,9 +152,27 @@ export default async function CustomDomainBlogsIndexPage({
     ["--client-primary" as any]: brandPrimary,
     ["--client-accent" as any]: brandAccent,
     ["--client-text" as any]: brandText,
+    ["--client-on-primary" as any]: pickReadableTextColor({
+      backgroundHex: brandPrimary,
+      preferredTextHex: brandText,
+    }),
+    ["--client-on-primary-muted" as any]: rgba(
+      pickReadableTextColor({ backgroundHex: brandPrimary, preferredTextHex: brandText }),
+      0.9,
+    ),
+    ["--client-on-accent" as any]: pickReadableTextColor({
+      backgroundHex: brandAccent,
+      preferredTextHex: brandText,
+    }),
+    ["--client-link" as any]: pickReadableAccentColorOnWhite({
+      accentHex: brandPrimary,
+      fallbackHex: pickReadableTextColor({ backgroundHex: "#ffffff", preferredTextHex: brandText, minContrast: 4.5 }),
+      minContrast: 3.0,
+    }),
+    ["--client-soft" as any]: rgba(brandPrimary, 0.08),
   } as CSSProperties;
 
-  const coralCta = "#fb7185";
+  const ctaBg = brandAccent;
 
   return (
     <div className="pa-blog-root min-h-screen bg-white" style={{ ...(themeStyle as any), ...hostedBrandFont.styleVars } as any}>
@@ -179,13 +198,17 @@ export default async function CustomDomainBlogsIndexPage({
         <section style={{ backgroundColor: "var(--client-primary)" }}>
           <div className="mx-auto max-w-6xl px-6 py-14">
             <div className="max-w-3xl">
-              <div className="font-brand text-4xl text-white sm:text-5xl">blogs</div>
-              <p className="mt-4 text-lg leading-relaxed text-white/90">The latest posts from {brandName}.</p>
+              <div className="font-brand text-4xl sm:text-5xl" style={{ color: "var(--client-on-primary)" }}>
+                blogs
+              </div>
+              <p className="mt-4 text-lg leading-relaxed" style={{ color: "var(--client-on-primary-muted)" }}>
+                The latest posts from {brandName}.
+              </p>
               <div className="mt-8 flex flex-wrap items-center gap-3">
                 <Link
                   href="/blogs"
                   className="inline-flex items-center justify-center rounded-2xl px-6 py-3 text-base font-extrabold shadow-md"
-                  style={{ backgroundColor: coralCta, color: "#fff" }}
+                  style={{ backgroundColor: ctaBg, color: "var(--client-on-accent)" }}
                 >
                   browse posts
                 </Link>
@@ -197,7 +220,7 @@ export default async function CustomDomainBlogsIndexPage({
         <section className="mx-auto max-w-6xl px-6 py-14">
           <div className="grid gap-8 lg:grid-cols-[1fr_320px]">
             <div>
-              <div className="font-brand text-3xl" style={{ color: "var(--client-primary)" }}>
+              <div className="font-brand text-3xl" style={{ color: "var(--client-link)" }}>
                 latest posts
               </div>
               <p className="mt-2 max-w-2xl text-sm text-zinc-600">Fresh updates and helpful ideas.</p>
@@ -222,12 +245,12 @@ export default async function CustomDomainBlogsIndexPage({
                       </div>
                       <div
                         className="mt-2 font-brand text-2xl group-hover:underline"
-                        style={{ color: "var(--client-primary)" }}
+                        style={{ color: "var(--client-link)" }}
                       >
                         {post.title}
                       </div>
                       <div className="mt-3 text-sm leading-relaxed text-zinc-700">{post.excerpt}</div>
-                      <div className="mt-5 text-sm font-bold" style={{ color: "var(--client-primary)" }}>
+                      <div className="mt-5 text-sm font-bold" style={{ color: "var(--client-link)" }}>
                         read more
                       </div>
                     </Link>
@@ -260,12 +283,12 @@ export default async function CustomDomainBlogsIndexPage({
 
             <aside className="lg:pt-1">
               <div className="sticky top-6 rounded-3xl border border-zinc-200 bg-white p-7 shadow-sm">
-                <div className="font-brand text-2xl" style={{ color: "var(--client-primary)" }}>
+                <div className="font-brand text-2xl" style={{ color: "var(--client-link)" }}>
                   about
                 </div>
                 <p className="mt-3 text-sm leading-relaxed text-zinc-700">{brandName} shares updates, guides, and helpful ideas here.</p>
 
-                <div className="mt-6 rounded-2xl p-5" style={{ backgroundColor: "rgba(29,78,216,0.06)" }}>
+                <div className="mt-6 rounded-2xl p-5" style={{ backgroundColor: "var(--client-soft)" }}>
                   <div className="text-sm font-bold" style={{ color: "var(--client-text)" }}>
                     want a blog like this?
                   </div>
@@ -274,7 +297,7 @@ export default async function CustomDomainBlogsIndexPage({
                     <a
                       href="https://purelyautomation.com"
                       className="inline-flex items-center rounded-2xl px-4 py-2 text-sm font-extrabold shadow-sm"
-                      style={{ backgroundColor: coralCta, color: "#fff" }}
+                      style={{ backgroundColor: ctaBg, color: "var(--client-on-accent)" }}
                     >
                       learn more
                     </a>
@@ -288,15 +311,28 @@ export default async function CustomDomainBlogsIndexPage({
 
       <footer className="border-t border-zinc-200 bg-white">
         <div className="mx-auto flex max-w-6xl flex-col gap-4 px-6 py-10 sm:flex-row sm:items-center sm:justify-between">
-          <div className="text-sm text-zinc-600">© {new Date().getFullYear()} {brandName}</div>
+          <div className="text-sm text-zinc-600">
+            © {new Date().getFullYear()} {brandName}
+            <span className="ml-2 text-zinc-400">•</span>
+            <span className="ml-2">
+              Powered by{" "}
+              <a
+                href="https://purelyautomation.com"
+                className="font-semibold hover:underline"
+                style={{ color: "var(--client-link)" }}
+              >
+                Purely Automation
+              </a>
+            </span>
+          </div>
           <div className="flex items-center gap-4">
-            <Link href="/blogs" className="text-sm font-semibold hover:underline" style={{ color: "var(--client-primary)" }}>
+            <Link href="/blogs" className="text-sm font-semibold hover:underline" style={{ color: "var(--client-link)" }}>
               blogs
             </Link>
             <a
               href="https://purelyautomation.com"
               className="text-sm font-semibold hover:underline"
-              style={{ color: "var(--client-primary)" }}
+              style={{ color: "var(--client-link)" }}
             >
               purelyautomation.com
             </a>

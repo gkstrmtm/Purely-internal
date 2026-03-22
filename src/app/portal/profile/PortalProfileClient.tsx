@@ -969,7 +969,7 @@ export function PortalProfileClient() {
                     onClick={saveContact}
                     disabled={!canSaveContact || savingContact}
                   >
-                    {savingContact ? "Saving…" : "Save changes"}
+                    {savingContact ? "Saving…" : canSaveContact ? "Save changes" : "Saved"}
                   </button>
                   <button
                     type="button"
@@ -1602,7 +1602,7 @@ export function PortalProfileClient() {
                             disabled={!canSaveMailbox || mailboxSaving}
                             className="w-full rounded-2xl bg-brand-ink px-5 py-3 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
                           >
-                            {mailboxSaving ? "Saving…" : "Save"}
+                            {mailboxSaving ? "Saving…" : canSaveMailbox ? "Save" : "Saved"}
                           </button>
                         </div>
                       </div>

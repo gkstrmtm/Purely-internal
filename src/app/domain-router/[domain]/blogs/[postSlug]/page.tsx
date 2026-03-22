@@ -10,6 +10,7 @@ import { resolveCustomDomain } from "@/lib/customDomainResolver";
 import { getHostedBrandFont } from "@/lib/hostedBrandFont";
 import { getBlogAppearance } from "@/lib/blogAppearance";
 import { resolveHostedFont } from "@/lib/portalHostedFonts";
+import { pickReadableAccentColorOnWhite, pickReadableTextColor, rgba } from "@/lib/colorUtils";
 import { HostedPortalAdBanner } from "@/components/HostedPortalAdBanner";
 
 export const dynamic = "force-dynamic";
@@ -144,6 +145,17 @@ export default async function CustomDomainBlogPostPage({
     ["--client-primary" as any]: brandPrimary,
     ["--client-accent" as any]: brandAccent,
     ["--client-text" as any]: brandText,
+    ["--client-on-accent" as any]: pickReadableTextColor({
+      backgroundHex: brandAccent,
+      preferredTextHex: brandText,
+    }),
+    ["--client-link" as any]: pickReadableAccentColorOnWhite({
+      accentHex: brandPrimary,
+      fallbackHex: pickReadableTextColor({ backgroundHex: "#ffffff", preferredTextHex: brandText, minContrast: 4.5 }),
+      minContrast: 3.0,
+    }),
+    ["--client-soft" as any]: rgba(brandPrimary, 0.08),
+    ["--client-border" as any]: rgba(brandPrimary, 0.18),
   } as CSSProperties;
 
   const blocks = parseBlogContent(post.content);
@@ -182,7 +194,7 @@ export default async function CustomDomainBlogPostPage({
           <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
             {formatBlogDate(post.publishedAt ?? post.updatedAt)}
           </div>
-          <h1 className="mt-3 font-brand text-4xl leading-tight sm:text-5xl" style={{ color: "var(--client-primary)" }}>
+          <h1 className="mt-3 font-brand text-4xl leading-tight sm:text-5xl" style={{ color: "var(--client-link)" }}>
             {post.title}
           </h1>
           <p className="mt-5 text-base leading-relaxed text-zinc-700">{post.excerpt}</p>
@@ -228,8 +240,8 @@ export default async function CustomDomainBlogPostPage({
             })}
           </div>
 
-          <div className="mt-12 rounded-3xl p-8" style={{ backgroundColor: "rgba(29,78,216,0.06)" }}>
-            <div className="font-brand text-2xl" style={{ color: "var(--client-primary)" }}>
+          <div className="mt-12 rounded-3xl p-8" style={{ backgroundColor: "var(--client-soft)" }}>
+            <div className="font-brand text-2xl" style={{ color: "var(--client-link)" }}>
               Want this kind of consistency?
             </div>
             <p className="mt-3 text-sm leading-relaxed text-zinc-700">This blog is hosted by Purely Automation.</p>
@@ -237,14 +249,14 @@ export default async function CustomDomainBlogPostPage({
               <a
                 href="https://purelyautomation.com"
                 className="inline-flex items-center justify-center rounded-2xl px-6 py-3 text-base font-extrabold shadow-sm"
-                style={{ backgroundColor: "var(--client-accent)", color: "var(--client-primary)" }}
+                style={{ backgroundColor: "var(--client-accent)", color: "var(--client-on-accent)" }}
               >
                 learn more
               </a>
               <Link
                 href="/blogs"
                 className="inline-flex items-center justify-center rounded-2xl border bg-white px-6 py-3 text-base font-bold hover:bg-zinc-50"
-                style={{ borderColor: "rgba(29,78,216,0.15)", color: "var(--client-primary)" }}
+                style={{ borderColor: "var(--client-border)", color: "var(--client-link)" }}
               >
                 back to posts
               </Link>
@@ -256,12 +268,25 @@ export default async function CustomDomainBlogPostPage({
 
       <footer className="border-t border-zinc-200 bg-white">
         <div className="mx-auto flex max-w-6xl flex-col gap-4 px-6 py-10 sm:flex-row sm:items-center sm:justify-between">
-          <div className="text-sm text-zinc-600">© {new Date().getFullYear()} {brandName}</div>
+          <div className="text-sm text-zinc-600">
+            © {new Date().getFullYear()} {brandName}
+            <span className="ml-2 text-zinc-400">•</span>
+            <span className="ml-2">
+              Powered by{" "}
+              <a
+                href="https://purelyautomation.com"
+                className="font-semibold hover:underline"
+                style={{ color: "var(--client-link)" }}
+              >
+                Purely Automation
+              </a>
+            </span>
+          </div>
           <div className="flex items-center gap-4">
-            <Link href="/blogs" className="text-sm font-semibold hover:underline" style={{ color: "var(--client-primary)" }}>
+            <Link href="/blogs" className="text-sm font-semibold hover:underline" style={{ color: "var(--client-link)" }}>
               blogs
             </Link>
-            <a href="https://purelyautomation.com" className="text-sm font-semibold hover:underline" style={{ color: "var(--client-primary)" }}>
+            <a href="https://purelyautomation.com" className="text-sm font-semibold hover:underline" style={{ color: "var(--client-link)" }}>
               purelyautomation.com
             </a>
           </div>

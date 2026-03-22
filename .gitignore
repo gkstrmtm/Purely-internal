@@ -44,6 +44,9 @@
 # local-only lead scraping transcript (do not commit)
 /src/app/portal/app/services/lead-scraping/chatofours.md
 
+# local-only portal transcript (do not commit)
+/src/app/portal/app/services/nurture-campaigns/chattext.md
+
 # local chat transcript at repo root
 /chathistory
 

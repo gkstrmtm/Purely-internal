@@ -393,6 +393,10 @@ export function PortalLeadScrapingClient() {
   const [leadOutboundEntitled, setLeadOutboundEntitled] = useState(false);
 
   const [settings, setSettings] = useState<LeadScrapingSettings | null>(null);
+  const lastSavedSettingsJsonRef = useRef<string | null>(null);
+  const currentSettingsJson = useMemo(() => (settings ? JSON.stringify(settings) : null), [settings]);
+  const isDirty = Boolean(currentSettingsJson && lastSavedSettingsJsonRef.current && currentSettingsJson !== lastSavedSettingsJsonRef.current);
+
   const [credits, setCredits] = useState<number | null>(null);
   const [placesConfigured, setPlacesConfigured] = useState<boolean>(false);
   const [aiCallsUnlocked, setAiCallsUnlocked] = useState<boolean>(false);
@@ -764,7 +768,9 @@ export function PortalLeadScrapingClient() {
       return;
     }
 
-    setSettings(settingsBody.settings ?? null);
+    const nextSettings = settingsBody.settings ?? null;
+    setSettings(nextSettings);
+    lastSavedSettingsJsonRef.current = nextSettings ? JSON.stringify(nextSettings) : null;
     setCredits(typeof settingsBody.credits === "number" ? settingsBody.credits : null);
     setPlacesConfigured(Boolean(settingsBody.placesConfigured));
     setAiCallsUnlocked(Boolean(settingsBody.aiCallsUnlocked));
@@ -926,7 +932,9 @@ export function PortalLeadScrapingClient() {
       return false;
     }
 
-    setSettings(body.settings ?? settings);
+    const nextSettings = body.settings ?? settings;
+    setSettings(nextSettings);
+    lastSavedSettingsJsonRef.current = nextSettings ? JSON.stringify(nextSettings) : null;
     setCredits(typeof body.credits === "number" ? body.credits : credits);
     setStatus("Saved");
     window.setTimeout(() => setStatus(null), 1500);
@@ -2536,10 +2544,10 @@ export function PortalLeadScrapingClient() {
                   <button
                     type="button"
                     onClick={save}
-                    disabled={saving}
+                    disabled={saving || !isDirty}
                     className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-5 py-3 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
                   >
-                    {saving ? "Saving…" : "Save"}
+                    {saving ? "Saving…" : isDirty ? "Save" : "Saved"}
                   </button>
 
                   <button
@@ -3124,10 +3132,10 @@ export function PortalLeadScrapingClient() {
                 <button
                   type="button"
                   onClick={save}
-                  disabled={saving}
+                  disabled={saving || !isDirty}
                   className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-5 py-3 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
                 >
-                  {saving ? "Saving…" : "Save"}
+                  {saving ? "Saving…" : isDirty ? "Save" : "Saved"}
                 </button>
               </div>
               </div>

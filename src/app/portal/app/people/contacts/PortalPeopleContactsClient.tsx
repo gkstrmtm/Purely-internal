@@ -80,6 +80,44 @@ function mergeRowsWithKnownKeys(existing: CustomVarRow[], knownKeys: string[]): 
   return out;
 }
 
+function stableContactEditSignature(input: {
+  name: string;
+  email: string;
+  phone: string;
+  customVariables: Record<string, string> | null;
+}) {
+  const sortedCustomVariables = Object.fromEntries(
+    Object.entries(input.customVariables || {})
+      .map(([k, v]) => [String(k || "").toLowerCase(), String(v ?? "").trim()] as const)
+      .filter(([k, v]) => k.trim() && v)
+      .sort(([a], [b]) => a.localeCompare(b)),
+  );
+  return JSON.stringify({
+    name: String(input.name || "").trim(),
+    email: String(input.email || "").trim(),
+    phone: String(input.phone || "").trim(),
+    customVariables: sortedCustomVariables,
+  });
+}
+
+function stableLeadEditSignature(input: {
+  id: string;
+  businessName: string;
+  email: string;
+  phone: string;
+  website: string;
+  contactId: string;
+}) {
+  return JSON.stringify({
+    id: String(input.id || ""),
+    businessName: String(input.businessName || "").trim(),
+    email: String(input.email || "").trim(),
+    phone: String(input.phone || "").trim(),
+    website: String(input.website || "").trim(),
+    contactId: String(input.contactId || "").trim(),
+  });
+}
+
 type LeadRow = {
   id: string;
   businessName: string;
@@ -320,6 +358,19 @@ export function PortalPeopleContactsClient() {
   const [editCustomVarRows, setEditCustomVarRows] = useState<CustomVarRow[]>([]);
   const [savingContact, setSavingContact] = useState(false);
 
+  const lastSavedContactEditSigRef = useRef<string>("");
+  const editContactSig = useMemo(
+    () =>
+      stableContactEditSignature({
+        name: editName,
+        email: editEmail,
+        phone: editPhone,
+        customVariables: customVariablesFromRows(editCustomVarRows),
+      }),
+    [editCustomVarRows, editEmail, editName, editPhone],
+  );
+  const editContactDirty = editingContact && editContactSig !== lastSavedContactEditSigRef.current;
+
   const [leadModalOpen, setLeadModalOpen] = useState(false);
   const [activeLeadId, setActiveLeadId] = useState<string | null>(null);
   const [leadBusinessName, setLeadBusinessName] = useState("");
@@ -328,6 +379,21 @@ export function PortalPeopleContactsClient() {
   const [leadWebsite, setLeadWebsite] = useState("");
   const [leadLinkContactId, setLeadLinkContactId] = useState<string>("");
   const [savingLead, setSavingLead] = useState(false);
+
+  const lastSavedLeadSigRef = useRef<string>("");
+  const leadSig = useMemo(
+    () =>
+      stableLeadEditSignature({
+        id: activeLeadId || "",
+        businessName: leadBusinessName,
+        email: leadEmail,
+        phone: leadPhone,
+        website: leadWebsite,
+        contactId: leadLinkContactId,
+      }),
+    [activeLeadId, leadBusinessName, leadEmail, leadLinkContactId, leadPhone, leadWebsite],
+  );
+  const leadDirty = leadModalOpen && leadSig !== lastSavedLeadSigRef.current;
 
   const contactsCursorRef = useRef<string | null>(null);
   const leadsCursorRef = useRef<string | null>(null);
@@ -620,9 +686,14 @@ export function PortalPeopleContactsClient() {
       setEditName(payload.contact?.name ?? "");
       setEditEmail(payload.contact?.email ?? "");
       setEditPhone(payload.contact?.phone ?? "");
-      setEditCustomVarRows(
-        mergeRowsWithKnownKeys(rowsFromCustomVariables(payload.contact?.customVariables), knownCustomVarKeys),
-      );
+      const nextRows = mergeRowsWithKnownKeys(rowsFromCustomVariables(payload.contact?.customVariables), knownCustomVarKeys);
+      setEditCustomVarRows(nextRows);
+      lastSavedContactEditSigRef.current = stableContactEditSignature({
+        name: payload.contact?.name ?? "",
+        email: payload.contact?.email ?? "",
+        phone: payload.contact?.phone ?? "",
+        customVariables: customVariablesFromRows(nextRows),
+      });
     } catch (e: any) {
       toast.error(String(e?.message || "Failed to load contact"));
     } finally {
@@ -812,21 +883,46 @@ export function PortalPeopleContactsClient() {
 
   async function saveContactEdits() {
     if (!selectedContactId) return;
+    const stableId = selectedContactId;
+
+    const name = editName.trim();
+    const email = editEmail.trim();
+    const phone = editPhone.trim();
     setSavingContact(true);
     try {
       const customVariables = customVariablesFromRows(editCustomVarRows);
-      const res = await fetch(`/api/portal/contacts/${encodeURIComponent(selectedContactId)}`, {
+      const nextSig = stableContactEditSignature({ name, email, phone, customVariables });
+      const res = await fetch(`/api/portal/contacts/${encodeURIComponent(stableId)}`, {
         method: "PATCH",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ name: editName, email: editEmail, phone: editPhone, customVariables }),
+        body: JSON.stringify({ name, email, phone, customVariables }),
       });
       const json = (await res.json().catch(() => ({}))) as any;
       if (!res.ok || !json?.ok) throw new Error(String(json?.error || "Failed to save"));
 
       toast.success("Contact updated.");
-      setEditingContact(false);
+      lastSavedContactEditSigRef.current = nextSig;
       await load();
-      if (selectedContactId) await openContact(selectedContactId);
+
+      const refreshed = await fetch(`/api/portal/contacts/${encodeURIComponent(stableId)}`, { cache: "no-store" }).catch(() => null as any);
+      if (refreshed?.ok) {
+        const rjson = (await refreshed.json().catch(() => ({}))) as any;
+        if (rjson?.ok && rjson?.contact?.id) {
+          const next = (rjson as ContactDetailPayload).contact;
+          setDetail(next);
+          setEditName(next?.name ?? "");
+          setEditEmail(next?.email ?? "");
+          setEditPhone(next?.phone ?? "");
+          const nextRows = mergeRowsWithKnownKeys(rowsFromCustomVariables(next?.customVariables), knownCustomVarKeys);
+          setEditCustomVarRows(nextRows);
+          lastSavedContactEditSigRef.current = stableContactEditSignature({
+            name: next?.name ?? "",
+            email: next?.email ?? "",
+            phone: next?.phone ?? "",
+            customVariables: customVariablesFromRows(nextRows),
+          });
+        }
+      }
     } catch (e: any) {
       toast.error(String(e?.message || "Failed to save"));
     } finally {
@@ -841,23 +937,40 @@ export function PortalPeopleContactsClient() {
     setLeadPhone(lead.phone || "");
     setLeadWebsite(lead.website || "");
     setLeadLinkContactId("");
+    lastSavedLeadSigRef.current = stableLeadEditSignature({
+      id: lead.id,
+      businessName: lead.businessName || "",
+      email: lead.email || "",
+      phone: lead.phone || "",
+      website: lead.website || "",
+      contactId: "",
+    });
     setLeadModalOpen(true);
   }
 
   async function saveLeadEdits() {
     if (!activeLeadId) return;
+    const stableId = activeLeadId;
     setSavingLead(true);
     try {
+      const businessName = leadBusinessName.trim();
+      const email = leadEmail.trim();
+      const phone = leadPhone.trim();
+      const website = leadWebsite.trim();
+      const contactId = leadLinkContactId.trim();
+
       const payload: any = {
-        businessName: leadBusinessName,
-        email: leadEmail,
-        phone: leadPhone,
-        website: leadWebsite,
+        businessName,
+        email,
+        phone,
+        website,
       };
 
-      if (leadLinkContactId.trim()) payload.contactId = leadLinkContactId.trim();
+      if (contactId) payload.contactId = contactId;
 
-      const res = await fetch(`/api/portal/people/leads/${encodeURIComponent(activeLeadId)}`, {
+      const nextSig = stableLeadEditSignature({ id: stableId, businessName, email, phone, website, contactId });
+
+      const res = await fetch(`/api/portal/people/leads/${encodeURIComponent(stableId)}`, {
         method: "PATCH",
         headers: { "content-type": "application/json" },
         body: JSON.stringify(payload),
@@ -865,7 +978,7 @@ export function PortalPeopleContactsClient() {
       const json = (await res.json().catch(() => ({}))) as any;
       if (!res.ok || !json?.ok) throw new Error(String(json?.error || "Failed to save lead"));
       toast.success("Lead updated.");
-      setLeadModalOpen(false);
+      lastSavedLeadSigRef.current = nextSig;
       await load();
       if (selectedContactId) await openContact(selectedContactId);
     } catch (e: any) {
@@ -2424,7 +2537,18 @@ export function PortalPeopleContactsClient() {
                       <button
                         type="button"
                         className="rounded-xl bg-brand-ink px-3 py-2 text-xs font-semibold text-white hover:opacity-95"
-                        onClick={() => setEditingContact(true)}
+                        onClick={() => {
+                          if (!detail) return;
+                          const nextRows = mergeRowsWithKnownKeys(rowsFromCustomVariables(detail?.customVariables), knownCustomVarKeys);
+                          lastSavedContactEditSigRef.current = stableContactEditSignature({
+                            name: detail?.name ?? "",
+                            email: detail?.email ?? "",
+                            phone: detail?.phone ?? "",
+                            customVariables: customVariablesFromRows(nextRows),
+                          });
+                          setEditCustomVarRows(nextRows);
+                          setEditingContact(true);
+                        }}
                         disabled={!detail}
                       >
                         Edit
@@ -2439,7 +2563,14 @@ export function PortalPeopleContactsClient() {
                             setEditName(detail?.name ?? "");
                             setEditEmail(detail?.email ?? "");
                             setEditPhone(detail?.phone ?? "");
-                            setEditCustomVarRows(rowsFromCustomVariables(detail?.customVariables));
+                            const nextRows = mergeRowsWithKnownKeys(rowsFromCustomVariables(detail?.customVariables), knownCustomVarKeys);
+                            setEditCustomVarRows(nextRows);
+                            lastSavedContactEditSigRef.current = stableContactEditSignature({
+                              name: detail?.name ?? "",
+                              email: detail?.email ?? "",
+                              phone: detail?.phone ?? "",
+                              customVariables: customVariablesFromRows(nextRows),
+                            });
                           }}
                           disabled={savingContact}
                         >
@@ -2449,9 +2580,9 @@ export function PortalPeopleContactsClient() {
                           type="button"
                           className="rounded-xl bg-brand-ink px-3 py-2 text-xs font-semibold text-white hover:opacity-95 disabled:opacity-60"
                           onClick={() => void saveContactEdits()}
-                          disabled={savingContact}
+                          disabled={savingContact || !editContactDirty}
                         >
-                          {savingContact ? "Saving…" : "Save"}
+                          {savingContact ? "Saving…" : editContactDirty ? "Save" : "Saved"}
                         </button>
                       </>
                     )}
@@ -2757,9 +2888,9 @@ export function PortalPeopleContactsClient() {
                 type="button"
                 className="rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
                 onClick={() => void saveLeadEdits()}
-                disabled={savingLead || !leadBusinessName.trim()}
+                disabled={savingLead || !leadBusinessName.trim() || !leadDirty}
               >
-                {savingLead ? "Saving…" : "Save"}
+                {savingLead ? "Saving…" : leadDirty ? "Save" : "Saved"}
               </button>
             </div>
           </div>

@@ -248,6 +248,15 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
   const [siteConfigName, setSiteConfigName] = useState("Newsletter site");
   const [siteConfigSlug, setSiteConfigSlug] = useState("");
   const [siteConfigDomain, setSiteConfigDomain] = useState("");
+  const lastSavedSiteConfigSigRef = useRef<string>("");
+  const siteConfigSig = useMemo(() => {
+    return JSON.stringify({
+      name: siteConfigName.trim(),
+      slug: siteConfigSlug.trim(),
+      primaryDomain: siteConfigDomain.trim(),
+    });
+  }, [siteConfigDomain, siteConfigName, siteConfigSlug]);
+  const siteConfigDirty = siteConfigSig !== lastSavedSiteConfigSigRef.current;
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -2587,9 +2596,13 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                         type="button"
                         className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
                         onClick={() => {
-                          setSiteConfigName(site?.name || "Newsletter site");
-                          setSiteConfigSlug(site?.slug || "");
-                          setSiteConfigDomain(site?.primaryDomain || "");
+                          const name = (site?.name || "Newsletter site").trim();
+                          const slug = (site?.slug || "").trim();
+                          const primaryDomain = (site?.primaryDomain || "").trim();
+                          setSiteConfigName(name);
+                          setSiteConfigSlug(slug);
+                          setSiteConfigDomain(primaryDomain);
+                          lastSavedSiteConfigSigRef.current = JSON.stringify({ name, slug, primaryDomain });
                           setSiteConfigOpen(true);
                         }}
                       >
@@ -2614,9 +2627,13 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                         type="button"
                         className="rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95"
                         onClick={() => {
-                          setSiteConfigName(site?.name || "Newsletter site");
-                          setSiteConfigSlug(site?.slug || "");
-                          setSiteConfigDomain(site?.primaryDomain || "");
+                          const name = (site?.name || "Newsletter site").trim();
+                          const slug = (site?.slug || "").trim();
+                          const primaryDomain = (site?.primaryDomain || "").trim();
+                          setSiteConfigName(name);
+                          setSiteConfigSlug(slug);
+                          setSiteConfigDomain(primaryDomain);
+                          lastSavedSiteConfigSigRef.current = JSON.stringify({ name, slug, primaryDomain });
                           setSiteConfigOpen(true);
                         }}
                       >
@@ -3041,7 +3058,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
               <button
                 type="button"
                 className="rounded-2xl bg-[color:var(--color-brand-blue)] px-4 py-2 text-sm font-semibold text-white shadow-sm hover:opacity-90 disabled:opacity-60"
-                disabled={siteConfigBusy || siteConfigName.trim().length < 2}
+                disabled={siteConfigBusy || siteConfigName.trim().length < 2 || !siteConfigDirty}
                 onClick={async () => {
                   const name = siteConfigName.trim().slice(0, 120);
                   const slug = siteConfigSlug.trim().slice(0, 80);
@@ -3061,15 +3078,27 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                       return;
                     }
                     setSite(json.site as Site);
+
+                    const nextName = String(json.site?.name || name).trim();
+                    const nextSlug = String(json.site?.slug || slug).trim();
+                    const nextPrimaryDomain = String(json.site?.primaryDomain || primaryDomain).trim();
+
+                    setSiteConfigName(nextName);
+                    setSiteConfigSlug(nextSlug);
+                    setSiteConfigDomain(nextPrimaryDomain);
+                    lastSavedSiteConfigSigRef.current = JSON.stringify({
+                      name: nextName,
+                      slug: nextSlug,
+                      primaryDomain: nextPrimaryDomain,
+                    });
                     toast.success("Hosted pages configured");
-                    setSiteConfigOpen(false);
                     await refresh();
                   } finally {
                     setSiteConfigBusy(false);
                   }
                 }}
               >
-                {siteConfigBusy ? "Saving…" : "Save"}
+                {siteConfigBusy ? "Saving…" : siteConfigDirty ? "Save" : "Saved"}
               </button>
             </div>
           </div>

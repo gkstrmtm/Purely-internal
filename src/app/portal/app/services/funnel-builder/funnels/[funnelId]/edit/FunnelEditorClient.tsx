@@ -1221,7 +1221,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                       onClick={createPage}
                       className={classNames(
                         "rounded-xl px-3 py-2 text-sm font-semibold text-white",
-                        busy ? "bg-zinc-400" : "bg-[color:var(--color-brand-blue)] hover:bg-blue-700",
+                        busy ? "bg-zinc-400" : "bg-(--color-brand-blue) hover:bg-blue-700",
                       )}
                     >
                       + Page
@@ -1229,14 +1229,14 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
 
                     <button
                       type="button"
-                      disabled={busy || !selectedPage}
+                      disabled={busy || !selectedPage || !selectedPageDirty}
                       onClick={() => void saveCurrentPage()}
                       className={classNames(
                         "rounded-xl px-4 py-2 text-sm font-semibold text-white",
                         busy ? "bg-zinc-400" : "bg-brand-ink hover:opacity-95",
                       )}
                     >
-                      {busy ? "Saving…" : "Save"}
+                      {busy ? "Saving…" : selectedPageDirty ? "Save" : "Saved"}
                     </button>
 
                     <button

@@ -499,6 +499,10 @@ export function PortalBookingClient() {
   const [reminderSaving, setReminderSaving] = useState(false);
   const [reminderTemplateOpen, setReminderTemplateOpen] = useState(false);
 
+  const reminderDraftSig = useMemo(() => (reminderDraft ? JSON.stringify(reminderDraft) : null), [reminderDraft]);
+  const reminderSettingsSig = useMemo(() => (reminderSettings ? JSON.stringify(reminderSettings) : null), [reminderSettings]);
+  const reminderDirty = Boolean(reminderDraftSig && reminderSettingsSig && reminderDraftSig !== reminderSettingsSig);
+
   type ReminderAiDraftModalState =
     | null
     | {
@@ -2393,12 +2397,13 @@ export function PortalBookingClient() {
                     className="rounded-2xl bg-[color:var(--color-brand-blue)] px-4 py-2 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
                     disabled={
                       reminderSaving ||
+                      !reminderDirty ||
                       reminderDraft.steps.length === 0 ||
                       reminderDraft.steps.some((x) => (x.kind === "TAG" ? !String(x.tagId || "").trim() : !String(x.messageBody || "").trim()))
                     }
                     onClick={() => void saveReminders(reminderDraft)}
                   >
-                    {reminderSaving ? "Saving…" : "Save"}
+                    {reminderSaving ? "Saving…" : reminderDirty ? "Save" : "Saved"}
                   </button>
                 </div>
               </>

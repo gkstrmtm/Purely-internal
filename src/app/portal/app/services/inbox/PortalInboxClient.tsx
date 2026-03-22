@@ -1413,7 +1413,7 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
               onClick={() => void saveActiveThreadContact()}
               disabled={!String(contactName || "").trim() || savingContact}
             >
-              {savingContact ? "Saving…" : "Save"}
+              {savingContact ? "Creating…" : "Create contact"}
             </button>
           </div>
         }

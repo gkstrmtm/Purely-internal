@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { PortalSettingsSection } from "@/components/PortalSettingsSection";
 import { ToggleSwitch } from "@/components/ToggleSwitch";
@@ -157,9 +157,16 @@ export function PortalBlogsClient({
   const [siteSlug, setSiteSlug] = useState("");
   const [siteDomain, setSiteDomain] = useState("");
   const [siteSaving, setSiteSaving] = useState(false);
+  const lastSavedSiteSigRef = useRef<string>("");
   const [openPostMenu, setOpenPostMenu] = useState<null | { postId: string; left: number; top: number }>(null);
   const [openPreviewMenu, setOpenPreviewMenu] = useState<null | { left: number; top: number }>(null);
   const [confirm, setConfirm] = useState<PostConfirm>(null);
+
+  const siteSig = useMemo(() => {
+    const nextName = siteName.trim() ? siteName.trim() : "My Blog";
+    return JSON.stringify({ name: nextName, slug: siteSlug.trim(), primaryDomain: siteDomain.trim() });
+  }, [siteDomain, siteName, siteSlug]);
+  const siteDirty = siteSig !== lastSavedSiteSigRef.current;
 
   const [autoEnabled, setAutoEnabled] = useState(false);
   const [autoFrequencyCount, setAutoFrequencyCount] = useState(1);
@@ -167,6 +174,7 @@ export function PortalBlogsClient({
   const [autoTopics, setAutoTopics] = useState<string[]>([]);
   const [autoPublish, setAutoPublish] = useState(false);
   const [autoSaving, setAutoSaving] = useState(false);
+  const lastSavedAutoSigRef = useRef<string>("");
 
   const domainStatus = useMemo(() => {
     const d = String(siteDomain || "").trim().toLowerCase();
@@ -241,6 +249,18 @@ export function PortalBlogsClient({
     if (unit === "months") return 30;
     return Math.min(30, Math.max(1, count));
   }, [autoFrequencyCount, autoFrequencyUnit]);
+
+  const autoTopicsSanitized = useMemo(() => sanitizeTopics(autoTopics), [autoTopics]);
+  const autoSig = useMemo(() => {
+    const frequencyDays = Math.min(30, Math.max(1, Math.floor(Number(autoFrequencyDays) || 7)));
+    return JSON.stringify({
+      enabled: Boolean(autoEnabled),
+      frequencyDays,
+      topics: autoTopicsSanitized,
+      autoPublish: Boolean(autoPublish),
+    });
+  }, [autoEnabled, autoFrequencyDays, autoPublish, autoTopicsSanitized]);
+  const autoDirty = autoSig !== lastSavedAutoSigRef.current;
 
   const creditsPerWeekEstimate = useMemo(() => {
     const freq = Math.max(1, Math.floor(Number(autoFrequencyDays) || 7));
@@ -329,6 +349,11 @@ export function PortalBlogsClient({
       setSiteName(s?.name ?? "");
       setSiteSlug(s?.slug ?? "");
       setSiteDomain(s?.primaryDomain ?? "");
+      lastSavedSiteSigRef.current = JSON.stringify({
+        name: (s?.name ?? "").trim() ? String(s?.name ?? "") : "My Blog",
+        slug: String(s?.slug ?? "").trim(),
+        primaryDomain: String(s?.primaryDomain ?? "").trim(),
+      });
 
       if (domainsRes.ok) {
         setFunnelDomains(Array.isArray(domainsJson.domains) ? (domainsJson.domains as FunnelBuilderDomain[]) : []);
@@ -361,8 +386,15 @@ export function PortalBlogsClient({
         const preset = inferFrequencyPreset(autoJson.settings.frequencyDays);
         setAutoFrequencyUnit(preset.unit);
         setAutoFrequencyCount(preset.count);
-        setAutoTopics(sanitizeTopics((autoJson.settings.topics ?? []) as any));
+        const nextTopics = sanitizeTopics((autoJson.settings.topics ?? []) as any);
+        setAutoTopics(nextTopics);
         setAutoPublish(Boolean(autoJson.settings.autoPublish));
+        lastSavedAutoSigRef.current = JSON.stringify({
+          enabled: Boolean(autoJson.settings.enabled),
+          frequencyDays: Math.min(30, Math.max(1, Math.floor(Number(autoJson.settings.frequencyDays) || 7))),
+          topics: nextTopics,
+          autoPublish: Boolean(autoJson.settings.autoPublish),
+        });
       }
     } finally {
       setFunnelDomainsBusy(false);
@@ -517,6 +549,11 @@ export function PortalBlogsClient({
     setSiteName(json.site.name);
     setSiteSlug(json.site.slug ?? "");
     setSiteDomain(json.site.primaryDomain ?? "");
+    lastSavedSiteSigRef.current = JSON.stringify({
+      name: String(json.site.name || "").trim() ? String(json.site.name) : "My Blog",
+      slug: String(json.site.slug ?? "").trim(),
+      primaryDomain: String(json.site.primaryDomain ?? "").trim(),
+    });
     toast.success("Blog workspace created.");
     void refreshAutomationStatus();
   }
@@ -549,6 +586,11 @@ export function PortalBlogsClient({
     setSiteName(json.site.name);
     setSiteSlug(json.site.slug ?? "");
     setSiteDomain(json.site.primaryDomain ?? "");
+    lastSavedSiteSigRef.current = JSON.stringify({
+      name: String(json.site.name || "").trim() ? String(json.site.name) : "My Blog",
+      slug: String(json.site.slug ?? "").trim(),
+      primaryDomain: String(json.site.primaryDomain ?? "").trim(),
+    });
     toast.success("Blog settings saved.");
   }
 
@@ -580,12 +622,19 @@ export function PortalBlogsClient({
     setError(null);
 
     const topics = sanitizeTopics(autoTopics);
+    const nextFrequencyDays = Math.min(30, Math.max(1, Math.floor(Number(autoFrequencyDays) || 7)));
+    const nextSig = JSON.stringify({
+      enabled: Boolean(autoEnabled),
+      frequencyDays: nextFrequencyDays,
+      topics,
+      autoPublish: Boolean(autoPublish),
+    });
     const res = await fetch("/api/portal/blogs/automation/settings", {
       method: "PUT",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
         enabled: Boolean(autoEnabled),
-        frequencyDays: Math.min(30, Math.max(1, Math.floor(Number(autoFrequencyDays) || 7))),
+        frequencyDays: nextFrequencyDays,
         topics,
         autoPublish: Boolean(autoPublish),
       }),
@@ -599,8 +648,7 @@ export function PortalBlogsClient({
       return;
     }
 
-    const nextFrequencyDays = Math.min(30, Math.max(1, Math.floor(Number(autoFrequencyDays) || 7)));
-    const nextTopics = sanitizeTopics(autoTopics);
+    const nextTopics = topics;
 
     setAutomation((prev) =>
       prev
@@ -622,6 +670,7 @@ export function PortalBlogsClient({
           },
     );
 
+    lastSavedAutoSigRef.current = nextSig;
     toast.success("Automation saved.");
     await refreshAutomationStatus();
   }
@@ -1014,10 +1063,10 @@ export function PortalBlogsClient({
               <button
                 type="button"
                 onClick={saveAutomation}
-                disabled={autoSaving}
+                disabled={autoSaving || !autoDirty}
                 className="inline-flex w-full items-center justify-center rounded-2xl bg-(--color-brand-blue) px-5 py-3 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
               >
-                {autoSaving ? "Saving…" : "Save automation"}
+                {autoSaving ? "Saving…" : autoDirty ? "Save automation" : "Saved"}
               </button>
 
               <button
@@ -1362,10 +1411,10 @@ export function PortalBlogsClient({
                 <button
                   type="button"
                   onClick={saveSite}
-                  disabled={siteSaving}
+                  disabled={siteSaving || !siteDirty}
                   className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-5 py-3 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
                 >
-                  {siteSaving ? "Saving…" : "Save settings"}
+                  {siteSaving ? "Saving…" : siteDirty ? "Save settings" : "Saved"}
                 </button>
               )}
             </div>

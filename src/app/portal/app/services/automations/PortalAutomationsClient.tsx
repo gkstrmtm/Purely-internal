@@ -3261,9 +3261,9 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
               type="button"
               className="rounded-2xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
               onClick={() => void saveAll()}
-              disabled={saving}
+              disabled={saving || !dirty}
             >
-              {saving ? "Saving…" : "Save"}
+              {saving ? "Saving…" : dirty ? "Save" : "Saved"}
             </button>
             <button
               type="button"

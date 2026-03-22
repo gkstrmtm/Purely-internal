@@ -50,6 +50,17 @@ function classNames(...xs: Array<string | false | null | undefined>) {
   return xs.filter(Boolean).join(" ");
 }
 
+function stableMemberEditorSignature(input: { role: "ADMIN" | "MEMBER"; permissions: PortalPermissions | null }) {
+  const role = input.role === "ADMIN" ? "ADMIN" : "MEMBER";
+  if (role === "ADMIN") return JSON.stringify({ role });
+
+  const normalized = normalizePortalPermissions(input.permissions, "MEMBER");
+  const stablePermissions = Object.fromEntries(
+    PORTAL_SERVICE_KEYS.map((k) => [k, { view: !!normalized[k]?.view, edit: !!normalized[k]?.edit }] as const),
+  );
+  return JSON.stringify({ role, permissions: stablePermissions });
+}
+
 async function copyToClipboard(text: string) {
   await navigator.clipboard.writeText(text);
 }
@@ -83,6 +94,13 @@ export function PortalPeopleUsersClient() {
   const [memberRole, setMemberRole] = useState<"ADMIN" | "MEMBER" | null>(null);
   const [savingMember, setSavingMember] = useState(false);
   const [removingMember, setRemovingMember] = useState(false);
+
+  const lastSavedMemberSigRef = useRef<string>("");
+  const memberEditorSig = useMemo(() => {
+    const role = memberRole || (editingMember?.role === "ADMIN" ? "ADMIN" : "MEMBER");
+    return stableMemberEditorSignature({ role, permissions: memberPermissions });
+  }, [editingMember?.role, memberPermissions, memberRole]);
+  const memberDirty = Boolean(editingMember) && memberEditorSig !== lastSavedMemberSigRef.current;
 
   const [demoteConfirmOpen, setDemoteConfirmOpen] = useState(false);
   const demoteContinueRef = useRef<null | (() => void)>(null);
@@ -226,9 +244,13 @@ export function PortalPeopleUsersClient() {
     setMemberRole(role);
 
     if (role === "ADMIN") {
-      setMemberPermissions(defaultPortalPermissionsForRole("ADMIN"));
+      const perms = defaultPortalPermissionsForRole("ADMIN");
+      setMemberPermissions(perms);
+      lastSavedMemberSigRef.current = stableMemberEditorSignature({ role, permissions: perms });
     } else {
-      setMemberPermissions(normalizePortalPermissions(m.permissionsJson, role));
+      const perms = normalizePortalPermissions(m.permissionsJson, role);
+      setMemberPermissions(perms);
+      lastSavedMemberSigRef.current = stableMemberEditorSignature({ role, permissions: perms });
     }
   }
 
@@ -237,6 +259,7 @@ export function PortalPeopleUsersClient() {
     setMemberPermissions(null);
     setMemberRole(null);
     setSavingMember(false);
+    lastSavedMemberSigRef.current = "";
   }
 
   async function saveMember() {
@@ -247,6 +270,7 @@ export function PortalPeopleUsersClient() {
     }
     setSavingMember(true);
     try {
+      const sig = stableMemberEditorSignature({ role: memberRole, permissions: memberPermissions });
       const res = await fetch(`/api/portal/people/users/${encodeURIComponent(editingMember.userId)}`, {
         method: "PATCH",
         headers: { "content-type": "application/json" },
@@ -255,7 +279,7 @@ export function PortalPeopleUsersClient() {
       const json = (await res.json().catch(() => null)) as any;
       if (!res.ok || !json?.ok) throw new Error(String(json?.error || "Update failed"));
       toast.success("Permissions updated.");
-      closeMemberEditor();
+      lastSavedMemberSigRef.current = sig;
       await load();
     } catch (e: any) {
       toast.error(String(e?.message || "Update failed"));
@@ -795,16 +819,16 @@ export function PortalPeopleUsersClient() {
               </button>
               <button
                 type="button"
-                disabled={savingMember}
+                disabled={savingMember || !memberDirty}
                 onClick={() => saveMember()}
                 className={classNames(
                   "rounded-2xl px-4 py-2 text-sm font-semibold",
-                  savingMember
+                  savingMember || !memberDirty
                     ? "cursor-not-allowed bg-zinc-200 text-zinc-600"
                     : "bg-(--color-brand-blue) text-white hover:brightness-95",
                 )}
               >
-                {savingMember ? "Saving…" : "Save"}
+                {savingMember ? "Saving…" : memberDirty ? "Save" : "Saved"}
               </button>
               </div>
             </div>

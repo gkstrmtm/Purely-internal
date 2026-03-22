@@ -220,9 +220,13 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
 
   const [domainInput, setDomainInput] = useState("");
   const [domainBusy, setDomainBusy] = useState(false);
+  const lastSavedDomainSigRef = useRef<string>("");
   const [domainVercelVerificationById, setDomainVercelVerificationById] = useState<Record<string, VercelVerificationRecord[]>>({});
   const [domainSettingsBusy, setDomainSettingsBusy] = useState<Record<string, boolean>>({});
   const [domainVerifyBusy, setDomainVerifyBusy] = useState<Record<string, boolean>>({});
+
+  const domainSig = domainInput.trim();
+  const domainDirty = Boolean(domainSig) && domainSig !== lastSavedDomainSigRef.current;
 
   const [stripeStatus, setStripeStatus] = useState<StripeIntegrationStatus | null>(null);
   const [stripeStatusBusy, setStripeStatusBusy] = useState(false);
@@ -738,10 +742,11 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
   const saveDomain = async () => {
     setDomainBusy(true);
     try {
+      const sig = domainInput.trim();
       const res = await fetch("/api/portal/funnel-builder/domains", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ domain: domainInput }),
+        body: JSON.stringify({ domain: sig }),
       });
       const json = (await res.json().catch(() => null)) as any;
       if (!res.ok || !json || json.ok !== true) throw new Error(json?.error || "Failed to save domain");
@@ -752,7 +757,7 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
         setDomainVercelVerificationById((m) => ({ ...m, [domainId]: vercelRecords }));
       }
 
-      setDomainInput("");
+      lastSavedDomainSigRef.current = sig;
       await loadDomains();
       toast.success("Domain saved.");
     } catch (e) {
@@ -1234,14 +1239,14 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
               />
               <button
                 type="button"
-                disabled={domainBusy}
+                disabled={domainBusy || !domainSig || !domainDirty}
                 onClick={saveDomain}
                 className={classNames(
                   "rounded-2xl px-4 py-2 text-sm font-semibold text-white",
-                  domainBusy ? "bg-zinc-400" : "bg-brand-ink hover:opacity-95",
+                  domainBusy || !domainSig || !domainDirty ? "bg-zinc-400" : "bg-brand-ink hover:opacity-95",
                 )}
               >
-                {domainBusy ? "Saving…" : "Save"}
+                {domainBusy ? "Saving…" : domainSig && !domainDirty ? "Saved" : "Save"}
               </button>
             </div>
 

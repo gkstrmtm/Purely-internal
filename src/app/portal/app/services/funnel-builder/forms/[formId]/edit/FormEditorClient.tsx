@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { AppConfirmModal, AppModal } from "@/components/AppModal";
 import { PortalFontDropdown } from "@/components/PortalFontDropdown";
@@ -229,7 +229,7 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [savedAt, setSavedAt] = useState<number | null>(null);
+  const lastSavedSigRef = useRef<string>("{}");
 
   const [dialog, setDialog] = useState<FormEditorDialog>(null);
   const [dialogError, setDialogError] = useState<string | null>(null);
@@ -243,15 +243,34 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
   const fontPresetKey = useMemo(() => fontPresetKeyFromStyle(style), [style]);
   const googleCss = useMemo(() => googleFontImportCss(style?.fontGoogleFamily), [style?.fontGoogleFamily]);
 
+  const currentSig = useMemo(() => {
+    if (!form || !fields) return "{}";
+    return JSON.stringify({
+      name: String(form.name || "").trim(),
+      slug: String(form.slug || "").trim(),
+      status: form.status,
+      schemaJson: { fields, style: normalizeStyle({ style }) },
+    });
+  }, [form, fields, style]);
+
+  const dirty = Boolean(form && fields && currentSig !== lastSavedSigRef.current);
+
   const load = async () => {
     setError(null);
     const res = await fetch(`/api/portal/funnel-builder/forms/${encodeURIComponent(formId)}`, { cache: "no-store" });
     const json = (await res.json().catch(() => null)) as any;
     if (!res.ok || !json || json.ok !== true) throw new Error(json?.error || "Failed to load form");
     const f = json.form as Form;
-    setForm(f);
     const nextFields = normalizeFields(f.schemaJson);
-    setStyle(normalizeStyle(f.schemaJson));
+    const nextStyle = normalizeStyle(f.schemaJson);
+    lastSavedSigRef.current = JSON.stringify({
+      name: String(f.name || "").trim(),
+      slug: String(f.slug || "").trim(),
+      status: f.status,
+      schemaJson: { fields: nextFields.length ? nextFields : [], style: nextStyle },
+    });
+    setForm(f);
+    setStyle(nextStyle);
     setFields(nextFields.length ? nextFields : []);
     setSelectedIdx((prev) => Math.min(prev, Math.max(0, nextFields.length - 1)));
   };
@@ -303,7 +322,7 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
       const json = (await res.json().catch(() => null)) as any;
       if (!res.ok || !json || json.ok !== true) throw new Error(json?.error || "Failed to save");
       setForm(json.form as Form);
-      setSavedAt(Date.now());
+      lastSavedSigRef.current = currentSig;
     } catch (e) {
       setError((e as any)?.message ? String((e as any).message) : "Failed to save");
     } finally {
@@ -531,7 +550,7 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
             <button
               type="button"
               className={classNames(
-                "rounded-2xl bg-[color:var(--color-brand-blue)] px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700",
+                "rounded-2xl bg-(--color-brand-blue) px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700",
                 busy ? "opacity-60" : "",
               )}
               disabled={busy}
@@ -676,7 +695,7 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
 
       <div className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-end">
         <div>
-          <Link href={backHref} className="text-sm font-semibold text-[color:var(--color-brand-blue)] hover:underline">
+          <Link href={backHref} className="text-sm font-semibold text-(--color-brand-blue) hover:underline">
             ← Back
           </Link>
           <div className="mt-2 text-xs font-semibold uppercase tracking-wide text-zinc-500">Form editor</div>
@@ -698,11 +717,11 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
             <Link
               href={toPurelyHostedUrl(hostedFormPath(form?.slug || "", form?.id || "") || `/forms/${encodeURIComponent(form?.slug || "")}`)}
               target="_blank"
-              className="font-semibold text-[color:var(--color-brand-blue)] hover:underline"
+              className="font-semibold text-(--color-brand-blue) hover:underline"
             >
               {form?.status === "ACTIVE" ? "View live" : "Preview"}
             </Link>
-            {savedAt ? <div className="text-xs text-zinc-500">Saved</div> : null}
+            {!dirty ? <div className="text-xs text-zinc-500">Saved</div> : null}
           </div>
         </div>
 
@@ -769,21 +788,21 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
             onClick={addQuestion}
             className={classNames(
               "rounded-2xl px-4 py-2 text-sm font-semibold text-white",
-              busy ? "bg-zinc-400" : "bg-[color:var(--color-brand-blue)] hover:bg-blue-700",
+              busy ? "bg-zinc-400" : "bg-(--color-brand-blue) hover:bg-blue-700",
             )}
           >
             + Add question
           </button>
           <button
             type="button"
-            disabled={busy}
+            disabled={busy || !dirty}
             onClick={() => save()}
             className={classNames(
               "rounded-2xl px-4 py-2 text-sm font-semibold text-white",
               busy ? "bg-zinc-400" : "bg-brand-ink hover:opacity-95",
             )}
           >
-            {busy ? "Saving…" : "Save"}
+            {busy ? "Saving…" : dirty ? "Save" : "Saved"}
           </button>
 
           <button
@@ -819,7 +838,7 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
                 className={classNames(
                   "rounded-2xl border p-3",
                   idx === selectedIdx
-                    ? "border-[color:var(--color-brand-blue)] bg-blue-50"
+                    ? "border-(--color-brand-blue) bg-blue-50"
                     : "border-zinc-200 bg-white hover:bg-zinc-50",
                 )}
               >
@@ -1129,7 +1148,7 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
                           <input
                             value={style.pageBg || "#f4f4f5"}
                             onChange={(e) => setStyle((prev) => ({ ...prev, pageBg: e.target.value }))}
-                            className="h-10 min-w-[180px] flex-1 rounded-2xl border border-zinc-200 bg-white px-3 text-sm text-zinc-900 placeholder:text-zinc-400"
+                            className="h-10 min-w-45 flex-1 rounded-2xl border border-zinc-200 bg-white px-3 text-sm text-zinc-900 placeholder:text-zinc-400"
                             placeholder="#f4f4f5 or transparent"
                           />
                           <button
@@ -1138,7 +1157,7 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
                             className={classNames(
                               "h-10 rounded-2xl border px-3 text-sm font-semibold",
                               style.pageBg === "transparent"
-                                ? "border-[color:var(--color-brand-blue)] bg-blue-50 text-[color:var(--color-brand-blue)]"
+                                ? "border-(--color-brand-blue) bg-blue-50 text-(--color-brand-blue)"
                                 : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50",
                             )}
                           >
@@ -1176,7 +1195,7 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
                           <input
                             value={style.cardBg || "#ffffff"}
                             onChange={(e) => setStyle((prev) => ({ ...prev, cardBg: e.target.value }))}
-                            className="h-10 min-w-[180px] flex-1 rounded-2xl border border-zinc-200 bg-white px-3 text-sm text-zinc-900 placeholder:text-zinc-400"
+                            className="h-10 min-w-45 flex-1 rounded-2xl border border-zinc-200 bg-white px-3 text-sm text-zinc-900 placeholder:text-zinc-400"
                             placeholder="#ffffff or transparent"
                           />
                           <button
@@ -1185,7 +1204,7 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
                             className={classNames(
                               "h-10 rounded-2xl border px-3 text-sm font-semibold",
                               style.cardBg === "transparent"
-                                ? "border-[color:var(--color-brand-blue)] bg-blue-50 text-[color:var(--color-brand-blue)]"
+                                ? "border-(--color-brand-blue) bg-blue-50 text-(--color-brand-blue)"
                                 : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50",
                             )}
                           >
