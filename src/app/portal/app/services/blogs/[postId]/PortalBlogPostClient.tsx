@@ -9,6 +9,7 @@ import { PortalMediaPickerModal } from "@/components/PortalMediaPickerModal";
 import { PortalListboxDropdown, type PortalListboxOption } from "@/components/PortalListboxDropdown";
 import { ToggleSwitch } from "@/components/ToggleSwitch";
 import { useToast } from "@/components/ToastProvider";
+import { InlineSpinner } from "@/components/InlineSpinner";
 import { buildFontDropdownOptions } from "@/lib/portalHostedFonts";
 
 type Post = {
@@ -182,6 +183,8 @@ export function PortalBlogPostClient({ postId }: { postId: string }) {
   }, []);
 
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const hasLoadedOnceRef = useRef(false);
   const [working, setWorking] = useState<"save" | "publish" | "delete" | "archive" | "generate" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [billingCta, setBillingCta] = useState<string | null>(null);
@@ -298,32 +301,37 @@ export function PortalBlogPostClient({ postId }: { postId: string }) {
   }, [content, excerpt, keywordsText, post, publishedAtText, slug, title]);
 
   const refresh = useCallback(async () => {
-    setLoading(true);
+    const firstLoad = !hasLoadedOnceRef.current;
+    if (firstLoad) setLoading(true);
+    else setRefreshing(true);
     setError(null);
     setBillingCta(null);
 
-    const res = await fetch(`/api/portal/blogs/posts/${postId}`, { cache: "no-store" });
-    const json = (await res.json().catch(() => ({}))) as { ok?: boolean; post?: Post; error?: string };
+    try {
+      const res = await fetch(`/api/portal/blogs/posts/${postId}`, { cache: "no-store" });
+      const json = (await res.json().catch(() => ({}))) as { ok?: boolean; post?: Post; error?: string };
 
-    if (!res.ok || !json.ok || !json.post) {
-      setError(json.error ?? "Unable to load post");
-      setPost(null);
-      setLoading(false);
-      return;
+      if (!res.ok || !json.ok || !json.post) {
+        setError(json.error ?? "Unable to load post");
+        if (firstLoad) setPost(null);
+        return;
+      }
+
+      const loaded = json.post;
+      setPost(loaded);
+      setTitle(loaded.title ?? "");
+      setSlug(loaded.slug ?? "");
+      setExcerpt(loaded.excerpt ?? "");
+      setContent(loaded.content ?? "");
+      setKeywordsText((loaded.seoKeywords ?? []).join("\n"));
+      setPublishedAtText(toDateTimeLocalValue(loaded.publishedAt));
+
+      setAiPrompt((prev) => (prev.trim() ? prev : loaded.title ?? ""));
+    } finally {
+      if (!hasLoadedOnceRef.current) hasLoadedOnceRef.current = true;
+      if (firstLoad) setLoading(false);
+      else setRefreshing(false);
     }
-
-    const loaded = json.post;
-    setPost(loaded);
-    setTitle(loaded.title ?? "");
-    setSlug(loaded.slug ?? "");
-    setExcerpt(loaded.excerpt ?? "");
-    setContent(loaded.content ?? "");
-    setKeywordsText((loaded.seoKeywords ?? []).join("\n"));
-    setPublishedAtText(toDateTimeLocalValue(loaded.publishedAt));
-
-    setAiPrompt((prev) => (prev.trim() ? prev : loaded.title ?? ""));
-
-    setLoading(false);
   }, [postId]);
 
   function coverImageUrlFor(titleText: string) {
@@ -631,7 +639,7 @@ export function PortalBlogPostClient({ postId }: { postId: string }) {
     });
   }
 
-  if (loading) {
+  if (loading && !hasLoadedOnceRef.current) {
     return (
       <div className="mx-auto w-full max-w-6xl">
         <div className="rounded-3xl border border-zinc-200 bg-white p-6 text-sm text-zinc-600">Loading post…</div>
@@ -688,6 +696,12 @@ export function PortalBlogPostClient({ postId }: { postId: string }) {
             {post.updatedAt ? ` • Last saved ${formatLastSaved(post.updatedAt)}` : ""}
             {isDirty ? " • Unsaved changes" : ""}
           </div>
+          {refreshing ? (
+            <div className="mt-2 inline-flex items-center gap-2 text-xs font-semibold text-zinc-500">
+              <InlineSpinner className="h-3.5 w-3.5 animate-spin" label="Refreshing" />
+              <span>Refreshing…</span>
+            </div>
+          ) : null}
         </div>
 
         <div

@@ -5,6 +5,7 @@ import { LocalTimePicker } from "@/components/LocalDateTimePicker";
 import { PortalListboxDropdown } from "@/components/PortalListboxDropdown";
 import { PortalVariablePickerModal } from "@/components/PortalVariablePickerModal";
 import { PortalBackToOnboardingLink } from "@/components/PortalBackToOnboardingLink";
+import { InlineSpinner } from "@/components/InlineSpinner";
 import { useToast } from "@/components/ToastProvider";
 import { PORTAL_SERVICES } from "@/app/portal/services/catalog";
 import { PORTAL_LINK_VARIABLES, PORTAL_MESSAGE_VARIABLES, type TemplateVariable } from "@/lib/portalTemplateVars";
@@ -573,6 +574,8 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
     return (window.location.host || "").includes("purely-mobile");
   }, []);
   const [loading, setLoading] = useState(true);
+  const hasLoadedOnceRef = useRef(false);
+  const [refreshing, setRefreshing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
@@ -1194,107 +1197,114 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
   }
 
   const load = useCallback(async () => {
-    setLoading(true);
+    const isFirstLoad = !hasLoadedOnceRef.current;
+    if (isFirstLoad) setLoading(true);
+    else setRefreshing(true);
+
     setError(null);
     setNote(null);
 
-    const res = await fetch("/api/portal/automations/settings", { cache: "no-store" }).catch(() => null as any);
-    if (!res?.ok) {
-      setLoading(false);
-      setError("Failed to load.");
-      return;
-    }
-
-    const data = (await res.json().catch(() => null)) as ApiPayload | null;
-    if (!data || (data as any).error) {
-      setLoading(false);
-      setError((data as any)?.error || "Failed to load.");
-      return;
-    }
-
-    const list = Array.isArray((data as any).automations) ? ((data as any).automations as Automation[]) : [];
-    setAutomations(list);
+    let didLoad = false;
     try {
-      lastSavedSigRef.current = JSON.stringify(list);
-      setDirty(false);
-      setLastSavedAtIso(new Date().toISOString());
-    } catch {
-      // ignore
+      const res = await fetch("/api/portal/automations/settings", { cache: "no-store" }).catch(() => null as any);
+      if (!res?.ok) {
+        setError("Failed to load.");
+        return;
+      }
+
+      const data = (await res.json().catch(() => null)) as ApiPayload | null;
+      if (!data || (data as any).error) {
+        setError((data as any)?.error || "Failed to load.");
+        return;
+      }
+
+      const list = Array.isArray((data as any).automations) ? ((data as any).automations as Automation[]) : [];
+      setAutomations(list);
+      try {
+        lastSavedSigRef.current = JSON.stringify(list);
+        setDirty(false);
+        setLastSavedAtIso(new Date().toISOString());
+      } catch {
+        // ignore
+      }
+
+      const v = (data as any).viewer;
+      if (v && typeof v === "object") {
+        const nextViewer = {
+          userId: String((v as any).userId || ""),
+          email: typeof (v as any).email === "string" ? String((v as any).email) : undefined,
+          name: typeof (v as any).name === "string" ? String((v as any).name) : undefined,
+        };
+        if (nextViewer.userId) setViewer(nextViewer);
+      }
+
+      let selected: string | null = null;
+      try {
+        const url = new URL(window.location.href);
+        const a = url.searchParams.get("automation");
+        if (a && list.some((x) => x.id === a)) selected = a;
+      } catch {
+        // ignore
+      }
+
+      if (!selected && list[0]?.id) selected = list[0].id;
+
+      if (!selected && mode === "editor") {
+        const starter = buildStarterAutomation();
+        setAutomations([starter]);
+        lastSavedSigRef.current = "";
+        setDirty(true);
+        selected = starter.id;
+      }
+
+      setSelectedAutomationId(selected);
+      didLoad = true;
+
+      fetch("/api/portal/funnel-builder/form-field-keys", { cache: "no-store" })
+        .then(async (r) => {
+          if (!r?.ok) return null;
+          return (await r.json().catch(() => null)) as any;
+        })
+        .then((json) => {
+          const list = Array.isArray(json?.fields) ? (json.fields as any[]) : [];
+          const next = list
+            .filter((x) => x && typeof x === "object")
+            .map((x) => ({
+              key: String((x as any).key || "").trim(),
+              label: String((x as any).label || "").trim(),
+              formId: String((x as any).formId || "").trim(),
+              formSlug: String((x as any).formSlug || "").trim(),
+              formName: String((x as any).formName || "").trim(),
+            }))
+            .filter((x) => x.key && x.formId);
+          setOwnerFormFields(next);
+        })
+        .catch(() => null);
+
+      fetch("/api/portal/funnel-builder/forms", { cache: "no-store" })
+        .then(async (r) => {
+          if (!r?.ok) return null;
+          return (await r.json().catch(() => null)) as any;
+        })
+        .then((json) => {
+          const list = Array.isArray(json?.forms) ? (json.forms as any[]) : [];
+          const next = list
+            .filter((x) => x && typeof x === "object")
+            .map((x) => ({
+              id: String((x as any).id || "").trim(),
+              slug: String((x as any).slug || "").trim(),
+              name: String((x as any).name || "").trim(),
+              status: String((x as any).status || "").trim(),
+            }))
+            .filter((x) => x.id);
+          setOwnerForms(next);
+        })
+        .catch(() => null);
+    } finally {
+      if (didLoad) hasLoadedOnceRef.current = true;
+      setLoading(false);
+      setRefreshing(false);
     }
-
-    const v = (data as any).viewer;
-    if (v && typeof v === "object") {
-      const nextViewer = {
-        userId: String((v as any).userId || ""),
-        email: typeof (v as any).email === "string" ? String((v as any).email) : undefined,
-        name: typeof (v as any).name === "string" ? String((v as any).name) : undefined,
-      };
-      if (nextViewer.userId) setViewer(nextViewer);
-    }
-
-    let selected: string | null = null;
-    try {
-      const url = new URL(window.location.href);
-      const a = url.searchParams.get("automation");
-      if (a && list.some((x) => x.id === a)) selected = a;
-    } catch {
-      // ignore
-    }
-
-    if (!selected && list[0]?.id) selected = list[0].id;
-
-    if (!selected && mode === "editor") {
-      const starter = buildStarterAutomation();
-      setAutomations([starter]);
-      lastSavedSigRef.current = "";
-      setDirty(true);
-      selected = starter.id;
-    }
-
-    setSelectedAutomationId(selected);
-
-    fetch("/api/portal/funnel-builder/form-field-keys", { cache: "no-store" })
-      .then(async (r) => {
-        if (!r?.ok) return null;
-        return (await r.json().catch(() => null)) as any;
-      })
-      .then((json) => {
-        const list = Array.isArray(json?.fields) ? (json.fields as any[]) : [];
-        const next = list
-          .filter((x) => x && typeof x === "object")
-          .map((x) => ({
-            key: String((x as any).key || "").trim(),
-            label: String((x as any).label || "").trim(),
-            formId: String((x as any).formId || "").trim(),
-            formSlug: String((x as any).formSlug || "").trim(),
-            formName: String((x as any).formName || "").trim(),
-          }))
-          .filter((x) => x.key && x.formId);
-        setOwnerFormFields(next);
-      })
-      .catch(() => null);
-
-    fetch("/api/portal/funnel-builder/forms", { cache: "no-store" })
-      .then(async (r) => {
-        if (!r?.ok) return null;
-        return (await r.json().catch(() => null)) as any;
-      })
-      .then((json) => {
-        const list = Array.isArray(json?.forms) ? (json.forms as any[]) : [];
-        const next = list
-          .filter((x) => x && typeof x === "object")
-          .map((x) => ({
-            id: String((x as any).id || "").trim(),
-            slug: String((x as any).slug || "").trim(),
-            name: String((x as any).name || "").trim(),
-            status: String((x as any).status || "").trim(),
-          }))
-          .filter((x) => x.id);
-        setOwnerForms(next);
-      })
-      .catch(() => null);
-
-    setLoading(false);
   }, [mode]);
 
   function disconnectIncoming(nodeId: string) {
@@ -2130,6 +2140,12 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
           <div>
             <h1 className="text-2xl font-bold text-brand-ink sm:text-3xl">My Automations</h1>
             <div className="mt-1 text-sm text-zinc-600">Create, filter, and open automations in a dedicated editor window.</div>
+            {refreshing ? (
+              <div className="mt-2 flex items-center gap-2 text-xs font-semibold text-zinc-500">
+                <InlineSpinner className="h-4 w-4 animate-spin text-zinc-400" />
+                Refreshing…
+              </div>
+            ) : null}
           </div>
           <button
             type="button"
@@ -2589,6 +2605,12 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
           </div>
 
           <div className="flex flex-wrap items-center justify-end gap-2">
+            {refreshing ? (
+              <div className="mr-2 flex items-center gap-2 text-xs font-semibold text-zinc-500">
+                <InlineSpinner className="h-4 w-4 animate-spin text-zinc-400" />
+                Refreshing…
+              </div>
+            ) : null}
             <div className="mr-2 hidden flex-col items-end sm:flex">
               <div className="text-xs font-semibold text-zinc-700">{saving ? "Saving…" : dirty ? "Autosaving…" : "Saved"}</div>
               <div className="text-xs text-zinc-500">{lastSavedAtIso ? `Last saved ${new Date(lastSavedAtIso).toLocaleTimeString()}` : ""}</div>

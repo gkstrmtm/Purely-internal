@@ -8,6 +8,7 @@ import { PortalSettingsSection } from "@/components/PortalSettingsSection";
 import { PortalVariablePickerModal } from "@/components/PortalVariablePickerModal";
 import { PortalBackToOnboardingLink } from "@/components/PortalBackToOnboardingLink";
 import { useToast } from "@/components/ToastProvider";
+import { InlineSpinner } from "@/components/InlineSpinner";
 import { DEFAULT_TAG_COLORS } from "@/lib/tagColors.shared";
 import type { TemplateVariable } from "@/lib/portalTemplateVars";
 import { buildFontDropdownOptions } from "@/lib/portalHostedFonts";
@@ -306,6 +307,8 @@ export default function PortalReviewsClient() {
     });
   }, [knownContactCustomVarKeys]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const hasLoadedOnceRef = useRef(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [settings, setSettings] = useState<ReviewRequestsSettings>(DEFAULT_SETTINGS);
@@ -536,7 +539,9 @@ export default function PortalReviewsClient() {
   }, []);
 
   const load = useCallback(async () => {
-    setLoading(true);
+    const firstLoad = !hasLoadedOnceRef.current;
+    if (firstLoad) setLoading(true);
+    else setRefreshing(true);
     setError(null);
     try {
       const [s, e, handle, siteRes, cals, inbox, qa, tags] = await Promise.all([
@@ -621,7 +626,9 @@ export default function PortalReviewsClient() {
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
-      setLoading(false);
+      if (!hasLoadedOnceRef.current) hasLoadedOnceRef.current = true;
+      if (firstLoad) setLoading(false);
+      else setRefreshing(false);
     }
   }, [readJsonSafe]);
 
@@ -1070,7 +1077,7 @@ export default function PortalReviewsClient() {
     return calendarTitleById.get(calendarId) || "(unknown calendar)";
   }
 
-  if (loading) {
+  if (loading && !hasLoadedOnceRef.current) {
     return (
       <div className="mx-auto w-full max-w-5xl px-6 py-8">
         <PortalBackToOnboardingLink />
@@ -1095,6 +1102,12 @@ export default function PortalReviewsClient() {
         <div className="text-sm text-neutral-600">
           Send a review link after an appointment, and optionally host a public Reviews page.
         </div>
+        {refreshing ? (
+          <div className="mt-2 inline-flex items-center gap-2 text-xs font-semibold text-zinc-500">
+            <InlineSpinner className="h-3.5 w-3.5 animate-spin" label="Refreshing" />
+            <span>Refreshing…</span>
+          </div>
+        ) : null}
       </div>
 
       <div className={isMobileApp ? "mt-6 grid w-full grid-cols-2 gap-2" : "mt-6 flex w-full flex-wrap gap-2"}>

@@ -9,6 +9,7 @@ import { ToggleSwitch } from "@/components/ToggleSwitch";
 import { PortalListboxDropdown, type PortalListboxOption } from "@/components/PortalListboxDropdown";
 import { useToast } from "@/components/ToastProvider";
 import { PortalBackToOnboardingLink } from "@/components/PortalBackToOnboardingLink";
+import { InlineSpinner } from "@/components/InlineSpinner";
 import { buildFontDropdownOptions } from "@/lib/portalHostedFonts";
 import { toPurelyHostedUrl } from "@/lib/publicHostedOrigin";
 
@@ -147,6 +148,8 @@ export function PortalBlogsClient({
   const [posts, setPosts] = useState<PostRow[]>([]);
   const [automation, setAutomation] = useState<AutomationSettings | null>(null);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const hasLoadedOnceRef = useRef(false);
   const [error, setError] = useState<string | null>(null);
 
   const [appearance, setAppearance] = useState<BlogAppearance | null>(null);
@@ -307,7 +310,9 @@ export function PortalBlogsClient({
   }, []);
 
   const refreshAll = useCallback(async () => {
-    setLoading(true);
+    const firstLoad = !hasLoadedOnceRef.current;
+    if (firstLoad) setLoading(true);
+    else setRefreshing(true);
     setError(null);
     setFunnelDomainsBusy(true);
     try {
@@ -409,7 +414,9 @@ export function PortalBlogsClient({
       }
     } finally {
       setFunnelDomainsBusy(false);
-      setLoading(false);
+      if (!hasLoadedOnceRef.current) hasLoadedOnceRef.current = true;
+      if (firstLoad) setLoading(false);
+      else setRefreshing(false);
     }
   }, []);
 
@@ -686,7 +693,7 @@ export function PortalBlogsClient({
     await refreshAutomationStatus();
   }
 
-  if (loading) {
+  if (loading && !hasLoadedOnceRef.current) {
     return (
       <div className="mx-auto w-full max-w-6xl">
         <PortalBackToOnboardingLink />
@@ -744,6 +751,12 @@ export function PortalBlogsClient({
           <p className="mt-1 text-sm text-zinc-600">
             Stay searchable without writing every week—generate SEO-friendly drafts, edit them, and publish to your hosted blog (or your custom domain).
           </p>
+          {refreshing ? (
+            <div className="mt-2 inline-flex items-center gap-2 text-xs font-semibold text-zinc-500">
+              <InlineSpinner className="h-3.5 w-3.5 animate-spin" label="Refreshing" />
+              <span>Refreshing…</span>
+            </div>
+          ) : null}
         </div>
         <div
           className={

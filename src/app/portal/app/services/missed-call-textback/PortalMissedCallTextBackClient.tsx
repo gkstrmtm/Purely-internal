@@ -6,6 +6,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { PortalMediaPickerModal, type PortalMediaPickItem } from "@/components/PortalMediaPickerModal";
 import { PortalVariablePickerModal } from "@/components/PortalVariablePickerModal";
 import { useToast } from "@/components/ToastProvider";
+import { InlineSpinner } from "@/components/InlineSpinner";
 import { PORTAL_MISSED_CALL_VARIABLES, PORTAL_MESSAGE_VARIABLES, type TemplateVariable } from "@/lib/portalTemplateVars";
 import { toPurelyHostedUrl } from "@/lib/publicHostedOrigin";
 
@@ -74,6 +75,8 @@ function badgeClass(kind: string) {
 export function PortalMissedCallTextBackClient({ embedded }: { embedded?: boolean } = {}) {
   const toast = useToast();
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const hasLoadedOnceRef = useRef(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
@@ -186,34 +189,41 @@ export function PortalMissedCallTextBackClient({ embedded }: { embedded?: boolea
   }
 
   const load = useCallback(async () => {
-    setLoading(true);
+    const firstLoad = !hasLoadedOnceRef.current;
+    if (firstLoad) setLoading(true);
+    else setRefreshing(true);
     setError(null);
     setNote(null);
 
-    const res = await fetch("/api/portal/missed-call-textback/settings", { cache: "no-store" }).catch(() => null as any);
+    try {
+      const res = await fetch("/api/portal/missed-call-textback/settings", { cache: "no-store" }).catch(() => null as any);
 
-    if (!res?.ok) {
-      const rawError = res ? await readJsonError(res) : null;
-      setLoading(false);
-      setError(friendlyApiError({ status: res?.status, rawError, action: "load" }));
-      return;
+      if (!res?.ok) {
+        const rawError = res ? await readJsonError(res) : null;
+        setError(friendlyApiError({ status: res?.status, rawError, action: "load" }));
+        if (firstLoad) setSettings(null);
+        return;
+      }
+
+      const data = (await res.json().catch(() => null)) as ApiPayload | null;
+      if (!data?.ok || !data.settings) {
+        setError(friendlyApiError({ status: res.status, rawError: (data as any)?.error ?? null, action: "load" }));
+        if (firstLoad) setSettings(null);
+        return;
+      }
+
+      setSettings(data.settings);
+      lastSavedSettingsJsonRef.current = JSON.stringify(data.settings);
+      setEvents(Array.isArray(data.events) ? data.events : []);
+      setProfilePhone(data.profilePhone ?? null);
+      setTwilioConfigured(Boolean(data.twilioConfigured));
+      setTwilioReason(data.twilioReason);
+      setReplyDelayUnitTouched(false);
+    } finally {
+      if (!hasLoadedOnceRef.current) hasLoadedOnceRef.current = true;
+      if (firstLoad) setLoading(false);
+      else setRefreshing(false);
     }
-
-    const data = (await res.json().catch(() => null)) as ApiPayload | null;
-    if (!data?.ok || !data.settings) {
-      setLoading(false);
-      setError(friendlyApiError({ status: res.status, rawError: (data as any)?.error ?? null, action: "load" }));
-      return;
-    }
-    setSettings(data.settings);
-    lastSavedSettingsJsonRef.current = JSON.stringify(data.settings);
-    setEvents(Array.isArray(data.events) ? data.events : []);
-    setProfilePhone(data.profilePhone ?? null);
-    setTwilioConfigured(Boolean(data.twilioConfigured));
-    setTwilioReason(data.twilioReason);
-    setReplyDelayUnitTouched(false);
-
-    setLoading(false);
   }, [friendlyApiError, readJsonError]);
 
   useEffect(() => {
@@ -327,7 +337,7 @@ export function PortalMissedCallTextBackClient({ embedded }: { embedded?: boolea
   }
 
 
-  if (loading || !settings) {
+  if (loading && !hasLoadedOnceRef.current) {
     return (
       <div
         className={
@@ -341,6 +351,28 @@ export function PortalMissedCallTextBackClient({ embedded }: { embedded?: boolea
     );
   }
 
+  if (!settings) {
+    return (
+      <div
+        className={
+          embedded
+            ? "w-full rounded-3xl border border-zinc-200 bg-white p-6"
+            : "mx-auto max-w-6xl rounded-3xl border border-zinc-200 bg-white p-6"
+        }
+      >
+        <div className="text-sm font-semibold text-zinc-900">Unable to load Missed-Call Text Back</div>
+        <div className="mt-2 text-sm text-zinc-600">{error ?? "Please try again."}</div>
+        <button
+          type="button"
+          onClick={() => void load()}
+          className="mt-4 inline-flex items-center justify-center rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95"
+        >
+          Retry
+        </button>
+      </div>
+    );
+  }
+
   return (
     <div className={embedded ? "w-full" : "mx-auto w-full max-w-6xl"}>
       {!embedded ? (
@@ -350,6 +382,12 @@ export function PortalMissedCallTextBackClient({ embedded }: { embedded?: boolea
             <p className="mt-2 max-w-2xl text-sm text-zinc-600">
               A simple missed-call list + a simple auto-text.
             </p>
+            {refreshing ? (
+              <div className="mt-2 inline-flex items-center gap-2 text-xs font-semibold text-zinc-500">
+                <InlineSpinner className="h-3.5 w-3.5 animate-spin" label="Refreshing" />
+                <span>Refreshing…</span>
+              </div>
+            ) : null}
           </div>
           <Link
             href="/portal/app/services"
