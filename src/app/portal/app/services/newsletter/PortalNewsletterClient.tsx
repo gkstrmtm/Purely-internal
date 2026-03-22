@@ -11,6 +11,7 @@ import { ContactTagsEditor, type ContactTag } from "@/components/ContactTagsEdit
 import { PortalFontDropdown } from "@/components/PortalFontDropdown";
 import { PortalListboxDropdown } from "@/components/PortalListboxDropdown";
 import { InlineSpinner } from "@/components/InlineSpinner";
+import { SuggestedSetupModalLauncher } from "@/components/SuggestedSetupModalLauncher";
 import { toPurelyHostedUrl } from "@/lib/publicHostedOrigin";
 
 type AudienceTab = "external" | "internal";
@@ -1034,6 +1035,10 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
           <p className="mt-1 max-w-2xl text-sm text-zinc-600">
             Capture leads and reach thousands with curated newsletters from your AI assistant.
           </p>
+        </div>
+
+        <div className="w-full sm:w-auto">
+          <SuggestedSetupModalLauncher serviceSlugs={["newsletter"]} buttonLabel="Suggested setup" />
         </div>
       </div>
 

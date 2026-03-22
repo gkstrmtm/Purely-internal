@@ -7,6 +7,7 @@ import { Lightbox, type LightboxImage } from "@/components/Lightbox";
 import { PortalSettingsSection } from "@/components/PortalSettingsSection";
 import { PortalVariablePickerModal } from "@/components/PortalVariablePickerModal";
 import { PortalBackToOnboardingLink } from "@/components/PortalBackToOnboardingLink";
+import { SuggestedSetupModalLauncher } from "@/components/SuggestedSetupModalLauncher";
 import { useToast } from "@/components/ToastProvider";
 import { InlineSpinner } from "@/components/InlineSpinner";
 import { DEFAULT_TAG_COLORS } from "@/lib/tagColors.shared";
@@ -1108,6 +1109,10 @@ export default function PortalReviewsClient() {
             <span>Refreshing…</span>
           </div>
         ) : null}
+      </div>
+
+      <div className="mt-4">
+        <SuggestedSetupModalLauncher serviceSlugs={["reviews"]} buttonLabel="Suggested setup" />
       </div>
 
       <div className={isMobileApp ? "mt-6 grid w-full grid-cols-2 gap-2" : "mt-6 flex w-full flex-wrap gap-2"}>

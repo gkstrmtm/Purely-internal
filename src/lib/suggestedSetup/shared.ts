@@ -24,7 +24,23 @@ export type ActivationProfile = {
 
 export type SuggestedSetupActionKind =
   | "blogs.createSite"
-  | "blogs.setAutomationSettings";
+  | "blogs.setAutomationSettings"
+  | "booking.configureSite"
+  | "booking.configureReminders"
+  | "dashboard.addWidgets"
+  | "inbox.initialize"
+  | "tasks.seedStarterTasks"
+  | "mediaLibrary.createStarterFolders"
+  | "reviews.configureSettings"
+  | "newsletter.configureAutomation"
+  | "nurture.createStarterCampaign"
+  | "leadOutbound.createCampaign"
+  | "aiReceptionist.configureSettings"
+  | "automations.initialize"
+  | "leadScraping.configureSettings"
+  | "followUp.seedTemplates"
+  | "missedCallTextback.configureSettings"
+  | "funnelBuilder.createStarterFunnel";
 
 export type SuggestedSetupAction = {
   id: string;

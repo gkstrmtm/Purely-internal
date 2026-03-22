@@ -8,6 +8,7 @@ import { InlineElevenLabsAgentTester } from "@/components/InlineElevenLabsAgentT
 import { InlineSpinner } from "@/components/InlineSpinner";
 import { PortalListboxDropdown } from "@/components/PortalListboxDropdown";
 import { PortalSelectDropdown } from "@/components/PortalSelectDropdown";
+import { SuggestedSetupModalLauncher } from "@/components/SuggestedSetupModalLauncher";
 import { PortalVariablePickerModal } from "@/components/PortalVariablePickerModal";
 import { useToast } from "@/components/ToastProvider";
 import { DEFAULT_TAG_COLORS } from "@/lib/tagColors.shared";
@@ -528,6 +529,17 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
   const [tab, setTab] = useState<OutboundTabKey>(initialTab ?? "calls");
   const [settingsTab, setSettingsTab] = useState<"calls" | "messages">("calls");
 
+  const prevTabRef = useRef<OutboundTabKey | null>(null);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const prev = prevTabRef.current;
+    prevTabRef.current = tab;
+    if (prev && prev !== tab) {
+      window.scrollTo({ top: 0, left: 0, behavior: "auto" });
+    }
+  }, [tab]);
+
   const [variablePickerOpen, setVariablePickerOpen] = useState(false);
   const [variablePickerTarget, setVariablePickerTarget] = useState<null | "calls_first" | "messages_first">(null);
   const [knownContactCustomVarKeys, setKnownContactCustomVarKeys] = useState<string[]>([]);
@@ -659,6 +671,13 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
       setTab(next);
       if (typeof window === "undefined") return;
       router.replace(`${basePath}/${next}${window.location.search || ""}`);
+      requestAnimationFrame(() => {
+        try {
+          window.scrollTo({ top: 0, left: 0, behavior: "auto" });
+        } catch {
+          // ignore
+        }
+      });
     },
     [basePath, router],
   );
@@ -2147,6 +2166,9 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
           <p className="mt-1 text-sm text-zinc-600">
             Reach out to thousands of leads automatically or on demand, with a curated AI calling assistant.
           </p>
+        </div>
+        <div className="w-full sm:w-auto">
+          <SuggestedSetupModalLauncher serviceSlugs={["ai-outbound-calls"]} buttonLabel="Suggested setup" />
         </div>
       </div>
 

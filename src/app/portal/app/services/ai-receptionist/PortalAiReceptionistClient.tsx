@@ -8,6 +8,7 @@ import { InlineElevenLabsAgentTester } from "@/components/InlineElevenLabsAgentT
 import { InlineSpinner } from "@/components/InlineSpinner";
 import { PortalListboxDropdown } from "@/components/PortalListboxDropdown";
 import { PortalSelectDropdown } from "@/components/PortalSelectDropdown";
+import { SuggestedSetupModalLauncher } from "@/components/SuggestedSetupModalLauncher";
 import { ContactTagsEditor, type ContactTag } from "@/components/ContactTagsEditor";
 import { useToast } from "@/components/ToastProvider";
 
@@ -1319,6 +1320,9 @@ export function PortalAiReceptionistClient() {
           ) : null}
         </div>
         <div className="flex items-start gap-3">
+          <div className="w-full sm:w-auto">
+            <SuggestedSetupModalLauncher serviceSlugs={["ai-receptionist"]} buttonLabel="Suggested setup" />
+          </div>
           <div className="hidden rounded-2xl border border-zinc-200 bg-white px-4 py-2 sm:block">
             <div className="text-[11px] font-semibold text-zinc-500">Credits remaining</div>
             <div className="mt-1 flex items-end justify-between gap-3">

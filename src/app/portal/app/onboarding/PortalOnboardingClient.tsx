@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 
 import { AppModal } from "@/components/AppModal";
+import { SuggestedSetupModalLauncher } from "@/components/SuggestedSetupModalLauncher";
 
 type Status = {
   businessProfileComplete: boolean;
@@ -169,6 +170,13 @@ export function PortalOnboardingClient() {
           >
             Back to dashboard
           </Link>
+
+          <SuggestedSetupModalLauncher
+            buttonLabel="View suggested setup"
+            title="Suggested setup"
+            description="Review and apply recommended actions. Nothing runs until you approve it."
+            buttonClassName="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-5 py-3 text-sm font-semibold text-white hover:opacity-95"
+          />
         </div>
       </div>
 

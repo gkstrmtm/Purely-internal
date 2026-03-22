@@ -6,6 +6,7 @@ import { PortalListboxDropdown } from "@/components/PortalListboxDropdown";
 import { PortalVariablePickerModal } from "@/components/PortalVariablePickerModal";
 import { PortalBackToOnboardingLink } from "@/components/PortalBackToOnboardingLink";
 import { InlineSpinner } from "@/components/InlineSpinner";
+import { SuggestedSetupModalLauncher } from "@/components/SuggestedSetupModalLauncher";
 import { useToast } from "@/components/ToastProvider";
 import { PORTAL_SERVICES } from "@/app/portal/services/catalog";
 import { PORTAL_LINK_VARIABLES, PORTAL_MESSAGE_VARIABLES, type TemplateVariable } from "@/lib/portalTemplateVars";
@@ -2147,27 +2148,30 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
               </div>
             ) : null}
           </div>
-          <button
-            type="button"
-            className="rounded-2xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
-            onClick={() => {
-              const nowIso = new Date().toISOString();
-              const next: Automation = {
-                ...buildStarterAutomation(),
-                name: "New automation",
-                updatedAtIso: nowIso,
-                createdAtIso: nowIso,
-                createdBy: viewer?.userId ? { userId: viewer.userId, email: viewer.email, name: viewer.name } : undefined,
-              };
-              const nextList = [next, ...automations].slice(0, 50);
-              setAutomations(nextList);
-              void saveAll(nextList);
-              openAutomationEditorWindow(next.id);
-            }}
-            disabled={saving}
-          >
-            + New automation
-          </button>
+          <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center sm:justify-end">
+            <SuggestedSetupModalLauncher serviceSlugs={["automations"]} buttonLabel="Suggested setup" />
+            <button
+              type="button"
+              className="rounded-2xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
+              onClick={() => {
+                const nowIso = new Date().toISOString();
+                const next: Automation = {
+                  ...buildStarterAutomation(),
+                  name: "New automation",
+                  updatedAtIso: nowIso,
+                  createdAtIso: nowIso,
+                  createdBy: viewer?.userId ? { userId: viewer.userId, email: viewer.email, name: viewer.name } : undefined,
+                };
+                const nextList = [next, ...automations].slice(0, 50);
+                setAutomations(nextList);
+                void saveAll(nextList);
+                openAutomationEditorWindow(next.id);
+              }}
+              disabled={saving}
+            >
+              + New automation
+            </button>
+          </div>
         </div>
 
         <div className="mt-4 rounded-3xl border border-zinc-200 bg-white p-4">

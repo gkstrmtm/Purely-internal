@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 
 import { useToast } from "@/components/ToastProvider";
+import { SuggestedSetupModalLauncher } from "@/components/SuggestedSetupModalLauncher";
 import { PortalListboxDropdown } from "@/components/PortalListboxDropdown";
 import { PortalVariablePickerModal } from "@/components/PortalVariablePickerModal";
 import { PortalMediaPickerModal, type PortalMediaPickItem } from "@/components/PortalMediaPickerModal";
@@ -555,6 +556,7 @@ export function PortalNurtureCampaignsClient() {
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
+          <SuggestedSetupModalLauncher serviceSlugs={["nurture-campaigns"]} buttonLabel="Suggested setup" />
           <button
             type="button"
             className="inline-flex items-center gap-2 rounded-2xl bg-(--color-brand-blue) px-4 py-2 text-sm font-semibold text-white shadow-sm hover:opacity-90 disabled:opacity-60"

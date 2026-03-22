@@ -7,6 +7,7 @@ import { InlineSpinner } from "@/components/InlineSpinner";
 import { PortalVariablePickerModal } from "@/components/PortalVariablePickerModal";
 import { PortalListboxDropdown, type PortalListboxOption } from "@/components/PortalListboxDropdown";
 import { AppModal } from "@/components/AppModal";
+import { SuggestedSetupModalLauncher } from "@/components/SuggestedSetupModalLauncher";
 import { useToast } from "@/components/ToastProvider";
 import { LEAD_OUTBOUND_VARIABLES, type TemplateVariable } from "@/lib/portalTemplateVars";
 import { toPurelyHostedUrl } from "@/lib/publicHostedOrigin";
@@ -2185,6 +2186,9 @@ export function PortalLeadScrapingClient() {
               Refreshing…
             </div>
           ) : null}
+        </div>
+        <div className="w-full sm:w-auto">
+          <SuggestedSetupModalLauncher serviceSlugs={["lead-scraping"]} buttonLabel="Suggested setup" />
         </div>
       </div>
 

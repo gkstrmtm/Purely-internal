@@ -15,6 +15,7 @@ import { PortalTypeaheadInput } from "@/components/PortalTypeaheadInput";
 import { PortalVariablePickerModal } from "@/components/PortalVariablePickerModal";
 import { ContactTagsEditor, type ContactTag } from "@/components/ContactTagsEditor";
 import { LocalDateTimePicker } from "@/components/LocalDateTimePicker";
+import { SuggestedSetupModalLauncher } from "@/components/SuggestedSetupModalLauncher";
 import { useToast } from "@/components/ToastProvider";
 import { REMINDER_TEMPLATES, type ReminderTemplate } from "@/lib/portalReminderTemplates";
 import { PORTAL_BOOKING_VARIABLES, PORTAL_MESSAGE_VARIABLES } from "@/lib/portalTemplateVars";
@@ -1487,6 +1488,10 @@ export function PortalBookingClient() {
               Refreshing…
             </div>
           ) : null}
+        </div>
+
+        <div className="w-full sm:w-auto">
+          <SuggestedSetupModalLauncher serviceSlugs={["booking"]} buttonLabel="Suggested setup" />
         </div>
       </div>
 
