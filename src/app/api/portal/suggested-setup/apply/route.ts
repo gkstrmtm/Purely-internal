@@ -17,7 +17,9 @@ const bodySchema = z
   .strict();
 
 export async function POST(req: Request) {
-  const auth = await requireClientSessionForService("businessProfile", "edit");
+  // Gate apply on Profile edit so portal members can use setup.
+  // Individual actions are still approval-gated and revalidated at apply time.
+  const auth = await requireClientSessionForService("profile", "edit");
   if (!auth.ok) {
     return NextResponse.json(
       { ok: false, error: auth.status === 401 ? "Unauthorized" : "Forbidden" },
@@ -37,7 +39,16 @@ export async function POST(req: Request) {
   const ownerId = auth.session.user.id;
 
   // Recompute suggestions at apply-time. Only actions still proposed are eligible.
-  const { preview } = await buildSuggestedSetupPreviewForOwner(ownerId);
+  let preview: { proposedActions: SuggestedSetupAction[] };
+  try {
+    preview = (await buildSuggestedSetupPreviewForOwner(ownerId)).preview;
+  } catch {
+    return NextResponse.json(
+      { ok: false, error: "Unable to apply suggested setup" },
+      { status: 500 },
+    );
+  }
+
   const proposedById = new Map(preview.proposedActions.map((a) => [a.id, a] as const));
 
   const selected: SuggestedSetupAction[] = parsed.data.actionIds

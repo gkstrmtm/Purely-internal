@@ -123,7 +123,7 @@ export function SuggestedSetupModalLauncher(opts: {
         type="button"
         className={
           opts.buttonClassName ??
-          "inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50 disabled:opacity-60"
+          "inline-flex items-center justify-center rounded-2xl bg-linear-to-r from-(--color-brand-blue) via-violet-500 to-(--color-brand-pink) px-4 py-2 text-sm font-semibold text-white shadow-sm hover:opacity-90 disabled:opacity-60"
         }
         onClick={() => setOpen(true)}
         disabled={!canEdit}
@@ -176,7 +176,7 @@ export function SuggestedSetupModalLauncher(opts: {
             </button>
             <button
               type="button"
-              className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-5 py-3 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
+              className="inline-flex items-center justify-center rounded-2xl bg-linear-to-r from-(--color-brand-blue) via-violet-500 to-(--color-brand-pink) px-5 py-3 text-sm font-semibold text-white shadow-sm hover:opacity-90 disabled:opacity-60"
               onClick={applySelected}
               disabled={!canEdit || applying || !selectedActionIds.length}
             >

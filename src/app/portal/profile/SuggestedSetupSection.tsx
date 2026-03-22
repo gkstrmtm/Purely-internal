@@ -134,7 +134,7 @@ export function SuggestedSetupSection({ canEdit }: { canEdit: boolean }) {
           </div>
           <button
             type="button"
-            className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-5 py-3 text-sm font-semibold text-brand-ink hover:bg-zinc-50 disabled:opacity-60"
+            className="inline-flex items-center justify-center rounded-2xl bg-linear-to-r from-(--color-brand-blue) via-violet-500 to-(--color-brand-pink) px-5 py-3 text-sm font-semibold text-white shadow-sm hover:opacity-90 disabled:opacity-60"
             onClick={async () => {
               setOpen(true);
               await loadPreview();

@@ -158,7 +158,7 @@ export async function buildSuggestedSetupPreviewForOwner(ownerId: string): Promi
     let hasAnyTasks = false;
     if (hasTable) {
       const rows = (await prisma
-        .$queryRawUnsafe('select count(1)::int as "count" from "PortalTask" where "ownerId" = $1', ownerId)
+        .$queryRaw`select count(1)::int as "count" from "PortalTask" where "ownerId" = ${ownerId}`
         .catch(() => [])) as Array<{ count: number }>;
       const c = typeof rows?.[0]?.count === "number" ? rows[0].count : 0;
       hasAnyTasks = c > 0;
@@ -174,10 +174,7 @@ export async function buildSuggestedSetupPreviewForOwner(ownerId: string): Promi
     let hasAnyRootFolders = false;
     if (hasTable) {
       const rows = (await prisma
-        .$queryRawUnsafe(
-          'select count(1)::int as "count" from "PortalMediaFolder" where "ownerId" = $1 and "parentId" is null',
-          ownerId,
-        )
+        .$queryRaw`select count(1)::int as "count" from "PortalMediaFolder" where "ownerId" = ${ownerId} and "parentId" is null`
         .catch(() => [])) as Array<{ count: number }>;
       const c = typeof rows?.[0]?.count === "number" ? rows[0].count : 0;
       // If uploads already exists, count will be 1. We still want to offer the starter structure.

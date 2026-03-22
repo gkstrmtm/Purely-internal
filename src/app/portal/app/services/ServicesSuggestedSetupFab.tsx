@@ -28,7 +28,7 @@ export function ServicesSuggestedSetupFab() {
       <SuggestedSetupModalLauncher
         serviceSlugs={serviceSlug ? [serviceSlug] : undefined}
         buttonLabel="Suggested setup"
-        buttonClassName="inline-flex items-center justify-center rounded-full bg-brand-ink px-4 py-3 text-sm font-semibold text-white shadow-lg hover:opacity-95"
+        buttonClassName="inline-flex items-center justify-center rounded-full bg-linear-to-r from-(--color-brand-blue) via-violet-500 to-(--color-brand-pink) px-4 py-3 text-sm font-semibold text-white shadow-lg hover:opacity-90"
         title={serviceSlug ? `Suggested setup: ${serviceSlug}` : "Suggested setup"}
       />
     </div>

@@ -8,7 +8,9 @@ export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 export async function GET() {
-  const auth = await requireClientSessionForService("businessProfile", "edit");
+  // Suggested setup should be available anywhere in the portal. Gate it on Profile access
+  // (members have this by default), not Business Profile (members do not).
+  const auth = await requireClientSessionForService("profile", "view");
   if (!auth.ok) {
     return NextResponse.json(
       { ok: false, error: auth.status === 401 ? "Unauthorized" : "Forbidden" },
@@ -18,12 +20,19 @@ export async function GET() {
 
   const ownerId = auth.session.user.id;
 
-  const { entitlements, preview } = await buildSuggestedSetupPreviewForOwner(ownerId);
+  try {
+    const { entitlements, preview } = await buildSuggestedSetupPreviewForOwner(ownerId);
 
-  return NextResponse.json({
-    ok: true,
-    entitlements,
-    activationProfile: preview.activationProfile,
-    proposedActions: preview.proposedActions,
-  });
+    return NextResponse.json({
+      ok: true,
+      entitlements,
+      activationProfile: preview.activationProfile,
+      proposedActions: preview.proposedActions,
+    });
+  } catch {
+    return NextResponse.json(
+      { ok: false, error: "Unable to load suggested setup" },
+      { status: 500 },
+    );
+  }
 }

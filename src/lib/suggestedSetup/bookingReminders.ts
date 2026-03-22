@@ -44,10 +44,10 @@ export function proposeBookingConfigureReminders(opts: {
   return {
     id: actionIdFromParts({
       kind: "booking.configureReminders",
-      serviceSlug: "booking",
+      serviceSlug: "appointment-reminders",
       signature: payload,
     }),
-    serviceSlug: "booking",
+    serviceSlug: "appointment-reminders",
     kind: "booking.configureReminders",
     title: "Set up appointment reminders",
     description: "Turns on a starter reminder sequence using proven templates. You can edit messages anytime.",

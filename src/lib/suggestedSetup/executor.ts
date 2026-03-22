@@ -433,7 +433,7 @@ async function applyTasksSeedStarterTasks(ownerId: string, payload: Record<strin
   await ensurePortalTasksSchema().catch(() => null);
 
   const rows = (await prisma
-    .$queryRawUnsafe('select count(1)::int as "count" from "PortalTask" where "ownerId" = $1', ownerId)
+    .$queryRaw`select count(1)::int as "count" from "PortalTask" where "ownerId" = ${ownerId}`
     .catch(() => [])) as Array<{ count: number }>;
   const count = typeof rows?.[0]?.count === "number" ? rows[0].count : 0;
   if (count > 0) return;
@@ -457,11 +457,10 @@ async function applyTasksSeedStarterTasks(ownerId: string, payload: Record<strin
   for (const t of tasks) {
     const id = crypto.randomUUID().replace(/-/g, "");
     const dueAt = typeof t.dueOffsetDays === "number" ? new Date(now.getTime() + t.dueOffsetDays * 24 * 60 * 60 * 1000) : null;
-    const sql = `
+    await prisma.$executeRaw`
       INSERT INTO "PortalTask" ("id","ownerId","createdByUserId","title","description","status","assignedToUserId","dueAt","createdAt","updatedAt")
-      VALUES ($1,$2,$3,$4,$5,'OPEN',NULL,$6,DEFAULT,$7)
+      VALUES (${id},${ownerId},${ownerId},${t.title},${t.description || null},'OPEN',NULL,${dueAt},DEFAULT,${now})
     `;
-    await prisma.$executeRawUnsafe(sql, id, ownerId, ownerId, t.title, t.description || null, dueAt, now);
   }
 }
 
