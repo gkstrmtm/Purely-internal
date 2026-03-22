@@ -8,8 +8,8 @@ export function PortalHeaderCta({ canOpenPortalApp }: { canOpenPortalApp: boolea
 
   if (!canOpenPortalApp) return null;
 
-  const isCreditVariantPath = typeof pathname === "string" && (pathname === "/credit" || pathname.startsWith("/credit/"));
-  const appHref = isCreditVariantPath ? "/credit/app" : "/portal/app";
+  // Always open the main portal app. Credit pages should not route users to a non-existent /credit/app.
+  const appHref = "/portal/app";
   const inPortalApp = typeof pathname === "string" && (pathname.startsWith("/portal/app") || pathname.startsWith("/credit/app"));
 
   if (inPortalApp) {

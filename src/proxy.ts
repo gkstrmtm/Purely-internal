@@ -326,6 +326,20 @@ export async function proxy(req: NextRequest) {
 
     // Authenticated client portal (new URL tree)
     if (isPortalApp) {
+      // If the request originates from a mobile UA, send users to the public
+      // site mobile experience so they land on the mobile-optimized app view.
+      try {
+        const ua = String(req.headers.get("user-agent") || "").toLowerCase();
+        const isMobileUA = /mobile|iphone|android|ipad|ipod/.test(ua);
+        if (isMobileUA) {
+          const mobileUrl = new URL(process.env.NEXT_PUBLIC_MOBILE_REDIRECT_URL || "https://purelyautomation.com/");
+          mobileUrl.searchParams.set("pa_mobileapp", "1");
+          return NextResponse.redirect(mobileUrl);
+        }
+      } catch (e) {
+        // fall-through to normal handling
+      }
+
       const guard = requireClientOrAdmin();
       if (guard) {
         guard.searchParams.set("from", path);
@@ -426,6 +440,18 @@ export async function proxy(req: NextRequest) {
 
   // Authenticated client portal (new URL tree)
   if (isPortalApp) {
+    try {
+      const ua = String(req.headers.get("user-agent") || "").toLowerCase();
+      const isMobileUA = /mobile|iphone|android|ipad|ipod/.test(ua);
+      if (isMobileUA) {
+        const mobileUrl = new URL(process.env.NEXT_PUBLIC_MOBILE_REDIRECT_URL || "https://purelyautomation.com/");
+        mobileUrl.searchParams.set("pa_mobileapp", "1");
+        return NextResponse.redirect(mobileUrl);
+      }
+    } catch (e) {
+      // fall through
+    }
+
     const guard = requireClientOrAdmin();
     if (guard) {
       if (guard.pathname === "/login") {
