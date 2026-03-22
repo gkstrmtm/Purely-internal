@@ -1441,7 +1441,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
 
         <aside
           className={classNames(
-            "hidden shrink-0 border-r border-zinc-200 bg-white overflow-hidden sm:flex sm:flex-col sm:sticky sm:top-0 sm:h-full",
+            "hidden shrink-0 border-r border-zinc-200 bg-white overflow-hidden transition-[width] duration-200 ease-out sm:flex sm:flex-col sm:sticky sm:top-0 sm:h-full",
             collapsed ? "w-19" : "w-70",
           )}
         >
