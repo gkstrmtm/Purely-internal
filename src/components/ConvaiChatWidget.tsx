@@ -2,6 +2,8 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 
+import { deriveHostedBrandTheme } from "@/lib/hostedBrandTheme";
+
 type ChatMessage = {
   id: string;
   role: "user" | "assistant";
@@ -71,7 +73,7 @@ function renderInlineWithLinks(text: string): React.ReactNode {
           href={href}
           target={external ? "_blank" : undefined}
           rel={external ? "noreferrer noopener" : undefined}
-          className="font-semibold text-brand-blue underline underline-offset-2 hover:opacity-90"
+          className="font-semibold text-(--convai-link) underline underline-offset-2 hover:opacity-90"
         >
           {label}
         </a>,
@@ -107,7 +109,7 @@ function renderInlineWithLinks(text: string): React.ReactNode {
             href={href}
             target="_blank"
             rel="noreferrer noopener"
-            className="font-semibold text-brand-blue underline underline-offset-2 hover:opacity-90"
+            className="font-semibold text-(--convai-link) underline underline-offset-2 hover:opacity-90"
           >
             {um[0]}
           </a>,
@@ -258,10 +260,23 @@ export function ConvaiChatWidget({
   const canSend = useMemo(() => status !== "connecting", [status]);
 
   const cssVars = useMemo(() => {
-    const vars: Record<string, string> = {};
-    const c = String(primaryColor || "").trim();
-    if (c) vars["--convai-primary"] = c;
-    return vars;
+    const base = String(primaryColor || "").trim();
+    const basePrimary = /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(base) ? base : "#1d4ed8";
+
+    const theme = deriveHostedBrandTheme({
+      brandPrimaryHex: basePrimary,
+      brandSecondaryHex: basePrimary,
+      brandAccentHex: basePrimary,
+      brandTextHex: null,
+    });
+
+    return {
+      ["--convai-primary" as any]: theme.ctaHex,
+      ["--convai-on-primary" as any]: theme.onCtaHex,
+      ["--convai-link" as any]: theme.linkHex,
+      ["--convai-soft" as any]: theme.softHex,
+      ["--convai-border" as any]: theme.borderHex,
+    } as Record<string, string>;
   }, [primaryColor]);
 
   const positionStyle = useMemo(() => {
@@ -505,14 +520,12 @@ export function ConvaiChatWidget({
   }, []);
 
   const userBubbleStyle = useMemo(() => {
-    const c = String(primaryColor || "").trim();
-    return c ? ({ backgroundColor: c } as React.CSSProperties) : undefined;
-  }, [primaryColor]);
+    return { backgroundColor: "var(--convai-primary)", color: "var(--convai-on-primary)" } as React.CSSProperties;
+  }, []);
 
   const sendButtonStyle = useMemo(() => {
-    const c = String(primaryColor || "").trim();
-    return c ? ({ backgroundColor: c } as React.CSSProperties) : undefined;
-  }, [primaryColor]);
+    return { backgroundColor: "var(--convai-primary)", color: "var(--convai-on-primary)" } as React.CSSProperties;
+  }, []);
 
   const panelOpenAbove = placementY !== "top";
 
@@ -558,7 +571,7 @@ export function ConvaiChatWidget({
                   <div
                     className={
                       m.role === "user"
-                        ? "max-w-[85%] rounded-2xl px-3 py-2 text-sm font-semibold text-white"
+                        ? "max-w-[85%] rounded-2xl px-3 py-2 text-sm font-semibold"
                         : "max-w-[85%] rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-800"
                     }
                     style={m.role === "user" ? userBubbleStyle : undefined}
@@ -591,13 +604,13 @@ export function ConvaiChatWidget({
                 rows={1}
                 placeholder={agentId ? "Type a message…" : "Set an Agent ID to chat…"}
                 disabled={!agentId}
-                className="min-h-11 flex-1 resize-none rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 shadow-sm outline-none focus:border-brand-blue disabled:opacity-60"
+                className="min-h-11 flex-1 resize-none rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 shadow-sm outline-none focus:border-(--convai-link) disabled:opacity-60"
               />
               <button
                 type="submit"
                 disabled={!canSend || !agentId}
-                className="inline-flex h-11 items-center justify-center rounded-2xl px-4 text-sm font-bold text-white hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-60"
-                style={sendButtonStyle ?? { background: "linear-gradient(to right, var(--color-brand-blue), var(--color-brand-pink))" }}
+                className="inline-flex h-11 items-center justify-center rounded-2xl px-4 text-sm font-bold hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-60"
+                style={sendButtonStyle}
               >
                 Send
               </button>
@@ -617,8 +630,8 @@ export function ConvaiChatWidget({
           aria-label="Open chat"
         >
           <span
-            className="grid h-9 w-9 place-items-center rounded-full text-white"
-            style={primaryColor ? ({ backgroundColor: primaryColor } as any) : { background: "linear-gradient(to right, var(--color-brand-blue), var(--color-brand-pink))" }}
+            className="grid h-9 w-9 place-items-center rounded-full"
+            style={{ backgroundColor: "var(--convai-primary)", color: "var(--convai-on-primary)" } as any}
           >
             {launcherImageUrl ? (
               // eslint-disable-next-line @next/next/no-img-element

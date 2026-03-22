@@ -1,6 +1,9 @@
 import { notFound } from "next/navigation";
 
 import { resolveCustomDomain } from "@/lib/customDomainResolver";
+import { prisma } from "@/lib/db";
+import { hasPublicColumn } from "@/lib/dbSchema";
+import { deriveHostedBrandTheme } from "@/lib/hostedBrandTheme";
 
 import ChatbotEmbedClient from "@/app/embed/chatbot/ChatbotEmbedClient";
 
@@ -31,6 +34,35 @@ export default async function CustomDomainChatbotEmbedPage({
   if (!mapping) notFound();
   if (mapping.status !== "VERIFIED") return <PendingVerification />;
 
+  const [hasPrimaryHex, hasSecondaryHex, hasAccentHex, hasTextHex] = await Promise.all([
+    hasPublicColumn("BusinessProfile", "brandPrimaryHex"),
+    hasPublicColumn("BusinessProfile", "brandSecondaryHex"),
+    hasPublicColumn("BusinessProfile", "brandAccentHex"),
+    hasPublicColumn("BusinessProfile", "brandTextHex"),
+  ]);
+
+  const profileSelect: Record<string, boolean> = {};
+  if (hasPrimaryHex) profileSelect.brandPrimaryHex = true;
+  if (hasSecondaryHex) profileSelect.brandSecondaryHex = true;
+  if (hasAccentHex) profileSelect.brandAccentHex = true;
+  if (hasTextHex) profileSelect.brandTextHex = true;
+
+  const profile =
+    Object.keys(profileSelect).length > 0
+      ? await prisma.businessProfile
+          .findUnique({ where: { ownerId: mapping.ownerId }, select: profileSelect as any })
+          .catch(() => null)
+      : null;
+
+  const theme = deriveHostedBrandTheme({
+    brandPrimaryHex: (profile as any)?.brandPrimaryHex ?? null,
+    brandSecondaryHex: (profile as any)?.brandSecondaryHex ?? null,
+    brandAccentHex: (profile as any)?.brandAccentHex ?? null,
+    brandTextHex: (profile as any)?.brandTextHex ?? null,
+  });
+
+  const derivedPrimaryColor = theme.ctaHex;
+
   const sp = await searchParams;
   const get = (k: string) => {
     const v = sp?.[k];
@@ -41,7 +73,7 @@ export default async function CustomDomainChatbotEmbedPage({
   const signedUrlEndpoint = get("signedUrlEndpoint") || "/api/public/elevenlabs/convai/signed-url";
   const placementX = get("placementX") || "right";
   const placementY = get("placementY") || "bottom";
-  const primaryColor = get("primaryColor") || "";
+  const primaryColor = get("primaryColor") || derivedPrimaryColor || "";
   const launcherStyle = get("launcherStyle") || "bubble";
   const launcherImageUrl = get("launcherImageUrl") || "";
 
