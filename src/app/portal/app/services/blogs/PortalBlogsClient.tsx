@@ -248,6 +248,33 @@ export function PortalBlogsClient({
     return Math.max(0, postsPerWeek - 1);
   }, [autoFrequencyDays]);
 
+  const [automationStatusBusy, setAutomationStatusBusy] = useState(false);
+
+  const refreshAutomationStatus = useCallback(async () => {
+    // Refresh only the status fields so we don’t clobber in-progress edits
+    // or throw the whole Blogs UI into a loading screen.
+    setAutomationStatusBusy(true);
+    try {
+      const res = await fetch("/api/portal/blogs/automation/settings", { cache: "no-store" }).catch(() => null as any);
+      if (!res?.ok) return;
+      const json = (await res.json().catch(() => null)) as any;
+      if (!json || json.ok !== true || !json.settings) return;
+
+      const next = json.settings as AutomationSettings;
+      setAutomation((prev) => {
+        if (!prev) return next;
+        return {
+          ...prev,
+          lastGeneratedAt: next.lastGeneratedAt ?? prev.lastGeneratedAt ?? null,
+          nextDueAt: next.nextDueAt ?? prev.nextDueAt ?? null,
+          lastRunAt: next.lastRunAt ?? prev.lastRunAt ?? null,
+        };
+      });
+    } finally {
+      setAutomationStatusBusy(false);
+    }
+  }, []);
+
   const refreshAll = useCallback(async () => {
     setLoading(true);
     setError(null);
@@ -371,19 +398,6 @@ export function PortalBlogsClient({
   }, [refreshAll]);
 
   useEffect(() => {
-    const onFocus = () => void refreshAll();
-    const onVis = () => {
-      if (!document.hidden) void refreshAll();
-    };
-    window.addEventListener("focus", onFocus);
-    document.addEventListener("visibilitychange", onVis);
-    return () => {
-      window.removeEventListener("focus", onFocus);
-      document.removeEventListener("visibilitychange", onVis);
-    };
-  }, [refreshAll]);
-
-  useEffect(() => {
     if (!openPostMenu) return;
 
     const onKey = (e: KeyboardEvent) => {
@@ -454,7 +468,20 @@ export function PortalBlogsClient({
       setError(json.error ?? "Unable to update archive state");
       return;
     }
-    await refreshAll();
+
+    const nowIso = new Date().toISOString();
+    setPosts((prev) =>
+      prev.map((p) =>
+        p.id === postId
+          ? {
+              ...p,
+              archivedAt: archived ? nowIso : null,
+              updatedAt: nowIso,
+            }
+          : p,
+      ),
+    );
+    toast.success(archived ? "Post archived." : "Post restored.");
   }
 
   async function deletePost(postId: string) {
@@ -465,7 +492,8 @@ export function PortalBlogsClient({
       setError(json.error ?? "Unable to delete post");
       return;
     }
-    await refreshAll();
+    setPosts((prev) => prev.filter((p) => p.id !== postId));
+    toast.success("Post deleted.");
   }
 
   async function createSite() {
@@ -489,7 +517,8 @@ export function PortalBlogsClient({
     setSiteName(json.site.name);
     setSiteSlug(json.site.slug ?? "");
     setSiteDomain(json.site.primaryDomain ?? "");
-    await refreshAll();
+    toast.success("Blog workspace created.");
+    void refreshAutomationStatus();
   }
 
   async function saveSite() {
@@ -520,7 +549,7 @@ export function PortalBlogsClient({
     setSiteName(json.site.name);
     setSiteSlug(json.site.slug ?? "");
     setSiteDomain(json.site.primaryDomain ?? "");
-    await refreshAll();
+    toast.success("Blog settings saved.");
   }
 
   async function newDraft() {
@@ -570,7 +599,31 @@ export function PortalBlogsClient({
       return;
     }
 
-    await refreshAll();
+    const nextFrequencyDays = Math.min(30, Math.max(1, Math.floor(Number(autoFrequencyDays) || 7)));
+    const nextTopics = sanitizeTopics(autoTopics);
+
+    setAutomation((prev) =>
+      prev
+        ? {
+            ...prev,
+            enabled: Boolean(autoEnabled),
+            frequencyDays: nextFrequencyDays,
+            topics: nextTopics,
+            autoPublish: Boolean(autoPublish),
+          }
+        : {
+            enabled: Boolean(autoEnabled),
+            frequencyDays: nextFrequencyDays,
+            topics: nextTopics,
+            autoPublish: Boolean(autoPublish),
+            lastGeneratedAt: null,
+            nextDueAt: null,
+            lastRunAt: null,
+          },
+    );
+
+    toast.success("Automation saved.");
+    await refreshAutomationStatus();
   }
 
   if (loading) {
@@ -629,7 +682,7 @@ export function PortalBlogsClient({
         <div>
           <h1 className="text-2xl font-bold text-brand-ink sm:text-3xl">Blogs</h1>
           <p className="mt-1 text-sm text-zinc-600">
-            Draft posts here, then publish them on your own website.
+            Stay searchable without writing every week—generate SEO-friendly drafts, edit them, and publish to your hosted blog (or your custom domain).
           </p>
         </div>
         <div
@@ -812,7 +865,7 @@ export function PortalBlogsClient({
             </div>
 
             <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-4 text-xs text-zinc-600">
-              Your website publishing is up to you (WordPress, Webflow, Shopify, etc.). We’ll keep drafts exportable.
+              Publish right here to your hosted blog (or custom domain), or export drafts to another site (WordPress, Webflow, Shopify, etc.).
             </div>
           </div>
         </>
@@ -821,7 +874,9 @@ export function PortalBlogsClient({
       {routeTab === "automation" ? (
         <div className="mt-6 rounded-3xl border border-zinc-200 bg-white p-6 shadow-sm">
           <div className="text-sm font-semibold text-zinc-900">Blog automation schedule</div>
-          <div className="mt-2 text-sm text-zinc-600">Set it once, and we’ll generate posts on schedule.</div>
+          <div className="mt-2 text-sm text-zinc-600">
+            Set a cadence and a topic list—we’ll generate SEO-ready drafts automatically so your website stays fresh and searchable.
+          </div>
 
           <div className="mt-5 space-y-4">
             <label className="flex items-center justify-between gap-3 text-sm">
@@ -1006,7 +1061,17 @@ export function PortalBlogsClient({
                 <div>Last generated: {automation.lastGeneratedAt ? formatDate(automation.lastGeneratedAt) : "N/A"}</div>
                 <div>Next due: {automation.nextDueAt ? formatDate(automation.nextDueAt) : "N/A"}</div>
                 <div>Scheduler last ran: {automation.lastRunAt ? formatDate(automation.lastRunAt) : "N/A"}</div>
-                <div className="mt-1 text-zinc-500">Scheduler checks about hourly. If Next due is in the past, a new post should appear within ~1 hour.</div>
+                <div className="mt-1 flex flex-col gap-2 text-zinc-500 sm:flex-row sm:items-center sm:justify-between">
+                  <div>Scheduler checks about hourly. If Next due is in the past, a new post should appear within ~1 hour.</div>
+                  <button
+                    type="button"
+                    onClick={refreshAutomationStatus}
+                    disabled={automationStatusBusy}
+                    className="inline-flex items-center justify-center rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-brand-ink hover:bg-zinc-50 disabled:opacity-60"
+                  >
+                    {automationStatusBusy ? "Refreshing…" : "Refresh status"}
+                  </button>
+                </div>
               </div>
             ) : null}
           </div>
