@@ -10,6 +10,7 @@ import { PortalMediaPickerModal } from "@/components/PortalMediaPickerModal";
 import { ContactTagsEditor, type ContactTag } from "@/components/ContactTagsEditor";
 import { PortalFontDropdown } from "@/components/PortalFontDropdown";
 import { PortalListboxDropdown } from "@/components/PortalListboxDropdown";
+import { InlineSpinner } from "@/components/InlineSpinner";
 import { toPurelyHostedUrl } from "@/lib/publicHostedOrigin";
 
 type AudienceTab = "external" | "internal";
@@ -167,18 +168,28 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
     external: null,
     internal: null,
   });
+  const settingsCacheRef = useRef(settingsCache);
+  useEffect(() => {
+    settingsCacheRef.current = settingsCache;
+  }, [settingsCache]);
   const [tags, setTags] = useState<Tag[]>([]);
   const [newsletters, setNewsletters] = useState<NewsletterRow[]>([]);
   const [newslettersCache, setNewslettersCache] = useState<{ external: NewsletterRow[]; internal: NewsletterRow[] }>({
     external: [],
     internal: [],
   });
+  const newslettersCacheRef = useRef(newslettersCache);
+  useEffect(() => {
+    newslettersCacheRef.current = newslettersCache;
+  }, [newslettersCache]);
 
   const [credits, setCredits] = useState<number | null>(null);
   const [creditsUsed30d, setCreditsUsed30d] = useState<number | null>(null);
   const [generations30d, setGenerations30d] = useState<number | null>(null);
 
   const [loading, setLoading] = useState(true);
+  const hasLoadedOnceRef = useRef(false);
+  const [refreshing, setRefreshing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [generating, setGenerating] = useState(false);
 
@@ -346,7 +357,13 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
   }, [customPublicBaseUrl, publicBaseUrl]);
 
   const refresh = useCallback(async () => {
-    setLoading(true);
+    const isFirstLoad = !hasLoadedOnceRef.current;
+    if (isFirstLoad) setLoading(true);
+    else setRefreshing(true);
+
+    let didLoad = false;
+
+    try {
 
     const [
       siteRes,
@@ -380,12 +397,15 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
     const listInternalJson = (await listInternalRes.json().catch(() => ({}))) as any;
     const funnelDomainsJson = funnelDomainsRes ? (((await funnelDomainsRes.json().catch(() => ({}))) as any) ?? {}) : {};
 
-    if (!siteRes.ok) toast.error(siteJson?.error ?? "Unable to load newsletter site");
-    if (!settingsExternalRes.ok) toast.error(settingsExternalJson?.error ?? "Unable to load newsletter settings");
-    if (!settingsInternalRes.ok) toast.error(settingsInternalJson?.error ?? "Unable to load newsletter settings");
-    if (!tagsRes.ok) toast.error(tagsJson?.error ?? "Unable to load contact tags");
+      if (!siteRes.ok) toast.error(siteJson?.error ?? "Unable to load newsletter site");
+      if (!settingsExternalRes.ok) toast.error(settingsExternalJson?.error ?? "Unable to load newsletter settings");
+      if (!settingsInternalRes.ok) toast.error(settingsInternalJson?.error ?? "Unable to load newsletter settings");
+      if (!tagsRes.ok) toast.error(tagsJson?.error ?? "Unable to load contact tags");
 
-    setSite(siteJson?.site ?? null);
+      if (siteRes.ok) {
+        setSite(siteJson?.site ?? null);
+        didLoad = true;
+      }
 
     if (funnelDomainsRes && funnelDomainsRes.ok && funnelDomainsJson?.ok === true) {
       setFunnelDomains(Array.isArray(funnelDomainsJson.domains) ? (funnelDomainsJson.domains as FunnelBuilderDomain[]) : []);
@@ -393,19 +413,24 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
       setFunnelDomains((prev) => (prev === null ? [] : prev));
     }
 
+    const prevSettingsCache = settingsCacheRef.current;
     const nextSettingsCache = {
-      external: settingsExternalRes.ok && settingsExternalJson?.settings ? (settingsExternalJson.settings as Settings) : null,
-      internal: settingsInternalRes.ok && settingsInternalJson?.settings ? (settingsInternalJson.settings as Settings) : null,
+      external: prevSettingsCache.external,
+      internal: prevSettingsCache.internal,
     };
+    if (settingsExternalRes.ok && settingsExternalJson?.settings) nextSettingsCache.external = settingsExternalJson.settings as Settings;
+    if (settingsInternalRes.ok && settingsInternalJson?.settings) nextSettingsCache.internal = settingsInternalJson.settings as Settings;
     setSettingsCache(nextSettingsCache);
     setSettings(nextSettingsCache[audienceRef.current] ?? null);
 
-    lastSavedSettingsJsonRef.current = {
-      external: JSON.stringify(nextSettingsCache.external),
-      internal: JSON.stringify(nextSettingsCache.internal),
-    };
+    if (settingsExternalRes.ok && settingsExternalJson?.settings) {
+      lastSavedSettingsJsonRef.current.external = JSON.stringify(nextSettingsCache.external);
+    }
+    if (settingsInternalRes.ok && settingsInternalJson?.settings) {
+      lastSavedSettingsJsonRef.current.internal = JSON.stringify(nextSettingsCache.internal);
+    }
 
-    setTags(Array.isArray(tagsJson?.tags) ? tagsJson.tags : []);
+    if (tagsRes.ok) setTags(Array.isArray(tagsJson?.tags) ? tagsJson.tags : []);
 
     if (creditsRes.ok) {
       setCredits(typeof creditsJson?.credits === "number" ? creditsJson.credits : 0);
@@ -416,14 +441,29 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
       setGenerations30d(typeof usageJson?.generations?.range === "number" ? usageJson.generations.range : 0);
     }
 
+    const prevNewslettersCache = newslettersCacheRef.current;
     const nextNewslettersCache = {
-      external: Array.isArray(listExternalJson?.newsletters) ? (listExternalJson.newsletters as NewsletterRow[]) : [],
-      internal: Array.isArray(listInternalJson?.newsletters) ? (listInternalJson.newsletters as NewsletterRow[]) : [],
+      external: prevNewslettersCache.external,
+      internal: prevNewslettersCache.internal,
     };
+    if (listExternalRes.ok) {
+      nextNewslettersCache.external = Array.isArray(listExternalJson?.newsletters)
+        ? (listExternalJson.newsletters as NewsletterRow[])
+        : [];
+    }
+    if (listInternalRes.ok) {
+      nextNewslettersCache.internal = Array.isArray(listInternalJson?.newsletters)
+        ? (listInternalJson.newsletters as NewsletterRow[])
+        : [];
+    }
     setNewslettersCache(nextNewslettersCache);
     setNewsletters(nextNewslettersCache[audienceRef.current] ?? []);
 
-    setLoading(false);
+      if (didLoad) hasLoadedOnceRef.current = true;
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
   }, [toast]);
 
   const isDirty = useMemo(() => {
@@ -982,8 +1022,11 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
 
   return (
     <div className="mx-auto w-full max-w-6xl">
-      {loading ? (
-        <div className="mb-4 rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-2 text-sm text-zinc-600">Refreshing…</div>
+      {refreshing ? (
+        <div className="mb-4 flex items-center gap-2 rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-2 text-sm text-zinc-600">
+          <InlineSpinner className="h-4 w-4 animate-spin text-zinc-400" />
+          Refreshing…
+        </div>
       ) : null}
       <div className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-end">
         <div>

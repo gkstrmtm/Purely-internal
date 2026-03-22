@@ -5,6 +5,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { InlineElevenLabsAgentTester } from "@/components/InlineElevenLabsAgentTester";
+import { InlineSpinner } from "@/components/InlineSpinner";
 import { PortalListboxDropdown } from "@/components/PortalListboxDropdown";
 import { PortalSelectDropdown } from "@/components/PortalSelectDropdown";
 import { PortalVariablePickerModal } from "@/components/PortalVariablePickerModal";
@@ -433,6 +434,8 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
   }, [searchParams]);
 
   const [loading, setLoading] = useState(true);
+  const hasLoadedOnceRef = useRef(false);
+  const [refreshing, setRefreshing] = useState(false);
   const [busy, setBusy] = useState(false);
   const [callsSaving, setCallsSaving] = useState(false);
   const [messagesSaving, setMessagesSaving] = useState(false);
@@ -1201,9 +1204,12 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
   }, [error, toast]);
 
   const loadAll = useCallback(async () => {
-    setLoading(true);
+    const isFirstLoad = !hasLoadedOnceRef.current;
+    if (isFirstLoad) setLoading(true);
+    else setRefreshing(true);
     setError(null);
 
+    let didLoad = false;
     try {
       const [campaignRes, tagsRes] = await Promise.all([
         fetch("/api/portal/ai-outbound-calls/campaigns", { cache: "no-store" }),
@@ -1283,10 +1289,14 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
         if (prev && nextCampaigns.some((c) => c.id === prev)) return prev;
         return nextCampaigns[0]?.id ?? null;
       });
+
+      didLoad = true;
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load");
     } finally {
+      if (didLoad) hasLoadedOnceRef.current = true;
       setLoading(false);
+      setRefreshing(false);
     }
   }, [callsAgentSig, messagesAgentSig]);
 
@@ -2139,6 +2149,13 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
           </p>
         </div>
       </div>
+
+      {refreshing ? (
+        <div className="mt-2 flex items-center gap-2 text-xs font-semibold text-zinc-500">
+          <InlineSpinner className="h-4 w-4 animate-spin text-zinc-400" />
+          Refreshing…
+        </div>
+      ) : null}
 
       <div
         className={classNames(

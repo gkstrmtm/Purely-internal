@@ -1,8 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
+import { InlineSpinner } from "@/components/InlineSpinner";
 import { PortalListboxDropdown } from "@/components/PortalListboxDropdown";
 import { useToast } from "@/components/ToastProvider";
 
@@ -536,6 +537,8 @@ export function PortalReportingClient() {
   const [salesStatus, setSalesStatus] = useState<SalesIntegrationStatusPayload | null>(null);
   const [salesReport, setSalesReport] = useState<SalesReportPayload | null>(null);
   const [loading, setLoading] = useState(true);
+  const hasLoadedOnceRef = useRef(false);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
 
@@ -595,71 +598,77 @@ export function PortalReportingClient() {
   }
 
   async function load(nextRange: RangeKey) {
-    setLoading(true);
+    const isFirstLoad = !hasLoadedOnceRef.current;
+    if (isFirstLoad) setLoading(true);
+    else setRefreshing(true);
+
     setError(null);
 
-    const [repRes, twilioRes, statsRes, salesStatusRes] = await Promise.all([
-      fetch(`/api/portal/reporting?range=${encodeURIComponent(nextRange)}`, { cache: "no-store" }),
-      fetch("/api/portal/integrations/twilio", { cache: "no-store" }).catch(() => null as any),
-      fetch("/api/portal/media/stats", { cache: "no-store" }).catch(() => null as any),
-      fetch("/api/portal/integrations/sales-reporting", { cache: "no-store" }).catch(() => null as any),
-    ]);
+    try {
+      const [repRes, twilioRes, statsRes, salesStatusRes] = await Promise.all([
+        fetch(`/api/portal/reporting?range=${encodeURIComponent(nextRange)}`, { cache: "no-store" }),
+        fetch("/api/portal/integrations/twilio", { cache: "no-store" }).catch(() => null as any),
+        fetch("/api/portal/media/stats", { cache: "no-store" }).catch(() => null as any),
+        fetch("/api/portal/integrations/sales-reporting", { cache: "no-store" }).catch(() => null as any),
+      ]);
 
-    if (!repRes.ok) {
-      const body = (await repRes.json().catch(() => ({}))) as { error?: string };
-      setError(body?.error ?? "Unable to load reporting");
-      setData(null);
-      setLoading(false);
-      return;
-    }
+      if (!repRes.ok) {
+        const body = (await repRes.json().catch(() => ({}))) as { error?: string };
+        setError(body?.error ?? "Unable to load reporting");
+        if (isFirstLoad) setData(null);
+        return;
+      }
 
-    const rep = (await repRes.json().catch(() => null)) as ReportingPayload | null;
-    if (!rep?.ok) {
-      setError(rep?.error ?? "Unable to load reporting");
-      setData(null);
-      setLoading(false);
-      return;
-    }
+      const rep = (await repRes.json().catch(() => null)) as ReportingPayload | null;
+      if (!rep?.ok) {
+        setError(rep?.error ?? "Unable to load reporting");
+        if (isFirstLoad) setData(null);
+        return;
+      }
 
-    setData(rep);
+      setData(rep);
 
-    if (statsRes?.ok) {
-      const stats = (await statsRes.json().catch(() => null)) as MediaStatsPayload | null;
-      if (stats) setMediaStats(stats);
-    }
+      if (statsRes?.ok) {
+        const stats = (await statsRes.json().catch(() => null)) as MediaStatsPayload | null;
+        if (stats) setMediaStats(stats);
+      }
 
-    if (twilioRes?.ok) {
-      const body = (await twilioRes.json().catch(() => ({}))) as { ok?: boolean; twilio?: TwilioMasked };
-      setTwilio(body?.twilio ?? null);
-    } else {
-      setTwilio(null);
-    }
+      if (twilioRes?.ok) {
+        const body = (await twilioRes.json().catch(() => ({}))) as { ok?: boolean; twilio?: TwilioMasked };
+        setTwilio(body?.twilio ?? null);
+      } else if (isFirstLoad) {
+        setTwilio(null);
+      }
 
-    if (salesStatusRes?.ok) {
-      const body = (await salesStatusRes.json().catch(() => null)) as SalesIntegrationStatusPayload | null;
-      if (body?.ok) {
-        setSalesStatus(body);
-        const anyConnected = Boolean(body?.providers && Object.values(body.providers).some((p) => Boolean(p?.configured)));
-        if (anyConnected) {
-          const salesRes = await fetch("/api/portal/reporting/sales?range=30d", { cache: "no-store" }).catch(() => null as any);
-          if (salesRes?.ok) {
-            setSalesReport(((await salesRes.json().catch(() => null)) as SalesReportPayload | null) ?? null);
+      if (salesStatusRes?.ok) {
+        const body = (await salesStatusRes.json().catch(() => null)) as SalesIntegrationStatusPayload | null;
+        if (body?.ok) {
+          setSalesStatus(body);
+          const anyConnected = Boolean(body?.providers && Object.values(body.providers).some((p) => Boolean(p?.configured)));
+          if (anyConnected) {
+            const salesRes = await fetch("/api/portal/reporting/sales?range=30d", { cache: "no-store" }).catch(() => null as any);
+            if (salesRes?.ok) {
+              setSalesReport(((await salesRes.json().catch(() => null)) as SalesReportPayload | null) ?? null);
+            } else if (isFirstLoad) {
+              setSalesReport(null);
+            }
           } else {
             setSalesReport(null);
           }
-        } else {
+        } else if (isFirstLoad) {
+          setSalesStatus(null);
           setSalesReport(null);
         }
-      } else {
+      } else if (isFirstLoad) {
         setSalesStatus(null);
         setSalesReport(null);
       }
-    } else {
-      setSalesStatus(null);
-      setSalesReport(null);
-    }
 
-    setLoading(false);
+      hasLoadedOnceRef.current = true;
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
   }
 
   useEffect(() => {
@@ -869,7 +878,14 @@ export function PortalReportingClient() {
 
       {note ? <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800">{note}</div> : null}
 
-      {loading ? (
+      {refreshing ? (
+        <div className="mt-4 flex items-center gap-2 rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-2 text-sm text-zinc-600">
+          <InlineSpinner className="h-4 w-4 animate-spin text-zinc-400" />
+          Refreshing…
+        </div>
+      ) : null}
+
+      {loading && !hasLoadedOnceRef.current ? (
         <div className="mt-4 rounded-3xl border border-zinc-200 bg-white p-6 text-sm text-zinc-600">Loading…</div>
       ) : !data ? null : (
         <>

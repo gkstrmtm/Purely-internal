@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { PortalMissedCallTextBackClient } from "@/app/portal/app/services/missed-call-textback/PortalMissedCallTextBackClient";
 import { InlineElevenLabsAgentTester } from "@/components/InlineElevenLabsAgentTester";
+import { InlineSpinner } from "@/components/InlineSpinner";
 import { PortalListboxDropdown } from "@/components/PortalListboxDropdown";
 import { PortalSelectDropdown } from "@/components/PortalSelectDropdown";
 import { ContactTagsEditor, type ContactTag } from "@/components/ContactTagsEditor";
@@ -388,6 +389,8 @@ export function PortalAiReceptionistClient() {
 
   const [mobileCallDetailsOpen, setMobileCallDetailsOpen] = useState(false);
   const [loading, setLoading] = useState(true);
+  const hasLoadedOnceRef = useRef(false);
+  const [refreshing, setRefreshing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [savingEnabled, setSavingEnabled] = useState(false);
   const [callSyncBusy, setCallSyncBusy] = useState(false);
@@ -854,51 +857,60 @@ export function PortalAiReceptionistClient() {
   }, []);
 
   const load = useCallback(async (): Promise<ApiPayload | null> => {
-    setLoading(true);
+    const isFirstLoad = !hasLoadedOnceRef.current;
+    if (isFirstLoad) setLoading(true);
+    else setRefreshing(true);
+
     setError(null);
     setNote(null);
 
-    const res = await fetch("/api/portal/ai-receptionist/settings", { cache: "no-store" }).catch(() => null as any);
-    if (!res?.ok) {
-      const rawError = res ? await readJsonError(res) : null;
-      setLoading(false);
-      setError(friendlyApiError({ status: res?.status, rawError, action: "load" }));
-      return null;
-    }
-
-    const data = (await res.json().catch(() => null)) as ApiPayload | null;
-    if (!data?.ok || !data.settings) {
-      setLoading(false);
-      setError(friendlyApiError({ status: res.status, rawError: data?.error ?? null, action: "load" }));
-      return null;
-    }
-
-    // Auto-populate business name from Business Profile if not already set
-    let settingsToUse = data.settings;
-    if (!settingsToUse.businessName?.trim()) {
-      try {
-        const profileRes = await fetch("/api/portal/business-profile", { cache: "no-store" }).catch(() => null as any);
-        if (profileRes?.ok) {
-          const profileJson = (await profileRes.json().catch(() => null)) as any;
-          if (profileJson?.ok && profileJson?.profile?.businessName) {
-            settingsToUse = {
-              ...settingsToUse,
-              businessName: String(profileJson.profile.businessName).trim(),
-            };
-          }
-        }
-      } catch {
-        // Ignore errors; just use settings as-is
+    let didLoad = false;
+    try {
+      const res = await fetch("/api/portal/ai-receptionist/settings", { cache: "no-store" }).catch(() => null as any);
+      if (!res?.ok) {
+        const rawError = res ? await readJsonError(res) : null;
+        setError(friendlyApiError({ status: res?.status, rawError, action: "load" }));
+        return null;
       }
-    }
 
-    setSettings(settingsToUse);
-    lastSavedSettingsJsonRef.current = JSON.stringify(data.settings);
-    setEvents(Array.isArray(data.events) ? data.events : []);
-    setWebhookUrl(data.webhookUrl || "");
-    setTwilioConfigured(Boolean(data.twilioConfigured ?? data.twilio?.configured));
-    setLoading(false);
-    return data;
+      const data = (await res.json().catch(() => null)) as ApiPayload | null;
+      if (!data?.ok || !data.settings) {
+        setError(friendlyApiError({ status: res.status, rawError: data?.error ?? null, action: "load" }));
+        return null;
+      }
+
+      // Auto-populate business name from Business Profile if not already set
+      let settingsToUse = data.settings;
+      if (!settingsToUse.businessName?.trim()) {
+        try {
+          const profileRes = await fetch("/api/portal/business-profile", { cache: "no-store" }).catch(() => null as any);
+          if (profileRes?.ok) {
+            const profileJson = (await profileRes.json().catch(() => null)) as any;
+            if (profileJson?.ok && profileJson?.profile?.businessName) {
+              settingsToUse = {
+                ...settingsToUse,
+                businessName: String(profileJson.profile.businessName).trim(),
+              };
+            }
+          }
+        } catch {
+          // Ignore errors; just use settings as-is
+        }
+      }
+
+      setSettings(settingsToUse);
+      lastSavedSettingsJsonRef.current = JSON.stringify(data.settings);
+      setEvents(Array.isArray(data.events) ? data.events : []);
+      setWebhookUrl(data.webhookUrl || "");
+      setTwilioConfigured(Boolean(data.twilioConfigured ?? data.twilio?.configured));
+
+      didLoad = true;
+      return data;
+    } finally {
+      if (didLoad) hasLoadedOnceRef.current = true;
+      setLoading(false);
+      setRefreshing(false);
+    }
   }, [friendlyApiError, readJsonError]);
 
   const loadEventsOnly = useCallback(async (): Promise<boolean> => {
@@ -1283,7 +1295,7 @@ export function PortalAiReceptionistClient() {
   }
 
 
-  if (loading) {
+  if (loading && !hasLoadedOnceRef.current) {
     return (
       <div className="mx-auto w-full max-w-6xl rounded-3xl border border-zinc-200 bg-white p-6 text-sm text-zinc-600">
         Loading…
@@ -1299,6 +1311,12 @@ export function PortalAiReceptionistClient() {
           <p className="mt-2 max-w-2xl text-sm text-zinc-600">
             Save hours with a dedicated AI receptionist — answer calls, capture details, and follow up automatically.
           </p>
+          {refreshing ? (
+            <div className="mt-2 flex items-center gap-2 text-xs font-semibold text-zinc-500">
+              <InlineSpinner className="h-4 w-4 animate-spin text-zinc-400" />
+              Refreshing…
+            </div>
+          ) : null}
         </div>
         <div className="flex items-start gap-3">
           <div className="hidden rounded-2xl border border-zinc-200 bg-white px-4 py-2 sm:block">

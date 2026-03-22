@@ -7,6 +7,7 @@ import type { PutBlobResult } from "@vercel/blob";
 import { upload as uploadToVercelBlob } from "@vercel/blob/client";
 
 import { PortalListboxDropdown } from "@/components/PortalListboxDropdown";
+import { InlineSpinner } from "@/components/InlineSpinner";
 import { useToast } from "@/components/ToastProvider";
 import { PORTAL_VARIANT_HEADER, portalVariantFromPathname } from "@/lib/portalVariant";
 import { toPurelyHostedUrl } from "@/lib/publicHostedOrigin";
@@ -79,6 +80,8 @@ export function PortalMediaLibraryClient() {
     return (window.location.host || "").includes("purely-mobile");
   }, []);
   const [loading, setLoading] = useState(true);
+  const hasLoadedOnceRef = useRef(false);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const [previewOpen, setPreviewOpen] = useState(false);
@@ -154,25 +157,34 @@ export function PortalMediaLibraryClient() {
   }, [selected?.kind]);
 
   const load = useCallback(async (nextFolderId: string | null) => {
-    setLoading(true);
+    const isFirstLoad = !hasLoadedOnceRef.current;
+    if (isFirstLoad) setLoading(true);
+    else setRefreshing(true);
+
     setError(null);
+    let didLoad = false;
 
     const url = new URL("/api/portal/media/list", window.location.origin);
     if (nextFolderId) url.searchParams.set("folderId", nextFolderId);
 
-    const res = await fetch(url.toString(), { cache: "no-store" });
-    const json = (await res.json().catch(() => null)) as ListRes | null;
+    try {
+      const res = await fetch(url.toString(), { cache: "no-store" });
+      const json = (await res.json().catch(() => null)) as ListRes | null;
 
-    if (!res.ok || !json || json.ok !== true) {
+      if (!res.ok || !json || json.ok !== true) {
+        setError(typeof (json as any)?.error === "string" ? (json as any).error : "Failed to load media library");
+        return;
+      }
+
+      setBreadcrumbs(Array.isArray(json.breadcrumbs) ? json.breadcrumbs : []);
+      setFolders(Array.isArray(json.folders) ? json.folders : []);
+      setItems(Array.isArray(json.items) ? json.items : []);
+      didLoad = true;
+    } finally {
+      if (didLoad) hasLoadedOnceRef.current = true;
       setLoading(false);
-      setError(typeof (json as any)?.error === "string" ? (json as any).error : "Failed to load media library");
-      return;
+      setRefreshing(false);
     }
-
-    setBreadcrumbs(Array.isArray(json.breadcrumbs) ? json.breadcrumbs : []);
-    setFolders(Array.isArray(json.folders) ? json.folders : []);
-    setItems(Array.isArray(json.items) ? json.items : []);
-    setLoading(false);
   }, []);
 
   useEffect(() => {
@@ -532,7 +544,7 @@ export function PortalMediaLibraryClient() {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search files and tags…"
-            className="h-10 w-[240px] max-w-full rounded-2xl border border-zinc-200 bg-white px-4 text-sm text-zinc-900 placeholder:text-zinc-500"
+            className="h-10 w-60 max-w-full rounded-2xl border border-zinc-200 bg-white px-4 text-sm text-zinc-900 placeholder:text-zinc-500"
           />
           <input
             ref={uploadRef}
@@ -548,7 +560,7 @@ export function PortalMediaLibraryClient() {
             type="button"
             onClick={() => uploadRef.current?.click()}
             disabled={uploading}
-            className="inline-flex h-10 items-center justify-center gap-2 rounded-2xl bg-[color:var(--color-brand-blue)] px-4 text-sm font-semibold text-white shadow-sm hover:opacity-95 disabled:opacity-60"
+            className="inline-flex h-10 items-center justify-center gap-2 rounded-2xl bg-(--color-brand-blue) px-4 text-sm font-semibold text-white shadow-sm hover:opacity-95 disabled:opacity-60"
           >
             <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-white/15 text-base leading-none">+</span>
             {uploading ? "Uploading…" : "Upload"}
@@ -561,7 +573,7 @@ export function PortalMediaLibraryClient() {
           <button
             type="button"
             onClick={() => setFolderId(null)}
-            className="text-xs font-semibold text-[color:var(--color-brand-blue)] hover:underline"
+            className="text-xs font-semibold text-(--color-brand-blue) hover:underline"
           >
             All media
           </button>
@@ -594,7 +606,7 @@ export function PortalMediaLibraryClient() {
                   value={newFolderName}
                   onChange={(e) => setNewFolderName(e.target.value)}
                   placeholder="New folder name"
-                  className="h-9 w-[220px] max-w-full rounded-2xl border border-zinc-200 bg-white px-3 text-sm text-zinc-900 placeholder:text-zinc-500"
+                  className="h-9 w-55 max-w-full rounded-2xl border border-zinc-200 bg-white px-3 text-sm text-zinc-900 placeholder:text-zinc-500"
                 />
                 <button
                   type="button"
@@ -609,6 +621,12 @@ export function PortalMediaLibraryClient() {
           </div>
 
           <div className="p-4">
+            {refreshing ? (
+              <div className="mb-2 flex items-center gap-2 text-xs font-semibold text-zinc-500">
+                <InlineSpinner className="h-4 w-4 animate-spin text-zinc-400" />
+                Refreshing…
+              </div>
+            ) : null}
             {loading ? (
               <div className="text-sm text-zinc-600">Loading…</div>
             ) : filteredFolders.length === 0 && filteredItems.length === 0 ? (
@@ -771,7 +789,7 @@ export function PortalMediaLibraryClient() {
                     <button
                       type="button"
                       onClick={() => triggerDownload(selectedItem.downloadUrl, selectedItem.fileName)}
-                      className="inline-flex items-center justify-center rounded-2xl bg-[color:var(--color-brand-blue)] px-4 py-2 text-sm font-semibold text-white hover:opacity-95"
+                      className="inline-flex items-center justify-center rounded-2xl bg-(--color-brand-blue) px-4 py-2 text-sm font-semibold text-white hover:opacity-95"
                     >
                       Download
                     </button>
@@ -821,7 +839,7 @@ export function PortalMediaLibraryClient() {
                     <button
                       type="button"
                       onClick={() => triggerDownload(selectedFolder.downloadUrl || selectedFolder.shareUrl, `${selectedFolder.name}.zip`)}
-                      className="rounded-2xl bg-[color:var(--color-brand-blue)] px-4 py-2 text-sm font-semibold text-white hover:opacity-95"
+                      className="rounded-2xl bg-(--color-brand-blue) px-4 py-2 text-sm font-semibold text-white hover:opacity-95"
                     >
                       Download zip
                     </button>
@@ -878,10 +896,10 @@ export function PortalMediaLibraryClient() {
 
       {openMenu && menuTarget && typeof document !== "undefined"
         ? createPortal(
-            <div className="fixed inset-0 z-[90]" aria-hidden>
+            <div className="fixed inset-0 z-90" aria-hidden>
               <div className="absolute inset-0" onMouseDown={() => setOpenMenu(null)} onTouchStart={() => setOpenMenu(null)} />
               <div
-                className="fixed z-[95] w-56 overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-lg"
+                className="fixed z-95 w-56 overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-lg"
                 style={{ left: openMenu.left, top: openMenu.top }}
                 onMouseDown={(e) => e.stopPropagation()}
                 onTouchStart={(e) => e.stopPropagation()}
@@ -1027,7 +1045,7 @@ export function PortalMediaLibraryClient() {
       {toast && typeof document !== "undefined"
         ? createPortal(
             <div
-              className="fixed z-[200] rounded-2xl bg-brand-ink px-3 py-2 text-xs font-semibold text-white shadow-lg"
+              className="fixed z-200 rounded-2xl bg-brand-ink px-3 py-2 text-xs font-semibold text-white shadow-lg"
               style={{ left: toast.left, top: toast.top }}
             >
               {toast.text}
@@ -1038,7 +1056,7 @@ export function PortalMediaLibraryClient() {
 
       {renaming && typeof document !== "undefined"
         ? createPortal(
-            <div className="fixed inset-0 z-[100] flex items-end justify-center px-4 pt-[calc(var(--pa-modal-safe-top,0px)+1rem)] pb-[calc(var(--pa-modal-safe-bottom,0px)+1rem)] sm:items-center">
+            <div className="fixed inset-0 z-100 flex items-end justify-center px-4 pt-[calc(var(--pa-modal-safe-top,0px)+1rem)] pb-[calc(var(--pa-modal-safe-bottom,0px)+1rem)] sm:items-center">
               <div className="absolute inset-0 bg-black/40" onMouseDown={() => setRenaming(null)} />
               <div className="relative max-h-[calc(100dvh-var(--pa-modal-safe-top,0px)-var(--pa-modal-safe-bottom,0px)-2rem)] w-full max-w-md overflow-auto rounded-3xl border border-zinc-200 bg-white p-5 shadow-xl">
                 <div className="text-sm font-semibold text-zinc-900">Rename</div>
@@ -1081,7 +1099,7 @@ export function PortalMediaLibraryClient() {
 
       {moving && typeof document !== "undefined"
         ? createPortal(
-            <div className="fixed inset-0 z-[100] flex items-end justify-center px-4 pt-[calc(var(--pa-modal-safe-top,0px)+1rem)] pb-[calc(var(--pa-modal-safe-bottom,0px)+1rem)] sm:items-center">
+            <div className="fixed inset-0 z-100 flex items-end justify-center px-4 pt-[calc(var(--pa-modal-safe-top,0px)+1rem)] pb-[calc(var(--pa-modal-safe-bottom,0px)+1rem)] sm:items-center">
               <div className="absolute inset-0 bg-black/40" onMouseDown={() => setMoving(null)} />
               <div className="relative max-h-[calc(100dvh-var(--pa-modal-safe-top,0px)-var(--pa-modal-safe-bottom,0px)-2rem)] w-full max-w-lg overflow-auto rounded-3xl border border-zinc-200 bg-white p-5 shadow-xl">
                 <div className="text-sm font-semibold text-zinc-900">
@@ -1139,7 +1157,7 @@ export function PortalMediaLibraryClient() {
                   </button>
                   <button
                     type="button"
-                    className="h-10 rounded-2xl bg-[color:var(--color-brand-blue)] px-4 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
+                    className="h-10 rounded-2xl bg-(--color-brand-blue) px-4 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
                     onClick={() => void submitMove()}
                     disabled={moveWorking}
                   >
@@ -1154,7 +1172,7 @@ export function PortalMediaLibraryClient() {
 
       {isMobileApp && previewOpen && selectedItem && typeof document !== "undefined"
         ? createPortal(
-            <div className="fixed inset-0 z-[110] flex items-end justify-center px-4 pt-[calc(var(--pa-modal-safe-top,0px)+1rem)] pb-[calc(var(--pa-modal-safe-bottom,0px)+1rem)] sm:items-center">
+            <div className="fixed inset-0 z-110 flex items-end justify-center px-4 pt-[calc(var(--pa-modal-safe-top,0px)+1rem)] pb-[calc(var(--pa-modal-safe-bottom,0px)+1rem)] sm:items-center">
               <div className="absolute inset-0 bg-black/40" onMouseDown={() => setPreviewOpen(false)} />
               <div className="relative max-h-[calc(100dvh-var(--pa-modal-safe-top,0px)-var(--pa-modal-safe-bottom,0px)-2rem)] w-full max-w-md overflow-auto rounded-3xl border border-zinc-200 bg-white p-5 shadow-xl">
                 <div className="flex items-start justify-between gap-3">
@@ -1195,7 +1213,7 @@ export function PortalMediaLibraryClient() {
                   <button
                     type="button"
                     onClick={() => triggerDownload(selectedItem.downloadUrl, selectedItem.fileName)}
-                    className="inline-flex items-center justify-center rounded-2xl bg-[color:var(--color-brand-blue)] px-4 py-2 text-sm font-semibold text-white hover:opacity-95"
+                    className="inline-flex items-center justify-center rounded-2xl bg-(--color-brand-blue) px-4 py-2 text-sm font-semibold text-white hover:opacity-95"
                   >
                     Download
                   </button>

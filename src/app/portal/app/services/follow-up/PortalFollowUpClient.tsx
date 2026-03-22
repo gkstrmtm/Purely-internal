@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 
 import { PORTAL_SERVICES } from "@/app/portal/services/catalog";
 import { AppModal } from "@/components/AppModal";
+import { InlineSpinner } from "@/components/InlineSpinner";
 import { PortalListboxDropdown } from "@/components/PortalListboxDropdown";
 import { PortalMediaPickerModal, type PortalMediaPickItem } from "@/components/PortalMediaPickerModal";
 import { PortalSettingsSection } from "@/components/PortalSettingsSection";
@@ -232,6 +233,9 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
 
   const [me, setMe] = useState<Me | null>(null);
   const [loading, setLoading] = useState(true);
+  const hasLoadedOnceRef = useRef(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const mountedRef = useRef(true);
   const [tab, setTab] = useState<"settings" | "activity">("activity");
 
   const [settings, setSettings] = useState<Settings | null>(null);
@@ -252,6 +256,13 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
   useEffect(() => {
     if (error) toast.error(error);
   }, [error, toast]);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -471,9 +482,15 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
     });
   }, [builtinVariables, knownContactCustomVarKeys, settings?.customVariables]);
 
-  useEffect(() => {
-    let mounted = true;
-    (async () => {
+  const load = useCallback(async () => {
+    const isFirstLoad = !hasLoadedOnceRef.current;
+    if (isFirstLoad) setLoading(true);
+    else setRefreshing(true);
+
+    setError(null);
+    let didLoad = false;
+
+    try {
       const [meRes, settingsRes] = await Promise.all([
         fetch("/api/customer/me", {
           cache: "no-store",
@@ -485,7 +502,7 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
         fetch("/api/portal/follow-up/settings", { cache: "no-store" }),
       ]);
 
-      if (!mounted) return;
+      if (!mountedRef.current) return;
 
       if (meRes.ok) setMe((await meRes.json()) as Me);
       if (settingsRes.ok) {
@@ -510,12 +527,21 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
         }
       }
 
-      setLoading(false);
-    })();
-    return () => {
-      mounted = false;
-    };
+      didLoad = true;
+    } catch {
+      setError("Unable to load follow-up settings");
+    } finally {
+      if (mountedRef.current) {
+        if (didLoad) hasLoadedOnceRef.current = true;
+        setLoading(false);
+        setRefreshing(false);
+      }
+    }
   }, []);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
 
   const unlocked = useMemo(() => {
     const email = (me?.user.email ?? "").toLowerCase().trim();
@@ -725,29 +751,6 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
     return Array.from(new Set(keys)).filter(Boolean);
   }, [builtinVariables, settings]);
 
-  async function refresh() {
-    const res = await fetch("/api/portal/follow-up/settings", { cache: "no-store" });
-    const json = (await res.json().catch(() => ({}))) as {
-      ok?: boolean;
-      settings?: Settings;
-      queue?: QueueItem[];
-      calendars?: Calendar[];
-      siteNotificationEmails?: string[];
-      builtinVariables?: string[];
-      error?: string;
-    };
-    if (!res.ok || !json.ok || !json.settings) {
-      setError(json.error ?? "Unable to refresh");
-      return;
-    }
-    setSettings(json.settings);
-    lastSavedSettingsJsonRef.current = JSON.stringify(json.settings);
-    setQueue(Array.isArray(json.queue) ? json.queue : []);
-    setCalendars(Array.isArray(json.calendars) ? json.calendars : []);
-    setSiteNotificationEmails(Array.isArray(json.siteNotificationEmails) ? json.siteNotificationEmails : []);
-    setBuiltinVariables(Array.isArray(json.builtinVariables) ? json.builtinVariables : []);
-  }
-
   async function save() {
     if (!settings || !canSave) return;
     setBusy(true);
@@ -841,7 +844,7 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
     );
   }
 
-  if (loading) {
+  if (loading && !hasLoadedOnceRef.current) {
     return (
       <div className="mx-auto max-w-5xl rounded-3xl border border-zinc-200 bg-white p-6 text-sm text-zinc-600">
         Loading…
@@ -892,6 +895,12 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
           <div>
             <h1 className="text-2xl font-bold text-brand-ink sm:text-3xl">{service.title}</h1>
             <p className="mt-2 max-w-2xl text-sm text-zinc-600">{service.description}</p>
+            {refreshing ? (
+              <div className="mt-2 flex items-center gap-2 text-xs font-semibold text-zinc-500">
+                <InlineSpinner className="h-4 w-4 animate-spin text-zinc-400" />
+                Refreshing…
+              </div>
+            ) : null}
           </div>
           <Link
             href="/portal/app/services"

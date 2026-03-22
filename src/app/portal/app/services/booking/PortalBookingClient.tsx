@@ -6,6 +6,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { PortalFollowUpClient } from "@/app/portal/app/services/follow-up/PortalFollowUpClient";
 import { PortalBookingAvailabilityClient } from "@/app/portal/app/services/booking/availability/PortalBookingAvailabilityClient";
 import { AppConfirmModal, AppModal } from "@/components/AppModal";
+import { InlineSpinner } from "@/components/InlineSpinner";
 import { PortalListboxDropdown } from "@/components/PortalListboxDropdown";
 import { PortalMediaPickerModal, type PortalMediaPickItem } from "@/components/PortalMediaPickerModal";
 import { PortalSelectDropdown } from "@/components/PortalSelectDropdown";
@@ -341,6 +342,8 @@ export function PortalBookingClient() {
   const [recent, setRecent] = useState<Booking[]>([]);
 
   const [loading, setLoading] = useState(true);
+  const hasLoadedOnceRef = useRef(false);
+  const [refreshing, setRefreshing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
@@ -898,10 +901,21 @@ export function PortalBookingClient() {
   useEffect(() => {
     let mounted = true;
     (async () => {
-      setLoading(true);
-      await refreshAll();
-      if (!mounted) return;
-      setLoading(false);
+      const isFirstLoad = !hasLoadedOnceRef.current;
+      if (isFirstLoad) setLoading(true);
+      else setRefreshing(true);
+      try {
+        await refreshAll();
+        if (!mounted) return;
+        hasLoadedOnceRef.current = true;
+      } catch {
+        if (!mounted) return;
+        setError("Failed to load booking automation");
+      } finally {
+        if (!mounted) return;
+        setLoading(false);
+        setRefreshing(false);
+      }
     })();
     return () => {
       mounted = false;
@@ -1353,7 +1367,7 @@ export function PortalBookingClient() {
     setStatus("Saved booking form");
   }
 
-  if (loading) {
+  if (loading && !hasLoadedOnceRef.current) {
     return (
       <div className="mx-auto w-full max-w-7xl rounded-3xl border border-zinc-200 bg-white p-6 text-sm text-zinc-600">
         Loading…
@@ -1467,6 +1481,12 @@ export function PortalBookingClient() {
         <div>
           <h1 className="text-2xl font-bold text-brand-ink sm:text-3xl">Booking Automation</h1>
           <p className="mt-1 text-sm text-zinc-600">Publish a booking link, set availability, and capture appointments.</p>
+          {refreshing ? (
+            <div className="mt-2 flex items-center gap-2 text-xs font-semibold text-zinc-500">
+              <InlineSpinner className="h-4 w-4 animate-spin text-zinc-400" />
+              Refreshing…
+            </div>
+          ) : null}
         </div>
       </div>
 

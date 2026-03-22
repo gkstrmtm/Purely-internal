@@ -5,6 +5,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 import styles from "./PortalInboxClient.module.css";
 import { AppModal } from "@/components/AppModal";
+import { InlineSpinner } from "@/components/InlineSpinner";
 import { PortalSettingsSection } from "@/components/PortalSettingsSection";
 import { PortalMediaPickerModal, type PortalMediaPickItem } from "@/components/PortalMediaPickerModal";
 import { ContactTagsEditor, type ContactTag } from "@/components/ContactTagsEditor";
@@ -181,6 +182,8 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
   const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [loadingThreads, setLoadingThreads] = useState(true);
+  const hasLoadedThreadsOnceRef = useRef<{ email: boolean; sms: boolean }>({ email: false, sms: false });
+  const [refreshingThreads, setRefreshingThreads] = useState(false);
   const [loadingMessages, setLoadingMessages] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -592,31 +595,55 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
     };
   }, []);
 
-  async function loadThreads(nextTab: Channel) {
-    setLoadingThreads(true);
+  async function loadThreads(nextTab: Channel, opts?: { preserveSelection?: boolean; clearUI?: boolean }) {
+    const preserveSelection = Boolean(opts?.preserveSelection);
+    const clearUI = Boolean(opts?.clearUI);
+    const isFirstLoad = !hasLoadedThreadsOnceRef.current[nextTab];
+    const useFullLoading = isFirstLoad || clearUI;
+    if (useFullLoading) setLoadingThreads(true);
+    else setRefreshingThreads(true);
+
     setError(null);
-    setThreads([]);
-    setMessages([]);
-    setActiveThreadId(null);
 
-    const res = await fetch(`/api/portal/inbox/threads?channel=${nextTab}`, {
-      cache: "no-store",
-    });
+    const prevActiveThreadId = activeThreadId;
 
-    const json = (await res.json().catch(() => null)) as ThreadsRes | null;
-    if (!res.ok || !json || json.ok !== true) {
-      setLoadingThreads(false);
-      if (res.status === 401 || (json && json.ok === false && json.code === "SESSION_EXPIRED")) {
-        setError("Your session expired. Please sign in again.");
-        return;
-      }
-      const apiError = json && json.ok === false ? json.error : null;
-      setError(apiError || (nextTab === "sms" ? "We couldn’t load your text message threads." : "We couldn’t load your email threads."));
-      return;
+    if (clearUI) {
+      setThreads([]);
+      setMessages([]);
+      setActiveThreadId(null);
     }
 
-    setThreads(json.threads);
-    setLoadingThreads(false);
+    try {
+      const res = await fetch(`/api/portal/inbox/threads?channel=${nextTab}`, {
+        cache: "no-store",
+      });
+
+      const json = (await res.json().catch(() => null)) as ThreadsRes | null;
+      if (!res.ok || !json || json.ok !== true) {
+        if (res.status === 401 || (json && json.ok === false && json.code === "SESSION_EXPIRED")) {
+          setError("Your session expired. Please sign in again.");
+          return;
+        }
+        const apiError = json && json.ok === false ? json.error : null;
+        setError(
+          apiError || (nextTab === "sms" ? "We couldn’t load your text message threads." : "We couldn’t load your email threads."),
+        );
+        return;
+      }
+
+      setThreads(json.threads);
+      hasLoadedThreadsOnceRef.current[nextTab] = true;
+
+      if (preserveSelection) {
+        if (prevActiveThreadId && json.threads.some((t) => t.id === prevActiveThreadId)) {
+          return;
+        }
+        if (json.threads.length) {
+          if (nextTab === "email") setActiveThreadId(json.threads[0].id);
+          else setActiveThreadId(null);
+        }
+        return;
+      }
 
     const preferredThreadId = (preferredThreadIdRef.current || "").trim();
     const preferredTo = (preferredToRef.current || "").trim();
@@ -652,6 +679,12 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
       setComposeTo(preferredTo);
       preferredToRef.current = null;
     }
+    } catch {
+      setError(nextTab === "sms" ? "We couldn’t load your text message threads." : "We couldn’t load your email threads.");
+    } finally {
+      setLoadingThreads(false);
+      setRefreshingThreads(false);
+    }
   }
 
   async function loadMessages(threadId: string) {
@@ -679,7 +712,7 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
   }
 
   useEffect(() => {
-    loadThreads(tab);
+    loadThreads(tab, { clearUI: true });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab]);
 
@@ -839,8 +872,9 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
     setSending(false);
 
     // Refresh threads + messages.
-    await loadThreads(tab);
+    await loadThreads(tab, { preserveSelection: true });
     if (threadId) setActiveThreadId(threadId);
+    if (threadId) await loadMessages(threadId);
 
     return { ok: true, threadId: threadId ?? null };
   }
@@ -1493,11 +1527,18 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
               tab === "email" && activeThreadId ? "hidden lg:flex" : "",
             )}
           >
-            {tab === "email" ? (
-              <div className="border-b border-zinc-100 px-4 py-3">
-                <div className="text-sm font-semibold text-zinc-900">{emailBox === "sent" ? "Sent" : "Inbox"}</div>
+            <div className="border-b border-zinc-100 px-4 py-3">
+              <div className="flex items-center justify-between gap-3">
+                <div className="text-sm font-semibold text-zinc-900">
+                  {tab === "email" ? (emailBox === "sent" ? "Sent" : "Inbox") : "Texts"}
+                </div>
+                {refreshingThreads ? (
+                  <div className="inline-flex items-center gap-2 text-xs font-semibold text-zinc-600">
+                    <InlineSpinner /> Refreshing…
+                  </div>
+                ) : null}
               </div>
-            ) : null}
+            </div>
 
             {loadingThreads ? (
               <div className="px-3 py-4 text-sm text-zinc-600">Loading…</div>

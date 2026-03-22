@@ -1,8 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
+import { InlineSpinner } from "@/components/InlineSpinner";
 import { useToast } from "@/components/ToastProvider";
 import { PortalListboxDropdown } from "@/components/PortalListboxDropdown";
 
@@ -69,6 +70,8 @@ export function PortalStripeSalesClient() {
   const [status, setStatus] = useState<StripeIntegrationStatus | null>(null);
   const [range, setRange] = useState<RangeKey>("30d");
   const [loading, setLoading] = useState(true);
+  const hasLoadedOnceRef = useRef(false);
+  const [refreshing, setRefreshing] = useState(false);
   const [data, setData] = useState<StripeSalesPayload | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -77,39 +80,45 @@ export function PortalStripeSalesClient() {
   }, [error, toast]);
 
   async function load(nextRange: RangeKey) {
-    setLoading(true);
+    const isFirstLoad = !hasLoadedOnceRef.current;
+    if (isFirstLoad) setLoading(true);
+    else setRefreshing(true);
+
     setError(null);
 
-    const [statusRes, salesRes] = await Promise.all([
-      fetch("/api/portal/integrations/stripe", { cache: "no-store" }).catch(() => null as any),
-      fetch(`/api/portal/reporting/stripe?range=${encodeURIComponent(nextRange)}`, { cache: "no-store" }).catch(
-        () => null as any,
-      ),
-    ]);
+    try {
+      const [statusRes, salesRes] = await Promise.all([
+        fetch("/api/portal/integrations/stripe", { cache: "no-store" }).catch(() => null as any),
+        fetch(`/api/portal/reporting/stripe?range=${encodeURIComponent(nextRange)}`, { cache: "no-store" }).catch(
+          () => null as any,
+        ),
+      ]);
 
-    if (statusRes?.ok) {
-      const json = ((await statusRes.json().catch(() => null)) as StripeIntegrationPayload | null) ?? null;
-      if (json?.ok) setStatus(json.stripe);
-    }
+      if (statusRes?.ok) {
+        const json = ((await statusRes.json().catch(() => null)) as StripeIntegrationPayload | null) ?? null;
+        if (json?.ok) setStatus(json.stripe);
+      }
 
-    if (!salesRes?.ok) {
-      const body = (await salesRes?.json().catch(() => ({}))) as { error?: string };
-      setData(null);
-      setError(body?.error ?? "Unable to load Stripe sales");
+      if (!salesRes?.ok) {
+        const body = (await salesRes?.json().catch(() => ({}))) as { error?: string };
+        if (isFirstLoad) setData(null);
+        setError(body?.error ?? "Unable to load Stripe sales");
+        return;
+      }
+
+      const payload = ((await salesRes.json().catch(() => null)) as StripeSalesPayload | null) ?? null;
+      if (!payload || (payload as any).ok !== true) {
+        if (isFirstLoad) setData(null);
+        setError((payload as any)?.error ?? "Unable to load Stripe sales");
+        return;
+      }
+
+      setData(payload);
+      hasLoadedOnceRef.current = true;
+    } finally {
       setLoading(false);
-      return;
+      setRefreshing(false);
     }
-
-    const payload = ((await salesRes.json().catch(() => null)) as StripeSalesPayload | null) ?? null;
-    if (!payload || (payload as any).ok !== true) {
-      setData(null);
-      setError((payload as any)?.error ?? "Unable to load Stripe sales");
-      setLoading(false);
-      return;
-    }
-
-    setData(payload);
-    setLoading(false);
   }
 
   useEffect(() => {
@@ -176,6 +185,12 @@ export function PortalStripeSalesClient() {
           ) : null}
         </div>
         <div className="flex items-center gap-2">
+          {refreshing ? (
+            <div className="mr-2 inline-flex items-center gap-2 text-xs font-semibold text-zinc-500">
+              <InlineSpinner className="h-4 w-4 animate-spin text-zinc-400" />
+              Refreshing…
+            </div>
+          ) : null}
           <div className="text-xs font-semibold text-zinc-500">Range</div>
           <PortalListboxDropdown
             value={range}
@@ -189,7 +204,7 @@ export function PortalStripeSalesClient() {
         </div>
       </div>
 
-      {loading ? (
+      {loading && !hasLoadedOnceRef.current ? (
         <div className="mt-6 rounded-3xl border border-zinc-200 bg-white p-6 text-sm text-zinc-600">Loading…</div>
       ) : null}
 
@@ -210,7 +225,7 @@ export function PortalStripeSalesClient() {
                 <div
                   className={classNames(
                     "mt-2 text-2xl font-bold",
-                    tone === "blue" && "text-[color:var(--color-brand-blue)]",
+                    tone === "blue" && "text-(--color-brand-blue)",
                     tone === "amber" && "text-amber-700",
                     tone === "emerald" && "text-emerald-700",
                   )}
@@ -266,7 +281,7 @@ export function PortalStripeSalesClient() {
                             href={c.receiptUrl}
                             target="_blank"
                             rel="noreferrer"
-                            className="text-xs font-semibold text-[color:var(--color-brand-blue)] hover:underline"
+                            className="text-xs font-semibold text-(--color-brand-blue) hover:underline"
                           >
                             Receipt
                           </a>

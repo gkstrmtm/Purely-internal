@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { PortalMediaPickerModal } from "@/components/PortalMediaPickerModal";
 import { ContactTagsEditor, type ContactTag } from "@/components/ContactTagsEditor";
+import { InlineSpinner } from "@/components/InlineSpinner";
 import { PortalVariablePickerModal } from "@/components/PortalVariablePickerModal";
 import { PortalListboxDropdown, type PortalListboxOption } from "@/components/PortalListboxDropdown";
 import { AppModal } from "@/components/AppModal";
@@ -650,6 +651,8 @@ export function PortalLeadScrapingClient() {
   const [templateCustomVariables, setTemplateCustomVariables] = useState<Record<string, string>>({});
 
   const [loading, setLoading] = useState(true);
+  const hasLoadedOnceRef = useRef(false);
+  const [refreshing, setRefreshing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [running, setRunning] = useState(false);
 
@@ -684,7 +687,7 @@ export function PortalLeadScrapingClient() {
   }, [leadQuery]);
 
   const loadLeads = useCallback(
-    async (q: string) => {
+    async (q: string, opts?: { preserveOnError?: boolean }) => {
       const qs = new URLSearchParams();
       qs.set("take", String(leadsTake));
       if (q) qs.set("q", q);
@@ -698,9 +701,11 @@ export function PortalLeadScrapingClient() {
         setLeadTotalCount(typeof leadsBody.totalCount === "number" ? leadsBody.totalCount : null);
         setLeadMatchedCount(typeof leadsBody.matchedCount === "number" ? leadsBody.matchedCount : null);
       } else {
-        setLeads([]);
-        setLeadTotalCount(null);
-        setLeadMatchedCount(null);
+        if (!opts?.preserveOnError) {
+          setLeads([]);
+          setLeadTotalCount(null);
+          setLeadMatchedCount(null);
+        }
       }
     },
     [leadsTake, sortedLeads],
@@ -715,69 +720,78 @@ export function PortalLeadScrapingClient() {
   };
 
   const load = useCallback(async () => {
-    setLoading(true);
+    const isFirstLoad = !hasLoadedOnceRef.current;
+    if (isFirstLoad) setLoading(true);
+    else setRefreshing(true);
     setError(null);
     setStatus(null);
 
-    const [meRes, settingsRes, tagsRes, customVarsRes] = await Promise.all([
-      fetch("/api/customer/me", {
-        cache: "no-store",
-        headers: {
-          "x-pa-app": "portal",
-          "x-portal-variant": typeof window !== "undefined" && window.location.pathname.startsWith("/credit") ? "credit" : "portal",
-        },
-      }),
-      fetch("/api/portal/lead-scraping/settings", { cache: "no-store" }),
-      fetch("/api/portal/contact-tags", { cache: "no-store" }).catch(() => null as any),
-      fetch("/api/portal/follow-up/custom-variables", { cache: "no-store" }).catch(() => null as any),
-    ]);
+    let didLoad = false;
 
-    const meBody = (await meRes.json().catch(() => ({}))) as MeResponse;
-    setLeadOutboundEntitled(Boolean(meBody.entitlements && (meBody.entitlements as any).leadOutbound));
+    try {
+      const [meRes, settingsRes, tagsRes, customVarsRes] = await Promise.all([
+        fetch("/api/customer/me", {
+          cache: "no-store",
+          headers: {
+            "x-pa-app": "portal",
+            "x-portal-variant": typeof window !== "undefined" && window.location.pathname.startsWith("/credit") ? "credit" : "portal",
+          },
+        }),
+        fetch("/api/portal/lead-scraping/settings", { cache: "no-store" }),
+        fetch("/api/portal/contact-tags", { cache: "no-store" }).catch(() => null as any),
+        fetch("/api/portal/follow-up/custom-variables", { cache: "no-store" }).catch(() => null as any),
+      ]);
 
-    const settingsBody = (await settingsRes.json().catch(() => ({}))) as SettingsResponse;
+      const meBody = (await meRes.json().catch(() => ({}))) as MeResponse;
+      setLeadOutboundEntitled(Boolean(meBody.entitlements && (meBody.entitlements as any).leadOutbound));
 
-    const tagsBody = (await tagsRes?.json().catch(() => ({}))) as ContactTagsResponse | any;
-    if (tagsRes?.ok && tagsBody && tagsBody.ok === true && Array.isArray(tagsBody.tags)) {
-      setContactTagDefs(tagsBody.tags as ContactTag[]);
-    } else {
-      setContactTagDefs([]);
-    }
+      const settingsBody = (await settingsRes.json().catch(() => ({}))) as SettingsResponse;
 
-    const customVarsBody = (await customVarsRes?.json().catch(() => ({}))) as any;
-    if (customVarsRes?.ok && customVarsBody && customVarsBody.ok === true) {
-      const raw =
-        customVarsBody.customVariables && typeof customVarsBody.customVariables === "object" && !Array.isArray(customVarsBody.customVariables)
-          ? (customVarsBody.customVariables as Record<string, unknown>)
-          : {};
-      const normalized = Object.fromEntries(
-        Object.entries(raw)
-          .filter(([k, v]) => typeof k === "string" && typeof v === "string")
-          .map(([k, v]) => [k.trim(), String(v)])
-          .filter(([k]) => Boolean(k))
-          .slice(0, 60),
-      ) as Record<string, string>;
-      setTemplateCustomVariables(normalized);
-    } else {
-      setTemplateCustomVariables({});
-    }
+      const tagsBody = (await tagsRes?.json().catch(() => ({}))) as ContactTagsResponse | any;
+      if (tagsRes?.ok && tagsBody && tagsBody.ok === true && Array.isArray(tagsBody.tags)) {
+        setContactTagDefs(tagsBody.tags as ContactTag[]);
+      } else {
+        setContactTagDefs([]);
+      }
 
-    if (!settingsRes.ok) {
+      const customVarsBody = (await customVarsRes?.json().catch(() => ({}))) as any;
+      if (customVarsRes?.ok && customVarsBody && customVarsBody.ok === true) {
+        const raw =
+          customVarsBody.customVariables && typeof customVarsBody.customVariables === "object" && !Array.isArray(customVarsBody.customVariables)
+            ? (customVarsBody.customVariables as Record<string, unknown>)
+            : {};
+        const normalized = Object.fromEntries(
+          Object.entries(raw)
+            .filter(([k, v]) => typeof k === "string" && typeof v === "string")
+            .map(([k, v]) => [k.trim(), String(v)])
+            .filter(([k]) => Boolean(k))
+            .slice(0, 60),
+        ) as Record<string, string>;
+        setTemplateCustomVariables(normalized);
+      } else {
+        setTemplateCustomVariables({});
+      }
+
+      if (!settingsRes.ok) {
+        setError(getApiError(settingsBody) ?? "Failed to load lead scraping settings");
+        return;
+      }
+
+      const nextSettings = settingsBody.settings ?? null;
+      setSettings(nextSettings);
+      lastSavedSettingsJsonRef.current = nextSettings ? JSON.stringify(nextSettings) : null;
+      setCredits(typeof settingsBody.credits === "number" ? settingsBody.credits : null);
+      setPlacesConfigured(Boolean(settingsBody.placesConfigured));
+      setAiCallsUnlocked(Boolean(settingsBody.aiCallsUnlocked));
+
+      await loadLeads(leadQueryDebounced, { preserveOnError: !isFirstLoad });
+
+      didLoad = true;
+    } finally {
+      if (didLoad) hasLoadedOnceRef.current = true;
       setLoading(false);
-      setError(getApiError(settingsBody) ?? "Failed to load lead scraping settings");
-      return;
+      setRefreshing(false);
     }
-
-    const nextSettings = settingsBody.settings ?? null;
-    setSettings(nextSettings);
-    lastSavedSettingsJsonRef.current = nextSettings ? JSON.stringify(nextSettings) : null;
-    setCredits(typeof settingsBody.credits === "number" ? settingsBody.credits : null);
-    setPlacesConfigured(Boolean(settingsBody.placesConfigured));
-    setAiCallsUnlocked(Boolean(settingsBody.aiCallsUnlocked));
-
-    await loadLeads(leadQueryDebounced);
-
-    setLoading(false);
   }, [leadQueryDebounced, loadLeads]);
 
   const leadOutboundTemplateVariables = useMemo(() => {
@@ -2132,7 +2146,7 @@ export function PortalLeadScrapingClient() {
     );
   }
 
-  if (loading) {
+  if (loading && !hasLoadedOnceRef.current) {
     return (
       <div className="mx-auto w-full max-w-6xl">
         <div className="rounded-3xl border border-zinc-200 bg-white p-6 text-sm text-zinc-600">
@@ -2165,6 +2179,12 @@ export function PortalLeadScrapingClient() {
           <p className="mt-2 max-w-2xl text-sm text-zinc-600">
             Pull hundreds of leads in any niche or area and reach out instantly.
           </p>
+          {refreshing ? (
+            <div className="mt-2 flex items-center gap-2 text-xs font-semibold text-zinc-500">
+              <InlineSpinner className="h-4 w-4 animate-spin text-zinc-400" />
+              Refreshing…
+            </div>
+          ) : null}
         </div>
       </div>
 
