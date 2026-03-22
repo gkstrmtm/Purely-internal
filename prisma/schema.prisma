@@ -1872,6 +1872,7 @@ model BusinessProfile {
 
   logoUrl        String?
   brandPrimaryHex String?
+  brandSecondaryHex String?
   brandAccentHex  String?
   brandTextHex    String?
 

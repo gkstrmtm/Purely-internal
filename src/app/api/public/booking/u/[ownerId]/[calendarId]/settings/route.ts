@@ -20,9 +20,10 @@ export async function GET(
     hasPublicColumn("PortalBookingSite", "meetingDetails"),
   ]);
 
-  const [hasLogoUrl, hasPrimaryHex, hasAccentHex, hasTextHex, hasBusinessName] = await Promise.all([
+  const [hasLogoUrl, hasPrimaryHex, hasSecondaryHex, hasAccentHex, hasTextHex, hasBusinessName] = await Promise.all([
     hasPublicColumn("BusinessProfile", "logoUrl"),
     hasPublicColumn("BusinessProfile", "brandPrimaryHex"),
+    hasPublicColumn("BusinessProfile", "brandSecondaryHex"),
     hasPublicColumn("BusinessProfile", "brandAccentHex"),
     hasPublicColumn("BusinessProfile", "brandTextHex"),
     hasPublicColumn("BusinessProfile", "businessName"),
@@ -65,6 +66,7 @@ export async function GET(
             ...(hasBusinessName ? { businessName: true } : {}),
             ...(hasLogoUrl ? { logoUrl: true } : {}),
             ...(hasPrimaryHex ? { brandPrimaryHex: true } : {}),
+            ...(hasSecondaryHex ? { brandSecondaryHex: true } : {}),
             ...(hasAccentHex ? { brandAccentHex: true } : {}),
             ...(hasTextHex ? { brandTextHex: true } : {}),
           } as any,
@@ -86,6 +88,7 @@ export async function GET(
       businessName: hasBusinessName ? ((profile as any)?.businessName ?? null) : null,
       logoUrl: hasLogoUrl ? ((profile as any)?.logoUrl ?? null) : null,
       brandPrimaryHex: hasPrimaryHex ? ((profile as any)?.brandPrimaryHex ?? null) : null,
+      brandSecondaryHex: hasSecondaryHex ? ((profile as any)?.brandSecondaryHex ?? null) : null,
       brandAccentHex: hasAccentHex ? ((profile as any)?.brandAccentHex ?? null) : null,
       brandTextHex: hasTextHex ? ((profile as any)?.brandTextHex ?? null) : null,
       photoUrl: hasPhotoUrl ? ((site as any).photoUrl ?? null) : null,

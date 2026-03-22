@@ -28,6 +28,12 @@ const upsertSchema = z.object({
     .regex(/^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/, "Primary color must be a hex code like #1d4ed8")
     .optional()
     .or(z.literal("")),
+  brandSecondaryHex: z
+    .string()
+    .trim()
+    .regex(/^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/, "Secondary color must be a hex code like #22c55e")
+    .optional()
+    .or(z.literal("")),
   brandAccentHex: z
     .string()
     .trim()
@@ -59,6 +65,7 @@ type ProfileColumnFlags = {
   brandVoice: boolean;
   logoUrl: boolean;
   brandPrimaryHex: boolean;
+  brandSecondaryHex: boolean;
   brandAccentHex: boolean;
   brandTextHex: boolean;
   brandFontFamily: boolean;
@@ -76,6 +83,7 @@ async function getProfileColumnFlags(): Promise<ProfileColumnFlags> {
     brandVoice,
     logoUrl,
     brandPrimaryHex,
+    brandSecondaryHex,
     brandAccentHex,
     brandTextHex,
     brandFontFamily,
@@ -90,6 +98,7 @@ async function getProfileColumnFlags(): Promise<ProfileColumnFlags> {
     hasPublicColumn("BusinessProfile", "brandVoice"),
     hasPublicColumn("BusinessProfile", "logoUrl"),
     hasPublicColumn("BusinessProfile", "brandPrimaryHex"),
+    hasPublicColumn("BusinessProfile", "brandSecondaryHex"),
     hasPublicColumn("BusinessProfile", "brandAccentHex"),
     hasPublicColumn("BusinessProfile", "brandTextHex"),
     hasPublicColumn("BusinessProfile", "brandFontFamily"),
@@ -106,6 +115,7 @@ async function getProfileColumnFlags(): Promise<ProfileColumnFlags> {
     brandVoice,
     logoUrl,
     brandPrimaryHex,
+    brandSecondaryHex,
     brandAccentHex,
     brandTextHex,
     brandFontFamily,
@@ -127,6 +137,7 @@ function profileSelect(flags: ProfileColumnFlags) {
   if (flags.brandVoice) select.brandVoice = true;
   if (flags.logoUrl) select.logoUrl = true;
   if (flags.brandPrimaryHex) select.brandPrimaryHex = true;
+  if (flags.brandSecondaryHex) select.brandSecondaryHex = true;
   if (flags.brandAccentHex) select.brandAccentHex = true;
   if (flags.brandTextHex) select.brandTextHex = true;
   if (flags.brandFontFamily) select.brandFontFamily = true;
@@ -147,6 +158,7 @@ function normalizeProfile(row: any, flags: ProfileColumnFlags) {
     brandVoice: flags.brandVoice ? (row.brandVoice ?? null) : null,
     logoUrl: flags.logoUrl ? (row.logoUrl ?? null) : null,
     brandPrimaryHex: flags.brandPrimaryHex ? (row.brandPrimaryHex ?? null) : null,
+    brandSecondaryHex: flags.brandSecondaryHex ? (row.brandSecondaryHex ?? null) : null,
     brandAccentHex: flags.brandAccentHex ? (row.brandAccentHex ?? null) : null,
     brandTextHex: flags.brandTextHex ? (row.brandTextHex ?? null) : null,
     brandFontFamily: flags.brandFontFamily ? (row.brandFontFamily ?? null) : null,
@@ -215,6 +227,7 @@ export async function PUT(req: Request) {
   if (flags.brandVoice) baseData.brandVoice = emptyToNull(parsed.data.brandVoice);
   if (flags.logoUrl) baseData.logoUrl = emptyToNull(parsed.data.logoUrl);
   if (flags.brandPrimaryHex) baseData.brandPrimaryHex = emptyToNull(parsed.data.brandPrimaryHex);
+  if (flags.brandSecondaryHex) baseData.brandSecondaryHex = emptyToNull(parsed.data.brandSecondaryHex);
   if (flags.brandAccentHex) baseData.brandAccentHex = emptyToNull(parsed.data.brandAccentHex);
   if (flags.brandTextHex) baseData.brandTextHex = emptyToNull(parsed.data.brandTextHex);
   if (flags.brandFontFamily) baseData.brandFontFamily = coerceFontFamily(parsed.data.brandFontFamily) ?? null;
@@ -233,6 +246,7 @@ export async function PUT(req: Request) {
   if (flags.brandVoice) updateData.brandVoice = emptyToNull(parsed.data.brandVoice);
   if (flags.logoUrl) updateData.logoUrl = emptyToNull(parsed.data.logoUrl);
   if (flags.brandPrimaryHex) updateData.brandPrimaryHex = emptyToNull(parsed.data.brandPrimaryHex);
+  if (flags.brandSecondaryHex) updateData.brandSecondaryHex = emptyToNull(parsed.data.brandSecondaryHex);
   if (flags.brandAccentHex) updateData.brandAccentHex = emptyToNull(parsed.data.brandAccentHex);
   if (flags.brandTextHex) updateData.brandTextHex = emptyToNull(parsed.data.brandTextHex);
   if (flags.brandFontFamily) updateData.brandFontFamily = coerceFontFamily(parsed.data.brandFontFamily) ?? null;

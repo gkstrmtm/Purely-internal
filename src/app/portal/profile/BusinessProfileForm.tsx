@@ -17,6 +17,7 @@ type BusinessProfile = {
 
   logoUrl?: string | null;
   brandPrimaryHex?: string | null;
+  brandSecondaryHex?: string | null;
   brandAccentHex?: string | null;
   brandTextHex?: string | null;
 
@@ -84,6 +85,7 @@ export function BusinessProfileForm({
 
   const [logoUrl, setLogoUrl] = useState("");
   const [brandPrimaryHex, setBrandPrimaryHex] = useState("");
+  const [brandSecondaryHex, setBrandSecondaryHex] = useState("");
   const [brandAccentHex, setBrandAccentHex] = useState("");
   const [brandTextHex, setBrandTextHex] = useState("");
   const [brandFontFamily, setBrandFontFamily] = useState("");
@@ -116,6 +118,7 @@ export function BusinessProfileForm({
 
       logoUrl: normalize(logoUrl),
       brandPrimaryHex: normalize(brandPrimaryHex),
+      brandSecondaryHex: normalize(brandSecondaryHex),
       brandAccentHex: normalize(brandAccentHex),
       brandTextHex: normalize(brandTextHex),
 
@@ -132,6 +135,7 @@ export function BusinessProfileForm({
     brandVoice,
     logoUrl,
     brandPrimaryHex,
+    brandSecondaryHex,
     brandAccentHex,
     brandTextHex,
     brandFontFamily,
@@ -166,6 +170,7 @@ export function BusinessProfileForm({
 
         const nextLogoUrl = p.logoUrl ?? "";
         const nextBrandPrimaryHex = p.brandPrimaryHex ?? "";
+        const nextBrandSecondaryHex = p.brandSecondaryHex ?? "";
         const nextBrandAccentHex = p.brandAccentHex ?? "";
         const nextBrandTextHex = p.brandTextHex ?? "";
 
@@ -182,6 +187,7 @@ export function BusinessProfileForm({
 
         setLogoUrl(nextLogoUrl);
         setBrandPrimaryHex(nextBrandPrimaryHex);
+        setBrandSecondaryHex(nextBrandSecondaryHex);
         setBrandAccentHex(nextBrandAccentHex);
         setBrandTextHex(nextBrandTextHex);
 
@@ -202,6 +208,7 @@ export function BusinessProfileForm({
 
           logoUrl: String(nextLogoUrl || "").trim(),
           brandPrimaryHex: String(nextBrandPrimaryHex || "").trim(),
+          brandSecondaryHex: String(nextBrandSecondaryHex || "").trim(),
           brandAccentHex: String(nextBrandAccentHex || "").trim(),
           brandTextHex: String(nextBrandTextHex || "").trim(),
 
@@ -236,6 +243,7 @@ export function BusinessProfileForm({
 
         logoUrl,
         brandPrimaryHex,
+        brandSecondaryHex,
         brandAccentHex,
         brandTextHex,
 
@@ -530,6 +538,31 @@ export function BusinessProfileForm({
             <div
               className="h-10 w-10 rounded-2xl border border-zinc-200"
               style={{ background: safeColorValue(brandPrimaryHex, "#1d4ed8") }}
+            />
+          </div>
+        </div>
+
+        <div>
+          <label className="text-xs font-semibold text-zinc-600">Brand secondary color</label>
+          <div className="mt-1 flex items-center gap-2">
+            <input
+              type="color"
+              value={safeColorValue(brandSecondaryHex, "#22c55e")}
+              onChange={(e) => setBrandSecondaryHex(e.target.value)}
+              disabled={Boolean(readOnly)}
+              className="h-10 w-10 cursor-pointer rounded-2xl border border-zinc-200 bg-white p-1 disabled:opacity-60"
+              aria-label="Pick secondary color"
+            />
+            <input
+              value={brandSecondaryHex}
+              onChange={(e) => setBrandSecondaryHex(e.target.value)}
+              disabled={Boolean(readOnly)}
+              className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300"
+              placeholder="#22c55e"
+            />
+            <div
+              className="h-10 w-10 rounded-2xl border border-zinc-200"
+              style={{ background: safeColorValue(brandSecondaryHex, "#22c55e") }}
             />
           </div>
         </div>

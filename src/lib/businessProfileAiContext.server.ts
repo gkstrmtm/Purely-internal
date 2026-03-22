@@ -10,6 +10,7 @@ type ProfileColumnFlags = {
   brandVoice: boolean;
   logoUrl: boolean;
   brandPrimaryHex: boolean;
+  brandSecondaryHex: boolean;
   brandAccentHex: boolean;
   brandTextHex: boolean;
   brandFontFamily: boolean;
@@ -29,6 +30,7 @@ async function getProfileColumnFlags(): Promise<ProfileColumnFlags> {
       hasPublicColumn("BusinessProfile", "brandVoice"),
       hasPublicColumn("BusinessProfile", "logoUrl"),
       hasPublicColumn("BusinessProfile", "brandPrimaryHex"),
+      hasPublicColumn("BusinessProfile", "brandSecondaryHex"),
       hasPublicColumn("BusinessProfile", "brandAccentHex"),
       hasPublicColumn("BusinessProfile", "brandTextHex"),
       hasPublicColumn("BusinessProfile", "brandFontFamily"),
@@ -43,6 +45,7 @@ async function getProfileColumnFlags(): Promise<ProfileColumnFlags> {
         brandVoice,
         logoUrl,
         brandPrimaryHex,
+        brandSecondaryHex,
         brandAccentHex,
         brandTextHex,
         brandFontFamily,
@@ -56,6 +59,7 @@ async function getProfileColumnFlags(): Promise<ProfileColumnFlags> {
         brandVoice,
         logoUrl,
         brandPrimaryHex,
+        brandSecondaryHex,
         brandAccentHex,
         brandTextHex,
         brandFontFamily,
@@ -106,6 +110,7 @@ export async function getBusinessProfileTemplateVars(ownerId: string): Promise<R
   if (flags.brandVoice) select.brandVoice = true;
   if (flags.logoUrl) select.logoUrl = true;
   if (flags.brandPrimaryHex) select.brandPrimaryHex = true;
+  if (flags.brandSecondaryHex) select.brandSecondaryHex = true;
   if (flags.brandAccentHex) select.brandAccentHex = true;
   if (flags.brandTextHex) select.brandTextHex = true;
   if (flags.brandFontFamily) select.brandFontFamily = true;
@@ -122,6 +127,7 @@ export async function getBusinessProfileTemplateVars(ownerId: string): Promise<R
   const brandVoice = flags.brandVoice ? safeLine((profile as any).brandVoice, 240) : "";
   const logoUrl = flags.logoUrl ? safeUrl((profile as any).logoUrl, 500) : "";
   const brandPrimaryHex = flags.brandPrimaryHex ? safeLine((profile as any).brandPrimaryHex, 16) : "";
+  const brandSecondaryHex = flags.brandSecondaryHex ? safeLine((profile as any).brandSecondaryHex, 16) : "";
   const brandAccentHex = flags.brandAccentHex ? safeLine((profile as any).brandAccentHex, 16) : "";
   const brandTextHex = flags.brandTextHex ? safeLine((profile as any).brandTextHex, 16) : "";
   const brandFontFamily = flags.brandFontFamily ? safeLine((profile as any).brandFontFamily, 120) : "";
@@ -137,6 +143,7 @@ export async function getBusinessProfileTemplateVars(ownerId: string): Promise<R
     "business.brandVoice": brandVoice,
     "business.logoUrl": logoUrl,
     "business.brandPrimaryHex": brandPrimaryHex,
+    "business.brandSecondaryHex": brandSecondaryHex,
     "business.brandAccentHex": brandAccentHex,
     "business.brandTextHex": brandTextHex,
     "business.brandFontFamily": brandFontFamily,
@@ -157,6 +164,8 @@ export async function getBusinessProfileTemplateVars(ownerId: string): Promise<R
     logo_url: logoUrl,
     brandPrimaryHex,
     brand_primary_hex: brandPrimaryHex,
+    brandSecondaryHex,
+    brand_secondary_hex: brandSecondaryHex,
     brandAccentHex,
     brand_accent_hex: brandAccentHex,
     brandTextHex,
@@ -187,6 +196,7 @@ export async function getBusinessProfileAiContext(ownerId: string): Promise<stri
   if (flags.brandVoice) select.brandVoice = true;
   if (flags.logoUrl) select.logoUrl = true;
   if (flags.brandPrimaryHex) select.brandPrimaryHex = true;
+  if (flags.brandSecondaryHex) select.brandSecondaryHex = true;
   if (flags.brandAccentHex) select.brandAccentHex = true;
   if (flags.brandTextHex) select.brandTextHex = true;
   if (flags.brandFontFamily) select.brandFontFamily = true;
@@ -206,6 +216,7 @@ export async function getBusinessProfileAiContext(ownerId: string): Promise<stri
   const brandVoice = flags.brandVoice ? safeLine((profile as any).brandVoice, 240) : "";
   const logoUrl = flags.logoUrl ? safeUrl((profile as any).logoUrl, 500) : "";
   const brandPrimaryHex = flags.brandPrimaryHex ? safeLine((profile as any).brandPrimaryHex, 16) : "";
+  const brandSecondaryHex = flags.brandSecondaryHex ? safeLine((profile as any).brandSecondaryHex, 16) : "";
   const brandAccentHex = flags.brandAccentHex ? safeLine((profile as any).brandAccentHex, 16) : "";
   const brandTextHex = flags.brandTextHex ? safeLine((profile as any).brandTextHex, 16) : "";
   const brandFontFamily = flags.brandFontFamily ? safeLine((profile as any).brandFontFamily, 120) : "";
@@ -222,6 +233,7 @@ export async function getBusinessProfileAiContext(ownerId: string): Promise<stri
     brandVoice ? `- Brand voice: ${brandVoice}` : "",
     logoUrl ? `- Logo: ${logoUrl}` : "",
     brandPrimaryHex ? `- Brand primary: ${brandPrimaryHex}` : "",
+    brandSecondaryHex ? `- Brand secondary: ${brandSecondaryHex}` : "",
     brandAccentHex ? `- Brand accent: ${brandAccentHex}` : "",
     brandTextHex ? `- Brand text: ${brandTextHex}` : "",
     brandFontFamily ? `- Brand font family: ${brandFontFamily}` : "",
