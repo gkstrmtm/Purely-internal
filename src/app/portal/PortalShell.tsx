@@ -1220,7 +1220,13 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
       }}
     >
       {showGettingStartedHint ? (
-        <div className="pointer-events-none fixed inset-0 z-40 flex items-end justify-center px-4 pb-6 sm:items-center sm:pb-0">
+        <div
+          className="pointer-events-none fixed inset-0 z-40 flex items-center justify-center px-4 py-6"
+          style={{
+            paddingTop: "calc(env(safe-area-inset-top) + 1.25rem)",
+            paddingBottom: "calc(env(safe-area-inset-bottom) + 1.25rem)",
+          }}
+        >
           <button
             type="button"
             className="pointer-events-auto absolute inset-0 bg-black/25"
@@ -1481,7 +1487,13 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                     collapsed && "justify-center px-2",
                   )}
                 >
-                  {item.icon}
+                  {collapsed ? (
+                    <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl border border-zinc-200 bg-white">
+                      {item.icon}
+                    </span>
+                  ) : (
+                    item.icon
+                  )}
                   {!collapsed ? <span className="truncate">{item.label}</span> : null}
                 </Link>
               ))}
