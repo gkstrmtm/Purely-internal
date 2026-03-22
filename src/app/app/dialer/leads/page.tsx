@@ -201,7 +201,7 @@ export default function DialerLeadsPage() {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
-        title: `Script – ${activeLead.businessName}`,
+        title: `Script - ${activeLead.businessName}`,
         kind: "DIALER_SCRIPT",
         content: "",
         leadId: activeLead.id,

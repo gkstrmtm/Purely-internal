@@ -1443,7 +1443,7 @@ export function PortalBookingClient() {
         onClose={() => setWeekDayModalYmd(null)}
         title={
           weekDayModalYmd
-            ? `Appointments — ${new Date(`${weekDayModalYmd}T00:00:00`).toLocaleDateString(undefined, {
+            ? `Appointments - ${new Date(`${weekDayModalYmd}T00:00:00`).toLocaleDateString(undefined, {
                 weekday: "short",
                 month: "short",
                 day: "numeric",

@@ -749,7 +749,7 @@ export function PortalBlogsClient({
         <div>
           <h1 className="text-2xl font-bold text-brand-ink sm:text-3xl">Blogs</h1>
           <p className="mt-1 text-sm text-zinc-600">
-            Stay searchable without writing every week—generate SEO-friendly drafts, edit them, and publish to your hosted blog (or your custom domain).
+            Stay searchable without writing every week. Generate SEO-friendly drafts, edit them, and publish to your hosted blog (or your custom domain).
           </p>
           {refreshing ? (
             <div className="mt-2 inline-flex items-center gap-2 text-xs font-semibold text-zinc-500">
@@ -956,7 +956,7 @@ export function PortalBlogsClient({
         <div className="mt-6 rounded-3xl border border-zinc-200 bg-white p-6 shadow-sm">
           <div className="text-sm font-semibold text-zinc-900">Blog automation schedule</div>
           <div className="mt-2 text-sm text-zinc-600">
-            Set a cadence and a topic list—we’ll generate SEO-ready drafts automatically so your website stays fresh and searchable.
+            Set a cadence and a topic list. We’ll generate SEO-ready drafts automatically so your website stays fresh and searchable.
           </div>
 
           <div className="mt-5 space-y-4">

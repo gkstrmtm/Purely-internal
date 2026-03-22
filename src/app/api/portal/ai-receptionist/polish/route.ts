@@ -101,8 +101,8 @@ export async function POST(req: Request) {
     "Do not require waiting for a response before giving a helpful next step; keep moving with concise options.",
     kind === "greeting"
       ? channel === "sms"
-        ? "Greeting constraints (SMS): keep it short (1–3 sentences), ideally under 320 characters; no markdown."
-        : "Greeting constraints (voice): keep it friendly and short (1–2 sentences)."
+        ? "Greeting constraints (SMS): keep it short (1-3 sentences), ideally under 320 characters; no markdown."
+        : "Greeting constraints (voice): keep it friendly and short (1-2 sentences)."
       : "System prompt constraints: write as direct instructions to the AI (start with 'You are...'). Keep it structured and detailed.",
   ].join("\n");
 

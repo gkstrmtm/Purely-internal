@@ -73,17 +73,17 @@ export async function GET() {
     const data = asRecord(s.dataJson);
 
     if (s.serviceSlug === PROFILE_EXTRAS_SERVICE_SLUG) {
-      addAgent(agentsMap, data.voiceAgentId, "Profile — Voice");
+      addAgent(agentsMap, data.voiceAgentId, "Profile: Voice");
       continue;
     }
 
     if (s.serviceSlug === AI_RECEPTIONIST_SERVICE_SLUG) {
       const settings = asRecord((data as any).settings ?? data);
-      addAgent(agentsMap, (settings as any).voiceAgentId, "AI Receptionist — Voice");
+      addAgent(agentsMap, (settings as any).voiceAgentId, "AI Receptionist: Voice");
       addAgent(
         agentsMap,
         (settings as any).chatAgentId ?? (settings as any).messagingAgentId,
-        "AI Receptionist — SMS",
+        "AI Receptionist: SMS",
       );
       continue;
     }
@@ -98,8 +98,8 @@ export async function GET() {
 
   for (const c of campaigns) {
     const n = normalizeLabel(c.name) || "Outbound campaign";
-    if (c.voiceAgentId) addAgent(agentsMap, c.voiceAgentId, `AI Outbound — ${n} (Calls)`);
-    if (c.chatAgentId) addAgent(agentsMap, c.chatAgentId, `AI Outbound — ${n} (Messages)`);
+    if (c.voiceAgentId) addAgent(agentsMap, c.voiceAgentId, `AI Outbound: ${n} (Calls)`);
+    if (c.chatAgentId) addAgent(agentsMap, c.chatAgentId, `AI Outbound: ${n} (Messages)`);
   }
 
   const agents = Array.from(agentsMap.values())

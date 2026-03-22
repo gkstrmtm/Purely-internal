@@ -16,7 +16,7 @@ export const FOLLOW_UP_TEMPLATES: FollowUpTemplate[] = [
       {
         kind: "SMS",
         delayMinutes: 0,
-        body: "Hey {contact.firstName} — thanks again for coming in. If anything comes up, just reply here. - {business.name}",
+        body: "Hey {contact.firstName}, thanks again for coming in. If anything comes up, just reply here. - {business.name}",
       },
       {
         kind: "EMAIL",
@@ -28,7 +28,7 @@ export const FOLLOW_UP_TEMPLATES: FollowUpTemplate[] = [
       {
         kind: "SMS",
         delayMinutes: 60 * 24 * 7,
-        body: "Quick check-in {contact.firstName} — any questions after your appointment? - {business.name}",
+        body: "Quick check-in {contact.firstName}: any questions after your appointment? - {business.name}",
       },
     ],
   },
@@ -47,7 +47,7 @@ export const FOLLOW_UP_TEMPLATES: FollowUpTemplate[] = [
       {
         kind: "SMS",
         delayMinutes: 60 * 24 * 3,
-        body: "{contact.firstName}, quick favor — would you mind leaving a short review? It helps a ton. - {business.name}",
+        body: "{contact.firstName}, quick favor: would you mind leaving a short review? It helps a ton. - {business.name}",
       },
     ],
   },
@@ -59,19 +59,19 @@ export const FOLLOW_UP_TEMPLATES: FollowUpTemplate[] = [
       {
         kind: "SMS",
         delayMinutes: 0,
-        body: "Hey {contact.firstName} — we missed you today. Want to reschedule? Reply with a good time. - {business.name}",
+        body: "Hey {contact.firstName}, we missed you today. Want to reschedule? Reply with a good time. - {business.name}",
       },
       {
         kind: "EMAIL",
         delayMinutes: 60 * 24,
         subject: "Reschedule your appointment",
         body:
-          "Hi {contact.firstName},\n\nWe missed you today — no worries. If you’d like to reschedule, reply with two times that work and we’ll confirm.\n\n- {business.name}",
+          "Hi {contact.firstName},\n\nWe missed you today. No worries. If you’d like to reschedule, reply with two times that work and we’ll confirm.\n\n- {business.name}",
       },
       {
         kind: "SMS",
         delayMinutes: 60 * 24 * 3,
-        body: "Quick check-in {contact.firstName} — still want to reschedule, or should we close this out? - {business.name}",
+        body: "Quick check-in {contact.firstName}: still want to reschedule, or should we close this out? - {business.name}",
       },
     ],
   },
@@ -90,12 +90,12 @@ export const FOLLOW_UP_TEMPLATES: FollowUpTemplate[] = [
       {
         kind: "SMS",
         delayMinutes: 60 * 24 * 3,
-        body: "Hey {contact.firstName} — want to book your next step? Reply here and we’ll get you scheduled. - {business.name}",
+        body: "Hey {contact.firstName}, want to book your next step? Reply here and we’ll get you scheduled. - {business.name}",
       },
       {
         kind: "SMS",
         delayMinutes: 60 * 24 * 7,
-        body: "Last check-in {contact.firstName} — want help booking the next step, or should we pause? - {business.name}",
+        body: "Last check-in {contact.firstName}: want help booking the next step, or should we pause? - {business.name}",
       },
     ],
   },
@@ -114,26 +114,26 @@ export const FOLLOW_UP_TEMPLATES: FollowUpTemplate[] = [
       {
         kind: "SMS",
         delayMinutes: 60 * 24,
-        body: "Hey {contact.firstName} — quick check-in after yesterday. How are things going? Reply here if you need anything. - {business.name}",
+        body: "Hey {contact.firstName}, quick check-in after yesterday. How are things going? Reply here if you need anything. - {business.name}",
       },
     ],
   },
   {
     id: "rebook-reminder",
     title: "Rebook reminder (2 steps)",
-    description: "Nudge them to book the next appointment in 2–3 weeks.",
+    description: "Nudge them to book the next appointment in 2-3 weeks.",
     steps: [
       {
         kind: "EMAIL",
         delayMinutes: 60 * 24 * 14,
         subject: "Ready to book your next appointment?",
         body:
-          "Hi {contact.firstName},\n\nJust a quick reminder — if you’d like to stay on track, now is a great time to book your next appointment.\n\nReply with a day/time that works and we’ll get you scheduled.\n\n- {business.name}",
+          "Hi {contact.firstName},\n\nJust a quick reminder: if you’d like to stay on track, now is a great time to book your next appointment.\n\nReply with a day/time that works and we’ll get you scheduled.\n\n- {business.name}",
       },
       {
         kind: "SMS",
         delayMinutes: 60 * 24 * 18,
-        body: "Hey {contact.firstName} — want to get your next appointment on the calendar? Reply with a good day/time. - {business.name}",
+        body: "Hey {contact.firstName}, want to get your next appointment on the calendar? Reply with a good day/time. - {business.name}",
       },
     ],
   },
@@ -152,7 +152,7 @@ export const FOLLOW_UP_TEMPLATES: FollowUpTemplate[] = [
       {
         kind: "SMS",
         delayMinutes: 60 * 24 * 5,
-        body: "{contact.firstName}, quick favor — know anyone else who could use our help? Reply with their name and I’ll reach out. - {business.name}",
+        body: "{contact.firstName}, quick favor: know anyone else who could use our help? Reply with their name and I’ll reach out. - {business.name}",
       },
     ],
   },
@@ -164,19 +164,19 @@ export const FOLLOW_UP_TEMPLATES: FollowUpTemplate[] = [
       {
         kind: "SMS",
         delayMinutes: 60 * 24 * 30,
-        body: "Hey {contact.firstName} — it’s been a bit. Want to get back on the schedule? Reply here and I’ll help. - {business.name}",
+        body: "Hey {contact.firstName}, it’s been a bit. Want to get back on the schedule? Reply here and I’ll help. - {business.name}",
       },
       {
         kind: "EMAIL",
         delayMinutes: 60 * 24 * 33,
         subject: "Checking in",
         body:
-          "Hi {contact.firstName},\n\nJust checking in — if you’d like to book again, reply with what you’re looking for and we’ll get you taken care of.\n\n- {business.name}",
+          "Hi {contact.firstName},\n\nJust checking in: if you’d like to book again, reply with what you’re looking for and we’ll get you taken care of.\n\n- {business.name}",
       },
       {
         kind: "SMS",
         delayMinutes: 60 * 24 * 37,
-        body: "Last check-in {contact.firstName} — should I keep a spot open for you this week, or circle back later? - {business.name}",
+        body: "Last check-in {contact.firstName}: should I keep a spot open for you this week, or circle back later? - {business.name}",
       },
     ],
   },

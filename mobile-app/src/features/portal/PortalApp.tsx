@@ -166,12 +166,12 @@ function DashboardScreen({
       <View style={styles.grid2}>
         <Pressable style={styles.tile} onPress={() => onNavigate("billing")}>
           <Text style={styles.tileLabel}>Credits</Text>
-          <Text style={styles.tileValue}>{creditsLine || "—"}</Text>
+          <Text style={styles.tileValue}>{creditsLine || "N/A"}</Text>
           <Text style={styles.tileMeta}>{(credits as any)?.ok === true && (credits as any)?.autoTopUp ? "Auto top-up on" : ""}</Text>
         </Pressable>
         <Pressable style={styles.tile} onPress={() => onNavigate("billing")}>
           <Text style={styles.tileLabel}>Billing</Text>
-          <Text style={styles.tileValue}>{spendLine || "—"}</Text>
+          <Text style={styles.tileValue}>{spendLine || "N/A"}</Text>
           <Text style={styles.tileMeta}>{(summary as any)?.ok === true && (summary as any)?.configured ? "Configured" : "Not configured"}</Text>
         </Pressable>
       </View>
@@ -179,12 +179,12 @@ function DashboardScreen({
       <View style={styles.grid2}>
         <Pressable style={styles.tile} onPress={() => onNavigate("tasks")}>
           <Text style={styles.tileLabel}>Open tasks</Text>
-          <Text style={styles.tileValue}>{typeof openTasksCount === "number" ? String(openTasksCount) : "—"}</Text>
+          <Text style={styles.tileValue}>{typeof openTasksCount === "number" ? String(openTasksCount) : "N/A"}</Text>
           <Text style={styles.tileMeta}>Tap to view tasks</Text>
         </Pressable>
         <Pressable style={styles.tile} onPress={() => onNavigate("inbox")}>
           <Text style={styles.tileLabel}>Email threads</Text>
-          <Text style={styles.tileValue}>{typeof emailThreadsCount === "number" ? String(emailThreadsCount) : "—"}</Text>
+          <Text style={styles.tileValue}>{typeof emailThreadsCount === "number" ? String(emailThreadsCount) : "N/A"}</Text>
           <Text style={styles.tileMeta}>Tap to view inbox</Text>
         </Pressable>
       </View>
@@ -577,7 +577,7 @@ function BillingDetails({ credits, summary }: { credits: any; summary: any }) {
     <>
       <Card>
         <Text style={styles.cardTitle}>Credits</Text>
-        <Text style={styles.bigValue}>{typeof creditsValue === "number" ? creditsValue : "—"}</Text>
+        <Text style={styles.bigValue}>{typeof creditsValue === "number" ? creditsValue : "N/A"}</Text>
         {typeof usdPerCredit === "number" ? <Text style={styles.meta}>${usdPerCredit.toFixed(2)} per credit</Text> : null}
         {autoTopUp != null ? <Text style={styles.meta}>Auto top-up: {autoTopUp ? "On" : "Off"}</Text> : null}
         {!creditsOk && (credits as any)?.error ? <Text style={styles.meta}>Error: {(credits as any).error}</Text> : null}
@@ -585,8 +585,8 @@ function BillingDetails({ credits, summary }: { credits: any; summary: any }) {
 
       <Card>
         <Text style={styles.cardTitle}>Subscription</Text>
-        <Text style={styles.meta}>Monthly: {typeof monthlyUsd === "number" ? `$${monthlyUsd.toFixed(0)}/mo` : "—"}</Text>
-        <Text style={styles.meta}>Spent this month: {typeof spentUsd === "number" ? `$${spentUsd.toFixed(0)}` : "—"}</Text>
+        <Text style={styles.meta}>Monthly: {typeof monthlyUsd === "number" ? `$${monthlyUsd.toFixed(0)}/mo` : "N/A"}</Text>
+        <Text style={styles.meta}>Spent this month: {typeof spentUsd === "number" ? `$${spentUsd.toFixed(0)}` : "N/A"}</Text>
         {subscription ? (
           <Text style={styles.meta}>
             Status: {String(subscription.status || "")} {subscription.cancelAtPeriodEnd ? "(canceling)" : ""}

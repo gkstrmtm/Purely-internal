@@ -147,13 +147,13 @@ export async function POST(req: Request) {
         },
       },
       update: {
-        title: `Prep pack – ${appt.lead.businessName}`,
+        title: `Prep pack - ${appt.lead.businessName}`,
         content,
       },
       create: {
         ownerId: appt.closerId,
         leadId: appt.leadId,
-        title: `Prep pack – ${appt.lead.businessName}`,
+        title: `Prep pack - ${appt.lead.businessName}`,
         kind: "APPOINTMENT_PREP",
         content,
       },

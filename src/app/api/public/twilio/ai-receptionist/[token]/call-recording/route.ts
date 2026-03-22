@@ -161,7 +161,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
     ...(needCredits > 0 && chargedCredits > 0 ? { creditsChargeAttempted: true } : {}),
   });
 
-  // Best-effort transcription for live calls (may take 1–2 minutes).
+  // Best-effort transcription for live calls (may take 1-2 minutes).
   if (recordingSid) {
     await requestTranscription({ ownerId, recordingSid, token, req });
   }

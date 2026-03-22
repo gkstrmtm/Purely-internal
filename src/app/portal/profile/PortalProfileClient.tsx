@@ -16,6 +16,7 @@ import {
   providerLabel,
   type SalesReportingProviderKey,
 } from "@/lib/salesReportingProviders";
+import { SuggestedSetupSection } from "./SuggestedSetupSection";
 
 type Me = {
   ok?: boolean;
@@ -886,6 +887,7 @@ export function PortalProfileClient() {
         </div>
       ) : (
         <div className="mt-6 space-y-4">
+          <SuggestedSetupSection canEdit={canEditBusinessInfo} />
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
             <div className="lg:col-span-2">
               <PortalSettingsSection

@@ -178,7 +178,7 @@ export async function POST(req: Request) {
     .map((s) => {
       const entitlement = s.included ? "included" : s.entitlementKey ? `optional (module: ${s.entitlementKey})` : "optional";
       const variants = Array.isArray(s.variants) && s.variants.length ? `; variants: ${s.variants.join(", ")}` : "";
-      return `- ${s.title} (slug: ${s.slug}; ${entitlement}${variants}) — ${s.description}`;
+      return `- ${s.title} (slug: ${s.slug}; ${entitlement}${variants}) - ${s.description}`;
     })
     .join("\n");
 
@@ -190,24 +190,24 @@ export async function POST(req: Request) {
     .join("\n");
 
   const agentHowTo = [
-    "Agents (AI Receptionist + AI Outbound) — key concepts:",
+    "Agents (AI Receptionist + AI Outbound): key concepts:",
     "- An **agent** is the AI configuration (prompt/behavior + optional knowledge base docs).",
     "- Many workflows have separate agents for **calls** (voice) vs **messages** (SMS/email).",
     "- An **agent ID** identifies which agent to update/test. Some screens support a **manual agent ID override**.",
     "- Sync typically does two things: (1) update portal-stored settings, (2) apply them to the agent. If manual override is set, it should apply to that manual agent ID.",
     "",
-    "AI Receptionist (inbound) — common click paths:",
+    "AI Receptionist (inbound): common click paths:",
     "- Go to: Sidebar → Services → AI Receptionist (/portal/app/services/ai-receptionist)",
     "- Setup prerequisites: Sidebar → Profile (/portal/app/profile) and set any required AI/voice credentials if Sync says they’re missing.",
     "- Voice agent: use the Voice section to edit System prompt / routing / settings, then click **Sync** (or the equivalent save/sync button).",
     "- Messaging agent (SMS): enable SMS, set SMS system prompt if needed, then **Sync**.",
     "- Knowledge base workflow (voice/SMS):",
     "  1) Set Seed URL (optional)",
-    "  2) Choose Crawl depth (0–5) and Max URLs (0–1000)",
+    "  2) Choose Crawl depth (0-5) and Max URLs (0-1000)",
     "  3) Add Notes and/or Upload file",
     "  4) Click **Sync knowledge base** to ingest/update docs",
     "",
-    "AI Outbound Calls — common click paths:",
+    "AI Outbound Calls: common click paths:",
     "- Go to: Sidebar → Services → AI outbound (/portal/app/services/ai-outbound-calls)",
     "- Choose a campaign (if there are multiple).",
     "- Calls agent: configure script/behavior, click **Sync calls agent** (or Sync) then use Testing to validate.",
@@ -282,7 +282,7 @@ export async function POST(req: Request) {
 
   const supportPlaybook = [
     "SUPPORT PLAYBOOK (how to respond):",
-    "- Default: answer directly with 3–7 concrete steps (exact clicks + fields).",
+    "- Default: answer directly with 3-7 concrete steps (exact clicks + fields).",
     "- Clarifying questions: ask at most 1 only when truly necessary; do NOT block the answer. Give best-guess steps, then ask the one question to confirm.",
     "- When the user is lost: first restate where they likely are (based on URL/service), then give the next 2 clicks to get unstuck.",
     "- When troubleshooting: check (1) module enabled in Billing, (2) permissions/role, (3) required fields present, (4) integration configured, (5) sync/test performed.",
@@ -302,7 +302,7 @@ export async function POST(req: Request) {
     "If asked 'how many credits does X cost' (or similar), answer with the exact number or formula from the credit costs knowledge. If it truly varies, ask one targeted clarifying question.",
     "If you give a link, ALWAYS render it as a markdown link with the full absolute URL (not just a slug).",
     "When building links to portal pages, use the provided Base URL and append the portal path.",
-    "If you cannot provide a working hyperlink, do NOT say 'click this link' — instead give directions (click-path) using menu names and page names.",
+    "If you cannot provide a working hyperlink, do NOT say 'click this link'; instead give directions (click-path) using menu names and page names.",
     "If you are unsure about a detail, say so and ask a targeted question rather than guessing.",
     "Only use user-visible UI and user-visible URLs (never internal/admin-only pages).",
     "NEVER mention or direct users to internal-only paths like /staff, /manager, or any non-portal admin routes.",
@@ -332,7 +332,7 @@ export async function POST(req: Request) {
 
   try {
     const reply = await generateText({ system, user });
-    return Response.json({ ok: true, reply: String(reply || "").trim() || "Okay — can you share one more detail?" });
+    return Response.json({ ok: true, reply: String(reply || "").trim() || "Okay. Can you share one more detail?" });
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     return Response.json({ ok: false, error: `Support chat failed. ${msg}` }, { status: 500 });

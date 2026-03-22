@@ -1309,7 +1309,7 @@ export function PortalAiReceptionistClient() {
         <div>
           <h1 className="text-2xl font-bold text-brand-ink sm:text-3xl">AI Receptionist</h1>
           <p className="mt-2 max-w-2xl text-sm text-zinc-600">
-            Save hours with a dedicated AI receptionist — answer calls, capture details, and follow up automatically.
+            Save hours with a dedicated AI receptionist: answer calls, capture details, and follow up automatically.
           </p>
           {refreshing ? (
             <div className="mt-2 flex items-center gap-2 text-xs font-semibold text-zinc-500">
@@ -1500,7 +1500,7 @@ export function PortalAiReceptionistClient() {
                         className="mt-2 min-h-[90px] w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
                         value={generateContext}
                         onChange={(e) => setGenerateContext(e.target.value)}
-                        placeholder="Example: We answer calls for a boutique dental practice. If it's a new patient, ask what they're looking for and offer to book a consultation. Office hours are Mon–Fri 9–5."
+                        placeholder="Example: We answer calls for a boutique dental practice. If it's a new patient, ask what they're looking for and offer to book a consultation. Office hours are Mon-Fri 9-5."
                       />
                     </div>
                   </div>

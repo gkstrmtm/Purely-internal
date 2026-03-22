@@ -168,7 +168,7 @@ export async function POST(req: Request) {
         appointmentId: appointment.id,
         req,
         createdByUserId: setterId,
-        title: lead.businessName ? `Call – ${lead.businessName}` : null,
+        title: lead.businessName ? `Call - ${lead.businessName}` : null,
       });
     } catch {
       // Best-effort.
@@ -211,7 +211,7 @@ export async function POST(req: Request) {
             data: {
               ownerId: chosen.id,
               leadId: lead.id,
-              title: `Prep pack – ${lead.businessName}`,
+              title: `Prep pack - ${lead.businessName}`,
               kind: "APPOINTMENT_PREP",
               content,
             },

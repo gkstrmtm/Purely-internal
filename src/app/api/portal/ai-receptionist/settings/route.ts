@@ -550,7 +550,7 @@ export async function PUT(req: Request) {
 
     if (!agentId) {
       const businessName = String(next.businessName || "").trim();
-      const name = (businessName ? `${businessName} — AI Receptionist (Calls)` : "AI Receptionist (Calls)").slice(0, 160);
+      const name = (businessName ? `${businessName}: AI Receptionist (Calls)` : "AI Receptionist (Calls)").slice(0, 160);
       const created = await createElevenLabsAgent({
         apiKey,
         name,
@@ -615,7 +615,7 @@ export async function PUT(req: Request) {
 
     if (!chatAgentId) {
       const businessName = String(next.businessName || "").trim();
-      const name = (businessName ? `${businessName} — AI Receptionist (SMS)` : "AI Receptionist (SMS)").slice(0, 160);
+      const name = (businessName ? `${businessName}: AI Receptionist (SMS)` : "AI Receptionist (SMS)").slice(0, 160);
       const created = await createElevenLabsAgent({
         apiKey,
         name,

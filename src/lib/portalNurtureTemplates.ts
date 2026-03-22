@@ -230,12 +230,12 @@ export const NURTURE_TEMPLATES: NurtureTemplate[] = [
         kind: "EMAIL",
         delayMinutes: 0,
         subject: "Quick intro + next steps",
-        body: "Hi {contact.firstName},\n\nThanks for reaching out — happy to help.\n\nWhat outcome are you aiming for this month? If you reply with 1 sentence, I’ll recommend the best next step.\n\n- {business.name}",
+        body: "Hi {contact.firstName},\n\nThanks for reaching out. Happy to help.\n\nWhat outcome are you aiming for this month? If you reply with 1 sentence, I’ll recommend the best next step.\n\n- {business.name}",
       },
       {
         kind: "SMS",
         delayMinutes: 60 * 6,
-        body: "Hey {contact.firstName} — quick question: what are you trying to accomplish right now?",
+        body: "Hey {contact.firstName}, quick question: what are you trying to accomplish right now?",
       },
       {
         kind: "SMS",
@@ -274,7 +274,7 @@ export const NURTURE_TEMPLATES: NurtureTemplate[] = [
       {
         kind: "SMS",
         delayMinutes: 0,
-        body: "Hey {contact.firstName} — want to book 10 minutes so I can get this set up for you?",
+        body: "Hey {contact.firstName}, want to book 10 minutes so I can get this set up for you?",
       },
       {
         kind: "EMAIL",
@@ -285,7 +285,7 @@ export const NURTURE_TEMPLATES: NurtureTemplate[] = [
       {
         kind: "SMS",
         delayMinutes: 60 * 24,
-        body: "What’s better — today or tomorrow? I can make time.",
+        body: "What’s better: today or tomorrow? I can make time.",
       },
       {
         kind: "EMAIL",
@@ -296,7 +296,7 @@ export const NURTURE_TEMPLATES: NurtureTemplate[] = [
       {
         kind: "SMS",
         delayMinutes: 60 * 24 * 2,
-        body: "If a call is annoying, no worries — want me to just send the fastest path in 2-3 bullets?",
+        body: "If a call is annoying, no worries; want me to just send the fastest path in 2-3 bullets?",
       },
       {
         kind: "EMAIL",
@@ -318,7 +318,7 @@ export const NURTURE_TEMPLATES: NurtureTemplate[] = [
       {
         kind: "SMS",
         delayMinutes: 60 * 24 * 7,
-        body: "Closing the loop — if you want help later, just reply here anytime.",
+        body: "Closing the loop: if you want help later, just reply here anytime.",
       },
       {
         kind: "EMAIL",
@@ -336,13 +336,13 @@ export const NURTURE_TEMPLATES: NurtureTemplate[] = [
       {
         kind: "SMS",
         delayMinutes: 0,
-        body: "Hey {contact.firstName} — should I keep this open, or is it not a priority right now?",
+        body: "Hey {contact.firstName}, should I keep this open, or is it not a priority right now?",
       },
       {
         kind: "EMAIL",
         delayMinutes: 60 * 24,
         subject: "Still want help?",
-        body: "Hi {contact.firstName},\n\nJust checking in — do you still want help with this?\n\nIf not, no worries at all. Reply ‘pause’ and I’ll stop.\n\n- {business.name}",
+        body: "Hi {contact.firstName},\n\nJust checking in: do you still want help with this?\n\nIf not, no worries at all. Reply ‘pause’ and I’ll stop.\n\n- {business.name}",
       },
       {
         kind: "SMS",
@@ -369,7 +369,7 @@ export const NURTURE_TEMPLATES: NurtureTemplate[] = [
       {
         kind: "SMS",
         delayMinutes: 60 * 24 * 7,
-        body: "Last check-in — want me to help, or should I pause?",
+        body: "Last check-in: want me to help, or should I pause?",
       },
       {
         kind: "EMAIL",
@@ -386,7 +386,7 @@ export const NURTURE_TEMPLATES: NurtureTemplate[] = [
         kind: "EMAIL",
         delayMinutes: 60 * 24 * 14,
         subject: "Checking one last time",
-        body: "Hi {contact.firstName},\n\nChecking one last time — should I close this out?\n\n- {business.name}",
+        body: "Hi {contact.firstName},\n\nChecking one last time: should I close this out?\n\n- {business.name}",
       },
       {
         kind: "SMS",
@@ -415,7 +415,7 @@ export const NURTURE_TEMPLATES: NurtureTemplate[] = [
       {
         kind: "SMS",
         delayMinutes: 60 * 24,
-        body: "Hey {contact.firstName} — did you see my email? What’s your top goal right now?",
+        body: "Hey {contact.firstName}, did you see my email? What’s your top goal right now?",
       },
       {
         kind: "EMAIL",
@@ -449,7 +449,7 @@ export const NURTURE_TEMPLATES: NurtureTemplate[] = [
       {
         kind: "SMS",
         delayMinutes: 60 * 24 * 7,
-        body: "Quick check-in — should I keep sending these tips, or pause?",
+        body: "Quick check-in: should I keep sending these tips, or pause?",
       },
       {
         kind: "EMAIL",
@@ -477,7 +477,7 @@ export const NURTURE_TEMPLATES: NurtureTemplate[] = [
       {
         kind: "SMS",
         delayMinutes: 60 * 24 * 14,
-        body: "Closing the loop — if you want help later, just reply here anytime.",
+        body: "Closing the loop: if you want help later, just reply here anytime.",
       },
       {
         kind: "EMAIL",
@@ -488,7 +488,7 @@ export const NURTURE_TEMPLATES: NurtureTemplate[] = [
       {
         kind: "SMS",
         delayMinutes: 60 * 24 * 30,
-        body: "Final note — if you want to revisit, reply with what changed and I’ll suggest the next step.",
+        body: "Final note: if you want to revisit, reply with what changed and I’ll suggest the next step.",
       },
     ],
   },

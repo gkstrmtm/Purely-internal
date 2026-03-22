@@ -93,7 +93,7 @@ function toCustomerFacingDomainProvisioningError(opts: { code: string | null; me
   }
 
   if (hay.includes("rate limit") || hay.includes("too many requests") || hay.includes("429")) {
-    return "Hosting verification is temporarily busy. Please wait 30–60 seconds and try again.";
+    return "Hosting verification is temporarily busy. Please wait 30-60 seconds and try again.";
   }
 
   if (hay.includes("unauthorized") || hay.includes("forbidden") || hay.includes("401") || hay.includes("403")) {

@@ -333,7 +333,7 @@ export async function POST(req: Request) {
               data: {
                 ownerId: chosen.id,
                 leadId: lead.id,
-                title: `Prep pack – ${lead.businessName}`,
+                title: `Prep pack - ${lead.businessName}`,
                 kind: "APPOINTMENT_PREP",
                 content,
               },

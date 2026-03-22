@@ -184,7 +184,7 @@ function buildInteractiveBlocks(opts: {
           type: "paragraph",
           props: {
             text:
-              "Explore what we offer below. Add items to your cart, checkout securely, or book a time to talk — all on this page.",
+              "Explore what we offer below. Add items to your cart, checkout securely, or book a time to talk. You can do it all on this page.",
           },
         },
         {
@@ -311,14 +311,14 @@ function buildInteractiveBlocks(opts: {
 }
 
 const PAGE_UPDATED_VARIANTS = [
-  "OK — I updated your page. Check the preview and tell me what you want changed.",
-  "Done — page updated. Take a look in preview and tell me what to tweak.",
+  "OK. I updated your page. Check the preview and tell me what you want changed.",
+  "Done. Page updated. Take a look in preview and tell me what to tweak.",
   "Updated. Open the preview and tell me what you want different.",
-  "All set — changes applied. Preview it and tell me what you want adjusted.",
+  "All set. Changes applied. Preview it and tell me what you want adjusted.",
   "Page updated. If anything feels off, tell me what to change next.",
   "Update complete. Check the preview and call out what to refine.",
   "Applied the changes. Preview it and tell me what you want changed next.",
-  "Done — I made the update. Tell me what you want improved after you preview.",
+  "Done. I made the update. Tell me what you want improved after you preview.",
   "Updated the page. Preview it and tell me what to adjust (copy, layout, colors, etc.).",
   "Change applied. Check preview and tell me what you want changed.",
 ];
@@ -548,7 +548,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
     const assistantMsg = {
       role: "assistant",
       content:
-        "Done — I inserted real Funnel Builder blocks for the interactive parts (shop/cart/checkout/calendar/chatbot) so everything works in preview and on the hosted page. I also generated a full Custom code HTML snapshot of the page so you can switch to Custom code and keep the preview.",
+        "Done. I inserted real Funnel Builder blocks for the interactive parts (shop/cart/checkout/calendar/chatbot) so everything works in preview and on the hosted page. I also generated a full Custom code HTML snapshot of the page so you can switch to Custom code and keep the preview.",
       at: new Date().toISOString(),
     };
     const nextChat = [...prevChat, userMsg, assistantMsg].slice(-40);

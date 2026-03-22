@@ -600,10 +600,10 @@ function PortalGetStartedInner() {
                         options={
                           [
                             { value: "NOT_SURE", label: "Not sure" },
-                            { value: "0_10", label: "0–10" },
-                            { value: "11_30", label: "11–30" },
-                            { value: "31_60", label: "31–60" },
-                            { value: "61_120", label: "61–120" },
+                            { value: "0_10", label: "0-10" },
+                            { value: "11_30", label: "11-30" },
+                            { value: "31_60", label: "31-60" },
+                            { value: "61_120", label: "61-120" },
                             { value: "120_PLUS", label: "120+" },
                           ] satisfies Array<PortalListboxOption<CallsPerMonthRange>>
                         }

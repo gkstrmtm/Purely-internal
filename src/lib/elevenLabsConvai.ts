@@ -724,7 +724,7 @@ export function buildElevenLabsAgentPrompt(
     "6) Confirm details + close warmly.",
     "",
     "Objection handling (be calm; keep it short):",
-    "- \"I’m busy\": ask for a better time or offer to text/email 1–2 sentences.",
+    "- \"I’m busy\": ask for a better time or offer to text/email 1-2 sentences.",
     "- \"Not interested\": acknowledge, ask one optional clarifying question, then gracefully end.",
     "- \"Just send info\": ask where to send it + what they care about most, then comply.",
     "- \"How did you get my number?\": answer plainly (public info / referral / prior inquiry if known; otherwise say you don’t have that detail and apologize).",
@@ -749,7 +749,7 @@ export function buildElevenLabsAgentPrompt(
     "- Sound natural and human; use short sentences.",
     "- Avoid marketing superlatives and jargon.",
     "- Speak at a steady pace; pause after questions.",
-    "- Do not read lists out loud unless asked—summarize instead.",
+    "- Do not read lists out loud unless asked; summarize instead.",
   ].join("\n");
 
   const environmentSection = [

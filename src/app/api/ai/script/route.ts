@@ -85,13 +85,13 @@ export async function POST(req: Request) {
       },
     },
     update: {
-      title: `Script – ${lead.businessName}`,
+      title: `Script - ${lead.businessName}`,
       content,
     },
     create: {
       ownerId: userId,
       leadId: lead.id,
-      title: `Script – ${lead.businessName}`,
+      title: `Script - ${lead.businessName}`,
       kind: "DIALER_SCRIPT",
       content,
     },

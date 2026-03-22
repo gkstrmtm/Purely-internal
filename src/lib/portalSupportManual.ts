@@ -346,7 +346,7 @@ export const PORTAL_SUPPORT_MANUAL: PortalSupportServiceGuide[] = [
       "Test calls/SMS from the testing tools (if available in UI).",
     ],
     commonTasks: [
-      "Knowledge base (Voice/SMS): set Seed URL → choose Crawl depth (0–5) + Max URLs (0–1000) → add Notes/Upload file → Sync knowledge base.",
+      "Knowledge base (Voice/SMS): set Seed URL → choose Crawl depth (0-5) + Max URLs (0-1000) → add Notes/Upload file → Sync knowledge base.",
       "Manual agent override: if a manual agent ID is set, Sync/KB Sync applies to that agent ID.",
     ],
     troubleshooting: [
@@ -368,11 +368,11 @@ export const PORTAL_SUPPORT_MANUAL: PortalSupportServiceGuide[] = [
       "Use Testing to validate the effective agent IDs.",
     ],
     commonTasks: [
-      "Campaign knowledge base (Calls/Messages): set Seed URL → Crawl depth (0–5) + Max URLs (0–1000) → Notes/Upload → Sync knowledge base.",
+      "Campaign knowledge base (Calls/Messages): set Seed URL → Crawl depth (0-5) + Max URLs (0-1000) → Notes/Upload → Sync knowledge base.",
       "Manual agent override: if manual Calls/Messages agent ID is set, Sync/KB Sync applies to that manual agent ID.",
     ],
     troubleshooting: [
-      "If campaigns fail to load, it can be a backend or schema issue — use Report bug with the exact error.",
+      "If campaigns fail to load, it can be a backend or schema issue; use Report bug with the exact error.",
       "If Testing shows no agent ID, Sync the agent first (or set a manual agent ID override).",
     ],
   },

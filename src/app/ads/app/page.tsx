@@ -56,7 +56,7 @@ export default function AdsAppHomePage() {
   const avgCpc7dLabel = useMemo(() => {
     if (!stats) return "";
     const clicks = Number(stats.clicks.chargedLast7d || 0);
-    if (!clicks) return "—";
+    if (!clicks) return "N/A";
     const cents = Math.round(Number(stats.spend.last7dCents || 0) / clicks);
     return usd(cents);
   }, [stats]);

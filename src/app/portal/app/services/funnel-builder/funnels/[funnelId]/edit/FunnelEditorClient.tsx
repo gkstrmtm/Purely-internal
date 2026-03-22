@@ -103,14 +103,14 @@ function pickRandom<T>(items: T[]): T {
 }
 
 const AI_BLOCK_UPDATED_VARIANTS = [
-  "OK — I updated this block. Check the preview and tell me what you want changed.",
-  "Done — block updated. Preview it and tell me what to tweak.",
+  "OK. I updated this block. Check the preview and tell me what you want changed.",
+  "Done. Block updated. Preview it and tell me what to tweak.",
   "Updated this block. Check it in preview and tell me what you want adjusted.",
-  "All set — changes applied to this block. Preview and tell me what to refine.",
+  "All set. Changes applied to this block. Preview and tell me what to refine.",
   "Block updated. If anything feels off, tell me what to change next.",
   "Update complete for this block. Preview it and call out what to refine.",
   "Applied the changes to this block. Tell me what you want changed next.",
-  "Done — block updated. Tell me what you want improved after you preview.",
+  "Done. Block updated. Tell me what you want improved after you preview.",
   "Updated. Preview this block and tell me what to adjust (spacing, copy, colors, etc.).",
   "Change applied to this block. Check preview and tell me what you want changed.",
 ];
@@ -139,10 +139,10 @@ function chatDisplayContent(m: { role: "user" | "assistant"; content: string }) 
       t.toLowerCase().includes("<html") ||
       t.toLowerCase().includes("<div") ||
       t.toLowerCase().includes("</"));
-  if (looksLikeHtml) return "(HTML output hidden — see the HTML editor pane.)";
+  if (looksLikeHtml) return "(HTML output hidden. See the HTML editor pane.)";
 
   const looksLikeCodeFence = t.startsWith("```") && (t.includes("```html") || t.includes("```css") || t.includes("```json"));
-  if (looksLikeCodeFence) return "(Code output hidden — use the editor fields.)";
+  if (looksLikeCodeFence) return "(Code output hidden. Use the editor fields.)";
 
   return raw;
 }
@@ -5267,7 +5267,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                             placeholder="Page title (shown in Google)"
                             className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
                           />
-                          <div className="mt-1 text-xs text-zinc-500">Recommended: ~50–60 characters.</div>
+                          <div className="mt-1 text-xs text-zinc-500">Recommended: ~50-60 characters.</div>
                         </label>
 
                         <label className="block">
@@ -5309,7 +5309,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                         </label>
 
                         <div className="rounded-xl border border-zinc-200 bg-white px-3 py-2">
-                          <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-zinc-500">Tab icon (favicon) — this page</div>
+                          <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-zinc-500">Tab icon (favicon) - this page</div>
                           <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
                             <div className="flex min-w-0 flex-1 items-center gap-3">
                               <div className="h-9 w-9 overflow-hidden rounded-xl border border-zinc-200 bg-zinc-50">
@@ -7072,7 +7072,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                                   const current = String((selectedBlock.props as any).agentId || "").trim();
                                   const opts = availableAgentOptions.map((a) => ({
                                     value: a.id,
-                                    label: a.name ? `${a.name} — ${a.id}` : a.id,
+                                    label: a.name ? `${a.name} - ${a.id}` : a.id,
                                   }));
                                   const hasCurrent = current && opts.some((o) => o.value === current);
                                   return [

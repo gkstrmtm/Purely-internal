@@ -93,7 +93,7 @@ const ROI_RATIONALE_BY_SERVICE: Partial<Record<PortalModuleKey, RoiServiceRation
     ],
     revenue: [
       "The $300/mo lift assumes content creates a small but steady increase in inbound leads (local SEO + long-tail queries).",
-      "A conservative mental model: even 1 additional booked job every 1–3 months (depending on AOV) can justify a few hundred dollars of incremental revenue.",
+      "A conservative mental model: even 1 additional booked job every 1-3 months (depending on AOV) can justify a few hundred dollars of incremental revenue.",
     ],
     hours: [
       "Hours saved comes from eliminating writing, formatting, internal reviews, and posting steps for the owner/staff.",
@@ -168,7 +168,7 @@ const ROI_RATIONALE_BY_SERVICE: Partial<Record<PortalModuleKey, RoiServiceRation
     ],
     revenue: [
       "Revenue lift is primarily ‘captured opportunities’: answered after-hours, fewer missed calls, and better lead qualification/booking.",
-      "$1,200/mo is conservative if the business has meaningful inbound calls; it can be as simple as 1–3 extra booked jobs/month depending on AOV.",
+      "$1,200/mo is conservative if the business has meaningful inbound calls; it can be as simple as 1-3 extra booked jobs/month depending on AOV.",
     ],
     hours: [
       "Hours saved is time not spent answering repetitive calls, collecting details, and writing summaries.",
@@ -181,7 +181,7 @@ const ROI_RATIONALE_BY_SERVICE: Partial<Record<PortalModuleKey, RoiServiceRation
     ],
     revenue: [
       "Revenue lift assumes a small number of additional qualified leads per month and a conservative close rate.",
-      "$1,500/mo can be modeled as: a handful of incremental appointments with 10–30% close rate at typical SMB ticket sizes.",
+      "$1,500/mo can be modeled as: a handful of incremental appointments with 10-30% close rate at typical SMB ticket sizes.",
     ],
     hours: [
       "Hours saved is not manually building lists, copying data, and researching prospects.",
@@ -2424,7 +2424,7 @@ export default function ProfitVisualizationDashboardPage() {
 
                 <div className="rounded-3xl border border-zinc-200 bg-white p-5 shadow-sm">
                   <div className="text-sm font-semibold text-zinc-900">Timeframe</div>
-                  <div className="mt-1 text-xs text-zinc-600">Set any month count (1–{MAX_MONTHS}).</div>
+                  <div className="mt-1 text-xs text-zinc-600">Set any month count (1-{MAX_MONTHS}).</div>
                   <div className="mt-3 flex flex-wrap gap-2">
                     {MONTH_PRESETS.map((m) => (
                       <SegButton key={m} active={appliedMonths === m} onClick={() => setMonths(m)}>
@@ -2531,7 +2531,7 @@ export default function ProfitVisualizationDashboardPage() {
                   <div className="mt-1 text-xs text-zinc-600">How much you keep from each $1.</div>
                   <div className="mt-3 flex items-center justify-between gap-3">
                     <div className="text-sm font-bold text-zinc-900">{formatKeep(keep)} ({formatPct1(keep)})</div>
-                    <div className="text-xs font-semibold text-zinc-600">{KEEP_MIN}–{KEEP_MAX}</div>
+                    <div className="text-xs font-semibold text-zinc-600">{KEEP_MIN}-{KEEP_MAX}</div>
                   </div>
                   <input
                     type="range"

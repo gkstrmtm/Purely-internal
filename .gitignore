@@ -38,6 +38,15 @@
 # local notes / chat transcripts
 /src/lib/notes/
 
+# Local chat/transcript artifacts
+src/lib/planningnotes.md
+chat history updated.md
+chathistory
+newchat.md
+newchathistory.md
+newnewchathistory
+realupdatedhistory.md
+
 # local-only portal transcript (do not commit)
 /src/app/api/portal/funnel-builder/forms/\[formId\]/ourchat.md
 

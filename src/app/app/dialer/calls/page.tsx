@@ -366,7 +366,7 @@ export default function DialerCallsPage() {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
-        title: selectedLeadForCreate ? `Script – ${selectedLeadForCreate.businessName}` : "Script",
+        title: selectedLeadForCreate ? `Script - ${selectedLeadForCreate.businessName}` : "Script",
         kind: "DIALER_SCRIPT",
         content: t.content,
         leadId,

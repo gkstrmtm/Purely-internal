@@ -45,7 +45,7 @@ export const REMINDER_TEMPLATES: ReminderTemplate[] = [
         leadMinutes: 60 * 2,
         subject: "Today: your appointment {when}",
         body:
-          "Hi {contact.firstName},\n\nQuick reminder — your appointment is coming up at {when}.\n\nLocation: {location}\n\n- {business.name}",
+          "Hi {contact.firstName},\n\nQuick reminder: your appointment is coming up at {when}.\n\nLocation: {location}\n\n- {business.name}",
       },
       {
         kind: "SMS",
@@ -102,7 +102,7 @@ export const REMINDER_TEMPLATES: ReminderTemplate[] = [
         leadMinutes: 60 * 2,
         subject: "Today: appointment {when}",
         body:
-          "Hi {contact.firstName},\n\nQuick reminder — your appointment is coming up at {when}.\n\nLocation: {location}\n\n- {business.name}",
+          "Hi {contact.firstName},\n\nQuick reminder: your appointment is coming up at {when}.\n\nLocation: {location}\n\n- {business.name}",
       },
       {
         kind: "SMS",

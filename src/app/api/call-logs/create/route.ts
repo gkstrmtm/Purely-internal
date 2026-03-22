@@ -163,7 +163,7 @@ export async function POST(req: Request) {
         const doc = await tx.doc.create({
           data: {
             ownerId: userId,
-            title: `Transcript – ${lead.businessName}`,
+            title: `Transcript - ${lead.businessName}`,
             kind: "CALL_TRANSCRIPT",
             content: "(Paste transcript here. Demo)\n",
           },

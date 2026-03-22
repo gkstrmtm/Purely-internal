@@ -423,7 +423,7 @@ export function GetStartedWizard({
       {step === 1 ? (
         <View style={styles.stepPanel}>
           <Text style={styles.panelTitle}>Top goals</Text>
-          <Text style={styles.panelSubtitle}>Pick a few—we’ll recommend services based on these.</Text>
+          <Text style={styles.panelSubtitle}>Pick a few. We’ll recommend services based on these.</Text>
 
           <View style={styles.chipRowWrap}>
             {GET_STARTED_GOALS.map((g) => (

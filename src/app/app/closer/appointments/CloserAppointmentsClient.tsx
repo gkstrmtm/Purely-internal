@@ -480,7 +480,7 @@ export default function CloserAppointmentsClient({
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({
-            title: `Closer Script – ${selected.lead.businessName}`,
+            title: `Closer Script - ${selected.lead.businessName}`,
             content: closerScriptDraft,
             kind: "CLOSER_SCRIPT",
             leadId: selected.lead.id,
