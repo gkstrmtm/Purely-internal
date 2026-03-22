@@ -1,7 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
-import type { CSSProperties } from "react";
 
 import { prisma } from "@/lib/db";
 import { formatBlogDate } from "@/lib/blog";
@@ -10,18 +9,11 @@ import { resolveCustomDomain } from "@/lib/customDomainResolver";
 import { getHostedBrandFont } from "@/lib/hostedBrandFont";
 import { getBlogAppearance } from "@/lib/blogAppearance";
 import { resolveHostedFont } from "@/lib/portalHostedFonts";
-import { pickReadableAccentColorOnWhite, pickReadableTextColor, rgba } from "@/lib/colorUtils";
+import { deriveHostedBrandTheme } from "@/lib/hostedBrandTheme";
 import { HostedPortalAdBanner } from "@/components/HostedPortalAdBanner";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
-
-function normalizeHex(value: string | null | undefined): string | null {
-  if (!value) return null;
-  const v = value.trim();
-  if (!/^#([0-9a-fA-F]{6})$/.test(v)) return null;
-  return v;
-}
 
 function PendingVerification() {
   return (
@@ -85,9 +77,10 @@ export default async function CustomDomainBlogsIndexPage({
     .catch(() => null);
   if (!site) notFound();
 
-  const [hasLogoUrl, hasPrimaryHex, hasAccentHex, hasTextHex] = await Promise.all([
+  const [hasLogoUrl, hasPrimaryHex, hasSecondaryHex, hasAccentHex, hasTextHex] = await Promise.all([
     hasPublicColumn("BusinessProfile", "logoUrl"),
     hasPublicColumn("BusinessProfile", "brandPrimaryHex"),
+    hasPublicColumn("BusinessProfile", "brandSecondaryHex"),
     hasPublicColumn("BusinessProfile", "brandAccentHex"),
     hasPublicColumn("BusinessProfile", "brandTextHex"),
   ]);
@@ -95,6 +88,7 @@ export default async function CustomDomainBlogsIndexPage({
   const profileSelect: Record<string, boolean> = { businessName: true };
   if (hasLogoUrl) profileSelect.logoUrl = true;
   if (hasPrimaryHex) profileSelect.brandPrimaryHex = true;
+  if (hasSecondaryHex) profileSelect.brandSecondaryHex = true;
   if (hasAccentHex) profileSelect.brandAccentHex = true;
   if (hasTextHex) profileSelect.brandTextHex = true;
 
@@ -133,9 +127,12 @@ export default async function CustomDomainBlogsIndexPage({
     return merged || null;
   })();
 
-  const brandPrimary = normalizeHex((profile as any)?.brandPrimaryHex) ?? "#1d4ed8";
-  const brandAccent = normalizeHex((profile as any)?.brandAccentHex) ?? "#f472b6";
-  const brandText = normalizeHex((profile as any)?.brandTextHex) ?? "#18181b";
+  const theme = deriveHostedBrandTheme({
+    brandPrimaryHex: (profile as any)?.brandPrimaryHex ?? null,
+    brandSecondaryHex: (profile as any)?.brandSecondaryHex ?? null,
+    brandAccentHex: (profile as any)?.brandAccentHex ?? null,
+    brandTextHex: (profile as any)?.brandTextHex ?? null,
+  });
 
   const posts = await prisma.clientBlogPost.findMany({
     where: { siteId: site.id, status: "PUBLISHED", archivedAt: null },
@@ -148,31 +145,8 @@ export default async function CustomDomainBlogsIndexPage({
   const brandName = (profile as any)?.businessName || site.name;
   const logoUrl = (profile as any)?.logoUrl || null;
 
-  const themeStyle = {
-    ["--client-primary" as any]: brandPrimary,
-    ["--client-accent" as any]: brandAccent,
-    ["--client-text" as any]: brandText,
-    ["--client-on-primary" as any]: pickReadableTextColor({
-      backgroundHex: brandPrimary,
-      preferredTextHex: brandText,
-    }),
-    ["--client-on-primary-muted" as any]: rgba(
-      pickReadableTextColor({ backgroundHex: brandPrimary, preferredTextHex: brandText }),
-      0.9,
-    ),
-    ["--client-on-accent" as any]: pickReadableTextColor({
-      backgroundHex: brandAccent,
-      preferredTextHex: brandText,
-    }),
-    ["--client-link" as any]: pickReadableAccentColorOnWhite({
-      accentHex: brandPrimary,
-      fallbackHex: pickReadableTextColor({ backgroundHex: "#ffffff", preferredTextHex: brandText, minContrast: 4.5 }),
-      minContrast: 3.0,
-    }),
-    ["--client-soft" as any]: rgba(brandPrimary, 0.08),
-  } as CSSProperties;
-
-  const ctaBg = brandAccent;
+  const themeStyle = theme.cssVars;
+  const ctaBg = theme.ctaHex;
 
   return (
     <div className="pa-blog-root min-h-screen bg-white" style={{ ...(themeStyle as any), ...hostedBrandFont.styleVars } as any}>

@@ -1,23 +1,16 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
-import type { CSSProperties } from "react";
 
 import { prisma } from "@/lib/db";
 import { hasPublicColumn } from "@/lib/dbSchema";
 import { resolveCustomDomain } from "@/lib/customDomainResolver";
 import { resolveNewsletterHostedFont } from "@/lib/portalNewsletterFonts";
 import { getHostedBrandFont } from "@/lib/hostedBrandFont";
+import { deriveHostedBrandTheme } from "@/lib/hostedBrandTheme";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
-
-function normalizeHex(value: string | null | undefined): string | null {
-  if (!value) return null;
-  const v = value.trim();
-  if (!/^#([0-9a-fA-F]{6})$/.test(v)) return null;
-  return v;
-}
 
 function formatDate(value: Date) {
   return value.toLocaleString();
@@ -76,9 +69,10 @@ export default async function CustomDomainNewslettersIndexPage({
     .catch(() => null);
   if (!site) notFound();
 
-  const [hasLogoUrl, hasPrimaryHex, hasAccentHex, hasTextHex] = await Promise.all([
+  const [hasLogoUrl, hasPrimaryHex, hasSecondaryHex, hasAccentHex, hasTextHex] = await Promise.all([
     hasPublicColumn("BusinessProfile", "logoUrl"),
     hasPublicColumn("BusinessProfile", "brandPrimaryHex"),
+    hasPublicColumn("BusinessProfile", "brandSecondaryHex"),
     hasPublicColumn("BusinessProfile", "brandAccentHex"),
     hasPublicColumn("BusinessProfile", "brandTextHex"),
   ]);
@@ -86,6 +80,7 @@ export default async function CustomDomainNewslettersIndexPage({
   const profileSelect: Record<string, boolean> = { businessName: true };
   if (hasLogoUrl) profileSelect.logoUrl = true;
   if (hasPrimaryHex) profileSelect.brandPrimaryHex = true;
+  if (hasSecondaryHex) profileSelect.brandSecondaryHex = true;
   if (hasAccentHex) profileSelect.brandAccentHex = true;
   if (hasTextHex) profileSelect.brandTextHex = true;
 
@@ -93,18 +88,17 @@ export default async function CustomDomainNewslettersIndexPage({
     .findUnique({ where: { ownerId: site.ownerId }, select: profileSelect as any })
     .catch(() => null);
 
-  const brandPrimary = normalizeHex((profile as any)?.brandPrimaryHex) ?? "#1d4ed8";
-  const brandAccent = normalizeHex((profile as any)?.brandAccentHex) ?? "#f472b6";
-  const brandText = normalizeHex((profile as any)?.brandTextHex) ?? "#18181b";
+  const theme = deriveHostedBrandTheme({
+    brandPrimaryHex: (profile as any)?.brandPrimaryHex ?? null,
+    brandSecondaryHex: (profile as any)?.brandSecondaryHex ?? null,
+    brandAccentHex: (profile as any)?.brandAccentHex ?? null,
+    brandTextHex: (profile as any)?.brandTextHex ?? null,
+  });
 
   const brandName = (profile as any)?.businessName || site.name;
   const logoUrl = (profile as any)?.logoUrl || null;
 
-  const themeStyle = {
-    ["--client-primary" as any]: brandPrimary,
-    ["--client-accent" as any]: brandAccent,
-    ["--client-text" as any]: brandText,
-  } as CSSProperties;
+  const themeStyle = theme.cssVars;
 
   const setup = await prisma.portalServiceSetup
     .findUnique({
@@ -144,8 +138,8 @@ export default async function CustomDomainNewslettersIndexPage({
 
           <a
             href="https://purelyautomation.com"
-            className="rounded-2xl px-4 py-2 text-sm font-bold text-white shadow-sm"
-            style={{ backgroundColor: "var(--client-primary)" }}
+            className="rounded-2xl px-4 py-2 text-sm font-bold shadow-sm"
+            style={{ backgroundColor: "var(--client-primary)", color: "var(--client-on-primary)" }}
           >
             powered by purely
           </a>
@@ -156,8 +150,12 @@ export default async function CustomDomainNewslettersIndexPage({
         <section style={{ backgroundColor: "var(--client-primary)" }}>
           <div className="mx-auto max-w-6xl px-6 py-14">
             <div className="max-w-3xl">
-              <div className="text-4xl text-white sm:text-5xl">newsletters</div>
-              <p className="mt-4 text-lg leading-relaxed text-white/90">Latest updates from {brandName}.</p>
+              <div className="text-4xl sm:text-5xl" style={{ color: "var(--client-on-primary)" }}>
+                newsletters
+              </div>
+              <p className="mt-4 text-lg leading-relaxed" style={{ color: "var(--client-on-primary-muted)" }}>
+                Latest updates from {brandName}.
+              </p>
             </div>
           </div>
         </section>
@@ -182,11 +180,11 @@ export default async function CustomDomainNewslettersIndexPage({
                     <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
                       {formatDate(n.sentAt ?? n.updatedAt)}
                     </div>
-                    <div className="mt-2 text-2xl" style={{ color: "var(--client-primary)" }}>
+                    <div className="mt-2 text-2xl" style={{ color: "var(--client-link)" }}>
                       {n.title}
                     </div>
                     <div className="mt-3 text-sm leading-relaxed text-zinc-700">{n.excerpt}</div>
-                    <div className="mt-5 text-sm font-bold" style={{ color: "var(--client-primary)" }}>
+                    <div className="mt-5 text-sm font-bold" style={{ color: "var(--client-link)" }}>
                       read
                     </div>
                   </Link>
@@ -201,10 +199,10 @@ export default async function CustomDomainNewslettersIndexPage({
         <div className="mx-auto flex max-w-6xl flex-col gap-4 px-6 py-10 sm:flex-row sm:items-center sm:justify-between">
           <div className="text-sm text-zinc-600">© {new Date().getFullYear()} {brandName}</div>
           <div className="flex items-center gap-4">
-            <Link href="/newsletters" className="text-sm font-semibold hover:underline" style={{ color: "var(--client-primary)" }}>
+            <Link href="/newsletters" className="text-sm font-semibold hover:underline" style={{ color: "var(--client-link)" }}>
               newsletters
             </Link>
-            <a href="https://purelyautomation.com" className="text-sm font-semibold hover:underline" style={{ color: "var(--client-primary)" }}>
+            <a href="https://purelyautomation.com" className="text-sm font-semibold hover:underline" style={{ color: "var(--client-link)" }}>
               purelyautomation.com
             </a>
           </div>
