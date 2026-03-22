@@ -89,6 +89,17 @@ function formatDate(value: string | null) {
   return Number.isFinite(d.getTime()) ? d.toLocaleString() : "";
 }
 
+function previewText(value: string | null | undefined, maxLen = 240) {
+  const raw = typeof value === "string" ? value : "";
+  const cleaned = raw
+    .replace(/\s+/g, " ")
+    .replace(/\u0000/g, "")
+    .trim();
+  if (!cleaned) return "";
+  if (cleaned.length <= maxLen) return cleaned;
+  return cleaned.slice(0, maxLen).trimEnd() + "…";
+}
+
 function inferFrequencyPreset(days: number): { count: number; unit: FrequencyUnit } {
   const d = Math.min(30, Math.max(1, Math.floor(Number(days) || 7)));
   if (d === 30) return { count: 1, unit: "months" };
@@ -875,6 +886,7 @@ export function PortalBlogsClient({
                         : p.status === "PUBLISHED"
                           ? "bg-emerald-50 text-emerald-700"
                           : "bg-zinc-100 text-zinc-700";
+                      const excerptPreview = previewText(p.excerpt);
 
                       return (
                         <tr key={p.id} className="border-t border-zinc-200">
@@ -883,6 +895,13 @@ export function PortalBlogsClient({
                               {p.title || "Untitled"}
                             </Link>
                             <div className="mt-1 truncate text-xs text-zinc-500">/{p.slug}</div>
+                            <div className="mt-2 hidden md:block">
+                              {excerptPreview ? (
+                                <div className="line-clamp-3 text-xs text-zinc-600">{excerptPreview}</div>
+                              ) : (
+                                <div className="text-xs text-zinc-400">No excerpt yet</div>
+                              )}
+                            </div>
                           </td>
                           <td className="px-4 py-3">
                             <span className={"inline-flex rounded-full px-2 py-1 text-xs font-semibold " + statusClasses}>
