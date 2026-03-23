@@ -488,14 +488,14 @@ function GeneralTab({
             )}
             aria-hidden="true"
           />
-          <div className="relative z-10 flex h-full flex-col p-6">
+          <div className="relative z-10 flex h-full flex-col p-5">
             <div className="text-sm font-semibold text-zinc-900">Credits</div>
 
-            <div className="mt-3 flex-1 text-8xl font-extrabold leading-none tracking-tight text-brand-ink sm:text-9xl">
+            <div className="mt-2 flex-1 text-7xl font-extrabold leading-none tracking-tight text-brand-ink sm:text-8xl">
               {typeof creditsRemaining === "number" && Number.isFinite(creditsRemaining) ? creditsRemaining : "N/A"}
             </div>
 
-            <div className="grid grid-cols-1 gap-2 pt-6 sm:grid-cols-2">
+            <div className="grid grid-cols-1 gap-2 pt-4 sm:grid-cols-2">
               <button
                 type="button"
                 className="rounded-2xl bg-(--color-brand-blue) px-4 py-3 text-sm font-semibold text-white hover:opacity-95"
@@ -517,29 +517,29 @@ function GeneralTab({
           </div>
         </div>
 
-        <div className="flex h-full flex-col p-6">
-          <div className="text-sm font-semibold text-zinc-900">Top services</div>
+        <div className="flex h-full flex-col">
+          <div className="text-xs font-semibold text-zinc-600">Top services</div>
 
           {topServices.length ? (
-            <div className="mt-5 flex-1 divide-y divide-zinc-200">
+            <div className="mt-3 flex-1 divide-y divide-zinc-200">
               {topServices.map((s, idx) => (
-                <div key={s.slug} className="flex items-center gap-5 py-5">
+                <div key={s.slug} className="flex items-center gap-4 py-4">
                   <div
                     className={classNames(
-                      "w-16 text-center text-6xl font-extrabold leading-none",
+                      "w-14 text-center text-5xl font-extrabold leading-none",
                       idx === 0 ? "text-brand-blue" : "text-brand-ink",
                     )}
                   >
                     {idx + 1}
                   </div>
-                  <div className="min-w-0 truncate text-2xl font-semibold leading-tight text-brand-ink">
+                  <div className="min-w-0 truncate text-lg font-semibold leading-tight text-brand-ink">
                     {s.title}
                   </div>
                 </div>
               ))}
             </div>
           ) : (
-            <div className="mt-5 flex-1 text-sm text-zinc-600">No services found.</div>
+            <div className="mt-3 flex-1 text-sm text-zinc-600">No services found.</div>
           )}
 
           <div className="mt-auto pt-6">
