@@ -488,24 +488,24 @@ function GeneralTab({
             )}
             aria-hidden="true"
           />
-          <div className="relative z-10 flex h-full flex-col p-5">
+          <div className="relative z-10 flex h-full flex-col p-4">
             <div className="text-sm font-semibold text-zinc-900">Credits</div>
 
-            <div className="mt-2 flex-1 text-7xl font-extrabold leading-none tracking-tight text-brand-ink sm:text-8xl">
+            <div className="mt-1 flex-1 text-8xl font-extrabold leading-none tracking-tight text-brand-ink sm:text-9xl">
               {typeof creditsRemaining === "number" && Number.isFinite(creditsRemaining) ? creditsRemaining : "N/A"}
             </div>
 
-            <div className="grid grid-cols-1 gap-2 pt-4 sm:grid-cols-2">
+            <div className="grid grid-cols-1 gap-2 pt-3 sm:grid-cols-2">
               <button
                 type="button"
-                className="rounded-2xl bg-(--color-brand-blue) px-4 py-3 text-sm font-semibold text-white hover:opacity-95"
+                className="rounded-2xl bg-(--color-brand-blue) px-4 py-2.5 text-sm font-semibold text-white hover:opacity-95"
                 onClick={() => onGoBilling("credits")}
               >
                 Buy more
               </button>
               <button
                 type="button"
-                className="rounded-2xl bg-(--color-brand-pink) px-4 py-3 text-sm font-semibold text-white hover:opacity-95"
+                className="rounded-2xl bg-(--color-brand-pink) px-4 py-2.5 text-sm font-semibold text-white hover:opacity-95"
                 onClick={() => {
                   setReferralOpen(true);
                   if (!referral && !referralLoading) void loadReferral();
@@ -518,12 +518,12 @@ function GeneralTab({
         </div>
 
         <div className="flex h-full flex-col">
-          <div className="text-xs font-semibold text-zinc-600">Top services</div>
+          <div className="text-sm font-semibold text-zinc-900">Top services</div>
 
           {topServices.length ? (
             <div className="mt-3 flex-1 divide-y divide-zinc-200">
               {topServices.map((s, idx) => (
-                <div key={s.slug} className="flex items-center gap-4 py-4">
+                <div key={s.slug} className="flex items-center gap-3 py-3">
                   <div
                     className={classNames(
                       "w-14 text-center text-5xl font-extrabold leading-none",
@@ -542,10 +542,10 @@ function GeneralTab({
             <div className="mt-3 flex-1 text-sm text-zinc-600">No services found.</div>
           )}
 
-          <div className="mt-auto pt-6">
+          <div className="mt-auto pt-4">
             <button
               type="button"
-              className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+              className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2.5 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
               onClick={() => onGoBilling("services")}
             >
               See all services
