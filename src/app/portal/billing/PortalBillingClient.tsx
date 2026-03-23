@@ -1,13 +1,171 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+
+import { Elements, PaymentElement, useElements, useStripe } from "@stripe/react-stripe-js";
+import { loadStripe } from "@stripe/stripe-js";
 
 import { useToast } from "@/components/ToastProvider";
 import { formatUsd } from "@/lib/pricing.shared";
 import { PORTAL_SERVICES } from "@/app/portal/services/catalog";
 
+const STRIPE_PUBLISHABLE_KEY = String(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY || "").trim();
+const stripePromise = STRIPE_PUBLISHABLE_KEY ? loadStripe(STRIPE_PUBLISHABLE_KEY) : null;
+
 type BillingStatus = { configured: boolean };
+
+type BillingInfoResponse =
+  | { ok: true; stripeConfigured: false }
+  | {
+      ok: true;
+      stripeConfigured: true;
+      customer: {
+        id: string;
+        email: string | null;
+        name: string | null;
+        phone: string | null;
+        address: {
+          line1: string | null;
+          line2: string | null;
+          city: string | null;
+          state: string | null;
+          postalCode: string | null;
+          country: string | null;
+        } | null;
+      };
+      defaultPaymentMethod:
+        | {
+            id: string;
+            brand: string | null;
+            last4: string | null;
+            expMonth: number | null;
+            expYear: number | null;
+          }
+        | null;
+    }
+  | { ok: false; error?: string };
+
+type BillingInfoDraft = {
+  billingEmail: string;
+  billingName: string;
+  billingPhone: string;
+  billingAddress: {
+    line1: string;
+    line2: string;
+    city: string;
+    state: string;
+    postalCode: string;
+    country: string;
+  };
+};
+
+function createBillingInfoDraft(from: BillingInfoResponse | null): BillingInfoDraft {
+  const customer = from && "ok" in from && from.ok && (from as any).stripeConfigured ? (from as any).customer : null;
+  const addr = customer?.address ?? null;
+
+  return {
+    billingEmail: String(customer?.email ?? ""),
+    billingName: String(customer?.name ?? ""),
+    billingPhone: String(customer?.phone ?? ""),
+    billingAddress: {
+      line1: String(addr?.line1 ?? ""),
+      line2: String(addr?.line2 ?? ""),
+      city: String(addr?.city ?? ""),
+      state: String(addr?.state ?? ""),
+      postalCode: String(addr?.postalCode ?? ""),
+      country: String(addr?.country ?? ""),
+    },
+  };
+}
+
+function formatPaymentMethod(
+  pm: { brand: string | null; last4: string | null; expMonth: number | null; expYear: number | null } | null,
+) {
+  if (!pm) return "No payment method on file.";
+  const brand = pm.brand ? pm.brand.toUpperCase() : "CARD";
+  const last4 = pm.last4 ? `•••• ${pm.last4}` : "";
+  const exp = pm.expMonth && pm.expYear ? `Exp ${pm.expMonth}/${String(pm.expYear).slice(-2)}` : null;
+  return [brand, last4, exp].filter(Boolean).join(" · ");
+}
+
+function buildBillingInfoPayload(draft: BillingInfoDraft) {
+  const payload: Record<string, unknown> = {};
+  const email = draft.billingEmail.trim();
+  const name = draft.billingName.trim();
+  const phone = draft.billingPhone.trim();
+
+  if (email) payload.billingEmail = email;
+  if (name) payload.billingName = name;
+  if (phone) payload.billingPhone = phone;
+
+  const a = draft.billingAddress;
+  const address: Record<string, string> = {};
+  if (a.line1.trim()) address.line1 = a.line1.trim();
+  if (a.line2.trim()) address.line2 = a.line2.trim();
+  if (a.city.trim()) address.city = a.city.trim();
+  if (a.state.trim()) address.state = a.state.trim();
+  if (a.postalCode.trim()) address.postalCode = a.postalCode.trim();
+  if (a.country.trim()) address.country = a.country.trim().toUpperCase();
+  if (Object.keys(address).length) payload.billingAddress = address;
+
+  return payload;
+}
+
+function UpdateCardForm({
+  onSuccess,
+  onError,
+}: {
+  onSuccess: (setupIntentId: string) => Promise<void>;
+  onError: (message: string) => void;
+}) {
+  const stripe = useStripe();
+  const elements = useElements();
+  const [busy, setBusy] = useState(false);
+
+  const onSubmit = useCallback(
+    async (e: FormEvent) => {
+      e.preventDefault();
+      if (!stripe || !elements || busy) return;
+      setBusy(true);
+      try {
+        const result = await stripe.confirmSetup({
+          elements,
+          redirect: "if_required",
+        });
+
+        if (result.error) {
+          onError(result.error.message || "Unable to update card");
+          return;
+        }
+
+        const setupIntentId = (result.setupIntent as any)?.id ? String((result.setupIntent as any).id) : "";
+        if (!setupIntentId) {
+          onError("Unable to confirm payment method");
+          return;
+        }
+
+        await onSuccess(setupIntentId);
+      } finally {
+        setBusy(false);
+      }
+    },
+    [stripe, elements, busy, onSuccess, onError],
+  );
+
+  return (
+    <form onSubmit={onSubmit} className="mt-4">
+      <PaymentElement />
+      <button
+        type="submit"
+        disabled={!stripe || !elements || busy}
+        className="mt-4 w-full rounded-2xl bg-(--color-brand-blue) px-5 py-3 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
+      >
+        {busy ? "Saving…" : "Save payment method"}
+      </button>
+    </form>
+  );
+}
 
 type BillingSummary =
   | { ok: true; configured: false }
@@ -110,6 +268,13 @@ export function PortalBillingClient({
   const [loading, setLoading] = useState(true);
   const [actionBusy, setActionBusy] = useState<string | null>(null);
 
+  const [billingInfo, setBillingInfo] = useState<BillingInfoResponse | null>(null);
+  const [billingDraft, setBillingDraft] = useState<BillingInfoDraft>(() => createBillingInfoDraft(null));
+  const [billingInfoLoading, setBillingInfoLoading] = useState(false);
+  const [billingInfoSaving, setBillingInfoSaving] = useState(false);
+  const [updateCardOpen, setUpdateCardOpen] = useState(false);
+  const [updateCardClientSecret, setUpdateCardClientSecret] = useState<string | null>(null);
+
   const [referral, setReferral] = useState<null | { url: string; code: string; stats: { total: number; verified: number; awarded: number } }>(null);
   const [referralLoading, setReferralLoading] = useState(false);
 
@@ -195,6 +360,113 @@ export function PortalBillingClient({
   useEffect(() => {
     if (error) toast.error(error);
   }, [error, toast]);
+
+  const loadBillingInfo = useCallback(async () => {
+    setBillingInfoLoading(true);
+    try {
+      const res = await fetch("/api/portal/billing/billing-info", { cache: "no-store" });
+      const json = (await res.json().catch(() => ({}))) as BillingInfoResponse;
+      if (!res.ok) {
+        const message = (json as any)?.error ? String((json as any).error) : "Unable to load billing info";
+        toast.error(message);
+        setBillingInfo({ ok: false, error: message });
+        return;
+      }
+      setBillingInfo(json);
+      setBillingDraft(createBillingInfoDraft(json));
+    } finally {
+      setBillingInfoLoading(false);
+    }
+  }, [toast]);
+
+  useEffect(() => {
+    void loadBillingInfo();
+  }, [loadBillingInfo]);
+
+  const saveBillingInfo = useCallback(async () => {
+    if (billingInfoSaving) return;
+    setBillingInfoSaving(true);
+    try {
+      const payload = buildBillingInfoPayload(billingDraft);
+      if (!Object.keys(payload).length) {
+        toast.success("No changes to save.");
+        return;
+      }
+
+      const res = await fetch("/api/portal/billing/billing-info", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const json = (await res.json().catch(() => ({}))) as any;
+      if (!res.ok || json?.ok === false) {
+        toast.error(String(json?.error || "Unable to save billing info"));
+        return;
+      }
+      toast.success("Saved billing info.");
+      await loadBillingInfo();
+    } finally {
+      setBillingInfoSaving(false);
+    }
+  }, [billingDraft, billingInfoSaving, loadBillingInfo, toast]);
+
+  const openUpdateCard = useCallback(async () => {
+    if (!stripePromise) {
+      toast.error("Stripe publishable key is missing (NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY).");
+      return;
+    }
+
+    setUpdateCardOpen(true);
+    setUpdateCardClientSecret(null);
+    try {
+      const res = await fetch("/api/portal/billing/setup-intent", { method: "POST", cache: "no-store" });
+      const json = (await res.json().catch(() => ({}))) as any;
+      if (!res.ok || !json?.ok || !json?.clientSecret) {
+        toast.error(String(json?.error || "Unable to start card update"));
+        setUpdateCardOpen(false);
+        return;
+      }
+      setUpdateCardClientSecret(String(json.clientSecret));
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Unable to start card update");
+      setUpdateCardOpen(false);
+    }
+  }, [toast]);
+
+  const elementsOptions = useMemo(() => {
+    if (!updateCardClientSecret) return null;
+    return {
+      clientSecret: updateCardClientSecret,
+      appearance: { theme: "stripe" as const },
+    };
+  }, [updateCardClientSecret]);
+
+  const finalizeUpdateCard = useCallback(
+    async (setupIntentId: string) => {
+      const res = await fetch("/api/portal/billing/setup-intent/finalize", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ setupIntentId }),
+      });
+      const json = (await res.json().catch(() => ({}))) as any;
+      if (!res.ok || json?.ok === false) {
+        toast.error(String(json?.error || "Unable to finalize payment method"));
+        return;
+      }
+      toast.success("Updated payment method.");
+      setUpdateCardOpen(false);
+      setUpdateCardClientSecret(null);
+      await Promise.all([
+        loadBillingInfo(),
+        (async () => {
+          const res = await fetch("/api/portal/billing/summary", { cache: "no-store" });
+          if (!res.ok) return;
+          setSummary((await res.json().catch(() => null)) as BillingSummary | null);
+        })(),
+      ]);
+    },
+    [loadBillingInfo, toast],
+  );
 
   const refreshCredits = useCallback(async () => {
     const res = await fetch("/api/portal/credits", { cache: "no-store" });
@@ -448,24 +720,6 @@ export function PortalBillingClient({
     return Boolean(mod && typeof mod.monthlyCents === "number" && mod.monthlyCents > 0);
   }
 
-
-  async function manage() {
-    setError(null);
-    setActionBusy("manage");
-    const res = await fetch("/api/portal/billing/create-portal-session", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ returnPath: "/portal/app/billing" }),
-    });
-    if (!res.ok) {
-      const body = await res.json().catch(() => ({}));
-      setError(body?.error ?? "Unable to open billing portal");
-      setActionBusy(null);
-      return;
-    }
-    const json = (await res.json()) as { url: string };
-    window.location.href = json.url;
-  }
 
   async function refreshSummary() {
     const res = await fetch("/api/portal/billing/summary", { cache: "no-store" });
@@ -794,6 +1048,11 @@ export function PortalBillingClient({
 
   const activeSubs = subscriptions && "ok" in subscriptions && subscriptions.ok ? subscriptions.subscriptions : [];
 
+  const billingInfoStripeConfigured = Boolean(billingInfo && "ok" in billingInfo && billingInfo.ok && (billingInfo as any).stripeConfigured);
+  const billingCustomer = billingInfoStripeConfigured ? ((billingInfo as any).customer as any) : null;
+  const billingPaymentMethod = billingInfoStripeConfigured ? ((billingInfo as any).defaultPaymentMethod as any) : null;
+  const billingInfoError = billingInfo && "ok" in billingInfo && billingInfo.ok === false ? String((billingInfo as any).error || "") : "";
+
   const cancelBenefits = (title: string) => {
     const t = title.toLowerCase();
     if (t.includes("blogs")) return ["4 posts/month included", "Publishing workflow + scheduling", "Draft generation"]; 
@@ -980,23 +1239,14 @@ export function PortalBillingClient({
             <div className="text-sm font-semibold text-zinc-900">Billing</div>
             <div className="mt-1 text-sm text-zinc-600">
               {creditsOnly
-                ? "Top up credits, update your payment method, and view invoices."
-                : "Update payment method, view invoices, and manage your subscription."}
+                ? "Update your billing details and payment method for credits."
+                : "Update your billing details and payment method for subscriptions."}
             </div>
             {creditsOnly ? (
               <div className="mt-2 inline-flex items-center rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-semibold text-emerald-900">
                 Credits-only billing
               </div>
             ) : null}
-          </div>
-          <div className="flex flex-col gap-2 sm:flex-row">
-            <button
-              className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50 disabled:opacity-60"
-              onClick={manage}
-              disabled={!status?.configured || actionBusy === "manage"}
-            >
-              {actionBusy === "manage" ? "Opening…" : creditsOnly ? "Payment & invoices" : "Manage billing"}
-            </button>
           </div>
         </div>
 
@@ -1023,6 +1273,253 @@ export function PortalBillingClient({
             <div className="mt-1 text-xs text-zinc-500">Paid invoices + one-time charges (credits, installs, etc.)</div>
           </div>
         </div>
+
+        <div className="mt-6 rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <div className="text-sm font-semibold text-zinc-900">Billing info</div>
+              <div className="mt-1 text-sm text-zinc-600">
+                Update billing email, billing address, and payment method. Changes save directly to Stripe.
+              </div>
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={loadBillingInfo}
+                disabled={billingInfoLoading}
+                className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50 disabled:opacity-60"
+              >
+                {billingInfoLoading ? "Refreshing…" : "Refresh"}
+              </button>
+            </div>
+          </div>
+
+          {billingInfoError ? (
+            <div className="mt-3 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">{billingInfoError}</div>
+          ) : null}
+
+          {billingInfo && "ok" in billingInfo && billingInfo.ok && (billingInfo as any).stripeConfigured === false ? (
+            <div className="mt-3 rounded-2xl border border-zinc-200 bg-white p-4 text-sm text-zinc-700">
+              Billing isn’t configured on this environment yet.
+            </div>
+          ) : null}
+
+          {billingInfoStripeConfigured ? (
+            <>
+              <div className="mt-4 rounded-2xl border border-zinc-200 bg-white p-4">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                  <div>
+                    <div className="text-sm font-semibold text-zinc-900">Payment method</div>
+                    <div className="mt-1 text-sm text-zinc-600">{formatPaymentMethod(billingPaymentMethod)}</div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={openUpdateCard}
+                    disabled={actionBusy !== null}
+                    className="shrink-0 rounded-2xl bg-(--color-brand-blue) px-4 py-2 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
+                  >
+                    Update card
+                  </button>
+                </div>
+              </div>
+
+              <form
+                className="mt-4"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  void saveBillingInfo();
+                }}
+              >
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <label className="block">
+                    <div className="text-xs font-semibold text-zinc-600">Billing email</div>
+                    <input
+                      value={billingDraft.billingEmail}
+                      onChange={(e) => setBillingDraft((d) => ({ ...d, billingEmail: e.target.value }))}
+                      className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900"
+                      placeholder={String(billingCustomer?.email || "") || "email@company.com"}
+                      autoComplete="email"
+                    />
+                  </label>
+
+                  <label className="block">
+                    <div className="text-xs font-semibold text-zinc-600">Billing name</div>
+                    <input
+                      value={billingDraft.billingName}
+                      onChange={(e) => setBillingDraft((d) => ({ ...d, billingName: e.target.value }))}
+                      className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900"
+                      placeholder={String(billingCustomer?.name || "") || "Name / Business"}
+                      autoComplete="name"
+                    />
+                  </label>
+
+                  <label className="block">
+                    <div className="text-xs font-semibold text-zinc-600">Billing phone</div>
+                    <input
+                      value={billingDraft.billingPhone}
+                      onChange={(e) => setBillingDraft((d) => ({ ...d, billingPhone: e.target.value }))}
+                      className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900"
+                      placeholder={String(billingCustomer?.phone || "") || "+1 (555) 555-5555"}
+                      autoComplete="tel"
+                    />
+                  </label>
+
+                  <div className="hidden sm:block" />
+
+                  <label className="block sm:col-span-2">
+                    <div className="text-xs font-semibold text-zinc-600">Address line 1</div>
+                    <input
+                      value={billingDraft.billingAddress.line1}
+                      onChange={(e) =>
+                        setBillingDraft((d) => ({
+                          ...d,
+                          billingAddress: { ...d.billingAddress, line1: e.target.value },
+                        }))
+                      }
+                      className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900"
+                      placeholder={String(billingCustomer?.address?.line1 || "") || ""}
+                      autoComplete="address-line1"
+                    />
+                  </label>
+
+                  <label className="block sm:col-span-2">
+                    <div className="text-xs font-semibold text-zinc-600">Address line 2</div>
+                    <input
+                      value={billingDraft.billingAddress.line2}
+                      onChange={(e) =>
+                        setBillingDraft((d) => ({
+                          ...d,
+                          billingAddress: { ...d.billingAddress, line2: e.target.value },
+                        }))
+                      }
+                      className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900"
+                      placeholder={String(billingCustomer?.address?.line2 || "") || ""}
+                      autoComplete="address-line2"
+                    />
+                  </label>
+
+                  <label className="block">
+                    <div className="text-xs font-semibold text-zinc-600">City</div>
+                    <input
+                      value={billingDraft.billingAddress.city}
+                      onChange={(e) =>
+                        setBillingDraft((d) => ({
+                          ...d,
+                          billingAddress: { ...d.billingAddress, city: e.target.value },
+                        }))
+                      }
+                      className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900"
+                      placeholder={String(billingCustomer?.address?.city || "") || ""}
+                      autoComplete="address-level2"
+                    />
+                  </label>
+
+                  <label className="block">
+                    <div className="text-xs font-semibold text-zinc-600">State / region</div>
+                    <input
+                      value={billingDraft.billingAddress.state}
+                      onChange={(e) =>
+                        setBillingDraft((d) => ({
+                          ...d,
+                          billingAddress: { ...d.billingAddress, state: e.target.value },
+                        }))
+                      }
+                      className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900"
+                      placeholder={String(billingCustomer?.address?.state || "") || ""}
+                      autoComplete="address-level1"
+                    />
+                  </label>
+
+                  <label className="block">
+                    <div className="text-xs font-semibold text-zinc-600">Postal code</div>
+                    <input
+                      value={billingDraft.billingAddress.postalCode}
+                      onChange={(e) =>
+                        setBillingDraft((d) => ({
+                          ...d,
+                          billingAddress: { ...d.billingAddress, postalCode: e.target.value },
+                        }))
+                      }
+                      className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900"
+                      placeholder={String(billingCustomer?.address?.postalCode || "") || ""}
+                      autoComplete="postal-code"
+                    />
+                  </label>
+
+                  <label className="block">
+                    <div className="text-xs font-semibold text-zinc-600">Country (2-letter)</div>
+                    <input
+                      value={billingDraft.billingAddress.country}
+                      onChange={(e) =>
+                        setBillingDraft((d) => ({
+                          ...d,
+                          billingAddress: { ...d.billingAddress, country: e.target.value },
+                        }))
+                      }
+                      className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900"
+                      placeholder={String(billingCustomer?.address?.country || "") || "US"}
+                      autoComplete="country"
+                    />
+                  </label>
+                </div>
+
+                <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:justify-end">
+                  <button
+                    type="button"
+                    onClick={() => setBillingDraft(createBillingInfoDraft(billingInfo))}
+                    disabled={billingInfoSaving}
+                    className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50 disabled:opacity-60"
+                  >
+                    Reset
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={billingInfoSaving}
+                    className="rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
+                  >
+                    {billingInfoSaving ? "Saving…" : "Save changes"}
+                  </button>
+                </div>
+              </form>
+            </>
+          ) : null}
+        </div>
+
+        {updateCardOpen ? (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <div className="absolute inset-0 bg-black/40" onClick={() => setUpdateCardOpen(false)} />
+            <div className="relative w-full max-w-lg rounded-3xl border border-zinc-200 bg-white p-6 shadow-xl">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <div className="text-base font-semibold text-zinc-900">Update payment method</div>
+                  <div className="mt-1 text-sm text-zinc-600">Your card details are processed securely by Stripe.</div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setUpdateCardOpen(false)}
+                  className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50"
+                  aria-label="Close"
+                >
+                  ×
+                </button>
+              </div>
+
+              {!elementsOptions || !stripePromise ? (
+                <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-700">
+                  Loading Stripe…
+                </div>
+              ) : (
+                <Elements stripe={stripePromise} options={elementsOptions}>
+                  <UpdateCardForm
+                    onError={(message) => toast.error(message)}
+                    onSuccess={finalizeUpdateCard}
+                  />
+                </Elements>
+              )}
+            </div>
+          </div>
+        ) : null}
 
         {!creditsOnly ? (
           <div className="mt-6 rounded-2xl border border-zinc-200 bg-zinc-50 p-4">

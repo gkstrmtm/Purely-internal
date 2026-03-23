@@ -83,6 +83,7 @@ VS Code tasks are also available in `.vscode/tasks.json`:
 Optional (Portal billing + entitlements):
 
 - `STRIPE_SECRET_KEY` (Stripe secret key; enables billing actions)
+- `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` (Stripe publishable key; enables in-app payment method updates via Stripe Elements)
 - `STRIPE_PRICE_BLOG_AUTOMATION` (Stripe Price ID for Automated Blogs)
 - `STRIPE_PRICE_BOOKING_AUTOMATION` (Stripe Price ID for Booking Automation)
 - `STRIPE_PRICE_CRM_AUTOMATION` (Stripe Price ID for Follow-up Automation)
@@ -107,8 +108,9 @@ Stripe setup checklist:
 1) In Stripe (test mode first), create 3 Products (or 1 product with 3 prices) with recurring monthly Prices.
 2) Copy the Price IDs (they look like `price_...`) into the env vars above.
 3) Create a restricted API key (recommended) or use your secret key for now and set it as `STRIPE_SECRET_KEY`.
+
 4) (Optional) In Stripe → Settings → Billing → Customer portal, enable the customer portal.
-	- This is only used for the Stripe-hosted screens (payment method updates, invoices).
+	- This is only used for Stripe-hosted screens (if you still link users to Stripe for invoices/history).
 	- Subscription cancellation is supported inside the portal UI (it calls Stripe from our backend).
 
 Note: this repo currently reads subscription state live from Stripe; it does not require webhooks to unlock entitlements.

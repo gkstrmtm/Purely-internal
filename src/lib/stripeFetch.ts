@@ -106,14 +106,55 @@ export async function stripeDelete<T>(path: string): Promise<T> {
   return json as T;
 }
 
-export async function getOrCreateStripeCustomerId(email: string) {
-  const list = await stripeGet<{ data: Array<{ id: string }> }>("/v1/customers", {
+export async function getOrCreateStripeCustomerId(
+  email: string,
+  opts?: {
+    ownerId?: string | null | undefined;
+  },
+) {
+  const ownerId = String(opts?.ownerId ?? "").trim();
+
+  // Fast path: look up by email.
+  const list = await stripeGet<{ data: Array<{ id: string; metadata?: Record<string, string> | null }> }>(
+    "/v1/customers",
+    {
+      email,
+      limit: 1,
+    },
+  );
+
+  if (list.data?.[0]?.id) {
+    const id = list.data[0].id;
+    // Backfill stable metadata when available so future lookups can survive email changes.
+    if (ownerId) {
+      const existingOwner = String(list.data[0].metadata?.pa_owner_id ?? "").trim();
+      if (!existingOwner) {
+        await stripePost(`/v1/customers/${encodeURIComponent(id)}`, {
+          "metadata[pa_owner_id]": ownerId,
+          "metadata[pa_primary_email]": String(email || "").trim(),
+        }).catch(() => null);
+      }
+    }
+    return id;
+  }
+
+  // If the email changed, fall back to Stripe search by stable owner id.
+  if (ownerId) {
+    const query = `metadata['pa_owner_id']:'${ownerId.replace(/'/g, "\\'")}'`;
+    const found = await stripeGet<{ data: Array<{ id: string }> }>("/v1/customers/search", { query, limit: 1 }).catch(
+      () => null as any,
+    );
+    if (found?.data?.[0]?.id) return found.data[0].id;
+  }
+
+  const created = await stripePost<{ id: string }>("/v1/customers", {
     email,
-    limit: 1,
+    ...(ownerId
+      ? {
+          "metadata[pa_owner_id]": ownerId,
+          "metadata[pa_primary_email]": String(email || "").trim(),
+        }
+      : null),
   });
-
-  if (list.data?.[0]?.id) return list.data[0].id;
-
-  const created = await stripePost<{ id: string }>("/v1/customers", { email });
   return created.id;
 }
