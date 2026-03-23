@@ -474,33 +474,28 @@ function GeneralTab({
           </div>
         </div>
 
-        <div className="h-full rounded-3xl border border-zinc-200 bg-white p-6">
-          <div className="relative flex h-full flex-col overflow-hidden">
-            <div
-              className={classNames(
-                "pointer-events-none absolute right-0 top-0 h-24 w-24 translate-x-1/2 -translate-y-1/2 rounded-full blur-xl",
-                runwayTone === "good"
-                  ? "bg-emerald-300/40"
-                  : runwayTone === "warn"
-                    ? "bg-amber-300/45"
-                    : runwayTone === "danger"
-                      ? "bg-rose-300/50"
-                      : "bg-brand-blue/15",
-              )}
-              aria-hidden="true"
-            />
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <div className="text-sm font-semibold text-zinc-900">Credits</div>
-                <div className="mt-1 text-sm text-zinc-600">Usage-based actions</div>
-              </div>
-            </div>
+        <div className="relative h-full overflow-hidden rounded-3xl border border-zinc-200 bg-white">
+          <div
+            className={classNames(
+              "pointer-events-none absolute inset-0",
+              runwayTone === "good"
+                ? "bg-[radial-gradient(ellipse_220px_220px_at_100%_0%,rgba(16,185,129,0.45)_0%,rgba(16,185,129,0.18)_35%,transparent_70%)]"
+                : runwayTone === "warn"
+                  ? "bg-[radial-gradient(ellipse_220px_220px_at_100%_0%,rgba(251,191,36,0.45)_0%,rgba(251,191,36,0.18)_35%,transparent_70%)]"
+                  : runwayTone === "danger"
+                    ? "bg-[radial-gradient(ellipse_220px_220px_at_100%_0%,rgba(244,63,94,0.42)_0%,rgba(244,63,94,0.16)_35%,transparent_70%)]"
+                    : "bg-[radial-gradient(ellipse_220px_220px_at_100%_0%,rgba(29,78,216,0.22)_0%,rgba(29,78,216,0.10)_35%,transparent_70%)]",
+            )}
+            aria-hidden="true"
+          />
+          <div className="relative z-10 flex h-full flex-col p-6">
+            <div className="text-sm font-semibold text-zinc-900">Credits</div>
 
-            <div className="mt-4 text-6xl font-extrabold tracking-tight text-brand-ink sm:text-7xl">
+            <div className="mt-3 flex-1 text-8xl font-extrabold leading-none tracking-tight text-brand-ink sm:text-9xl">
               {typeof creditsRemaining === "number" && Number.isFinite(creditsRemaining) ? creditsRemaining : "N/A"}
             </div>
 
-            <div className="mt-auto grid grid-cols-1 gap-2 pt-6 sm:grid-cols-2">
+            <div className="grid grid-cols-1 gap-2 pt-6 sm:grid-cols-2">
               <button
                 type="button"
                 className="rounded-2xl bg-(--color-brand-blue) px-4 py-3 text-sm font-semibold text-white hover:opacity-95"
