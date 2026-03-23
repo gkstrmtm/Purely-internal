@@ -17,7 +17,7 @@ import { PortalListboxDropdown } from "@/components/PortalListboxDropdown";
 import { AppModal } from "@/components/AppModal";
 import { useToast } from "@/components/ToastProvider";
 import { toPurelyHostedUrl } from "@/lib/publicHostedOrigin";
-import { IconCopy } from "@/app/portal/PortalIcons";
+import { IconCopy, IconEdit } from "@/app/portal/PortalIcons";
 
 type MemberRow = {
   userId: string;
@@ -442,7 +442,20 @@ export function PortalPeopleUsersClient() {
               <div className="text-base font-semibold text-zinc-900">Invites</div>
               <div className="flex items-center gap-2">
                 {canInvite ? (
-                  <div className="hidden text-xs text-zinc-500 sm:block">Create an invite link for a teammate.</div>
+                  <>
+                    <div className="hidden text-xs text-zinc-500 sm:block">Create an invite link for a teammate.</div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setInviteModalOpen(true);
+                        setPermissionsOpen(false);
+                      }}
+                      className="hidden rounded-2xl bg-(--color-brand-pink) px-4 py-2 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60 sm:inline-flex"
+                      disabled={inviting}
+                    >
+                      New invite
+                    </button>
+                  </>
                 ) : (
                   <div className="text-xs text-zinc-500">Only admins can invite.</div>
                 )}
@@ -503,7 +516,16 @@ export function PortalPeopleUsersClient() {
                         <span>
                           {selectedServicesCount} of {PORTAL_SERVICE_KEYS.length} enabled
                         </span>
-                        <span className="text-xs text-zinc-500">{permissionsOpen ? "Hide" : "Edit"}</span>
+                        <span className="text-xs text-zinc-500">
+                          {permissionsOpen ? (
+                            "Hide"
+                          ) : (
+                            <span className="inline-flex items-center gap-1" title="Edit">
+                              <IconEdit size={14} />
+                              <span className="sr-only">Edit</span>
+                            </span>
+                          )}
+                        </span>
                       </button>
 
                       {permissionsOpen && typeof document !== "undefined"
@@ -674,7 +696,7 @@ export function PortalPeopleUsersClient() {
       {canInvite && !inviteModalOpen && !editingMember ? (
         <button
           type="button"
-          className="fixed right-4 z-11001 rounded-full bg-(--color-brand-pink) px-5 py-3 text-sm font-semibold text-white shadow-xl hover:opacity-95 disabled:opacity-60"
+          className="fixed right-4 z-11001 rounded-full bg-(--color-brand-pink) px-5 py-3 text-sm font-semibold text-white shadow-xl hover:opacity-95 disabled:opacity-60 sm:hidden"
           style={{
             bottom:
               "calc(var(--pa-portal-embed-footer-offset,0px) + 5.75rem + var(--pa-portal-floating-tools-reserve, 0px))",

@@ -20,6 +20,7 @@ import { useToast } from "@/components/ToastProvider";
 import { REMINDER_TEMPLATES, type ReminderTemplate } from "@/lib/portalReminderTemplates";
 import { PORTAL_BOOKING_VARIABLES, PORTAL_MESSAGE_VARIABLES } from "@/lib/portalTemplateVars";
 import { toPurelyHostedUrl } from "@/lib/publicHostedOrigin";
+import { IconEdit } from "@/app/portal/PortalIcons";
 
 type BookingFormConfig = {
   version: 1;
@@ -3120,15 +3121,18 @@ export function PortalBookingClient() {
                     </a>
                     <button
                       type="button"
-                      className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50"
+                      className="inline-flex items-center justify-center rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50"
                       disabled={calSaving}
                       onClick={() => {
                         setSelectedCalendarId(c.id);
                         setStatus(`Editing: ${c.title}`);
                         window.setTimeout(() => setStatus(null), 1200);
                       }}
+                      aria-label="Edit"
+                      title="Edit"
                     >
-                      Edit
+                      <IconEdit size={16} />
+                      <span className="sr-only">Edit</span>
                     </button>
                     <button
                       type="button"

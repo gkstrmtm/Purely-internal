@@ -8,7 +8,7 @@ import { PortalListboxDropdown } from "@/components/PortalListboxDropdown";
 import { AppConfirmModal } from "@/components/AppModal";
 import { PortalBackToOnboardingLink } from "@/components/PortalBackToOnboardingLink";
 import { useToast } from "@/components/ToastProvider";
-import { IconCopy } from "@/app/portal/PortalIcons";
+import { IconCopy, IconEdit } from "@/app/portal/PortalIcons";
 import { hostedFunnelPath, hostedFormPath } from "@/lib/publicHostedKeys";
 import { toPurelyHostedUrl } from "@/lib/publicHostedOrigin";
 
@@ -952,8 +952,13 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                                 target="_blank"
                                 className="flex w-full items-center rounded-xl px-3 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
                                 onClick={() => setOpenFunnelMenuId(null)}
+                                aria-label="Edit"
+                                title="Edit"
                               >
-                                Edit
+                                <span className="inline-flex items-center" aria-hidden="true">
+                                  <IconEdit size={16} />
+                                </span>
+                                <span className="sr-only">Edit</span>
                               </Link>
 
                               <Link
@@ -1109,8 +1114,13 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                               target="_blank"
                               className="flex w-full items-center rounded-xl px-3 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
                               onClick={() => setOpenFormMenuId(null)}
+                              aria-label="Edit"
+                              title="Edit"
                             >
-                              Edit
+                              <span className="inline-flex items-center" aria-hidden="true">
+                                <IconEdit size={16} />
+                              </span>
+                              <span className="sr-only">Edit</span>
                             </Link>
                             <Link
                               href={`${basePath}/app/services/funnel-builder/forms/${encodeURIComponent(f.id)}/responses`}

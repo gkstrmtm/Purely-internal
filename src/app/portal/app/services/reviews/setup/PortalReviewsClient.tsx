@@ -14,6 +14,7 @@ import { DEFAULT_TAG_COLORS } from "@/lib/tagColors.shared";
 import type { TemplateVariable } from "@/lib/portalTemplateVars";
 import { buildFontDropdownOptions } from "@/lib/portalHostedFonts";
 import { toPurelyHostedUrl } from "@/lib/publicHostedOrigin";
+import { IconEdit } from "@/app/portal/PortalIcons";
 
 type ReviewDelayUnit = "minutes" | "hours" | "days" | "weeks";
 
@@ -2350,13 +2351,16 @@ export default function PortalReviewsClient() {
                             <div className="flex items-center gap-2">
                               <button
                                 type="button"
-                                className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-brand-ink hover:bg-zinc-50"
+                                className="inline-flex items-center justify-center rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-brand-ink hover:bg-zinc-50"
                                 onClick={() => {
                                   setReplyDrafts((prev) => ({ ...prev, [r.id]: typeof r.businessReply === "string" ? r.businessReply : "" }));
                                   setReplyEditingId(r.id);
                                 }}
+                                aria-label="Edit"
+                                title="Edit"
                               >
-                                Edit
+                                <IconEdit size={16} />
+                                <span className="sr-only">Edit</span>
                               </button>
                               <button
                                 type="button"
@@ -2468,13 +2472,16 @@ export default function PortalReviewsClient() {
                           <div className="flex items-center gap-2">
                             <button
                               type="button"
-                              className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-brand-ink hover:bg-zinc-50"
+                              className="inline-flex items-center justify-center rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-brand-ink hover:bg-zinc-50"
                               onClick={() => {
                                 setQaAnswerDrafts((prev) => ({ ...prev, [q.id]: typeof q.answer === "string" ? q.answer : "" }));
                                 setQaEditingId(q.id);
                               }}
+                              aria-label="Edit"
+                              title="Edit"
                             >
-                              Edit
+                              <IconEdit size={16} />
+                              <span className="sr-only">Edit</span>
                             </button>
                             <button
                               type="button"

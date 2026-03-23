@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { IconEdit } from "@/app/portal/PortalIcons";
 
 type CreditForm = {
   id: string;
@@ -141,9 +142,12 @@ export function FormResponsesClient({ basePath, formId }: { basePath: string; fo
         <div className="flex items-center gap-2">
           <Link
             href={`${basePath}/app/services/funnel-builder/forms/${encodeURIComponent(formId)}/edit`}
-            className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+            className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+            aria-label="Edit form"
+            title="Edit form"
           >
-            Edit form
+            <IconEdit size={16} />
+            <span className="sr-only">Edit form</span>
           </Link>
         </div>
       </div>

@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { PortalPeopleTabs } from "@/app/portal/app/people/PortalPeopleTabs";
-import { IconFunnel, IconSearch } from "@/app/portal/PortalIcons";
+import { IconEdit, IconFunnel, IconSearch } from "@/app/portal/PortalIcons";
 import { PortalListboxDropdown } from "@/components/PortalListboxDropdown";
 import { PortalSelectDropdown } from "@/components/PortalSelectDropdown";
 import { PortalVariablePickerModal } from "@/components/PortalVariablePickerModal";
@@ -2518,7 +2518,7 @@ export function PortalPeopleContactsClient() {
                     {!editingContact ? (
                       <button
                         type="button"
-                        className="rounded-xl bg-brand-ink px-3 py-2 text-xs font-semibold text-white hover:opacity-95"
+                        className="inline-flex items-center justify-center rounded-xl bg-brand-ink px-3 py-2 text-xs font-semibold text-white hover:opacity-95"
                         onClick={() => {
                           if (!detail) return;
                           const nextRows = mergeRowsWithKnownKeys(rowsFromCustomVariables(detail?.customVariables), knownCustomVarKeys);
@@ -2532,8 +2532,11 @@ export function PortalPeopleContactsClient() {
                           setEditingContact(true);
                         }}
                         disabled={!detail}
+                        aria-label="Edit"
+                        title="Edit"
                       >
-                        Edit
+                        <IconEdit size={16} />
+                        <span className="sr-only">Edit</span>
                       </button>
                     ) : (
                       <>

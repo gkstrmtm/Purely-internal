@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
-import { IconLock, IconServiceGlyph } from "@/app/portal/PortalIcons";
+import { IconBillingGlyph, IconLock, IconServiceGlyph } from "@/app/portal/PortalIcons";
 import { PORTAL_SERVICES } from "@/app/portal/services/catalog";
 import { groupPortalServices } from "@/app/portal/services/categories";
 import { PORTAL_SERVICE_KEYS, type PortalServiceKey } from "@/lib/portalPermissions.shared";
@@ -147,8 +147,11 @@ export function PortalServicesClient() {
         {canViewBilling ? (
           <Link
             href={`${basePath}/app/billing`}
-            className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95"
+            className="inline-flex items-center justify-center gap-2 rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95"
           >
+            <span aria-hidden="true" className="text-current">
+              <IconBillingGlyph size={16} />
+            </span>
             Billing
           </Link>
         ) : null}

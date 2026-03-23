@@ -12,6 +12,7 @@ import { PortalBackToOnboardingLink } from "@/components/PortalBackToOnboardingL
 import { InlineSpinner } from "@/components/InlineSpinner";
 import { buildFontDropdownOptions } from "@/lib/portalHostedFonts";
 import { toPurelyHostedUrl } from "@/lib/publicHostedOrigin";
+import { IconEdit } from "@/app/portal/PortalIcons";
 
 export type BlogsTab = "posts" | "automation" | "settings";
 type FrequencyUnit = "days" | "weeks" | "months";
@@ -1544,8 +1545,13 @@ export function PortalBlogsClient({
                           setOpenPostMenu(null);
                           window.location.href = `/portal/app/services/blogs/${p.id}`;
                         }}
+                        aria-label="Edit"
+                        title="Edit"
                       >
-                        Edit
+                        <span className="inline-flex items-center" aria-hidden="true">
+                          <IconEdit size={16} />
+                        </span>
+                        <span className="sr-only">Edit</span>
                       </button>
 
                       <button

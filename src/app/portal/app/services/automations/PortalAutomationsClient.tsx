@@ -9,6 +9,7 @@ import { InlineSpinner } from "@/components/InlineSpinner";
 import { SuggestedSetupModalLauncher } from "@/components/SuggestedSetupModalLauncher";
 import { useToast } from "@/components/ToastProvider";
 import { PORTAL_SERVICES } from "@/app/portal/services/catalog";
+import { IconEdit } from "@/app/portal/PortalIcons";
 import { PORTAL_LINK_VARIABLES, PORTAL_MESSAGE_VARIABLES, type TemplateVariable } from "@/lib/portalTemplateVars";
 
 const PORTAL_TIME_VARIABLES: TemplateVariable[] = [
@@ -3149,8 +3150,13 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
                                 setLibraryOpen(false);
                                 setLibraryMenuFor(null);
                               }}
+                              aria-label="Edit"
+                              title="Edit"
                             >
-                              Edit
+                              <span className="inline-flex items-center" aria-hidden="true">
+                                <IconEdit size={16} />
+                              </span>
+                              <span className="sr-only">Edit</span>
                             </button>
                             <button
                               type="button"

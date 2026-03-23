@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { ComponentType } from "react";
 
 import { useToast } from "@/components/ToastProvider";
+import { IconEdit } from "@/app/portal/PortalIcons";
 import { formatSavedTime } from "@/lib/formatSavedTime";
 
 import { Responsive as ResponsiveGridLayout } from "react-grid-layout";
@@ -1464,10 +1465,12 @@ export function PortalDashboardClient() {
             ) : (
               <button
                 type="button"
-                className="rounded-2xl bg-(--color-brand-blue) px-4 py-2 text-sm font-semibold text-white hover:opacity-95"
+                className="inline-flex items-center justify-center rounded-2xl bg-(--color-brand-blue) px-4 py-2 text-sm font-semibold text-white hover:opacity-95"
                 onClick={beginEdit}
+                aria-label="Edit"
+                title="Edit"
               >
-                Edit
+                <IconEdit size={18} />
               </button>
             )}
           </div>

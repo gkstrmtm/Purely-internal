@@ -10,6 +10,7 @@ import { PortalBillingClient } from "@/app/portal/billing/PortalBillingClient";
 import { PortalBillingUpgradeClient } from "@/app/portal/billing/PortalBillingUpgradeClient";
 import { PortalProfileClient } from "@/app/portal/profile/PortalProfileClient";
 import { PORTAL_SERVICES } from "@/app/portal/services/catalog";
+import { IconBillingGlyph, IconPeopleGlyph, IconSettingsGlyph } from "@/app/portal/PortalIcons";
 
 type TabKey = "general" | "profile" | "billing";
 
@@ -122,9 +123,9 @@ export function SettingsTabsClient() {
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
         <div className="inline-flex w-full flex-wrap items-center gap-2">
           {([
-            { key: "general" as const, label: "General" },
-            { key: "profile" as const, label: "Profile" },
-            { key: "billing" as const, label: "Billing" },
+            { key: "general" as const, label: "General", icon: <IconSettingsGlyph size={16} /> },
+            { key: "profile" as const, label: "Profile", icon: <IconPeopleGlyph size={16} /> },
+            { key: "billing" as const, label: "Billing", icon: <IconBillingGlyph size={16} /> },
           ] as const).map((t) => {
             const active = tab === t.key;
             return (
@@ -133,13 +134,16 @@ export function SettingsTabsClient() {
                 type="button"
                 onClick={() => goTab(t.key)}
                 className={classNames(
-                  "rounded-2xl px-4 py-2 text-sm font-semibold transition",
+                  "inline-flex items-center gap-2 rounded-2xl px-4 py-2 text-sm font-semibold transition",
                   active
                     ? "bg-[rgba(29,78,216,0.10)] text-(--color-brand-blue) ring-1 ring-[rgba(29,78,216,0.22)]"
                     : "bg-transparent text-zinc-600 hover:bg-zinc-100/60 hover:text-zinc-900",
                 )}
               >
-                {t.label}
+                <span aria-hidden="true" className="text-current">
+                  {t.icon}
+                </span>
+                <span>{t.label}</span>
               </button>
             );
           })}

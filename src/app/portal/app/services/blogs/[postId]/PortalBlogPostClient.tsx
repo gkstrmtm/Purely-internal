@@ -12,6 +12,7 @@ import { useToast } from "@/components/ToastProvider";
 import { InlineSpinner } from "@/components/InlineSpinner";
 import { buildFontDropdownOptions } from "@/lib/portalHostedFonts";
 import { IconExport } from "@/app/portal/PortalIcons";
+import { IconEdit } from "@/app/portal/PortalIcons";
 
 type Post = {
   id: string;
@@ -687,7 +688,10 @@ export function PortalBlogPostClient({ postId }: { postId: string }) {
               Blogs
             </Link>
             <span className="px-2">/</span>
-            <span className="text-zinc-700">Edit</span>
+            <span className="inline-flex items-center text-zinc-700" title="Edit">
+              <IconEdit size={14} />
+              <span className="sr-only">Edit</span>
+            </span>
           </div>
           <h1 className="mt-2 text-2xl font-bold text-brand-ink sm:text-3xl">{post.title || "Untitled"}</h1>
           <div className="mt-1 text-sm text-zinc-600">
