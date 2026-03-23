@@ -766,7 +766,12 @@ export function PortalPeopleUsersClient() {
                   <tr>
                     <th className="px-4 py-3">Service</th>
                     <th className="px-4 py-3">View</th>
-                    <th className="px-4 py-3">Edit</th>
+                    <th className="px-4 py-3">
+                      <span className="inline-flex items-center" title="Edit">
+                        <IconEdit size={14} />
+                        <span className="sr-only">Edit</span>
+                      </span>
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
