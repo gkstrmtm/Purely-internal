@@ -813,28 +813,29 @@ export function PortalBillingClient({
         </div>
       </div>
 
-      <div className="mt-3 grid gap-2">
-        {(() => {
-          const servicesList = PORTAL_SERVICES.filter((s) => !s.hidden && (!s.variants || s.variants.includes("portal")));
-          const rows = servicesList.map((s) => {
-            const st = serviceStatuses?.[s.slug];
-            const state = st?.state ?? "active";
-            const label = st?.label ?? (state === "locked" ? "Locked" : "Ready");
-            const href = setupHrefForService(s.slug, label);
-            const disabled = state === "locked" || state === "coming_soon";
+      <div className="mt-3 max-h-[30vh] overflow-auto pr-1">
+        <div className="grid gap-2">
+          {(() => {
+            const servicesList = PORTAL_SERVICES.filter((s) => !s.hidden && (!s.variants || s.variants.includes("portal")));
+            const rows = servicesList.map((s) => {
+              const st = serviceStatuses?.[s.slug];
+              const state = st?.state ?? "active";
+              const label = st?.label ?? (state === "locked" ? "Locked" : "Ready");
+              const href = setupHrefForService(s.slug, label);
+              const disabled = state === "locked" || state === "coming_soon";
 
-            const modulePrice =
-              !creditsOnly && s.entitlementKey && modulePrices ? ((modulePrices as any)[s.entitlementKey] as any) : null;
+              const modulePrice =
+                !creditsOnly && s.entitlementKey && modulePrices ? ((modulePrices as any)[s.entitlementKey] as any) : null;
 
-            const priceText = (() => {
-              if (s.included) return "Included";
-              if (creditsOnly) return "Credit-based";
-              if (modulePrice?.monthlyCents) return `${formatMoney(modulePrice.monthlyCents, modulePrice.currency)}/mo`;
-              return "Add-on";
-            })();
+              const priceText = (() => {
+                if (s.included) return "Included";
+                if (creditsOnly) return "Credit-based";
+                if (modulePrice?.monthlyCents) return `${formatMoney(modulePrice.monthlyCents, modulePrice.currency)}/mo`;
+                return "Add-on";
+              })();
 
-            return { s, state, label, href, disabled, priceText };
-          });
+              return { s, state, label, href, disabled, priceText };
+            });
 
           const rank = (state: string) => {
             if (state === "needs_setup") return 0;
@@ -851,25 +852,26 @@ export function PortalBillingClient({
             return a.s.title.localeCompare(b.s.title);
           });
 
-          return rows.map((r) => (
-            <button
-              key={r.s.slug}
-              type="button"
-              disabled={r.disabled}
-              onClick={() => router.push(r.href)}
-              className="flex w-full items-center justify-between gap-3 rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-left hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              <div className="min-w-0">
-                <div className="truncate text-sm font-semibold text-brand-ink">{r.s.title}</div>
-                <div className="mt-0.5 flex items-center gap-2">
-                  <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${badgeClass(r.state)}`}>{r.label}</span>
-                  <span className="text-xs text-zinc-500">{r.priceText}</span>
+            return rows.map((r) => (
+              <button
+                key={r.s.slug}
+                type="button"
+                disabled={r.disabled}
+                onClick={() => router.push(r.href)}
+                className="flex w-full items-center justify-between gap-3 rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-left hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                <div className="min-w-0">
+                  <div className="truncate text-sm font-semibold text-brand-ink">{r.s.title}</div>
+                  <div className="mt-0.5 flex items-center gap-2">
+                    <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${badgeClass(r.state)}`}>{r.label}</span>
+                    <span className="text-xs text-zinc-500">{r.priceText}</span>
+                  </div>
                 </div>
-              </div>
-              <div className="shrink-0 text-xs font-semibold text-zinc-700">{r.disabled ? "Locked" : "Open →"}</div>
-            </button>
-          ));
-        })()}
+                <div className="shrink-0 text-xs font-semibold text-zinc-700">{r.disabled ? "Locked" : "Open →"}</div>
+              </button>
+            ));
+          })()}
+        </div>
       </div>
     </div>
   );
@@ -967,7 +969,7 @@ export function PortalBillingClient({
       ) : null}
       <div
         className={[
-          "rounded-3xl border border-zinc-200 bg-white p-6 lg:col-span-2",
+          hideMonthlyBreakdown ? "lg:col-span-2" : "rounded-3xl border border-zinc-200 bg-white p-6 lg:col-span-2",
           creditsFirstForMobileApp ? "order-2" : null,
         ]
           .filter(Boolean)
@@ -1004,7 +1006,7 @@ export function PortalBillingClient({
             {creditsOnly ? (
               <button
                 type="button"
-                className="mt-1 text-left text-lg font-bold text-[color:var(--color-brand-blue)] hover:underline"
+                className="mt-1 text-left text-lg font-bold text-(--color-brand-blue) hover:underline"
                 onClick={() => router.push(upgradeHref)}
               >
                 Upgrade
@@ -1151,7 +1153,7 @@ export function PortalBillingClient({
       <div
         id="pa-billing-credits"
         className={[
-          "rounded-3xl border border-zinc-200 bg-white p-6",
+          hideMonthlyBreakdown ? null : "rounded-3xl border border-zinc-200 bg-white p-6",
           creditsFirstForMobileApp ? "order-first" : null,
         ]
           .filter(Boolean)

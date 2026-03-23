@@ -1023,12 +1023,12 @@ export function PortalProfileClient({ embedded }: { embedded?: boolean } = {}) {
           {advancedOpen ? (
             <div className="space-y-4">
 
-              <div className="flex flex-wrap gap-2">
+              <div className="flex flex-wrap gap-x-3 gap-y-1">
                 {canViewTwilio ? (
                   <button
                     type="button"
                     onClick={() => requestAdvancedScroll("twilio")}
-                    className="rounded-2xl bg-[rgba(29,78,216,0.10)] px-3 py-2 text-xs font-semibold text-(--color-brand-blue) ring-1 ring-[rgba(29,78,216,0.22)] hover:bg-[rgba(29,78,216,0.14)]"
+                    className="rounded-md px-2 py-1 text-xs font-semibold text-zinc-700 hover:bg-blue-50 hover:text-(--color-brand-blue) focus-visible:outline-none focus-visible:text-(--color-brand-blue) focus-visible:underline"
                   >
                     Twilio
                   </button>
@@ -1037,7 +1037,7 @@ export function PortalProfileClient({ embedded }: { embedded?: boolean } = {}) {
                   <button
                     type="button"
                     onClick={() => requestAdvancedScroll("webhooks")}
-                    className="rounded-2xl bg-[rgba(99,102,241,0.10)] px-3 py-2 text-xs font-semibold text-indigo-700 ring-1 ring-indigo-200 hover:bg-[rgba(99,102,241,0.14)]"
+                    className="rounded-md px-2 py-1 text-xs font-semibold text-zinc-700 hover:bg-blue-50 hover:text-(--color-brand-blue) focus-visible:outline-none focus-visible:text-(--color-brand-blue) focus-visible:underline"
                   >
                     Webhooks
                   </button>
@@ -1045,7 +1045,7 @@ export function PortalProfileClient({ embedded }: { embedded?: boolean } = {}) {
                 <button
                   type="button"
                   onClick={() => requestAdvancedScroll("salesReporting")}
-                  className="rounded-2xl bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-800 ring-1 ring-emerald-200 hover:bg-emerald-100"
+                  className="rounded-md px-2 py-1 text-xs font-semibold text-zinc-700 hover:bg-blue-50 hover:text-(--color-brand-blue) focus-visible:outline-none focus-visible:text-(--color-brand-blue) focus-visible:underline"
                 >
                   Sales reporting
                 </button>
@@ -1053,7 +1053,7 @@ export function PortalProfileClient({ embedded }: { embedded?: boolean } = {}) {
                   <button
                     type="button"
                     onClick={() => requestAdvancedScroll("businessEmail")}
-                    className="rounded-2xl bg-[rgba(236,72,153,0.10)] px-3 py-2 text-xs font-semibold text-(--color-brand-pink) ring-1 ring-[rgba(236,72,153,0.22)] hover:bg-[rgba(236,72,153,0.14)]"
+                    className="rounded-md px-2 py-1 text-xs font-semibold text-zinc-700 hover:bg-blue-50 hover:text-(--color-brand-blue) focus-visible:outline-none focus-visible:text-(--color-brand-blue) focus-visible:underline"
                   >
                     Business email
                   </button>
@@ -1062,7 +1062,7 @@ export function PortalProfileClient({ embedded }: { embedded?: boolean } = {}) {
                   <button
                     type="button"
                     onClick={() => requestAdvancedScroll("businessInfo")}
-                    className="rounded-2xl bg-zinc-100 px-3 py-2 text-xs font-semibold text-zinc-800 ring-1 ring-zinc-200 hover:bg-zinc-200"
+                    className="rounded-md px-2 py-1 text-xs font-semibold text-zinc-700 hover:bg-blue-50 hover:text-(--color-brand-blue) focus-visible:outline-none focus-visible:text-(--color-brand-blue) focus-visible:underline"
                   >
                     Business info
                   </button>
