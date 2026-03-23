@@ -3,7 +3,6 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { AppModal } from "@/components/AppModal";
-import { PortalSettingsSection } from "@/components/PortalSettingsSection";
 import { useToast } from "@/components/ToastProvider";
 
 type ActivationProfile = {
@@ -43,7 +42,6 @@ export function SuggestedSetupSection({ canEdit }: { canEdit: boolean }) {
   const [loading, setLoading] = useState(false);
   const [applying, setApplying] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [activationProfile, setActivationProfile] = useState<ActivationProfile | null>(null);
   const [actions, setActions] = useState<ProposedAction[]>([]);
   const [selectedIds, setSelectedIds] = useState<Record<string, boolean>>({});
 
@@ -93,7 +91,6 @@ export function SuggestedSetupSection({ canEdit }: { canEdit: boolean }) {
       return;
     }
 
-    setActivationProfile(json.activationProfile ?? null);
     const nextActions = (json.proposedActions ?? []) as ProposedAction[];
     setActions(nextActions);
     setSelectedIds((prev) => {
@@ -144,40 +141,20 @@ export function SuggestedSetupSection({ canEdit }: { canEdit: boolean }) {
 
   return (
     <>
-      <PortalSettingsSection
-        title="Suggested setup"
-        description="Quick actions to finish onboarding. Nothing runs until you approve it."
-        accent="emerald"
-        collapsible={false}
-        dotClassName="hidden"
-      >
-        <div className="mt-1 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div className="text-sm text-zinc-600">
-            {activationProfile?.businessName ? (
-              <div>
-                For <span className="font-semibold text-zinc-800">{activationProfile.businessName}</span>
-              </div>
-            ) : (
-              <div>Review and apply recommended actions.</div>
-            )}
-            <div className="mt-1 text-xs text-zinc-500">{actions.length ? `${actions.length} suggestions available.` : "No suggestions right now."}</div>
-          </div>
-          <button
-            type="button"
-            className="inline-flex items-center justify-center rounded-2xl bg-linear-to-r from-(--color-brand-blue) via-violet-500 to-(--color-brand-pink) px-5 py-3 text-sm font-semibold text-white shadow-sm hover:opacity-90 disabled:opacity-60"
-            onClick={async () => {
-              setOpen(true);
-              await loadPreview();
-            }}
-            disabled={!canEdit}
-            title={!canEdit ? "You do not have permission to apply setup" : undefined}
-          >
-            View suggested setup
-          </button>
-        </div>
-
-        {!canEdit ? <div className="mt-3 text-xs text-zinc-500">You don’t have permission to apply suggested setup.</div> : null}
-      </PortalSettingsSection>
+      <div className="flex items-center justify-end">
+        <button
+          type="button"
+          className="inline-flex items-center justify-center rounded-2xl bg-linear-to-r from-(--color-brand-blue) via-violet-500 to-(--color-brand-pink) px-5 py-3 text-sm font-semibold text-white shadow-sm hover:opacity-90 disabled:opacity-60"
+          onClick={async () => {
+            setOpen(true);
+            await loadPreview();
+          }}
+          disabled={!canEdit}
+          title={!canEdit ? "You do not have permission to apply setup" : undefined}
+        >
+          Suggested setup
+        </button>
+      </div>
 
       <AppModal
         open={open}

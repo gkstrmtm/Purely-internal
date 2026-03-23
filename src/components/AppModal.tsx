@@ -16,6 +16,8 @@ export function AppModal({
   footer,
   widthClassName,
   zIndex,
+  closeVariant,
+  hideHeaderDivider,
 }: {
   open: boolean;
   title: string;
@@ -25,6 +27,8 @@ export function AppModal({
   footer?: React.ReactNode;
   widthClassName?: string;
   zIndex?: number;
+  closeVariant?: "text" | "x";
+  hideHeaderDivider?: boolean;
 }) {
   const [mounted, setMounted] = useState(false);
 
@@ -82,7 +86,7 @@ export function AppModal({
             onMouseDown={(e) => e.stopPropagation()}
             onTouchStart={(e) => e.stopPropagation()}
           >
-            <div className="shrink-0 border-b border-zinc-100 p-5">
+            <div className={classNames("shrink-0 p-5", hideHeaderDivider ? "" : "border-b border-zinc-100")}>
               <div className="flex items-start justify-between gap-4">
                 <div className="min-w-0">
                   <div className="text-base font-semibold text-zinc-900">{title}</div>
@@ -90,10 +94,16 @@ export function AppModal({
                 </div>
                 <button
                   type="button"
-                  className="shrink-0 rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
+                  className={classNames(
+                    "shrink-0 select-none",
+                    closeVariant === "x"
+                      ? "grid h-10 w-10 place-items-center rounded-2xl border border-zinc-200 bg-white text-lg leading-none font-semibold text-zinc-700 hover:bg-zinc-50"
+                      : "rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50",
+                  )}
                   onClick={onClose}
+                  aria-label="Close"
                 >
-                  Close
+                  {closeVariant === "x" ? "×" : "Close"}
                 </button>
               </div>
             </div>
@@ -105,7 +115,7 @@ export function AppModal({
         </div>
       </div>
     );
-  }, [children, description, footer, onClose, open, title, widthClassName, zIndex]);
+  }, [children, closeVariant, description, footer, hideHeaderDivider, onClose, open, title, widthClassName, zIndex]);
 
   if (!mounted) return null;
   if (!body) return null;

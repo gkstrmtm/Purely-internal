@@ -882,6 +882,8 @@ export function PortalProfileClient({ embedded }: { embedded?: boolean } = {}) {
     setNotice(json.note ?? "Password updated.");
   }
 
+  const sectionVariant: "card" | "plain" = embedded ? "plain" : "card";
+
   return (
     <div className={embedded ? "w-full" : "mx-auto w-full max-w-6xl"}>
       {!embedded && fromOnboarding ? (
@@ -902,7 +904,13 @@ export function PortalProfileClient({ embedded }: { embedded?: boolean } = {}) {
       ) : null}
 
       {loading ? (
-        <div className="mt-6 rounded-3xl border border-zinc-200 bg-white p-6 text-sm text-zinc-600">
+        <div
+          className={
+            embedded
+              ? "mt-6 text-sm text-zinc-600"
+              : "mt-6 rounded-3xl border border-zinc-200 bg-white p-6 text-sm text-zinc-600"
+          }
+        >
           Loading…
         </div>
       ) : (
@@ -916,6 +924,7 @@ export function PortalProfileClient({ embedded }: { embedded?: boolean } = {}) {
                 accent="blue"
                 collapsible={false}
                 dotClassName="hidden"
+                variant={sectionVariant}
               >
                 <div className="mt-1 grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <div>
@@ -992,7 +1001,7 @@ export function PortalProfileClient({ embedded }: { embedded?: boolean } = {}) {
               </PortalSettingsSection>
             </div>
 
-            <div className="rounded-3xl border border-zinc-200 bg-white p-6">
+            <div className={embedded ? "" : "rounded-3xl border border-zinc-200 bg-white p-6"}>
               <div className="text-sm font-semibold text-zinc-900">Security</div>
               <div className="mt-2 text-sm text-zinc-600">Keep your account secure.</div>
 
@@ -1060,7 +1069,10 @@ export function PortalProfileClient({ embedded }: { embedded?: boolean } = {}) {
             </div>
           </div>
 
-          <div ref={advancedRef} className="scroll-mt-24 rounded-3xl border border-zinc-200 bg-white p-6">
+          <div
+            ref={advancedRef}
+            className={embedded ? "scroll-mt-24" : "scroll-mt-24 rounded-3xl border border-zinc-200 bg-white p-6"}
+          >
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:pr-16">
               <div>
                 <div className="text-sm font-semibold text-zinc-900">Advanced</div>
@@ -1088,6 +1100,7 @@ export function PortalProfileClient({ embedded }: { embedded?: boolean } = {}) {
                     accent="blue"
                     collapsible={false}
                     dotClassName="hidden"
+                    variant={sectionVariant}
                   >
                     <div className="space-y-3">
                       <CopyRow label="Calls (Primary handler: AI Receptionist)" value={webhooks?.legacy?.aiReceptionistVoiceUrl ?? null} />
@@ -1121,6 +1134,7 @@ export function PortalProfileClient({ embedded }: { embedded?: boolean } = {}) {
                     accent="blue"
                     collapsible={false}
                     dotClassName="hidden"
+                    variant={sectionVariant}
                   >
                     <div className="space-y-3">
                       {twilioNote ? (
@@ -1220,6 +1234,7 @@ export function PortalProfileClient({ embedded }: { embedded?: boolean } = {}) {
                   accent="blue"
                   collapsible={false}
                   dotClassName="hidden"
+                  variant={sectionVariant}
                 >
                   <div className="space-y-3">
                     {stripeNote ? (
@@ -1565,6 +1580,7 @@ export function PortalProfileClient({ embedded }: { embedded?: boolean } = {}) {
                 accent="pink"
                 collapsible={false}
                 dotClassName="hidden"
+                variant={sectionVariant}
               >
                 <div className="space-y-3">
                 {mailboxNote ? (
@@ -1638,6 +1654,7 @@ export function PortalProfileClient({ embedded }: { embedded?: boolean } = {}) {
                 accent="pink"
                 collapsible={false}
                 dotClassName="hidden"
+                variant={sectionVariant}
               >
                 <BusinessProfileForm
                   embedded

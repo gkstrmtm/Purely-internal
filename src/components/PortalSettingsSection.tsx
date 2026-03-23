@@ -8,6 +8,7 @@ export function PortalSettingsSection({
   dotClassName,
   defaultOpen,
   collapsible,
+  variant,
   children,
 }: {
   title: string;
@@ -17,6 +18,7 @@ export function PortalSettingsSection({
   dotClassName?: string;
   defaultOpen?: boolean;
   collapsible?: boolean;
+  variant?: "card" | "plain";
   children: React.ReactNode;
 }) {
   const accentDotClass =
@@ -37,6 +39,48 @@ export function PortalSettingsSection({
       : status === "off"
         ? "bg-red-500"
         : accentDotClass;
+
+  const effectiveVariant = variant || "card";
+
+  if (effectiveVariant === "plain") {
+    if (collapsible === false) {
+      return (
+        <div>
+          <div className="flex items-start justify-between gap-4">
+            <div className="min-w-0">
+              <div className="flex items-center gap-3">
+                <span className={"h-2.5 w-2.5 shrink-0 rounded-full " + dotClass} />
+                <div className="text-sm font-semibold text-zinc-900">{title}</div>
+              </div>
+              {description ? <div className="mt-1 text-sm text-zinc-600">{description}</div> : null}
+            </div>
+          </div>
+
+          <div className="mt-4">{children}</div>
+        </div>
+      );
+    }
+
+    return (
+      <details className="group" open={defaultOpen ? true : undefined}>
+        <summary className="flex cursor-pointer list-none items-start justify-between gap-4 select-none [&::-webkit-details-marker]:hidden [&::marker]:content-none">
+          <div className="min-w-0">
+            <div className="flex items-center gap-3">
+              <span className={"h-2.5 w-2.5 shrink-0 rounded-full " + dotClass} />
+              <div className="text-sm font-semibold text-zinc-900">{title}</div>
+            </div>
+            {description ? <div className="mt-1 text-sm text-zinc-600">{description}</div> : null}
+          </div>
+          <div className="shrink-0 rounded-full border border-zinc-200 bg-white px-3 py-1 text-xs font-semibold text-zinc-700">
+            <span className="hidden group-open:inline">Hide</span>
+            <span className="group-open:hidden">Show</span>
+          </div>
+        </summary>
+
+        <div className="mt-4">{children}</div>
+      </details>
+    );
+  }
 
   if (collapsible === false) {
     return (

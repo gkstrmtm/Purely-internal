@@ -495,6 +495,23 @@ function GeneralTab({
               {typeof creditsRemaining === "number" && Number.isFinite(creditsRemaining) ? creditsRemaining : "N/A"}
             </div>
 
+            <div className="-mt-1 text-sm font-semibold">
+              <span className="text-zinc-600">Runway:</span>{" "}
+              <span
+                className={classNames(
+                  runwayTone === "good"
+                    ? "text-emerald-700"
+                    : runwayTone === "warn"
+                      ? "text-amber-700"
+                      : runwayTone === "danger"
+                        ? "text-rose-700"
+                        : "text-zinc-800",
+                )}
+              >
+                {typeof creditRunwayDays === "number" && Number.isFinite(creditRunwayDays) ? `${creditRunwayDays} days` : "N/A"}
+              </span>
+            </div>
+
             <div className="grid grid-cols-1 gap-2 pt-3 sm:grid-cols-2">
               <button
                 type="button"
@@ -616,6 +633,8 @@ function GeneralTab({
         open={referralOpen}
         onClose={() => setReferralOpen(false)}
         title="Get free credits"
+        closeVariant="x"
+        hideHeaderDivider
       >
         <div className="space-y-4">
           <div className="text-sm text-zinc-600">Share your referral link. When friends sign up and verify, you earn credits.</div>
@@ -631,7 +650,7 @@ function GeneralTab({
               />
               <button
                 type="button"
-                className="shrink-0 rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm font-semibold text-brand-ink hover:bg-zinc-50 disabled:opacity-60"
+                className="shrink-0 rounded-2xl bg-(--color-brand-blue) px-4 py-3 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
                 disabled={!referral?.url}
                 onClick={() => {
                   if (!referral?.url) return;
