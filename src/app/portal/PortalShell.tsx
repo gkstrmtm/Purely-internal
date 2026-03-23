@@ -1316,7 +1316,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                     className={classNames(
                       "flex items-center gap-3 rounded-2xl px-3 py-2 text-sm font-semibold",
                       isActive(item.href)
-                        ? "bg-[rgba(29,78,216,0.10)] text-(--color-brand-blue)"
+                        ? "bg-[rgba(29,78,216,0.10)] text-zinc-900"
                         : "text-zinc-700 hover:bg-zinc-50",
                     )}
                   >
@@ -1482,7 +1482,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                   className={classNames(
                     "flex items-center gap-3 rounded-2xl px-3 py-2 text-sm font-semibold",
                     isActive(item.href)
-                      ? "bg-[rgba(29,78,216,0.10)] text-(--color-brand-blue)"
+                      ? "bg-[rgba(29,78,216,0.10)] text-zinc-900"
                       : "text-zinc-700 hover:bg-zinc-50",
                     collapsed && "justify-center px-2",
                   )}

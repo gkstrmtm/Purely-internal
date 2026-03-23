@@ -112,7 +112,7 @@ export function SettingsTabsClient() {
       setSearchParam(url, "tab", nextTab);
       if (opts && "focus" in opts) setSearchParam(url, "focus", opts.focus ?? null);
       else url.searchParams.delete("focus");
-      router.push(url.pathname + url.search);
+      router.push(url.pathname + url.search, { scroll: false });
     },
     [router],
   );
@@ -135,7 +135,7 @@ export function SettingsTabsClient() {
                 className={classNames(
                   "rounded-2xl px-4 py-2 text-sm font-semibold transition",
                   active
-                    ? "bg-zinc-100/80 text-brand-blue ring-1 ring-zinc-200/90"
+                    ? "bg-[rgba(29,78,216,0.10)] text-(--color-brand-blue) ring-1 ring-[rgba(29,78,216,0.22)]"
                     : "bg-transparent text-zinc-600 hover:bg-zinc-100/60 hover:text-zinc-900",
                 )}
               >
@@ -412,7 +412,7 @@ function GeneralTab({
   return (
     <div className="mt-6">
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3 lg:items-stretch">
-        <div className="h-full rounded-3xl border border-zinc-200 bg-white p-6">
+        <div className="h-full">
           <div className="flex h-full flex-col">
             <div className="space-y-3">
             <div>
@@ -478,7 +478,7 @@ function GeneralTab({
           <div className="relative flex h-full flex-col overflow-hidden">
             <div
               className={classNames(
-                "pointer-events-none absolute -right-8 -top-8 h-24 w-24 rounded-full blur-xl",
+                "pointer-events-none absolute right-0 top-0 h-24 w-24 translate-x-1/2 -translate-y-1/2 rounded-full blur-xl",
                 runwayTone === "good"
                   ? "bg-emerald-300/40"
                   : runwayTone === "warn"
@@ -503,7 +503,7 @@ function GeneralTab({
             <div className="mt-auto grid grid-cols-1 gap-2 pt-6 sm:grid-cols-2">
               <button
                 type="button"
-                className="rounded-2xl bg-brand-ink px-4 py-3 text-sm font-semibold text-white hover:opacity-95"
+                className="rounded-2xl bg-(--color-brand-blue) px-4 py-3 text-sm font-semibold text-white hover:opacity-95"
                 onClick={() => onGoBilling("credits")}
               >
                 Buy more
@@ -522,7 +522,7 @@ function GeneralTab({
           </div>
         </div>
 
-        <div className="h-full rounded-3xl border border-zinc-200 bg-white p-6">
+        <div className="h-full">
           <div className="text-sm font-semibold text-zinc-900">Top services</div>
 
           {topServices.length ? (
@@ -531,7 +531,7 @@ function GeneralTab({
                 <a
                   key={s.slug}
                   href={`/portal/app/services/${encodeURIComponent(s.slug)}`}
-                  className="flex items-center gap-4 py-4 text-sm hover:bg-zinc-50"
+                  className="flex items-center gap-4 py-4 text-sm"
                 >
                   <div
                     className={classNames(
@@ -552,7 +552,7 @@ function GeneralTab({
       </div>
 
       {creditsOnly ? (
-        <div className="mt-10 w-full rounded-3xl border border-zinc-200 bg-white p-8">
+        <div className="mt-12 w-full">
           <div className="text-base font-semibold text-zinc-900">Upgrade to a monthly plan</div>
           <div className="mt-1 text-sm text-zinc-600">Lower per-action costs, higher limits, and a predictable monthly price.</div>
           <div className="mt-6">
