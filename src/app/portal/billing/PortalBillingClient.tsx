@@ -1603,7 +1603,7 @@ export function PortalBillingClient({
       <div
         id="pa-billing-credits"
         className={[
-          hideMonthlyBreakdown ? null : "rounded-3xl border border-zinc-200 bg-white p-6",
+          hideMonthlyBreakdown ? null : "rounded-3xl border border-zinc-200 bg-white p-6 flex h-full min-h-0 flex-col",
           creditsFirstForMobileApp ? "order-first" : null,
         ]
           .filter(Boolean)
@@ -1763,6 +1763,266 @@ export function PortalBillingClient({
             <div className="mt-3 text-sm text-zinc-600">Credit purchasing is unavailable right now.</div>
           )}
         </div>
+
+        {!hideMonthlyBreakdown ? (
+          <div id="pa-billing-services" className="mt-4 flex min-h-0 flex-1 flex-col rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <div className="text-sm font-semibold text-zinc-900">Services & status</div>
+                <div className="mt-2 text-sm text-zinc-600">Live status from your account.</div>
+              </div>
+
+              {creditsOnly ? (
+                <button
+                  type="button"
+                  disabled={actionBusy !== null}
+                  onClick={() => setServicesAdvancedOpen((v) => !v)}
+                  className="shrink-0 rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50 disabled:opacity-60"
+                >
+                  {servicesAdvancedOpen ? "Hide advanced" : "Advanced"}
+                </button>
+              ) : null}
+            </div>
+
+            <div className="mt-4 min-h-0 flex-1 overflow-auto pr-1">
+              <div className="space-y-2 text-sm text-zinc-700">
+                {(() => {
+                  const servicesList = PORTAL_SERVICES.filter((s) => !s.hidden && (!s.variants || s.variants.includes("portal")));
+                  const rows = servicesList.map((s) => {
+                    const st = serviceStatuses?.[s.slug];
+                    const state = st?.state ?? "active";
+                    const label = st?.label ?? "Ready";
+
+                    const modulePrice =
+                      pricing && "ok" in pricing && pricing.ok === true && s.entitlementKey
+                        ? (pricing.modules as any)[s.entitlementKey]
+                        : null;
+
+                    const priceText = (() => {
+                      if (creditsOnly && !s.included) return "Credit-based";
+                      if (s.included) return "Included";
+                      if (s.entitlementKey && modulePrice) {
+                        if (modulePrice.monthlyCents) return `${formatMoney(modulePrice.monthlyCents, modulePrice.currency)}/mo`;
+                        return "Included";
+                      }
+                      return "Add-on";
+                    })();
+
+                    const owned = state !== "locked" && state !== "coming_soon";
+                    return { s, st, state, label, priceText, owned };
+                  });
+
+                  rows.sort((a, b) => {
+                    if (a.owned !== b.owned) return a.owned ? -1 : 1;
+                    const rank = (state: string) => {
+                      if (state === "needs_setup") return 0;
+                      if (state === "active") return 1;
+                      if (state === "paused" || state === "canceled") return 2;
+                      if (state === "locked") return 3;
+                      return 4;
+                    };
+                    const ra = rank(a.state);
+                    const rb = rank(b.state);
+                    if (ra !== rb) return ra - rb;
+                    return a.s.title.localeCompare(b.s.title);
+                  });
+
+                  const ownedRows = rows.filter((r) => r.owned);
+                  const lockedRows = rows.filter((r) => !r.owned);
+
+                  const renderRow = (r: typeof rows[number]) => {
+                    const { s, state, label, priceText } = r;
+                    const busy = actionBusy?.startsWith(`service:${s.slug}:`) ?? false;
+                    const canLifecycleManage = !s.included;
+                    const badgeText = (() => {
+                      if (state === "locked" || state === "coming_soon") return label;
+                      if (state === "paused" || state === "canceled") return label;
+                      const access = s.included ? "Included" : "Enabled";
+                      return `${access} · ${label}`;
+                    })();
+
+                    return (
+                      <div
+                        key={s.slug}
+                        className="relative flex items-center justify-between gap-3"
+                        data-service-menu-root={serviceMenuSlug === s.slug ? s.slug : undefined}
+                      >
+                        <div className="min-w-0">
+                          <div className="truncate">{s.title}</div>
+                          <div className="mt-0.5 text-xs text-zinc-500">{priceText}</div>
+                        </div>
+
+                        <div className="flex items-center gap-2">
+                          {state === "locked" ? (
+                            !creditsOnly && s.entitlementKey && modulePurchasable(s.entitlementKey as any) ? (
+                              <button
+                                type="button"
+                                disabled={actionBusy !== null}
+                                onClick={() => openPurchaseModal(s.entitlementKey as any, s.title)}
+                                className="hidden rounded-2xl bg-brand-ink px-3 py-1.5 text-xs font-semibold text-white hover:opacity-95 disabled:opacity-60 sm:inline-flex"
+                              >
+                                Enable
+                              </button>
+                            ) : (
+                              <span className="hidden text-xs font-semibold text-zinc-400 sm:inline-flex">Not available</span>
+                            )
+                          ) : state === "paused" || state === "canceled" ? (
+                            <button
+                              type="button"
+                              disabled={busy || actionBusy !== null}
+                              onClick={() => void setServiceLifecycle(s.slug, "resume")}
+                              className="hidden rounded-2xl bg-brand-ink px-3 py-1.5 text-xs font-semibold text-white hover:opacity-95 disabled:opacity-60 sm:inline-flex"
+                            >
+                              Resume
+                            </button>
+                          ) : null}
+
+                          <span className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-semibold ${badgeClass(state)}`}>
+                            {badgeText}
+                          </span>
+
+                          <button
+                            type="button"
+                            disabled={actionBusy !== null}
+                            onClick={() => setServiceMenuSlug((prev) => (prev === s.slug ? null : s.slug))}
+                            className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50 disabled:opacity-60"
+                            aria-label="Service actions"
+                          >
+                            ⋯
+                          </button>
+
+                          {serviceMenuSlug === s.slug ? (
+                            <div className="absolute right-0 top-9 z-20 w-48 rounded-2xl border border-zinc-200 bg-white p-1 shadow-lg">
+                              {state === "locked" ? (
+                                !creditsOnly && s.entitlementKey && modulePurchasable(s.entitlementKey as any) ? (
+                                  <button
+                                    type="button"
+                                    className="w-full rounded-xl px-3 py-2 text-left text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
+                                    onClick={() => openPurchaseModal(s.entitlementKey as any, s.title)}
+                                  >
+                                    Enable…
+                                  </button>
+                                ) : (
+                                  <div className="w-full rounded-xl px-3 py-2 text-left text-sm font-semibold text-zinc-500">Not available</div>
+                                )
+                              ) : state === "needs_setup" ? (
+                                <button
+                                  type="button"
+                                  className="w-full rounded-xl px-3 py-2 text-left text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
+                                  onClick={() => router.push(setupHrefForService(s.slug, label))}
+                                >
+                                  {setupActionLabelForService(s.slug, label)}…
+                                </button>
+                              ) : state === "coming_soon" ? (
+                                <div className="w-full rounded-xl px-3 py-2 text-left text-sm font-semibold text-zinc-500">Coming soon</div>
+                              ) : state === "paused" || state === "canceled" ? (
+                                <button
+                                  type="button"
+                                  disabled={busy || actionBusy !== null}
+                                  onClick={() => void setServiceLifecycle(s.slug, "resume")}
+                                  className="w-full rounded-xl px-3 py-2 text-left text-sm font-semibold text-zinc-900 hover:bg-zinc-50 disabled:opacity-60"
+                                >
+                                  Resume service
+                                </button>
+                              ) : (
+                                <button
+                                  type="button"
+                                  disabled={!canLifecycleManage || busy || actionBusy !== null}
+                                  onClick={() => void setServiceLifecycle(s.slug, "pause")}
+                                  className="w-full rounded-xl px-3 py-2 text-left text-sm font-semibold text-zinc-900 hover:bg-zinc-50 disabled:opacity-60"
+                                >
+                                  Pause service
+                                </button>
+                              )}
+
+                              {state === "active" && canLifecycleManage ? (
+                                <button
+                                  type="button"
+                                  disabled={busy || actionBusy !== null}
+                                  onClick={() => void setServiceLifecycle(s.slug, "cancel")}
+                                  className="w-full rounded-xl px-3 py-2 text-left text-sm font-semibold text-red-700 hover:bg-red-50 disabled:opacity-60"
+                                >
+                                  Cancel service
+                                </button>
+                              ) : null}
+                            </div>
+                          ) : null}
+                        </div>
+                      </div>
+                    );
+                  };
+
+                  return (
+                    <>
+                      {ownedRows.length ? (
+                        <div className="mb-3 text-xs font-semibold uppercase tracking-wide text-zinc-500">You have access</div>
+                      ) : null}
+                      {ownedRows.map(renderRow)}
+
+                      {lockedRows.length ? (
+                        <>
+                          <div className="my-4 border-t border-zinc-200" />
+                          <div className="mb-3 text-xs font-semibold uppercase tracking-wide text-zinc-500">Add-ons you don’t have yet</div>
+                          {lockedRows.map(renderRow)}
+                        </>
+                      ) : null}
+                    </>
+                  );
+                })()}
+              </div>
+            </div>
+
+            {creditsOnly && servicesAdvancedOpen ? (
+              <div
+                className={`mt-4 rounded-2xl border p-4 ${
+                  creditsCanceled ? "border-red-200 bg-red-50" : "border-zinc-200 bg-zinc-50"
+                }`}
+              >
+                <div className="text-sm font-semibold text-zinc-900">Advanced: credits-only cancellation</div>
+                <div className="mt-1 text-sm text-zinc-700">
+                  {creditsCanceled
+                    ? "Canceled: all portal services are disabled until you resume. Billing and Profile stay accessible."
+                    : "Canceling credits-only billing disables all portal services immediately and stops any credit-charging actions."}
+                </div>
+
+                {creditsLifecycle?.updatedAtIso ? (
+                  <div className="mt-1 text-xs text-zinc-500">Last change: {new Date(creditsLifecycle.updatedAtIso).toLocaleString()}</div>
+                ) : null}
+
+                <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+                  {creditsCanceled ? (
+                    <button
+                      type="button"
+                      disabled={actionBusy !== null}
+                      onClick={() => {
+                        void setCreditsOnlyLifecycle("resume");
+                      }}
+                      className="rounded-2xl bg-(--color-brand-blue) px-4 py-2 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
+                    >
+                      {actionBusy === "credits-only:resume" ? "Resuming…" : "Resume services"}
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      disabled={actionBusy !== null}
+                      onClick={() => setCreditsOnlyCancelModal({ typed: "", ack: false })}
+                      className="rounded-2xl border border-red-200 bg-white px-4 py-2 text-sm font-semibold text-red-700 hover:bg-red-50 disabled:opacity-60"
+                    >
+                      {actionBusy === "credits-only:cancel" ? "Canceling…" : "Cancel (disable services)"}
+                    </button>
+                  )}
+                </div>
+              </div>
+            ) : null}
+
+            <div className="mt-6 rounded-2xl border border-brand-ink/10 bg-linear-to-br from-brand-blue/10 to-white p-4 text-sm text-zinc-800">
+              <div className="font-semibold text-zinc-900">Want to add more?</div>
+              <div className="mt-1 text-sm text-zinc-700">
+                {creditsOnly ? "Top up credits above, or open a service to configure it." : "Enable add-ons above, or open a service to configure it."}
+              </div>
+            </div>
+          </div>
+        ) : null}
 
       </div>
 
@@ -1977,276 +2237,6 @@ export function PortalBillingClient({
               ));
             })()}
           </div>
-        </div>
-      ) : null}
-
-      {!hideMonthlyBreakdown ? (
-        <div
-          id="pa-billing-services"
-          className={[
-            "rounded-3xl border border-zinc-200 bg-white p-6",
-            creditsFirstForMobileApp ? "order-last" : null,
-          ]
-            .filter(Boolean)
-            .join(" ")}
-        >
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            <div className="text-sm font-semibold text-zinc-900">Services & status</div>
-            <div className="mt-2 text-sm text-zinc-600">Live status from your account.</div>
-          </div>
-
-          {creditsOnly ? (
-            <button
-              type="button"
-              disabled={actionBusy !== null}
-              onClick={() => setServicesAdvancedOpen((v) => !v)}
-              className="shrink-0 rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50 disabled:opacity-60"
-            >
-              {servicesAdvancedOpen ? "Hide advanced" : "Advanced"}
-            </button>
-          ) : null}
-        </div>
-
-        <div className="mt-4 max-h-[30vh] overflow-auto pr-1">
-          <div className="space-y-2 text-sm text-zinc-700">
-          {(() => {
-            const servicesList = PORTAL_SERVICES.filter((s) => !s.hidden && (!s.variants || s.variants.includes("portal")));
-            const rows = servicesList.map((s) => {
-              const st = serviceStatuses?.[s.slug];
-              const state = st?.state ?? "active";
-              const label = st?.label ?? "Ready";
-
-              const modulePrice =
-                pricing && "ok" in pricing && pricing.ok === true && s.entitlementKey
-                  ? (pricing.modules as any)[s.entitlementKey]
-                  : null;
-
-              const priceText = (() => {
-                if (creditsOnly && !s.included) return "Credit-based";
-                if (s.included) return "Included";
-                if (s.entitlementKey && modulePrice) {
-                  if (modulePrice.monthlyCents) return `${formatMoney(modulePrice.monthlyCents, modulePrice.currency)}/mo`;
-                  return "Included";
-                }
-                return "Add-on";
-              })();
-
-              const owned = state !== "locked" && state !== "coming_soon";
-              return { s, st, state, label, priceText, owned };
-            });
-
-            rows.sort((a, b) => {
-              if (a.owned !== b.owned) return a.owned ? -1 : 1;
-              const rank = (state: string) => {
-                if (state === "needs_setup") return 0;
-                if (state === "active") return 1;
-                if (state === "paused" || state === "canceled") return 2;
-                if (state === "locked") return 3;
-                return 4;
-              };
-              const ra = rank(a.state);
-              const rb = rank(b.state);
-              if (ra !== rb) return ra - rb;
-              return a.s.title.localeCompare(b.s.title);
-            });
-
-            const ownedRows = rows.filter((r) => r.owned);
-            const lockedRows = rows.filter((r) => !r.owned);
-
-            const renderRow = (r: typeof rows[number]) => {
-              const { s, state, label, priceText } = r;
-              const busy = actionBusy?.startsWith(`service:${s.slug}:`) ?? false;
-              const canLifecycleManage = !s.included;
-              const badgeText = (() => {
-                if (state === "locked" || state === "coming_soon") return label;
-                if (state === "paused" || state === "canceled") return label;
-                const access = s.included ? "Included" : "Enabled";
-                return `${access} · ${label}`;
-              })();
-
-              return (
-                <div
-                  key={s.slug}
-                  className="relative flex items-center justify-between gap-3"
-                  data-service-menu-root={serviceMenuSlug === s.slug ? s.slug : undefined}
-                >
-                  <div className="min-w-0">
-                    <div className="truncate">{s.title}</div>
-                    <div className="mt-0.5 text-xs text-zinc-500">{priceText}</div>
-                  </div>
-
-                  <div className="flex items-center gap-2">
-                    {state === "locked" ? (
-                      !creditsOnly && s.entitlementKey && modulePurchasable(s.entitlementKey as any) ? (
-                        <button
-                          type="button"
-                          disabled={actionBusy !== null}
-                          onClick={() => openPurchaseModal(s.entitlementKey as any, s.title)}
-                          className="hidden rounded-2xl bg-brand-ink px-3 py-1.5 text-xs font-semibold text-white hover:opacity-95 disabled:opacity-60 sm:inline-flex"
-                        >
-                          Enable
-                        </button>
-                      ) : (
-                        <span className="hidden text-xs font-semibold text-zinc-400 sm:inline-flex">Not available</span>
-                      )
-                    ) : state === "paused" || state === "canceled" ? (
-                      <button
-                        type="button"
-                        disabled={busy || actionBusy !== null}
-                        onClick={() => void setServiceLifecycle(s.slug, "resume")}
-                        className="hidden rounded-2xl bg-brand-ink px-3 py-1.5 text-xs font-semibold text-white hover:opacity-95 disabled:opacity-60 sm:inline-flex"
-                      >
-                        Resume
-                      </button>
-                    ) : null}
-
-                    <span className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-semibold ${badgeClass(state)}`}>
-                      {badgeText}
-                    </span>
-
-                    <button
-                      type="button"
-                      disabled={actionBusy !== null}
-                      onClick={() => setServiceMenuSlug((prev) => (prev === s.slug ? null : s.slug))}
-                      className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50 disabled:opacity-60"
-                      aria-label="Service actions"
-                    >
-                      ⋯
-                    </button>
-
-                    {serviceMenuSlug === s.slug ? (
-                      <div className="absolute right-0 top-9 z-20 w-48 rounded-2xl border border-zinc-200 bg-white p-1 shadow-lg">
-                        {state === "locked" ? (
-                          !creditsOnly && s.entitlementKey && modulePurchasable(s.entitlementKey as any) ? (
-                            <button
-                              type="button"
-                              className="w-full rounded-xl px-3 py-2 text-left text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
-                              onClick={() => openPurchaseModal(s.entitlementKey as any, s.title)}
-                            >
-                              Enable…
-                            </button>
-                          ) : (
-                            <div className="w-full rounded-xl px-3 py-2 text-left text-sm font-semibold text-zinc-500">Not available</div>
-                          )
-                        ) : state === "needs_setup" ? (
-                          <button
-                            type="button"
-                            className="w-full rounded-xl px-3 py-2 text-left text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
-                            onClick={() => router.push(setupHrefForService(s.slug, label))}
-                          >
-                            {setupActionLabelForService(s.slug, label)}…
-                          </button>
-                        ) : state === "coming_soon" ? (
-                          <div className="w-full rounded-xl px-3 py-2 text-left text-sm font-semibold text-zinc-500">Coming soon</div>
-                        ) : state === "paused" || state === "canceled" ? (
-                          <button
-                            type="button"
-                            disabled={busy || actionBusy !== null}
-                            onClick={() => void setServiceLifecycle(s.slug, "resume")}
-                            className="w-full rounded-xl px-3 py-2 text-left text-sm font-semibold text-zinc-900 hover:bg-zinc-50 disabled:opacity-60"
-                          >
-                            Resume service
-                          </button>
-                        ) : (
-                          <button
-                            type="button"
-                            disabled={!canLifecycleManage || busy || actionBusy !== null}
-                            onClick={() => void setServiceLifecycle(s.slug, "pause")}
-                            className="w-full rounded-xl px-3 py-2 text-left text-sm font-semibold text-zinc-900 hover:bg-zinc-50 disabled:opacity-60"
-                          >
-                            Pause service
-                          </button>
-                        )}
-
-                        {state === "active" && canLifecycleManage ? (
-                          <button
-                            type="button"
-                            disabled={busy || actionBusy !== null}
-                            onClick={() => void setServiceLifecycle(s.slug, "cancel")}
-                            className="w-full rounded-xl px-3 py-2 text-left text-sm font-semibold text-red-700 hover:bg-red-50 disabled:opacity-60"
-                          >
-                            Cancel service
-                          </button>
-                        ) : null}
-                      </div>
-                    ) : null}
-                  </div>
-                </div>
-              );
-            };
-
-            return (
-              <>
-                {ownedRows.length ? (
-                  <div className="mb-3 text-xs font-semibold uppercase tracking-wide text-zinc-500">You have access</div>
-                ) : null}
-                {ownedRows.map(renderRow)}
-
-                {lockedRows.length ? (
-                  <>
-                    <div className="my-4 border-t border-zinc-200" />
-                    <div className="mb-3 text-xs font-semibold uppercase tracking-wide text-zinc-500">Add-ons you don’t have yet</div>
-                    {lockedRows.map(renderRow)}
-                  </>
-                ) : null}
-              </>
-            );
-          })()}
-          </div>
-        </div>
-
-        {creditsOnly && servicesAdvancedOpen ? (
-          <div
-            className={`mt-4 rounded-2xl border p-4 ${
-              creditsCanceled ? "border-red-200 bg-red-50" : "border-zinc-200 bg-zinc-50"
-            }`}
-          >
-            <div className="text-sm font-semibold text-zinc-900">Advanced: credits-only cancellation</div>
-            <div className="mt-1 text-sm text-zinc-700">
-              {creditsCanceled
-                ? "Canceled: all portal services are disabled until you resume. Billing and Profile stay accessible."
-                : "Canceling credits-only billing disables all portal services immediately and stops any credit-charging actions."}
-            </div>
-
-            {creditsLifecycle?.updatedAtIso ? (
-              <div className="mt-1 text-xs text-zinc-500">Last change: {new Date(creditsLifecycle.updatedAtIso).toLocaleString()}</div>
-            ) : null}
-
-            <div className="mt-3 flex flex-col gap-2 sm:flex-row">
-              {creditsCanceled ? (
-                <button
-                  type="button"
-                  disabled={actionBusy !== null}
-                  onClick={() => {
-                    void setCreditsOnlyLifecycle("resume");
-                  }}
-                  className="rounded-2xl bg-(--color-brand-blue) px-4 py-2 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
-                >
-                  {actionBusy === "credits-only:resume" ? "Resuming…" : "Resume services"}
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  disabled={actionBusy !== null}
-                  onClick={() => setCreditsOnlyCancelModal({ typed: "", ack: false })}
-                  className="rounded-2xl border border-red-200 bg-white px-4 py-2 text-sm font-semibold text-red-700 hover:bg-red-50 disabled:opacity-60"
-                >
-                  {actionBusy === "credits-only:cancel" ? "Canceling…" : "Cancel (disable services)"}
-                </button>
-              )}
-            </div>
-          </div>
-        ) : null}
-
-        <div className="mt-6 rounded-2xl border border-brand-ink/10 bg-linear-to-br from-brand-blue/10 to-white p-4 text-sm text-zinc-800">
-          <div className="font-semibold text-zinc-900">Want to add more?</div>
-          <div className="mt-1 text-sm text-zinc-700">
-            {creditsOnly
-              ? "Top up credits above, or open a service to configure it."
-              : "Enable add-ons above, or open a service to configure it."}
-          </div>
-        </div>
         </div>
       ) : null}
     </div>
