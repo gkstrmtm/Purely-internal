@@ -11,10 +11,15 @@ import {
   IconChevron,
   IconDashboard,
   IconHamburger,
+  IconHelpCircle,
+  IconInboxGlyph,
   IconLock,
+  IconPeopleGlyph,
   IconPeople,
+  IconPhoneCall,
   IconService,
   IconServiceGlyph,
+  IconSettingsGlyph,
   IconSettings,
 } from "@/app/portal/PortalIcons";
 import { PORTAL_SERVICES, type PortalService } from "@/app/portal/services/catalog";
@@ -945,38 +950,14 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                   className="inline-flex h-10 w-10 items-center justify-center rounded-xl bg-transparent text-zinc-700 transition-colors hover:text-zinc-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--color-brand-blue)"
                   aria-label="Book a call"
                 >
-                  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                    <path d="M8 3v3M16 3v3" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-                    <path d="M4 7h16" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-                    <path
-                      d="M6 5h12a2 2 0 012 2v13a2 2 0 01-2 2H6a2 2 0 01-2-2V7a2 2 0 012-2z"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                      strokeLinejoin="round"
-                    />
-                    <path d="M8 11h4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-                    <path d="M8 15h6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-                  </svg>
+                  <IconPhoneCall size={22} />
                 </Link>
                 <Link
                   href={`${basePath}/tutorials/getting-started?embed=1`}
                   className="inline-flex h-10 w-10 items-center justify-center rounded-xl bg-transparent text-zinc-700 transition-colors hover:text-zinc-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--color-brand-blue)"
                   aria-label="Help"
                 >
-                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                    <path
-                      d="M9.1 9a3 3 0 115.8 0c0 2-3 2-3 4"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                      strokeLinecap="round"
-                    />
-                    <path d="M12 17h.01" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-                    <path
-                      d="M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10z"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                    />
-                  </svg>
+                  <IconHelpCircle size={22} />
                 </Link>
               </div>
             </div>
@@ -1101,24 +1082,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                         </svg>
                       );
                     case "inbox":
-                      return (
-                        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                          <path
-                            d="M22 2L11 13"
-                            stroke="currentColor"
-                            strokeWidth="2"
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                          />
-                          <path
-                            d="M22 2l-7 20-4-9-9-4 20-7z"
-                            stroke="currentColor"
-                            strokeWidth="2"
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                          />
-                        </svg>
-                      );
+                      return <IconInboxGlyph size={22} />;
                     case "tasks":
                       return (
                         <svg width="22" height="22" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -1140,48 +1104,9 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                         </svg>
                       );
                     case "people":
-                      return (
-                        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                          <path
-                            d="M17 21v-1a4 4 0 00-4-4H7a4 4 0 00-4 4v1"
-                            stroke="currentColor"
-                            strokeWidth="2"
-                            strokeLinecap="round"
-                          />
-                          <path
-                            d="M10 12a4 4 0 100-8 4 4 0 000 8z"
-                            stroke="currentColor"
-                            strokeWidth="2"
-                            strokeLinejoin="round"
-                          />
-                          <path
-                            d="M21 21v-1a3 3 0 00-2-2.83"
-                            stroke="currentColor"
-                            strokeWidth="2"
-                            strokeLinecap="round"
-                          />
-                          <path
-                            d="M17 3.13a4 4 0 010 7.75"
-                            stroke="currentColor"
-                            strokeWidth="2"
-                            strokeLinecap="round"
-                          />
-                        </svg>
-                      );
+                      return <IconPeopleGlyph size={22} />;
                     case "settings":
-                      return (
-                        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                          <path d="M4 21v-7" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-                          <path d="M4 10V3" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-                          <path d="M12 21v-9" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-                          <path d="M12 8V3" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-                          <path d="M20 21v-5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-                          <path d="M20 12V3" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-                          <path d="M2 14h4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-                          <path d="M10 8h4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-                          <path d="M18 16h4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-                        </svg>
-                      );
+                      return <IconSettingsGlyph size={22} />;
                     default:
                       return null;
                   }

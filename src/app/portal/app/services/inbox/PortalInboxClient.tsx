@@ -13,6 +13,7 @@ import { PortalVariablePickerModal } from "@/components/PortalVariablePickerModa
 import { PortalContactDetailsModal } from "@/components/PortalContactDetailsModal";
 import { useToast } from "@/components/ToastProvider";
 import { PortalBackToOnboardingLink } from "@/components/PortalBackToOnboardingLink";
+import { IconFilter, IconSearch, IconSend, IconSendHover } from "@/app/portal/PortalIcons";
 import { normalizePhoneForStorage } from "@/lib/phone";
 import { normalizePortalContactCustomVarKey, PORTAL_MESSAGE_VARIABLES } from "@/lib/portalTemplateVars";
 
@@ -1150,21 +1151,9 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
             {emailBox === "sent" ? "Sent" : "Inbox"}
           </button>
 
-          <div className="relative min-w-[14rem] flex-1">
+          <div className="relative min-w-56 flex-1">
             <div className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-zinc-400" aria-hidden>
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-                <path
-                  d="M10.5 18a7.5 7.5 0 1 1 0-15 7.5 7.5 0 0 1 0 15Z"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                />
-                <path
-                  d="M16.5 16.5 21 21"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                />
-              </svg>
+              <IconSearch size={18} />
             </div>
             <input
               value={threadSearch}
@@ -1265,14 +1254,7 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
               aria-label="Mail filters"
               aria-expanded={emailFiltersOpen ? true : undefined}
             >
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden>
-                <path
-                  d="M4 6h16M7 12h10M10 18h4"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                />
-              </svg>
+              <IconFilter size={18} />
             </button>
           </div>
         </div>
@@ -1298,21 +1280,9 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
             <span className="text-xl leading-none">+</span>
           </button>
 
-          <div className="relative min-w-[14rem] flex-1">
+          <div className="relative min-w-56 flex-1">
             <div className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-zinc-400" aria-hidden>
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-                <path
-                  d="M10.5 18a7.5 7.5 0 1 1 0-15 7.5 7.5 0 0 1 0 15Z"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                />
-                <path
-                  d="M16.5 16.5 21 21"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                />
-              </svg>
+              <IconSearch size={18} />
             </div>
             <input
               value={threadSearch}
@@ -1411,14 +1381,7 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
               aria-label="Message filters"
               aria-expanded={smsFiltersOpen ? true : undefined}
             >
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden>
-                <path
-                  d="M4 6h16M7 12h10M10 18h4"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                />
-              </svg>
+              <IconFilter size={18} />
             </button>
           </div>
         </div>
@@ -2183,7 +2146,7 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
                     className={classNames(styles.iconButton, styles.iconButtonPrimary, sending && "opacity-60")}
                     aria-label="Send"
                   >
-                    <span className="text-[13px] font-semibold">↑</span>
+                    <IconSend size={18} />
                   </button>
                 </div>
 
@@ -2400,7 +2363,7 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
                   <button
                     type="button"
                     className={classNames(
-                      "inline-flex h-10 w-10 items-center justify-center rounded-full bg-[#007aff] text-white hover:bg-[#006ae6]",
+                      "group inline-flex h-10 w-10 items-center justify-center rounded-full bg-[#007aff] text-white hover:bg-[#006ae6]",
                       sending && "opacity-60",
                     )}
                     onClick={async () => {
@@ -2413,14 +2376,14 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
                     disabled={sending}
                     aria-label="Send"
                   >
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden>
-                      <path
-                        d="M3.5 20.5 21 12 3.5 3.5 5.8 11.2c.1.4.4.7.8.8l8.4 2-8.4 2c-.4.1-.7.4-.8.8L3.5 20.5Z"
-                        stroke="currentColor"
-                        strokeWidth="1.8"
-                        strokeLinejoin="round"
-                      />
-                    </svg>
+                    <span className="relative h-4.5 w-4.5">
+                      <span className="absolute inset-0 opacity-100 transition-opacity group-hover:opacity-0" aria-hidden>
+                        <IconSend size={18} />
+                      </span>
+                      <span className="absolute inset-0 opacity-0 transition-opacity group-hover:opacity-100" aria-hidden>
+                        <IconSendHover size={18} />
+                      </span>
+                    </span>
                   </button>
                 </div>
               </div>

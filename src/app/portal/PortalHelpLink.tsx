@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
+import { IconHelpCircle } from "@/app/portal/PortalIcons";
+
 function computeHelpHref(pathname: string | null): string {
   const path = pathname ?? "";
 
@@ -67,24 +69,7 @@ export function PortalHelpLink() {
       title="Help"
       className="group relative inline-flex h-10 w-10 items-center justify-center rounded-xl bg-white text-zinc-700 transition-all duration-150 hover:scale-[1.04] hover:bg-zinc-50 hover:text-zinc-900 hover:shadow-sm hover:ring-1 hover:ring-zinc-200/60 focus:outline-none focus-visible:ring-2 focus-visible:ring-zinc-400/40"
     >
-      <svg
-        width="18"
-        height="18"
-        viewBox="0 0 24 24"
-        fill="none"
-        xmlns="http://www.w3.org/2000/svg"
-        aria-hidden="true"
-      >
-        <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="2" />
-        <path
-          d="M9.5 9a2.8 2.8 0 1 1 4.9 1.9c-.9.8-1.9 1.2-1.9 2.6"
-          stroke="currentColor"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
-        <path d="M12 17h.01" stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
-      </svg>
+      <IconHelpCircle size={18} />
 
       <span className="sr-only">Help</span>
 
