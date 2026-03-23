@@ -131,7 +131,7 @@ function CopyRow({ label, value }: { label: string; value: string | null | undef
   );
 }
 
-export function PortalProfileClient() {
+export function PortalProfileClient({ embedded }: { embedded?: boolean } = {}) {
   const toast = useToast();
   const pathname = usePathname() || "";
   const searchParams = useSearchParams();
@@ -193,6 +193,9 @@ export function PortalProfileClient() {
   const [state, setState] = useState("");
   const [currentPassword, setCurrentPassword] = useState("");
   const [savingContact, setSavingContact] = useState(false);
+
+  const [contactPasswordModalOpen, setContactPasswordModalOpen] = useState(false);
+  const [contactPasswordDraft, setContactPasswordDraft] = useState("");
 
   const phoneValidation = useMemo(() => {
     const res = normalizePhoneStrict(phone);
@@ -373,12 +376,12 @@ export function PortalProfileClient() {
     if (requiresPhone && !nextPhoneE164) return false;
 
     if (wantsNameChange || wantsEmailChange) {
-      return currentPassword.trim().length >= 6 && nextName.length >= 2 && nextEmail.length >= 3;
+      return nextName.length >= 2 && nextEmail.length >= 3;
     }
 
     // No password required for phone updates.
     return true;
-  }, [me, name, email, phone, city, state, currentPassword]);
+  }, [me, name, email, phone, city, state]);
 
   const canSavePassword = useMemo(() => {
     return (
@@ -737,7 +740,7 @@ export function PortalProfileClient() {
     window.setTimeout(() => setTwilioNote(null), 2000);
   }
 
-  async function saveContact() {
+  async function doSaveContact({ passwordOverride }: { passwordOverride?: string | null } = {}) {
     if (!canSaveContact || !me?.user) return;
     setSavingContact(true);
     setError(null);
@@ -771,6 +774,15 @@ export function PortalProfileClient() {
     const wantsCityChange = nextCity !== curCity;
     const wantsStateChange = nextState !== curState;
 
+    const needsPassword = wantsNameChange || wantsEmailChange;
+    const effectivePassword = typeof passwordOverride === "string" ? passwordOverride : currentPassword;
+    if (needsPassword && effectivePassword.trim().length < 6) {
+      setSavingContact(false);
+      setContactPasswordDraft("");
+      setContactPasswordModalOpen(true);
+      return;
+    }
+
     const requiresPhone = wantsNameChange || wantsEmailChange || wantsPhoneChange;
     if (requiresPhone && !nextPhoneE164) {
       setSavingContact(false);
@@ -784,7 +796,7 @@ export function PortalProfileClient() {
     if (wantsNameChange) payload.name = nextName;
     if (wantsEmailChange) payload.email = nextEmail;
     if (wantsPhoneChange) payload.phone = nextPhone;
-    if (wantsNameChange || wantsEmailChange) payload.currentPassword = currentPassword;
+    if (needsPassword) payload.currentPassword = effectivePassword;
     if (wantsCityChange) payload.city = nextCity;
     if (wantsStateChange) payload.state = nextState;
 
@@ -827,10 +839,16 @@ export function PortalProfileClient() {
       },
     });
     setCurrentPassword("");
+    setContactPasswordDraft("");
+    setContactPasswordModalOpen(false);
     setPhone(formatPhoneForDisplay(json.user?.phone ?? nextPhone));
     if (wantsCityChange) setCity(json.user?.city ?? nextCity);
     if (wantsStateChange) setState(json.user?.state ?? nextState);
     setNotice(json.note ?? "Saved. You may need to sign out/in to refresh your session.");
+  }
+
+  async function saveContact() {
+    await doSaveContact();
   }
 
   async function changePassword() {
@@ -865,8 +883,8 @@ export function PortalProfileClient() {
   }
 
   return (
-    <div className="mx-auto w-full max-w-6xl">
-      {fromOnboarding ? (
+    <div className={embedded ? "w-full" : "mx-auto w-full max-w-6xl"}>
+      {!embedded && fromOnboarding ? (
         <div>
           <Link
             href={`${portalBase}/app/onboarding`}
@@ -876,10 +894,12 @@ export function PortalProfileClient() {
           </Link>
         </div>
       ) : null}
-      <h1 className="text-2xl font-bold text-brand-ink sm:text-3xl">Profile</h1>
-      <p className="mt-2 text-sm text-zinc-600">
-        Account details and security.
-      </p>
+      {!embedded ? (
+        <>
+          <h1 className="text-2xl font-bold text-brand-ink sm:text-3xl">Profile</h1>
+          <p className="mt-2 text-sm text-zinc-600">Account details and security.</p>
+        </>
+      ) : null}
 
       {loading ? (
         <div className="mt-6 rounded-3xl border border-zinc-200 bg-white p-6 text-sm text-zinc-600">
@@ -944,19 +964,6 @@ export function PortalProfileClient() {
                       className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300"
                       placeholder="TX"
                     />
-                  </div>
-                  <div className="sm:col-span-2">
-                    <label className="text-xs font-semibold text-zinc-600">Current password (required for name/email changes)</label>
-                    <input
-                      value={currentPassword}
-                      onChange={(e) => setCurrentPassword(e.target.value)}
-                      type="password"
-                      className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300"
-                      placeholder="Current password"
-                    />
-                    <div className="mt-2 text-xs text-zinc-500">
-                      This prevents someone who’s already logged in from changing your account details without your password.
-                    </div>
                   </div>
                 </div>
 
@@ -1643,6 +1650,51 @@ export function PortalProfileClient() {
 
             </div>
           ) : null}
+
+          <AppModal
+            open={contactPasswordModalOpen}
+            title="Confirm contact changes"
+            description="Enter your current password to update name or email."
+            onClose={() => {
+              if (savingContact) return;
+              setContactPasswordModalOpen(false);
+            }}
+            widthClassName="w-[min(640px,calc(100vw-32px))]"
+            footer={
+              <div className="flex flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-end">
+                <button
+                  type="button"
+                  className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
+                  onClick={() => setContactPasswordModalOpen(false)}
+                  disabled={savingContact}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void doSaveContact({ passwordOverride: contactPasswordDraft })}
+                  disabled={contactPasswordDraft.trim().length < 6 || savingContact}
+                  className="rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
+                >
+                  {savingContact ? "Saving…" : "Confirm and save"}
+                </button>
+              </div>
+            }
+          >
+            <div>
+              <label className="text-xs font-semibold text-zinc-700">Current password</label>
+              <input
+                value={contactPasswordDraft}
+                onChange={(e) => setContactPasswordDraft(e.target.value)}
+                type="password"
+                className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-900 outline-none placeholder:text-zinc-500 focus:border-zinc-300"
+                placeholder="Current password"
+              />
+              <div className="mt-2 text-xs text-zinc-500">
+                This helps prevent someone who is already logged in from changing account details.
+              </div>
+            </div>
+          </AppModal>
 
           <AppModal
             open={passwordModalOpen}

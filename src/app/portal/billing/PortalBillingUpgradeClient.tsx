@@ -43,7 +43,7 @@ function classNames(...xs: Array<string | false | null | undefined>) {
   return xs.filter(Boolean).join(" ");
 }
 
-export function PortalBillingUpgradeClient() {
+export function PortalBillingUpgradeClient({ embedded }: { embedded?: boolean } = {}) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const toast = useToast();
@@ -100,17 +100,21 @@ export function PortalBillingUpgradeClient() {
   return (
     <div className="space-y-4">
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-        <button
-          type="button"
-          className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
-          onClick={() => {
-            const next = fromMobileApp ? "/portal/app/billing?pa_mobileapp=1" : "/portal/app/billing";
-            router.push(next);
-          }}
-          disabled={busy !== null}
-        >
-          Back
-        </button>
+        {embedded ? null : (
+          <button
+            type="button"
+            className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+            onClick={() => {
+              const next = fromMobileApp
+                ? "/portal/app/settings?tab=billing&pa_mobileapp=1"
+                : "/portal/app/settings?tab=billing";
+              router.push(next);
+            }}
+            disabled={busy !== null}
+          >
+            Back
+          </button>
+        )}
       </div>
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">

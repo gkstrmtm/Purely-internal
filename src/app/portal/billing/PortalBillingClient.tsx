@@ -81,7 +81,11 @@ function formatMoney(cents: number, currency: string) {
   return `${curr} ${amount}`;
 }
 
-export function PortalBillingClient() {
+export function PortalBillingClient({
+  hideMonthlyBreakdown,
+}: {
+  hideMonthlyBreakdown?: boolean;
+} = {}) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const creditsFirstForMobileApp = (() => {
@@ -1020,57 +1024,60 @@ export function PortalBillingClient() {
           </div>
         ) : null}
 
-        <div className="mt-6 rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <div className="text-sm font-semibold text-zinc-900">Monthly breakdown</div>
-              <div className="mt-1 text-sm text-zinc-600">Everything you currently have access to (billed or included).</div>
-            </div>
-            {!creditsOnly ? (
-              <div className="text-right">
-                <div className="text-xs text-zinc-500">Subscription status</div>
-                <div className="mt-1 flex items-center justify-end gap-2">
-                  <span className={`h-2.5 w-2.5 rounded-full ${statusDotClass}`} />
-                  <div className="text-sm font-semibold text-brand-ink">{hasActiveSub ? "Active" : "Not active"}</div>
-                  {sub?.cancelAtPeriodEnd ? (
-                    <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-900">
-                      Canceling
-                    </span>
-                  ) : null}
-                </div>
-                {periodEndText ? <div className="mt-1 text-xs text-zinc-500">Renews/ends: {periodEndText}</div> : null}
+        {!hideMonthlyBreakdown ? (
+          <div className="mt-6 rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <div className="text-sm font-semibold text-zinc-900">Monthly breakdown</div>
+                <div className="mt-1 text-sm text-zinc-600">Everything you currently have access to (billed or included).</div>
               </div>
-            ) : null}
-          </div>
+              {!creditsOnly ? (
+                <div className="text-right">
+                  <div className="text-xs text-zinc-500">Subscription status</div>
+                  <div className="mt-1 flex items-center justify-end gap-2">
+                    <span className={`h-2.5 w-2.5 rounded-full ${statusDotClass}`} />
+                    <div className="text-sm font-semibold text-brand-ink">{hasActiveSub ? "Active" : "Not active"}</div>
+                    {sub?.cancelAtPeriodEnd ? (
+                      <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-900">
+                        Canceling
+                      </span>
+                    ) : null}
+                  </div>
+                  {periodEndText ? <div className="mt-1 text-xs text-zinc-500">Renews/ends: {periodEndText}</div> : null}
+                </div>
+              ) : null}
+            </div>
 
-          {accessBreakdownRows.length ? (
-            <div className="mt-3 max-h-65 overflow-auto pr-1 sm:max-h-80">
-              <div className="grid gap-2">
-                {accessBreakdownRows.map((x) => (
-                  <div key={x.slug} className="flex items-center justify-between gap-3 rounded-2xl border border-zinc-200 bg-white px-3 py-2">
-                    <div className="min-w-0">
-                      <div className="truncate text-sm font-semibold text-brand-ink">{x.title}</div>
-                      <div className="mt-0.5 flex items-center gap-2">
-                        <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${badgeClass(x.state)}`}>{x.label}</span>
-                        <span className="text-xs text-zinc-500">
-                          {x.included ? "Included" : creditsOnly ? "Credit-based" : "Billed"}
-                        </span>
+            {accessBreakdownRows.length ? (
+              <div className="mt-3 max-h-65 overflow-auto pr-1 sm:max-h-80">
+                <div className="grid gap-2">
+                  {accessBreakdownRows.map((x) => (
+                    <div key={x.slug} className="flex items-center justify-between gap-3 rounded-2xl border border-zinc-200 bg-white px-3 py-2">
+                      <div className="min-w-0">
+                        <div className="truncate text-sm font-semibold text-brand-ink">{x.title}</div>
+                        <div className="mt-0.5 flex items-center gap-2">
+                          <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${badgeClass(x.state)}`}>{x.label}</span>
+                          <span className="text-xs text-zinc-500">
+                            {x.included ? "Included" : creditsOnly ? "Credit-based" : "Billed"}
+                          </span>
+                        </div>
+                      </div>
+                      <div className="shrink-0 text-sm font-semibold text-zinc-900">
+                        {x.included ? "Included" : creditsOnly ? "Credit-based" : `${formatMoney(x.monthlyCents, x.currency)}/mo`}
                       </div>
                     </div>
-                    <div className="shrink-0 text-sm font-semibold text-zinc-900">
-                      {x.included ? "Included" : creditsOnly ? "Credit-based" : `${formatMoney(x.monthlyCents, x.currency)}/mo`}
-                    </div>
-                  </div>
-                ))}
+                  ))}
+                </div>
               </div>
-            </div>
-          ) : (
-            <div className="mt-3 text-sm text-zinc-600">No services found.</div>
-          )}
-        </div>
+            ) : (
+              <div className="mt-3 text-sm text-zinc-600">No services found.</div>
+            )}
+          </div>
+        ) : null}
       </div>
 
       <div
+        id="pa-billing-credits"
         className={[
           "rounded-3xl border border-zinc-200 bg-white p-6",
           creditsFirstForMobileApp ? "order-first" : null,
@@ -1093,7 +1100,7 @@ export function PortalBillingClient() {
           <div className="mt-2 text-xs text-zinc-500">1 credit = {formatUsd(creditUsdValue)}.</div>
         ) : null}
 
-        <div className="mt-4 rounded-2xl border border-zinc-200 bg-white p-4">
+        <div id="pa-billing-referral" className="mt-4 rounded-2xl border border-zinc-200 bg-white p-4">
           <div className="flex items-start justify-between gap-3">
             <div>
               <div className="text-sm font-semibold text-zinc-900">Refer for free credits</div>

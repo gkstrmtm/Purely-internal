@@ -8,15 +8,14 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { SignOutButton } from "@/components/SignOutButton";
 import { useToast } from "@/components/ToastProvider";
 import {
-  IconBilling,
   IconChevron,
   IconDashboard,
   IconHamburger,
   IconLock,
   IconPeople,
-  IconProfile,
   IconService,
   IconServiceGlyph,
+  IconSettings,
 } from "@/app/portal/PortalIcons";
 import { PORTAL_SERVICES, type PortalService } from "@/app/portal/services/catalog";
 import { groupPortalServices, portalServiceCategoryForSlug, type PortalServiceCategory } from "@/app/portal/services/categories";
@@ -772,12 +771,13 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
       return true;
     };
 
+    const canSeeSettings = can("profile") || can("billing");
+
     const base = [
       { href: `${basePath}/app`, label: "Dashboard", icon: <IconDashboard /> },
       { href: `${basePath}/app/services`, label: "Services", icon: <IconService /> },
       ...(can("people") ? [{ href: `${basePath}/app/people`, label: "People", icon: <IconPeople /> }] : []),
-      ...(can("billing") ? [{ href: `${basePath}/app/billing`, label: "Billing", icon: <IconBilling /> }] : []),
-      ...(can("profile") ? [{ href: `${basePath}/app/profile`, label: "Profile", icon: <IconProfile /> }] : []),
+      ...(canSeeSettings ? [{ href: `${basePath}/app/settings`, label: "Settings", icon: <IconSettings /> }] : []),
     ];
     return base;
   }, [portalMe, basePath]);
@@ -1419,7 +1419,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                       `/api/portal/ads/click?campaignId=${encodeURIComponent(sidebarCampaign.id)}` +
                       `&placement=SIDEBAR_BANNER` +
                       `&path=${encodeURIComponent(pathname || "")}` +
-                      `&to=${encodeURIComponent(sidebarCampaign?.creative?.linkUrl || `${basePath}/app/billing`)}`
+                      `&to=${encodeURIComponent(sidebarCampaign?.creative?.linkUrl || `${basePath}/app/settings?tab=billing`)}`
                     }
                     className="mt-2 inline-flex rounded-xl bg-brand-ink px-3 py-2 text-xs font-semibold text-white hover:opacity-95"
                   >
@@ -1620,7 +1620,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                     `/api/portal/ads/click?campaignId=${encodeURIComponent(sidebarCampaign.id)}` +
                     `&placement=SIDEBAR_BANNER` +
                     `&path=${encodeURIComponent(pathname || "")}` +
-                    `&to=${encodeURIComponent(sidebarCampaign?.creative?.linkUrl || `${basePath}/app/billing`)}`
+                    `&to=${encodeURIComponent(sidebarCampaign?.creative?.linkUrl || `${basePath}/app/settings?tab=billing`)}`
                   }
                   className="mt-2 inline-flex rounded-xl bg-brand-ink px-3 py-2 text-xs font-semibold text-white hover:opacity-95"
                 >
@@ -1711,7 +1711,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                         `/api/portal/ads/click?campaignId=${encodeURIComponent(topBannerCampaign.id)}` +
                         `&placement=TOP_BANNER` +
                         `&path=${encodeURIComponent(pathname || "")}` +
-                        `&to=${encodeURIComponent(topBannerCampaign?.creative?.linkUrl || `${basePath}/app/billing`)}`
+                        `&to=${encodeURIComponent(topBannerCampaign?.creative?.linkUrl || `${basePath}/app/settings?tab=billing`)}`
                       }
                       className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95"
                     >
@@ -2187,7 +2187,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                       `/api/portal/ads/click?campaignId=${encodeURIComponent(popupCampaign.id)}` +
                       `&placement=POPUP_CARD` +
                       `&path=${encodeURIComponent(pathname || "")}` +
-                      `&to=${encodeURIComponent(popupCampaign?.creative?.linkUrl || `${basePath}/app/billing`)}`
+                      `&to=${encodeURIComponent(popupCampaign?.creative?.linkUrl || `${basePath}/app/settings?tab=billing`)}`
                     }
                     className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95"
                   >
