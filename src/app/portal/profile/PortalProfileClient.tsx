@@ -260,10 +260,6 @@ export function PortalProfileClient({ embedded }: { embedded?: boolean } = {}) {
     setPendingAdvancedScrollTarget(target);
   }
 
-  function openAdvancedAndScrollToAdvanced() {
-    requestAdvancedScroll("advanced");
-  }
-
   useEffect(() => {
     if (!pendingAdvancedScrollTarget) return;
 
@@ -1000,98 +996,79 @@ export function PortalProfileClient({ embedded }: { embedded?: boolean } = {}) {
                 </div>
               </PortalSettingsSection>
             </div>
-
-            <div className={embedded ? "" : "rounded-3xl border border-zinc-200 bg-white p-6"}>
-              <div className="text-sm font-semibold text-zinc-900">Security</div>
-              <div className="mt-2 text-sm text-zinc-600">Keep your account secure.</div>
-
-              <ul className="mt-3 space-y-1 pl-5 text-sm text-zinc-700" style={{ listStyleType: "disc" }}>
-                <li>Use a long, unique password.</li>
-                <li>Don’t share invite links (they grant access).</li>
-                <li>Rotate integration credentials if exposed.</li>
-              </ul>
-
-              <div className="mt-4 space-y-2">
-                <button
-                  type="button"
-                  onClick={() => openAdvancedAndScrollToAdvanced()}
-                  className="w-full rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-100"
-                >
-                  Open advanced
-                </button>
-
-                <div className="grid grid-cols-2 gap-2">
-                  {canViewTwilio ? (
-                    <button
-                      type="button"
-                      onClick={() => requestAdvancedScroll("twilio")}
-                      className="rounded-2xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs font-semibold text-brand-ink hover:bg-zinc-100"
-                    >
-                      Twilio
-                    </button>
-                  ) : null}
-                  {canViewWebhooks ? (
-                    <button
-                      type="button"
-                      onClick={() => requestAdvancedScroll("webhooks")}
-                      className="rounded-2xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs font-semibold text-brand-ink hover:bg-zinc-100"
-                    >
-                      Webhooks
-                    </button>
-                  ) : null}
-                  <button
-                    type="button"
-                    onClick={() => requestAdvancedScroll("salesReporting")}
-                    className="rounded-2xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs font-semibold text-brand-ink hover:bg-zinc-100"
-                  >
-                    Sales reporting
-                  </button>
-                  {portalMe?.ok === true ? (
-                    <button
-                      type="button"
-                      onClick={() => requestAdvancedScroll("businessEmail")}
-                      className="rounded-2xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs font-semibold text-brand-ink hover:bg-zinc-100"
-                    >
-                      Business email
-                    </button>
-                  ) : null}
-                  {canViewBusinessInfo ? (
-                    <button
-                      type="button"
-                      onClick={() => requestAdvancedScroll("businessInfo")}
-                      className="col-span-2 rounded-2xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs font-semibold text-brand-ink hover:bg-zinc-100"
-                    >
-                      Business info
-                    </button>
-                  ) : null}
-                </div>
-              </div>
-            </div>
           </div>
 
           <div
             ref={advancedRef}
             className={embedded ? "scroll-mt-24" : "scroll-mt-24 rounded-3xl border border-zinc-200 bg-white p-6"}
           >
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:pr-16">
-              <div>
-                <div className="text-sm font-semibold text-zinc-900">Advanced</div>
-                <div className="mt-1 text-sm text-zinc-600">Integrations, webhooks, and business settings.</div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setAdvancedOpen((v) => !v)}
-                className="w-full rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95 sm:w-auto"
+            <button
+              type="button"
+              onClick={() => setAdvancedOpen((v) => !v)}
+              className="inline-flex w-full items-center justify-between rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50 sm:w-auto"
+            >
+              <span>Advanced</span>
+              <span
+                className={
+                  "ml-3 inline-block text-sm leading-none transition-transform " +
+                  (advancedOpen ? "rotate-180" : "rotate-0")
+                }
+                aria-hidden="true"
               >
-                {advancedOpen ? "Hide advanced" : "Show advanced"}
-              </button>
-            </div>
+                ▾
+              </span>
+            </button>
           </div>
 
           {advancedOpen ? (
             <div className="space-y-4">
-              
 
+              <div className="flex flex-wrap gap-2">
+                {canViewTwilio ? (
+                  <button
+                    type="button"
+                    onClick={() => requestAdvancedScroll("twilio")}
+                    className="rounded-2xl bg-[rgba(29,78,216,0.10)] px-3 py-2 text-xs font-semibold text-(--color-brand-blue) ring-1 ring-[rgba(29,78,216,0.22)] hover:bg-[rgba(29,78,216,0.14)]"
+                  >
+                    Twilio
+                  </button>
+                ) : null}
+                {canViewWebhooks ? (
+                  <button
+                    type="button"
+                    onClick={() => requestAdvancedScroll("webhooks")}
+                    className="rounded-2xl bg-[rgba(99,102,241,0.10)] px-3 py-2 text-xs font-semibold text-indigo-700 ring-1 ring-indigo-200 hover:bg-[rgba(99,102,241,0.14)]"
+                  >
+                    Webhooks
+                  </button>
+                ) : null}
+                <button
+                  type="button"
+                  onClick={() => requestAdvancedScroll("salesReporting")}
+                  className="rounded-2xl bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-800 ring-1 ring-emerald-200 hover:bg-emerald-100"
+                >
+                  Sales reporting
+                </button>
+                {portalMe?.ok === true ? (
+                  <button
+                    type="button"
+                    onClick={() => requestAdvancedScroll("businessEmail")}
+                    className="rounded-2xl bg-[rgba(236,72,153,0.10)] px-3 py-2 text-xs font-semibold text-(--color-brand-pink) ring-1 ring-[rgba(236,72,153,0.22)] hover:bg-[rgba(236,72,153,0.14)]"
+                  >
+                    Business email
+                  </button>
+                ) : null}
+                {canViewBusinessInfo ? (
+                  <button
+                    type="button"
+                    onClick={() => requestAdvancedScroll("businessInfo")}
+                    className="rounded-2xl bg-zinc-100 px-3 py-2 text-xs font-semibold text-zinc-800 ring-1 ring-zinc-200 hover:bg-zinc-200"
+                  >
+                    Business info
+                  </button>
+                ) : null}
+              </div>
+              
               {canViewWebhooks ? (
                 <div ref={webhooksRef} className="scroll-mt-24">
                   <PortalSettingsSection
@@ -1718,6 +1695,8 @@ export function PortalProfileClient({ embedded }: { embedded?: boolean } = {}) {
             title="Change password"
             description="Update your password for this account."
             onClose={() => setPasswordModalOpen(false)}
+            closeVariant="x"
+            hideHeaderDivider
             widthClassName="w-[min(640px,calc(100vw-32px))]"
             footer={
               <div className="flex flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-end">

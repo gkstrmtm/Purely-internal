@@ -804,6 +804,76 @@ export function PortalBillingClient({
     return ["Ongoing access to this service", "Automations/workflows tied to it", "Reporting and activity for this service"]; 
   };
 
+  const embeddedServicesBlock = (
+    <div id="pa-billing-services" className="mt-6 rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <div className="text-sm font-semibold text-zinc-900">Services & status</div>
+          <div className="mt-1 text-sm text-zinc-600">Live status from your account.</div>
+        </div>
+      </div>
+
+      <div className="mt-3 grid gap-2">
+        {(() => {
+          const servicesList = PORTAL_SERVICES.filter((s) => !s.hidden && (!s.variants || s.variants.includes("portal")));
+          const rows = servicesList.map((s) => {
+            const st = serviceStatuses?.[s.slug];
+            const state = st?.state ?? "active";
+            const label = st?.label ?? (state === "locked" ? "Locked" : "Ready");
+            const href = setupHrefForService(s.slug, label);
+            const disabled = state === "locked" || state === "coming_soon";
+
+            const modulePrice =
+              !creditsOnly && s.entitlementKey && modulePrices ? ((modulePrices as any)[s.entitlementKey] as any) : null;
+
+            const priceText = (() => {
+              if (s.included) return "Included";
+              if (creditsOnly) return "Credit-based";
+              if (modulePrice?.monthlyCents) return `${formatMoney(modulePrice.monthlyCents, modulePrice.currency)}/mo`;
+              return "Add-on";
+            })();
+
+            return { s, state, label, href, disabled, priceText };
+          });
+
+          const rank = (state: string) => {
+            if (state === "needs_setup") return 0;
+            if (state === "active") return 1;
+            if (state === "paused" || state === "canceled") return 2;
+            if (state === "locked" || state === "coming_soon") return 3;
+            return 4;
+          };
+
+          rows.sort((a, b) => {
+            const ra = rank(a.state);
+            const rb = rank(b.state);
+            if (ra !== rb) return ra - rb;
+            return a.s.title.localeCompare(b.s.title);
+          });
+
+          return rows.map((r) => (
+            <button
+              key={r.s.slug}
+              type="button"
+              disabled={r.disabled}
+              onClick={() => router.push(r.href)}
+              className="flex w-full items-center justify-between gap-3 rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-left hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              <div className="min-w-0">
+                <div className="truncate text-sm font-semibold text-brand-ink">{r.s.title}</div>
+                <div className="mt-0.5 flex items-center gap-2">
+                  <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${badgeClass(r.state)}`}>{r.label}</span>
+                  <span className="text-xs text-zinc-500">{r.priceText}</span>
+                </div>
+              </div>
+              <div className="shrink-0 text-xs font-semibold text-zinc-700">{r.disabled ? "Locked" : "Open →"}</div>
+            </button>
+          ));
+        })()}
+      </div>
+    </div>
+  );
+
   return (
     <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
       {purchaseModal && !creditsOnly ? (
@@ -1073,7 +1143,9 @@ export function PortalBillingClient({
               <div className="mt-3 text-sm text-zinc-600">No services found.</div>
             )}
           </div>
-        ) : null}
+        ) : (
+          embeddedServicesBlock
+        )}
       </div>
 
       <div
@@ -1456,15 +1528,16 @@ export function PortalBillingClient({
         </div>
       ) : null}
 
-      <div
-        id="pa-billing-services"
-        className={[
-          "rounded-3xl border border-zinc-200 bg-white p-6",
-          creditsFirstForMobileApp ? "order-last" : null,
-        ]
-          .filter(Boolean)
-          .join(" ")}
-      >
+      {!hideMonthlyBreakdown ? (
+        <div
+          id="pa-billing-services"
+          className={[
+            "rounded-3xl border border-zinc-200 bg-white p-6",
+            creditsFirstForMobileApp ? "order-last" : null,
+          ]
+            .filter(Boolean)
+            .join(" ")}
+        >
         <div className="flex items-start justify-between gap-3">
           <div>
             <div className="text-sm font-semibold text-zinc-900">Services & status</div>
@@ -1722,7 +1795,8 @@ export function PortalBillingClient({
               : "Enable add-ons above, or open a service to configure it."}
           </div>
         </div>
-      </div>
+        </div>
+      ) : null}
     </div>
   );
 }
