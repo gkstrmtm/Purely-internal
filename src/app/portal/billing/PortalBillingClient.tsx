@@ -263,8 +263,17 @@ export function PortalBillingClient({
   const [billingDraft, setBillingDraft] = useState<BillingInfoDraft>(() => createBillingInfoDraft(null));
   const [billingInfoLoading, setBillingInfoLoading] = useState(false);
   const [billingInfoSaving, setBillingInfoSaving] = useState(false);
-  const [updateCardOpen, setUpdateCardOpen] = useState(false);
+  const [updateCardOpen, setUpdateCardOpen] = useState(true);
   const [updateCardClientSecret, setUpdateCardClientSecret] = useState<string | null>(null);
+  const [updateCardLoading, setUpdateCardLoading] = useState(false);
+  const [updateCardError, setUpdateCardError] = useState<string | null>(null);
+
+  const billingInfoStripeConfigured = Boolean(
+    billingInfo && "ok" in billingInfo && billingInfo.ok && (billingInfo as any).stripeConfigured,
+  );
+  const billingCustomer = billingInfoStripeConfigured ? ((billingInfo as any).customer as any) : null;
+  const billingPaymentMethod = billingInfoStripeConfigured ? ((billingInfo as any).defaultPaymentMethod as any) : null;
+  const billingInfoError = billingInfo && "ok" in billingInfo && billingInfo.ok === false ? String((billingInfo as any).error || "") : "";
 
   const [referral, setReferral] = useState<null | { url: string; code: string; stats: { total: number; verified: number; awarded: number } }>(null);
   const [referralLoading, setReferralLoading] = useState(false);
@@ -409,20 +418,34 @@ export function PortalBillingClient({
 
     setUpdateCardOpen(true);
     setUpdateCardClientSecret(null);
+    setUpdateCardError(null);
+    setUpdateCardLoading(true);
     try {
       const res = await fetch("/api/portal/billing/setup-intent", { method: "POST", cache: "no-store" });
       const json = (await res.json().catch(() => ({}))) as any;
       if (!res.ok || !json?.ok || !json?.clientSecret) {
-        toast.error(String(json?.error || "Unable to start card update"));
-        setUpdateCardOpen(false);
+        const msg = String(json?.error || "Unable to start card update");
+        setUpdateCardError(msg);
+        toast.error(msg);
         return;
       }
       setUpdateCardClientSecret(String(json.clientSecret));
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Unable to start card update");
-      setUpdateCardOpen(false);
+      const msg = e instanceof Error ? e.message : "Unable to start card update";
+      setUpdateCardError(msg);
+      toast.error(msg);
+    } finally {
+      setUpdateCardLoading(false);
     }
   }, [toast]);
+
+  useEffect(() => {
+    if (!billingInfoStripeConfigured) return;
+    if (!stripePromise) return;
+    if (updateCardClientSecret) return;
+    if (updateCardLoading) return;
+    void openUpdateCard();
+  }, [billingInfoStripeConfigured, openUpdateCard, updateCardClientSecret, updateCardLoading]);
 
   const elementsOptions = useMemo(() => {
     if (!updateCardClientSecret) return null;
@@ -1039,11 +1062,6 @@ export function PortalBillingClient({
 
   const activeSubs = subscriptions && "ok" in subscriptions && subscriptions.ok ? subscriptions.subscriptions : [];
 
-  const billingInfoStripeConfigured = Boolean(billingInfo && "ok" in billingInfo && billingInfo.ok && (billingInfo as any).stripeConfigured);
-  const billingCustomer = billingInfoStripeConfigured ? ((billingInfo as any).customer as any) : null;
-  const billingPaymentMethod = billingInfoStripeConfigured ? ((billingInfo as any).defaultPaymentMethod as any) : null;
-  const billingInfoError = billingInfo && "ok" in billingInfo && billingInfo.ok === false ? String((billingInfo as any).error || "") : "";
-
   const cancelBenefits = (title: string) => {
     const t = title.toLowerCase();
     if (t.includes("blogs")) return ["4 posts/month included", "Publishing workflow + scheduling", "Draft generation"]; 
@@ -1299,29 +1317,46 @@ export function PortalBillingClient({
                     <div className="text-sm font-semibold text-zinc-900">Payment method</div>
                     <div className="mt-1 text-sm text-zinc-600">{formatPaymentMethod(billingPaymentMethod)}</div>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => (updateCardOpen ? setUpdateCardOpen(false) : void openUpdateCard())}
-                    disabled={actionBusy !== null}
-                    className="shrink-0 rounded-2xl bg-(--color-brand-blue) px-4 py-2 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
-                  >
-                    {updateCardOpen ? "Hide" : "Change card"}
-                  </button>
                 </div>
 
                 {updateCardOpen ? (
                   <div className="mt-4">
-                    {!elementsOptions || !stripePromise ? (
+                    {updateCardError ? (
+                      <div className="mb-3 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">
+                        {updateCardError}{" "}
+                        <button
+                          type="button"
+                          onClick={() => void openUpdateCard()}
+                          className="ml-2 font-semibold text-(--color-brand-blue) hover:underline"
+                        >
+                          Try again
+                        </button>
+                      </div>
+                    ) : null}
+
+                    {!stripePromise ? (
+                      <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-700">
+                        Payment method editing requires `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY`.
+                      </div>
+                    ) : updateCardLoading ? (
                       <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-700">
                         Loading secure card form…
                       </div>
-                    ) : (
+                    ) : elementsOptions ? (
                       <Elements stripe={stripePromise} options={elementsOptions}>
-                        <UpdateCardForm
-                          onError={(message) => toast.error(message)}
-                          onSuccess={finalizeUpdateCard}
-                        />
+                        <UpdateCardForm onError={(message) => toast.error(message)} onSuccess={finalizeUpdateCard} />
                       </Elements>
+                    ) : (
+                      <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-700">
+                        Preparing secure card form…
+                        <button
+                          type="button"
+                          onClick={() => void openUpdateCard()}
+                          className="ml-2 font-semibold text-(--color-brand-blue) hover:underline"
+                        >
+                          Try again
+                        </button>
+                      </div>
                     )}
                   </div>
                 ) : null}
