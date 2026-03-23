@@ -49,24 +49,11 @@ const updateSchema = z.object({
   billingEmail: z.string().email().optional(),
   billingName: z.string().min(1).max(120).optional(),
   billingPhone: z.string().min(1).max(40).optional(),
-  billingAddress: z
-    .object({
-      line1: z.string().min(1).max(200).optional(),
-      line2: z.string().max(200).optional(),
-      city: z.string().max(120).optional(),
-      state: z.string().max(120).optional(),
-      postalCode: z.string().max(40).optional(),
-      country: z.string().max(2).optional(),
-    })
-    .optional(),
+  billingAddress: z.string().min(1).max(220).optional(),
+  billingCity: z.string().max(120).optional(),
+  billingState: z.string().max(120).optional(),
+  billingPostalCode: z.string().max(40).optional(),
 });
-
-function normalizeCountry(raw: string | undefined) {
-  const c = String(raw || "").trim().toUpperCase();
-  if (!c) return null;
-  if (!/^[A-Z]{2}$/.test(c)) return null;
-  return c;
-}
 
 export async function GET() {
   const auth = await requireClientSessionForService("billing", "view");
@@ -165,19 +152,10 @@ export async function POST(req: Request) {
     if (typeof data.billingName === "string") params.name = data.billingName.trim();
     if (typeof data.billingPhone === "string") params.phone = data.billingPhone.trim();
 
-    if (data.billingAddress) {
-      if (typeof data.billingAddress.line1 === "string") params["address[line1]"] = data.billingAddress.line1.trim();
-      if (typeof data.billingAddress.line2 === "string") params["address[line2]"] = data.billingAddress.line2.trim();
-      if (typeof data.billingAddress.city === "string") params["address[city]"] = data.billingAddress.city.trim();
-      if (typeof data.billingAddress.state === "string") params["address[state]"] = data.billingAddress.state.trim();
-      if (typeof data.billingAddress.postalCode === "string") {
-        params["address[postal_code]"] = data.billingAddress.postalCode.trim();
-      }
-      if (typeof data.billingAddress.country === "string") {
-        const c = normalizeCountry(data.billingAddress.country);
-        if (c) params["address[country]"] = c;
-      }
-    }
+    if (typeof data.billingAddress === "string") params["address[line1]"] = data.billingAddress.trim();
+    if (typeof data.billingCity === "string") params["address[city]"] = data.billingCity.trim();
+    if (typeof data.billingState === "string") params["address[state]"] = data.billingState.trim();
+    if (typeof data.billingPostalCode === "string") params["address[postal_code]"] = data.billingPostalCode.trim();
 
     if (!Object.keys(params).length) {
       return NextResponse.json({ ok: true });

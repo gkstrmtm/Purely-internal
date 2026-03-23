@@ -50,14 +50,10 @@ type BillingInfoDraft = {
   billingEmail: string;
   billingName: string;
   billingPhone: string;
-  billingAddress: {
-    line1: string;
-    line2: string;
-    city: string;
-    state: string;
-    postalCode: string;
-    country: string;
-  };
+  billingAddress: string;
+  billingCity: string;
+  billingState: string;
+  billingPostalCode: string;
 };
 
 function createBillingInfoDraft(from: BillingInfoResponse | null): BillingInfoDraft {
@@ -68,14 +64,10 @@ function createBillingInfoDraft(from: BillingInfoResponse | null): BillingInfoDr
     billingEmail: String(customer?.email ?? ""),
     billingName: String(customer?.name ?? ""),
     billingPhone: String(customer?.phone ?? ""),
-    billingAddress: {
-      line1: String(addr?.line1 ?? ""),
-      line2: String(addr?.line2 ?? ""),
-      city: String(addr?.city ?? ""),
-      state: String(addr?.state ?? ""),
-      postalCode: String(addr?.postalCode ?? ""),
-      country: String(addr?.country ?? ""),
-    },
+    billingAddress: String(addr?.line1 ?? ""),
+    billingCity: String(addr?.city ?? ""),
+    billingState: String(addr?.state ?? ""),
+    billingPostalCode: String(addr?.postalCode ?? ""),
   };
 }
 
@@ -94,20 +86,19 @@ function buildBillingInfoPayload(draft: BillingInfoDraft) {
   const email = draft.billingEmail.trim();
   const name = draft.billingName.trim();
   const phone = draft.billingPhone.trim();
+  const address = draft.billingAddress.trim();
+  const city = draft.billingCity.trim();
+  const state = draft.billingState.trim();
+  const postalCode = draft.billingPostalCode.trim();
 
   if (email) payload.billingEmail = email;
   if (name) payload.billingName = name;
   if (phone) payload.billingPhone = phone;
 
-  const a = draft.billingAddress;
-  const address: Record<string, string> = {};
-  if (a.line1.trim()) address.line1 = a.line1.trim();
-  if (a.line2.trim()) address.line2 = a.line2.trim();
-  if (a.city.trim()) address.city = a.city.trim();
-  if (a.state.trim()) address.state = a.state.trim();
-  if (a.postalCode.trim()) address.postalCode = a.postalCode.trim();
-  if (a.country.trim()) address.country = a.country.trim().toUpperCase();
-  if (Object.keys(address).length) payload.billingAddress = address;
+  if (address) payload.billingAddress = address;
+  if (city) payload.billingCity = city;
+  if (state) payload.billingState = state;
+  if (postalCode) payload.billingPostalCode = postalCode;
 
   return payload;
 }
@@ -1282,18 +1273,13 @@ export function PortalBillingClient({
                 Update billing email, billing address, and payment method. Changes save directly to Stripe.
               </div>
             </div>
-
-            <div className="flex flex-wrap gap-2">
-              <button
-                type="button"
-                onClick={loadBillingInfo}
-                disabled={billingInfoLoading}
-                className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50 disabled:opacity-60"
-              >
-                {billingInfoLoading ? "Refreshing…" : "Refresh"}
-              </button>
-            </div>
           </div>
+
+          {billingInfoLoading ? (
+            <div className="mt-3 inline-flex items-center rounded-full bg-zinc-200 px-2 py-0.5 text-xs font-semibold text-zinc-700">
+              Loading…
+            </div>
+          ) : null}
 
           {billingInfoError ? (
             <div className="mt-3 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">{billingInfoError}</div>
@@ -1315,13 +1301,30 @@ export function PortalBillingClient({
                   </div>
                   <button
                     type="button"
-                    onClick={openUpdateCard}
+                    onClick={() => (updateCardOpen ? setUpdateCardOpen(false) : void openUpdateCard())}
                     disabled={actionBusy !== null}
                     className="shrink-0 rounded-2xl bg-(--color-brand-blue) px-4 py-2 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
                   >
-                    Update card
+                    {updateCardOpen ? "Hide" : "Change card"}
                   </button>
                 </div>
+
+                {updateCardOpen ? (
+                  <div className="mt-4">
+                    {!elementsOptions || !stripePromise ? (
+                      <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-700">
+                        Loading secure card form…
+                      </div>
+                    ) : (
+                      <Elements stripe={stripePromise} options={elementsOptions}>
+                        <UpdateCardForm
+                          onError={(message) => toast.error(message)}
+                          onSuccess={finalizeUpdateCard}
+                        />
+                      </Elements>
+                    )}
+                  </div>
+                ) : null}
               </div>
 
               <form
@@ -1368,47 +1371,21 @@ export function PortalBillingClient({
                   <div className="hidden sm:block" />
 
                   <label className="block sm:col-span-2">
-                    <div className="text-xs font-semibold text-zinc-600">Address line 1</div>
+                    <div className="text-xs font-semibold text-zinc-600">Billing address</div>
                     <input
-                      value={billingDraft.billingAddress.line1}
-                      onChange={(e) =>
-                        setBillingDraft((d) => ({
-                          ...d,
-                          billingAddress: { ...d.billingAddress, line1: e.target.value },
-                        }))
-                      }
+                      value={billingDraft.billingAddress}
+                      onChange={(e) => setBillingDraft((d) => ({ ...d, billingAddress: e.target.value }))}
                       className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900"
-                      placeholder={String(billingCustomer?.address?.line1 || "") || ""}
+                      placeholder={String(billingCustomer?.address?.line1 || "") || "123 Main St"}
                       autoComplete="address-line1"
-                    />
-                  </label>
-
-                  <label className="block sm:col-span-2">
-                    <div className="text-xs font-semibold text-zinc-600">Address line 2</div>
-                    <input
-                      value={billingDraft.billingAddress.line2}
-                      onChange={(e) =>
-                        setBillingDraft((d) => ({
-                          ...d,
-                          billingAddress: { ...d.billingAddress, line2: e.target.value },
-                        }))
-                      }
-                      className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900"
-                      placeholder={String(billingCustomer?.address?.line2 || "") || ""}
-                      autoComplete="address-line2"
                     />
                   </label>
 
                   <label className="block">
                     <div className="text-xs font-semibold text-zinc-600">City</div>
                     <input
-                      value={billingDraft.billingAddress.city}
-                      onChange={(e) =>
-                        setBillingDraft((d) => ({
-                          ...d,
-                          billingAddress: { ...d.billingAddress, city: e.target.value },
-                        }))
-                      }
+                      value={billingDraft.billingCity}
+                      onChange={(e) => setBillingDraft((d) => ({ ...d, billingCity: e.target.value }))}
                       className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900"
                       placeholder={String(billingCustomer?.address?.city || "") || ""}
                       autoComplete="address-level2"
@@ -1418,13 +1395,8 @@ export function PortalBillingClient({
                   <label className="block">
                     <div className="text-xs font-semibold text-zinc-600">State / region</div>
                     <input
-                      value={billingDraft.billingAddress.state}
-                      onChange={(e) =>
-                        setBillingDraft((d) => ({
-                          ...d,
-                          billingAddress: { ...d.billingAddress, state: e.target.value },
-                        }))
-                      }
+                      value={billingDraft.billingState}
+                      onChange={(e) => setBillingDraft((d) => ({ ...d, billingState: e.target.value }))}
                       className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900"
                       placeholder={String(billingCustomer?.address?.state || "") || ""}
                       autoComplete="address-level1"
@@ -1434,32 +1406,11 @@ export function PortalBillingClient({
                   <label className="block">
                     <div className="text-xs font-semibold text-zinc-600">Postal code</div>
                     <input
-                      value={billingDraft.billingAddress.postalCode}
-                      onChange={(e) =>
-                        setBillingDraft((d) => ({
-                          ...d,
-                          billingAddress: { ...d.billingAddress, postalCode: e.target.value },
-                        }))
-                      }
+                      value={billingDraft.billingPostalCode}
+                      onChange={(e) => setBillingDraft((d) => ({ ...d, billingPostalCode: e.target.value }))}
                       className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900"
                       placeholder={String(billingCustomer?.address?.postalCode || "") || ""}
                       autoComplete="postal-code"
-                    />
-                  </label>
-
-                  <label className="block">
-                    <div className="text-xs font-semibold text-zinc-600">Country (2-letter)</div>
-                    <input
-                      value={billingDraft.billingAddress.country}
-                      onChange={(e) =>
-                        setBillingDraft((d) => ({
-                          ...d,
-                          billingAddress: { ...d.billingAddress, country: e.target.value },
-                        }))
-                      }
-                      className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900"
-                      placeholder={String(billingCustomer?.address?.country || "") || "US"}
-                      autoComplete="country"
                     />
                   </label>
                 </div>
@@ -1486,40 +1437,7 @@ export function PortalBillingClient({
           ) : null}
         </div>
 
-        {updateCardOpen ? (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-            <div className="absolute inset-0 bg-black/40" onClick={() => setUpdateCardOpen(false)} />
-            <div className="relative w-full max-w-lg rounded-3xl border border-zinc-200 bg-white p-6 shadow-xl">
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <div className="text-base font-semibold text-zinc-900">Update payment method</div>
-                  <div className="mt-1 text-sm text-zinc-600">Your card details are processed securely by Stripe.</div>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setUpdateCardOpen(false)}
-                  className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50"
-                  aria-label="Close"
-                >
-                  ×
-                </button>
-              </div>
 
-              {!elementsOptions || !stripePromise ? (
-                <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-700">
-                  Loading Stripe…
-                </div>
-              ) : (
-                <Elements stripe={stripePromise} options={elementsOptions}>
-                  <UpdateCardForm
-                    onError={(message) => toast.error(message)}
-                    onSuccess={finalizeUpdateCard}
-                  />
-                </Elements>
-              )}
-            </div>
-          </div>
-        ) : null}
 
         {!creditsOnly ? (
           <div className="mt-6 rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
