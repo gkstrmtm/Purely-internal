@@ -5,6 +5,8 @@
 
 # tooling artifacts
 .eslint-report*.json
+# local scratch / one-off scripts
+/tmp/
 /.pnp
 .pnp.*
 .yarn/*
@@ -61,6 +63,9 @@ realupdatedhistory.md
 
 # additional local chat history file (copilot transcript)
 /src/app/api/portal/billing/upgrade-checkout/copilotchat.md
+
+# local-only transcript accidentally created in setup-intent finalize route (do not commit)
+/src/app/api/portal/billing/setup-intent/finalize/transcriptofthechat.md
 
 # local-only Copilot context (do not commit)
 /newchathistory.md

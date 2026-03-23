@@ -11,6 +11,7 @@ import { ToggleSwitch } from "@/components/ToggleSwitch";
 import { useToast } from "@/components/ToastProvider";
 import { InlineSpinner } from "@/components/InlineSpinner";
 import { buildFontDropdownOptions } from "@/lib/portalHostedFonts";
+import { IconExport } from "@/app/portal/PortalIcons";
 
 type Post = {
   id: string;
@@ -734,6 +735,9 @@ export function PortalBlogPostClient({ postId }: { postId: string }) {
               (isPaMobileApp ? "rounded-xl px-3 py-2 text-xs" : "rounded-2xl px-4 py-2 text-sm")
             }
           >
+            <span className="mr-2 inline-flex items-center">
+              <IconExport size={isPaMobileApp ? 14 : 16} />
+            </span>
             {isPaMobileApp ? "Export" : "Export Markdown"}
           </a>
           <button

@@ -7,6 +7,7 @@ import { Elements, PaymentElement, useElements, useStripe } from "@stripe/react-
 import { loadStripe } from "@stripe/stripe-js";
 
 import { useToast } from "@/components/ToastProvider";
+import { IconCopy } from "@/app/portal/PortalIcons";
 import { formatUsd } from "@/lib/pricing.shared";
 import { PORTAL_SERVICES } from "@/app/portal/services/catalog";
 
@@ -1644,7 +1645,7 @@ export function PortalBillingClient({
             />
             <button
               type="button"
-              className="rounded-2xl bg-(--color-brand-blue) px-4 py-2 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
+              className="inline-flex items-center justify-center gap-2 rounded-2xl bg-(--color-brand-blue) px-4 py-2 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
               disabled={referralLoading}
               onClick={async () => {
                 // Always rotate to a fresh link on copy.
@@ -1662,6 +1663,7 @@ export function PortalBillingClient({
                 }
               }}
             >
+              <IconCopy size={18} />
               Copy link
             </button>
           </div>

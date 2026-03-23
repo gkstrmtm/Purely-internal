@@ -1,7 +1,7 @@
 "use client";
 
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import styles from "./PortalInboxClient.module.css";
 import { AppModal } from "@/components/AppModal";
@@ -13,7 +13,7 @@ import { PortalVariablePickerModal } from "@/components/PortalVariablePickerModa
 import { PortalContactDetailsModal } from "@/components/PortalContactDetailsModal";
 import { useToast } from "@/components/ToastProvider";
 import { PortalBackToOnboardingLink } from "@/components/PortalBackToOnboardingLink";
-import { IconFilter, IconSearch, IconSend, IconSendHover } from "@/app/portal/PortalIcons";
+import { IconFunnel, IconSearch, IconSend, IconSendHover } from "@/app/portal/PortalIcons";
 import { normalizePhoneForStorage } from "@/lib/phone";
 import { normalizePortalContactCustomVarKey, PORTAL_MESSAGE_VARIABLES } from "@/lib/portalTemplateVars";
 
@@ -373,11 +373,22 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
   const emailSubjectRef = useRef<HTMLInputElement | null>(null);
   const emailBodyRef = useRef<HTMLTextAreaElement | null>(null);
 
-  function clearConversationForCompose() {
+  const clearConversationForCompose = useCallback(() => {
     setActiveThreadId(null);
     setMessages([]);
     setLoadingMessages(false);
-  }
+  }, []);
+
+  const openEmailComposer = useCallback(() => {
+    setEmailComposerOpen(true);
+    setEmailAttachMenuOpen(false);
+    setThreadSearch("");
+    clearConversationForCompose();
+    setComposeTo("");
+    setComposeSubject("");
+    setComposeBody("");
+    setComposeAttachments([]);
+  }, [clearConversationForCompose]);
 
   async function ensureContactsLoaded() {
     if (contacts || contactsLoading) return;
@@ -1254,7 +1265,7 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
               aria-label="Mail filters"
               aria-expanded={emailFiltersOpen ? true : undefined}
             >
-              <IconFilter size={18} />
+              <IconFunnel size={18} />
             </button>
           </div>
         </div>
@@ -1381,7 +1392,7 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
               aria-label="Message filters"
               aria-expanded={smsFiltersOpen ? true : undefined}
             >
-              <IconFilter size={18} />
+              <IconFunnel size={18} />
             </button>
           </div>
         </div>
@@ -1495,11 +1506,22 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
                 <div className="text-sm font-semibold text-zinc-900">
                   {tab === "email" ? (emailBox === "sent" ? "Sent" : "Inbox") : "Texts"}
                 </div>
-                {refreshingThreads ? (
-                  <div className="inline-flex items-center gap-2 text-xs font-semibold text-zinc-600">
-                    <InlineSpinner /> Refreshing…
-                  </div>
-                ) : null}
+                <div className="flex shrink-0 items-center gap-2">
+                  {tab === "email" ? (
+                    <button
+                      type="button"
+                      className="rounded-xl bg-[#007aff] px-3 py-2 text-xs font-semibold text-white hover:bg-[#006ae6]"
+                      onClick={openEmailComposer}
+                    >
+                      + New email
+                    </button>
+                  ) : null}
+                  {refreshingThreads ? (
+                    <div className="inline-flex items-center gap-2 text-xs font-semibold text-zinc-600">
+                      <InlineSpinner /> Refreshing…
+                    </div>
+                  ) : null}
+                </div>
               </div>
             </div>
 
@@ -1704,87 +1726,87 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
                 )}
               </div>
 
-              <div className="border-t border-zinc-100 bg-white p-4">
-                <div className="mb-2 flex items-center justify-between gap-3">
-                  <div className="text-xs font-semibold text-zinc-700">{activeThread ? "Reply" : "Message"}</div>
+              {activeThread ? (
+                <div className="border-t border-zinc-100 bg-white p-4">
+                  <div className="mb-2 flex items-center justify-between gap-3">
+                    <div className="text-xs font-semibold text-zinc-700">Reply</div>
+                  </div>
+                  <textarea
+                    ref={emailBodyRef}
+                    value={composeBody}
+                    onChange={(e) => setComposeBody(e.target.value)}
+                    rows={4}
+                    placeholder="Type your reply…"
+                    className="w-full resize-y rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400"
+                  />
+                  {composeAttachments.length ? (
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      {composeAttachments.map((a) => (
+                        <div key={a.id} className="flex items-center gap-2 rounded-2xl border border-zinc-200 bg-white px-2 py-1">
+                          <div className="max-w-55 truncate text-xs font-semibold text-zinc-900">{a.fileName}</div>
+                          <div className="text-[11px] text-zinc-500">{formatBytes(a.fileSize)}</div>
+                          <button
+                            type="button"
+                            onClick={() => removeAttachment(a.id)}
+                            className="ml-1 rounded-xl px-2 py-1 text-xs font-semibold text-zinc-600 hover:bg-zinc-50"
+                            aria-label="Remove attachment"
+                          >
+                            ×
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
+                  <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="text-xs text-zinc-500">Replying to {activeThread.peerAddress}</div>
+                    <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:justify-end">
+                      <button
+                        type="button"
+                        onClick={() => openVariablePicker("email_body")}
+                        className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50 sm:w-auto"
+                      >
+                        Insert variable
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => emailFileRef.current?.click()}
+                        className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50 sm:w-auto"
+                      >
+                        Upload
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setMediaPickerOpen(true)}
+                        className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50 sm:w-auto"
+                      >
+                        Add from media library
+                      </button>
+                      <input
+                        ref={emailFileRef}
+                        type="file"
+                        multiple
+                        className="hidden"
+                        onChange={(e) => {
+                          void uploadAttachments(e.currentTarget.files);
+                          e.currentTarget.value = "";
+                        }}
+                        accept="image/*,video/*,audio/*,application/pdf,text/plain,.csv,.doc,.docx,.xls,.xlsx"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => void onSend()}
+                        disabled={sending}
+                        className={classNames(
+                          "w-full rounded-2xl bg-[#007aff] px-5 py-2 text-sm font-semibold text-white hover:bg-[#006ae6] sm:w-auto",
+                          sending && "opacity-60",
+                        )}
+                      >
+                        {sending ? "Sending…" : uploading ? "Uploading…" : "Send"}
+                      </button>
+                    </div>
+                  </div>
                 </div>
-                <textarea
-                  ref={emailBodyRef}
-                  value={composeBody}
-                  onChange={(e) => setComposeBody(e.target.value)}
-                  rows={4}
-                  placeholder={activeThread ? "Type your reply…" : "Type your email…"}
-                  className="w-full resize-y rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400"
-                />
-                {composeAttachments.length ? (
-                  <div className="mt-2 flex flex-wrap gap-2">
-                    {composeAttachments.map((a) => (
-                      <div key={a.id} className="flex items-center gap-2 rounded-2xl border border-zinc-200 bg-white px-2 py-1">
-                        <div className="max-w-55 truncate text-xs font-semibold text-zinc-900">{a.fileName}</div>
-                        <div className="text-[11px] text-zinc-500">{formatBytes(a.fileSize)}</div>
-                        <button
-                          type="button"
-                          onClick={() => removeAttachment(a.id)}
-                          className="ml-1 rounded-xl px-2 py-1 text-xs font-semibold text-zinc-600 hover:bg-zinc-50"
-                          aria-label="Remove attachment"
-                        >
-                          ×
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                ) : null}
-                <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                  <div className="text-xs text-zinc-500">
-                    {activeThread ? `Replying to ${activeThread.peerAddress}` : ""}
-                  </div>
-                  <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:justify-end">
-                    <button
-                      type="button"
-                      onClick={() => openVariablePicker("email_body")}
-                      className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50 sm:w-auto"
-                    >
-                      Insert variable
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => emailFileRef.current?.click()}
-                      className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50 sm:w-auto"
-                    >
-                      Upload
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setMediaPickerOpen(true)}
-                      className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50 sm:w-auto"
-                    >
-                      Add from media library
-                    </button>
-                    <input
-                      ref={emailFileRef}
-                      type="file"
-                      multiple
-                      className="hidden"
-                      onChange={(e) => {
-                        void uploadAttachments(e.currentTarget.files);
-                        e.currentTarget.value = "";
-                      }}
-                      accept="image/*,video/*,audio/*,application/pdf,text/plain,.csv,.doc,.docx,.xls,.xlsx"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => void onSend()}
-                      disabled={sending}
-                      className={classNames(
-                        "w-full rounded-2xl bg-[#007aff] px-5 py-2 text-sm font-semibold text-white hover:bg-[#006ae6] sm:w-auto",
-                        sending && "opacity-60",
-                      )}
-                    >
-                      {sending ? "Sending…" : uploading ? "Uploading…" : "Send"}
-                    </button>
-                  </div>
-                </div>
-              </div>
+              ) : null}
             </div>
           </div>
         ) : null}
@@ -2143,10 +2165,17 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
                     type="button"
                     onClick={onSend}
                     disabled={sending}
-                    className={classNames(styles.iconButton, styles.iconButtonPrimary, sending && "opacity-60")}
+                    className={classNames("group", styles.iconButton, styles.iconButtonPrimary, sending && "opacity-60")}
                     aria-label="Send"
                   >
-                    <IconSend size={18} />
+                    <span className="relative h-4.5 w-4.5">
+                      <span className="absolute inset-0 opacity-100 transition-opacity group-hover:opacity-0" aria-hidden>
+                        <IconSend size={18} />
+                      </span>
+                      <span className="absolute inset-0 opacity-0 transition-opacity group-hover:opacity-100" aria-hidden>
+                        <IconSendHover size={18} />
+                      </span>
+                    </span>
                   </button>
                 </div>
 
@@ -2157,29 +2186,7 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
         </>
       ) : null}
 
-      {tab === "email" && !emailComposerOpen ? (
-        <button
-          type="button"
-          className="fixed right-4 z-11001 rounded-full bg-[#007aff] px-5 py-3 text-sm font-semibold text-white shadow-xl hover:bg-[#006ae6]"
-          style={{
-            bottom:
-              "calc(var(--pa-portal-embed-footer-offset,0px) + 5.75rem + var(--pa-portal-floating-tools-reserve, 0px))",
-          }}
-          onClick={() => {
-            setEmailComposerOpen(true);
-            setEmailAttachMenuOpen(false);
-            setThreadSearch("");
-            setActiveThreadId(null);
-            clearConversationForCompose();
-            setComposeTo("");
-            setComposeSubject("");
-            setComposeBody("");
-            setComposeAttachments([]);
-          }}
-        >
-          + New email
-        </button>
-      ) : null}
+      {/* New email button lives in the left thread header now. */}
 
       {tab === "email" && emailComposerOpen ? (
         <>

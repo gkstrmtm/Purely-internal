@@ -17,6 +17,7 @@ import {
   type SalesReportingProviderKey,
 } from "@/lib/salesReportingProviders";
 import { SuggestedSetupSection } from "./SuggestedSetupSection";
+import { IconCopy } from "@/app/portal/PortalIcons";
 
 type Me = {
   ok?: boolean;
@@ -120,10 +121,11 @@ function CopyRow({ label, value }: { label: string; value: string | null | undef
       <div className="mt-3 flex items-center justify-end">
         <button
           type="button"
-          className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold hover:bg-zinc-50 disabled:opacity-60"
+          className="inline-flex items-center gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold hover:bg-zinc-50 disabled:opacity-60"
           disabled={!v}
           onClick={async () => v && navigator.clipboard.writeText(v)}
         >
+          <IconCopy size={16} />
           Copy
         </button>
       </div>

@@ -32,6 +32,8 @@ import { toPurelyHostedUrl } from "@/lib/publicHostedOrigin";
 
 const DEFAULT_FULL_DEMO_EMAIL = "demo-full@purelyautomation.dev";
 
+const PORTAL_SERVICE_TITLE_BY_SLUG = new Map<string, string>(PORTAL_SERVICES.map((s) => [s.slug, s.title]));
+
 type Me = {
   user: { email: string; name: string; role: string };
   entitlements: Entitlements;
@@ -112,6 +114,48 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
   const basePath = variant === "credit" ? "/credit" : "/portal";
   const logoSrc = variant === "credit" ? "/brand/2.png" : "/brand/1.png";
   const sidebarLogoSrc = "/brand/purelylogo.png";
+
+  useEffect(() => {
+    if (!pathname) return;
+
+    const appRoot = `${basePath}/app`;
+    let sectionTitle: string | null = null;
+
+    if (pathname === appRoot) {
+      sectionTitle = "Dashboard";
+    } else if (pathname.startsWith(`${appRoot}/people`)) {
+      sectionTitle = "People";
+    } else if (pathname.startsWith(`${appRoot}/billing`)) {
+      sectionTitle = "Billing";
+    } else if (pathname.startsWith(`${appRoot}/profile`)) {
+      sectionTitle = "Profile";
+    } else if (pathname.startsWith(`${appRoot}/settings`)) {
+      sectionTitle = "Settings";
+    } else if (pathname.startsWith(`${appRoot}/services`)) {
+      const rest = pathname.slice(`${appRoot}/services`.length);
+      const segs = rest.split("/").filter(Boolean);
+      const slug = segs[0] || "";
+      const sub = segs[1] || "";
+
+      if (!slug) {
+        sectionTitle = "Services";
+      } else {
+        const baseTitle = PORTAL_SERVICE_TITLE_BY_SLUG.get(slug) || "Services";
+
+        if (slug === "inbox" && (sub === "email" || sub === "sms")) {
+          sectionTitle = `${baseTitle} - ${sub === "sms" ? "SMS" : "Email"}`;
+        } else if (slug === "ai-outbound-calls" && (sub === "calls" || sub === "messages" || sub === "settings")) {
+          const pretty = sub === "calls" ? "Calls" : sub === "messages" ? "Messages" : "Settings";
+          sectionTitle = `${baseTitle} - ${pretty}`;
+        } else {
+          sectionTitle = baseTitle;
+        }
+      }
+    }
+
+    if (!sectionTitle) return;
+    document.title = `${sectionTitle} • Purely Automation`;
+  }, [pathname, basePath]);
 
   type AdPlacement = "SIDEBAR_BANNER" | "TOP_BANNER" | "FULLSCREEN_REWARD" | "POPUP_CARD";
 

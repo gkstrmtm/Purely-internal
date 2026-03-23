@@ -9,6 +9,7 @@ import { upload as uploadToVercelBlob } from "@vercel/blob/client";
 import { PortalListboxDropdown } from "@/components/PortalListboxDropdown";
 import { InlineSpinner } from "@/components/InlineSpinner";
 import { useToast } from "@/components/ToastProvider";
+import { IconCopy, IconExport } from "@/app/portal/PortalIcons";
 import { PORTAL_VARIANT_HEADER, portalVariantFromPathname } from "@/lib/portalVariant";
 import { toPurelyHostedUrl } from "@/lib/publicHostedOrigin";
 
@@ -782,8 +783,9 @@ export function PortalMediaLibraryClient() {
                     <button
                       type="button"
                       onClick={(e) => void copyAbsoluteUrl(selectedItem.shareUrl, e.currentTarget)}
-                      className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
+                      className="inline-flex items-center justify-center gap-2 rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
                     >
+                      <IconCopy size={18} />
                       Copy link
                     </button>
                     <button
@@ -791,6 +793,9 @@ export function PortalMediaLibraryClient() {
                       onClick={() => triggerDownload(selectedItem.downloadUrl, selectedItem.fileName)}
                       className="inline-flex items-center justify-center rounded-2xl bg-(--color-brand-blue) px-4 py-2 text-sm font-semibold text-white hover:opacity-95"
                     >
+                      <span className="mr-2 inline-flex items-center">
+                        <IconExport size={18} />
+                      </span>
                       Download
                     </button>
                     <button
@@ -832,15 +837,19 @@ export function PortalMediaLibraryClient() {
                     <button
                       type="button"
                       onClick={(e) => void copyAbsoluteUrl(selectedFolder.shareUrl, e.currentTarget)}
-                      className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
+                      className="inline-flex items-center justify-center gap-2 rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
                     >
+                      <IconCopy size={18} />
                       Copy folder link
                     </button>
                     <button
                       type="button"
                       onClick={() => triggerDownload(selectedFolder.downloadUrl || selectedFolder.shareUrl, `${selectedFolder.name}.zip`)}
-                      className="rounded-2xl bg-(--color-brand-blue) px-4 py-2 text-sm font-semibold text-white hover:opacity-95"
+                      className="inline-flex items-center justify-center rounded-2xl bg-(--color-brand-blue) px-4 py-2 text-sm font-semibold text-white hover:opacity-95"
                     >
+                      <span className="mr-2 inline-flex items-center">
+                        <IconExport size={18} />
+                      </span>
                       Download zip
                     </button>
                     <button

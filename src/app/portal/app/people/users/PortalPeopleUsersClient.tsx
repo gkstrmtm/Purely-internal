@@ -17,6 +17,7 @@ import { PortalListboxDropdown } from "@/components/PortalListboxDropdown";
 import { AppModal } from "@/components/AppModal";
 import { useToast } from "@/components/ToastProvider";
 import { toPurelyHostedUrl } from "@/lib/publicHostedOrigin";
+import { IconCopy } from "@/app/portal/PortalIcons";
 
 type MemberRow = {
   userId: string;
@@ -648,8 +649,9 @@ export function PortalPeopleUsersClient() {
                                 toast.error("Could not copy invite link.");
                               }
                             }}
-                            className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+                            className="inline-flex items-center gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
                           >
+                            <IconCopy size={16} />
                             Copy
                           </button>
                         </td>

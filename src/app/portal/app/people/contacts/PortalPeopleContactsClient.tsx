@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { PortalPeopleTabs } from "@/app/portal/app/people/PortalPeopleTabs";
-import { IconFilter, IconSearch } from "@/app/portal/PortalIcons";
+import { IconFunnel, IconSearch } from "@/app/portal/PortalIcons";
 import { PortalListboxDropdown } from "@/components/PortalListboxDropdown";
 import { PortalSelectDropdown } from "@/components/PortalSelectDropdown";
 import { PortalVariablePickerModal } from "@/components/PortalVariablePickerModal";
@@ -1159,7 +1159,7 @@ export function PortalPeopleContactsClient() {
           title={mobilePeopleFilter === "unlinked" ? "Show contacts" : "Show unlinked leads"}
         >
           <span className="inline-flex items-center gap-2">
-            <IconFilter size={16} />
+            <IconFunnel size={16} />
             {mobilePeopleFilter === "unlinked" ? "Unlinked" : "Contacts"}
           </span>
         </button>

@@ -2149,7 +2149,7 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
   }
 
   return (
-    <div className="mx-auto w-full max-w-6xl px-4 pb-24 sm:px-6">
+    <div className="mx-auto w-full max-w-6xl px-4 pb-6 sm:px-6">
       <PortalVariablePickerModal
         open={variablePickerOpen}
         variables={variablePickerVariables}
