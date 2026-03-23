@@ -42,6 +42,36 @@ type ServicesStatusResponse =
     }
   | { ok: false; error?: string };
 
+type ReportingRes =
+  | {
+      ok: true;
+      startIso: string;
+      endIso: string;
+      creditsRemaining: number;
+      kpis: {
+        automationsRun: number;
+        aiCalls: number;
+        missedCallAttempts: number;
+        textsSent: number;
+        leadScrapeRuns: number;
+        blogGenerations: number;
+        creditsUsed: number;
+        bookingsCreated: number;
+        reviewsCollected: number;
+        aiOutboundQueuedNow: number;
+        aiOutboundCompleted: number;
+        nurtureEnrollmentsCreated: number;
+        newsletterSendEvents: number;
+        tasksCompleted: number;
+        inboxMessagesIn: number;
+      };
+    }
+  | { ok?: false; error?: string };
+
+type ReferralRes =
+  | { url: string; code: string; stats: { total: number; verified: number; awarded: number } }
+  | null;
+
 function classNames(...xs: Array<string | false | null | undefined>) {
   return xs.filter(Boolean).join(" ");
 }
@@ -56,6 +86,16 @@ function normalizeTab(raw: string | null | undefined): TabKey {
 function setSearchParam(url: URL, key: string, value: string | null) {
   if (value === null) url.searchParams.delete(key);
   else url.searchParams.set(key, value);
+}
+
+const MS_PER_DAY = 24 * 60 * 60 * 1000;
+
+function daysBetweenIso(startIso: string, endIso: string): number {
+  const s = new Date(startIso);
+  const e = new Date(endIso);
+  if (!Number.isFinite(s.getTime()) || !Number.isFinite(e.getTime())) return 30;
+  const raw = Math.ceil((e.getTime() - s.getTime()) / MS_PER_DAY);
+  return Math.max(1, raw);
 }
 
 export function SettingsTabsClient() {
@@ -93,10 +133,10 @@ export function SettingsTabsClient() {
                 type="button"
                 onClick={() => goTab(t.key)}
                 className={classNames(
-                  "rounded-2xl border px-4 py-2 text-sm font-semibold transition",
+                  "rounded-2xl px-4 py-2 text-sm font-semibold transition",
                   active
-                    ? "border-zinc-200 bg-white text-brand-ink"
-                    : "border-zinc-200 bg-transparent text-zinc-700 hover:bg-white/70",
+                    ? "text-brand-blue ring-1 ring-zinc-200/90"
+                    : "text-zinc-600 hover:text-zinc-900",
                 )}
               >
                 {t.label}
@@ -138,6 +178,10 @@ function GeneralTab({
   const [profile, setProfile] = useState<ProfileRes | null>(null);
   const [credits, setCredits] = useState<CreditsRes | null>(null);
   const [services, setServices] = useState<ServicesStatusResponse | null>(null);
+  const [reporting, setReporting] = useState<ReportingRes | null>(null);
+  const [referral, setReferral] = useState<ReferralRes>(null);
+  const [referralOpen, setReferralOpen] = useState(false);
+  const [referralLoading, setReferralLoading] = useState(false);
 
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -148,6 +192,28 @@ function GeneralTab({
   const [pwModalOpen, setPwModalOpen] = useState(false);
   const [pw, setPw] = useState("");
   const [pendingSave, setPendingSave] = useState(false);
+
+  const loadReferral = useCallback(async () => {
+    setReferralLoading(true);
+    try {
+      const res = await fetch("/api/portal/referrals/link", { cache: "no-store" }).catch(() => null);
+      if (!res?.ok) return;
+      const json = (await res.json().catch(() => ({}))) as unknown;
+      const okJson = json && typeof json === "object" && !Array.isArray(json) ? (json as any) : null;
+      if (!okJson?.ok) return;
+      setReferral({
+        url: String(okJson.url || ""),
+        code: String(okJson.code || ""),
+        stats: {
+          total: Number(okJson?.stats?.total ?? 0) || 0,
+          verified: Number(okJson?.stats?.verified ?? 0) || 0,
+          awarded: Number(okJson?.stats?.awarded ?? 0) || 0,
+        },
+      });
+    } finally {
+      setReferralLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
     let mounted = true;
@@ -176,6 +242,11 @@ function GeneralTab({
 
       if (sRes?.ok) setServices(((await sRes.json().catch(() => null)) as ServicesStatusResponse | null) ?? null);
       else setServices(null);
+
+      const rRes = await fetch("/api/portal/reporting?range=30d", { cache: "no-store" }).catch(() => null as any);
+      if (!mounted) return;
+      if (rRes?.ok) setReporting(((await rRes.json().catch(() => null)) as ReportingRes | null) ?? null);
+      else setReporting(null);
     })();
 
     return () => {
@@ -206,6 +277,8 @@ function GeneralTab({
   const needsPassword = wantsNameChange || wantsEmailChange;
 
   const canSave = hasAnyChanges && (!phone.trim() || phoneValidation.ok) && name.trim().length >= 2 && email.trim().length >= 3;
+
+  const saveLabel = saving ? "Saving…" : hasAnyChanges ? "Save" : "Saved";
 
   async function doSave(currentPassword: string | null) {
     if (!canSave || saving) return;
@@ -240,31 +313,86 @@ function GeneralTab({
     }
   }
 
+  const creditsRemaining = useMemo(() => {
+    if (typeof (reporting as any)?.creditsRemaining === "number" && Number.isFinite((reporting as any).creditsRemaining)) {
+      return Number((reporting as any).creditsRemaining);
+    }
+    if (typeof (credits as any)?.credits === "number" && Number.isFinite((credits as any).credits)) return Number((credits as any).credits);
+    return null;
+  }, [credits, reporting]);
+
+  const creditRunwayDays = useMemo(() => {
+    if (!reporting || !("ok" in reporting) || !reporting.ok) return null;
+    const creditsUsed = Number((reporting as any)?.kpis?.creditsUsed ?? 0) || 0;
+    const remaining = Number((reporting as any)?.creditsRemaining ?? 0);
+    if (!Number.isFinite(remaining)) return null;
+    if (creditsUsed <= 0) return null;
+    const days = daysBetweenIso(reporting.startIso, reporting.endIso);
+    const perDay = creditsUsed / days;
+    if (perDay <= 0) return null;
+    return Math.max(0, Math.round(remaining / perDay));
+  }, [reporting]);
+
+  const runwayTone = useMemo(() => {
+    if (typeof creditRunwayDays !== "number" || !Number.isFinite(creditRunwayDays)) return "ok" as const;
+    if (creditRunwayDays <= 3) return "danger" as const;
+    if (creditRunwayDays <= 7) return "warn" as const;
+    return "good" as const;
+  }, [creditRunwayDays]);
+
   const topServices = useMemo(() => {
-    if (!services || !("ok" in services) || !services.ok) return [] as Array<{ slug: string; title: string; state: string; label: string }>;
-    const rows: Array<{ slug: string; title: string; state: string; label: string }> = [];
+    if (!services || !("ok" in services) || !services.ok) return [] as Array<{ slug: string; title: string; state: string; label: string; usage: number }>;
+
+    const usage: Record<string, number> = {};
+    if (reporting && "ok" in reporting && reporting.ok) {
+      const k = reporting.kpis as any;
+      usage["automations"] = Number(k.automationsRun ?? 0) || 0;
+      usage["ai-receptionist"] = Number(k.aiCalls ?? 0) || 0;
+      usage["missed-call-textback"] = Number(k.missedCallAttempts ?? 0) || 0;
+      usage["follow-up"] = Number(k.textsSent ?? 0) || 0;
+      usage["lead-scraping"] = Number(k.leadScrapeRuns ?? 0) || 0;
+      usage["blogs"] = Number(k.blogGenerations ?? 0) || 0;
+      usage["booking"] = Number(k.bookingsCreated ?? 0) || 0;
+      usage["reviews"] = Number(k.reviewsCollected ?? 0) || 0;
+      usage["ai-outbound-calls"] = (Number(k.aiOutboundQueuedNow ?? 0) || 0) + (Number(k.aiOutboundCompleted ?? 0) || 0);
+      usage["nurture-campaigns"] = Number(k.nurtureEnrollmentsCreated ?? 0) || 0;
+      usage["newsletter"] = Number(k.newsletterSendEvents ?? 0) || 0;
+      usage["tasks"] = Number(k.tasksCompleted ?? 0) || 0;
+      usage["inbox"] = Number(k.inboxMessagesIn ?? 0) || 0;
+    }
+
+    const eligibleStates = new Set(["active", "needs_setup", "paused"]);
+    const rows: Array<{ slug: string; title: string; state: string; label: string; usage: number }> = [];
     for (const svc of PORTAL_SERVICES) {
       if (svc.hidden) continue;
       const st = (services.statuses as any)?.[svc.slug];
       if (!st) continue;
       const state = String(st.state || "");
-      const label = String(st.label || "");
-      rows.push({ slug: svc.slug, title: svc.title, state, label });
+      if (!eligibleStates.has(state)) continue;
+      rows.push({
+        slug: svc.slug,
+        title: svc.title,
+        state,
+        label: String(st.label || ""),
+        usage: Number(usage[svc.slug] ?? 0) || 0,
+      });
     }
 
-    const score = (state: string) => (state === "active" ? 0 : state === "needs_setup" ? 1 : state === "paused" ? 2 : 3);
-    rows.sort((a, b) => score(a.state) - score(b.state));
-    return rows.slice(0, 6);
-  }, [services]);
+    const stateScore = (state: string) => (state === "active" ? 0 : state === "needs_setup" ? 1 : state === "paused" ? 2 : 3);
+    const anyUsage = rows.some((r) => r.usage > 0);
+    rows.sort((a, b) => {
+      if (anyUsage && a.usage !== b.usage) return b.usage - a.usage;
+      return stateScore(a.state) - stateScore(b.state);
+    });
+
+    return rows.slice(0, 3);
+  }, [reporting, services]);
 
   return (
     <div className="mt-6">
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
         <div>
-          <div className="text-sm font-semibold text-zinc-900">Contact</div>
-          <div className="mt-1 text-sm text-zinc-600">Name, email, and phone.</div>
-
-          <div className="mt-4 space-y-3">
+          <div className="space-y-3">
             <div>
               <label className="text-xs font-semibold text-zinc-600">Name</label>
               <input
@@ -314,7 +442,7 @@ function GeneralTab({
                   setPwModalOpen(true);
                 }}
               >
-                {saving ? "Saving…" : canSave ? "Save" : "Saved"}
+                {saveLabel}
               </button>
               {needsPassword ? (
                 <div className="mt-2 text-xs text-zinc-500">Name and email changes require your current password.</div>
@@ -324,18 +452,33 @@ function GeneralTab({
         </div>
 
         <div>
-          <div className="rounded-3xl border border-zinc-200 bg-white p-6">
+          <div className="relative overflow-hidden rounded-3xl border border-zinc-200 bg-white p-7">
+            <div
+              className={classNames(
+                "pointer-events-none absolute -right-24 -top-24 h-56 w-56 rounded-full blur-2xl",
+                runwayTone === "good"
+                  ? "bg-emerald-300/40"
+                  : runwayTone === "warn"
+                    ? "bg-amber-300/45"
+                    : runwayTone === "danger"
+                      ? "bg-rose-300/50"
+                      : "bg-brand-blue/15",
+              )}
+              aria-hidden="true"
+            />
             <div className="flex items-start justify-between gap-3">
               <div>
                 <div className="text-sm font-semibold text-zinc-900">Credits</div>
-                <div className="mt-1 text-sm text-zinc-600">Your balance for usage-based actions.</div>
-              </div>
-              <div className="text-right">
-                <div className="text-xs text-zinc-500">Balance</div>
-                <div className="mt-1 text-2xl font-bold text-brand-ink">
-                  {typeof (credits as any)?.credits === "number" ? (credits as any).credits : "N/A"}
+                <div className="mt-1 text-sm text-zinc-600">
+                  {typeof creditRunwayDays === "number" && Number.isFinite(creditRunwayDays)
+                    ? `~${creditRunwayDays} day runway`
+                    : "Usage-based actions"}
                 </div>
               </div>
+            </div>
+
+            <div className="mt-4 text-5xl font-bold tracking-tight text-brand-ink">
+              {typeof creditsRemaining === "number" && Number.isFinite(creditsRemaining) ? creditsRemaining : "N/A"}
             </div>
 
             <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2">
@@ -349,7 +492,10 @@ function GeneralTab({
               <button
                 type="button"
                 className="rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
-                onClick={() => onGoBilling("referral")}
+                onClick={() => {
+                  setReferralOpen(true);
+                  if (!referral && !referralLoading) void loadReferral();
+                }}
               >
                 Get free credits
               </button>
@@ -357,42 +503,51 @@ function GeneralTab({
           </div>
 
           {creditsOnly ? (
-            <details className="mt-4 rounded-3xl border border-zinc-200 bg-white p-6">
-              <summary className="cursor-pointer list-none text-sm font-semibold text-brand-ink select-none [&::-webkit-details-marker]:hidden [&::marker]:content-none">
-                Upgrade to a monthly plan
-              </summary>
+            <div className="mt-8">
+              <div className="text-sm font-semibold text-zinc-900">Upgrade to a monthly plan</div>
+              <div className="mt-1 text-sm text-zinc-600">
+                Lower your per-action costs and unlock higher limits.
+              </div>
               <div className="mt-4">
                 <PortalBillingUpgradeClient embedded />
               </div>
-            </details>
+            </div>
           ) : null}
         </div>
 
         <div>
-          <div className="rounded-3xl border border-zinc-200 bg-white p-6">
-            <div className="text-sm font-semibold text-zinc-900">Top services</div>
-            <div className="mt-1 text-sm text-zinc-600">Quick links to what you use most.</div>
+          <div className="text-sm font-semibold text-zinc-900">Top services</div>
+          <div className="mt-1 text-sm text-zinc-600">Quick links to what you actually use.</div>
 
-            {topServices.length ? (
-              <div className="mt-4 space-y-2">
-                {topServices.map((s) => (
-                  <a
-                    key={s.slug}
-                    href={`/portal/app/services/${encodeURIComponent(s.slug)}`}
-                    className="flex items-center justify-between gap-3 rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm hover:bg-zinc-50"
-                  >
+          {topServices.length ? (
+            <div className="mt-4 divide-y divide-zinc-200 overflow-hidden rounded-3xl border border-zinc-200 bg-white">
+              {topServices.map((s, idx) => (
+                <a
+                  key={s.slug}
+                  href={`/portal/app/services/${encodeURIComponent(s.slug)}`}
+                  className="flex items-center justify-between gap-3 px-4 py-4 text-sm hover:bg-zinc-50"
+                >
+                  <div className="flex min-w-0 items-start gap-3">
+                    <div
+                      className={classNames(
+                        "mt-0.5 text-sm font-bold",
+                        idx === 0 ? "text-brand-blue" : "text-zinc-400",
+                      )}
+                    >
+                      #{idx + 1}
+                    </div>
                     <div className="min-w-0">
                       <div className="truncate font-semibold text-brand-ink">{s.title}</div>
                       <div className="mt-0.5 text-xs text-zinc-500">{s.label}</div>
                     </div>
-                    <div className="shrink-0 text-xs font-semibold text-zinc-600">Open</div>
-                  </a>
-                ))}
-              </div>
-            ) : (
-              <div className="mt-4 text-sm text-zinc-600">No services found.</div>
-            )}
-          </div>
+                  </div>
+                  <div className="shrink-0 text-xs font-semibold text-zinc-600">Open</div>
+                </a>
+              ))}
+            </div>
+          ) : (
+            <div className="mt-4 text-sm text-zinc-600">No services found.</div>
+          )}
         </div>
       </div>
 
@@ -439,6 +594,78 @@ function GeneralTab({
               disabled={saving || pw.trim().length < 6}
             >
               {saving ? "Saving…" : "Confirm and save"}
+            </button>
+          </div>
+        </div>
+      </AppModal>
+
+      <AppModal
+        open={referralOpen}
+        onClose={() => setReferralOpen(false)}
+        title="Get free credits"
+      >
+        <div className="space-y-4">
+          <div className="text-sm text-zinc-600">Share your referral link. When friends sign up and verify, you earn credits.</div>
+
+          <div>
+            <label className="text-xs font-semibold text-zinc-600">Referral link</label>
+            <div className="mt-1 flex gap-2">
+              <input
+                value={referral?.url || (referralLoading ? "Loading…" : "")}
+                readOnly
+                className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300"
+                placeholder="Loading…"
+              />
+              <button
+                type="button"
+                className="shrink-0 rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm font-semibold text-brand-ink hover:bg-zinc-50 disabled:opacity-60"
+                disabled={!referral?.url}
+                onClick={() => {
+                  if (!referral?.url) return;
+                  void (async () => {
+                    try {
+                      await navigator.clipboard.writeText(referral.url);
+                      toast.success("Copied referral link.");
+                    } catch {
+                      toast.error("Unable to copy.");
+                    }
+                  })();
+                }}
+              >
+                Copy
+              </button>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-3 gap-2">
+            <div className="rounded-2xl border border-zinc-200 bg-white p-3">
+              <div className="text-xs text-zinc-500">Invites</div>
+              <div className="mt-1 text-lg font-bold text-brand-ink">{referral?.stats.total ?? 0}</div>
+            </div>
+            <div className="rounded-2xl border border-zinc-200 bg-white p-3">
+              <div className="text-xs text-zinc-500">Verified</div>
+              <div className="mt-1 text-lg font-bold text-brand-ink">{referral?.stats.verified ?? 0}</div>
+            </div>
+            <div className="rounded-2xl border border-zinc-200 bg-white p-3">
+              <div className="text-xs text-zinc-500">Awarded</div>
+              <div className="mt-1 text-lg font-bold text-brand-ink">{referral?.stats.awarded ?? 0}</div>
+            </div>
+          </div>
+
+          <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
+            <button
+              type="button"
+              className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+              onClick={() => onGoBilling("referral")}
+            >
+              View billing details
+            </button>
+            <button
+              type="button"
+              className="rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95"
+              onClick={() => setReferralOpen(false)}
+            >
+              Done
             </button>
           </div>
         </div>
