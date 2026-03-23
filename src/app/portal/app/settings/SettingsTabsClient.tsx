@@ -135,8 +135,8 @@ export function SettingsTabsClient() {
                 className={classNames(
                   "rounded-2xl px-4 py-2 text-sm font-semibold transition",
                   active
-                    ? "text-brand-blue ring-1 ring-zinc-200/90"
-                    : "text-zinc-600 hover:text-zinc-900",
+                    ? "bg-zinc-100/80 text-brand-blue ring-1 ring-zinc-200/90"
+                    : "bg-transparent text-zinc-600 hover:bg-zinc-100/60 hover:text-zinc-900",
                 )}
               >
                 {t.label}
@@ -179,6 +179,7 @@ function GeneralTab({
   const [credits, setCredits] = useState<CreditsRes | null>(null);
   const [services, setServices] = useState<ServicesStatusResponse | null>(null);
   const [reporting, setReporting] = useState<ReportingRes | null>(null);
+  const [serviceUsage, setServiceUsage] = useState<Record<string, number>>({});
   const [referral, setReferral] = useState<ReferralRes>(null);
   const [referralOpen, setReferralOpen] = useState(false);
   const [referralLoading, setReferralLoading] = useState(false);
@@ -243,10 +244,30 @@ function GeneralTab({
       if (sRes?.ok) setServices(((await sRes.json().catch(() => null)) as ServicesStatusResponse | null) ?? null);
       else setServices(null);
 
-      const rRes = await fetch("/api/portal/reporting?range=30d", { cache: "no-store" }).catch(() => null as any);
+      const [rRes, blogsRes, newsletterRes] = await Promise.all([
+        fetch("/api/portal/reporting?range=30d", { cache: "no-store" }).catch(() => null as any),
+        fetch("/api/portal/blogs/usage?range=30d", { cache: "no-store" }).catch(() => null as any),
+        fetch("/api/portal/newsletter/usage?range=30d", { cache: "no-store" }).catch(() => null as any),
+      ]);
+
       if (!mounted) return;
+
       if (rRes?.ok) setReporting(((await rRes.json().catch(() => null)) as ReportingRes | null) ?? null);
       else setReporting(null);
+
+      const nextUsage: Record<string, number> = {};
+
+      if (blogsRes?.ok) {
+        const j = (await blogsRes.json().catch(() => null)) as any;
+        if (j?.ok) nextUsage.blogs = Number(j?.generations?.range ?? 0) || 0;
+      }
+
+      if (newsletterRes?.ok) {
+        const j = (await newsletterRes.json().catch(() => null)) as any;
+        if (j?.ok) nextUsage.newsletter = Number(j?.generations?.range ?? 0) || 0;
+      }
+
+      setServiceUsage(nextUsage);
     })();
 
     return () => {
@@ -351,12 +372,12 @@ function GeneralTab({
       usage["missed-call-textback"] = Number(k.missedCallAttempts ?? 0) || 0;
       usage["follow-up"] = Number(k.textsSent ?? 0) || 0;
       usage["lead-scraping"] = Number(k.leadScrapeRuns ?? 0) || 0;
-      usage["blogs"] = Number(k.blogGenerations ?? 0) || 0;
+      usage["blogs"] = Number(serviceUsage.blogs ?? k.blogGenerations ?? 0) || 0;
       usage["booking"] = Number(k.bookingsCreated ?? 0) || 0;
       usage["reviews"] = Number(k.reviewsCollected ?? 0) || 0;
       usage["ai-outbound-calls"] = (Number(k.aiOutboundQueuedNow ?? 0) || 0) + (Number(k.aiOutboundCompleted ?? 0) || 0);
       usage["nurture-campaigns"] = Number(k.nurtureEnrollmentsCreated ?? 0) || 0;
-      usage["newsletter"] = Number(k.newsletterSendEvents ?? 0) || 0;
+      usage["newsletter"] = Number(serviceUsage.newsletter ?? k.newsletterSendEvents ?? 0) || 0;
       usage["tasks"] = Number(k.tasksCompleted ?? 0) || 0;
       usage["inbox"] = Number(k.inboxMessagesIn ?? 0) || 0;
     }
@@ -386,13 +407,14 @@ function GeneralTab({
     });
 
     return rows.slice(0, 3);
-  }, [reporting, services]);
+  }, [reporting, services, serviceUsage.blogs, serviceUsage.newsletter]);
 
   return (
     <div className="mt-6">
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-        <div>
-          <div className="space-y-3">
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3 lg:items-stretch">
+        <div className="h-full rounded-3xl border border-zinc-200 bg-white p-6">
+          <div className="flex h-full flex-col">
+            <div className="space-y-3">
             <div>
               <label className="text-xs font-semibold text-zinc-600">Name</label>
               <input
@@ -449,13 +471,14 @@ function GeneralTab({
               ) : null}
             </div>
           </div>
+          </div>
         </div>
 
-        <div>
-          <div className="relative overflow-hidden rounded-3xl border border-zinc-200 bg-white p-7">
+        <div className="h-full rounded-3xl border border-zinc-200 bg-white p-6">
+          <div className="relative flex h-full flex-col overflow-hidden">
             <div
               className={classNames(
-                "pointer-events-none absolute -right-24 -top-24 h-56 w-56 rounded-full blur-2xl",
+                "pointer-events-none absolute -right-8 -top-8 h-24 w-24 rounded-full blur-xl",
                 runwayTone === "good"
                   ? "bg-emerald-300/40"
                   : runwayTone === "warn"
@@ -469,29 +492,25 @@ function GeneralTab({
             <div className="flex items-start justify-between gap-3">
               <div>
                 <div className="text-sm font-semibold text-zinc-900">Credits</div>
-                <div className="mt-1 text-sm text-zinc-600">
-                  {typeof creditRunwayDays === "number" && Number.isFinite(creditRunwayDays)
-                    ? `~${creditRunwayDays} day runway`
-                    : "Usage-based actions"}
-                </div>
+                <div className="mt-1 text-sm text-zinc-600">Usage-based actions</div>
               </div>
             </div>
 
-            <div className="mt-4 text-5xl font-bold tracking-tight text-brand-ink">
+            <div className="mt-4 text-6xl font-extrabold tracking-tight text-brand-ink sm:text-7xl">
               {typeof creditsRemaining === "number" && Number.isFinite(creditsRemaining) ? creditsRemaining : "N/A"}
             </div>
 
-            <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2">
+            <div className="mt-auto grid grid-cols-1 gap-2 pt-6 sm:grid-cols-2">
               <button
                 type="button"
-                className="rounded-2xl bg-[linear-gradient(90deg,var(--color-brand-blue),var(--color-brand-pink))] px-4 py-3 text-sm font-semibold text-white hover:opacity-95"
+                className="rounded-2xl bg-brand-ink px-4 py-3 text-sm font-semibold text-white hover:opacity-95"
                 onClick={() => onGoBilling("credits")}
               >
                 Buy more
               </button>
               <button
                 type="button"
-                className="rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+                className="rounded-2xl bg-(--color-brand-pink) px-4 py-3 text-sm font-semibold text-white hover:opacity-95"
                 onClick={() => {
                   setReferralOpen(true);
                   if (!referral && !referralLoading) void loadReferral();
@@ -501,47 +520,28 @@ function GeneralTab({
               </button>
             </div>
           </div>
-
-          {creditsOnly ? (
-            <div className="mt-8">
-              <div className="text-sm font-semibold text-zinc-900">Upgrade to a monthly plan</div>
-              <div className="mt-1 text-sm text-zinc-600">
-                Lower your per-action costs and unlock higher limits.
-              </div>
-              <div className="mt-4">
-                <PortalBillingUpgradeClient embedded />
-              </div>
-            </div>
-          ) : null}
         </div>
 
-        <div>
+        <div className="h-full rounded-3xl border border-zinc-200 bg-white p-6">
           <div className="text-sm font-semibold text-zinc-900">Top services</div>
-          <div className="mt-1 text-sm text-zinc-600">Quick links to what you actually use.</div>
 
           {topServices.length ? (
-            <div className="mt-4 divide-y divide-zinc-200 overflow-hidden rounded-3xl border border-zinc-200 bg-white">
+            <div className="mt-4 divide-y divide-zinc-200">
               {topServices.map((s, idx) => (
                 <a
                   key={s.slug}
                   href={`/portal/app/services/${encodeURIComponent(s.slug)}`}
-                  className="flex items-center justify-between gap-3 px-4 py-4 text-sm hover:bg-zinc-50"
+                  className="flex items-center gap-4 py-4 text-sm hover:bg-zinc-50"
                 >
-                  <div className="flex min-w-0 items-start gap-3">
-                    <div
-                      className={classNames(
-                        "mt-0.5 text-sm font-bold",
-                        idx === 0 ? "text-brand-blue" : "text-zinc-400",
-                      )}
-                    >
-                      #{idx + 1}
-                    </div>
-                    <div className="min-w-0">
-                      <div className="truncate font-semibold text-brand-ink">{s.title}</div>
-                      <div className="mt-0.5 text-xs text-zinc-500">{s.label}</div>
-                    </div>
+                  <div
+                    className={classNames(
+                      "w-6 text-center text-base font-extrabold",
+                      idx === 0 ? "text-brand-blue" : "text-brand-ink",
+                    )}
+                  >
+                    {idx + 1}
                   </div>
-                  <div className="shrink-0 text-xs font-semibold text-zinc-600">Open</div>
+                  <div className="min-w-0 truncate text-base font-semibold text-brand-ink">{s.title}</div>
                 </a>
               ))}
             </div>
@@ -550,6 +550,16 @@ function GeneralTab({
           )}
         </div>
       </div>
+
+      {creditsOnly ? (
+        <div className="mt-10 w-full rounded-3xl border border-zinc-200 bg-white p-8">
+          <div className="text-base font-semibold text-zinc-900">Upgrade to a monthly plan</div>
+          <div className="mt-1 text-sm text-zinc-600">Lower per-action costs, higher limits, and a predictable monthly price.</div>
+          <div className="mt-6">
+            <PortalBillingUpgradeClient embedded />
+          </div>
+        </div>
+      ) : null}
 
       <AppModal
         open={pwModalOpen}
@@ -653,13 +663,6 @@ function GeneralTab({
           </div>
 
           <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
-            <button
-              type="button"
-              className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
-              onClick={() => onGoBilling("referral")}
-            >
-              View billing details
-            </button>
             <button
               type="button"
               className="rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95"
