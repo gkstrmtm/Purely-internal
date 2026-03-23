@@ -56,16 +56,40 @@ export function SuggestedSetupSection({ canEdit }: { canEdit: boolean }) {
     if (error) toast.error(error);
   }, [error, toast]);
 
+  async function readErrorMessage(res: Response): Promise<string> {
+    try {
+      const contentType = String(res.headers.get("content-type") || "").toLowerCase();
+      if (contentType.includes("application/json")) {
+        const j = (await res.json().catch(() => null)) as any;
+        const err = typeof j?.error === "string" ? j.error.trim() : "";
+        if (err) return err;
+      }
+
+      const text = String(await res.text().catch(() => "")).trim();
+      const oneLine = text.replace(/\s+/g, " ").trim();
+      if (oneLine) return `Suggested setup failed (${res.status}). ${oneLine.slice(0, 180)}`;
+      return `Suggested setup failed (${res.status}).`;
+    } catch {
+      return `Suggested setup failed (${res.status}).`;
+    }
+  }
+
   async function loadPreview() {
     setLoading(true);
     setError(null);
 
     const res = await fetch("/api/portal/suggested-setup/preview", { cache: "no-store" });
-    const json = (await res.json().catch(() => ({}))) as Partial<PreviewRes> & { error?: string };
+    const json = (await res.clone().json().catch(() => null)) as (Partial<PreviewRes> & { error?: string }) | null;
     setLoading(false);
 
-    if (!res.ok || !json.ok) {
-      setError(json.error ?? "Unable to load suggested setup");
+    if (!res.ok) {
+      setError(await readErrorMessage(res));
+      return;
+    }
+
+    if (!json || !json.ok) {
+      const err = typeof (json as any)?.error === "string" ? String((json as any).error) : "";
+      setError(err || "Unable to load suggested setup");
       return;
     }
 
@@ -100,11 +124,17 @@ export function SuggestedSetupSection({ canEdit }: { canEdit: boolean }) {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ actionIds: selectedActionIds }),
     });
-    const json = (await res.json().catch(() => ({}))) as Partial<ApplyRes> & { error?: string };
+    const json = (await res.clone().json().catch(() => null)) as (Partial<ApplyRes> & { error?: string }) | null;
     setApplying(false);
 
-    if (!res.ok || !json.ok) {
-      setError(json.error ?? "Unable to apply suggested setup");
+    if (!res.ok) {
+      setError(await readErrorMessage(res));
+      return;
+    }
+
+    if (!json || !json.ok) {
+      const err = typeof (json as any)?.error === "string" ? String((json as any).error) : "";
+      setError(err || "Unable to apply suggested setup");
       return;
     }
 

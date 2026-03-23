@@ -67,30 +67,47 @@ export async function buildSuggestedSetupPreviewForOwner(ownerId: string): Promi
   entitlements: Entitlements;
   preview: SuggestedSetupPreview;
 }> {
-  const entitlements = await resolveEntitlementsForOwnerId(ownerId);
+  const entitlements = await resolveEntitlementsForOwnerId(ownerId).catch(() => ({
+    blog: false,
+    booking: false,
+    automations: false,
+    reviews: false,
+    newsletter: false,
+    nurture: false,
+    aiReceptionist: false,
+    leadScraping: false,
+    crm: false,
+    leadOutbound: false,
+  } satisfies Entitlements));
 
-  const profile = await prisma.businessProfile.findUnique({
-    where: { ownerId },
-    select: {
-      businessName: true,
-      websiteUrl: true,
-      industry: true,
-      businessModel: true,
-      primaryGoals: true,
-      targetCustomer: true,
-      brandVoice: true,
-      logoUrl: true,
-      brandPrimaryHex: true,
-      brandSecondaryHex: true,
-      brandAccentHex: true,
-      brandTextHex: true,
-      brandFontFamily: true,
-      brandFontGoogleFamily: true,
-    },
-  });
+  const profile = await prisma.businessProfile
+    .findUnique({
+      where: { ownerId },
+      select: {
+        businessName: true,
+        websiteUrl: true,
+        industry: true,
+        businessModel: true,
+        primaryGoals: true,
+        targetCustomer: true,
+        brandVoice: true,
+        logoUrl: true,
+        brandPrimaryHex: true,
+        brandSecondaryHex: true,
+        brandAccentHex: true,
+        brandTextHex: true,
+        brandFontFamily: true,
+        brandFontGoogleFamily: true,
+      },
+    })
+    .catch(() => null);
+
+  const ownerUser = await prisma.user
+    .findUnique({ where: { id: ownerId }, select: { name: true, email: true } })
+    .catch(() => null);
 
   const activationProfile: ActivationProfile = {
-    businessName: profile?.businessName ?? "",
+    businessName: profile?.businessName ?? ownerUser?.name ?? "",
     websiteUrl: profile?.websiteUrl ?? null,
     industry: profile?.industry ?? null,
     businessModel: profile?.businessModel ?? null,
