@@ -517,32 +517,40 @@ function GeneralTab({
           </div>
         </div>
 
-        <div className="h-full">
+        <div className="flex h-full flex-col p-6">
           <div className="text-sm font-semibold text-zinc-900">Top services</div>
 
           {topServices.length ? (
-            <div className="mt-4 divide-y divide-zinc-200">
+            <div className="mt-5 flex-1 divide-y divide-zinc-200">
               {topServices.map((s, idx) => (
-                <a
-                  key={s.slug}
-                  href={`/portal/app/services/${encodeURIComponent(s.slug)}`}
-                  className="flex items-center gap-4 py-4 text-sm"
-                >
+                <div key={s.slug} className="flex items-center gap-5 py-5">
                   <div
                     className={classNames(
-                      "w-6 text-center text-base font-extrabold",
+                      "w-16 text-center text-6xl font-extrabold leading-none",
                       idx === 0 ? "text-brand-blue" : "text-brand-ink",
                     )}
                   >
                     {idx + 1}
                   </div>
-                  <div className="min-w-0 truncate text-base font-semibold text-brand-ink">{s.title}</div>
-                </a>
+                  <div className="min-w-0 truncate text-2xl font-semibold leading-tight text-brand-ink">
+                    {s.title}
+                  </div>
+                </div>
               ))}
             </div>
           ) : (
-            <div className="mt-4 text-sm text-zinc-600">No services found.</div>
+            <div className="mt-5 flex-1 text-sm text-zinc-600">No services found.</div>
           )}
+
+          <div className="mt-auto pt-6">
+            <button
+              type="button"
+              className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+              onClick={() => onGoBilling("services")}
+            >
+              See all services
+            </button>
+          </div>
         </div>
       </div>
 
@@ -675,7 +683,14 @@ function GeneralTab({
 function BillingTab({ focus }: { focus: string }) {
   useEffect(() => {
     if (!focus) return;
-    const id = focus === "referral" ? "pa-billing-referral" : focus === "credits" ? "pa-billing-credits" : null;
+    const id =
+      focus === "referral"
+        ? "pa-billing-referral"
+        : focus === "credits"
+          ? "pa-billing-credits"
+          : focus === "services"
+            ? "pa-billing-services"
+            : null;
     if (!id) return;
     const el = document.getElementById(id);
     if (!el) return;

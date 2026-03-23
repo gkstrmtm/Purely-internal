@@ -1457,6 +1457,7 @@ export function PortalBillingClient({
       ) : null}
 
       <div
+        id="pa-billing-services"
         className={[
           "rounded-3xl border border-zinc-200 bg-white p-6",
           creditsFirstForMobileApp ? "order-last" : null,
