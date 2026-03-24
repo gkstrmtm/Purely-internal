@@ -57,26 +57,50 @@ export async function GET(
     const takeRaw = Number(url.searchParams.get("take") ?? "120");
     const take = Number.isFinite(takeRaw) ? Math.max(10, Math.min(500, takeRaw)) : 120;
 
-    const messages = await (prisma as any).portalInboxMessage.findMany({
-      where: { ownerId, threadId },
-      orderBy: { createdAt: "asc" },
-      take,
-      select: {
-        id: true,
-        channel: true,
-        direction: true,
-        fromAddress: true,
-        toAddress: true,
-        subject: true,
-        bodyText: true,
-        provider: true,
-        providerMessageId: true,
-        createdAt: true,
-        attachments: {
-          select: { id: true, fileName: true, mimeType: true, fileSize: true, publicToken: true },
+    const messageSelectBase = {
+      id: true,
+      channel: true,
+      direction: true,
+      fromAddress: true,
+      toAddress: true,
+      subject: true,
+      bodyText: true,
+      provider: true,
+      providerMessageId: true,
+      createdAt: true,
+    } as const;
+
+    let messages: any[] = [];
+    try {
+      messages = await (prisma as any).portalInboxMessage.findMany({
+        where: { ownerId, threadId },
+        orderBy: { createdAt: "asc" },
+        take,
+        select: {
+          ...messageSelectBase,
+          attachments: {
+            select: { id: true, fileName: true, mimeType: true, fileSize: true, publicToken: true },
+          },
         },
-      },
-    });
+      });
+    } catch (err) {
+      // If the "full" query fails (timeouts, transient DB errors, etc.),
+      // retry with a lighter payload so the conversation can still render.
+      console.error("[inbox/messages] load failed; retrying without attachments", {
+        ownerId,
+        threadId,
+        take,
+        err: err instanceof Error ? err.message : String(err ?? ""),
+      });
+
+      const fallbackTake = Math.min(120, take);
+      messages = await (prisma as any).portalInboxMessage.findMany({
+        where: { ownerId, threadId },
+        orderBy: { createdAt: "asc" },
+        take: fallbackTake,
+        select: messageSelectBase,
+      });
+    }
 
     // Best-effort dedupe: historically, outbound SMS could be logged twice
     // (Twilio send helper + API route). Collapse by provider message id.
