@@ -1224,7 +1224,7 @@ export function PortalBillingClient({
               <button
                 type="button"
                 onClick={() => setPurchaseModal(null)}
-                className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50"
+                className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-transparent bg-white text-lg font-semibold leading-none text-zinc-700 hover:border-zinc-200 hover:bg-zinc-50 focus-visible:border-zinc-200 focus-visible:outline-none"
                 aria-label="Close"
               >
                 ×

@@ -1,7 +1,7 @@
 "use client";
 
 import type { CSSProperties, ReactNode } from "react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
 export type PortalListboxOption<T extends string> = {
@@ -45,6 +45,7 @@ export function PortalListboxDropdown<T extends string>(props: {
   const menuRef = useRef<HTMLDivElement | null>(null);
 
   const [menuRect, setMenuRect] = useState<null | { left: number; top: number; width: number; placement: "down" | "up" }>(null);
+  const [menuHeightPx, setMenuHeightPx] = useState<number | null>(null);
 
   const current = options.find((o) => o.value === value) ?? null;
   const currentLabel = current ? current.label : placeholder ? placeholder : String(value ?? "");
@@ -53,21 +54,30 @@ export function PortalListboxDropdown<T extends string>(props: {
     if (disabled && open) setOpen(false);
   }, [disabled, open]);
 
-  const updateMenuRect = () => {
+  const updateMenuRect = useCallback(() => {
     const btn = buttonRef.current;
     if (!btn) return;
     const r = btn.getBoundingClientRect();
     const vw = Math.max(0, window.innerWidth || 0);
     const vh = Math.max(0, window.innerHeight || 0);
 
+    const estimatedMenuHeight = 280;
+    const menuH = Number.isFinite(menuHeightPx as number) ? Math.max(0, menuHeightPx as number) : estimatedMenuHeight;
+
     const width = Math.min(Math.max(180, r.width), vw - 16);
     const left = Math.min(Math.max(8, r.left), Math.max(8, vw - width - 8));
     const spaceBelow = vh - r.bottom;
-    const placement: "down" | "up" = spaceBelow >= 240 ? "down" : "up";
-    const top = placement === "down" ? Math.min(r.bottom + 8, vh - 8) : Math.max(8, r.top - 8);
+    const spaceAbove = r.top;
+
+    const wantsDown = spaceBelow >= menuH + 16 || spaceBelow >= spaceAbove;
+    const placement: "down" | "up" = wantsDown ? "down" : "up";
+    const top =
+      placement === "down"
+        ? Math.max(8, Math.min(r.bottom + 8, vh - 8 - menuH))
+        : Math.max(8, Math.min(vh - 8 - menuH, r.top - 8 - menuH));
 
     setMenuRect({ left, top, width, placement });
-  };
+  }, [menuHeightPx]);
 
   const menuNode = useMemo(() => {
     if (!open) return null;
@@ -77,11 +87,10 @@ export function PortalListboxDropdown<T extends string>(props: {
         ref={menuRef}
         className="overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-lg"
         style={{
-          position: portal ? "fixed" : ("absolute" as any),
+          position: portal ? "fixed" : ("static" as any),
           zIndex: 100000,
           left: portal ? (menuRect?.left ?? 0) : undefined,
           top: portal ? (menuRect?.top ?? 0) : undefined,
-          transform: portal && menuRect?.placement === "up" ? "translateY(-100%)" : undefined,
           width: portal ? (menuRect?.width ?? 0) : undefined,
           marginTop: portal ? 0 : undefined,
         }}
@@ -134,7 +143,10 @@ export function PortalListboxDropdown<T extends string>(props: {
     );
 
     if (!portal) {
-      return <div className="absolute z-50 mt-2 w-full">{menu}</div>;
+      const placement = menuRect?.placement ?? "down";
+      return (
+        <div className={"absolute z-50 w-full " + (placement === "up" ? "bottom-full mb-2" : "top-full mt-2")}>{menu}</div>
+      );
     }
 
     if (typeof document === "undefined") return null;
@@ -167,6 +179,7 @@ export function PortalListboxDropdown<T extends string>(props: {
   useEffect(() => {
     if (!open) return;
     updateMenuRect();
+    window.setTimeout(() => updateMenuRect(), 0);
     const onResize = () => updateMenuRect();
     const onScroll = () => updateMenuRect();
     window.addEventListener("resize", onResize);
@@ -175,7 +188,21 @@ export function PortalListboxDropdown<T extends string>(props: {
       window.removeEventListener("resize", onResize);
       window.removeEventListener("scroll", onScroll, true);
     };
-  }, [open, portal]);
+  }, [open, portal, menuHeightPx, updateMenuRect]);
+
+  useEffect(() => {
+    if (!open) return;
+    const el = menuRef.current;
+    if (!el) return;
+    const measure = () => {
+      const h = el.getBoundingClientRect().height;
+      setMenuHeightPx(Number.isFinite(h) ? Math.max(0, Math.ceil(h)) : null);
+    };
+    measure();
+    const ro = typeof ResizeObserver !== "undefined" ? new ResizeObserver(measure) : null;
+    ro?.observe(el);
+    return () => ro?.disconnect();
+  }, [open, options.length]);
 
   return (
     <div ref={rootRef} className={"relative " + (className || "")}> 

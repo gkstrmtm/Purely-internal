@@ -16,7 +16,7 @@ export function AppModal({
   footer,
   widthClassName,
   zIndex,
-  closeVariant,
+  closeVariant = "x",
   hideHeaderDivider,
   hideFooterDivider,
 }: {

@@ -79,7 +79,7 @@ export function Lightbox({
             aria-label="Close"
             className="absolute right-3 top-3 grid h-10 w-10 place-items-center rounded-full bg-black/50 text-white hover:bg-black/65"
           >
-            ✕
+            ×
           </button>
 
           {count > 1 ? (
