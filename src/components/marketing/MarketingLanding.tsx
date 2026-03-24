@@ -1230,7 +1230,7 @@ export function MarketingLanding() {
                   onClick={() => setMenuOpen(false)}
                   className="fixed inset-0 z-40 cursor-default"
                 />
-                <div className="absolute right-0 top-full z-50 w-64 overflow-hidden rounded-b-2xl bg-brand-blue/95 shadow-lg ring-1 ring-white/15">
+                <div className="absolute right-0 top-full z-50 w-64 max-h-[calc(100dvh-5rem)] overflow-auto overscroll-contain rounded-b-2xl bg-brand-blue/95 shadow-lg ring-1 ring-white/15">
                   <nav className="grid border-t border-white/15">
                   <Link
                     href="/"
