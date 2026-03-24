@@ -1,5 +1,7 @@
 import type { ReactNode } from "react";
 
+import { AiSparkIcon } from "@/components/AiSparkIcon";
+
 export type PortalIconProps = {
   size?: number;
   className?: string;
@@ -52,11 +54,38 @@ export function IconLock() {
 export function IconDashboard() {
   return (
     <IconWrap>
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-        <path d="M4 13h7V4H4v9zM13 20h7v-7h-7v7zM13 11h7V4h-7v7zM4 20h7v-5H4v5z" fill="currentColor" />
-      </svg>
+      <IconDashboardGlyph />
     </IconWrap>
   );
+}
+
+export function IconDashboardGlyph({ size = 18, className, title }: PortalIconProps) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+      className={className}
+      aria-hidden={title ? undefined : true}
+    >
+      {title ? <title>{title}</title> : null}
+      <path d="M4 13h7V4H4v9zM13 20h7v-7h-7v7zM13 11h7V4h-7v7zM4 20h7v-5H4v5z" fill="currentColor" />
+    </svg>
+  );
+}
+
+export function IconAiChat() {
+  return (
+    <IconWrap>
+      <IconAiChatGlyph />
+    </IconWrap>
+  );
+}
+
+export function IconAiChatGlyph({ className, title }: { className?: string; title?: string }) {
+  return <AiSparkIcon className={className} title={title} />;
 }
 
 export function IconService() {

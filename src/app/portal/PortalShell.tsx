@@ -9,18 +9,17 @@ import { SignOutButton } from "@/components/SignOutButton";
 import { useToast } from "@/components/ToastProvider";
 import {
   IconChevron,
-  IconDashboard,
+  IconAiChatGlyph,
+  IconDashboardGlyph,
   IconHamburger,
   IconHelpCircle,
   IconInboxGlyph,
   IconLock,
   IconPeopleGlyph,
-  IconPeople,
   IconPhoneCall,
-  IconService,
+  IconServicesGlyph,
   IconServiceGlyph,
   IconSettingsGlyph,
-  IconSettings,
 } from "@/app/portal/PortalIcons";
 import { PORTAL_SERVICES, type PortalService } from "@/app/portal/services/catalog";
 import { groupPortalServices, portalServiceCategoryForSlug, type PortalServiceCategory } from "@/app/portal/services/categories";
@@ -123,6 +122,8 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
 
     if (pathname === appRoot) {
       sectionTitle = "Dashboard";
+    } else if (pathname.startsWith(`${appRoot}/ai-chat`)) {
+      sectionTitle = "AI Chat";
     } else if (pathname.startsWith(`${appRoot}/people`)) {
       sectionTitle = "People";
     } else if (pathname.startsWith(`${appRoot}/billing`)) {
@@ -823,10 +824,11 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
     const canSeeSettings = can("profile") || can("billing");
 
     const base = [
-      { href: `${basePath}/app`, label: "Dashboard", icon: <IconDashboard /> },
-      { href: `${basePath}/app/services`, label: "Services", icon: <IconService /> },
-      ...(can("people") ? [{ href: `${basePath}/app/people`, label: "People", icon: <IconPeople /> }] : []),
-      ...(canSeeSettings ? [{ href: `${basePath}/app/settings`, label: "Settings", icon: <IconSettings /> }] : []),
+      { href: `${basePath}/app`, label: "Dashboard", iconGlyph: <IconDashboardGlyph /> },
+      { href: `${basePath}/app/services`, label: "Services", iconGlyph: <IconServicesGlyph /> },
+      { href: `${basePath}/app/ai-chat`, label: "AI Chat", iconGlyph: <IconAiChatGlyph /> },
+      ...(can("people") ? [{ href: `${basePath}/app/people`, label: "People", iconGlyph: <IconPeopleGlyph /> }] : []),
+      ...(canSeeSettings ? [{ href: `${basePath}/app/settings`, label: "Settings", iconGlyph: <IconSettingsGlyph /> }] : []),
     ];
     return base;
   }, [portalMe, basePath]);
@@ -1289,7 +1291,15 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                         : "text-zinc-700 hover:bg-zinc-50",
                     )}
                   >
-                    {item.icon}
+                    <span
+                      className={classNames(
+                        "inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl bg-zinc-100",
+                        isActive(item.href) ? "text-(--color-brand-blue)" : "text-zinc-700",
+                      )}
+                      aria-hidden
+                    >
+                      {item.iconGlyph}
+                    </span>
                     <span className="truncate">{item.label}</span>
                   </Link>
                 ))}
@@ -1456,13 +1466,15 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                     collapsed && "justify-center px-2",
                   )}
                 >
-                  {collapsed ? (
-                    <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl border border-zinc-200 bg-white">
-                      {item.icon}
-                    </span>
-                  ) : (
-                    item.icon
-                  )}
+                  <span
+                    className={classNames(
+                      "inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl bg-zinc-100",
+                      isActive(item.href) ? "text-(--color-brand-blue)" : "text-zinc-700",
+                    )}
+                    aria-hidden
+                  >
+                    {item.iconGlyph}
+                  </span>
                   {!collapsed ? <span className="truncate">{item.label}</span> : null}
                 </Link>
               ))}
@@ -1607,7 +1619,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
               </div>
             ) : null}
             <div className={classNames("mt-3", collapsed && "mt-0 flex justify-center")}>
-              <SignOutButton />
+              <SignOutButton variant="sidebar" collapsed={collapsed} />
             </div>
           </div>
         </aside>

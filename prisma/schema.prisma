@@ -204,6 +204,11 @@ model User {
   portalAiOutboundCallManualCalls PortalAiOutboundCallManualCall[]
   portalAiOutboundMessageEnrollments PortalAiOutboundMessageEnrollment[]
 
+  portalAiChatThreadsOwned    PortalAiChatThread[]  @relation("PortalAiChatThreadOwner")
+  portalAiChatThreadsCreated  PortalAiChatThread[]  @relation("PortalAiChatThreadCreatedBy")
+  portalAiChatMessagesOwned   PortalAiChatMessage[] @relation("PortalAiChatMessageOwner")
+  portalAiChatMessagesCreated PortalAiChatMessage[] @relation("PortalAiChatMessageCreatedBy")
+
   employeeInvitesCreated EmployeeInvite[] @relation("EmployeeInviteCreatedBy")
   employeeInvitesUsed    EmployeeInvite[] @relation("EmployeeInviteUsedBy")
 
@@ -241,6 +246,52 @@ model User {
   portalReferralsSent       PortalReferral[]              @relation("PortalReferralInviter")
   portalReferralReceived    PortalReferral?               @relation("PortalReferralInvited")
   portalEmailVerifyTokens   PortalEmailVerificationToken[]
+}
+
+model PortalAiChatThread {
+  id String @id @default(cuid())
+
+  ownerId String
+
+  title String @default("New chat")
+
+  createdByUserId String?
+  lastMessageAt   DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  owner         User               @relation("PortalAiChatThreadOwner", fields: [ownerId], references: [id])
+  createdByUser User?              @relation("PortalAiChatThreadCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  messages      PortalAiChatMessage[]
+
+  @@index([ownerId, lastMessageAt])
+}
+
+model PortalAiChatMessage {
+  id String @id @default(cuid())
+
+  ownerId  String
+  threadId String
+
+  role String
+  text String
+
+  attachmentsJson Json?
+
+  createdByUserId String?
+
+  sendAt DateTime?
+  sentAt DateTime?
+
+  createdAt DateTime @default(now())
+
+  owner         User              @relation("PortalAiChatMessageOwner", fields: [ownerId], references: [id])
+  thread        PortalAiChatThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  createdByUser User?            @relation("PortalAiChatMessageCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+
+  @@index([threadId, createdAt])
+  @@index([ownerId, createdAt])
 }
 
 model PortalReferral {

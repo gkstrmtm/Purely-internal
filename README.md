@@ -136,6 +136,35 @@ Voice agent platform API key:
 - Preferred: set in Portal **Profile**.
 - Fallback env vars (server-side): `VOICE_AGENT_API_KEY` / `ELEVENLABS_API_KEY` / `ELEVEN_LABS_API_KEY`.
 
+## AI Chat (portal)
+
+Client-facing UI:
+
+- `/portal/app/ai-chat`
+
+Notes:
+
+- This is a full-page ChatGPT-style UI with persistent threads + messages.
+- It reuses the same portal “support chat” AI generator as the floating widget, so capabilities stay in sync.
+- File uploads are supported and are mirrored into the portal Media Library.
+
+Portal AI keys:
+
+- `AI_BASE_URL`
+- `AI_API_KEY`
+- Optional: `AI_MODEL`
+
+Scheduled messages:
+
+- Users can schedule a message in AI Chat for a future send time.
+- For unattended processing (when the AI Chat page is not open), configure a cron job to call:
+	- `GET /api/portal/ai-chat/cron`
+
+Cron auth:
+
+- In production, this endpoint only accepts requests from Vercel Cron (no secret).
+- The schedule is configured in `vercel.json`.
+
 ## Sales Reporting (multi-provider, per-portal)
 
 This repo includes an **optional** portal feature that lets a client connect a payment processor (stored **encrypted at rest**) and view a sales dashboard under:
