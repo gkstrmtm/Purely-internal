@@ -43,9 +43,9 @@ export async function GET(
   const { threadId } = await params;
 
   try {
-    // Avoid runtime failures if migrations haven't been applied yet.
-    // Best-effort: scheduled-message enrichment should never block the thread.
-    await ensurePortalInboxSchema().catch(() => undefined);
+    // Best-effort background schema installer (safe if already installed).
+    // IMPORTANT: Don't block message loading on DDL / schema checks.
+    void ensurePortalInboxSchema().catch(() => undefined);
 
     const thread = await (prisma as any).portalInboxThread.findFirst({
       where: { id: threadId, ownerId },
@@ -147,79 +147,89 @@ export async function GET(
         : [],
     }));
 
-    const scheduledRows = (await (prisma as any).portalInboxScheduledMessage
-      .findMany({
-        where: { ownerId, threadId, status: { in: ["PENDING", "SENDING"] } },
-        orderBy: { scheduledFor: "asc" },
-        take: 50,
-        select: {
-          id: true,
-          channel: true,
-          toAddress: true,
-          subject: true,
-          bodyText: true,
-          attachmentIds: true,
-          scheduledFor: true,
-          status: true,
-          createdAt: true,
-          updatedAt: true,
-        },
-      })
-      .catch(() => [])) as any[];
+    let scheduledMessages: any[] = [];
+    try {
+      const scheduledRows = (await (prisma as any).portalInboxScheduledMessage
+        .findMany({
+          where: { ownerId, threadId, status: { in: ["PENDING", "SENDING"] } },
+          orderBy: { scheduledFor: "asc" },
+          take: 50,
+          select: {
+            id: true,
+            channel: true,
+            toAddress: true,
+            subject: true,
+            bodyText: true,
+            attachmentIds: true,
+            scheduledFor: true,
+            status: true,
+            createdAt: true,
+            updatedAt: true,
+          },
+        })
+        .catch(() => [])) as any[];
 
-    const scheduledAttachmentIds = Array.from(
-      new Set(
-        scheduledRows
-          .flatMap((r: any) => (Array.isArray(r?.attachmentIds) ? r.attachmentIds : []))
-          .map((x: any) => String(x || "").trim())
-          .filter(Boolean),
-      ),
-    ).slice(0, 250);
+      const scheduledAttachmentIds = Array.from(
+        new Set(
+          scheduledRows
+            .flatMap((r: any) => (Array.isArray(r?.attachmentIds) ? r.attachmentIds : []))
+            .map((x: any) => String(x || "").trim())
+            .filter(Boolean),
+        ),
+      ).slice(0, 250);
 
-    const scheduledAttachments = scheduledAttachmentIds.length
-      ? (((await (prisma as any).portalInboxAttachment
-          .findMany({
-            where: { ownerId, id: { in: scheduledAttachmentIds }, messageId: null },
-            select: { id: true, fileName: true, mimeType: true, fileSize: true, publicToken: true },
-          })
-          .catch(() => [])) as any[]) ?? [])
-      : ([] as any[]);
+      const scheduledAttachments = scheduledAttachmentIds.length
+        ? (((await (prisma as any).portalInboxAttachment
+            .findMany({
+              where: { ownerId, id: { in: scheduledAttachmentIds }, messageId: null },
+              select: { id: true, fileName: true, mimeType: true, fileSize: true, publicToken: true },
+            })
+            .catch(() => [])) as any[]) ?? [])
+        : ([] as any[]);
 
-    const scheduledAttachmentById = new Map<string, any>();
-    for (const a of scheduledAttachments) {
-      const id = String(a?.id || "").trim();
-      if (id) scheduledAttachmentById.set(id, a);
+      const scheduledAttachmentById = new Map<string, any>();
+      for (const a of scheduledAttachments) {
+        const id = String(a?.id || "").trim();
+        if (id) scheduledAttachmentById.set(id, a);
+      }
+
+      scheduledMessages = scheduledRows.map((r: any) => {
+        const attachmentIds = Array.isArray(r?.attachmentIds)
+          ? r.attachmentIds.map((x: any) => String(x || "").trim()).filter(Boolean)
+          : [];
+
+        const attachments = attachmentIds
+          .map((id: string) => scheduledAttachmentById.get(id))
+          .filter(Boolean)
+          .map((a: any) => ({
+            id: a.id,
+            fileName: a.fileName,
+            mimeType: a.mimeType,
+            fileSize: a.fileSize,
+            url: `/api/public/inbox/attachment/${a.id}/${a.publicToken}`,
+          }));
+
+        return {
+          id: String(r?.id || ""),
+          channel: r?.channel,
+          toAddress: String(r?.toAddress || ""),
+          subject: r?.subject ?? null,
+          bodyText: String(r?.bodyText || ""),
+          scheduledFor: r?.scheduledFor instanceof Date ? r.scheduledFor.toISOString() : String(r?.scheduledFor || ""),
+          status: r?.status,
+          createdAt: r?.createdAt instanceof Date ? r.createdAt.toISOString() : String(r?.createdAt || ""),
+          updatedAt: r?.updatedAt instanceof Date ? r.updatedAt.toISOString() : String(r?.updatedAt || ""),
+          attachments,
+        };
+      });
+    } catch (err) {
+      console.error("[inbox/messages] scheduled enrichment failed", {
+        ownerId,
+        threadId,
+        err: err instanceof Error ? err.message : String(err ?? ""),
+      });
+      scheduledMessages = [];
     }
-
-    const scheduledMessages = scheduledRows.map((r: any) => {
-      const attachmentIds = Array.isArray(r?.attachmentIds)
-        ? r.attachmentIds.map((x: any) => String(x || "").trim()).filter(Boolean)
-        : [];
-
-      const attachments = attachmentIds
-        .map((id: string) => scheduledAttachmentById.get(id))
-        .filter(Boolean)
-        .map((a: any) => ({
-          id: a.id,
-          fileName: a.fileName,
-          mimeType: a.mimeType,
-          fileSize: a.fileSize,
-          url: `/api/public/inbox/attachment/${a.id}/${a.publicToken}`,
-        }));
-
-      return {
-        id: String(r?.id || ""),
-        channel: r?.channel,
-        toAddress: String(r?.toAddress || ""),
-        subject: r?.subject ?? null,
-        bodyText: String(r?.bodyText || ""),
-        scheduledFor: r?.scheduledFor instanceof Date ? r.scheduledFor.toISOString() : String(r?.scheduledFor || ""),
-        status: r?.status,
-        createdAt: r?.createdAt instanceof Date ? r.createdAt.toISOString() : String(r?.createdAt || ""),
-        updatedAt: r?.updatedAt instanceof Date ? r.updatedAt.toISOString() : String(r?.updatedAt || ""),
-        attachments,
-      };
-    });
 
     return NextResponse.json({ ok: true, messages: withUrls, scheduledMessages });
   } catch (e) {
