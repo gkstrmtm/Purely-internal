@@ -588,7 +588,7 @@ export function PortalFloatingTools() {
               </div>
               <button
                 type="button"
-                className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-700 hover:bg-zinc-50 disabled:opacity-60"
+                className="rounded-2xl border border-transparent bg-white px-3 py-2 text-xs font-semibold text-zinc-500 hover:border-zinc-200 hover:bg-zinc-50 hover:text-zinc-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(29,78,216,0.25)] disabled:opacity-60"
                 onClick={() => setReportOpen(false)}
                 disabled={sending}
               >
@@ -635,7 +635,7 @@ export function PortalFloatingTools() {
               </div>
               <button
                 type="button"
-                className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
+                className="rounded-2xl border border-transparent bg-white px-3 py-2 text-xs font-semibold text-zinc-500 hover:border-zinc-200 hover:bg-zinc-50 hover:text-zinc-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(29,78,216,0.25)]"
                 onClick={() => setChatOpen(false)}
               >
                 ×
@@ -726,7 +726,7 @@ export function PortalFloatingTools() {
               </div>
               <button
                 type="button"
-                className="rounded-full border border-zinc-200 bg-white px-2 py-1 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
+                className="rounded-full border border-transparent bg-white px-2 py-1 text-xs font-semibold text-zinc-500 hover:border-zinc-200 hover:bg-zinc-50 hover:text-zinc-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(29,78,216,0.25)]"
                 onClick={() => persistMinimized(true)}
                 aria-label="Minimize"
               >

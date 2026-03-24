@@ -44,7 +44,13 @@ export function PortalListboxDropdown<T extends string>(props: {
   const buttonRef = useRef<HTMLButtonElement | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
 
-  const [menuRect, setMenuRect] = useState<null | { left: number; top: number; width: number; placement: "down" | "up" }>(null);
+  const [menuRect, setMenuRect] = useState<null | {
+    left: number;
+    top: number;
+    width: number;
+    placement: "down" | "up";
+    maxHeight: number;
+  }>(null);
   const [menuHeightPx, setMenuHeightPx] = useState<number | null>(null);
 
   const current = options.find((o) => o.value === value) ?? null;
@@ -61,22 +67,31 @@ export function PortalListboxDropdown<T extends string>(props: {
     const vw = Math.max(0, window.innerWidth || 0);
     const vh = Math.max(0, window.innerHeight || 0);
 
+    const clamp = (v: number, min: number, max: number) => Math.min(Math.max(v, min), max);
+
     const estimatedMenuHeight = 280;
     const menuH = Number.isFinite(menuHeightPx as number) ? Math.max(0, menuHeightPx as number) : estimatedMenuHeight;
+
+    // Keep menus usable even for very tall option lists.
+    const desiredH = Math.min(menuH, 360);
 
     const width = Math.min(Math.max(180, r.width), vw - 16);
     const left = Math.min(Math.max(8, r.left), Math.max(8, vw - width - 8));
     const spaceBelow = vh - r.bottom;
     const spaceAbove = r.top;
 
-    const wantsDown = spaceBelow >= menuH + 16 || spaceBelow >= spaceAbove;
+    const wantsDown = spaceBelow >= desiredH + 16 || spaceBelow >= spaceAbove;
     const placement: "down" | "up" = wantsDown ? "down" : "up";
+
+    const available = (placement === "down" ? spaceBelow : spaceAbove) - 16;
+    const maxHeight = clamp(Number.isFinite(available) ? available : desiredH, 120, desiredH);
+    const menuPosH = Math.min(desiredH, maxHeight);
     const top =
       placement === "down"
-        ? Math.max(8, Math.min(r.bottom + 8, vh - 8 - menuH))
-        : Math.max(8, Math.min(vh - 8 - menuH, r.top - 8 - menuH));
+        ? clamp(r.bottom + 8, 8, vh - 8 - menuPosH)
+        : clamp(r.top - 8 - menuPosH, 8, vh - 8 - menuPosH);
 
-    setMenuRect({ left, top, width, placement });
+    setMenuRect({ left, top, width, placement, maxHeight });
   }, [menuHeightPx]);
 
   const menuNode = useMemo(() => {
@@ -99,7 +114,7 @@ export function PortalListboxDropdown<T extends string>(props: {
           e.stopPropagation();
         }}
       >
-        <div className="max-h-65 overflow-auto p-1">
+        <div className="overflow-auto p-1" style={{ maxHeight: menuRect?.maxHeight ?? 280 }}>
           {options.map((o) => {
             const isSel = o.value === value;
             const disabled = Boolean(o.disabled);
