@@ -1,11 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 
 import { AppModal } from "@/components/AppModal";
-import { DateTimePicker } from "@/components/DateTimePicker";
 import { useToast } from "@/components/ToastProvider";
-import { IconSchedule, IconSend, IconSendHover } from "@/app/portal/PortalIcons";
+import { PortalMediaPickerModal, type PortalMediaPickItem } from "@/components/PortalMediaPickerModal";
+import { IconSend, IconSendHover } from "@/app/portal/PortalIcons";
 
 type Thread = {
   id: string;
@@ -44,24 +46,17 @@ function fmtShortTime(iso: string | null | undefined) {
   return new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" }).format(d);
 }
 
-function renderTextWithLinks(text: string): Array<string | { t: "link"; href: string; label: string }> {
-  const s = String(text || "");
-  const parts: Array<string | { t: "link"; href: string; label: string }> = [];
-
-  // Markdown-style links.
-  const linkRe = /\[([^\]]+)\]\(([^)\s]+)\)/g;
-  let lastIdx = 0;
-  let m: RegExpExecArray | null;
-  while ((m = linkRe.exec(s))) {
-    const start = m.index;
-    const end = start + m[0].length;
-    if (start > lastIdx) parts.push(s.slice(lastIdx, start));
-    parts.push({ t: "link", label: m[1] || m[2], href: m[2] || "" });
-    lastIdx = end;
-  }
-  if (lastIdx < s.length) parts.push(s.slice(lastIdx));
-
-  return parts;
+function slugify(raw: string) {
+  const s = String(raw || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9-]/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-/, "")
+    .replace(/-$/, "");
+  if (!s) return null;
+  if (s.length < 2 || s.length > 60) return null;
+  return s;
 }
 
 function safeHref(href: string) {
@@ -78,45 +73,94 @@ function safeHref(href: string) {
   }
 }
 
+function newClientId() {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+    if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID();
+  } catch {
+    // ignore
+  }
+  return `${Date.now().toString(16)}-${Math.random().toString(16).slice(2)}`;
+}
+
+function ThinkingDots() {
+  return (
+    <div className="inline-flex items-center gap-1" aria-label="Thinking">
+      <span className="inline-block h-2 w-2 rounded-full bg-zinc-400/80 animate-bounce" style={{ animationDelay: "0ms" }} />
+      <span className="inline-block h-2 w-2 rounded-full bg-zinc-400/80 animate-bounce" style={{ animationDelay: "100ms" }} />
+      <span className="inline-block h-2 w-2 rounded-full bg-zinc-400/80 animate-bounce" style={{ animationDelay: "200ms" }} />
+    </div>
+  );
+}
+
 function MessageBubble({ msg }: { msg: Message }) {
   const isUser = msg.role === "user";
-  const scheduled = Boolean(msg.sendAt && !msg.sentAt);
+  const isThinking = msg.id.startsWith("optimistic-assistant-") && msg.role === "assistant";
 
   const bubble = (
     <div
       className={classNames(
         "rounded-3xl px-4 py-3 text-sm leading-relaxed",
-        isUser ? "bg-brand-ink text-white" : "bg-white text-zinc-900 border border-zinc-200",
+        isUser ? "bg-brand-blue text-white" : "bg-white text-zinc-900 border border-zinc-200",
       )}
     >
-      <div className="whitespace-pre-wrap">
-        {isUser ? (
-          msg.text
-        ) : (
-          <>
-            {renderTextWithLinks(msg.text).map((p, i) => {
-              if (typeof p === "string") return <span key={i}>{p}</span>;
-              const href = safeHref(p.href);
-              if (!href) return <span key={i}>{p.label}</span>;
-              const external = /^https?:\/\//i.test(href);
-              return (
-                <a
-                  key={i}
-                  href={href}
-                  target={external ? "_blank" : undefined}
-                  rel={external ? "noreferrer noopener" : undefined}
-                  className={classNames(
-                    "font-semibold underline underline-offset-2",
-                    isUser ? "text-white/95" : "text-brand-blue",
-                  )}
-                >
-                  {p.label}
-                </a>
-              );
-            })}
-          </>
-        )}
-      </div>
+      {isUser ? (
+        <div className="whitespace-pre-wrap">{msg.text}</div>
+      ) : isThinking ? (
+        <ThinkingDots />
+      ) : (
+        <div className="prose prose-sm max-w-none prose-zinc">
+          <ReactMarkdown
+            remarkPlugins={[remarkGfm]}
+            components={{
+              a({ href, children }: { href?: string; children?: ReactNode }) {
+                const safe = safeHref(String(href || ""));
+                if (!safe) return <span>{children}</span>;
+                const external = /^https?:\/\//i.test(safe);
+                return (
+                  <a
+                    href={safe}
+                    target={external ? "_blank" : undefined}
+                    rel={external ? "noreferrer noopener" : undefined}
+                    className="font-semibold underline underline-offset-2 text-brand-blue"
+                  >
+                    {children}
+                  </a>
+                );
+              },
+              p({ children }: { children?: ReactNode }) {
+                return <p className="my-2 first:mt-0 last:mb-0">{children}</p>;
+              },
+              ul({ children }: { children?: ReactNode }) {
+                return <ul className="my-2 list-disc pl-5">{children}</ul>;
+              },
+              ol({ children }: { children?: ReactNode }) {
+                return <ol className="my-2 list-decimal pl-5">{children}</ol>;
+              },
+              li({ children }: { children?: ReactNode }) {
+                return <li className="my-1">{children}</li>;
+              },
+              h1({ children }: { children?: ReactNode }) {
+                return <h1 className="my-2 text-base font-semibold">{children}</h1>;
+              },
+              h2({ children }: { children?: ReactNode }) {
+                return <h2 className="my-2 text-sm font-semibold">{children}</h2>;
+              },
+              h3({ children }: { children?: ReactNode }) {
+                return <h3 className="my-2 text-sm font-semibold">{children}</h3>;
+              },
+              code({ children }: { children?: ReactNode }) {
+                return <code className="rounded bg-zinc-100 px-1 py-0.5 text-[12px]">{children}</code>;
+              },
+              pre({ children }: { children?: ReactNode }) {
+                return <pre className="my-2 overflow-x-auto rounded-2xl bg-zinc-100 p-3 text-[12px]">{children}</pre>;
+              },
+            }}
+          >
+            {msg.text || ""}
+          </ReactMarkdown>
+        </div>
+      )}
 
       {Array.isArray(msg.attachmentsJson) && msg.attachmentsJson.length ? (
         <div className={classNames("mt-3 flex flex-wrap gap-2", isUser ? "text-white/90" : "text-zinc-700")}>
@@ -134,12 +178,6 @@ function MessageBubble({ msg }: { msg: Message }) {
               <span className="truncate">{String(a?.fileName || "Attachment")}</span>
             </a>
           ))}
-        </div>
-      ) : null}
-
-      {scheduled ? (
-        <div className={classNames("mt-2 text-xs font-semibold", isUser ? "text-white/75" : "text-zinc-500")}>
-          Scheduled for {new Date(msg.sendAt as string).toLocaleString()}
         </div>
       ) : null}
     </div>
@@ -168,13 +206,18 @@ export function PortalAiChatClient() {
   const [pendingAttachments, setPendingAttachments] = useState<Attachment[]>([]);
   const [uploading, setUploading] = useState(false);
 
-  const [scheduleOpen, setScheduleOpen] = useState(false);
-  const [scheduleValue, setScheduleValue] = useState<Date | null>(null);
+  const [attachOpen, setAttachOpen] = useState(false);
+  const [mediaPickerOpen, setMediaPickerOpen] = useState(false);
+  const [actionsOpen, setActionsOpen] = useState(false);
+  const [actionBusy, setActionBusy] = useState(false);
+  const [taskTitle, setTaskTitle] = useState("");
+  const [funnelName, setFunnelName] = useState("");
 
   const [mobileThreadsOpen, setMobileThreadsOpen] = useState(false);
 
   const scrollerRef = useRef<HTMLDivElement | null>(null);
   const endRef = useRef<HTMLDivElement | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const activeThread = useMemo(() => threads.find((t) => t.id === activeThreadId) || null, [threads, activeThreadId]);
 
@@ -252,25 +295,6 @@ export function PortalAiChatClient() {
     [toast, scrollToBottom],
   );
 
-  const flushDue = useCallback(
-    async (threadId: string) => {
-      try {
-        const res = await fetch(`/api/portal/ai-chat/threads/${encodeURIComponent(threadId)}/flush`, {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ url: window.location.href }),
-        });
-        const json = await res.json().catch(() => null);
-        if (json?.ok && json?.processed > 0) {
-          await loadMessages(threadId);
-        }
-      } catch {
-        // best-effort
-      }
-    },
-    [loadMessages],
-  );
-
   useEffect(() => {
     void loadThreads();
   }, [loadThreads]);
@@ -279,15 +303,6 @@ export function PortalAiChatClient() {
     if (!activeThreadId) return;
     void loadMessages(activeThreadId);
   }, [activeThreadId, loadMessages]);
-
-  useEffect(() => {
-    if (!activeThreadId) return;
-    void flushDue(activeThreadId);
-    const id = window.setInterval(() => {
-      void flushDue(activeThreadId);
-    }, 15_000);
-    return () => window.clearInterval(id);
-  }, [activeThreadId, flushDue]);
 
   const createThread = useCallback(async () => {
     try {
@@ -330,11 +345,54 @@ export function PortalAiChatClient() {
     [toast],
   );
 
+  const addMediaAttachment = useCallback(
+    async (item: PortalMediaPickItem) => {
+      const next: Attachment = {
+        id: item.id,
+        fileName: item.fileName,
+        mimeType: item.mimeType,
+        fileSize: item.fileSize,
+        url: item.shareUrl || item.downloadUrl,
+      };
+      setPendingAttachments((prev) => [...prev, next].slice(0, 10));
+      setMediaPickerOpen(false);
+    },
+    [],
+  );
+
   const send = useCallback(
-    async (opts?: { sendAt?: Date | null }) => {
+    async () => {
       if (!activeThreadId) return;
       const text = input.trim();
-      if (!text) return;
+      const attachments = pendingAttachments;
+      if (!text && !attachments.length) return;
+
+      const optimisticId = newClientId();
+      const nowIso = new Date().toISOString();
+
+      const optimisticUser: Message = {
+        id: `optimistic-user-${optimisticId}`,
+        role: "user",
+        text,
+        attachmentsJson: attachments,
+        createdAt: nowIso,
+        sendAt: null,
+        sentAt: nowIso,
+      };
+
+      const optimisticAssistant: Message = {
+        id: `optimistic-assistant-${optimisticId}`,
+        role: "assistant",
+        text: "",
+        attachmentsJson: [],
+        createdAt: nowIso,
+        sendAt: null,
+        sentAt: nowIso,
+      };
+
+      setMessages((prev) => [...prev, optimisticUser, optimisticAssistant]);
+      setInput("");
+      setPendingAttachments([]);
 
       setSending(true);
       try {
@@ -344,48 +402,136 @@ export function PortalAiChatClient() {
           body: JSON.stringify({
             text,
             url: window.location.href,
-            sendAtIso: opts?.sendAt ? opts.sendAt.toISOString() : undefined,
-            attachments: pendingAttachments,
+            attachments,
           }),
         });
         const json = await res.json().catch(() => null);
         if (!json?.ok) throw new Error(json?.error || "Send failed");
 
-        if (json.userMessage) setMessages((prev) => [...prev, json.userMessage]);
-        if (json.assistantMessage) setMessages((prev) => [...prev, json.assistantMessage]);
-
-        setInput("");
-        setPendingAttachments([]);
+        setMessages((prev) => {
+          const cleaned = prev.filter((m) => m.id !== optimisticUser.id && m.id !== optimisticAssistant.id);
+          const next: Message[] = [...cleaned];
+          if (json.userMessage) next.push(json.userMessage);
+          if (json.assistantMessage) next.push(json.assistantMessage);
+          return next;
+        });
 
         void loadThreads();
-
-        if (opts?.sendAt) {
-          const ms = Math.max(0, opts.sendAt.getTime() - Date.now() + 1_000);
-          if (ms <= 2_147_000_000) {
-            window.setTimeout(() => {
-              void flushDue(activeThreadId);
-            }, ms);
-          }
-        }
       } catch (e) {
+        setMessages((prev) => prev.filter((m) => m.id !== optimisticUser.id && m.id !== optimisticAssistant.id));
+        setInput(text);
+        setPendingAttachments(attachments);
         toast.error(e instanceof Error ? e.message : String(e));
       } finally {
         setSending(false);
       }
     },
-    [activeThreadId, input, pendingAttachments, toast, loadThreads, flushDue],
+    [activeThreadId, input, pendingAttachments, toast, loadThreads],
   );
+
+  const createTaskFromDraft = useCallback(async () => {
+    const title = (taskTitle || input).trim().slice(0, 160);
+    if (!title) {
+      toast.error("Enter a task title");
+      return;
+    }
+
+    setActionBusy(true);
+    try {
+      const res = await fetch("/api/portal/tasks", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ title, description: input.trim().slice(0, 5000) || undefined }),
+      });
+      const json = await res.json().catch(() => null);
+      if (!json?.ok) throw new Error(json?.error || "Failed to create task");
+
+      const nowIso = new Date().toISOString();
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `action-${newClientId()}`,
+          role: "assistant",
+          text: `Created a task: **${title}**\n\n[Open tasks](/portal/app/tasks)`,
+          attachmentsJson: [],
+          createdAt: nowIso,
+          sendAt: null,
+          sentAt: nowIso,
+        },
+      ]);
+      setActionsOpen(false);
+      setTaskTitle("");
+      toast.success("Task created");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : String(e));
+    } finally {
+      setActionBusy(false);
+    }
+  }, [toast, taskTitle, input]);
+
+  const createFunnelFromDraft = useCallback(async () => {
+    const name = (funnelName || input).trim().slice(0, 120);
+    if (!name) {
+      toast.error("Enter a funnel name");
+      return;
+    }
+
+    const slug = slugify(name);
+    if (!slug) {
+      toast.error("Funnel name must produce a valid slug");
+      return;
+    }
+
+    setActionBusy(true);
+    try {
+      const res = await fetch("/api/portal/funnel-builder/funnels", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ name, slug }),
+      });
+      const json = await res.json().catch(() => null);
+      if (!json?.ok) throw new Error(json?.error || "Failed to create funnel");
+
+      const funnelId = String(json.funnel?.id || "");
+      const url = funnelId ? `/portal/app/services/funnel-builder/funnels/${encodeURIComponent(funnelId)}/edit` : "/portal/app/services/funnel-builder";
+      const nowIso = new Date().toISOString();
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `action-${newClientId()}`,
+          role: "assistant",
+          text: `Created a funnel: **${name}**\n\n[Open funnel editor](${url})`,
+          attachmentsJson: [],
+          createdAt: nowIso,
+          sendAt: null,
+          sentAt: nowIso,
+        },
+      ]);
+      setActionsOpen(false);
+      setFunnelName("");
+      toast.success("Funnel created");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : String(e));
+    } finally {
+      setActionBusy(false);
+    }
+  }, [toast, funnelName, input]);
 
   const left = (
     <div className="flex h-full flex-col overflow-hidden">
-      <div className="shrink-0 p-3">
-        <button
-          type="button"
-          className="w-full rounded-2xl bg-brand-ink px-4 py-2.5 text-sm font-semibold text-white hover:opacity-95"
-          onClick={createThread}
-        >
-          New chat
-        </button>
+      <div className="shrink-0 px-3 pb-2 pt-3">
+        <div className="flex items-center justify-between">
+          <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Chats</div>
+          <button
+            type="button"
+            className="inline-flex h-9 w-9 items-center justify-center rounded-2xl bg-brand-blue text-white hover:opacity-95"
+            onClick={createThread}
+            aria-label="New chat"
+            title="New chat"
+          >
+            <span className="text-lg font-semibold leading-none">＋</span>
+          </button>
+        </div>
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain p-2">
@@ -426,34 +572,34 @@ export function PortalAiChatClient() {
   );
 
   return (
-    <div className="rounded-3xl border border-zinc-200 bg-white overflow-hidden">
-      <div className="grid min-h-[70vh] grid-cols-1 lg:grid-cols-[320px_minmax(0,1fr)]">
-        <div className="hidden border-r border-zinc-200 bg-white lg:block">{left}</div>
+    <div className="w-full overflow-hidden">
+      <div className="grid min-h-[75vh] grid-cols-1 gap-4 lg:grid-cols-[320px_minmax(0,1fr)]">
+        <div className="hidden rounded-3xl border border-zinc-200 bg-white lg:block overflow-hidden">{left}</div>
 
-        <div className="flex min-w-0 flex-col">
-          <div className="shrink-0 border-b border-zinc-200 bg-white">
+        <div className="flex min-w-0 flex-col rounded-3xl border border-zinc-200 bg-white overflow-hidden">
+          <div className="shrink-0 border-b border-zinc-200 bg-white lg:hidden">
             <div className="flex items-center justify-between gap-3 px-4 py-3">
-              <div className="min-w-0">
-                <div className="text-sm font-semibold text-zinc-900">AI Chat</div>
-                <div className="mt-0.5 truncate text-xs text-zinc-500">{activeThread?.title || ""}</div>
+              <button
+                type="button"
+                className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
+                onClick={() => setMobileThreadsOpen(true)}
+              >
+                Threads
+              </button>
+
+              <div className="min-w-0 flex-1 text-center">
+                <div className="truncate text-sm font-semibold text-zinc-900">{activeThread?.title || "Chat"}</div>
               </div>
 
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50 lg:hidden"
-                  onClick={() => setMobileThreadsOpen(true)}
-                >
-                  Threads
-                </button>
-                <button
-                  type="button"
-                  className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-3 py-2 text-sm font-semibold text-white hover:opacity-95"
-                  onClick={createThread}
-                >
-                  New
-                </button>
-              </div>
+              <button
+                type="button"
+                className="inline-flex h-10 w-10 items-center justify-center rounded-2xl bg-brand-blue text-white hover:opacity-95"
+                onClick={createThread}
+                aria-label="New chat"
+                title="New chat"
+              >
+                <span className="text-lg font-semibold leading-none">＋</span>
+              </button>
             </div>
           </div>
 
@@ -493,19 +639,28 @@ export function PortalAiChatClient() {
             ) : null}
 
             <div className="flex items-end gap-2">
-              <label className={classNames(
-                "inline-flex h-11 w-11 shrink-0 cursor-pointer items-center justify-center rounded-2xl border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50",
-                uploading && "opacity-60",
-              )}>
-                <input
-                  type="file"
-                  multiple
-                  className="hidden"
-                  disabled={uploading || sending}
-                  onChange={(e) => void uploadFiles(e.target.files)}
-                />
+              <button
+                type="button"
+                className={classNames(
+                  "inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50",
+                  (uploading || sending) && "opacity-60",
+                )}
+                disabled={uploading || sending}
+                onClick={() => setAttachOpen(true)}
+                aria-label="Add attachment"
+                title="Add attachment"
+              >
                 <span className="text-lg font-semibold">＋</span>
-              </label>
+              </button>
+
+              <input
+                ref={fileInputRef}
+                type="file"
+                multiple
+                className="hidden"
+                disabled={uploading || sending}
+                onChange={(e) => void uploadFiles(e.target.files)}
+              />
 
               <textarea
                 value={input}
@@ -525,11 +680,11 @@ export function PortalAiChatClient() {
               <button
                 type="button"
                 className={classNames(
-                  "group inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-zinc-200 bg-white text-zinc-900 hover:bg-zinc-50",
-                  (!input.trim() || sending) && "opacity-60",
+                  "group inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-brand-blue text-white hover:opacity-95",
+                  (!input.trim() && !pendingAttachments.length) || sending ? "opacity-60" : "",
                 )}
                 onClick={() => void send()}
-                disabled={!input.trim() || sending}
+                disabled={((!input.trim() && !pendingAttachments.length) || sending)}
                 aria-label="Send"
                 title="Send"
               >
@@ -541,63 +696,140 @@ export function PortalAiChatClient() {
                 type="button"
                 className={classNames(
                   "inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-zinc-200 bg-white text-zinc-900 hover:bg-zinc-50",
-                  (!input.trim() || sending) && "opacity-60",
+                  (sending || uploading) && "opacity-60",
                 )}
                 onClick={() => {
-                  setScheduleValue(new Date(Date.now() + 15 * 60 * 1000));
-                  setScheduleOpen(true);
+                  setTaskTitle("");
+                  setFunnelName("");
+                  setActionsOpen(true);
                 }}
-                disabled={!input.trim() || sending}
-                aria-label="Schedule"
-                title="Schedule"
+                disabled={sending || uploading}
+                aria-label="Actions"
+                title="Actions"
               >
-                <IconSchedule />
+                <span className="text-xs font-semibold">⋯</span>
               </button>
-            </div>
-
-            <div className="mt-2 text-xs text-zinc-500">
-              Enter to send • Shift+Enter for newline
-              {uploading ? " • Uploading" : ""}
             </div>
           </div>
         </div>
       </div>
 
       <AppModal
-        open={scheduleOpen}
-        title="Schedule message"
-        description="Pick a date and time to send this message."
-        onClose={() => setScheduleOpen(false)}
-        widthClassName="w-[min(560px,calc(100vw-32px))]"
+        open={attachOpen}
+        title="Add attachment"
+        description="Choose where to add a file from."
+        onClose={() => setAttachOpen(false)}
+        widthClassName="w-[min(520px,calc(100vw-32px))]"
         footer={
-          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+          <div className="flex justify-end">
             <button
               type="button"
               className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
-              onClick={() => setScheduleOpen(false)}
+              onClick={() => setAttachOpen(false)}
             >
-              Cancel
-            </button>
-            <button
-              type="button"
-              className={classNames(
-                "rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95",
-                !scheduleValue && "opacity-60",
-              )}
-              onClick={() => {
-                const when = scheduleValue;
-                setScheduleOpen(false);
-                void send({ sendAt: when });
-              }}
-              disabled={!scheduleValue}
-            >
-              Schedule
+              Close
             </button>
           </div>
         }
       >
-        <DateTimePicker value={scheduleValue} onChange={setScheduleValue} min={new Date()} />
+        <div className="grid gap-3 sm:grid-cols-2">
+          <button
+            type="button"
+            className="rounded-3xl border border-zinc-200 bg-white p-4 text-left hover:bg-zinc-50"
+            onClick={() => {
+              setAttachOpen(false);
+              setMediaPickerOpen(true);
+            }}
+          >
+            <div className="text-sm font-semibold text-zinc-900">From Media Library</div>
+            <div className="mt-1 text-xs text-zinc-500">Attach an existing file.</div>
+          </button>
+          <button
+            type="button"
+            className="rounded-3xl border border-zinc-200 bg-white p-4 text-left hover:bg-zinc-50"
+            onClick={() => {
+              setAttachOpen(false);
+              fileInputRef.current?.click();
+            }}
+          >
+            <div className="text-sm font-semibold text-zinc-900">Upload from Device</div>
+            <div className="mt-1 text-xs text-zinc-500">Choose a file from your computer.</div>
+          </button>
+        </div>
       </AppModal>
+
+      <AppModal
+        open={actionsOpen}
+        title="Actions"
+        description="Create real objects in your portal (tasks, funnels)."
+        onClose={() => setActionsOpen(false)}
+        widthClassName="w-[min(720px,calc(100vw-32px))]"
+        footer={
+          <div className="flex justify-end">
+            <button
+              type="button"
+              className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
+              onClick={() => setActionsOpen(false)}
+              disabled={actionBusy}
+            >
+              Close
+            </button>
+          </div>
+        }
+      >
+        <div className="space-y-4">
+          <div className="rounded-3xl border border-zinc-200 bg-white p-4">
+            <div className="text-sm font-semibold text-zinc-900">Create Task</div>
+            <div className="mt-2 flex flex-col gap-3 sm:flex-row sm:items-center">
+              <input
+                value={taskTitle}
+                onChange={(e) => setTaskTitle(e.target.value)}
+                placeholder="Task title (defaults to your draft message)"
+                className="h-11 w-full rounded-2xl border border-zinc-200 bg-white px-4 text-sm text-zinc-900"
+                disabled={actionBusy}
+              />
+              <button
+                type="button"
+                className="h-11 shrink-0 rounded-2xl bg-brand-blue px-4 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
+                onClick={() => void createTaskFromDraft()}
+                disabled={actionBusy}
+              >
+                Create
+              </button>
+            </div>
+          </div>
+
+          <div className="rounded-3xl border border-zinc-200 bg-white p-4">
+            <div className="text-sm font-semibold text-zinc-900">Create Funnel</div>
+            <div className="mt-2 flex flex-col gap-3 sm:flex-row sm:items-center">
+              <input
+                value={funnelName}
+                onChange={(e) => setFunnelName(e.target.value)}
+                placeholder="Funnel name (defaults to your draft message)"
+                className="h-11 w-full rounded-2xl border border-zinc-200 bg-white px-4 text-sm text-zinc-900"
+                disabled={actionBusy}
+              />
+              <button
+                type="button"
+                className="h-11 shrink-0 rounded-2xl bg-brand-blue px-4 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
+                onClick={() => void createFunnelFromDraft()}
+                disabled={actionBusy}
+              >
+                Create
+              </button>
+            </div>
+          </div>
+        </div>
+      </AppModal>
+
+      <PortalMediaPickerModal
+        open={mediaPickerOpen}
+        onClose={() => setMediaPickerOpen(false)}
+        onPick={addMediaAttachment}
+        title="Media library"
+        confirmLabel="Attach"
+        accept="any"
+      />
 
       <AppModal
         open={mobileThreadsOpen}
@@ -609,7 +841,7 @@ export function PortalAiChatClient() {
           <div className="flex justify-end">
             <button
               type="button"
-              className="rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95"
+              className="rounded-2xl bg-brand-blue px-4 py-2 text-sm font-semibold text-white hover:opacity-95"
               onClick={createThread}
             >
               New chat

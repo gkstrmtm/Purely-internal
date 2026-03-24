@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { requireClientSession } from "@/lib/apiAuth";
+import { generateText } from "@/lib/ai";
 import { prisma } from "@/lib/db";
 import { ensurePortalAiChatSchema } from "@/lib/portalAiChatSchema";
 import { isPortalSupportChatConfigured, runPortalSupportChat } from "@/lib/portalSupportChat";
@@ -17,17 +18,21 @@ const AttachmentSchema = z.object({
   url: z.string().trim().min(1).max(500),
 });
 
-const SendMessageSchema = z.object({
-  text: z.string().trim().min(1).max(4000),
-  url: z.string().trim().optional(),
-  sendAtIso: z.string().trim().optional(),
-  attachments: z.array(AttachmentSchema).max(10).optional(),
-});
+const SendMessageSchema = z
+  .object({
+    text: z.string().trim().max(4000).optional(),
+    url: z.string().trim().optional(),
+    attachments: z.array(AttachmentSchema).max(10).optional(),
+  })
+  .refine(
+    (d) => Boolean((d.text || "").trim()) || (Array.isArray(d.attachments) && d.attachments.length > 0),
+    { message: "Text or attachments required" },
+  );
 
-function isoToDateMaybe(iso: string | undefined): Date | null {
-  if (!iso) return null;
-  const d = new Date(iso);
-  return Number.isFinite(d.getTime()) ? d : null;
+function cleanSuggestedTitle(raw: string): string {
+  const s = String(raw || "").trim().replace(/[\r\n\t]+/g, " ").replace(/\s+/g, " ");
+  // Keep it short and UI-friendly.
+  return s.replace(/^"|"$/g, "").replace(/^'|'$/g, "").slice(0, 60).trim();
 }
 
 export async function GET(_req: Request, ctx: { params: Promise<{ threadId: string }> }) {
@@ -96,20 +101,35 @@ export async function POST(req: Request, ctx: { params: Promise<{ threadId: stri
   });
   if (!thread) return NextResponse.json({ ok: false, error: "Not found" }, { status: 404 });
 
-  const sendAt = isoToDateMaybe(parsed.data.sendAtIso);
   const now = new Date();
-  const isScheduled = Boolean(sendAt && sendAt.getTime() > now.getTime() + 2_000);
+
+  const cleanText = (parsed.data.text || "").trim();
+  const attachments = Array.isArray(parsed.data.attachments) ? parsed.data.attachments : [];
+  const attachmentLines = attachments
+    .map((a) => {
+      const name = String(a.fileName || "Attachment").slice(0, 200);
+      const url = String(a.url || "").slice(0, 500);
+      return url ? `- ${name}: ${url}` : `- ${name}`;
+    })
+    .join("\n");
+
+  const promptMessage = [
+    cleanText || "Please review the attachments.",
+    attachmentLines ? "\nAttachments:\n" + attachmentLines : null,
+  ]
+    .filter(Boolean)
+    .join("\n");
 
   const userMsg = await (prisma as any).portalAiChatMessage.create({
     data: {
       ownerId,
       threadId,
       role: "user",
-      text: parsed.data.text,
-      attachmentsJson: parsed.data.attachments ?? null,
+      text: cleanText,
+      attachmentsJson: attachments.length ? attachments : null,
       createdByUserId,
-      sendAt: isScheduled ? sendAt : null,
-      sentAt: isScheduled ? null : now,
+      sendAt: null,
+      sentAt: now,
     },
     select: {
       id: true,
@@ -122,20 +142,10 @@ export async function POST(req: Request, ctx: { params: Promise<{ threadId: stri
     },
   });
 
-  const suggestedTitle = parsed.data.text.trim().slice(0, 60);
-  const shouldUpdateTitle = String(thread.title || "").trim() === "New chat" && suggestedTitle.length >= 3;
-
   await (prisma as any).portalAiChatThread.update({
     where: { id: threadId },
-    data: {
-      lastMessageAt: now,
-      ...(shouldUpdateTitle ? { title: suggestedTitle } : null),
-    },
+    data: { lastMessageAt: now },
   });
-
-  if (isScheduled) {
-    return NextResponse.json({ ok: true, scheduled: true, userMessage: userMsg });
-  }
 
   if (!isPortalSupportChatConfigured()) {
     return NextResponse.json(
@@ -161,7 +171,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ threadId: stri
     }));
 
   const reply = await runPortalSupportChat({
-    message: parsed.data.text,
+    message: promptMessage,
     url: parsed.data.url,
     recentMessages,
   });
@@ -193,5 +203,35 @@ export async function POST(req: Request, ctx: { params: Promise<{ threadId: stri
     data: { lastMessageAt: new Date() },
   });
 
-  return NextResponse.json({ ok: true, scheduled: false, userMessage: userMsg, assistantMessage: assistantMsg });
+  // AI-generated thread title (not just the first message).
+  // Only do this for untouched threads.
+  try {
+    const isDefaultTitle = String(thread.title || "").trim() === "New chat";
+    if (isDefaultTitle && isPortalSupportChatConfigured()) {
+      const titleSystem = [
+        "You name chat threads in a business automation portal.",
+        "Return a short, helpful title (2-6 words).",
+        "No quotes. No trailing punctuation.",
+      ].join("\n");
+
+      const titleUser = [
+        "Conversation:",
+        `User: ${promptMessage}`,
+        `Assistant: ${reply}`,
+        "\nTitle:",
+      ].join("\n");
+
+      const proposed = cleanSuggestedTitle(await generateText({ system: titleSystem, user: titleUser }));
+      if (proposed && proposed.length >= 3 && proposed.toLowerCase() !== "new chat") {
+        await (prisma as any).portalAiChatThread.update({
+          where: { id: threadId },
+          data: { title: proposed },
+        });
+      }
+    }
+  } catch {
+    // best-effort
+  }
+
+  return NextResponse.json({ ok: true, userMessage: userMsg, assistantMessage: assistantMsg });
 }

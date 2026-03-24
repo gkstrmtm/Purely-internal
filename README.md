@@ -147,6 +147,7 @@ Notes:
 - This is a full-page ChatGPT-style UI with persistent threads + messages.
 - It reuses the same portal “support chat” AI generator as the floating widget, so capabilities stay in sync.
 - File uploads are supported and are mirrored into the portal Media Library.
+- The “Actions” button can create real portal objects (ex: Tasks, Funnels) and replies with deep links.
 
 Portal AI keys:
 
@@ -154,16 +155,7 @@ Portal AI keys:
 - `AI_API_KEY`
 - Optional: `AI_MODEL`
 
-Scheduled messages:
 
-- Users can schedule a message in AI Chat for a future send time.
-- For unattended processing (when the AI Chat page is not open), configure a cron job to call:
-	- `GET /api/portal/ai-chat/cron`
-
-Cron auth:
-
-- In production, this endpoint only accepts requests from Vercel Cron (no secret).
-- The schedule is configured in `vercel.json`.
 
 ## Sales Reporting (multi-provider, per-portal)
 

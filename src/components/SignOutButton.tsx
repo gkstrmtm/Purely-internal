@@ -19,23 +19,11 @@ function LogoutIcon({ className }: { className?: string }) {
       aria-hidden
     >
       <path
-        d="M10 17l-1 0c-3 0-5-2-5-5V7c0-3 2-5 5-5h1"
-        stroke="currentColor"
-        strokeWidth="2"
-        strokeLinecap="round"
-      />
-      <path
-        d="M15 12H7m8 0l-3-3m3 3l-3 3"
+        d="M16 17L21 12M21 12L16 7M21 12H9M9 3H7.8C6.11984 3 5.27976 3 4.63803 3.32698C4.07354 3.6146 3.6146 4.07354 3.32698 4.63803C3 5.27976 3 6.11984 3 7.8V16.2C3 17.8802 3 18.7202 3.32698 19.362C3.6146 19.9265 4.07354 20.3854 4.63803 20.673C5.27976 21 6.11984 21 7.8 21H9"
         stroke="currentColor"
         strokeWidth="2"
         strokeLinecap="round"
         strokeLinejoin="round"
-      />
-      <path
-        d="M10 7h6c2 0 4 2 4 5s-2 5-4 5h-6"
-        stroke="currentColor"
-        strokeWidth="2"
-        strokeLinecap="round"
       />
     </svg>
   );
@@ -76,17 +64,18 @@ export function SignOutButton(
         aria-label="Sign Out"
         onClick={doSignOut}
         className={classNames(
-          "group inline-flex items-center rounded-2xl border border-transparent bg-transparent text-sm font-semibold",
+          "group inline-flex items-center rounded-2xl bg-transparent text-sm font-semibold",
           "text-red-600 hover:text-red-700",
           isCollapsed ? "h-10 w-10 justify-center" : "h-10 px-2.5",
+          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-200",
           className,
         )}
       >
         <span
           className={classNames(
             "inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl",
-            "bg-red-50 text-red-600",
-            "group-hover:bg-red-100 group-hover:text-red-700",
+            "text-red-600",
+            "group-hover:bg-red-50 group-hover:text-red-700",
           )}
         >
           <LogoutIcon />
