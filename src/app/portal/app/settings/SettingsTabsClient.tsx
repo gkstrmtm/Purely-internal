@@ -9,8 +9,9 @@ import { formatPhoneForDisplay, normalizePhoneStrict } from "@/lib/phone";
 import { PortalBillingClient } from "@/app/portal/billing/PortalBillingClient";
 import { PortalBillingUpgradeClient } from "@/app/portal/billing/PortalBillingUpgradeClient";
 import { PortalProfileClient } from "@/app/portal/profile/PortalProfileClient";
+import { BuyCreditsModal } from "@/app/portal/billing/BuyCreditsModal";
 import { PORTAL_SERVICES } from "@/app/portal/services/catalog";
-import { IconBillingGlyph, IconPeopleGlyph, IconSettingsGlyph } from "@/app/portal/PortalIcons";
+import { IconBillingGlyph, IconProfileGlyph, IconSettingsGlyph } from "@/app/portal/PortalIcons";
 
 type TabKey = "general" | "profile" | "billing";
 
@@ -29,6 +30,7 @@ type CreditsRes =
   | {
       credits?: number;
       creditUsdValue?: number;
+      purchaseAvailable?: boolean;
     }
   | { error?: string };
 
@@ -124,7 +126,7 @@ export function SettingsTabsClient() {
         <div className="inline-flex w-full flex-wrap items-center gap-2">
           {([
             { key: "general" as const, label: "General", icon: <IconSettingsGlyph size={16} /> },
-            { key: "profile" as const, label: "Profile", icon: <IconPeopleGlyph size={16} /> },
+            { key: "profile" as const, label: "Profile", icon: <IconProfileGlyph size={16} /> },
             { key: "billing" as const, label: "Billing", icon: <IconBillingGlyph size={16} /> },
           ] as const).map((t) => {
             const active = tab === t.key;
@@ -181,6 +183,7 @@ function GeneralTab({
 }) {
   const [profile, setProfile] = useState<ProfileRes | null>(null);
   const [credits, setCredits] = useState<CreditsRes | null>(null);
+  const [buyCreditsOpen, setBuyCreditsOpen] = useState(false);
   const [services, setServices] = useState<ServicesStatusResponse | null>(null);
   const [reporting, setReporting] = useState<ReportingRes | null>(null);
   const [serviceUsage, setServiceUsage] = useState<Record<string, number>>({});
@@ -358,6 +361,70 @@ function GeneralTab({
     return Math.max(0, Math.round(remaining / perDay));
   }, [reporting]);
 
+  const estimatedMonthlyCredits = useMemo(() => {
+    if (!reporting || !("ok" in reporting) || !reporting.ok) return null;
+    const creditsUsed = Number((reporting as any)?.kpis?.creditsUsed ?? 0) || 0;
+    if (creditsUsed <= 0) return null;
+    const days = daysBetweenIso(reporting.startIso, reporting.endIso);
+    const perDay = creditsUsed / days;
+    if (perDay <= 0) return null;
+    return Math.max(1, Math.round(perDay * 30));
+  }, [reporting]);
+
+  const startCreditsCheckout = useCallback(
+    async (creditsToBuy: number) => {
+      const requested = Math.max(1, Math.floor(Number(creditsToBuy) || 0));
+
+      // Open a new tab immediately to avoid popup blockers.
+      let checkoutTab: Window | null = null;
+      try {
+        checkoutTab = window.open("about:blank", "_blank");
+        if (checkoutTab) checkoutTab.opener = null;
+      } catch {
+        checkoutTab = null;
+      }
+
+      try {
+        const res = await fetch("/api/portal/credits/topup", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ credits: requested }),
+        });
+        const body = await res.json().catch(() => ({}));
+
+        if (!res.ok) {
+          toast.error(body?.error ?? "Unable to purchase credits");
+          try {
+            if (checkoutTab && !checkoutTab.closed) checkoutTab.close();
+          } catch {
+            // ignore
+          }
+          return;
+        }
+
+        if (body?.url && typeof body.url === "string") {
+          try {
+            if (checkoutTab && !checkoutTab.closed) {
+              checkoutTab.location.href = body.url;
+            } else {
+              const opened = window.open(body.url, "_blank", "noopener,noreferrer");
+              if (!opened) window.location.href = body.url;
+            }
+          } catch {
+            window.location.href = body.url;
+          }
+          return;
+        }
+
+        // Dev/test fallback credits add.
+        const cRes = await fetch("/api/portal/credits", { cache: "no-store" }).catch(() => null as any);
+        if (cRes?.ok) setCredits(((await cRes.json().catch(() => null)) as CreditsRes | null) ?? null);
+      } finally {
+      }
+    },
+    [toast],
+  );
+
   const runwayTone = useMemo(() => {
     if (typeof creditRunwayDays !== "number" || !Number.isFinite(creditRunwayDays)) return "ok" as const;
     if (creditRunwayDays <= 3) return "danger" as const;
@@ -520,7 +587,7 @@ function GeneralTab({
               <button
                 type="button"
                 className="rounded-2xl bg-(--color-brand-blue) px-4 py-2.5 text-sm font-semibold text-white hover:opacity-95"
-                onClick={() => onGoBilling("credits")}
+                onClick={() => setBuyCreditsOpen(true)}
               >
                 Buy more
               </button>
@@ -537,6 +604,15 @@ function GeneralTab({
             </div>
           </div>
         </div>
+
+        <BuyCreditsModal
+          open={buyCreditsOpen}
+          onClose={() => setBuyCreditsOpen(false)}
+          purchaseAvailable={Boolean((credits as any)?.purchaseAvailable ?? true)}
+          creditUsdValue={typeof (credits as any)?.creditUsdValue === "number" ? (credits as any).creditUsdValue : null}
+          estimatedMonthlyCredits={estimatedMonthlyCredits}
+          onStartCheckout={startCreditsCheckout}
+        />
 
         <div className="flex h-full flex-col">
           <div className="text-sm font-semibold text-zinc-900">Top services</div>

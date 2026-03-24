@@ -10,6 +10,7 @@ import { useToast } from "@/components/ToastProvider";
 import { IconCopy } from "@/app/portal/PortalIcons";
 import { formatUsd } from "@/lib/pricing.shared";
 import { PORTAL_SERVICES } from "@/app/portal/services/catalog";
+import { BuyCreditsModal } from "@/app/portal/billing/BuyCreditsModal";
 
 const STRIPE_PUBLISHABLE_KEY = String(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY || "").trim();
 const stripePromise = STRIPE_PUBLISHABLE_KEY ? loadStripe(STRIPE_PUBLISHABLE_KEY) : null;
@@ -253,7 +254,7 @@ export function PortalBillingClient({
   const [creditUsdValue, setCreditUsdValue] = useState<number | null>(null);
   const [autoTopUp, setAutoTopUp] = useState(false);
   const [purchaseAvailable, setPurchaseAvailable] = useState(false);
-  const [creditsToBuy, setCreditsToBuy] = useState(500);
+  const [buyCreditsOpen, setBuyCreditsOpen] = useState(false);
   const [services, setServices] = useState<ServicesStatusResponse | null>(null);
   const [subscriptions, setSubscriptions] = useState<SubscriptionsResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -824,10 +825,20 @@ export function PortalBillingClient({
     setCredits(typeof body?.credits === "number" ? body.credits : credits);
   }
 
-  async function topUp() {
+  async function startCreditsCheckout(creditsToBuy: number) {
     setError(null);
     setActionBusy("topup");
     const requested = Math.max(1, Math.floor(Number(creditsToBuy) || 0));
+
+    // Open a new tab immediately to avoid popup blockers.
+    let checkoutTab: Window | null = null;
+    try {
+      checkoutTab = window.open("about:blank", "_blank");
+      if (checkoutTab) checkoutTab.opener = null;
+    } catch {
+      checkoutTab = null;
+    }
+
     const res = await fetch("/api/portal/credits/topup", {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -842,7 +853,16 @@ export function PortalBillingClient({
     }
 
     if (body?.url && typeof body.url === "string") {
-      window.location.href = body.url;
+      try {
+        if (checkoutTab && !checkoutTab.closed) {
+          checkoutTab.location.href = body.url;
+        } else {
+          const opened = window.open(body.url, "_blank", "noopener,noreferrer");
+          if (!opened) window.location.href = body.url;
+        }
+      } catch {
+        window.location.href = body.url;
+      }
       return;
     }
 
@@ -965,9 +985,6 @@ export function PortalBillingClient({
       ? new Date(sub.currentPeriodEnd * 1000).toLocaleDateString()
       : null;
 
-  const creditsRequested = Math.max(1, Math.floor(Number(creditsToBuy) || 0));
-  const creditsTotalUsd = creditsRequested * (typeof creditUsdValue === "number" ? creditUsdValue : 0);
-
   const badgeClass = (state: string) => {
     if (state === "active") return "bg-emerald-100 text-emerald-900";
     if (state === "paused") return "bg-red-100 text-red-900";
@@ -1059,8 +1076,6 @@ export function PortalBillingClient({
 
   const statusDotClass = hasActiveSub ? "bg-emerald-500" : "bg-zinc-300";
 
-  const creditPresets = [500, 1000, 2500, 5000];
-
   const activeSubs = subscriptions && "ok" in subscriptions && subscriptions.ok ? subscriptions.subscriptions : [];
 
   const cancelBenefits = (title: string) => {
@@ -1073,16 +1088,16 @@ export function PortalBillingClient({
     return ["Ongoing access to this service", "Automations/workflows tied to it", "Reporting and activity for this service"]; 
   };
 
-  const embeddedServicesBlock = (
-    <div id="pa-billing-services" className="mt-6 rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+  const embeddedServicesBlockRight = (
+    <div id="pa-billing-services" className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
       <div className="flex items-start justify-between gap-3">
         <div>
           <div className="text-sm font-semibold text-zinc-900">Services & status</div>
-          <div className="mt-1 text-sm text-zinc-600">Live status from your account.</div>
+          <div className="mt-1 text-xs text-zinc-600">Live status from your account.</div>
         </div>
       </div>
 
-      <div className="mt-3 max-h-[30vh] overflow-auto pr-1">
+      <div className="mt-3 max-h-56 overflow-auto pr-1">
         <div className="grid gap-2">
           {(() => {
             const servicesList = PORTAL_SERVICES.filter((s) => !s.hidden && (!s.variants || s.variants.includes("portal")));
@@ -1106,20 +1121,20 @@ export function PortalBillingClient({
               return { s, state, label, href, disabled, priceText };
             });
 
-          const rank = (state: string) => {
-            if (state === "needs_setup") return 0;
-            if (state === "active") return 1;
-            if (state === "paused" || state === "canceled") return 2;
-            if (state === "locked" || state === "coming_soon") return 3;
-            return 4;
-          };
+            const rank = (state: string) => {
+              if (state === "needs_setup") return 0;
+              if (state === "active") return 1;
+              if (state === "paused" || state === "canceled") return 2;
+              if (state === "locked" || state === "coming_soon") return 3;
+              return 4;
+            };
 
-          rows.sort((a, b) => {
-            const ra = rank(a.state);
-            const rb = rank(b.state);
-            if (ra !== rb) return ra - rb;
-            return a.s.title.localeCompare(b.s.title);
-          });
+            rows.sort((a, b) => {
+              const ra = rank(a.state);
+              const rb = rank(b.state);
+              if (ra !== rb) return ra - rb;
+              return a.s.title.localeCompare(b.s.title);
+            });
 
             return rows.map((r) => (
               <button
@@ -1596,9 +1611,7 @@ export function PortalBillingClient({
               <div className="mt-3 text-sm text-zinc-600">No services found.</div>
             )}
           </div>
-        ) : (
-          embeddedServicesBlock
-        )}
+        ) : null}
       </div>
 
       <div
@@ -1618,6 +1631,17 @@ export function PortalBillingClient({
           <div className="text-right">
             <div className="text-xs text-zinc-500">Balance</div>
             <div className="mt-1 text-2xl font-bold text-brand-ink">{credits ?? "N/A"}</div>
+
+            {purchaseAvailable ? (
+              <button
+                type="button"
+                className="mt-2 inline-flex items-center justify-center rounded-2xl bg-(--color-brand-blue) px-3 py-2 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
+                disabled={actionBusy !== null}
+                onClick={() => setBuyCreditsOpen(true)}
+              >
+                {actionBusy === "topup" ? "Opening…" : "Buy credits"}
+              </button>
+            ) : null}
           </div>
         </div>
 
@@ -1704,67 +1728,7 @@ export function PortalBillingClient({
           </div>
         </div>
 
-
-        <div className="mt-4">
-          <div className="text-sm font-semibold text-zinc-900">Buy credits</div>
-          <div className="mt-1 text-xs text-zinc-500">
-            Credits roll over. Choose an amount that lasts at least a few days.
-          </div>
-
-          {purchaseAvailable ? (
-            <div className="mt-3 grid gap-2">
-              <div className="flex flex-wrap gap-2">
-                {creditPresets.map((c) => (
-                  <button
-                    key={c}
-                    type="button"
-                    onClick={() => setCreditsToBuy(c)}
-                    disabled={actionBusy !== null}
-                    className={
-                      "rounded-2xl border px-3 py-2 text-sm font-semibold transition disabled:opacity-60 " +
-                      (creditsRequested === c
-                        ? "border-brand-ink bg-brand-ink text-white"
-                        : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
-                    }
-                  >
-                    {c.toLocaleString()} credits
-                  </button>
-                ))}
-
-                <input
-                  className="w-40 rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                  value={creditsToBuy}
-                  type="number"
-                  min={1}
-                  step={1}
-                  onChange={(e) => setCreditsToBuy(Math.max(1, Math.floor(Number(e.target.value) || 0)))}
-                  disabled={actionBusy !== null}
-                  aria-label="Credits to buy"
-                />
-              </div>
-
-              <div className="text-xs text-zinc-500">
-                Total: <span className="font-semibold text-zinc-700">{creditsRequested.toLocaleString()}</span> credits
-                {typeof creditUsdValue === "number" ? (
-                  <>
-                    {" "}• <span className="font-semibold text-zinc-700">{formatUsd(creditsTotalUsd)}</span>
-                  </>
-                ) : null}
-              </div>
-
-              <button
-                type="button"
-                className="rounded-2xl bg-(--color-brand-blue) px-4 py-2 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
-                disabled={actionBusy !== null}
-                onClick={() => void topUp()}
-              >
-                {actionBusy === "topup" ? "Processing…" : "Buy credits"}
-              </button>
-            </div>
-          ) : (
-            <div className="mt-3 text-sm text-zinc-600">Credit purchasing is unavailable right now.</div>
-          )}
-        </div>
+        {hideMonthlyBreakdown ? embeddedServicesBlockRight : null}
 
         {!hideMonthlyBreakdown ? (
           <div id="pa-billing-services" className="mt-4 flex min-h-0 flex-1 flex-col rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
@@ -1784,6 +1748,17 @@ export function PortalBillingClient({
                   {servicesAdvancedOpen ? "Hide advanced" : "Advanced"}
                 </button>
               ) : null}
+
+              <BuyCreditsModal
+                open={buyCreditsOpen}
+                onClose={() => setBuyCreditsOpen(false)}
+                purchaseAvailable={purchaseAvailable}
+                creditUsdValue={creditUsdValue}
+                estimatedMonthlyCredits={null}
+                onStartCheckout={async (creditsToBuy) => {
+                  await startCreditsCheckout(creditsToBuy);
+                }}
+              />
             </div>
 
             <div className="mt-4 min-h-0 flex-1 overflow-auto pr-1">

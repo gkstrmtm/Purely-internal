@@ -1439,7 +1439,7 @@ export function PortalDashboardClient() {
               <>
                 <button
                   type="button"
-                  className="rounded-2xl border border-red-200 bg-red-50 px-4 py-2 text-sm font-semibold text-red-800 hover:bg-red-100 disabled:opacity-60"
+                  className="rounded-2xl bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-60"
                   onClick={() => void resetDashboard()}
                   disabled={savingLayout}
                 >
@@ -1447,7 +1447,7 @@ export function PortalDashboardClient() {
                 </button>
                 <button
                   type="button"
-                  className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-2 text-sm font-semibold text-amber-900 hover:bg-amber-100 disabled:opacity-60"
+                  className="rounded-2xl bg-zinc-700 px-4 py-2 text-sm font-semibold text-white hover:bg-zinc-800 disabled:opacity-60"
                   onClick={cancelEdit}
                   disabled={savingLayout}
                 >
@@ -1455,7 +1455,7 @@ export function PortalDashboardClient() {
                 </button>
                 <button
                   type="button"
-                  className="rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
+                  className="rounded-2xl bg-(--color-brand-blue) px-4 py-2 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
                   onClick={() => void doneEdit()}
                   disabled={savingLayout}
                 >
