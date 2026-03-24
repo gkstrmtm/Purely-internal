@@ -5,6 +5,7 @@ import { requireClientSession } from "@/lib/apiAuth";
 import { generateText } from "@/lib/ai";
 import { prisma } from "@/lib/db";
 import { ensurePortalAiChatSchema } from "@/lib/portalAiChatSchema";
+import { PortalAgentActionKeySchema, extractJsonObject, portalAgentActionsIndexText } from "@/lib/portalAgentActions";
 import { isPortalSupportChatConfigured, runPortalSupportChat } from "@/lib/portalSupportChat";
 
 export const dynamic = "force-dynamic";
@@ -34,6 +35,24 @@ function cleanSuggestedTitle(raw: string): string {
   // Keep it short and UI-friendly.
   return s.replace(/^"|"$/g, "").replace(/^'|'$/g, "").slice(0, 60).trim();
 }
+
+const ActionProposalSchema = z
+  .object({
+    actions: z
+      .array(
+        z
+          .object({
+            key: PortalAgentActionKeySchema,
+            title: z.string().trim().min(1).max(80),
+            confirmLabel: z.string().trim().max(40).optional(),
+            args: z.record(z.string(), z.unknown()).default({}),
+          })
+          .strict(),
+      )
+      .max(2)
+      .default([]),
+  })
+  .strict();
 
 export async function GET(_req: Request, ctx: { params: Promise<{ threadId: string }> }) {
   const auth = await requireClientSession();
@@ -233,5 +252,44 @@ export async function POST(req: Request, ctx: { params: Promise<{ threadId: stri
     // best-effort
   }
 
-  return NextResponse.json({ ok: true, userMessage: userMsg, assistantMessage: assistantMsg });
+  // Best-effort: propose actions the user can click to execute.
+  // IMPORTANT: we only PROPOSE actions; execution requires an explicit user click.
+  let assistantActions: Array<{ key: string; title: string; confirmLabel?: string; args: Record<string, unknown> }> = [];
+  try {
+    const system = [
+      "You are an automation agent inside a business portal.",
+      "Propose up to 2 concrete next actions that can be executed via whitelisted APIs.",
+      "Only propose actions when you have enough information from the conversation to fill required fields.",
+      "Never invent IDs (automationId, userId, etc). If missing, propose no actions.",
+      "Output JSON only, in this exact shape: {\"actions\":[{\"key\":...,\"title\":...,\"confirmLabel\":...,\"args\":{...}}]}",
+      "Do not include markdown fences unless needed.",
+      "\n" + portalAgentActionsIndexText(),
+    ].join("\n");
+
+    const user = [
+      "User message:",
+      promptMessage,
+      "\nAssistant reply:",
+      reply,
+      "\nCurrent page URL (if any):",
+      parsed.data.url || "",
+      "\nJSON:",
+    ].join("\n");
+
+    const raw = await generateText({ system, user });
+    const obj = extractJsonObject(raw);
+    const parsedActions = ActionProposalSchema.safeParse(obj);
+    if (parsedActions.success) {
+      assistantActions = parsedActions.data.actions.map((a) => ({
+        key: a.key,
+        title: a.title,
+        confirmLabel: a.confirmLabel,
+        args: a.args ?? {},
+      }));
+    }
+  } catch {
+    // ignore
+  }
+
+  return NextResponse.json({ ok: true, userMessage: userMsg, assistantMessage: assistantMsg, assistantActions });
 }

@@ -25,11 +25,19 @@ type Attachment = {
   url: string;
 };
 
+type AssistantAction = {
+  key: string;
+  title: string;
+  confirmLabel?: string;
+  args: Record<string, unknown>;
+};
+
 type Message = {
   id: string;
   role: "user" | "assistant" | string;
   text: string;
   attachmentsJson: any;
+  assistantActions?: AssistantAction[];
   createdAt: string;
   sendAt: string | null;
   sentAt: string | null;
@@ -75,7 +83,6 @@ function safeHref(href: string) {
 
 function newClientId() {
   try {
-    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
     if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID();
   } catch {
     // ignore
@@ -93,9 +100,18 @@ function ThinkingDots() {
   );
 }
 
-function MessageBubble({ msg }: { msg: Message }) {
+function MessageBubble({
+  msg,
+  onRunAction,
+  runningActionKey,
+}: {
+  msg: Message;
+  onRunAction?: (action: AssistantAction) => void;
+  runningActionKey?: string | null;
+}) {
   const isUser = msg.role === "user";
   const isThinking = msg.id.startsWith("optimistic-assistant-") && msg.role === "assistant";
+  const actions = !isUser && !isThinking && Array.isArray(msg.assistantActions) ? msg.assistantActions : [];
 
   const bubble = (
     <div
@@ -180,6 +196,29 @@ function MessageBubble({ msg }: { msg: Message }) {
           ))}
         </div>
       ) : null}
+
+      {actions.length ? (
+        <div className="mt-3 flex flex-wrap gap-2">
+          {actions.map((a, idx) => {
+            const busy = Boolean(runningActionKey) && runningActionKey === a.key;
+            return (
+              <button
+                key={`${a.key}-${idx}`}
+                type="button"
+                onClick={() => onRunAction?.(a)}
+                disabled={!onRunAction || busy}
+                className={classNames(
+                  "rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-left text-xs font-semibold text-zinc-900 hover:bg-zinc-50 disabled:opacity-60",
+                  busy && "cursor-wait",
+                )}
+                title={a.confirmLabel ? `${a.title} - ${a.confirmLabel}` : a.title}
+              >
+                <div className="truncate">{busy ? "Running…" : a.title}</div>
+              </button>
+            );
+          })}
+        </div>
+      ) : null}
     </div>
   );
 
@@ -212,6 +251,12 @@ export function PortalAiChatClient() {
   const [actionBusy, setActionBusy] = useState(false);
   const [taskTitle, setTaskTitle] = useState("");
   const [funnelName, setFunnelName] = useState("");
+  const [newsletterKind, setNewsletterKind] = useState<"external" | "internal">("external");
+  const [automationId, setAutomationId] = useState("");
+  const [automationContactName, setAutomationContactName] = useState("");
+  const [automationContactEmail, setAutomationContactEmail] = useState("");
+  const [automationContactPhone, setAutomationContactPhone] = useState("");
+  const [runningActionKey, setRunningActionKey] = useState<string | null>(null);
 
   const [mobileThreadsOpen, setMobileThreadsOpen] = useState(false);
 
@@ -408,11 +453,18 @@ export function PortalAiChatClient() {
         const json = await res.json().catch(() => null);
         if (!json?.ok) throw new Error(json?.error || "Send failed");
 
+        const assistantActions: AssistantAction[] = Array.isArray(json.assistantActions)
+          ? (json.assistantActions as AssistantAction[])
+          : [];
+
         setMessages((prev) => {
           const cleaned = prev.filter((m) => m.id !== optimisticUser.id && m.id !== optimisticAssistant.id);
           const next: Message[] = [...cleaned];
           if (json.userMessage) next.push(json.userMessage);
-          if (json.assistantMessage) next.push(json.assistantMessage);
+          if (json.assistantMessage) {
+            const am: Message = json.assistantMessage as Message;
+            next.push({ ...am, assistantActions: assistantActions.length ? assistantActions : undefined });
+          }
           return next;
         });
 
@@ -429,6 +481,45 @@ export function PortalAiChatClient() {
     [activeThreadId, input, pendingAttachments, toast, loadThreads],
   );
 
+  const executeAgentAction = useCallback(
+    async (action: string, args: Record<string, unknown>) => {
+      if (!activeThreadId) throw new Error("No active chat");
+      const res = await fetch("/api/portal/ai-chat/actions/execute", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ threadId: activeThreadId, action, args }),
+      });
+      const json = await res.json().catch(() => null);
+      if (!json?.ok) throw new Error(json?.error || "Action failed");
+      return json as { assistantMessage?: Message };
+    },
+    [activeThreadId],
+  );
+
+  const runAssistantAction = useCallback(
+    async (a: AssistantAction) => {
+      if (!a?.key) return;
+      if (runningActionKey) return;
+
+      if (a.confirmLabel) {
+        const ok = window.confirm(`${a.title}\n\n${a.confirmLabel}`);
+        if (!ok) return;
+      }
+
+      setRunningActionKey(a.key);
+      try {
+        const json = await executeAgentAction(a.key, a.args || {});
+        if (json.assistantMessage) setMessages((prev) => [...prev, json.assistantMessage as Message]);
+        void loadThreads();
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : String(e));
+      } finally {
+        setRunningActionKey(null);
+      }
+    },
+    [executeAgentAction, loadThreads, runningActionKey, toast],
+  );
+
   const createTaskFromDraft = useCallback(async () => {
     const title = (taskTitle || input).trim().slice(0, 160);
     if (!title) {
@@ -438,36 +529,21 @@ export function PortalAiChatClient() {
 
     setActionBusy(true);
     try {
-      const res = await fetch("/api/portal/tasks", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ title, description: input.trim().slice(0, 5000) || undefined }),
+      const json = await executeAgentAction("tasks.create", {
+        title,
+        description: input.trim().slice(0, 5000) || undefined,
       });
-      const json = await res.json().catch(() => null);
-      if (!json?.ok) throw new Error(json?.error || "Failed to create task");
-
-      const nowIso = new Date().toISOString();
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: `action-${newClientId()}`,
-          role: "assistant",
-          text: `Created a task: **${title}**\n\n[Open tasks](/portal/app/tasks)`,
-          attachmentsJson: [],
-          createdAt: nowIso,
-          sendAt: null,
-          sentAt: nowIso,
-        },
-      ]);
+      if (json.assistantMessage) setMessages((prev) => [...prev, json.assistantMessage as Message]);
       setActionsOpen(false);
       setTaskTitle("");
       toast.success("Task created");
+      void loadThreads();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : String(e));
     } finally {
       setActionBusy(false);
     }
-  }, [toast, taskTitle, input]);
+  }, [toast, taskTitle, input, executeAgentAction, loadThreads]);
 
   const createFunnelFromDraft = useCallback(async () => {
     const name = (funnelName || input).trim().slice(0, 120);
@@ -484,38 +560,76 @@ export function PortalAiChatClient() {
 
     setActionBusy(true);
     try {
-      const res = await fetch("/api/portal/funnel-builder/funnels", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ name, slug }),
-      });
-      const json = await res.json().catch(() => null);
-      if (!json?.ok) throw new Error(json?.error || "Failed to create funnel");
-
-      const funnelId = String(json.funnel?.id || "");
-      const url = funnelId ? `/portal/app/services/funnel-builder/funnels/${encodeURIComponent(funnelId)}/edit` : "/portal/app/services/funnel-builder";
-      const nowIso = new Date().toISOString();
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: `action-${newClientId()}`,
-          role: "assistant",
-          text: `Created a funnel: **${name}**\n\n[Open funnel editor](${url})`,
-          attachmentsJson: [],
-          createdAt: nowIso,
-          sendAt: null,
-          sentAt: nowIso,
-        },
-      ]);
+      const json = await executeAgentAction("funnel.create", { name, slug });
+      if (json.assistantMessage) setMessages((prev) => [...prev, json.assistantMessage as Message]);
       setActionsOpen(false);
       setFunnelName("");
       toast.success("Funnel created");
+      void loadThreads();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : String(e));
     } finally {
       setActionBusy(false);
     }
-  }, [toast, funnelName, input]);
+  }, [toast, funnelName, input, executeAgentAction, loadThreads]);
+
+  const generateBlogNow = useCallback(async () => {
+    setActionBusy(true);
+    try {
+      const json = await executeAgentAction("blogs.generate_now", {});
+      if (json.assistantMessage) setMessages((prev) => [...prev, json.assistantMessage as Message]);
+      setActionsOpen(false);
+      toast.success("Blog generation started");
+      void loadThreads();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : String(e));
+    } finally {
+      setActionBusy(false);
+    }
+  }, [executeAgentAction, loadThreads, toast]);
+
+  const generateNewsletterNow = useCallback(async () => {
+    setActionBusy(true);
+    try {
+      const json = await executeAgentAction("newsletter.generate_now", { kind: newsletterKind });
+      if (json.assistantMessage) setMessages((prev) => [...prev, json.assistantMessage as Message]);
+      setActionsOpen(false);
+      toast.success("Newsletter generation started");
+      void loadThreads();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : String(e));
+    } finally {
+      setActionBusy(false);
+    }
+  }, [executeAgentAction, loadThreads, newsletterKind, toast]);
+
+  const runAutomationNow = useCallback(async () => {
+    const id = automationId.trim();
+    if (!id) {
+      toast.error("Enter an automation id");
+      return;
+    }
+
+    const contactPayload: Record<string, string> = {};
+    if (automationContactName.trim()) contactPayload.name = automationContactName.trim().slice(0, 200);
+    if (automationContactEmail.trim()) contactPayload.email = automationContactEmail.trim().slice(0, 200);
+    if (automationContactPhone.trim()) contactPayload.phone = automationContactPhone.trim().slice(0, 32);
+
+    setActionBusy(true);
+    try {
+      const args: Record<string, unknown> = { automationId: id };
+      if (Object.keys(contactPayload).length) args.contact = contactPayload;
+      const json = await executeAgentAction("automations.run", args);
+      if (json.assistantMessage) setMessages((prev) => [...prev, json.assistantMessage as Message]);
+      setActionsOpen(false);
+      toast.success("Automation triggered");
+      void loadThreads();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : String(e));
+    } finally {
+      setActionBusy(false);
+    }
+  }, [automationContactEmail, automationContactName, automationContactPhone, automationId, executeAgentAction, loadThreads, toast]);
 
   const left = (
     <div className="flex h-full flex-col overflow-hidden">
@@ -609,7 +723,7 @@ export function PortalAiChatClient() {
             ) : messages.length ? (
               <div className="space-y-3">
                 {messages.map((m) => (
-                  <MessageBubble key={m.id} msg={m} />
+                  <MessageBubble key={m.id} msg={m} onRunAction={(a) => void runAssistantAction(a)} runningActionKey={runningActionKey} />
                 ))}
                 <div ref={endRef} />
               </div>
@@ -701,6 +815,10 @@ export function PortalAiChatClient() {
                 onClick={() => {
                   setTaskTitle("");
                   setFunnelName("");
+                  setAutomationId("");
+                  setAutomationContactName("");
+                  setAutomationContactEmail("");
+                  setAutomationContactPhone("");
                   setActionsOpen(true);
                 }}
                 disabled={sending || uploading}
@@ -761,7 +879,7 @@ export function PortalAiChatClient() {
       <AppModal
         open={actionsOpen}
         title="Actions"
-        description="Create real objects in your portal (tasks, funnels)."
+        description="Run real actions in your portal. You can also run suggested actions under AI replies."
         onClose={() => setActionsOpen(false)}
         widthClassName="w-[min(720px,calc(100vw-32px))]"
         footer={
@@ -817,6 +935,90 @@ export function PortalAiChatClient() {
               >
                 Create
               </button>
+            </div>
+          </div>
+
+          <div className="rounded-3xl border border-zinc-200 bg-white p-4">
+            <div className="text-sm font-semibold text-zinc-900">Generate Blog Draft</div>
+            <div className="mt-2 flex items-center justify-between gap-3">
+              <div className="text-xs text-zinc-500">Runs your blog automation now.</div>
+              <button
+                type="button"
+                className="h-11 shrink-0 rounded-2xl bg-brand-blue px-4 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
+                onClick={() => void generateBlogNow()}
+                disabled={actionBusy}
+              >
+                Run
+              </button>
+            </div>
+          </div>
+
+          <div className="rounded-3xl border border-zinc-200 bg-white p-4">
+            <div className="text-sm font-semibold text-zinc-900">Generate Newsletter Draft</div>
+            <div className="mt-2 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <select
+                value={newsletterKind}
+                onChange={(e) => setNewsletterKind(e.target.value as "external" | "internal")}
+                className="h-11 w-full rounded-2xl border border-zinc-200 bg-white px-4 text-sm text-zinc-900 sm:w-auto"
+                disabled={actionBusy}
+              >
+                <option value="external">External</option>
+                <option value="internal">Internal</option>
+              </select>
+              <button
+                type="button"
+                className="h-11 shrink-0 rounded-2xl bg-brand-blue px-4 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
+                onClick={() => void generateNewsletterNow()}
+                disabled={actionBusy}
+              >
+                Run
+              </button>
+            </div>
+          </div>
+
+          <div className="rounded-3xl border border-zinc-200 bg-white p-4">
+            <div className="text-sm font-semibold text-zinc-900">Run Automation</div>
+            <div className="mt-2 grid gap-3">
+              <input
+                value={automationId}
+                onChange={(e) => setAutomationId(e.target.value)}
+                placeholder="Automation id"
+                className="h-11 w-full rounded-2xl border border-zinc-200 bg-white px-4 text-sm text-zinc-900"
+                disabled={actionBusy}
+              />
+              <div className="grid gap-3 sm:grid-cols-3">
+                <input
+                  value={automationContactName}
+                  onChange={(e) => setAutomationContactName(e.target.value)}
+                  placeholder="Contact name (optional)"
+                  className="h-11 w-full rounded-2xl border border-zinc-200 bg-white px-4 text-sm text-zinc-900"
+                  disabled={actionBusy}
+                />
+                <input
+                  value={automationContactEmail}
+                  onChange={(e) => setAutomationContactEmail(e.target.value)}
+                  placeholder="Contact email (optional)"
+                  className="h-11 w-full rounded-2xl border border-zinc-200 bg-white px-4 text-sm text-zinc-900"
+                  disabled={actionBusy}
+                />
+                <input
+                  value={automationContactPhone}
+                  onChange={(e) => setAutomationContactPhone(e.target.value)}
+                  placeholder="Contact phone (optional)"
+                  className="h-11 w-full rounded-2xl border border-zinc-200 bg-white px-4 text-sm text-zinc-900"
+                  disabled={actionBusy}
+                />
+              </div>
+              <div className="flex justify-end">
+                <button
+                  type="button"
+                  className="h-11 shrink-0 rounded-2xl bg-brand-blue px-4 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
+                  onClick={() => void runAutomationNow()}
+                  disabled={actionBusy}
+                >
+                  Run
+                </button>
+              </div>
             </div>
           </div>
         </div>
