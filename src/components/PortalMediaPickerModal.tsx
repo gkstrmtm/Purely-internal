@@ -148,10 +148,17 @@ export function PortalMediaPickerModal({
 
                 <button
                   type="button"
-                  className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
+                  className={classNames(
+                    "inline-flex h-10 w-10 items-center justify-center rounded-2xl",
+                    "border border-transparent bg-white text-zinc-500",
+                    "hover:border-zinc-200 hover:bg-zinc-50 hover:text-zinc-700",
+                    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-300",
+                  )}
                   onClick={onClose}
+                  aria-label="Close"
+                  title="Close"
                 >
-                  Close
+                  ×
                 </button>
               </div>
             </div>

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { CSSProperties, useEffect, useMemo, useRef, useState } from "react";
 
 import { InlineSpinner } from "@/components/InlineSpinner";
 import { PortalListboxDropdown } from "@/components/PortalListboxDropdown";
@@ -472,6 +472,58 @@ function MenuButton({
   goToLabel?: string | null;
 }) {
   const open = openId === id;
+
+  const anchorRef = useRef<HTMLButtonElement | null>(null);
+  const [menuStyle, setMenuStyle] = useState<CSSProperties | null>(null);
+
+  useEffect(() => {
+    if (!open) {
+      setMenuStyle(null);
+      return;
+    }
+
+    const recompute = () => {
+      const anchor = anchorRef.current;
+      if (!anchor) return;
+      const rect = anchor.getBoundingClientRect();
+      const vw = window.innerWidth;
+      const vh = window.innerHeight;
+
+      const padding = 12;
+      const gap = 8;
+      const width = Math.min(224, vw - padding * 2);
+      const left = Math.min(Math.max(rect.right - width, padding), vw - padding - width);
+
+      const spaceBelow = vh - rect.bottom - padding - gap;
+      const spaceAbove = rect.top - padding - gap;
+      const preferDown = spaceBelow >= 220 || spaceBelow >= spaceAbove;
+
+      setMenuStyle(
+        preferDown
+          ? { left, top: rect.bottom + gap, width, maxHeight: Math.max(160, spaceBelow) }
+          : { left, bottom: vh - rect.top + gap, width, maxHeight: Math.max(160, spaceAbove) },
+      );
+    };
+
+    let raf = 0;
+    const schedule = () => {
+      if (raf) return;
+      raf = window.requestAnimationFrame(() => {
+        raf = 0;
+        recompute();
+      });
+    };
+
+    recompute();
+    window.addEventListener("resize", schedule);
+    window.addEventListener("scroll", schedule, true);
+    return () => {
+      if (raf) window.cancelAnimationFrame(raf);
+      window.removeEventListener("resize", schedule);
+      window.removeEventListener("scroll", schedule, true);
+    };
+  }, [open]);
+
   return (
     <div
       className="relative"
@@ -479,6 +531,7 @@ function MenuButton({
       onTouchStart={(e) => e.stopPropagation()}
     >
       <button
+        ref={anchorRef}
         type="button"
         className="rounded-xl border border-zinc-200 bg-white px-2 py-1 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
         onClick={() => setOpenId(open ? null : id)}
@@ -488,7 +541,10 @@ function MenuButton({
       </button>
 
       {open ? (
-        <div className="absolute right-0 top-9 z-10 w-56 rounded-2xl border border-zinc-200 bg-white p-2 shadow-lg">
+        <div
+          className="fixed z-50 w-56 overflow-auto rounded-2xl border border-zinc-200 bg-white p-2 shadow-lg"
+          style={menuStyle ?? undefined}
+        >
           <button
             type="button"
             className={classNames(
@@ -515,13 +571,6 @@ function MenuButton({
               Go to {goToLabel}
             </button>
           ) : null}
-          <button
-            type="button"
-            className="mt-1 w-full rounded-xl px-3 py-2 text-left text-sm text-zinc-700 hover:bg-zinc-50"
-            onClick={() => setOpenId(null)}
-          >
-            Close
-          </button>
         </div>
       ) : null}
     </div>

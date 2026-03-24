@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 
 import { ToggleSwitch } from "@/components/ToggleSwitch";
 import { toPurelyHostedUrl } from "@/lib/publicHostedOrigin";
@@ -137,6 +137,8 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 	const [cameraFacing, setCameraFacing] = useState<"user" | "environment">("user");
 	const [hasBackCamera, setHasBackCamera] = useState(false);
 	const [headerMenuOpen, setHeaderMenuOpen] = useState(false);
+	const headerMenuButtonRef = useRef<HTMLButtonElement | null>(null);
+	const [headerMenuStyle, setHeaderMenuStyle] = useState<CSSProperties | null>(null);
 	const [connectDefaults, setConnectDefaults] = useState<ConnectUserDefaults>(() => {
 		if (typeof window === "undefined") return defaultConnectUserDefaults();
 		try {
@@ -224,6 +226,51 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 		return () => {
 			window.removeEventListener("mousedown", onDown);
 			window.removeEventListener("keydown", onKey);
+		};
+	}, [headerMenuOpen]);
+
+	useEffect(() => {
+		if (!headerMenuOpen) {
+			setHeaderMenuStyle(null);
+			return;
+		}
+
+		const recompute = () => {
+			const btn = headerMenuButtonRef.current;
+			if (!btn) return;
+			const rect = btn.getBoundingClientRect();
+			const vw = window.innerWidth;
+			const vh = window.innerHeight;
+			const padding = 12;
+			const gap = 8;
+			const width = Math.min(320, vw - padding * 2);
+			const left = Math.min(Math.max(rect.right - width, padding), vw - padding - width);
+			const spaceBelow = vh - rect.bottom - padding - gap;
+			const spaceAbove = rect.top - padding - gap;
+			const preferDown = spaceBelow >= 240 || spaceBelow >= spaceAbove;
+			setHeaderMenuStyle(
+				preferDown
+					? { left, top: rect.bottom + gap, width, maxHeight: Math.max(180, spaceBelow) }
+					: { left, bottom: vh - rect.top + gap, width, maxHeight: Math.max(180, spaceAbove) },
+			);
+		};
+
+		let raf = 0;
+		const schedule = () => {
+			if (raf) return;
+			raf = window.requestAnimationFrame(() => {
+				raf = 0;
+				recompute();
+			});
+		};
+
+		recompute();
+		window.addEventListener("resize", schedule);
+		window.addEventListener("scroll", schedule, true);
+		return () => {
+			if (raf) window.cancelAnimationFrame(raf);
+			window.removeEventListener("resize", schedule);
+			window.removeEventListener("scroll", schedule, true);
 		};
 	}, [headerMenuOpen]);
 
@@ -1669,6 +1716,7 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 
 					<div ref={headerMenuRef} className="relative flex items-center">
 						<button
+							ref={headerMenuButtonRef}
 							onClick={() => setHeaderMenuOpen((p) => !p)}
 							className="inline-flex h-11 w-11 items-center justify-center rounded-full border border-zinc-200 bg-white hover:bg-zinc-50"
 							aria-label="Meeting menu"
@@ -1677,7 +1725,10 @@ export function ConnectRoomClient(props: { roomId: string; signedInName?: string
 							<DotsIcon />
 						</button>
 						{headerMenuOpen ? (
-							<div className="absolute right-0 top-full z-20 mt-2 w-[min(320px,calc(100vw-2rem))] overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-lg">
+							<div
+								className="fixed z-50 overflow-auto rounded-2xl border border-zinc-200 bg-white shadow-lg"
+								style={headerMenuStyle ?? undefined}
+							>
 								<div className="p-2">
 									<Link
 										href="/connect"

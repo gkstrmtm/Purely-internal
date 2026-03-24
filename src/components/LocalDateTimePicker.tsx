@@ -1,6 +1,68 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { CSSProperties, useEffect, useMemo, useRef, useState, type RefObject } from "react";
+
+function clamp(n: number, min: number, max: number) {
+  return Math.min(Math.max(n, min), max);
+}
+
+function computeFixedPopoverStyleForRect(rect: DOMRect, opts?: { gap?: number; padding?: number; minMaxHeight?: number }) {
+  const gap = opts?.gap ?? 8;
+  const padding = opts?.padding ?? 12;
+  const minMaxHeight = opts?.minMaxHeight ?? 180;
+
+  const vw = window.innerWidth;
+  const vh = window.innerHeight;
+
+  const width = Math.min(rect.width, vw - padding * 2);
+  const left = clamp(rect.left, padding, vw - padding - width);
+
+  const spaceBelow = vh - rect.bottom - padding - gap;
+  const spaceAbove = rect.top - padding - gap;
+  const preferDown = spaceBelow >= 260 || spaceBelow >= spaceAbove;
+
+  return preferDown
+    ? ({ left, top: rect.bottom + gap, width, maxHeight: Math.max(minMaxHeight, spaceBelow) } satisfies CSSProperties)
+    : ({ left, bottom: vh - rect.top + gap, width, maxHeight: Math.max(minMaxHeight, spaceAbove) } satisfies CSSProperties);
+}
+
+function useFixedPopoverStyle(open: boolean, rootRef: RefObject<HTMLElement | null>) {
+  const [style, setStyle] = useState<CSSProperties | null>(null);
+
+  useEffect(() => {
+    if (!open) {
+      setStyle(null);
+      return;
+    }
+
+    const recompute = () => {
+      const el = rootRef.current;
+      if (!el) return;
+      const rect = el.getBoundingClientRect();
+      setStyle(computeFixedPopoverStyleForRect(rect));
+    };
+
+    let raf = 0;
+    const schedule = () => {
+      if (raf) return;
+      raf = window.requestAnimationFrame(() => {
+        raf = 0;
+        recompute();
+      });
+    };
+
+    recompute();
+    window.addEventListener("resize", schedule);
+    window.addEventListener("scroll", schedule, true);
+    return () => {
+      if (raf) window.cancelAnimationFrame(raf);
+      window.removeEventListener("resize", schedule);
+      window.removeEventListener("scroll", schedule, true);
+    };
+  }, [open, rootRef]);
+
+  return style;
+}
 
 function pad2(n: number) {
   return String(n).padStart(2, "0");
@@ -128,6 +190,8 @@ export function LocalDateTimePicker(props: {
   const [open, setOpen] = useState(false);
   const [nowSeed, setNowSeed] = useState(0);
 
+  const fixedPopoverStyle = useFixedPopoverStyle(open && !popoverClassName, rootRef);
+
   const [step, setStep] = useState<"date" | "time">("date");
 
   const [draftYmd, setDraftYmd] = useState<string>(() => parsedValue?.ymd || formatYmd(new Date()));
@@ -235,8 +299,9 @@ export function LocalDateTimePicker(props: {
         <div
           className={
             (popoverClassName ||
-              "absolute left-0 right-0 z-[200] mt-2 overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-lg")
+              "fixed z-[200] overflow-auto rounded-2xl border border-zinc-200 bg-white shadow-lg")
           }
+          style={popoverClassName ? undefined : fixedPopoverStyle ?? { visibility: "hidden" }}
           onMouseDown={(e) => e.stopPropagation()}
         >
           <div className="flex items-center justify-between gap-2 border-b border-zinc-200 bg-zinc-50 px-3 py-2">
@@ -427,6 +492,7 @@ export function LocalDatePicker(props: {
   const [viewMonth, setViewMonth] = useState<Date>(() => startOfMonth(parsed?.date || new Date()));
 
   const rootRef = useRef<HTMLDivElement | null>(null);
+  const fixedPopoverStyle = useFixedPopoverStyle(open, rootRef);
 
   useEffect(() => {
     if (!open) return;
@@ -482,7 +548,11 @@ export function LocalDatePicker(props: {
       </button>
 
       {open ? (
-        <div className="absolute left-0 right-0 z-[200] mt-2 overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-lg" onMouseDown={(e) => e.stopPropagation()}>
+        <div
+          className="fixed z-[200] overflow-auto rounded-2xl border border-zinc-200 bg-white shadow-lg"
+          style={fixedPopoverStyle ?? { visibility: "hidden" }}
+          onMouseDown={(e) => e.stopPropagation()}
+        >
           <div className="flex items-center justify-between gap-2 border-b border-zinc-200 bg-zinc-50 px-3 py-2">
             <button
               type="button"
@@ -567,6 +637,7 @@ export function LocalTimePicker(props: {
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState<string>(() => parsed || "09:00");
   const rootRef = useRef<HTMLDivElement | null>(null);
+  const fixedPopoverStyle = useFixedPopoverStyle(open, rootRef);
 
   useEffect(() => {
     if (!open) return;
@@ -618,7 +689,11 @@ export function LocalTimePicker(props: {
       </button>
 
       {open ? (
-        <div className="absolute left-0 right-0 z-[200] mt-2 overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-lg" onMouseDown={(e) => e.stopPropagation()}>
+        <div
+          className="fixed z-[200] overflow-auto rounded-2xl border border-zinc-200 bg-white shadow-lg"
+          style={fixedPopoverStyle ?? { visibility: "hidden" }}
+          onMouseDown={(e) => e.stopPropagation()}
+        >
           <div className="max-h-[240px] overflow-auto p-2">
             <div className="grid grid-cols-4 gap-1">
               {timeOptions.map((hm) => {
