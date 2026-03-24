@@ -173,7 +173,7 @@ export function PortalBlogsClient({
   const [siteDomain, setSiteDomain] = useState("");
   const [siteSaving, setSiteSaving] = useState(false);
   const lastSavedSiteSigRef = useRef<string>("");
-  const [openPostMenu, setOpenPostMenu] = useState<null | { postId: string; left: number; top: number }>(null);
+  const [openPostMenu, setOpenPostMenu] = useState<null | { postId: string; left: number; top: number; maxHeight: number }>(null);
   const [openPreviewMenu, setOpenPreviewMenu] = useState<null | { left: number; top: number }>(null);
   const [confirm, setConfirm] = useState<PostConfirm>(null);
 
@@ -491,10 +491,27 @@ export function PortalBlogsClient({
       if (prev?.postId === postId) return null;
       const rect = el.getBoundingClientRect();
       const menuWidth = 224; // w-56
-      const padding = 8;
-      const left = Math.max(padding, Math.min(window.innerWidth - menuWidth - padding, rect.right - menuWidth));
-      const top = Math.max(padding, rect.bottom + 8);
-      return { postId, left, top };
+      const VIEWPORT_PAD = 12;
+      const GAP = 8;
+      const EST_HEIGHT = 260;
+
+      const viewportW = window.innerWidth;
+      const viewportH = window.innerHeight;
+
+      const left = Math.max(VIEWPORT_PAD, Math.min(viewportW - menuWidth - VIEWPORT_PAD, rect.right - menuWidth));
+
+      const spaceBelow = viewportH - rect.bottom - GAP - VIEWPORT_PAD;
+      const spaceAbove = rect.top - GAP - VIEWPORT_PAD;
+      const placeDown = spaceBelow >= Math.min(EST_HEIGHT, 220) || spaceBelow >= spaceAbove;
+
+      const available = placeDown ? spaceBelow : spaceAbove;
+      const maxHeight = Math.max(140, Math.min(EST_HEIGHT, available));
+      const usedHeight = Math.min(EST_HEIGHT, maxHeight);
+
+      const rawTop = placeDown ? rect.bottom + GAP : rect.top - GAP - usedHeight;
+      const top = Math.max(VIEWPORT_PAD, Math.min(viewportH - VIEWPORT_PAD - usedHeight, rawTop));
+
+      return { postId, left, top, maxHeight };
     });
   }
 
@@ -1522,8 +1539,8 @@ export function PortalBlogsClient({
             <div className="fixed inset-0 z-50" aria-hidden>
               <div className="absolute inset-0" onMouseDown={() => setOpenPostMenu(null)} onTouchStart={() => setOpenPostMenu(null)} />
               <div
-                className="fixed z-60 w-56 overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-lg"
-                style={{ left: openPostMenu.left, top: openPostMenu.top }}
+                className="fixed z-60 w-56 overflow-auto rounded-2xl border border-zinc-200 bg-white shadow-lg"
+                style={{ left: openPostMenu.left, top: openPostMenu.top, maxHeight: openPostMenu.maxHeight }}
                 onMouseDown={(e) => e.stopPropagation()}
                 onTouchStart={(e) => e.stopPropagation()}
               >

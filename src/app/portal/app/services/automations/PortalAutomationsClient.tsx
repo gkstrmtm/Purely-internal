@@ -592,7 +592,7 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
   const autosaveTimerRef = useRef<number | null>(null);
 
   const [libraryOpen, setLibraryOpen] = useState(false);
-  const [libraryMenuFor, setLibraryMenuFor] = useState<string | null>(null);
+  const [libraryMenuFor, setLibraryMenuFor] = useState<null | { automationId: string; left: number; top: number; maxHeight: number }>(null);
   const [manualRunBusyFor, setManualRunBusyFor] = useState<string | null>(null);
 
   const [renameOpen, setRenameOpen] = useState(false);
@@ -605,7 +605,7 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
   const [listStatus, setListStatus] = useState<"all" | "active" | "paused">("all");
   const [listTrigger, setListTrigger] = useState<"all" | TriggerKind>("all");
 
-  const [openListMenu, setOpenListMenu] = useState<null | { automationId: string; left: number; top: number }>(null);
+  const [openListMenu, setOpenListMenu] = useState<null | { automationId: string; left: number; top: number; maxHeight: number }>(null);
 
   useEffect(() => {
     if (!openListMenu) return;
@@ -626,15 +626,80 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
     };
   }, [openListMenu]);
 
+  useEffect(() => {
+    if (!libraryMenuFor) return;
+
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setLibraryMenuFor(null);
+    };
+
+    const onScrollOrResize = () => setLibraryMenuFor(null);
+
+    window.addEventListener("keydown", onKey);
+    window.addEventListener("scroll", onScrollOrResize, true);
+    window.addEventListener("resize", onScrollOrResize);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("scroll", onScrollOrResize, true);
+      window.removeEventListener("resize", onScrollOrResize);
+    };
+  }, [libraryMenuFor]);
+
   function toggleListMenu(automationId: string, el: HTMLElement) {
     setOpenListMenu((prev) => {
       if (prev?.automationId === automationId) return null;
       const rect = el.getBoundingClientRect();
       const menuWidth = 220;
-      const padding = 8;
-      const left = Math.max(padding, Math.min(window.innerWidth - menuWidth - padding, rect.right - menuWidth));
-      const top = Math.max(padding, rect.bottom + 8);
-      return { automationId, left, top };
+      const VIEWPORT_PAD = 12;
+      const GAP = 8;
+      const EST_HEIGHT = 280;
+
+      const viewportW = window.innerWidth;
+      const viewportH = window.innerHeight;
+
+      const left = Math.max(VIEWPORT_PAD, Math.min(viewportW - menuWidth - VIEWPORT_PAD, rect.right - menuWidth));
+
+      const spaceBelow = viewportH - rect.bottom - GAP - VIEWPORT_PAD;
+      const spaceAbove = rect.top - GAP - VIEWPORT_PAD;
+      const placeDown = spaceBelow >= Math.min(EST_HEIGHT, 240) || spaceBelow >= spaceAbove;
+
+      const available = placeDown ? spaceBelow : spaceAbove;
+      const maxHeight = Math.max(120, Math.min(EST_HEIGHT, available));
+      const usedHeight = Math.min(EST_HEIGHT, maxHeight);
+
+      const rawTop = placeDown ? rect.bottom + GAP : rect.top - GAP - usedHeight;
+      const top = Math.max(VIEWPORT_PAD, Math.min(viewportH - VIEWPORT_PAD - usedHeight, rawTop));
+
+      return { automationId, left, top, maxHeight };
+    });
+  }
+
+  function toggleLibraryMenu(automationId: string, el: HTMLElement) {
+    setLibraryMenuFor((prev) => {
+      if (prev?.automationId === automationId) return null;
+      const rect = el.getBoundingClientRect();
+      const menuWidth = 160; // w-40
+      const VIEWPORT_PAD = 12;
+      const GAP = 8;
+      const EST_HEIGHT = 220;
+
+      const viewportW = window.innerWidth;
+      const viewportH = window.innerHeight;
+
+      const left = Math.max(VIEWPORT_PAD, Math.min(viewportW - menuWidth - VIEWPORT_PAD, rect.right - menuWidth));
+
+      const spaceBelow = viewportH - rect.bottom - GAP - VIEWPORT_PAD;
+      const spaceAbove = rect.top - GAP - VIEWPORT_PAD;
+      const placeDown = spaceBelow >= Math.min(EST_HEIGHT, 200) || spaceBelow >= spaceAbove;
+
+      const available = placeDown ? spaceBelow : spaceAbove;
+      const maxHeight = Math.max(120, Math.min(EST_HEIGHT, available));
+      const usedHeight = Math.min(EST_HEIGHT, maxHeight);
+
+      const rawTop = placeDown ? rect.bottom + GAP : rect.top - GAP - usedHeight;
+      const top = Math.max(VIEWPORT_PAD, Math.min(viewportH - VIEWPORT_PAD - usedHeight, rawTop));
+
+      return { automationId, left, top, maxHeight };
     });
   }
 
@@ -2459,8 +2524,8 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
           <>
             <div className="fixed inset-0 z-40" onMouseDown={() => setOpenListMenu(null)} onTouchStart={() => setOpenListMenu(null)} />
             <div
-              className="fixed z-50 w-[220px] overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-xl"
-              style={{ left: openListMenu.left, top: openListMenu.top }}
+              className="fixed z-50 w-[220px] overflow-auto rounded-2xl border border-zinc-200 bg-white shadow-xl"
+              style={{ left: openListMenu.left, top: openListMenu.top, maxHeight: openListMenu.maxHeight }}
               onMouseDown={(e) => e.stopPropagation()}
               onTouchStart={(e) => e.stopPropagation()}
             >
@@ -2703,11 +2768,15 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
               </div>
               <button
                 type="button"
-                className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold hover:bg-zinc-50"
+                className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-transparent text-zinc-500 hover:border-zinc-200 hover:bg-zinc-50 hover:text-zinc-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/30 disabled:pointer-events-none disabled:opacity-60"
                 onClick={() => setConfirm(null)}
                 disabled={confirmBusy}
+                aria-label="Close"
+                title="Close"
               >
-                Close
+                <span aria-hidden="true" className="text-xl leading-none">
+                  ×
+                </span>
               </button>
             </div>
 
@@ -2746,10 +2815,14 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
               </div>
               <button
                 type="button"
-                className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold hover:bg-zinc-50"
+                className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-transparent text-zinc-500 hover:border-zinc-200 hover:bg-zinc-50 hover:text-zinc-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/30"
                 onClick={() => setRenameOpen(false)}
+                aria-label="Close"
+                title="Close"
               >
-                Close
+                <span aria-hidden="true" className="text-xl leading-none">
+                  ×
+                </span>
               </button>
             </div>
 
@@ -2809,10 +2882,14 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
               </div>
               <button
                 type="button"
-                className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold hover:bg-zinc-50"
+                className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-transparent text-zinc-500 hover:border-zinc-200 hover:bg-zinc-50 hover:text-zinc-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/30"
                 onClick={() => setTestOpen(false)}
+                aria-label="Close"
+                title="Close"
               >
-                Close
+                <span aria-hidden="true" className="text-xl leading-none">
+                  ×
+                </span>
               </button>
             </div>
 
@@ -2889,11 +2966,15 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
               </div>
               <button
                 type="button"
-                className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold hover:bg-zinc-50"
+                className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-transparent text-zinc-500 hover:border-zinc-200 hover:bg-zinc-50 hover:text-zinc-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/30 disabled:pointer-events-none disabled:opacity-60"
                 onClick={() => setCreateTagOpen(false)}
                 disabled={createTagBusy}
+                aria-label="Close"
+                title="Close"
               >
-                Close
+                <span aria-hidden="true" className="text-xl leading-none">
+                  ×
+                </span>
               </button>
             </div>
 
@@ -3015,15 +3096,27 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
               </div>
               <button
                 type="button"
-                className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold hover:bg-zinc-50"
+                className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-transparent text-zinc-500 hover:border-zinc-200 hover:bg-zinc-50 hover:text-zinc-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/30"
                 onClick={() => {
                   setLibraryOpen(false);
                   setLibraryMenuFor(null);
                 }}
+                aria-label="Close"
+                title="Close"
               >
-                Close
+                <span aria-hidden="true" className="text-xl leading-none">
+                  ×
+                </span>
               </button>
             </div>
+
+            {libraryMenuFor ? (
+              <div
+                className="fixed inset-0 z-40"
+                onMouseDown={() => setLibraryMenuFor(null)}
+                onTouchStart={() => setLibraryMenuFor(null)}
+              />
+            ) : null}
 
             <div className="mt-4 space-y-2">
               {automations.length === 0 ? (
@@ -3131,15 +3224,19 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
                               ? "border-brand-ink bg-brand-ink text-white hover:opacity-95"
                               : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
                           }
-                          onClick={() => setLibraryMenuFor((prev) => (prev === a.id ? null : a.id))}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            toggleLibraryMenu(a.id, e.currentTarget);
+                          }}
                           title="Actions"
                         >
                           ⋯
                         </button>
 
-                        {libraryMenuFor === a.id ? (
+                        {libraryMenuFor?.automationId === a.id ? (
                           <div
-                            className="absolute right-0 z-10 mt-2 w-40 overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow"
+                            className="fixed z-50 w-40 overflow-auto rounded-2xl border border-zinc-200 bg-white shadow-xl"
+                            style={{ left: libraryMenuFor.left, top: libraryMenuFor.top, maxHeight: libraryMenuFor.maxHeight }}
                             onMouseDown={(e) => e.stopPropagation()}
                           >
                             <button

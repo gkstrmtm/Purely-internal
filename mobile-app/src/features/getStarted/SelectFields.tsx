@@ -73,8 +73,13 @@ export function PortalSingleSelectField({
           <View style={styles.modalCard}>
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>{label}</Text>
-              <Pressable style={styles.modalCloseBtn} onPress={() => setOpen(false)}>
-                <Text style={styles.modalCloseText}>Close</Text>
+              <Pressable
+                style={styles.modalCloseBtn}
+                onPress={() => setOpen(false)}
+                accessibilityRole="button"
+                accessibilityLabel="Close"
+              >
+                <Text style={styles.modalCloseText}>×</Text>
               </Pressable>
             </View>
 
@@ -183,8 +188,13 @@ export function PortalMultiSelectField({
           <View style={styles.modalCard}>
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>{label}</Text>
-              <Pressable style={styles.modalCloseBtn} onPress={() => setOpen(false)}>
-                <Text style={styles.modalCloseText}>Done</Text>
+              <Pressable
+                style={styles.modalCloseBtn}
+                onPress={() => setOpen(false)}
+                accessibilityRole="button"
+                accessibilityLabel="Close"
+              >
+                <Text style={styles.modalCloseText}>×</Text>
               </Pressable>
             </View>
 
@@ -264,8 +274,15 @@ const styles = StyleSheet.create({
     borderBottomColor: ZINC_200,
   },
   modalTitle: { fontSize: 16, fontWeight: "800", color: ZINC_900 },
-  modalCloseBtn: { paddingHorizontal: 10, paddingVertical: 6, borderRadius: 999, borderWidth: 1, borderColor: ZINC_200 },
-  modalCloseText: { color: BRAND_INK, fontWeight: "800" },
+  modalCloseBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 999,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "transparent",
+  },
+  modalCloseText: { color: BRAND_INK, fontWeight: "900", fontSize: 18, lineHeight: 18 },
 
   search: {
     margin: 16,

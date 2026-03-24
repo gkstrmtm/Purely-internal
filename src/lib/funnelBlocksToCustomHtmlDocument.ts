@@ -450,7 +450,7 @@ export function blocksToCustomHtmlDocument(opts: {
       + '  <div style="position:relative;max-width:720px;margin:10vh auto;background:#fff;border:1px solid #e2e8f0;border-radius:18px;overflow:hidden">'
       + '    <div style="padding:14px 16px;border-bottom:1px solid #e2e8f0;display:flex;justify-content:space-between;align-items:center">'
       + '      <div style="font-weight:900">Your cart</div>'
-      + '      <button id="pa-close" style="border:1px solid #e2e8f0;border-radius:12px;padding:8px 10px;background:#fff;cursor:pointer">Close</button>'
+      + '      <button id="pa-close" aria-label="Close" title="Close" style="border:1px solid transparent;border-radius:999px;width:40px;height:40px;line-height:40px;padding:0;background:#fff;cursor:pointer;font-size:18px;font-weight:900;color:#334155">×</button>'
       + '    </div>'
       + '    <div id="pa-items" style="padding:16px;display:flex;flex-direction:column;gap:10px"></div>'
       + '    <div style="padding:16px;border-top:1px solid #e2e8f0;display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap">'

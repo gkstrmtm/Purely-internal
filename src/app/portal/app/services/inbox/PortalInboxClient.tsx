@@ -95,6 +95,40 @@ function classNames(...xs: Array<string | false | null | undefined>) {
   return xs.filter(Boolean).join(" ");
 }
 
+type FixedMenuStyle = { left: number; top: number; width: number; maxHeight: number };
+
+function computeFixedMenuStyle(opts: {
+  rect: DOMRect;
+  width: number;
+  estHeight: number;
+  alignX: "left" | "right";
+  minHeight?: number;
+}) {
+  const VIEWPORT_PAD = 12;
+  const GAP = 8;
+  const viewportW = window.innerWidth;
+  const viewportH = window.innerHeight;
+
+  const width = Math.max(160, Math.min(opts.width, viewportW - VIEWPORT_PAD * 2));
+  const estHeight = Math.max(120, opts.estHeight);
+
+  let left = opts.alignX === "right" ? opts.rect.right - width : opts.rect.left;
+  left = Math.max(VIEWPORT_PAD, Math.min(viewportW - VIEWPORT_PAD - width, left));
+
+  const spaceBelow = viewportH - opts.rect.bottom - GAP - VIEWPORT_PAD;
+  const spaceAbove = opts.rect.top - GAP - VIEWPORT_PAD;
+  const placeDown = spaceBelow >= Math.min(estHeight, 240) || spaceBelow >= spaceAbove;
+
+  const available = placeDown ? spaceBelow : spaceAbove;
+  const maxHeight = Math.max(opts.minHeight ?? 140, Math.min(estHeight, available));
+  const usedHeight = Math.min(estHeight, maxHeight);
+
+  const rawTop = placeDown ? opts.rect.bottom + GAP : opts.rect.top - GAP - usedHeight;
+  const top = Math.max(VIEWPORT_PAD, Math.min(viewportH - VIEWPORT_PAD - usedHeight, rawTop));
+
+  return { left, top, width, maxHeight } satisfies FixedMenuStyle;
+}
+
 function formatWhen(iso: string) {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "";
@@ -187,10 +221,10 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
   }, [initialChannel]);
   const [emailBox, setEmailBox] = useState<EmailBox>("inbox");
   const [threadSearch, setThreadSearch] = useState<string>("");
-  const [emailFiltersOpen, setEmailFiltersOpen] = useState(false);
+  const [emailFiltersMenu, setEmailFiltersMenu] = useState<FixedMenuStyle | null>(null);
   const [emailDateFilter, setEmailDateFilter] = useState<DateFilter>("any");
   const [emailHasAttachmentsOnly, setEmailHasAttachmentsOnly] = useState(false);
-  const [smsFiltersOpen, setSmsFiltersOpen] = useState(false);
+  const [smsFiltersMenu, setSmsFiltersMenu] = useState<FixedMenuStyle | null>(null);
   const [smsDateFilter, setSmsDateFilter] = useState<DateFilter>("any");
   const [smsIncomingOnly, setSmsIncomingOnly] = useState(false);
   const [threads, setThreads] = useState<Thread[]>([]);
@@ -204,7 +238,7 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
   const [error, setError] = useState<string | null>(null);
 
   const [emailComposerOpen, setEmailComposerOpen] = useState(false);
-  const [emailAttachMenuOpen, setEmailAttachMenuOpen] = useState(false);
+  const [emailAttachMenu, setEmailAttachMenu] = useState<FixedMenuStyle | null>(null);
   const [smsSheetOpen, setSmsSheetOpen] = useState(false);
 
   const initialDeepLink = useMemo(() => {
@@ -341,19 +375,47 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
 
   const [contacts, setContacts] = useState<ContactLite[] | null>(null);
   const [contactsLoading, setContactsLoading] = useState(false);
-  const [toSuggestionsOpen, setToSuggestionsOpen] = useState(false);
+  const [toSuggestionsMenu, setToSuggestionsMenu] = useState<FixedMenuStyle | null>(null);
 
   const smsToRef = useRef<HTMLInputElement | null>(null);
   const emailToRef = useRef<HTMLInputElement | null>(null);
   const emailComposerFileRef = useRef<HTMLInputElement | null>(null);
 
-  const [smsMoreOpen, setSmsMoreOpen] = useState(false);
+  const [smsMoreMenu, setSmsMoreMenu] = useState<FixedMenuStyle | null>(null);
   const [mediaPickerOpen, setMediaPickerOpen] = useState(false);
 
   const [variablePickerOpen, setVariablePickerOpen] = useState(false);
   const [variablePickerTarget, setVariablePickerTarget] = useState<null | "sms_body" | "email_subject" | "email_body">(null);
 
   const [knownContactCustomVarKeys, setKnownContactCustomVarKeys] = useState<string[]>([]);
+
+  const anyInlineMenuOpen = Boolean(emailFiltersMenu || smsFiltersMenu || toSuggestionsMenu || smsMoreMenu || emailAttachMenu);
+  useEffect(() => {
+    if (!anyInlineMenuOpen) return;
+
+    const closeAll = () => {
+      setEmailFiltersMenu(null);
+      setSmsFiltersMenu(null);
+      setToSuggestionsMenu(null);
+      setSmsMoreMenu(null);
+      setEmailAttachMenu(null);
+    };
+
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") closeAll();
+    };
+
+    const onScrollOrResize = () => closeAll();
+
+    window.addEventListener("keydown", onKey);
+    window.addEventListener("scroll", onScrollOrResize, true);
+    window.addEventListener("resize", onScrollOrResize);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("scroll", onScrollOrResize, true);
+      window.removeEventListener("resize", onScrollOrResize);
+    };
+  }, [anyInlineMenuOpen, emailAttachMenu, emailFiltersMenu, smsFiltersMenu, smsMoreMenu, toSuggestionsMenu]);
 
   useEffect(() => {
     let canceled = false;
@@ -401,7 +463,7 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
 
   const openEmailComposer = useCallback(() => {
     setEmailComposerOpen(true);
-    setEmailAttachMenuOpen(false);
+    setEmailAttachMenu(null);
     setThreadSearch("");
     clearConversationForCompose();
     setComposeTo("");
@@ -501,7 +563,7 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
     }
 
     setError(null);
-    setToSuggestionsOpen(false);
+    setToSuggestionsMenu(null);
     setComposeTo(to);
     setComposeAttachments([]);
     if (tab === "email") setComposeSubject("");
@@ -1239,15 +1301,20 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
           </div>
 
           <div className="relative shrink-0">
-            {emailFiltersOpen ? (
+            {emailFiltersMenu ? (
               <>
                 <div
                   className="fixed inset-0 z-50"
-                  onMouseDown={() => setEmailFiltersOpen(false)}
-                  onTouchStart={() => setEmailFiltersOpen(false)}
+                  onMouseDown={() => setEmailFiltersMenu(null)}
+                  onTouchStart={() => setEmailFiltersMenu(null)}
                   aria-hidden
                 />
-                <div className="absolute right-0 top-full z-60 mt-2 w-72 overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-xl">
+                <div
+                  className="fixed z-60 w-72 overflow-auto rounded-2xl border border-zinc-200 bg-white shadow-xl"
+                  style={{ left: emailFiltersMenu.left, top: emailFiltersMenu.top, maxHeight: emailFiltersMenu.maxHeight }}
+                  onMouseDown={(e) => e.stopPropagation()}
+                  onTouchStart={(e) => e.stopPropagation()}
+                >
                   <div className="border-b border-zinc-100 px-4 py-3 text-xs font-semibold text-zinc-600">Filters</div>
                   <div className="px-4 py-3">
                     <div className="text-xs font-semibold text-zinc-700">Date</div>
@@ -1325,9 +1392,19 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
                 "inline-flex h-11 w-11 items-center justify-center rounded-full border border-zinc-200 bg-white text-zinc-800 hover:bg-zinc-50",
                 (emailDateFilter !== "any" || emailHasAttachmentsOnly) && "border-brand-ink",
               )}
-              onClick={() => setEmailFiltersOpen((v) => !v)}
+              onClick={(e) => {
+                const open = Boolean(emailFiltersMenu);
+                if (open) {
+                  setEmailFiltersMenu(null);
+                  return;
+                }
+                const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                setEmailFiltersMenu(
+                  computeFixedMenuStyle({ rect, width: 288, estHeight: 420, alignX: "right", minHeight: 220 }),
+                );
+              }}
               aria-label="Mail filters"
-              aria-expanded={emailFiltersOpen ? true : undefined}
+              aria-expanded={emailFiltersMenu ? true : undefined}
             >
               <IconFunnel size={18} />
             </button>
@@ -1347,8 +1424,8 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
               setComposeTo("");
               setComposeBody("");
               setComposeAttachments([]);
-              setSmsMoreOpen(false);
-              setToSuggestionsOpen(false);
+              setSmsMoreMenu(null);
+              setToSuggestionsMenu(null);
             }}
             aria-label="New message"
           >
@@ -1368,15 +1445,20 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
           </div>
 
           <div className="relative shrink-0">
-            {smsFiltersOpen ? (
+            {smsFiltersMenu ? (
               <>
                 <div
-                  className="fixed inset-0 z-50"
-                  onMouseDown={() => setSmsFiltersOpen(false)}
-                  onTouchStart={() => setSmsFiltersOpen(false)}
+                  className="fixed inset-0 z-12041"
+                  onMouseDown={() => setSmsFiltersMenu(null)}
+                  onTouchStart={() => setSmsFiltersMenu(null)}
                   aria-hidden
                 />
-                <div className="absolute right-0 top-full z-60 mt-2 w-72 overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-xl">
+                <div
+                  className="fixed z-12045 overflow-auto rounded-2xl border border-zinc-200 bg-white shadow-xl"
+                  style={{ left: smsFiltersMenu.left, top: smsFiltersMenu.top, width: smsFiltersMenu.width, maxHeight: smsFiltersMenu.maxHeight }}
+                  onMouseDown={(e) => e.stopPropagation()}
+                  onTouchStart={(e) => e.stopPropagation()}
+                >
                   <div className="border-b border-zinc-100 px-4 py-3 text-xs font-semibold text-zinc-600">Filters</div>
                   <div className="px-4 py-3">
                     <div className="text-xs font-semibold text-zinc-700">Date</div>
@@ -1428,7 +1510,6 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
                         />
                       </button>
                     </div>
-
                     {(smsDateFilter !== "any" || smsIncomingOnly) ? (
                       <button
                         type="button"
@@ -1452,9 +1533,19 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
                 "inline-flex h-11 w-11 items-center justify-center rounded-full border border-zinc-200 bg-white text-zinc-800 hover:bg-zinc-50",
                 (smsDateFilter !== "any" || smsIncomingOnly) && "border-brand-ink",
               )}
-              onClick={() => setSmsFiltersOpen((v) => !v)}
+              onClick={(e) => {
+                const open = Boolean(smsFiltersMenu);
+                if (open) {
+                  setSmsFiltersMenu(null);
+                  return;
+                }
+                const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                setSmsFiltersMenu(
+                  computeFixedMenuStyle({ rect, width: 288, estHeight: 420, alignX: "right", minHeight: 220 }),
+                );
+              }}
               aria-label="Message filters"
-              aria-expanded={smsFiltersOpen ? true : undefined}
+              aria-expanded={smsFiltersMenu ? true : undefined}
             >
               <IconFunnel size={18} />
             </button>
@@ -1606,8 +1697,8 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
                       onClick={() => {
                         setActiveThreadId(t.id);
                         setSmsSheetOpen(true);
-                        setSmsMoreOpen(false);
-                        setToSuggestionsOpen(false);
+                        setSmsMoreMenu(null);
+                        setToSuggestionsMenu(null);
                       }}
                       className={classNames(
                         "w-full border-b border-zinc-100 px-4 py-3 text-left transition",
@@ -2026,14 +2117,14 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
             onMouseDown={() => {
               setSmsSheetOpen(false);
               setActiveThreadId(null);
-              setSmsMoreOpen(false);
-              setToSuggestionsOpen(false);
+              setSmsMoreMenu(null);
+              setToSuggestionsMenu(null);
             }}
             onTouchStart={() => {
               setSmsSheetOpen(false);
               setActiveThreadId(null);
-              setSmsMoreOpen(false);
-              setToSuggestionsOpen(false);
+              setSmsMoreMenu(null);
+              setToSuggestionsMenu(null);
             }}
             aria-hidden
           />
@@ -2055,8 +2146,8 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
                   onClick={() => {
                     setSmsSheetOpen(false);
                     setActiveThreadId(null);
-                    setSmsMoreOpen(false);
-                    setToSuggestionsOpen(false);
+                    setSmsMoreMenu(null);
+                    setToSuggestionsMenu(null);
                   }}
                   aria-label="Back to threads"
                 >
@@ -2095,11 +2186,11 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
 
               {!activeThread ? (
                 <div className="border-b border-zinc-200 px-4">
-                  {toSuggestionsOpen ? (
+                  {toSuggestionsMenu ? (
                     <div
                       className="fixed inset-0 z-12041"
-                      onMouseDown={() => setToSuggestionsOpen(false)}
-                      onTouchStart={() => setToSuggestionsOpen(false)}
+                      onMouseDown={() => setToSuggestionsMenu(null)}
+                      onTouchStart={() => setToSuggestionsMenu(null)}
                       aria-hidden
                     />
                   ) : null}
@@ -2112,23 +2203,40 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
                         value={composeTo}
                         onFocus={() => {
                           void ensureContactsLoaded();
-                          setToSuggestionsOpen(true);
+                          try {
+                            const rect = smsToRef.current?.getBoundingClientRect();
+                            if (rect) {
+                              setToSuggestionsMenu(
+                                computeFixedMenuStyle({ rect, width: rect.width, estHeight: 320, alignX: "left", minHeight: 160 }),
+                              );
+                            }
+                          } catch {
+                            // ignore
+                          }
                         }}
                         onChange={(e) => {
                           void ensureContactsLoaded();
                           setComposeTo(e.target.value);
-                          setToSuggestionsOpen(true);
+                          const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                          setToSuggestionsMenu(
+                            computeFixedMenuStyle({ rect, width: rect.width, estHeight: 320, alignX: "left", minHeight: 160 }),
+                          );
                         }}
                         onKeyDown={(e) => {
-                          if (e.key === "Escape") setToSuggestionsOpen(false);
+                          if (e.key === "Escape") setToSuggestionsMenu(null);
                         }}
                         placeholder="Phone number or contact name"
                         className="w-full bg-transparent text-sm text-zinc-900 placeholder:text-zinc-400 focus:outline-none"
                       />
                     </div>
 
-                    {toSuggestionsOpen ? (
-                      <div className="absolute left-0 right-0 top-full z-12045 mt-2 overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-lg">
+                    {toSuggestionsMenu ? (
+                      <div
+                        className="fixed z-12045 overflow-auto rounded-2xl border border-zinc-200 bg-white shadow-lg"
+                        style={{ left: toSuggestionsMenu.left, top: toSuggestionsMenu.top, width: toSuggestionsMenu.width, maxHeight: toSuggestionsMenu.maxHeight }}
+                        onMouseDown={(e) => e.stopPropagation()}
+                        onTouchStart={(e) => e.stopPropagation()}
+                      >
                         {contactsLoading ? (
                           <div className="px-3 py-3 text-sm text-zinc-600">Loading contacts…</div>
                         ) : (
@@ -2139,7 +2247,7 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
                             }
 
                             return (
-                              <div className="max-h-72 overflow-y-auto py-1">
+                              <div className="py-1">
                                 {suggestions.map((c) => (
                                   <button
                                     key={c.id}
@@ -2312,20 +2420,25 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
 
                 <div className={classNames("flex items-center gap-2 px-2 py-2", styles.inputPill)}>
                   <div className="relative">
-                    {smsMoreOpen ? (
+                    {smsMoreMenu ? (
                       <>
                         <div
                           className="fixed inset-0 z-12041"
-                          onMouseDown={() => setSmsMoreOpen(false)}
-                          onTouchStart={() => setSmsMoreOpen(false)}
+                          onMouseDown={() => setSmsMoreMenu(null)}
+                          onTouchStart={() => setSmsMoreMenu(null)}
                           aria-hidden
                         />
-                        <div className="absolute bottom-full left-0 z-12045 mb-2 w-64 overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-lg">
+                        <div
+                          className="fixed z-12045 overflow-auto rounded-2xl border border-zinc-200 bg-white shadow-lg"
+                          style={{ left: smsMoreMenu.left, top: smsMoreMenu.top, width: smsMoreMenu.width, maxHeight: smsMoreMenu.maxHeight }}
+                          onMouseDown={(e) => e.stopPropagation()}
+                          onTouchStart={(e) => e.stopPropagation()}
+                        >
                           <button
                             type="button"
                             className="w-full px-4 py-3 text-left text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
                             onClick={() => {
-                              setSmsMoreOpen(false);
+                              setSmsMoreMenu(null);
                               openVariablePicker("sms_body");
                             }}
                           >
@@ -2335,7 +2448,7 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
                             type="button"
                             className="w-full px-4 py-3 text-left text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
                             onClick={() => {
-                              setSmsMoreOpen(false);
+                              setSmsMoreMenu(null);
                               smsFileRef.current?.click();
                             }}
                           >
@@ -2345,7 +2458,7 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
                             type="button"
                             className="w-full px-4 py-3 text-left text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
                             onClick={() => {
-                              setSmsMoreOpen(false);
+                              setSmsMoreMenu(null);
                               setMediaPickerOpen(true);
                             }}
                           >
@@ -2358,9 +2471,18 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
                     <button
                       type="button"
                       className={classNames(styles.iconButton, styles.iconButtonMuted)}
-                      onClick={() => setSmsMoreOpen((v) => !v)}
+                      onClick={(e) => {
+                        if (smsMoreMenu) {
+                          setSmsMoreMenu(null);
+                          return;
+                        }
+                        const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                        setSmsMoreMenu(
+                          computeFixedMenuStyle({ rect, width: 256, estHeight: 200, alignX: "left", minHeight: 160 }),
+                        );
+                      }}
                       aria-label="More"
-                      aria-expanded={smsMoreOpen ? true : undefined}
+                      aria-expanded={smsMoreMenu ? true : undefined}
                     >
                       <span className="text-lg leading-none">+</span>
                     </button>
@@ -2450,7 +2572,7 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
                   className="rounded-full p-2 text-zinc-700 hover:bg-zinc-100"
                   onClick={() => {
                     setEmailComposerOpen(false);
-                    setEmailAttachMenuOpen(false);
+                    setEmailAttachMenu(null);
                   }}
                   aria-label="Close composer"
                 >
@@ -2459,11 +2581,11 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
                 <div className="min-w-0 flex-1 truncate text-sm font-semibold text-zinc-900">New email</div>
               </div>
 
-              {toSuggestionsOpen ? (
+              {toSuggestionsMenu ? (
                 <div
                   className="fixed inset-0 z-12041"
-                  onMouseDown={() => setToSuggestionsOpen(false)}
-                  onTouchStart={() => setToSuggestionsOpen(false)}
+                  onMouseDown={() => setToSuggestionsMenu(null)}
+                  onTouchStart={() => setToSuggestionsMenu(null)}
                   aria-hidden
                 />
               ) : null}
@@ -2477,22 +2599,39 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
                       value={composeTo}
                       onFocus={() => {
                         void ensureContactsLoaded();
-                        setToSuggestionsOpen(true);
+                        try {
+                          const rect = emailToRef.current?.getBoundingClientRect();
+                          if (rect) {
+                            setToSuggestionsMenu(
+                              computeFixedMenuStyle({ rect, width: rect.width, estHeight: 320, alignX: "left", minHeight: 160 }),
+                            );
+                          }
+                        } catch {
+                          // ignore
+                        }
                       }}
                       onChange={(e) => {
                         void ensureContactsLoaded();
                         setComposeTo(e.target.value);
-                        setToSuggestionsOpen(true);
+                        const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                        setToSuggestionsMenu(
+                          computeFixedMenuStyle({ rect, width: rect.width, estHeight: 320, alignX: "left", minHeight: 160 }),
+                        );
                       }}
                       onKeyDown={(e) => {
-                        if (e.key === "Escape") setToSuggestionsOpen(false);
+                        if (e.key === "Escape") setToSuggestionsMenu(null);
                       }}
                       placeholder="Email address or contact name"
                       className="w-full bg-transparent text-sm text-zinc-900 placeholder:text-zinc-400 outline-none"
                     />
 
-                    {toSuggestionsOpen ? (
-                      <div className="absolute left-0 right-0 top-full z-12045 mt-2 overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-lg">
+                    {toSuggestionsMenu ? (
+                      <div
+                        className="fixed z-12045 overflow-auto rounded-2xl border border-zinc-200 bg-white shadow-lg"
+                        style={{ left: toSuggestionsMenu.left, top: toSuggestionsMenu.top, width: toSuggestionsMenu.width, maxHeight: toSuggestionsMenu.maxHeight }}
+                        onMouseDown={(e) => e.stopPropagation()}
+                        onTouchStart={(e) => e.stopPropagation()}
+                      >
                         {contactsLoading ? (
                           <div className="px-3 py-3 text-sm text-zinc-600">Loading contacts…</div>
                         ) : (
@@ -2503,7 +2642,7 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
                             }
 
                             return (
-                              <div className="max-h-72 overflow-y-auto py-1">
+                              <div className="py-1">
                                 {suggestions.map((c) => (
                                   <button
                                     key={c.id}
@@ -2559,20 +2698,25 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
                   </button>
 
                   <div className="relative">
-                    {emailAttachMenuOpen ? (
+                    {emailAttachMenu ? (
                       <>
                         <div
                           className="fixed inset-0 z-12041"
-                          onMouseDown={() => setEmailAttachMenuOpen(false)}
-                          onTouchStart={() => setEmailAttachMenuOpen(false)}
+                          onMouseDown={() => setEmailAttachMenu(null)}
+                          onTouchStart={() => setEmailAttachMenu(null)}
                           aria-hidden
                         />
-                        <div className="absolute left-0 top-full z-12045 mt-2 w-64 overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-lg">
+                        <div
+                          className="fixed z-12045 overflow-auto rounded-2xl border border-zinc-200 bg-white shadow-lg"
+                          style={{ left: emailAttachMenu.left, top: emailAttachMenu.top, width: emailAttachMenu.width, maxHeight: emailAttachMenu.maxHeight }}
+                          onMouseDown={(e) => e.stopPropagation()}
+                          onTouchStart={(e) => e.stopPropagation()}
+                        >
                           <button
                             type="button"
                             className="w-full px-4 py-3 text-left text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
                             onClick={() => {
-                              setEmailAttachMenuOpen(false);
+                              setEmailAttachMenu(null);
                               emailComposerFileRef.current?.click();
                             }}
                           >
@@ -2582,7 +2726,7 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
                             type="button"
                             className="w-full px-4 py-3 text-left text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
                             onClick={() => {
-                              setEmailAttachMenuOpen(false);
+                              setEmailAttachMenu(null);
                               setMediaPickerOpen(true);
                             }}
                           >
@@ -2595,9 +2739,18 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
                     <button
                       type="button"
                       className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-zinc-200 bg-white text-brand-ink hover:bg-zinc-50"
-                      onClick={() => setEmailAttachMenuOpen((v) => !v)}
+                      onClick={(e) => {
+                        if (emailAttachMenu) {
+                          setEmailAttachMenu(null);
+                          return;
+                        }
+                        const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                        setEmailAttachMenu(
+                          computeFixedMenuStyle({ rect, width: 256, estHeight: 160, alignX: "left", minHeight: 120 }),
+                        );
+                      }}
                       aria-label="Attach"
-                      aria-expanded={emailAttachMenuOpen ? true : undefined}
+                      aria-expanded={emailAttachMenu ? true : undefined}
                     >
                       <IconServiceGlyph slug="media-library" />
                     </button>
@@ -2629,7 +2782,7 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
                       const result = await onSend();
                       if (result && (result as any).ok) {
                         setEmailComposerOpen(false);
-                        setEmailAttachMenuOpen(false);
+                        setEmailAttachMenu(null);
                       }
                     }}
                     disabled={sending}

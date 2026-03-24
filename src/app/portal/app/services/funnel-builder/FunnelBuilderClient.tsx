@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import { PortalListboxDropdown } from "@/components/PortalListboxDropdown";
 import { AppConfirmModal } from "@/components/AppModal";
@@ -220,9 +220,93 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
 
   const [openFunnelMenuId, setOpenFunnelMenuId] = useState<string | null>(null);
   const funnelMenuRootRef = useRef<HTMLDivElement | null>(null);
+  const funnelMenuElRef = useRef<HTMLDivElement | null>(null);
+  const [funnelMenuStyle, setFunnelMenuStyle] = useState<
+    | { anchorId: string; top: number; left: number; maxHeight: number; placement: "up" | "down" }
+    | null
+  >(null);
 
   const [openFormMenuId, setOpenFormMenuId] = useState<string | null>(null);
   const formMenuRootRef = useRef<HTMLDivElement | null>(null);
+  const formMenuElRef = useRef<HTMLDivElement | null>(null);
+  const [formMenuStyle, setFormMenuStyle] = useState<
+    | { anchorId: string; top: number; left: number; maxHeight: number; placement: "up" | "down" }
+    | null
+  >(null);
+
+  useLayoutEffect(() => {
+    if (!openFunnelMenuId) {
+      setFunnelMenuStyle(null);
+      return;
+    }
+
+    const root = funnelMenuRootRef.current;
+    const menu = funnelMenuElRef.current;
+    const btn = root?.querySelector('button[aria-label="Funnel actions"]') as HTMLButtonElement | null;
+    if (!root || !menu || !btn) return;
+
+    const btnRect = btn.getBoundingClientRect();
+    const menuRect = menu.getBoundingClientRect();
+
+    const VIEWPORT_PAD = 12;
+    const GAP = 8;
+    const viewportW = window.innerWidth;
+    const viewportH = window.innerHeight;
+
+    const spaceBelow = viewportH - btnRect.bottom - GAP - VIEWPORT_PAD;
+    const spaceAbove = btnRect.top - GAP - VIEWPORT_PAD;
+
+    const placement: "up" | "down" = spaceBelow >= Math.min(menuRect.height, 240) || spaceBelow >= spaceAbove ? "down" : "up";
+    const available = placement === "down" ? spaceBelow : spaceAbove;
+    const maxHeight = Math.max(80, Math.min(menuRect.height, available));
+    const usedHeight = Math.min(menuRect.height, maxHeight);
+
+    let top =
+      placement === "down" ? btnRect.bottom + GAP : btnRect.top - GAP - usedHeight;
+    let left = btnRect.right - menuRect.width;
+
+    left = Math.min(Math.max(VIEWPORT_PAD, left), viewportW - VIEWPORT_PAD - menuRect.width);
+    top = Math.min(Math.max(VIEWPORT_PAD, top), viewportH - VIEWPORT_PAD - usedHeight);
+
+    setFunnelMenuStyle({ anchorId: openFunnelMenuId, top, left, maxHeight, placement });
+  }, [openFunnelMenuId]);
+
+  useLayoutEffect(() => {
+    if (!openFormMenuId) {
+      setFormMenuStyle(null);
+      return;
+    }
+
+    const root = formMenuRootRef.current;
+    const menu = formMenuElRef.current;
+    const btn = root?.querySelector('button[aria-label="Form actions"]') as HTMLButtonElement | null;
+    if (!root || !menu || !btn) return;
+
+    const btnRect = btn.getBoundingClientRect();
+    const menuRect = menu.getBoundingClientRect();
+
+    const VIEWPORT_PAD = 12;
+    const GAP = 8;
+    const viewportW = window.innerWidth;
+    const viewportH = window.innerHeight;
+
+    const spaceBelow = viewportH - btnRect.bottom - GAP - VIEWPORT_PAD;
+    const spaceAbove = btnRect.top - GAP - VIEWPORT_PAD;
+
+    const placement: "up" | "down" = spaceBelow >= Math.min(menuRect.height, 240) || spaceBelow >= spaceAbove ? "down" : "up";
+    const available = placement === "down" ? spaceBelow : spaceAbove;
+    const maxHeight = Math.max(80, Math.min(menuRect.height, available));
+    const usedHeight = Math.min(menuRect.height, maxHeight);
+
+    let top =
+      placement === "down" ? btnRect.bottom + GAP : btnRect.top - GAP - usedHeight;
+    let left = btnRect.right - menuRect.width;
+
+    left = Math.min(Math.max(VIEWPORT_PAD, left), viewportW - VIEWPORT_PAD - menuRect.width);
+    top = Math.min(Math.max(VIEWPORT_PAD, top), viewportH - VIEWPORT_PAD - usedHeight);
+
+    setFormMenuStyle({ anchorId: openFormMenuId, top, left, maxHeight, placement });
+  }, [openFormMenuId]);
 
   const loadStripeStatus = useCallback(async () => {
     setStripeStatusBusy(true);
@@ -941,7 +1025,18 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                         </button>
 
                         {openFunnelMenuId === f.id ? (
-                          <div className="absolute right-0 z-20 mt-2 w-56 overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-xl">
+                          <div
+                            ref={funnelMenuElRef}
+                            className={classNames(
+                              "fixed z-50 w-56 overflow-auto rounded-2xl border border-zinc-200 bg-white shadow-xl",
+                              funnelMenuStyle?.anchorId === f.id ? "opacity-100" : "pointer-events-none opacity-0",
+                            )}
+                            style={
+                              funnelMenuStyle?.anchorId === f.id
+                                ? { top: funnelMenuStyle.top, left: funnelMenuStyle.left, maxHeight: funnelMenuStyle.maxHeight }
+                                : undefined
+                            }
+                          >
                             <div className="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-zinc-500">
                               Actions
                             </div>
@@ -1106,7 +1201,18 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                       </button>
 
                       {openFormMenuId === f.id ? (
-                        <div className="absolute right-0 z-20 mt-2 w-56 overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-xl">
+                        <div
+                          ref={formMenuElRef}
+                          className={classNames(
+                            "fixed z-50 w-56 overflow-auto rounded-2xl border border-zinc-200 bg-white shadow-xl",
+                            formMenuStyle?.anchorId === f.id ? "opacity-100" : "pointer-events-none opacity-0",
+                          )}
+                          style={
+                            formMenuStyle?.anchorId === f.id
+                              ? { top: formMenuStyle.top, left: formMenuStyle.left, maxHeight: formMenuStyle.maxHeight }
+                              : undefined
+                          }
+                        >
                           <div className="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-zinc-500">Actions</div>
                           <div className="px-2 pb-2">
                             <Link

@@ -106,6 +106,7 @@ export function PortalMediaLibraryClient() {
         id: string;
         left: number;
         top: number;
+        maxHeight: number;
       }
   >(null);
 
@@ -373,9 +374,29 @@ export function PortalMediaLibraryClient() {
     e.preventDefault();
     e.stopPropagation();
     const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
-    const left = Math.min(window.innerWidth - 240, Math.max(12, r.left));
-    const top = Math.min(window.innerHeight - 240, Math.max(12, r.bottom + 8));
-    setOpenMenu({ kind, id, left, top });
+
+    const menuWidth = 224; // w-56
+    const VIEWPORT_PAD = 12;
+    const GAP = 8;
+    const EST_HEIGHT = 320;
+
+    const viewportW = window.innerWidth;
+    const viewportH = window.innerHeight;
+
+    const left = Math.max(VIEWPORT_PAD, Math.min(viewportW - menuWidth - VIEWPORT_PAD, r.right - menuWidth));
+
+    const spaceBelow = viewportH - r.bottom - GAP - VIEWPORT_PAD;
+    const spaceAbove = r.top - GAP - VIEWPORT_PAD;
+    const placeDown = spaceBelow >= Math.min(EST_HEIGHT, 260) || spaceBelow >= spaceAbove;
+
+    const available = placeDown ? spaceBelow : spaceAbove;
+    const maxHeight = Math.max(160, Math.min(EST_HEIGHT, available));
+    const usedHeight = Math.min(EST_HEIGHT, maxHeight);
+
+    const rawTop = placeDown ? r.bottom + GAP : r.top - GAP - usedHeight;
+    const top = Math.max(VIEWPORT_PAD, Math.min(viewportH - VIEWPORT_PAD - usedHeight, rawTop));
+
+    setOpenMenu({ kind, id, left, top, maxHeight });
   }
 
   const menuTarget = useMemo(() => {
@@ -908,8 +929,8 @@ export function PortalMediaLibraryClient() {
             <div className="fixed inset-0 z-90" aria-hidden>
               <div className="absolute inset-0" onMouseDown={() => setOpenMenu(null)} onTouchStart={() => setOpenMenu(null)} />
               <div
-                className="fixed z-95 w-56 overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-lg"
-                style={{ left: openMenu.left, top: openMenu.top }}
+                className="fixed z-95 w-56 overflow-auto rounded-2xl border border-zinc-200 bg-white shadow-lg"
+                style={{ left: openMenu.left, top: openMenu.top, maxHeight: openMenu.maxHeight }}
                 onMouseDown={(e) => e.stopPropagation()}
                 onTouchStart={(e) => e.stopPropagation()}
               >

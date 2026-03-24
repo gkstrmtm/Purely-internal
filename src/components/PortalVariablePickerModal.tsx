@@ -310,10 +310,12 @@ export function PortalVariablePickerModal(props: {
                 ) : null}
                 <button
                   type="button"
-                  className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
                   onClick={onClose}
+                  aria-label="Close"
+                  className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-transparent bg-white text-zinc-500 hover:border-zinc-200 hover:bg-zinc-50 hover:text-zinc-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(29,78,216,0.25)]"
+                  title="Close"
                 >
-                  Close
+                  ×
                 </button>
               </div>
             </div>

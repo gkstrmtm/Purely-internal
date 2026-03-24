@@ -44,7 +44,7 @@ function Modal(props: { open: boolean; onClose: () => void; title: string; child
 					</div>
 					<button
 						onClick={props.onClose}
-						className="shrink-0 rounded-full border border-zinc-200 bg-white px-3 py-1 text-sm hover:bg-zinc-50"
+						className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-transparent bg-white text-zinc-500 hover:border-zinc-200 hover:bg-zinc-50 hover:text-zinc-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(29,78,216,0.25)]"
 						aria-label="Close"
 						title="Close"
 					>

@@ -1828,7 +1828,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                       ) : null}
                       <button
                         type="button"
-                        className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50"
+                        className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-transparent bg-white text-zinc-500 hover:border-zinc-200 hover:bg-zinc-50 hover:text-zinc-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(29,78,216,0.25)]"
                         onClick={() => {
                           if (rewardCredits > 0 && rewardRemainingSeconds > 0) setRewardConfirmExit(true);
                           else setRewardModalOpen(false);

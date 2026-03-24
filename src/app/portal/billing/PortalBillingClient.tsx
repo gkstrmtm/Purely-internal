@@ -327,7 +327,7 @@ export function PortalBillingClient({
   }>(null);
 
 
-  const [serviceMenuSlug, setServiceMenuSlug] = useState<string | null>(null);
+  const [serviceMenu, setServiceMenu] = useState<null | { slug: string; left: number; top: number; maxHeight: number }>(null);
 
   const [cancelModal, setCancelModal] = useState<null | {
     step: 1 | 2;
@@ -703,27 +703,53 @@ export function PortalBillingClient({
   }, [loading, creditsOnly]);
 
   useEffect(() => {
-    if (!serviceMenuSlug) return;
-    const onDown = (e: MouseEvent) => {
-      const el = (e.target as HTMLElement | null) ?? null;
-      const ref = (document.querySelector(`[data-service-menu-root="${serviceMenuSlug}"]`) as HTMLElement | null);
-      if (!ref) {
-        setServiceMenuSlug(null);
-        return;
-      }
-      if (el && ref.contains(el)) return;
-      setServiceMenuSlug(null);
-    };
+    if (!serviceMenu) return;
+
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setServiceMenuSlug(null);
+      if (e.key === "Escape") setServiceMenu(null);
     };
-    document.addEventListener("mousedown", onDown);
-    document.addEventListener("keydown", onKey);
+
+    const onScrollOrResize = () => setServiceMenu(null);
+
+    window.addEventListener("keydown", onKey);
+    window.addEventListener("scroll", onScrollOrResize, true);
+    window.addEventListener("resize", onScrollOrResize);
     return () => {
-      document.removeEventListener("mousedown", onDown);
-      document.removeEventListener("keydown", onKey);
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("scroll", onScrollOrResize, true);
+      window.removeEventListener("resize", onScrollOrResize);
     };
-  }, [serviceMenuSlug]);
+  }, [serviceMenu]);
+
+  function toggleServiceMenu(slug: string, el: HTMLElement) {
+    setServiceMenu((prev) => {
+      if (prev?.slug === slug) return null;
+      const rect = el.getBoundingClientRect();
+
+      const menuWidth = 192; // w-48
+      const VIEWPORT_PAD = 12;
+      const GAP = 8;
+      const EST_HEIGHT = 260;
+
+      const viewportW = window.innerWidth;
+      const viewportH = window.innerHeight;
+
+      const left = Math.max(VIEWPORT_PAD, Math.min(viewportW - menuWidth - VIEWPORT_PAD, rect.right - menuWidth));
+
+      const spaceBelow = viewportH - rect.bottom - GAP - VIEWPORT_PAD;
+      const spaceAbove = rect.top - GAP - VIEWPORT_PAD;
+      const placeDown = spaceBelow >= Math.min(EST_HEIGHT, 200) || spaceBelow >= spaceAbove;
+
+      const available = placeDown ? spaceBelow : spaceAbove;
+      const maxHeight = Math.max(140, Math.min(EST_HEIGHT, available));
+      const usedHeight = Math.min(EST_HEIGHT, maxHeight);
+
+      const rawTop = placeDown ? rect.bottom + GAP : rect.top - GAP - usedHeight;
+      const top = Math.max(VIEWPORT_PAD, Math.min(viewportH - VIEWPORT_PAD - usedHeight, rawTop));
+
+      return { slug, left, top, maxHeight };
+    });
+  }
 
 
   function openPurchaseModal(
@@ -731,7 +757,7 @@ export function PortalBillingClient({
     serviceTitle: string,
   ) {
     if (creditsOnly) return;
-    setServiceMenuSlug(null);
+    setServiceMenu(null);
     setPurchaseModal({ module, serviceTitle });
   }
 
@@ -804,7 +830,7 @@ export function PortalBillingClient({
 
   async function setServiceLifecycle(serviceSlug: string, action: "pause" | "cancel" | "resume") {
     setError(null);
-    setServiceMenuSlug(null);
+    setServiceMenu(null);
     setActionBusy(`service:${serviceSlug}:${action}`);
     const res = await fetch("/api/portal/services/lifecycle", {
       method: "POST",
@@ -1864,7 +1890,6 @@ export function PortalBillingClient({
                       <div
                         key={s.slug}
                         className="relative flex items-center justify-between gap-3"
-                        data-service-menu-root={serviceMenuSlug === s.slug ? s.slug : undefined}
                       >
                         <div className="min-w-0">
                           <div className="truncate">{s.title}</div>
@@ -1903,15 +1928,29 @@ export function PortalBillingClient({
                           <button
                             type="button"
                             disabled={actionBusy !== null}
-                            onClick={() => setServiceMenuSlug((prev) => (prev === s.slug ? null : s.slug))}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              toggleServiceMenu(s.slug, e.currentTarget);
+                            }}
                             className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50 disabled:opacity-60"
                             aria-label="Service actions"
                           >
                             ⋯
                           </button>
 
-                          {serviceMenuSlug === s.slug ? (
-                            <div className="absolute right-0 top-9 z-20 w-48 rounded-2xl border border-zinc-200 bg-white p-1 shadow-lg">
+                          {serviceMenu && serviceMenu.slug === s.slug ? (
+                            <>
+                              <div
+                                className="fixed inset-0 z-40"
+                                onMouseDown={() => setServiceMenu(null)}
+                                onTouchStart={() => setServiceMenu(null)}
+                              />
+                              <div
+                                className="fixed z-50 w-48 overflow-auto rounded-2xl border border-zinc-200 bg-white p-1 shadow-lg"
+                                style={{ left: serviceMenu.left, top: serviceMenu.top, maxHeight: serviceMenu.maxHeight }}
+                                onMouseDown={(e) => e.stopPropagation()}
+                                onTouchStart={(e) => e.stopPropagation()}
+                              >
                               {state === "locked" ? (
                                 !creditsOnly && s.entitlementKey && modulePurchasable(s.entitlementKey as any) ? (
                                   <button
@@ -1964,7 +2003,8 @@ export function PortalBillingClient({
                                   Cancel service
                                 </button>
                               ) : null}
-                            </div>
+                              </div>
+                            </>
                           ) : null}
                         </div>
                       </div>
