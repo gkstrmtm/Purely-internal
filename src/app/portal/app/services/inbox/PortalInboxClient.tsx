@@ -55,6 +55,19 @@ type Message = {
   }>;
 };
 
+type ScheduledMessage = {
+  id: string;
+  channel: "EMAIL" | "SMS";
+  toAddress: string;
+  subject: string | null;
+  bodyText: string;
+  scheduledFor: string;
+  status: "PENDING" | "SENDING" | "SENT" | "FAILED" | "CANCELED" | string;
+  createdAt: string;
+  updatedAt: string;
+  attachments?: UploadedAttachment[];
+};
+
 type SettingsRes = {
   ok: true;
   settings: { webhookToken: string };
@@ -66,7 +79,7 @@ type SettingsRes = {
 
 type ApiErrorRes = { ok: false; code?: string; error?: string };
 type ThreadsRes = { ok: true; threads: Thread[] } | ApiErrorRes;
-type MessagesRes = { ok: true; messages: Message[] } | ApiErrorRes;
+type MessagesRes = { ok: true; messages: Message[]; scheduledMessages?: ScheduledMessage[] } | ApiErrorRes;
 
 type ContactLite = {
   id: string;
@@ -192,6 +205,7 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
   const [threads, setThreads] = useState<Thread[]>([]);
   const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
+  const [scheduledMessages, setScheduledMessages] = useState<ScheduledMessage[]>([]);
   const [loadingThreads, setLoadingThreads] = useState(true);
   const hasLoadedThreadsOnceRef = useRef<{ email: boolean; sms: boolean }>({ email: false, sms: false });
   const [refreshingThreads, setRefreshingThreads] = useState(false);
@@ -332,6 +346,7 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
   const [scheduleOpen, setScheduleOpen] = useState(false);
   const [scheduleAtLocal, setScheduleAtLocal] = useState("");
   const [scheduleError, setScheduleError] = useState<string | null>(null);
+  const [scheduleEditingId, setScheduleEditingId] = useState<string | null>(null);
 
   const [contacts, setContacts] = useState<ContactLite[] | null>(null);
   const [contactsLoading, setContactsLoading] = useState(false);
@@ -389,6 +404,7 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
   const clearConversationForCompose = useCallback(() => {
     setActiveThreadId(null);
     setMessages([]);
+    setScheduledMessages([]);
     setLoadingMessages(false);
   }, []);
 
@@ -733,6 +749,7 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
     }
 
     setMessages(json.messages);
+    setScheduledMessages(Array.isArray(json.scheduledMessages) ? json.scheduledMessages : []);
     setLoadingMessages(false);
   }
 
@@ -758,6 +775,7 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
   useEffect(() => {
     if (activeThreadId) return;
     setMessages([]);
+    setScheduledMessages([]);
     setLoadingMessages(false);
   }, [activeThreadId]);
 
@@ -892,7 +910,8 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
     }
 
     if (json?.scheduled) {
-      toast.success("Scheduled");
+      const whenIso = typeof opts?.sendAt === "string" ? opts.sendAt : null;
+      toast.success(whenIso ? `Scheduled for ${formatWhen(whenIso)}` : "Scheduled");
     }
 
     const threadId = typeof json.threadId === "string" ? json.threadId : activeThreadId;
@@ -911,8 +930,38 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
 
   function openSchedule() {
     setScheduleError(null);
+    setScheduleEditingId(null);
     setScheduleAtLocal(toDatetimeLocalValue(new Date(Date.now() + 15 * 60 * 1000)));
     setScheduleOpen(true);
+  }
+
+  function openReschedule(msg: ScheduledMessage) {
+    setScheduleError(null);
+    setScheduleEditingId(msg.id);
+    const d = new Date(msg.scheduledFor);
+    setScheduleAtLocal(toDatetimeLocalValue(Number.isNaN(d.getTime()) ? new Date(Date.now() + 15 * 60 * 1000) : d));
+    setScheduleOpen(true);
+  }
+
+  async function rescheduleScheduledMessage(id: string, scheduledForIso: string): Promise<{ ok: true } | { ok: false }> {
+    if (sending) return { ok: false };
+    setError(null);
+    setSending(true);
+    const res = await fetch(`/api/portal/inbox/scheduled/${encodeURIComponent(id)}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ scheduledFor: scheduledForIso }),
+    });
+
+    const json = (await res.json().catch(() => null)) as any;
+    if (!res.ok || !json?.ok) {
+      setSending(false);
+      setError(typeof json?.error === "string" ? json.error : "Could not reschedule");
+      return { ok: false };
+    }
+
+    setSending(false);
+    return { ok: true };
   }
 
   useEffect(() => {
@@ -1715,8 +1764,44 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
                   <div className="text-sm text-zinc-600">Choose a contact or type an email address to start a new conversation.</div>
                 ) : loadingMessages ? (
                   <div className="text-sm text-zinc-600">Loading…</div>
-                ) : messages.length ? (
+                ) : scheduledMessages.length || messages.length ? (
                   <div className="space-y-3">
+                    {scheduledMessages.map((m) => (
+                      <div key={m.id} className="rounded-2xl border border-blue-200 bg-blue-50 p-4">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div className="inline-flex items-center gap-2">
+                            <span className="rounded-full bg-blue-600 px-2 py-0.5 text-[11px] font-semibold text-white">Scheduled</span>
+                            <div className="text-[11px] text-zinc-600">{formatWhen(m.scheduledFor)}</div>
+                          </div>
+                          <button
+                            type="button"
+                            className="inline-flex items-center gap-2 rounded-full border border-blue-200 bg-white px-3 py-1.5 text-xs font-semibold text-blue-700 hover:bg-blue-50"
+                            onClick={() => openReschedule(m)}
+                          >
+                            <IconSchedule size={16} />
+                            Reschedule
+                          </button>
+                        </div>
+                        <div className="mt-2 text-xs text-zinc-600">To: {m.toAddress}</div>
+                        {m.subject ? <div className="mt-1 text-xs text-zinc-600">Subject: {m.subject}</div> : null}
+                        <div className="mt-3 whitespace-pre-wrap wrap-break-word text-sm text-zinc-800">{m.bodyText}</div>
+                        {m.attachments?.length ? (
+                          <div className="mt-3 flex flex-wrap gap-2">
+                            {m.attachments.map((a) => (
+                              <a
+                                key={a.id}
+                                href={a.url}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+                              >
+                                {a.fileName} · {formatBytes(a.fileSize)}
+                              </a>
+                            ))}
+                          </div>
+                        ) : null}
+                      </div>
+                    ))}
                     {messages.map((m) => (
                       <div key={m.id} className="rounded-2xl border border-zinc-200 bg-white p-4">
                         <div className="flex flex-wrap items-center justify-between gap-2">
@@ -1860,11 +1945,12 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
 
       <AppModal
         open={scheduleOpen}
-        title="Schedule send"
-        description="Choose when this message should send."
+        title={scheduleEditingId ? "Reschedule send" : "Schedule send"}
+        description={scheduleEditingId ? "Choose the new time for this message." : "Choose when this message should send."}
         onClose={() => {
           if (sending) return;
           setScheduleOpen(false);
+          setScheduleEditingId(null);
         }}
         widthClassName="w-[min(520px,calc(100vw-32px))]"
         closeVariant="x"
@@ -1873,7 +1959,10 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
             <button
               type="button"
               className="rounded-2xl bg-transparent px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50 disabled:opacity-60"
-              onClick={() => setScheduleOpen(false)}
+              onClick={() => {
+                setScheduleOpen(false);
+                setScheduleEditingId(null);
+              }}
               disabled={sending}
             >
               Cancel
@@ -1895,11 +1984,25 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
                   return;
                 }
 
+                if (scheduleEditingId) {
+                  const result = await rescheduleScheduledMessage(scheduleEditingId, when.toISOString());
+                  if (!result.ok) return;
+
+                  toast.success(`Rescheduled for ${formatWhen(when.toISOString())}`);
+                  setScheduleOpen(false);
+                  setScheduleEditingId(null);
+                  if (activeThreadId) await loadMessages(activeThreadId);
+                  return;
+                }
+
                 const result = await onSend({ sendAt: when.toISOString() });
-                if (result.ok) setScheduleOpen(false);
+                if (result.ok) {
+                  setScheduleOpen(false);
+                  setScheduleEditingId(null);
+                }
               }}
             >
-              Schedule
+              {scheduleEditingId ? "Reschedule" : "Schedule"}
             </button>
           </div>
         }
@@ -2072,8 +2175,41 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
                   <div className="text-sm text-zinc-600">Start a new text by choosing a contact or entering a phone number.</div>
                 ) : loadingMessages ? (
                   <div className="text-sm text-zinc-600">Loading…</div>
-                ) : messages.length ? (
+                ) : scheduledMessages.length || messages.length ? (
                   <div className="space-y-2">
+                    {scheduledMessages.map((m) => (
+                      <div key={m.id} className="flex justify-center">
+                        <div className="w-full max-w-[560px] rounded-2xl border border-blue-200 bg-blue-50 px-3 py-2">
+                          <div className="flex items-center justify-between gap-3">
+                            <div className="min-w-0 truncate text-xs font-semibold text-blue-700">Scheduled · {formatWhen(m.scheduledFor)}</div>
+                            <button
+                              type="button"
+                              className="inline-flex shrink-0 items-center gap-2 rounded-full border border-blue-200 bg-white px-3 py-1 text-xs font-semibold text-blue-700 hover:bg-blue-50"
+                              onClick={() => openReschedule(m)}
+                            >
+                              <IconSchedule size={16} />
+                              Reschedule
+                            </button>
+                          </div>
+                          <div className="mt-1 whitespace-pre-wrap wrap-break-word text-sm text-zinc-800">{m.bodyText}</div>
+                          {m.attachments?.length ? (
+                            <div className="mt-2 flex flex-wrap gap-2">
+                              {m.attachments.map((a) => (
+                                <a
+                                  key={a.id}
+                                  href={a.url}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+                                >
+                                  {a.fileName} · {formatBytes(a.fileSize)}
+                                </a>
+                              ))}
+                            </div>
+                          ) : null}
+                        </div>
+                      </div>
+                    ))}
                     {messages.map((m, idx) => {
                       const mine = m.direction === "OUT";
                       const prev = idx > 0 ? messages[idx - 1] : null;
