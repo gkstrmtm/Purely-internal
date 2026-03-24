@@ -42,10 +42,11 @@ export async function GET(
   const ownerId = auth.session.user.id;
   const { threadId } = await params;
 
-  // Avoid runtime failures if migrations haven't been applied yet.
-  await ensurePortalInboxSchema();
-
   try {
+    // Avoid runtime failures if migrations haven't been applied yet.
+    // Best-effort: scheduled-message enrichment should never block the thread.
+    await ensurePortalInboxSchema().catch(() => undefined);
+
     const thread = await (prisma as any).portalInboxThread.findFirst({
       where: { id: threadId, ownerId },
       select: { id: true },

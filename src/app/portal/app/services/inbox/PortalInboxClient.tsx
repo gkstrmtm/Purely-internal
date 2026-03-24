@@ -13,6 +13,7 @@ import { PortalVariablePickerModal } from "@/components/PortalVariablePickerModa
 import { PortalContactDetailsModal } from "@/components/PortalContactDetailsModal";
 import { useToast } from "@/components/ToastProvider";
 import { PortalBackToOnboardingLink } from "@/components/PortalBackToOnboardingLink";
+import { DateTimePicker } from "@/components/DateTimePicker";
 import { IconFunnel, IconSchedule, IconSearch, IconSend, IconSendHover } from "@/app/portal/PortalIcons";
 import { normalizePhoneForStorage } from "@/lib/phone";
 import { normalizePortalContactCustomVarKey, PORTAL_MESSAGE_VARIABLES } from "@/lib/portalTemplateVars";
@@ -92,16 +93,6 @@ type UploadedAttachment = NonNullable<Message["attachments"]>[number];
 
 function classNames(...xs: Array<string | false | null | undefined>) {
   return xs.filter(Boolean).join(" ");
-}
-
-function toDatetimeLocalValue(d: Date) {
-  const pad = (n: number) => String(n).padStart(2, "0");
-  const yyyy = d.getFullYear();
-  const mm = pad(d.getMonth() + 1);
-  const dd = pad(d.getDate());
-  const hh = pad(d.getHours());
-  const min = pad(d.getMinutes());
-  return `${yyyy}-${mm}-${dd}T${hh}:${min}`;
 }
 
 function formatWhen(iso: string) {
@@ -344,7 +335,7 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
   const [uploading, setUploading] = useState(false);
   const [sending, setSending] = useState(false);
   const [scheduleOpen, setScheduleOpen] = useState(false);
-  const [scheduleAtLocal, setScheduleAtLocal] = useState("");
+  const [scheduleAt, setScheduleAt] = useState<Date | null>(null);
   const [scheduleError, setScheduleError] = useState<string | null>(null);
   const [scheduleEditingId, setScheduleEditingId] = useState<string | null>(null);
 
@@ -931,7 +922,7 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
   function openSchedule() {
     setScheduleError(null);
     setScheduleEditingId(null);
-    setScheduleAtLocal(toDatetimeLocalValue(new Date(Date.now() + 15 * 60 * 1000)));
+    setScheduleAt(new Date(Date.now() + 15 * 60 * 1000));
     setScheduleOpen(true);
   }
 
@@ -939,7 +930,7 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
     setScheduleError(null);
     setScheduleEditingId(msg.id);
     const d = new Date(msg.scheduledFor);
-    setScheduleAtLocal(toDatetimeLocalValue(Number.isNaN(d.getTime()) ? new Date(Date.now() + 15 * 60 * 1000) : d));
+    setScheduleAt(Number.isNaN(d.getTime()) ? new Date(Date.now() + 15 * 60 * 1000) : d);
     setScheduleOpen(true);
   }
 
@@ -1947,6 +1938,7 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
         open={scheduleOpen}
         title={scheduleEditingId ? "Reschedule send" : "Schedule send"}
         description={scheduleEditingId ? "Choose the new time for this message." : "Choose when this message should send."}
+        zIndex={12100}
         onClose={() => {
           if (sending) return;
           setScheduleOpen(false);
@@ -1954,6 +1946,8 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
         }}
         widthClassName="w-[min(520px,calc(100vw-32px))]"
         closeVariant="x"
+        hideHeaderDivider
+        hideFooterDivider
         footer={
           <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
             <button
@@ -1973,8 +1967,7 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
               disabled={sending}
               onClick={async () => {
                 setScheduleError(null);
-                const raw = String(scheduleAtLocal || "").trim();
-                const when = raw ? new Date(raw) : null;
+                const when = scheduleAt;
                 if (!when || !Number.isFinite(when.getTime())) {
                   setScheduleError("Pick a valid time.");
                   return;
@@ -2008,16 +2001,17 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
         }
       >
         <div className="space-y-3">
-          <label className="block">
+          <div>
             <div className="text-xs font-semibold text-zinc-600">Send at</div>
-            <input
-              type="datetime-local"
-              value={scheduleAtLocal}
-              onChange={(e) => setScheduleAtLocal(e.target.value)}
-              className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900"
-              disabled={sending}
-            />
-          </label>
+            <div className="mt-1 rounded-2xl border border-zinc-200 bg-white p-3">
+              <DateTimePicker
+                value={scheduleAt}
+                onChange={(next) => setScheduleAt(next)}
+                min={new Date(Date.now() + 60_000)}
+                disabled={sending}
+              />
+            </div>
+          </div>
 
           {scheduleError ? (
             <div className="rounded-2xl border border-red-200 bg-red-50 p-3 text-sm text-red-800">{scheduleError}</div>
@@ -2179,7 +2173,7 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
                   <div className="space-y-2">
                     {scheduledMessages.map((m) => (
                       <div key={m.id} className="flex justify-center">
-                        <div className="w-full max-w-[560px] rounded-2xl border border-blue-200 bg-blue-50 px-3 py-2">
+                        <div className="w-full max-w-140 rounded-2xl border border-blue-200 bg-blue-50 px-3 py-2">
                           <div className="flex items-center justify-between gap-3">
                             <div className="min-w-0 truncate text-xs font-semibold text-blue-700">Scheduled · {formatWhen(m.scheduledFor)}</div>
                             <button
@@ -2400,6 +2394,17 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
 
                   <button
                     type="button"
+                    className={classNames(styles.iconButton, styles.iconButtonMuted, (sending || uploading) && "opacity-60")}
+                    onClick={openSchedule}
+                    disabled={sending || uploading}
+                    aria-label="Schedule send"
+                    title="Schedule"
+                  >
+                    <IconSchedule size={18} />
+                  </button>
+
+                  <button
+                    type="button"
                     onClick={() => void onSend()}
                     disabled={sending}
                     className={classNames("group", styles.iconButton, styles.iconButtonPrimary, sending && "opacity-60")}
@@ -2413,17 +2418,6 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
                         <IconSendHover size={18} />
                       </span>
                     </span>
-                  </button>
-
-                  <button
-                    type="button"
-                    className={classNames(styles.iconButton, styles.iconButtonMuted, (sending || uploading) && "opacity-60")}
-                    onClick={openSchedule}
-                    disabled={sending || uploading}
-                    aria-label="Schedule send"
-                    title="Schedule"
-                  >
-                    <IconSchedule size={18} />
                   </button>
                 </div>
 
