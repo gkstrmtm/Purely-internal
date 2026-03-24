@@ -62,6 +62,10 @@
     {
       "path": "/api/portal/auth/verification-email/cron",
       "schedule": "50 1 * * *"
+    },
+    {
+      "path": "/api/portal/inbox/scheduled/cron",
+      "schedule": "*/5 * * * *"
     }
   ]
 }

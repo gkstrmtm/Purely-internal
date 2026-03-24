@@ -8,7 +8,7 @@ async function inboxSchemaLooksReady(): Promise<boolean> {
   // on hot paths (which can cause portal pages to feel "stuck loading").
   try {
     const rows = await prisma.$queryRaw<
-      Array<{ thread: boolean; message: boolean; attachment: boolean }>
+      Array<{ thread: boolean; message: boolean; attachment: boolean; scheduled: boolean }>
     >`
       SELECT
         EXISTS (
@@ -22,10 +22,14 @@ async function inboxSchemaLooksReady(): Promise<boolean> {
         EXISTS (
           SELECT 1 FROM information_schema.tables
           WHERE table_schema = 'public' AND table_name = 'PortalInboxAttachment'
-        ) AS "attachment";
+        ) AS "attachment",
+        EXISTS (
+          SELECT 1 FROM information_schema.tables
+          WHERE table_schema = 'public' AND table_name = 'PortalInboxScheduledMessage'
+        ) AS "scheduled";
     `;
     const r = rows?.[0];
-    return Boolean(r?.thread && r?.message && r?.attachment);
+    return Boolean(r?.thread && r?.message && r?.attachment && r?.scheduled);
   } catch {
     return false;
   }
@@ -64,6 +68,15 @@ BEGIN
     WHERE n.nspname = 'public' AND t.typname = 'PortalInboxDirection'
   ) THEN
     CREATE TYPE "PortalInboxDirection" AS ENUM ('IN', 'OUT');
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_type t
+    JOIN pg_namespace n ON n.oid = t.typnamespace
+    WHERE n.nspname = 'public' AND t.typname = 'PortalInboxScheduledStatus'
+  ) THEN
+    CREATE TYPE "PortalInboxScheduledStatus" AS ENUM ('PENDING', 'SENDING', 'SENT', 'FAILED', 'CANCELED');
   END IF;
 END $$;
     `.trim(),
@@ -127,6 +140,30 @@ CREATE TABLE IF NOT EXISTS "PortalInboxAttachment" (
 );
     `.trim(),
 
+  `
+CREATE TABLE IF NOT EXISTS "PortalInboxScheduledMessage" (
+  "id" TEXT NOT NULL,
+  "ownerId" TEXT NOT NULL,
+  "threadId" TEXT,
+  "channel" "PortalInboxChannel" NOT NULL,
+  "toAddress" TEXT NOT NULL,
+  "subject" TEXT,
+  "bodyText" TEXT NOT NULL DEFAULT '',
+  "attachmentIds" TEXT[] NOT NULL DEFAULT '{}',
+  "scheduledFor" TIMESTAMP(3) NOT NULL,
+  "status" "PortalInboxScheduledStatus" NOT NULL DEFAULT 'PENDING',
+  "attempts" INTEGER NOT NULL DEFAULT 0,
+  "lastError" TEXT,
+  "sentAt" TIMESTAMP(3),
+  "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT "PortalInboxScheduledMessage_pkey" PRIMARY KEY ("id")
+);
+  `.trim(),
+
+  // Align with other tables (older runtime installs may have added a default).
+  `ALTER TABLE "PortalInboxScheduledMessage" ALTER COLUMN "updatedAt" DROP DEFAULT;`,
+
     `CREATE UNIQUE INDEX IF NOT EXISTS "PortalInboxThread_ownerId_channel_threadKey_key" ON "PortalInboxThread"("ownerId", "channel", "threadKey");`,
     `CREATE INDEX IF NOT EXISTS "PortalInboxThread_ownerId_channel_lastMessageAt_idx" ON "PortalInboxThread"("ownerId", "channel", "lastMessageAt");`,
     `CREATE INDEX IF NOT EXISTS "PortalInboxThread_ownerId_channel_peerKey_idx" ON "PortalInboxThread"("ownerId", "channel", "peerKey");`,
@@ -138,6 +175,9 @@ CREATE TABLE IF NOT EXISTS "PortalInboxAttachment" (
 
     `CREATE INDEX IF NOT EXISTS "PortalInboxAttachment_ownerId_createdAt_idx" ON "PortalInboxAttachment"("ownerId", "createdAt");`,
     `CREATE INDEX IF NOT EXISTS "PortalInboxAttachment_messageId_idx" ON "PortalInboxAttachment"("messageId");`,
+
+    `CREATE INDEX IF NOT EXISTS "PortalInboxScheduledMessage_ownerId_status_scheduledFor_idx" ON "PortalInboxScheduledMessage"("ownerId", "status", "scheduledFor");`,
+    `CREATE INDEX IF NOT EXISTS "PortalInboxScheduledMessage_status_scheduledFor_idx" ON "PortalInboxScheduledMessage"("status", "scheduledFor");`,
 
     `
 DO $$
@@ -192,6 +232,22 @@ BEGIN
     ALTER TABLE "PortalInboxAttachment"
       ADD CONSTRAINT "PortalInboxAttachment_messageId_fkey"
       FOREIGN KEY ("messageId") REFERENCES "PortalInboxMessage"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'PortalInboxScheduledMessage_ownerId_fkey'
+  ) THEN
+    ALTER TABLE "PortalInboxScheduledMessage"
+      ADD CONSTRAINT "PortalInboxScheduledMessage_ownerId_fkey"
+      FOREIGN KEY ("ownerId") REFERENCES "User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'PortalInboxScheduledMessage_threadId_fkey'
+  ) THEN
+    ALTER TABLE "PortalInboxScheduledMessage"
+      ADD CONSTRAINT "PortalInboxScheduledMessage_threadId_fkey"
+      FOREIGN KEY ("threadId") REFERENCES "PortalInboxThread"("id") ON DELETE SET NULL ON UPDATE CASCADE;
   END IF;
 END $$;
     `.trim(),

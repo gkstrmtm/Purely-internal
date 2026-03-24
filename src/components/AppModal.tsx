@@ -18,6 +18,7 @@ export function AppModal({
   zIndex,
   closeVariant,
   hideHeaderDivider,
+  hideFooterDivider,
 }: {
   open: boolean;
   title: string;
@@ -29,6 +30,7 @@ export function AppModal({
   zIndex?: number;
   closeVariant?: "text" | "x";
   hideHeaderDivider?: boolean;
+  hideFooterDivider?: boolean;
 }) {
   const [mounted, setMounted] = useState(false);
 
@@ -97,7 +99,7 @@ export function AppModal({
                   className={classNames(
                     "shrink-0 select-none",
                     closeVariant === "x"
-                      ? "grid h-10 w-10 place-items-center rounded-2xl border border-zinc-200 bg-white text-lg leading-none font-semibold text-zinc-700 hover:bg-zinc-50"
+                      ? "grid h-10 w-10 place-items-center rounded-2xl border border-transparent bg-white text-lg leading-none font-semibold text-zinc-700 hover:border-zinc-200 hover:bg-zinc-50 focus-visible:border-zinc-200 focus-visible:outline-none"
                       : "rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50",
                   )}
                   onClick={onClose}
@@ -110,12 +112,12 @@ export function AppModal({
 
             <div className="min-h-0 flex-1 overflow-y-auto p-5">{children}</div>
 
-            {footer ? <div className="shrink-0 border-t border-zinc-100 p-4">{footer}</div> : null}
+            {footer ? <div className={classNames("shrink-0 p-4", hideFooterDivider ? "" : "border-t border-zinc-100")}>{footer}</div> : null}
           </div>
         </div>
       </div>
     );
-  }, [children, closeVariant, description, footer, hideHeaderDivider, onClose, open, title, widthClassName, zIndex]);
+  }, [children, closeVariant, description, footer, hideFooterDivider, hideHeaderDivider, onClose, open, title, widthClassName, zIndex]);
 
   if (!mounted) return null;
   if (!body) return null;

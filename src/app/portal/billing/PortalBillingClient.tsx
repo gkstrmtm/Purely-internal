@@ -1089,7 +1089,7 @@ export function PortalBillingClient({
   };
 
   const embeddedServicesBlockRight = (
-    <div id="pa-billing-services" className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
+    <div id="pa-billing-services" className="mt-4 flex min-h-0 flex-1 flex-col rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
       <div className="flex items-start justify-between gap-3">
         <div>
           <div className="text-sm font-semibold text-zinc-900">Services & status</div>
@@ -1097,7 +1097,7 @@ export function PortalBillingClient({
         </div>
       </div>
 
-      <div className="mt-3 max-h-56 overflow-auto pr-1">
+      <div className="mt-3 min-h-0 flex-1 overflow-auto pr-1">
         <div className="grid gap-2">
           {(() => {
             const servicesList = PORTAL_SERVICES.filter((s) => !s.hidden && (!s.variants || s.variants.includes("portal")));
@@ -1251,6 +1251,18 @@ export function PortalBillingClient({
           </div>
         </div>
       ) : null}
+
+      <BuyCreditsModal
+        open={buyCreditsOpen}
+        onClose={() => setBuyCreditsOpen(false)}
+        purchaseAvailable={purchaseAvailable}
+        creditUsdValue={creditUsdValue}
+        estimatedMonthlyCredits={null}
+        onStartCheckout={async (creditsToBuy) => {
+          await startCreditsCheckout(creditsToBuy);
+        }}
+      />
+
       <div
         className={[
           hideMonthlyBreakdown ? "lg:col-span-2" : "rounded-3xl border border-zinc-200 bg-white p-6 lg:col-span-2",
@@ -1617,7 +1629,8 @@ export function PortalBillingClient({
       <div
         id="pa-billing-credits"
         className={[
-          hideMonthlyBreakdown ? null : "rounded-3xl border border-zinc-200 bg-white p-6 flex h-full min-h-0 flex-col",
+          "flex h-full min-h-0 flex-col",
+          hideMonthlyBreakdown ? null : "rounded-3xl border border-zinc-200 bg-white p-6",
           creditsFirstForMobileApp ? "order-first" : null,
         ]
           .filter(Boolean)
@@ -1748,17 +1761,6 @@ export function PortalBillingClient({
                   {servicesAdvancedOpen ? "Hide advanced" : "Advanced"}
                 </button>
               ) : null}
-
-              <BuyCreditsModal
-                open={buyCreditsOpen}
-                onClose={() => setBuyCreditsOpen(false)}
-                purchaseAvailable={purchaseAvailable}
-                creditUsdValue={creditUsdValue}
-                estimatedMonthlyCredits={null}
-                onStartCheckout={async (creditsToBuy) => {
-                  await startCreditsCheckout(creditsToBuy);
-                }}
-              />
             </div>
 
             <div className="mt-4 min-h-0 flex-1 overflow-auto pr-1">

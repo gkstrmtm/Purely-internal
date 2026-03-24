@@ -94,11 +94,13 @@ export function BuyCreditsModal({
       }}
       widthClassName="w-[min(560px,calc(100vw-32px))]"
       closeVariant="x"
+      hideHeaderDivider
+      hideFooterDivider
       footer={
         <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
           <button
             type="button"
-            className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-60"
+            className="rounded-2xl bg-transparent px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50 disabled:opacity-60"
             onClick={onClose}
             disabled={busy}
           >
@@ -143,7 +145,7 @@ export function BuyCreditsModal({
                 className={classNames(
                   "rounded-2xl border px-3 py-2 text-sm font-semibold transition disabled:opacity-60",
                   creditsRequested === c
-                    ? "border-brand-ink bg-brand-ink text-white"
+                    ? "border-(--color-brand-blue) bg-(--color-brand-blue) text-white"
                     : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50",
                 )}
               >
