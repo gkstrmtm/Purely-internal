@@ -9,6 +9,7 @@ import { getBlogAppearance } from "@/lib/blogAppearance";
 import { getHostedBrandFont } from "@/lib/hostedBrandFont";
 import { resolveHostedFont } from "@/lib/portalHostedFonts";
 import { deriveHostedBrandTheme } from "@/lib/hostedBrandTheme";
+import { getHostedTheme } from "@/lib/hostedTheme";
 import { HostedPortalAdBanner } from "@/components/HostedPortalAdBanner";
 
 export const dynamic = "force-dynamic";
@@ -113,11 +114,14 @@ export default async function ClientBlogPostPage(props: PageProps) {
     select: profileSelect as any,
   });
 
+  const hostedTheme = await getHostedTheme(ownerId);
+
   const theme = deriveHostedBrandTheme({
     brandPrimaryHex: (profile as any)?.brandPrimaryHex ?? null,
     brandSecondaryHex: (profile as any)?.brandSecondaryHex ?? null,
     brandAccentHex: (profile as any)?.brandAccentHex ?? null,
     brandTextHex: (profile as any)?.brandTextHex ?? null,
+    overrides: hostedTheme,
   });
 
   const post = await prisma.clientBlogPost.findFirst({
@@ -167,11 +171,14 @@ export default async function ClientBlogPostPage(props: PageProps) {
 
   return (
     <div
-      className="pa-blog-root min-h-screen bg-white"
-      style={{ ...(themeStyle as any), ...hostedBrandFont.styleVars } as any}
+      className="pa-blog-root min-h-screen"
+      style={{ ...(themeStyle as any), ...(hostedBrandFont.styleVars as any), backgroundColor: "var(--client-bg)", color: "var(--client-text)" } as any}
     >
       {fontCss ? <style>{fontCss}</style> : null}
-      <header className="relative z-50 border-b border-zinc-200 bg-white/80 backdrop-blur">
+      <header
+        className="relative z-50 border-b backdrop-blur"
+        style={{ borderColor: "var(--client-border)", backgroundColor: "var(--client-surface)" }}
+      >
         <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-4">
           <Link href={`/${siteHandle}/blogs`} className="flex items-center gap-3">
             {logoUrl ? (
@@ -187,7 +194,8 @@ export default async function ClientBlogPostPage(props: PageProps) {
           <div className="flex items-center gap-3">
             <Link
               href={`/${siteHandle}/blogs`}
-              className="hidden rounded-xl px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-100 sm:inline"
+              className="hidden rounded-xl px-3 py-2 text-sm font-semibold sm:inline"
+              style={{ color: "var(--client-muted)" }}
             >
               all posts
             </Link>
@@ -204,13 +212,15 @@ export default async function ClientBlogPostPage(props: PageProps) {
 
       <main className="mx-auto max-w-6xl px-6 py-14">
         <div className="mx-auto max-w-3xl">
-          <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
+          <div className="text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--client-muted)" }}>
             {formatBlogDate(post.publishedAt ?? post.updatedAt)}
           </div>
           <h1 className="mt-3 font-brand text-4xl leading-tight sm:text-5xl" style={{ color: "var(--client-link)" }}>
             {post.title}
           </h1>
-          <p className="mt-5 text-base leading-relaxed text-zinc-700">{post.excerpt}</p>
+          <p className="mt-5 text-base leading-relaxed" style={{ color: "var(--client-muted)" }}>
+            {post.excerpt}
+          </p>
 
           <div className="mt-10 space-y-6">
             {blocks.map((b, idx) => {
@@ -230,7 +240,11 @@ export default async function ClientBlogPostPage(props: PageProps) {
               }
               if (b.type === "img") {
                 return (
-                  <div key={idx} className="overflow-hidden rounded-3xl border border-zinc-200 bg-zinc-50">
+                  <div
+                    key={idx}
+                    className="overflow-hidden rounded-3xl border"
+                    style={{ borderColor: "var(--client-border)", backgroundColor: "var(--client-soft)" }}
+                  >
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img src={b.src} alt={b.alt || ""} className="h-auto w-full object-cover" />
                   </div>
@@ -238,7 +252,7 @@ export default async function ClientBlogPostPage(props: PageProps) {
               }
               if (b.type === "ul") {
                 return (
-                  <ul key={idx} className="list-disc space-y-2 pl-6 text-sm leading-relaxed text-zinc-700">
+                  <ul key={idx} className="list-disc space-y-2 pl-6 text-sm leading-relaxed" style={{ color: "var(--client-muted)" }}>
                     {b.items.map((item, itemIdx) => (
                       <li key={itemIdx} dangerouslySetInnerHTML={{ __html: inlineMarkdownToHtmlSafe(item) }} />
                     ))}
@@ -246,7 +260,7 @@ export default async function ClientBlogPostPage(props: PageProps) {
                 );
               }
               return (
-                <p key={idx} className="text-sm leading-relaxed text-zinc-700">
+                <p key={idx} className="text-sm leading-relaxed" style={{ color: "var(--client-muted)" }}>
                   <span dangerouslySetInnerHTML={{ __html: inlineMarkdownToHtmlSafe(b.text) }} />
                 </p>
               );
@@ -257,7 +271,9 @@ export default async function ClientBlogPostPage(props: PageProps) {
             <div className="font-brand text-2xl" style={{ color: "var(--client-link)" }}>
               Want this kind of consistency?
             </div>
-            <p className="mt-3 text-sm leading-relaxed text-zinc-700">This blog is hosted by Purely Automation.</p>
+            <p className="mt-3 text-sm leading-relaxed" style={{ color: "var(--client-muted)" }}>
+              This blog is hosted by Purely Automation.
+            </p>
             <div className="mt-6 flex flex-wrap items-center gap-3">
               <Link
                 href="/"
@@ -268,8 +284,8 @@ export default async function ClientBlogPostPage(props: PageProps) {
               </Link>
               <Link
                 href={`/${siteHandle}/blogs`}
-                className="inline-flex items-center justify-center rounded-2xl border bg-white px-6 py-3 text-base font-bold hover:bg-zinc-50"
-                style={{ borderColor: "var(--client-border)", color: "var(--client-link)" }}
+                className="inline-flex items-center justify-center rounded-2xl border px-6 py-3 text-base font-bold"
+                style={{ borderColor: "var(--client-border)", backgroundColor: "var(--client-surface)", color: "var(--client-link)" }}
               >
                 back to posts
               </Link>
@@ -279,11 +295,13 @@ export default async function ClientBlogPostPage(props: PageProps) {
         </div>
       </main>
 
-      <footer className="border-t border-zinc-200 bg-white">
+      <footer className="border-t" style={{ borderColor: "var(--client-border)", backgroundColor: "var(--client-surface)" }}>
         <div className="mx-auto flex max-w-6xl flex-col gap-4 px-6 py-10 sm:flex-row sm:items-center sm:justify-between">
-          <div className="text-sm text-zinc-600">
+          <div className="text-sm" style={{ color: "var(--client-muted)" }}>
             © {new Date().getFullYear()} {brandName}
-            <span className="ml-2 text-zinc-400">•</span>
+            <span className="ml-2" style={{ color: "var(--client-muted)" }}>
+              •
+            </span>
             <span className="ml-2">
               Powered by{" "}
               <Link href="/" className="font-semibold hover:underline" style={{ color: "var(--client-link)" }}>

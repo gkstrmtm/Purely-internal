@@ -48,7 +48,7 @@ const MAX_PHOTOS = 25;
 export function PublicReviewsClient({
   siteHandle,
   businessName,
-  brandPrimary,
+  brandPrimary: _brandPrimary,
   destinations,
   galleryEnabled,
   thankYouMessage,
@@ -66,6 +66,8 @@ export function PublicReviewsClient({
   initialReviews: Review[];
   initialQuestions: AnsweredQuestion[];
 }) {
+  void _brandPrimary;
+
   const router = useRouter();
   const toast = useToast();
 
@@ -304,15 +306,23 @@ export function PublicReviewsClient({
 
       <div className="space-y-6">
         {galleryEnabled && allReviewPhotoUrls.length ? (
-          <div className="rounded-3xl border border-zinc-200 bg-white p-7 shadow-sm">
-            <div className="text-sm font-semibold text-zinc-900">Photos</div>
-            <div className="mt-2 text-sm text-zinc-600">Real photos from customer reviews.</div>
+          <div
+            className="rounded-3xl border p-7 shadow-sm"
+            style={{ borderColor: "var(--client-border)", backgroundColor: "var(--client-surface)" }}
+          >
+            <div className="text-sm font-semibold" style={{ color: "var(--client-text)" }}>
+              Photos
+            </div>
+            <div className="mt-2 text-sm" style={{ color: "var(--client-muted)" }}>
+              Real photos from customer reviews.
+            </div>
             <div className="mt-4 grid grid-cols-3 gap-2 sm:grid-cols-4 lg:grid-cols-6">
               {allReviewPhotoUrls.slice(0, 30).map((u, i) => (
                 <button
                   key={`${u}_${i}`}
                   type="button"
-                  className="aspect-square overflow-hidden rounded-2xl bg-zinc-100"
+                  className="aspect-square overflow-hidden rounded-2xl"
+                  style={{ backgroundColor: "var(--client-soft)" }}
                   onClick={() => openLightbox(allReviewPhotoUrls, i)}
                   aria-label="Open photo"
                 >
@@ -324,7 +334,8 @@ export function PublicReviewsClient({
             {allReviewPhotoUrls.length > 30 ? (
               <button
                 type="button"
-                className="mt-4 inline-flex h-10 items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
+                className="mt-4 inline-flex h-10 items-center justify-center rounded-2xl border px-4 text-sm font-semibold"
+                style={{ borderColor: "var(--client-border)", backgroundColor: "var(--client-surface)", color: "var(--client-text)" }}
                 onClick={() => openLightbox(allReviewPhotoUrls, 0)}
               >
                 View all photos
@@ -334,18 +345,26 @@ export function PublicReviewsClient({
         ) : null}
 
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-      <div className="rounded-3xl border border-zinc-200 bg-white p-7 shadow-sm">
+      <div
+        className="rounded-3xl border p-7 shadow-sm"
+        style={{ borderColor: "var(--client-border)", backgroundColor: "var(--client-surface)" }}
+      >
         <div className="font-brand text-2xl" style={{ color: "var(--client-text)" }}>
           leave a review
         </div>
-        <div className="mt-2 text-sm text-zinc-600">Share your experience.</div>
+        <div className="mt-2 text-sm" style={{ color: "var(--client-muted)" }}>
+          Share your experience.
+        </div>
 
         {status ? <div className="mt-3 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">{status}</div> : null}
 
         <div className="mt-4 grid gap-3">
-          <label className="text-xs font-semibold text-zinc-600">Your name</label>
+          <label className="text-xs font-semibold" style={{ color: "var(--client-muted)" }}>
+            Your name
+          </label>
           <input
-            className="h-11 rounded-2xl border border-zinc-200 bg-white px-4 text-sm outline-none focus:border-zinc-300 focus:ring-2 focus:ring-[color:rgba(29,78,216,0.10)]"
+            className="h-11 rounded-2xl border px-4 text-sm outline-none focus:ring-2 focus:ring-(--client-ring)"
+            style={{ borderColor: "var(--client-border)", backgroundColor: "var(--client-surface)", color: "var(--client-text)" }}
             value={name}
             onChange={(e) => setName(e.target.value)}
             placeholder="Jane"
@@ -354,11 +373,12 @@ export function PublicReviewsClient({
 
           {parsedForm.email.enabled ? (
             <>
-              <label className="text-xs font-semibold text-zinc-600">
+              <label className="text-xs font-semibold" style={{ color: "var(--client-muted)" }}>
                 Email{parsedForm.email.required ? " *" : ""}
               </label>
               <input
-                className="h-11 rounded-2xl border border-zinc-200 bg-white px-4 text-sm outline-none focus:border-zinc-300 focus:ring-2 focus:ring-[color:rgba(29,78,216,0.10)]"
+                className="h-11 rounded-2xl border px-4 text-sm outline-none focus:ring-2 focus:ring-(--client-ring)"
+                style={{ borderColor: "var(--client-border)", backgroundColor: "var(--client-surface)", color: "var(--client-text)" }}
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="jane@company.com"
@@ -370,11 +390,12 @@ export function PublicReviewsClient({
 
           {parsedForm.phone.enabled ? (
             <>
-              <label className="text-xs font-semibold text-zinc-600">
+              <label className="text-xs font-semibold" style={{ color: "var(--client-muted)" }}>
                 Phone{parsedForm.phone.required ? " *" : ""}
               </label>
               <input
-                className="h-11 rounded-2xl border border-zinc-200 bg-white px-4 text-sm outline-none focus:border-zinc-300 focus:ring-2 focus:ring-[color:rgba(29,78,216,0.10)]"
+                className="h-11 rounded-2xl border px-4 text-sm outline-none focus:ring-2 focus:ring-(--client-ring)"
+                style={{ borderColor: "var(--client-border)", backgroundColor: "var(--client-surface)", color: "var(--client-text)" }}
                 value={phone}
                 onChange={(e) => setPhone(e.target.value)}
                 placeholder="(555) 555-5555"
@@ -385,7 +406,9 @@ export function PublicReviewsClient({
           ) : null}
 
           <div>
-            <div className="text-xs font-semibold text-zinc-600">Rating</div>
+            <div className="text-xs font-semibold" style={{ color: "var(--client-muted)" }}>
+              Rating
+            </div>
             <div className="mt-2 flex items-center gap-2">
               {Array.from({ length: 5 }).map((_, i) => {
                 const v = i + 1;
@@ -395,13 +418,13 @@ export function PublicReviewsClient({
                     key={v}
                     type="button"
                     disabled={busy}
-                    className="grid h-10 w-10 place-items-center rounded-2xl border border-zinc-200 text-xl transition hover:bg-zinc-50"
+                    className="grid h-10 w-10 place-items-center rounded-2xl border text-xl transition"
                     onClick={() => setRating(v)}
                     aria-label={`${v} star`}
                     style={
                       on
-                        ? { backgroundColor: brandPrimary, borderColor: "transparent", color: "white" }
-                        : { backgroundColor: "white", color: "#52525b" }
+                        ? { backgroundColor: "var(--client-primary)", borderColor: "transparent", color: "var(--client-on-primary)" }
+                        : { backgroundColor: "var(--client-surface)", borderColor: "var(--client-border)", color: "var(--client-muted)" }
                     }
                   >
                     ★
@@ -412,9 +435,12 @@ export function PublicReviewsClient({
           </div>
 
           <div>
-            <label className="text-xs font-semibold text-zinc-600">Review</label>
+            <label className="text-xs font-semibold" style={{ color: "var(--client-muted)" }}>
+              Review
+            </label>
             <textarea
-              className="mt-2 min-h-[120px] w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300 focus:ring-2 focus:ring-[color:rgba(29,78,216,0.10)]"
+              className="mt-2 min-h-30 w-full rounded-2xl border px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-(--client-ring)"
+              style={{ borderColor: "var(--client-border)", backgroundColor: "var(--client-surface)", color: "var(--client-text)" }}
               value={body}
               onChange={(e) => setBody(e.target.value)}
               placeholder="What did you like?"
@@ -424,16 +450,23 @@ export function PublicReviewsClient({
 
           {normalizedQuestions.length ? (
             <div className="space-y-3">
-              <div className="text-xs font-semibold text-zinc-600">Additional questions</div>
+              <div className="text-xs font-semibold" style={{ color: "var(--client-muted)" }}>
+                Additional questions
+              </div>
               {normalizedQuestions.map((q) => (
-                <div key={q.id} className="rounded-2xl border border-zinc-200 bg-white p-4">
-                  <div className="text-sm font-semibold text-zinc-900">
+                <div
+                  key={q.id}
+                  className="rounded-2xl border p-4"
+                  style={{ borderColor: "var(--client-border)", backgroundColor: "var(--client-surface)" }}
+                >
+                  <div className="text-sm font-semibold" style={{ color: "var(--client-text)" }}>
                     {q.label}{q.required ? " *" : ""}
                   </div>
 
                   {q.kind === "long" ? (
                     <textarea
-                      className="mt-2 min-h-[90px] w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300 focus:ring-2 focus:ring-[color:rgba(29,78,216,0.10)]"
+                      className="mt-2 min-h-22.5 w-full rounded-2xl border px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-(--client-ring)"
+                      style={{ borderColor: "var(--client-border)", backgroundColor: "var(--client-surface)", color: "var(--client-text)" }}
                       disabled={busy}
                       value={getAnswerString(q.id)}
                       onChange={(e) => setAnswer(q.id, e.target.value)}
@@ -450,9 +483,11 @@ export function PublicReviewsClient({
                             type="button"
                             disabled={busy}
                             onClick={() => setAnswer(q.id, opt)}
-                            className={
-                              "w-full rounded-2xl border px-4 py-3 text-left text-sm transition " +
-                              (selected ? "border-zinc-900 bg-zinc-50" : "border-zinc-200 bg-white hover:bg-zinc-50")
+                            className="w-full rounded-2xl border px-4 py-3 text-left text-sm transition"
+                            style={
+                              selected
+                                ? { borderColor: "var(--client-primary)", backgroundColor: "var(--client-soft)", color: "var(--client-text)" }
+                                : { borderColor: "var(--client-border)", backgroundColor: "var(--client-surface)", color: "var(--client-text)" }
                             }
                           >
                             {opt}
@@ -474,9 +509,11 @@ export function PublicReviewsClient({
                               const next = selected ? current.filter((x) => x !== opt) : [...current, opt];
                               setAnswer(q.id, next);
                             }}
-                            className={
-                              "w-full rounded-2xl border px-4 py-3 text-left text-sm transition " +
-                              (selected ? "border-zinc-900 bg-zinc-50" : "border-zinc-200 bg-white hover:bg-zinc-50")
+                            className="w-full rounded-2xl border px-4 py-3 text-left text-sm transition"
+                            style={
+                              selected
+                                ? { borderColor: "var(--client-primary)", backgroundColor: "var(--client-soft)", color: "var(--client-text)" }
+                                : { borderColor: "var(--client-border)", backgroundColor: "var(--client-surface)", color: "var(--client-text)" }
                             }
                           >
                             {selected ? "✓ " : ""}{opt}
@@ -486,7 +523,8 @@ export function PublicReviewsClient({
                     </div>
                   ) : (
                     <input
-                      className="mt-2 h-11 w-full rounded-2xl border border-zinc-200 bg-white px-4 text-sm outline-none focus:border-zinc-300 focus:ring-2 focus:ring-[color:rgba(29,78,216,0.10)]"
+                      className="mt-2 h-11 w-full rounded-2xl border px-4 text-sm outline-none focus:ring-2 focus:ring-(--client-ring)"
+                      style={{ borderColor: "var(--client-border)", backgroundColor: "var(--client-surface)", color: "var(--client-text)" }}
                       disabled={busy}
                       value={getAnswerString(q.id)}
                       onChange={(e) => setAnswer(q.id, e.target.value)}
@@ -499,7 +537,9 @@ export function PublicReviewsClient({
           ) : null}
 
           <div>
-            <div className="text-xs font-semibold text-zinc-600">Photos (optional)</div>
+            <div className="text-xs font-semibold" style={{ color: "var(--client-muted)" }}>
+              Photos (optional)
+            </div>
             <input
               id={fileInputId}
               type="file"
@@ -513,13 +553,16 @@ export function PublicReviewsClient({
               <label
                 htmlFor={fileInputId}
                 className={
-                  "inline-flex h-10 cursor-pointer items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 text-sm font-semibold text-zinc-900 hover:bg-zinc-50 " +
+                  "inline-flex h-10 cursor-pointer items-center justify-center rounded-2xl border px-4 text-sm font-semibold transition " +
                   (busy ? "pointer-events-none opacity-60" : "")
                 }
+                style={{ borderColor: "var(--client-border)", backgroundColor: "var(--client-surface)", color: "var(--client-text)" }}
               >
                 Choose files
               </label>
-              <div className="text-sm text-zinc-500">{photos.length ? `${photos.length} selected` : "No files chosen"}</div>
+              <div className="text-sm" style={{ color: "var(--client-muted)" }}>
+                {photos.length ? `${photos.length} selected` : "No files chosen"}
+              </div>
             </div>
             {photoPreviews.length ? (
               <div className="mt-3 flex flex-wrap gap-2">
@@ -543,8 +586,8 @@ export function PublicReviewsClient({
             type="button"
             disabled={busy || !name.trim()}
             onClick={() => void submit()}
-            className="mt-2 inline-flex h-11 items-center justify-center rounded-2xl px-5 text-sm font-semibold text-white shadow-sm disabled:opacity-60"
-            style={{ backgroundColor: brandPrimary }}
+            className="mt-2 inline-flex h-11 items-center justify-center rounded-2xl px-5 text-sm font-semibold shadow-sm disabled:opacity-60"
+            style={{ backgroundColor: "var(--client-primary)", color: "var(--client-on-primary)" }}
           >
             {busy ? "Submitting…" : "Submit review"}
           </button>
@@ -552,17 +595,32 @@ export function PublicReviewsClient({
       </div>
 
       <div className="space-y-4">
-        <div className="rounded-3xl border border-zinc-200 bg-white p-7 shadow-sm">
-          <div className="text-sm font-semibold text-zinc-900">Q&amp;A</div>
-          <div className="mt-2 text-sm text-zinc-600">Ask a question and see answers from {businessName}.</div>
+        <div
+          className="rounded-3xl border p-7 shadow-sm"
+          style={{ borderColor: "var(--client-border)", backgroundColor: "var(--client-surface)" }}
+        >
+          <div className="text-sm font-semibold" style={{ color: "var(--client-text)" }}>
+            Q&amp;A
+          </div>
+          <div className="mt-2 text-sm" style={{ color: "var(--client-muted)" }}>
+            Ask a question and see answers from {businessName}.
+          </div>
 
           {initialQuestions.length ? (
             <div className="mt-4 space-y-3">
               {initialQuestions.slice(0, 12).map((q) => (
-                <div key={q.id} className="rounded-2xl border border-zinc-200 bg-white p-4">
-                  <div className="text-xs font-semibold text-zinc-700">Q: {q.question}</div>
-                  <div className="mt-2 whitespace-pre-wrap text-sm text-zinc-700">{q.answer}</div>
-                  <div className="mt-2 text-xs text-zinc-500">
+                <div
+                  key={q.id}
+                  className="rounded-2xl border p-4"
+                  style={{ borderColor: "var(--client-border)", backgroundColor: "var(--client-surface)" }}
+                >
+                  <div className="text-xs font-semibold" style={{ color: "var(--client-text)" }}>
+                    Q: {q.question}
+                  </div>
+                  <div className="mt-2 whitespace-pre-wrap text-sm" style={{ color: "var(--client-text)" }}>
+                    {q.answer}
+                  </div>
+                  <div className="mt-2 text-xs" style={{ color: "var(--client-muted)" }}>
                     Answered by {businessName}
                     {q.answeredAt ? ` • ${new Date(q.answeredAt).toLocaleDateString()}` : null}
                   </div>
@@ -570,7 +628,9 @@ export function PublicReviewsClient({
               ))}
             </div>
           ) : (
-            <div className="mt-4 text-sm text-zinc-600">No answered questions yet.</div>
+            <div className="mt-4 text-sm" style={{ color: "var(--client-muted)" }}>
+              No answered questions yet.
+            </div>
           )}
 
           <div className="mt-5">
@@ -578,7 +638,7 @@ export function PublicReviewsClient({
               <button
                 type="button"
                 className="inline-flex h-11 items-center justify-center rounded-2xl px-5 text-sm font-semibold text-white shadow-sm disabled:opacity-60"
-                style={{ backgroundColor: brandPrimary }}
+                style={{ backgroundColor: "var(--client-primary)", color: "var(--client-on-primary)" }}
                 onClick={() => {
                   setQStatus(null);
                   setQError(null);
@@ -595,9 +655,12 @@ export function PublicReviewsClient({
               <div className="mt-4 grid grid-cols-1 gap-3">
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                   <div>
-                    <div className="text-xs font-semibold text-zinc-700">Your name</div>
+                    <div className="text-xs font-semibold" style={{ color: "var(--client-muted)" }}>
+                      Your name
+                    </div>
                     <input
-                      className="mt-1 h-11 w-full rounded-2xl border border-zinc-200 bg-white px-4 text-sm"
+                      className="mt-1 h-11 w-full rounded-2xl border px-4 text-sm outline-none focus:ring-2 focus:ring-(--client-ring)"
+                      style={{ borderColor: "var(--client-border)", backgroundColor: "var(--client-surface)", color: "var(--client-text)" }}
                       value={qName}
                       onChange={(e) => setQName(e.target.value)}
                       placeholder="Jane"
@@ -605,9 +668,12 @@ export function PublicReviewsClient({
                   </div>
                 </div>
                 <div>
-                  <div className="text-xs font-semibold text-zinc-700">Question</div>
+                  <div className="text-xs font-semibold" style={{ color: "var(--client-muted)" }}>
+                    Question
+                  </div>
                   <textarea
-                    className="mt-1 min-h-[90px] w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm"
+                    className="mt-1 min-h-22.5 w-full rounded-2xl border px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-(--client-ring)"
+                    style={{ borderColor: "var(--client-border)", backgroundColor: "var(--client-surface)", color: "var(--client-text)" }}
                     value={qText}
                     onChange={(e) => setQText(e.target.value)}
                     placeholder="Ask something about services, availability, pricing, etc."
@@ -617,7 +683,8 @@ export function PublicReviewsClient({
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <button
                     type="button"
-                    className="inline-flex h-11 items-center justify-center rounded-2xl border border-zinc-200 bg-white px-5 text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
+                    className="inline-flex h-11 items-center justify-center rounded-2xl border px-5 text-sm font-semibold"
+                    style={{ borderColor: "var(--client-border)", backgroundColor: "var(--client-surface)", color: "var(--client-text)" }}
                     onClick={() => {
                       setQaAskOpen(false);
                       setQError(null);
@@ -635,7 +702,7 @@ export function PublicReviewsClient({
                       if (ok) setQaAskOpen(false);
                     }}
                     className="inline-flex h-11 items-center justify-center rounded-2xl px-5 text-sm font-semibold text-white shadow-sm disabled:opacity-60"
-                    style={{ backgroundColor: brandPrimary }}
+                    style={{ backgroundColor: "var(--client-primary)", color: "var(--client-on-primary)" }}
                   >
                     {qBusy ? "Sending…" : "Send question"}
                   </button>
@@ -646,9 +713,16 @@ export function PublicReviewsClient({
         </div>
 
         {destinations.length ? (
-          <div className="rounded-3xl border border-zinc-200 bg-white p-7 shadow-sm">
-            <div className="text-sm font-semibold text-zinc-900">Other review sites</div>
-            <div className="mt-2 text-sm text-zinc-600">You can also leave a review on these platforms.</div>
+          <div
+            className="rounded-3xl border p-7 shadow-sm"
+            style={{ borderColor: "var(--client-border)", backgroundColor: "var(--client-surface)" }}
+          >
+            <div className="text-sm font-semibold" style={{ color: "var(--client-text)" }}>
+              Other review sites
+            </div>
+            <div className="mt-2 text-sm" style={{ color: "var(--client-muted)" }}>
+              You can also leave a review on these platforms.
+            </div>
             <div className="mt-4 grid grid-cols-1 gap-3">
               {destinations.map((d) => (
                 <a
@@ -656,13 +730,18 @@ export function PublicReviewsClient({
                   href={d.url}
                   target="_blank"
                   rel="noreferrer"
-                  className="flex items-center justify-between rounded-2xl border border-zinc-200 bg-white px-4 py-4 hover:bg-zinc-50"
+                  className="flex items-center justify-between rounded-2xl border px-4 py-4 transition hover:brightness-[0.98] active:brightness-[0.96]"
+                  style={{ borderColor: "var(--client-border)", backgroundColor: "var(--client-surface)" }}
                 >
                   <div className="min-w-0">
-                    <div className="truncate text-sm font-semibold text-zinc-900">{d.label}</div>
-                    <div className="truncate text-xs text-zinc-500">{d.url}</div>
+                    <div className="truncate text-sm font-semibold" style={{ color: "var(--client-text)" }}>
+                      {d.label}
+                    </div>
+                    <div className="truncate text-xs" style={{ color: "var(--client-muted)" }}>
+                      {d.url}
+                    </div>
                   </div>
-                  <div className="text-sm font-semibold" style={{ color: brandPrimary }}>
+                  <div className="text-sm font-semibold" style={{ color: "var(--client-link)" }}>
                     Open
                   </div>
                 </a>
@@ -671,33 +750,63 @@ export function PublicReviewsClient({
           </div>
         ) : null}
 
-        <div className="rounded-3xl border border-zinc-200 bg-white p-7 shadow-sm">
-          <div className="text-sm font-semibold text-zinc-900">Recent reviews</div>
+        <div
+          className="rounded-3xl border p-7 shadow-sm"
+          style={{ borderColor: "var(--client-border)", backgroundColor: "var(--client-surface)" }}
+        >
+          <div className="text-sm font-semibold" style={{ color: "var(--client-text)" }}>
+            Recent reviews
+          </div>
           <div className="mt-4 space-y-3">
-            {initialReviews.length === 0 ? <div className="text-sm text-zinc-600">No reviews yet.</div> : null}
+            {initialReviews.length === 0 ? (
+              <div className="text-sm" style={{ color: "var(--client-muted)" }}>
+                No reviews yet.
+              </div>
+            ) : null}
             {initialReviews.slice(0, 30).map((r) => {
               const rr = Math.max(1, Math.min(5, Math.round(Number(r.rating) || 0)));
               const urls = Array.isArray(r.photoUrls) ? (r.photoUrls as string[]) : [];
               return (
-                <div key={r.id} className="rounded-2xl border border-zinc-200 bg-white p-4">
+                <div
+                  key={r.id}
+                  className="rounded-2xl border p-4"
+                  style={{ borderColor: "var(--client-border)", backgroundColor: "var(--client-surface)" }}
+                >
                   <div className="flex items-center justify-between gap-3">
                     <div className="min-w-0">
-                      <div className="truncate text-sm font-semibold text-zinc-900">{r.name}</div>
-                      <div className="mt-1 text-xs text-zinc-500">{new Date(r.createdAt).toLocaleDateString()}</div>
+                      <div className="truncate text-sm font-semibold" style={{ color: "var(--client-text)" }}>
+                        {r.name}
+                      </div>
+                      <div className="mt-1 text-xs" style={{ color: "var(--client-muted)" }}>
+                        {new Date(r.createdAt).toLocaleDateString()}
+                      </div>
                     </div>
-                    <div className="text-sm" style={{ color: brandPrimary }}>
+                    <div className="text-sm" style={{ color: "var(--client-primary)" }}>
                       {"★".repeat(rr)}
-                      <span className="text-zinc-300">{"★".repeat(5 - rr)}</span>
+                      <span style={{ color: "var(--client-muted)" }}>{"★".repeat(5 - rr)}</span>
                     </div>
                   </div>
-                  {r.body ? <div className="mt-2 whitespace-pre-wrap text-sm text-zinc-700">{r.body}</div> : null}
+                  {r.body ? (
+                    <div className="mt-2 whitespace-pre-wrap text-sm" style={{ color: "var(--client-text)" }}>
+                      {r.body}
+                    </div>
+                  ) : null}
 
                   {r.businessReply ? (
-                    <div className="mt-3 rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
-                      <div className="text-xs font-semibold text-zinc-700">Response from {businessName}</div>
-                      <div className="mt-2 whitespace-pre-wrap text-sm text-zinc-700">{r.businessReply}</div>
+                    <div
+                      className="mt-3 rounded-2xl border p-4"
+                      style={{ borderColor: "var(--client-border)", backgroundColor: "var(--client-soft)" }}
+                    >
+                      <div className="text-xs font-semibold" style={{ color: "var(--client-muted)" }}>
+                        Response from {businessName}
+                      </div>
+                      <div className="mt-2 whitespace-pre-wrap text-sm" style={{ color: "var(--client-text)" }}>
+                        {r.businessReply}
+                      </div>
                       {r.businessReplyAt ? (
-                        <div className="mt-2 text-xs text-zinc-500">{new Date(r.businessReplyAt).toLocaleDateString()}</div>
+                        <div className="mt-2 text-xs" style={{ color: "var(--client-muted)" }}>
+                          {new Date(r.businessReplyAt).toLocaleDateString()}
+                        </div>
                       ) : null}
                     </div>
                   ) : null}

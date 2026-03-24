@@ -4,6 +4,7 @@ import { prisma } from "@/lib/db";
 import { hasPublicColumn } from "@/lib/dbSchema";
 import { getBookingFormConfig } from "@/lib/bookingForm";
 import { getBookingCalendarsConfig } from "@/lib/bookingCalendars";
+import { getHostedTheme } from "@/lib/hostedTheme";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -58,7 +59,7 @@ export async function GET(
 
   const enabled = Boolean(site.enabled) && Boolean(cal.enabled);
 
-  const [profile, form] = await Promise.all([
+  const [profile, form, hostedTheme] = await Promise.all([
     site.owner?.id
       ? await (prisma as any).businessProfile.findUnique({
           where: { ownerId: site.owner.id },
@@ -73,6 +74,7 @@ export async function GET(
         })
       : null,
     ownerId ? getBookingFormConfig(String(ownerId)) : Promise.resolve(null),
+    ownerId ? getHostedTheme(String(ownerId)) : Promise.resolve(null),
   ]);
 
   return NextResponse.json({
@@ -91,6 +93,7 @@ export async function GET(
       brandSecondaryHex: hasSecondaryHex ? ((profile as any)?.brandSecondaryHex ?? null) : null,
       brandAccentHex: hasAccentHex ? ((profile as any)?.brandAccentHex ?? null) : null,
       brandTextHex: hasTextHex ? ((profile as any)?.brandTextHex ?? null) : null,
+      hostedTheme: hostedTheme ?? null,
       photoUrl: hasPhotoUrl ? ((site as any).photoUrl ?? null) : null,
       meetingLocation: hasMeetingLocation ? (cal.meetingLocation ?? (site as any).meetingLocation ?? null) : null,
       meetingDetails: hasMeetingDetails ? (cal.meetingDetails ?? (site as any).meetingDetails ?? null) : null,

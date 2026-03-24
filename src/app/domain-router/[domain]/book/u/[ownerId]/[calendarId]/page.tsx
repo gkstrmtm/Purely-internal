@@ -4,18 +4,48 @@ import type { Metadata } from "next";
 import { prisma } from "@/lib/db";
 import { resolveCustomDomain } from "@/lib/customDomainResolver";
 import { getHostedBrandFont } from "@/lib/hostedBrandFont";
+import { deriveHostedBrandTheme } from "@/lib/hostedBrandTheme";
+import { getHostedTheme } from "@/lib/hostedTheme";
 
 import { PublicBookingClient } from "@/app/book/[slug]/PublicBookingClient";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-function PendingVerification() {
+async function PendingVerification({ ownerId }: { ownerId: string }) {
+  const [hostedBrandFont, hostedTheme] = await Promise.all([
+    getHostedBrandFont(ownerId).catch(() => null),
+    getHostedTheme(ownerId).catch(() => null),
+  ]);
+
+  const theme = deriveHostedBrandTheme({
+    brandPrimaryHex: null,
+    brandSecondaryHex: null,
+    brandAccentHex: null,
+    brandTextHex: null,
+    overrides: hostedTheme,
+  });
+
   return (
-    <main className="mx-auto w-full max-w-2xl p-8">
-      <h1 className="text-2xl font-bold text-zinc-900">Domain pending verification</h1>
-      <p className="mt-2 text-sm text-zinc-700">This domain is saved, but not verified yet.</p>
-    </main>
+    <div
+      className="min-h-screen"
+      style={{
+        ...(theme.cssVars as any),
+        ...((hostedBrandFont as any)?.styleVars ?? {}),
+        backgroundColor: "var(--client-bg)",
+        color: "var(--client-text)",
+      }}
+    >
+      {(hostedBrandFont as any)?.googleCss ? <style>{(hostedBrandFont as any).googleCss}</style> : null}
+      <main className="mx-auto w-full max-w-2xl p-8">
+        <h1 className="text-2xl font-bold" style={{ color: "var(--client-text)" }}>
+          Domain pending verification
+        </h1>
+        <p className="mt-2 text-sm" style={{ color: "var(--client-muted)" }}>
+          This domain is saved, but not verified yet.
+        </p>
+      </main>
+    </div>
   );
 }
 
@@ -53,7 +83,7 @@ export default async function CustomDomainBookingCalendarPage({
 
   const mapping = await resolveCustomDomain(host);
   if (!mapping) notFound();
-  if (mapping.status !== "VERIFIED") return <PendingVerification />;
+  if (mapping.status !== "VERIFIED") return <PendingVerification ownerId={mapping.ownerId} />;
 
   // Prevent cross-tenant access on custom domains.
   if (String(mapping.ownerId) !== String(ownerIdSafe)) notFound();

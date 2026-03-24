@@ -24,6 +24,19 @@ type BusinessProfile = {
   brandFontFamily?: string | null;
   brandFontGoogleFamily?: string | null;
   updatedAt?: string;
+
+  hostedTheme?: {
+    version: 1;
+    bgHex: string | null;
+    surfaceHex: string | null;
+    softHex: string | null;
+    borderHex: string | null;
+    textHex: string | null;
+    mutedTextHex: string | null;
+    primaryHex: string | null;
+    accentHex: string | null;
+    linkHex: string | null;
+  };
 };
 
 type ApiGet = { ok: boolean; profile: BusinessProfile | null };
@@ -90,6 +103,17 @@ export function BusinessProfileForm({
   const [brandTextHex, setBrandTextHex] = useState("");
   const [brandFontFamily, setBrandFontFamily] = useState("");
   const [brandFontGoogleFamily, setBrandFontGoogleFamily] = useState("");
+
+  const [hostedBgHex, setHostedBgHex] = useState("");
+  const [hostedSurfaceHex, setHostedSurfaceHex] = useState("");
+  const [hostedSoftHex, setHostedSoftHex] = useState("");
+  const [hostedBorderHex, setHostedBorderHex] = useState("");
+  const [hostedTextHex, setHostedTextHex] = useState("");
+  const [hostedMutedTextHex, setHostedMutedTextHex] = useState("");
+  const [hostedPrimaryHex, setHostedPrimaryHex] = useState("");
+  const [hostedAccentHex, setHostedAccentHex] = useState("");
+  const [hostedLinkHex, setHostedLinkHex] = useState("");
+
   const [logoBusy, setLogoBusy] = useState(false);
   const [logoPickerOpen, setLogoPickerOpen] = useState(false);
 
@@ -126,6 +150,18 @@ export function BusinessProfileForm({
 
       brandFontFamily: normalize(brandFontFamily),
       brandFontGoogleFamily: normalize(brandFontGoogleFamily),
+
+      hostedTheme: {
+        bgHex: normalize(hostedBgHex),
+        surfaceHex: normalize(hostedSurfaceHex),
+        softHex: normalize(hostedSoftHex),
+        borderHex: normalize(hostedBorderHex),
+        textHex: normalize(hostedTextHex),
+        mutedTextHex: normalize(hostedMutedTextHex),
+        primaryHex: normalize(hostedPrimaryHex),
+        accentHex: normalize(hostedAccentHex),
+        linkHex: normalize(hostedLinkHex),
+      },
     });
   }, [
     businessName,
@@ -142,6 +178,15 @@ export function BusinessProfileForm({
     brandTextHex,
     brandFontFamily,
     brandFontGoogleFamily,
+    hostedBgHex,
+    hostedSurfaceHex,
+    hostedSoftHex,
+    hostedBorderHex,
+    hostedTextHex,
+    hostedMutedTextHex,
+    hostedPrimaryHex,
+    hostedAccentHex,
+    hostedLinkHex,
   ]);
 
   const dirty = currentSig !== lastSavedSigRef.current;
@@ -179,6 +224,17 @@ export function BusinessProfileForm({
         const nextBrandFontFamily = p.brandFontFamily ?? "";
         const nextBrandFontGoogleFamily = p.brandFontGoogleFamily ?? "";
 
+        const hosted = p.hostedTheme;
+        const nextHostedBgHex = hosted?.bgHex ?? "";
+        const nextHostedSurfaceHex = hosted?.surfaceHex ?? "";
+        const nextHostedSoftHex = hosted?.softHex ?? "";
+        const nextHostedBorderHex = hosted?.borderHex ?? "";
+        const nextHostedTextHex = hosted?.textHex ?? "";
+        const nextHostedMutedTextHex = hosted?.mutedTextHex ?? "";
+        const nextHostedPrimaryHex = hosted?.primaryHex ?? "";
+        const nextHostedAccentHex = hosted?.accentHex ?? "";
+        const nextHostedLinkHex = hosted?.linkHex ?? "";
+
         setBusinessName(nextBusinessName);
         setWebsiteUrl(nextWebsiteUrl);
         setIndustry(nextIndustry);
@@ -195,6 +251,16 @@ export function BusinessProfileForm({
 
         setBrandFontFamily(nextBrandFontFamily);
         setBrandFontGoogleFamily(nextBrandFontGoogleFamily);
+
+        setHostedBgHex(nextHostedBgHex);
+        setHostedSurfaceHex(nextHostedSurfaceHex);
+        setHostedSoftHex(nextHostedSoftHex);
+        setHostedBorderHex(nextHostedBorderHex);
+        setHostedTextHex(nextHostedTextHex);
+        setHostedMutedTextHex(nextHostedMutedTextHex);
+        setHostedPrimaryHex(nextHostedPrimaryHex);
+        setHostedAccentHex(nextHostedAccentHex);
+        setHostedLinkHex(nextHostedLinkHex);
 
         lastSavedSigRef.current = JSON.stringify({
           businessName: String(nextBusinessName || "").trim(),
@@ -216,6 +282,18 @@ export function BusinessProfileForm({
 
           brandFontFamily: String(nextBrandFontFamily || "").trim(),
           brandFontGoogleFamily: String(nextBrandFontGoogleFamily || "").trim(),
+
+          hostedTheme: {
+            bgHex: String(nextHostedBgHex || "").trim(),
+            surfaceHex: String(nextHostedSurfaceHex || "").trim(),
+            softHex: String(nextHostedSoftHex || "").trim(),
+            borderHex: String(nextHostedBorderHex || "").trim(),
+            textHex: String(nextHostedTextHex || "").trim(),
+            mutedTextHex: String(nextHostedMutedTextHex || "").trim(),
+            primaryHex: String(nextHostedPrimaryHex || "").trim(),
+            accentHex: String(nextHostedAccentHex || "").trim(),
+            linkHex: String(nextHostedLinkHex || "").trim(),
+          },
         });
       }
 
@@ -254,6 +332,18 @@ export function BusinessProfileForm({
 
         brandFontFamily: fontFamilyToSave,
         brandFontGoogleFamily: fontGoogleFamilyToSave,
+
+        hostedTheme: {
+          bgHex: hostedBgHex,
+          surfaceHex: hostedSurfaceHex,
+          softHex: hostedSoftHex,
+          borderHex: hostedBorderHex,
+          textHex: hostedTextHex,
+          mutedTextHex: hostedMutedTextHex,
+          primaryHex: hostedPrimaryHex,
+          accentHex: hostedAccentHex,
+          linkHex: hostedLinkHex,
+        },
       }),
     });
 
@@ -603,6 +693,249 @@ export function BusinessProfileForm({
               style={{ color: safeColorValue(brandTextHex, "#0f172a") }}
             >
               Aa
+            </div>
+          </div>
+        </div>
+
+        <div className="sm:col-span-2">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <div className="text-sm font-semibold text-zinc-900">Hosted pages theme overrides</div>
+              <div className="mt-1 text-xs text-zinc-500">
+                Optional. Leave any field blank to inherit the theme derived from your brand colors. This affects hosted pages like blogs and reviews.
+              </div>
+            </div>
+            {!readOnly ? (
+              <button
+                type="button"
+                className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-xs font-semibold text-brand-ink hover:bg-zinc-50"
+                onClick={() => {
+                  setHostedBgHex("");
+                  setHostedSurfaceHex("");
+                  setHostedSoftHex("");
+                  setHostedBorderHex("");
+                  setHostedTextHex("");
+                  setHostedMutedTextHex("");
+                  setHostedPrimaryHex("");
+                  setHostedAccentHex("");
+                  setHostedLinkHex("");
+                }}
+              >
+                Reset hosted overrides
+              </button>
+            ) : null}
+          </div>
+
+          <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div>
+              <label className="text-xs font-semibold text-zinc-600">Background</label>
+              <div className="mt-1 flex items-center gap-2">
+                <input
+                  type="color"
+                  value={safeColorValue(hostedBgHex, "#ffffff")}
+                  onChange={(e) => setHostedBgHex(e.target.value)}
+                  disabled={Boolean(readOnly)}
+                  className="h-10 w-10 cursor-pointer rounded-2xl border border-zinc-200 bg-white p-1 disabled:opacity-60"
+                  aria-label="Pick hosted background"
+                />
+                <input
+                  value={hostedBgHex}
+                  onChange={(e) => setHostedBgHex(e.target.value)}
+                  disabled={Boolean(readOnly)}
+                  className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300"
+                  placeholder="(blank = auto)"
+                />
+                <div className="h-10 w-10 rounded-2xl border border-zinc-200" style={{ background: safeColorValue(hostedBgHex, "#ffffff") }} />
+              </div>
+            </div>
+
+            <div>
+              <label className="text-xs font-semibold text-zinc-600">Surface (cards)</label>
+              <div className="mt-1 flex items-center gap-2">
+                <input
+                  type="color"
+                  value={safeColorValue(hostedSurfaceHex, "#ffffff")}
+                  onChange={(e) => setHostedSurfaceHex(e.target.value)}
+                  disabled={Boolean(readOnly)}
+                  className="h-10 w-10 cursor-pointer rounded-2xl border border-zinc-200 bg-white p-1 disabled:opacity-60"
+                  aria-label="Pick hosted surface"
+                />
+                <input
+                  value={hostedSurfaceHex}
+                  onChange={(e) => setHostedSurfaceHex(e.target.value)}
+                  disabled={Boolean(readOnly)}
+                  className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300"
+                  placeholder="(blank = auto)"
+                />
+                <div className="h-10 w-10 rounded-2xl border border-zinc-200" style={{ background: safeColorValue(hostedSurfaceHex, "#ffffff") }} />
+              </div>
+            </div>
+
+            <div>
+              <label className="text-xs font-semibold text-zinc-600">Soft background (chips)</label>
+              <div className="mt-1 flex items-center gap-2">
+                <input
+                  type="color"
+                  value={safeColorValue(hostedSoftHex, "#f4f4f5")}
+                  onChange={(e) => setHostedSoftHex(e.target.value)}
+                  disabled={Boolean(readOnly)}
+                  className="h-10 w-10 cursor-pointer rounded-2xl border border-zinc-200 bg-white p-1 disabled:opacity-60"
+                  aria-label="Pick hosted soft background"
+                />
+                <input
+                  value={hostedSoftHex}
+                  onChange={(e) => setHostedSoftHex(e.target.value)}
+                  disabled={Boolean(readOnly)}
+                  className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300"
+                  placeholder="(blank = auto)"
+                />
+                <div className="h-10 w-10 rounded-2xl border border-zinc-200" style={{ background: safeColorValue(hostedSoftHex, "#f4f4f5") }} />
+              </div>
+            </div>
+
+            <div>
+              <label className="text-xs font-semibold text-zinc-600">Border</label>
+              <div className="mt-1 flex items-center gap-2">
+                <input
+                  type="color"
+                  value={safeColorValue(hostedBorderHex, "#e4e4e7")}
+                  onChange={(e) => setHostedBorderHex(e.target.value)}
+                  disabled={Boolean(readOnly)}
+                  className="h-10 w-10 cursor-pointer rounded-2xl border border-zinc-200 bg-white p-1 disabled:opacity-60"
+                  aria-label="Pick hosted border"
+                />
+                <input
+                  value={hostedBorderHex}
+                  onChange={(e) => setHostedBorderHex(e.target.value)}
+                  disabled={Boolean(readOnly)}
+                  className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300"
+                  placeholder="(blank = auto)"
+                />
+                <div className="h-10 w-10 rounded-2xl border border-zinc-200" style={{ background: safeColorValue(hostedBorderHex, "#e4e4e7") }} />
+              </div>
+            </div>
+
+            <div>
+              <label className="text-xs font-semibold text-zinc-600">Text</label>
+              <div className="mt-1 flex items-center gap-2">
+                <input
+                  type="color"
+                  value={safeColorValue(hostedTextHex, "#18181b")}
+                  onChange={(e) => setHostedTextHex(e.target.value)}
+                  disabled={Boolean(readOnly)}
+                  className="h-10 w-10 cursor-pointer rounded-2xl border border-zinc-200 bg-white p-1 disabled:opacity-60"
+                  aria-label="Pick hosted text"
+                />
+                <input
+                  value={hostedTextHex}
+                  onChange={(e) => setHostedTextHex(e.target.value)}
+                  disabled={Boolean(readOnly)}
+                  className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300"
+                  placeholder="(blank = auto)"
+                />
+                <div className="flex h-10 items-center rounded-2xl border border-zinc-200 bg-white px-3 text-xs" style={{ color: safeColorValue(hostedTextHex, "#18181b") }}>
+                  Aa
+                </div>
+              </div>
+            </div>
+
+            <div>
+              <label className="text-xs font-semibold text-zinc-600">Muted text</label>
+              <div className="mt-1 flex items-center gap-2">
+                <input
+                  type="color"
+                  value={safeColorValue(hostedMutedTextHex, "#52525b")}
+                  onChange={(e) => setHostedMutedTextHex(e.target.value)}
+                  disabled={Boolean(readOnly)}
+                  className="h-10 w-10 cursor-pointer rounded-2xl border border-zinc-200 bg-white p-1 disabled:opacity-60"
+                  aria-label="Pick hosted muted text"
+                />
+                <input
+                  value={hostedMutedTextHex}
+                  onChange={(e) => setHostedMutedTextHex(e.target.value)}
+                  disabled={Boolean(readOnly)}
+                  className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300"
+                  placeholder="(blank = auto)"
+                />
+                <div className="flex h-10 items-center rounded-2xl border border-zinc-200 bg-white px-3 text-xs" style={{ color: safeColorValue(hostedMutedTextHex, "#52525b") }}>
+                  Aa
+                </div>
+              </div>
+            </div>
+
+            <div>
+              <label className="text-xs font-semibold text-zinc-600">Primary (buttons)</label>
+              <div className="mt-1 flex items-center gap-2">
+                <input
+                  type="color"
+                  value={safeColorValue(hostedPrimaryHex, safeColorValue(brandPrimaryHex, "#1d4ed8"))}
+                  onChange={(e) => setHostedPrimaryHex(e.target.value)}
+                  disabled={Boolean(readOnly)}
+                  className="h-10 w-10 cursor-pointer rounded-2xl border border-zinc-200 bg-white p-1 disabled:opacity-60"
+                  aria-label="Pick hosted primary"
+                />
+                <input
+                  value={hostedPrimaryHex}
+                  onChange={(e) => setHostedPrimaryHex(e.target.value)}
+                  disabled={Boolean(readOnly)}
+                  className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300"
+                  placeholder="(blank = auto)"
+                />
+                <div
+                  className="h-10 w-10 rounded-2xl border border-zinc-200"
+                  style={{ background: safeColorValue(hostedPrimaryHex, safeColorValue(brandPrimaryHex, "#1d4ed8")) }}
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="text-xs font-semibold text-zinc-600">Accent (highlights)</label>
+              <div className="mt-1 flex items-center gap-2">
+                <input
+                  type="color"
+                  value={safeColorValue(hostedAccentHex, safeColorValue(brandAccentHex, "#fb7185"))}
+                  onChange={(e) => setHostedAccentHex(e.target.value)}
+                  disabled={Boolean(readOnly)}
+                  className="h-10 w-10 cursor-pointer rounded-2xl border border-zinc-200 bg-white p-1 disabled:opacity-60"
+                  aria-label="Pick hosted accent"
+                />
+                <input
+                  value={hostedAccentHex}
+                  onChange={(e) => setHostedAccentHex(e.target.value)}
+                  disabled={Boolean(readOnly)}
+                  className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300"
+                  placeholder="(blank = auto)"
+                />
+                <div
+                  className="h-10 w-10 rounded-2xl border border-zinc-200"
+                  style={{ background: safeColorValue(hostedAccentHex, safeColorValue(brandAccentHex, "#fb7185")) }}
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="text-xs font-semibold text-zinc-600">Link</label>
+              <div className="mt-1 flex items-center gap-2">
+                <input
+                  type="color"
+                  value={safeColorValue(hostedLinkHex, safeColorValue(brandPrimaryHex, "#2563eb"))}
+                  onChange={(e) => setHostedLinkHex(e.target.value)}
+                  disabled={Boolean(readOnly)}
+                  className="h-10 w-10 cursor-pointer rounded-2xl border border-zinc-200 bg-white p-1 disabled:opacity-60"
+                  aria-label="Pick hosted link"
+                />
+                <input
+                  value={hostedLinkHex}
+                  onChange={(e) => setHostedLinkHex(e.target.value)}
+                  disabled={Boolean(readOnly)}
+                  className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300"
+                  placeholder="(blank = auto)"
+                />
+                <div
+                  className="h-10 w-10 rounded-2xl border border-zinc-200"
+                  style={{ background: safeColorValue(hostedLinkHex, safeColorValue(brandPrimaryHex, "#2563eb")) }}
+                />
+              </div>
             </div>
           </div>
         </div>

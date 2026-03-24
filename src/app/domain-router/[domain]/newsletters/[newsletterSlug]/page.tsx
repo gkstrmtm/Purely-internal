@@ -9,6 +9,7 @@ import { resolveCustomDomain } from "@/lib/customDomainResolver";
 import { resolveNewsletterHostedFont, stripLegacyNewsletterFontWrapper } from "@/lib/portalNewsletterFonts";
 import { getHostedBrandFont } from "@/lib/hostedBrandFont";
 import { deriveHostedBrandTheme } from "@/lib/hostedBrandTheme";
+import { getHostedTheme } from "@/lib/hostedTheme";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -17,12 +18,40 @@ function formatDate(value: Date) {
   return value.toLocaleString();
 }
 
-function PendingVerification() {
+async function PendingVerification({ ownerId }: { ownerId: string }) {
+  const [hostedBrandFont, hostedTheme] = await Promise.all([
+    getHostedBrandFont(ownerId).catch(() => null),
+    getHostedTheme(ownerId).catch(() => null),
+  ]);
+
+  const theme = deriveHostedBrandTheme({
+    brandPrimaryHex: null,
+    brandSecondaryHex: null,
+    brandAccentHex: null,
+    brandTextHex: null,
+    overrides: hostedTheme,
+  });
+
   return (
-    <main className="mx-auto w-full max-w-2xl p-8">
-      <h1 className="text-2xl font-bold text-zinc-900">Domain pending verification</h1>
-      <p className="mt-2 text-sm text-zinc-700">This domain is saved, but not verified yet.</p>
-    </main>
+    <div
+      className="min-h-screen"
+      style={{
+        ...(theme.cssVars as any),
+        ...((hostedBrandFont as any)?.styleVars ?? {}),
+        backgroundColor: "var(--client-bg)",
+        color: "var(--client-text)",
+      }}
+    >
+      {(hostedBrandFont as any)?.googleCss ? <style>{(hostedBrandFont as any).googleCss}</style> : null}
+      <main className="mx-auto w-full max-w-2xl p-8">
+        <h1 className="text-2xl font-bold" style={{ color: "var(--client-text)" }}>
+          Domain pending verification
+        </h1>
+        <p className="mt-2 text-sm" style={{ color: "var(--client-muted)" }}>
+          This domain is saved, but not verified yet.
+        </p>
+      </main>
+    </div>
   );
 }
 
@@ -67,7 +96,7 @@ export default async function CustomDomainNewsletterPage({
 
   const mapping = await resolveCustomDomain(host);
   if (!mapping) notFound();
-  if (mapping.status !== "VERIFIED") return <PendingVerification />;
+  if (mapping.status !== "VERIFIED") return <PendingVerification ownerId={mapping.ownerId} />;
 
   const site = await prisma.clientBlogSite
     .findUnique({ where: { ownerId: mapping.ownerId }, select: { id: true, name: true, ownerId: true } })
@@ -93,11 +122,14 @@ export default async function CustomDomainNewsletterPage({
     .findUnique({ where: { ownerId: site.ownerId }, select: profileSelect as any })
     .catch(() => null);
 
+  const hostedTheme = await getHostedTheme(site.ownerId);
+
   const theme = deriveHostedBrandTheme({
     brandPrimaryHex: (profile as any)?.brandPrimaryHex ?? null,
     brandSecondaryHex: (profile as any)?.brandSecondaryHex ?? null,
     brandAccentHex: (profile as any)?.brandAccentHex ?? null,
     brandTextHex: (profile as any)?.brandTextHex ?? null,
+    overrides: hostedTheme,
   });
 
   const newsletter = await prisma.clientNewsletter.findFirst({
@@ -125,12 +157,15 @@ export default async function CustomDomainNewsletterPage({
 
   return (
     <div
-      className={"min-h-screen bg-white " + (hostedFont.className || "")}
-      style={{ ...(themeStyle as any), ...hostedBrandFont.styleVars, ...(hostedFont.style || {}) } as any}
+      className={"min-h-screen " + (hostedFont.className || "")}
+      style={{ ...(themeStyle as any), ...hostedBrandFont.styleVars, ...(hostedFont.style || {}), backgroundColor: "var(--client-bg)", color: "var(--client-text)" } as any}
     >
       {hostedBrandFont.googleCss ? <style>{hostedBrandFont.googleCss}</style> : null}
       {hostedFont.googleImportCss ? <style>{hostedFont.googleImportCss}</style> : null}
-      <header className="border-b border-zinc-200 bg-white/80 backdrop-blur">
+      <header
+        className="border-b backdrop-blur"
+        style={{ borderColor: "var(--client-border)", backgroundColor: "var(--client-surface)" }}
+      >
         <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-4">
           <Link href="/newsletters" className="flex items-center gap-3">
             {logoUrl ? (
@@ -146,7 +181,8 @@ export default async function CustomDomainNewsletterPage({
           <div className="flex items-center gap-3">
             <Link
               href="/newsletters"
-              className="hidden rounded-xl px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-100 sm:inline"
+              className="hidden rounded-xl px-3 py-2 text-sm font-semibold transition hover:brightness-[0.98] sm:inline"
+              style={{ color: "var(--client-text)", backgroundColor: "var(--client-soft)" }}
             >
               all newsletters
             </Link>
@@ -163,13 +199,15 @@ export default async function CustomDomainNewsletterPage({
 
       <main className="mx-auto max-w-6xl px-6 py-14">
         <div className="mx-auto max-w-3xl">
-          <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
+          <div className="text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--client-muted)" }}>
             {formatDate(newsletter.sentAt ?? newsletter.updatedAt)}
           </div>
           <h1 className="mt-3 text-4xl leading-tight sm:text-5xl" style={{ color: "var(--client-link)" }}>
             {newsletter.title}
           </h1>
-          <p className="mt-5 text-base leading-relaxed text-zinc-700">{newsletter.excerpt}</p>
+          <p className="mt-5 text-base leading-relaxed" style={{ color: "var(--client-text)" }}>
+            {newsletter.excerpt}
+          </p>
 
           <div className="mt-10 space-y-6">
             {blocks.map((b, idx) => {
@@ -189,7 +227,11 @@ export default async function CustomDomainNewsletterPage({
               }
               if (b.type === "img") {
                 return (
-                  <div key={idx} className="overflow-hidden rounded-3xl border border-zinc-200 bg-zinc-50">
+                  <div
+                    key={idx}
+                    className="overflow-hidden rounded-3xl border"
+                    style={{ borderColor: "var(--client-border)", backgroundColor: "var(--client-soft)" }}
+                  >
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img src={b.src} alt={b.alt || ""} className="h-auto w-full object-cover" />
                   </div>
@@ -197,7 +239,11 @@ export default async function CustomDomainNewsletterPage({
               }
               if (b.type === "ul") {
                 return (
-                  <ul key={idx} className="list-disc space-y-2 pl-6 text-sm leading-relaxed text-zinc-700">
+                  <ul
+                    key={idx}
+                    className="list-disc space-y-2 pl-6 text-sm leading-relaxed"
+                    style={{ color: "var(--client-text)" }}
+                  >
                     {b.items.map((item, itemIdx) => (
                       <li key={itemIdx} dangerouslySetInnerHTML={{ __html: inlineMarkdownToHtmlSafe(item) }} />
                     ))}
@@ -205,7 +251,7 @@ export default async function CustomDomainNewsletterPage({
                 );
               }
               return (
-                <p key={idx} className="text-sm leading-relaxed text-zinc-700">
+                <p key={idx} className="text-sm leading-relaxed" style={{ color: "var(--client-text)" }}>
                   <span dangerouslySetInnerHTML={{ __html: inlineMarkdownToHtmlSafe(b.text) }} />
                 </p>
               );
@@ -216,7 +262,9 @@ export default async function CustomDomainNewsletterPage({
             <div className="text-2xl" style={{ color: "var(--client-link)" }}>
               Want this kind of consistency?
             </div>
-            <p className="mt-3 text-sm leading-relaxed text-zinc-700">This newsletter is hosted by Purely Automation.</p>
+            <p className="mt-3 text-sm leading-relaxed" style={{ color: "var(--client-text)" }}>
+              This newsletter is hosted by Purely Automation.
+            </p>
             <div className="mt-6 flex flex-wrap items-center gap-3">
               <a
                 href="https://purelyautomation.com"
@@ -227,21 +275,25 @@ export default async function CustomDomainNewsletterPage({
               </a>
               <Link
                 href="/newsletters"
-                className="inline-flex items-center justify-center rounded-2xl border bg-white px-6 py-3 text-base font-bold hover:bg-zinc-50"
-                style={{ borderColor: "var(--client-border)", color: "var(--client-link)" }}
+                className="inline-flex items-center justify-center rounded-2xl border px-6 py-3 text-base font-bold transition hover:brightness-[0.99]"
+                style={{ borderColor: "var(--client-border)", backgroundColor: "var(--client-surface)", color: "var(--client-link)" }}
               >
                 back to newsletters
               </Link>
             </div>
           </div>
 
-          <div className="mt-10 text-xs text-zinc-500">Powered by Purely Automation.</div>
+          <div className="mt-10 text-xs" style={{ color: "var(--client-muted)" }}>
+            Powered by Purely Automation.
+          </div>
         </div>
       </main>
 
-      <footer className="border-t border-zinc-200 bg-white">
+      <footer className="border-t" style={{ borderColor: "var(--client-border)", backgroundColor: "var(--client-surface)" }}>
         <div className="mx-auto flex max-w-6xl flex-col gap-4 px-6 py-10 sm:flex-row sm:items-center sm:justify-between">
-          <div className="text-sm text-zinc-600">© {new Date().getFullYear()} {brandName}</div>
+          <div className="text-sm" style={{ color: "var(--client-muted)" }}>
+            © {new Date().getFullYear()} {brandName}
+          </div>
           <div className="flex items-center gap-4">
             <Link href="/newsletters" className="text-sm font-semibold hover:underline" style={{ color: "var(--client-link)" }}>
               newsletters

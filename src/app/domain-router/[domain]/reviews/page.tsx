@@ -12,17 +12,46 @@ import { resolveCustomDomain } from "@/lib/customDomainResolver";
 import { getHostedBrandFont } from "@/lib/hostedBrandFont";
 import { resolveHostedFont } from "@/lib/portalHostedFonts";
 import { deriveHostedBrandTheme } from "@/lib/hostedBrandTheme";
+import { getHostedTheme } from "@/lib/hostedTheme";
 import { PublicReviewsClient } from "@/app/[siteSlug]/reviews/PublicReviewsClient";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-function PendingVerification() {
+async function PendingVerification({ ownerId }: { ownerId: string }) {
+  const [hostedBrandFont, hostedTheme] = await Promise.all([
+    getHostedBrandFont(ownerId).catch(() => null),
+    getHostedTheme(ownerId).catch(() => null),
+  ]);
+
+  const theme = deriveHostedBrandTheme({
+    brandPrimaryHex: null,
+    brandSecondaryHex: null,
+    brandAccentHex: null,
+    brandTextHex: null,
+    overrides: hostedTheme,
+  });
+
   return (
-    <main className="mx-auto w-full max-w-2xl p-8">
-      <h1 className="text-2xl font-bold text-zinc-900">Domain pending verification</h1>
-      <p className="mt-2 text-sm text-zinc-700">This domain is saved, but not verified yet.</p>
-    </main>
+    <div
+      className="min-h-screen"
+      style={{
+        ...(theme.cssVars as any),
+        ...((hostedBrandFont as any)?.styleVars ?? {}),
+        backgroundColor: "var(--client-bg)",
+        color: "var(--client-text)",
+      }}
+    >
+      {(hostedBrandFont as any)?.googleCss ? <style>{(hostedBrandFont as any).googleCss}</style> : null}
+      <main className="mx-auto w-full max-w-2xl p-8">
+        <h1 className="text-2xl font-bold" style={{ color: "var(--client-text)" }}>
+          Domain pending verification
+        </h1>
+        <p className="mt-2 text-sm" style={{ color: "var(--client-muted)" }}>
+          This domain is saved, but not verified yet.
+        </p>
+      </main>
+    </div>
   );
 }
 
@@ -58,7 +87,7 @@ export default async function CustomDomainReviewsPage({
 
   const mapping = await resolveCustomDomain(host);
   if (!mapping) notFound();
-  if (mapping.status !== "VERIFIED") return <PendingVerification />;
+  if (mapping.status !== "VERIFIED") return <PendingVerification ownerId={mapping.ownerId} />;
 
   const ownerId = mapping.ownerId;
 
@@ -78,7 +107,7 @@ export default async function CustomDomainReviewsPage({
   if (hasAccentHex) profileSelect.brandAccentHex = true;
   if (hasTextHex) profileSelect.brandTextHex = true;
 
-  const [profile, data, blogSite] = await Promise.all([
+  const [profile, data, blogSite, hostedTheme] = await Promise.all([
     prisma.businessProfile.findUnique({ where: { ownerId }, select: profileSelect as any }),
     getReviewRequestsServiceData(ownerId),
     prisma.clientBlogSite
@@ -89,6 +118,7 @@ export default async function CustomDomainReviewsPage({
           : ({ id: true, name: true } as const)) as any,
       })
       .catch(() => null),
+    getHostedTheme(ownerId),
   ]);
 
   const settings = data.settings;
@@ -99,6 +129,7 @@ export default async function CustomDomainReviewsPage({
     brandSecondaryHex: (profile as any)?.brandSecondaryHex ?? null,
     brandAccentHex: (profile as any)?.brandAccentHex ?? null,
     brandTextHex: (profile as any)?.brandTextHex ?? null,
+    overrides: hostedTheme,
   });
 
   const brandPrimary = theme.surfaceHex;
@@ -183,18 +214,30 @@ export default async function CustomDomainReviewsPage({
 
   return (
     <div
-      className="min-h-screen bg-white text-zinc-900"
-      style={{ ...(themeStyle as any), ...(pageFontStyle as any), ...hostedBrandFont.styleVars } as any}
+      className="min-h-screen"
+      style={{
+        ...(themeStyle as any),
+        ...(pageFontStyle as any),
+        ...(hostedBrandFont.styleVars as any),
+        backgroundColor: "var(--client-bg)",
+        color: "var(--client-text)",
+      } as any}
     >
       {hostedFont.googleImportCss ? <style>{hostedFont.googleImportCss}</style> : null}
-      <header className="relative z-50 border-b border-zinc-200 bg-white/80 backdrop-blur">
+      <header
+        className="relative z-50 border-b backdrop-blur"
+        style={{ borderColor: "var(--client-border)", backgroundColor: "var(--client-surface)" }}
+      >
         <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-6 py-4">
           <Link href="/reviews" className="flex items-center gap-3">
             {logoUrl ? (
               // eslint-disable-next-line @next/next/no-img-element
               <img src={logoUrl} alt={businessName} className="h-10 w-10 rounded-xl object-cover" />
             ) : (
-              <div className="grid h-10 w-10 place-items-center rounded-xl border border-zinc-200 bg-white shadow-sm">
+              <div
+                className="grid h-10 w-10 place-items-center rounded-xl border shadow-sm"
+                style={{ borderColor: "var(--client-border)", backgroundColor: "var(--client-surface)" }}
+              >
                 <Image src="/brand/purelylogo.png" alt="" width={22} height={22} className="h-5 w-5" />
               </div>
             )}
@@ -202,18 +245,26 @@ export default async function CustomDomainReviewsPage({
               <div className="truncate text-sm font-semibold" style={{ color: "var(--client-text)" }}>
                 {businessName}
               </div>
-              <div className="text-xs text-zinc-500">{host}</div>
+              <div className="text-xs" style={{ color: "var(--client-muted)" }}>
+                {host}
+              </div>
             </div>
           </Link>
 
           <div className="flex items-center gap-3">
             <Link
-              className="hidden rounded-xl px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-100 sm:inline"
+              className="hidden rounded-xl px-3 py-2 text-sm font-semibold sm:inline"
+              style={{ color: "var(--client-muted)" }}
               href="/blogs"
             >
               blogs
             </Link>
-            <a href="https://purelyautomation.com" className="inline-flex items-center gap-3 rounded-xl px-3 py-2 hover:bg-zinc-100" aria-label="Purely Automation">
+            <a
+              href="https://purelyautomation.com"
+              className="inline-flex items-center gap-3 rounded-xl px-3 py-2"
+              style={{ color: "var(--client-muted)" }}
+              aria-label="Purely Automation"
+            >
               <Image src="/brand/1.png" alt="" width={80} height={18} className="h-4 w-auto" />
             </a>
           </div>
@@ -227,7 +278,11 @@ export default async function CustomDomainReviewsPage({
           <h1 className="text-3xl font-extrabold" style={{ color: "var(--client-link)" }}>
             {title}
           </h1>
-          {description ? <p className="mt-3 text-sm text-zinc-700">{description}</p> : null}
+          {description ? (
+            <p className="mt-3 text-sm" style={{ color: "var(--client-muted)" }}>
+              {description}
+            </p>
+          ) : null}
 
           <div className="mt-10">
             <PublicReviewsClient
@@ -243,13 +298,17 @@ export default async function CustomDomainReviewsPage({
             />
           </div>
 
-          <div className="mt-10 text-xs text-zinc-500">Powered by Purely Automation.</div>
+          <div className="mt-10 text-xs" style={{ color: "var(--client-muted)" }}>
+            Powered by Purely Automation.
+          </div>
         </div>
       </main>
 
-      <footer className="border-t border-zinc-200 bg-white">
+      <footer className="border-t" style={{ borderColor: "var(--client-border)", backgroundColor: "var(--client-surface)" }}>
         <div className="mx-auto flex max-w-6xl flex-col gap-4 px-6 py-10 sm:flex-row sm:items-center sm:justify-between">
-          <div className="text-sm text-zinc-600">© {new Date().getFullYear()} {businessName}</div>
+          <div className="text-sm" style={{ color: "var(--client-muted)" }}>
+            © {new Date().getFullYear()} {businessName}
+          </div>
           <div className="flex items-center gap-4">
             <Link href="/reviews" className="text-sm font-semibold hover:underline" style={{ color: "var(--client-link)" }}>
               reviews

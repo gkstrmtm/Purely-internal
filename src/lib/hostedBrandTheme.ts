@@ -39,13 +39,27 @@ export type HostedBrandThemeInput = {
   brandSecondaryHex?: string | null;
   brandAccentHex?: string | null;
   brandTextHex?: string | null;
+  overrides?: {
+    bgHex?: string | null;
+    surfaceHex?: string | null;
+    softHex?: string | null;
+    borderHex?: string | null;
+    textHex?: string | null;
+    mutedTextHex?: string | null;
+    primaryHex?: string | null;
+    accentHex?: string | null;
+    linkHex?: string | null;
+  } | null;
 };
 
 export type HostedBrandTheme = {
+  bgHex: string;
+  cardSurfaceHex: string;
   surfaceHex: string;
   linkHex: string;
   ctaHex: string;
   textHex: string;
+  mutedTextHex: string;
   onSurfaceHex: string;
   onSurfaceMuted: string;
   onCtaHex: string;
@@ -60,16 +74,21 @@ export function deriveHostedBrandTheme(input: HostedBrandThemeInput): HostedBran
   const fallbackAccent = "#fb7185";
   const fallbackText = "#18181b";
 
+  const overrides = input.overrides ?? null;
+  const bgHex = normalizeHex(overrides?.bgHex) ?? "#ffffff";
+  const cardSurfaceHex = normalizeHex(overrides?.surfaceHex) ?? "#ffffff";
+
   const rawPrimary = normalizeHex(input.brandPrimaryHex) ?? fallbackPrimary;
   const rawSecondary = normalizeHex(input.brandSecondaryHex) ?? fallbackSecondary;
   const rawAccent = normalizeHex(input.brandAccentHex) ?? fallbackAccent;
 
-  const preferredText = normalizeHex(input.brandTextHex) ?? fallbackText;
-  const textHex = pickReadableTextColor({ backgroundHex: "#ffffff", preferredTextHex: preferredText, minContrast: 4.5 });
+  const preferredText = normalizeHex(overrides?.textHex) ?? normalizeHex(input.brandTextHex) ?? fallbackText;
+  const textHex = pickReadableTextColor({ backgroundHex: bgHex, preferredTextHex: preferredText, minContrast: 4.5 });
+  const mutedTextHex = normalizeHex(overrides?.mutedTextHex) ?? rgba(textHex, 0.72);
 
   const candidates = Array.from(new Set([rawPrimary, rawSecondary, rawAccent]));
 
-  const surfaceHex =
+  const derivedSurfaceHex =
     pickBest(candidates, (hex) => {
       const on = pickReadableTextColor({ backgroundHex: hex, preferredTextHex: textHex, minContrast: 4.5 });
       const bgRgb = parseHexColor(hex);
@@ -81,10 +100,12 @@ export function deriveHostedBrandTheme(input: HostedBrandThemeInput): HostedBran
       return c + whitePenalty;
     }) ?? rawPrimary;
 
+  const surfaceHex = normalizeHex(overrides?.primaryHex) ?? derivedSurfaceHex;
+
   const onSurfaceHex = pickReadableTextColor({ backgroundHex: surfaceHex, preferredTextHex: textHex, minContrast: 4.5 });
   const onSurfaceMuted = rgba(onSurfaceHex, 0.9);
 
-  const ctaHex =
+  const derivedCtaHex =
     pickBest(candidates, (hex) => {
       const on = pickReadableTextColor({ backgroundHex: hex, preferredTextHex: textHex, minContrast: 4.5 });
       const bgRgb = parseHexColor(hex);
@@ -95,39 +116,62 @@ export function deriveHostedBrandTheme(input: HostedBrandThemeInput): HostedBran
       return c + avoidSameAsSurface;
     }) ?? rawAccent;
 
+  const ctaHex = normalizeHex(overrides?.accentHex) ?? derivedCtaHex;
+
   const onCtaHex = pickReadableTextColor({ backgroundHex: ctaHex, preferredTextHex: textHex, minContrast: 4.5 });
 
-  const linkFallback = pickReadableTextColor({ backgroundHex: "#ffffff", preferredTextHex: textHex, minContrast: 4.5 });
+  const linkFallback = pickReadableTextColor({ backgroundHex: bgHex, preferredTextHex: textHex, minContrast: 4.5 });
   const linkHex =
     pickBest(candidates, (hex) => {
-      const c = scoreOnWhite(hex);
+      const bgRgb = parseHexColor(bgHex);
+      const rgb = parseHexColor(hex);
+      if (!bgRgb || !rgb) return 0;
+      const c = contrastRatio(bgRgb, rgb);
       const avoidSameAsCta = hex === ctaHex ? -0.25 : 0;
       return c + avoidSameAsCta;
     }) ?? rawPrimary;
 
-  const readableLink = pickReadableAccentColorOnWhite({ accentHex: linkHex, fallbackHex: linkFallback, minContrast: 3.0 });
+  const readableLink = (() => {
+    const chosen = normalizeHex(overrides?.linkHex) ?? linkHex;
+    if (bgHex.toLowerCase() === "#ffffff") {
+      return pickReadableAccentColorOnWhite({ accentHex: chosen, fallbackHex: linkFallback, minContrast: 3.0 });
+    }
+    const bgRgb = parseHexColor(bgHex);
+    const accRgb = parseHexColor(chosen);
+    if (bgRgb && accRgb && contrastRatio(bgRgb, accRgb) >= 3.0) return chosen;
+    return linkFallback;
+  })();
 
-  const softHex = rgba(surfaceHex, 0.08);
-  const borderHex = rgba(surfaceHex, 0.18);
+  const softHex = normalizeHex(overrides?.softHex) ?? rgba(surfaceHex, 0.08);
+  const borderHex = normalizeHex(overrides?.borderHex) ?? rgba(surfaceHex, 0.18);
+
+  const ringHex = rgba(surfaceHex, 0.12);
 
   const cssVars = {
+    ["--client-bg" as any]: bgHex,
+    ["--client-surface" as any]: cardSurfaceHex,
     ["--client-primary" as any]: surfaceHex,
     ["--client-secondary" as any]: rawSecondary,
     ["--client-accent" as any]: ctaHex,
     ["--client-text" as any]: textHex,
+    ["--client-muted" as any]: mutedTextHex,
     ["--client-on-primary" as any]: onSurfaceHex,
     ["--client-on-primary-muted" as any]: onSurfaceMuted,
     ["--client-on-accent" as any]: onCtaHex,
     ["--client-link" as any]: readableLink,
     ["--client-soft" as any]: softHex,
     ["--client-border" as any]: borderHex,
+    ["--client-ring" as any]: ringHex,
   } as CSSProperties;
 
   return {
+    bgHex,
+    cardSurfaceHex,
     surfaceHex,
     linkHex: readableLink,
     ctaHex,
     textHex,
+    mutedTextHex,
     onSurfaceHex,
     onSurfaceMuted,
     onCtaHex,

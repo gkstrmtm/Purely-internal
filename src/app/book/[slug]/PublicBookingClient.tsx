@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { useToast } from "@/components/ToastProvider";
-import { deriveHostedBrandTheme } from "@/lib/hostedBrandTheme";
+import { deriveHostedBrandTheme, type HostedBrandThemeInput } from "@/lib/hostedBrandTheme";
 
 type Site = {
   enabled: boolean;
@@ -23,6 +23,8 @@ type Site = {
   photoUrl?: string | null;
   meetingLocation?: string | null;
   meetingDetails?: string | null;
+
+  hostedTheme?: HostedBrandThemeInput["overrides"] | null;
 
   form?: {
     version: 1;
@@ -170,18 +172,34 @@ export function PublicBookingClient({
       brandSecondaryHex: site?.brandSecondaryHex ?? null,
       brandAccentHex: site?.brandAccentHex ?? null,
       brandTextHex: site?.brandTextHex ?? null,
+      overrides: site?.hostedTheme ?? null,
     });
-  }, [site?.brandAccentHex, site?.brandPrimaryHex, site?.brandSecondaryHex, site?.brandTextHex]);
+  }, [site?.brandAccentHex, site?.brandPrimaryHex, site?.brandSecondaryHex, site?.brandTextHex, site?.hostedTheme]);
 
   const bookingStyleVars = useMemo(
     () =>
       ({
+        ["--booking-bg" as any]: theme.bgHex,
+        ["--booking-surface" as any]: theme.cardSurfaceHex,
+        ["--booking-soft" as any]: theme.softHex,
+        ["--booking-border" as any]: theme.borderHex,
+        ["--booking-muted" as any]: theme.mutedTextHex,
         ["--booking-primary" as any]: theme.ctaHex,
         ["--booking-on-primary" as any]: theme.onCtaHex,
         ["--booking-link" as any]: theme.linkHex,
         ["--booking-text" as any]: theme.textHex,
       }) as any,
-    [theme.ctaHex, theme.linkHex, theme.onCtaHex, theme.textHex],
+    [
+      theme.bgHex,
+      theme.borderHex,
+      theme.cardSurfaceHex,
+      theme.ctaHex,
+      theme.linkHex,
+      theme.mutedTextHex,
+      theme.onCtaHex,
+      theme.softHex,
+      theme.textHex,
+    ],
   );
 
   const slotsByDay = useMemo(() => {
@@ -340,9 +358,14 @@ export function PublicBookingClient({
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-[#f5f9ff]">
+      <div
+        className="min-h-screen"
+        style={{ ...(bookingStyleVars as any), backgroundColor: "var(--booking-bg)", color: "var(--booking-text)" }}
+      >
         <div className="mx-auto max-w-3xl px-6 py-12">
-          <div className="rounded-3xl border border-zinc-200 bg-white p-6 text-sm text-zinc-600">Loading…</div>
+          <div className="rounded-3xl border p-6 text-sm" style={{ borderColor: "var(--booking-border)", backgroundColor: "var(--booking-surface)", color: "var(--booking-muted)" }}>
+            Loading…
+          </div>
         </div>
       </div>
     );
@@ -350,13 +373,20 @@ export function PublicBookingClient({
 
   if (error && !site) {
     return (
-      <div className="min-h-screen bg-[#f5f9ff]">
+      <div
+        className="min-h-screen"
+        style={{ ...(bookingStyleVars as any), backgroundColor: "var(--booking-bg)", color: "var(--booking-text)" }}
+      >
         <div className="mx-auto max-w-3xl px-6 py-12">
-          <div className="rounded-3xl border border-zinc-200 bg-white p-6">
-            <div className="text-base font-semibold text-brand-ink">Booking page not found</div>
-            <div className="mt-2 text-sm text-zinc-600">{error}</div>
+          <div className="rounded-3xl border p-6" style={{ borderColor: "var(--booking-border)", backgroundColor: "var(--booking-surface)" }}>
+            <div className="text-base font-semibold" style={{ color: "var(--booking-text)" }}>
+              Booking page not found
+            </div>
+            <div className="mt-2 text-sm" style={{ color: "var(--booking-muted)" }}>
+              {error}
+            </div>
             <div className="mt-6">
-              <Link href="/" className="text-sm font-semibold text-brand-ink hover:underline">
+              <Link href="/" className="text-sm font-semibold hover:underline" style={{ color: "var(--booking-link)" }}>
                 Back to Purely Automation
               </Link>
             </div>
@@ -370,14 +400,18 @@ export function PublicBookingClient({
     const thankYou = (site.form?.thankYouMessage ?? "").trim();
     return (
       <div
-        className="min-h-screen bg-[#f5f9ff]"
+        className="min-h-screen"
         style={{
           ...(bookingStyleVars as any),
+          backgroundColor: "var(--booking-bg)",
+          color: "var(--booking-text)",
         }}
       >
         <div className="mx-auto max-w-3xl px-6 py-12">
-          <div className="rounded-3xl border border-zinc-200 bg-white p-8">
-            <div className="text-xs font-semibold uppercase tracking-wide text-emerald-700">Booked</div>
+          <div className="rounded-3xl border p-8" style={{ borderColor: "var(--booking-border)", backgroundColor: "var(--booking-surface)" }}>
+            <div className="text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--booking-link)" }}>
+              Booked
+            </div>
             <div className="mt-3 flex items-center gap-3">
               {site.logoUrl ? (
                 // eslint-disable-next-line @next/next/no-img-element
@@ -387,14 +421,20 @@ export function PublicBookingClient({
                 You’re all set.
               </h1>
             </div>
-            <p className="mt-3 text-sm text-zinc-600">
+            <p className="mt-3 text-sm" style={{ color: "var(--booking-muted)" }}>
               {new Date(success.startAt).toLocaleString()} ({site.durationMinutes} minutes)
             </p>
             {site.meetingLocation ? (
-              <div className="mt-2 whitespace-pre-line text-sm text-zinc-600">Location: {site.meetingLocation}</div>
+              <div className="mt-2 whitespace-pre-line text-sm" style={{ color: "var(--booking-muted)" }}>
+                Location: {site.meetingLocation}
+              </div>
             ) : null}
-            {site.meetingDetails ? <div className="mt-1 text-sm text-zinc-600">{site.meetingDetails}</div> : null}
-            <div className="mt-6 text-sm text-zinc-700">
+            {site.meetingDetails ? (
+              <div className="mt-1 text-sm" style={{ color: "var(--booking-muted)" }}>
+                {site.meetingDetails}
+              </div>
+            ) : null}
+            <div className="mt-6 text-sm" style={{ color: "var(--booking-text)" }}>
               {thankYou ? thankYou : "You can close this window."}
             </div>
 
@@ -402,7 +442,8 @@ export function PublicBookingClient({
               <div className="mt-6">
                 <a
                   href={rescheduleUrl}
-                  className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
+                  className="inline-flex items-center justify-center rounded-2xl border px-4 py-3 text-sm font-semibold transition hover:brightness-[0.99]"
+                  style={{ borderColor: "var(--booking-border)", backgroundColor: "var(--booking-surface)", color: "var(--booking-text)" }}
                 >
                   Reschedule
                 </a>
@@ -410,7 +451,7 @@ export function PublicBookingClient({
             ) : null}
 
             {showBranding ? (
-              <div className="mt-8 border-t border-zinc-200 pt-6 text-center text-xs text-zinc-600">
+              <div className="mt-8 border-t pt-6 text-center text-xs" style={{ borderColor: "var(--booking-border)", color: "var(--booking-muted)" }}>
                 <Link href="/" className="font-semibold hover:underline" style={{ color: "var(--booking-link)" }}>
                   Powered by Purely Automation
                 </Link>
@@ -428,13 +469,15 @@ export function PublicBookingClient({
 
   return (
     <div
-      className="min-h-screen bg-[#f5f9ff]"
+      className="min-h-screen"
       style={{
         ...(bookingStyleVars as any),
+        backgroundColor: "var(--booking-bg)",
+        color: "var(--booking-text)",
       }}
     >
       <div className="mx-auto max-w-5xl px-6 py-12">
-        <div className="rounded-3xl border border-zinc-200 bg-white p-8">
+        <div className="rounded-3xl border p-8" style={{ borderColor: "var(--booking-border)", backgroundColor: "var(--booking-surface)" }}>
           {!site?.enabled ? (
             <div className="mb-6 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
               This booking link isn’t accepting bookings yet.
@@ -451,19 +494,29 @@ export function PublicBookingClient({
                 {site?.title ?? "Book a call"}
               </h1>
             </div>
-            {site?.description ? <p className="mt-2 text-sm text-zinc-600">{site.description}</p> : null}
-            <div className="mt-2 text-xs text-zinc-600">Meeting length: {site?.durationMinutes ?? 30} minutes</div>
+            {site?.description ? (
+              <p className="mt-2 text-sm" style={{ color: "var(--booking-muted)" }}>
+                {site.description}
+              </p>
+            ) : null}
+            <div className="mt-2 text-xs" style={{ color: "var(--booking-muted)" }}>
+              Meeting length: {site?.durationMinutes ?? 30} minutes
+            </div>
             {site?.meetingLocation ? (
-              <div className="mt-1 whitespace-pre-line text-xs text-zinc-600">Location: {site.meetingLocation}</div>
+              <div className="mt-1 whitespace-pre-line text-xs" style={{ color: "var(--booking-muted)" }}>
+                Location: {site.meetingLocation}
+              </div>
             ) : null}
             {site?.meetingDetails ? (
-              <div className="mt-1 text-xs text-zinc-600">{site.meetingDetails}</div>
+              <div className="mt-1 text-xs" style={{ color: "var(--booking-muted)" }}>
+                {site.meetingDetails}
+              </div>
             ) : null}
           </div>
         </div>
 
         {site?.photoUrl ? (
-          <div className="mt-6 overflow-hidden rounded-3xl border border-zinc-200 bg-zinc-50">
+          <div className="mt-6 overflow-hidden rounded-3xl border" style={{ borderColor: "var(--booking-border)", backgroundColor: "var(--booking-soft)" }}>
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src={site.photoUrl} alt="" className="h-48 w-full object-cover" />
           </div>
@@ -472,10 +525,10 @@ export function PublicBookingClient({
         <div className="mt-8 grid grid-cols-1 gap-6 lg:grid-cols-3">
           <div className="lg:col-span-2">
             <div className="flex items-center justify-between gap-3">
-              <div className="text-sm font-semibold text-zinc-900">
+              <div className="text-sm font-semibold" style={{ color: "var(--booking-text)" }}>
                 {step === "date" ? "Pick a date" : step === "time" ? "Pick a time" : "Confirm details"}
               </div>
-              <div className="text-xs font-semibold text-zinc-500">
+              <div className="text-xs font-semibold" style={{ color: "var(--booking-muted)" }}>
                 {step === "date" ? "Step 1/3" : step === "time" ? "Step 2/3" : "Step 3/3"}
               </div>
             </div>
@@ -485,22 +538,26 @@ export function PublicBookingClient({
                 <div className="flex items-center justify-between gap-3">
                   <button
                     type="button"
-                    className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
+                    className="rounded-2xl border bg-(--booking-surface) px-3 py-2 text-sm font-semibold text-(--booking-text) transition hover:bg-(--booking-soft)"
+                    style={{ borderColor: "var(--booking-border)" }}
                     onClick={() => setMonth((m) => addMonths(m, -1))}
                   >
                     Prev
                   </button>
-                  <div className="text-sm font-semibold text-zinc-900">{monthLabel(month)}</div>
+                  <div className="text-sm font-semibold" style={{ color: "var(--booking-text)" }}>
+                    {monthLabel(month)}
+                  </div>
                   <button
                     type="button"
-                    className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
+                    className="rounded-2xl border bg-(--booking-surface) px-3 py-2 text-sm font-semibold text-(--booking-text) transition hover:bg-(--booking-soft)"
+                    style={{ borderColor: "var(--booking-border)" }}
                     onClick={() => setMonth((m) => addMonths(m, 1))}
                   >
                     Next
                   </button>
                 </div>
 
-                <div className="mt-4 grid grid-cols-7 gap-2 text-center text-xs font-semibold text-zinc-500">
+                <div className="mt-4 grid grid-cols-7 gap-2 text-center text-xs font-semibold text-(--booking-muted)">
                   {['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].map((d) => (
                     <div key={d}>{d}</div>
                   ))}
@@ -526,9 +583,9 @@ export function PublicBookingClient({
                           "rounded-2xl border px-2 py-3 text-sm font-semibold transition " +
                           (hasTimes
                             ? isSelected
-                              ? "border-(--booking-link) bg-[color-mix(in_srgb,var(--booking-link)_10%,white)] text-zinc-900"
-                              : "border-zinc-200 bg-white text-zinc-900 hover:bg-zinc-50"
-                            : "cursor-not-allowed border-zinc-100 bg-zinc-50 text-zinc-300") +
+                              ? "border-(--booking-link) bg-[color-mix(in_srgb,var(--booking-link)_10%,var(--booking-surface))] text-(--booking-text)"
+                              : "border-(--booking-border) bg-(--booking-surface) text-(--booking-text) hover:bg-(--booking-soft)"
+                            : "cursor-not-allowed border-(--booking-border) bg-(--booking-soft) text-(--booking-muted) opacity-50") +
                           (!inMonth ? " opacity-60" : "")
                         }
                         aria-label={d.toDateString()}
@@ -539,7 +596,7 @@ export function PublicBookingClient({
                   })}
                 </div>
 
-                <div className="mt-4 text-xs text-zinc-600">
+                <div className="mt-4 text-xs text-(--booking-muted)">
                   {slotsLoading ? "Loading available days…" : "Select a highlighted day to see times."}
                   {site?.timeZone ? ` (${site.timeZone})` : ""}
                 </div>
@@ -551,7 +608,8 @@ export function PublicBookingClient({
               <div className="mt-4">
                 <button
                   type="button"
-                  className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
+                  className="rounded-2xl border bg-(--booking-surface) px-3 py-2 text-sm font-semibold text-(--booking-text) transition hover:bg-(--booking-soft)"
+                  style={{ borderColor: "var(--booking-border)" }}
                   onClick={() => {
                     setStep("date");
                     setSelected(null);
@@ -561,19 +619,21 @@ export function PublicBookingClient({
                 </button>
 
                 <div className="mt-4">
-                  <div className="text-sm font-semibold text-zinc-900">
+                  <div className="text-sm font-semibold" style={{ color: "var(--booking-text)" }}>
                     {selectedDate ? new Date(`${selectedDate}T00:00:00`).toLocaleDateString() : ""}
                   </div>
-                  <div className="mt-1 text-xs text-zinc-600">Time zone: {site?.timeZone ?? ""}</div>
+                  <div className="mt-1 text-xs" style={{ color: "var(--booking-muted)" }}>
+                    Time zone: {site?.timeZone ?? ""}
+                  </div>
                 </div>
 
                 <div className="mt-4">
                   {slotsLoading ? (
-                    <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-700">
+                    <div className="rounded-2xl border bg-(--booking-soft) p-4 text-sm text-(--booking-text)" style={{ borderColor: "var(--booking-border)" }}>
                       Loading times…
                     </div>
                   ) : daySlots.length === 0 ? (
-                    <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-700">
+                    <div className="rounded-2xl border bg-(--booking-soft) p-4 text-sm text-(--booking-text)" style={{ borderColor: "var(--booking-border)" }}>
                       No times available on this day.
                     </div>
                   ) : (
@@ -589,14 +649,14 @@ export function PublicBookingClient({
                           className={
                             "rounded-2xl border px-4 py-3 text-left text-sm transition-colors " +
                             (selected === s.startAt
-                              ? "border-(--booking-link) bg-[color-mix(in_srgb,var(--booking-link)_10%,white)]"
-                              : "border-zinc-200 hover:bg-zinc-50")
+                              ? "border-(--booking-link) bg-[color-mix(in_srgb,var(--booking-link)_10%,var(--booking-surface))]"
+                              : "border-(--booking-border) bg-(--booking-surface) hover:bg-(--booking-soft)")
                           }
                         >
-                          <div className="font-semibold text-zinc-900">
+                          <div className="font-semibold text-(--booking-text)">
                             {new Date(s.startAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}
                           </div>
-                          <div className="mt-1 text-xs text-zinc-600">
+                          <div className="mt-1 text-xs text-(--booking-muted)">
                             {site?.durationMinutes ?? 30} minutes
                           </div>
                         </button>
@@ -613,12 +673,13 @@ export function PublicBookingClient({
                 <div className="flex items-center justify-between gap-3">
                   <button
                     type="button"
-                    className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
+                    className="rounded-2xl border bg-(--booking-surface) px-3 py-2 text-sm font-semibold text-(--booking-text) transition hover:bg-(--booking-soft)"
+                    style={{ borderColor: "var(--booking-border)" }}
                     onClick={() => setStep("time")}
                   >
                     Back
                   </button>
-                  <div className="text-xs font-semibold text-zinc-600">
+                  <div className="text-xs font-semibold" style={{ color: "var(--booking-muted)" }}>
                     {selected ? new Date(selected).toLocaleString() : ""}
                   </div>
                 </div>
@@ -627,17 +688,21 @@ export function PublicBookingClient({
           </div>
 
           <div>
-            <div className="text-sm font-semibold text-zinc-900">Your info</div>
+            <div className="text-sm font-semibold" style={{ color: "var(--booking-text)" }}>
+              Your info
+            </div>
             <div className="mt-3 space-y-3">
               <input
-                className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-900 placeholder:text-zinc-400"
+                className="w-full rounded-2xl border bg-(--booking-surface) px-4 py-3 text-sm text-(--booking-text) placeholder:text-(--booking-muted)"
+                style={{ borderColor: "var(--booking-border)" }}
                 placeholder="Name"
                 autoComplete="name"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
               />
               <input
-                className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-900 placeholder:text-zinc-400"
+                className="w-full rounded-2xl border bg-(--booking-surface) px-4 py-3 text-sm text-(--booking-text) placeholder:text-(--booking-muted)"
+                style={{ borderColor: "var(--booking-border)" }}
                 placeholder="Email"
                 inputMode="email"
                 autoComplete="email"
@@ -646,7 +711,8 @@ export function PublicBookingClient({
               />
               {site?.form?.phone?.enabled ? (
                 <input
-                  className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-900 placeholder:text-zinc-400"
+                  className="w-full rounded-2xl border bg-(--booking-surface) px-4 py-3 text-sm text-(--booking-text) placeholder:text-(--booking-muted)"
+                  style={{ borderColor: "var(--booking-border)" }}
                   placeholder={site.form.phone.required ? "Phone" : "Phone (optional)"}
                   inputMode="tel"
                   autoComplete="tel"
@@ -657,7 +723,8 @@ export function PublicBookingClient({
 
               {site?.form?.notes?.enabled ? (
                 <textarea
-                  className="h-28 w-full resize-none rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-900 placeholder:text-zinc-400"
+                  className="h-28 w-full resize-none rounded-2xl border bg-(--booking-surface) px-4 py-3 text-sm text-(--booking-text) placeholder:text-(--booking-muted)"
+                  style={{ borderColor: "var(--booking-border)" }}
                   placeholder={site.form.notes.required ? "Notes" : "Notes (optional)"}
                   autoComplete="off"
                   value={notes}
@@ -669,20 +736,21 @@ export function PublicBookingClient({
                 <div key={q.id}>
                   {q.kind === "long" ? (
                     <textarea
-                      className="h-28 w-full resize-none rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-900 placeholder:text-zinc-400"
+                      className="h-28 w-full resize-none rounded-2xl border bg-(--booking-surface) px-4 py-3 text-sm text-(--booking-text) placeholder:text-(--booking-muted)"
+                      style={{ borderColor: "var(--booking-border)" }}
                       placeholder={q.required ? `${q.label}` : `${q.label} (optional)`}
                       value={typeof answers[q.id] === "string" ? (answers[q.id] as string) : ""}
                       onChange={(e) => setAnswers((prev) => ({ ...prev, [q.id]: e.target.value }))}
                     />
                   ) : q.kind === "single_choice" ? (
-                    <div className="rounded-2xl border border-zinc-200 bg-white px-4 py-3">
-                      <div className="text-sm font-semibold text-zinc-900">{q.label}</div>
+                    <div className="rounded-2xl border bg-(--booking-surface) px-4 py-3" style={{ borderColor: "var(--booking-border)" }}>
+                      <div className="text-sm font-semibold text-(--booking-text)">{q.label}</div>
                       <div className="mt-2 space-y-2">
                         {(Array.isArray(q.options) ? q.options : []).map((opt) => {
                           const current = typeof answers[q.id] === "string" ? (answers[q.id] as string) : "";
                           const checked = current === opt;
                           return (
-                            <label key={opt} className="flex items-center gap-2 text-sm text-zinc-800">
+                            <label key={opt} className="flex items-center gap-2 text-sm text-(--booking-text)">
                               <input
                                 type="radio"
                                 name={`q-${q.id}`}
@@ -696,14 +764,14 @@ export function PublicBookingClient({
                       </div>
                     </div>
                   ) : q.kind === "multiple_choice" ? (
-                    <div className="rounded-2xl border border-zinc-200 bg-white px-4 py-3">
-                      <div className="text-sm font-semibold text-zinc-900">{q.label}</div>
+                    <div className="rounded-2xl border bg-(--booking-surface) px-4 py-3" style={{ borderColor: "var(--booking-border)" }}>
+                      <div className="text-sm font-semibold text-(--booking-text)">{q.label}</div>
                       <div className="mt-2 space-y-2">
                         {(Array.isArray(q.options) ? q.options : []).map((opt) => {
                           const current = Array.isArray(answers[q.id]) ? (answers[q.id] as string[]) : [];
                           const checked = current.includes(opt);
                           return (
-                            <label key={opt} className="flex items-center gap-2 text-sm text-zinc-800">
+                            <label key={opt} className="flex items-center gap-2 text-sm text-(--booking-text)">
                               <input
                                 type="checkbox"
                                 checked={checked}
@@ -723,7 +791,8 @@ export function PublicBookingClient({
                     </div>
                   ) : (
                     <input
-                      className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-900 placeholder:text-zinc-400"
+                      className="w-full rounded-2xl border bg-(--booking-surface) px-4 py-3 text-sm text-(--booking-text) placeholder:text-(--booking-muted)"
+                      style={{ borderColor: "var(--booking-border)" }}
                       placeholder={q.required ? `${q.label}` : `${q.label} (optional)`}
                       autoComplete="off"
                       value={typeof answers[q.id] === "string" ? (answers[q.id] as string) : ""}
@@ -748,7 +817,7 @@ export function PublicBookingClient({
         </div>
 
         {showBranding ? (
-          <div className="mt-10 border-t border-zinc-200 pt-6 text-center text-xs text-zinc-600">
+          <div className="mt-10 border-t pt-6 text-center text-xs" style={{ borderColor: "var(--booking-border)", color: "var(--booking-muted)" }}>
             <Link href="/" className="font-semibold hover:underline" style={{ color: "var(--booking-link)" }}>
               Powered by Purely Automation
             </Link>

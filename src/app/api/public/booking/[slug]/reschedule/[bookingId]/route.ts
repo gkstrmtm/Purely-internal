@@ -3,6 +3,7 @@ import { z } from "zod";
 
 import { prisma } from "@/lib/db";
 import { hasPublicColumn } from "@/lib/dbSchema";
+import { getHostedTheme } from "@/lib/hostedTheme";
 import {
   getRequestOrigin,
   signBookingRescheduleToken,
@@ -65,6 +66,16 @@ export async function GET(
     hasPublicColumn("PortalBookingSite", "meetingDetails"),
   ]);
 
+  const [hasLogoUrl, hasPrimaryHex, hasSecondaryHex, hasAccentHex, hasTextHex, hasBusinessName] =
+    await Promise.all([
+      hasPublicColumn("BusinessProfile", "logoUrl"),
+      hasPublicColumn("BusinessProfile", "brandPrimaryHex"),
+      hasPublicColumn("BusinessProfile", "brandSecondaryHex"),
+      hasPublicColumn("BusinessProfile", "brandAccentHex"),
+      hasPublicColumn("BusinessProfile", "brandTextHex"),
+      hasPublicColumn("BusinessProfile", "businessName"),
+    ]);
+
   const site = await (prisma as any).portalBookingSite.findUnique({
     where: { slug },
     select: {
@@ -100,6 +111,23 @@ export async function GET(
     return NextResponse.json({ error: "Invalid reschedule link." }, { status: 403 });
   }
 
+  const [profile, hostedTheme] = await Promise.all([
+    site.ownerId
+      ? await (prisma as any).businessProfile.findUnique({
+          where: { ownerId: site.ownerId },
+          select: {
+            ...(hasBusinessName ? { businessName: true } : {}),
+            ...(hasLogoUrl ? { logoUrl: true } : {}),
+            ...(hasPrimaryHex ? { brandPrimaryHex: true } : {}),
+            ...(hasSecondaryHex ? { brandSecondaryHex: true } : {}),
+            ...(hasAccentHex ? { brandAccentHex: true } : {}),
+            ...(hasTextHex ? { brandTextHex: true } : {}),
+          } as any,
+        })
+      : null,
+    site.ownerId ? getHostedTheme(String(site.ownerId)) : Promise.resolve(null),
+  ]);
+
   return NextResponse.json({
     ok: true,
     site: {
@@ -110,6 +138,13 @@ export async function GET(
       meetingLocation: hasMeetingLocation ? ((site as any).meetingLocation ?? null) : null,
       meetingDetails: hasMeetingDetails ? ((site as any).meetingDetails ?? null) : null,
       hostName: site.owner?.name ?? null,
+      businessName: hasBusinessName ? ((profile as any)?.businessName ?? null) : null,
+      logoUrl: hasLogoUrl ? ((profile as any)?.logoUrl ?? null) : null,
+      brandPrimaryHex: hasPrimaryHex ? ((profile as any)?.brandPrimaryHex ?? null) : null,
+      brandSecondaryHex: hasSecondaryHex ? ((profile as any)?.brandSecondaryHex ?? null) : null,
+      brandAccentHex: hasAccentHex ? ((profile as any)?.brandAccentHex ?? null) : null,
+      brandTextHex: hasTextHex ? ((profile as any)?.brandTextHex ?? null) : null,
+      hostedTheme: hostedTheme ?? null,
     },
     booking: {
       id: booking.id,

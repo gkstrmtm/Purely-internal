@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { hasPublicColumn } from "@/lib/dbSchema";
 import { getBookingFormConfig } from "@/lib/bookingForm";
+import { getHostedTheme } from "@/lib/hostedTheme";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -49,22 +50,23 @@ export async function GET(
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
-  const [profile, form] = await Promise.all([
+  const [profile, form, hostedTheme] = await Promise.all([
     site.owner?.id
-    ? await (prisma as any).businessProfile.findUnique({
-        where: { ownerId: site.owner.id },
-        select: {
-          ...(hasBusinessName ? { businessName: true } : {}),
-          ...(hasLogoUrl ? { logoUrl: true } : {}),
-          ...(hasPrimaryHex ? { brandPrimaryHex: true } : {}),
-          ...(hasSecondaryHex ? { brandSecondaryHex: true } : {}),
-          ...(hasAccentHex ? { brandAccentHex: true } : {}),
-          ...(hasTextHex ? { brandTextHex: true } : {}),
-        } as any,
-      })
-    : null,
+      ? await (prisma as any).businessProfile.findUnique({
+          where: { ownerId: site.owner.id },
+          select: {
+            ...(hasBusinessName ? { businessName: true } : {}),
+            ...(hasLogoUrl ? { logoUrl: true } : {}),
+            ...(hasPrimaryHex ? { brandPrimaryHex: true } : {}),
+            ...(hasSecondaryHex ? { brandSecondaryHex: true } : {}),
+            ...(hasAccentHex ? { brandAccentHex: true } : {}),
+            ...(hasTextHex ? { brandTextHex: true } : {}),
+          } as any,
+        })
+      : null,
     // Form config is stored in PortalServiceSetup JSON to avoid migrations.
     site.ownerId ? getBookingFormConfig(String(site.ownerId)) : Promise.resolve(null),
+    site.ownerId ? getHostedTheme(String(site.ownerId)) : Promise.resolve(null),
   ]);
 
   return NextResponse.json({
@@ -83,6 +85,7 @@ export async function GET(
       brandSecondaryHex: hasSecondaryHex ? ((profile as any)?.brandSecondaryHex ?? null) : null,
       brandAccentHex: hasAccentHex ? ((profile as any)?.brandAccentHex ?? null) : null,
       brandTextHex: hasTextHex ? ((profile as any)?.brandTextHex ?? null) : null,
+      hostedTheme: hostedTheme ?? null,
       photoUrl: hasPhotoUrl ? ((site as any).photoUrl ?? null) : null,
       meetingLocation: hasMeetingLocation ? ((site as any).meetingLocation ?? null) : null,
       meetingDetails: hasMeetingDetails ? ((site as any).meetingDetails ?? null) : null,

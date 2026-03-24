@@ -8,6 +8,7 @@ import { hasPublicColumn } from "@/lib/dbSchema";
 import { getAiReceptionistServiceData, setAiReceptionistSettings } from "@/lib/aiReceptionist";
 import { getOrCreateOwnerMailboxAddress } from "@/lib/portalMailbox";
 import { coerceFontFamily, coerceGoogleFamily } from "@/lib/fontPresets";
+import { getHostedTheme, setHostedTheme } from "@/lib/hostedTheme";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -49,6 +50,20 @@ const upsertSchema = z.object({
 
   brandFontFamily: z.string().trim().max(200).optional().or(z.literal("")),
   brandFontGoogleFamily: z.string().trim().max(80).optional().or(z.literal("")),
+
+  hostedTheme: z
+    .object({
+      bgHex: z.string().trim().regex(/^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/, "Background must be a hex code like #ffffff").optional().or(z.literal("")),
+      surfaceHex: z.string().trim().regex(/^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/, "Surface must be a hex code like #ffffff").optional().or(z.literal("")),
+      softHex: z.string().trim().regex(/^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/, "Soft background must be a hex code").optional().or(z.literal("")),
+      borderHex: z.string().trim().regex(/^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/, "Border must be a hex code").optional().or(z.literal("")),
+      textHex: z.string().trim().regex(/^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/, "Text must be a hex code").optional().or(z.literal("")),
+      mutedTextHex: z.string().trim().regex(/^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/, "Muted text must be a hex code").optional().or(z.literal("")),
+      primaryHex: z.string().trim().regex(/^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/, "Primary must be a hex code").optional().or(z.literal("")),
+      accentHex: z.string().trim().regex(/^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/, "Accent must be a hex code").optional().or(z.literal("")),
+      linkHex: z.string().trim().regex(/^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/, "Link must be a hex code").optional().or(z.literal("")),
+    })
+    .optional(),
 });
 
 function emptyToNull(value: string | undefined) {
@@ -198,12 +213,13 @@ export async function GET() {
 
   const flags = await getProfileColumnFlags();
 
-  const profile = await prisma.businessProfile.findUnique({
-    where: { ownerId },
-    select: profileSelect(flags),
-  });
+  const [profile, hostedTheme] = await Promise.all([
+    prisma.businessProfile.findUnique({ where: { ownerId }, select: profileSelect(flags) }),
+    getHostedTheme(ownerId),
+  ]);
 
-  return NextResponse.json({ ok: true, profile: profile ? normalizeProfile(profile as any, flags) : null });
+  const normalized = profile ? normalizeProfile(profile as any, flags) : null;
+  return NextResponse.json({ ok: true, profile: normalized ? { ...normalized, hostedTheme } : null });
 }
 
 export async function PUT(req: Request) {
@@ -282,6 +298,30 @@ export async function PUT(req: Request) {
     select: profileSelect(flags),
   });
 
+  const hostedThemePatch = parsed.data.hostedTheme;
+  const hostedTheme = hostedThemePatch
+    ? await (async () => {
+        const patch: Record<string, string | null> = {};
+        const keys = [
+          "bgHex",
+          "surfaceHex",
+          "softHex",
+          "borderHex",
+          "textHex",
+          "mutedTextHex",
+          "primaryHex",
+          "accentHex",
+          "linkHex",
+        ] as const;
+        for (const k of keys) {
+          if (Object.prototype.hasOwnProperty.call(hostedThemePatch, k)) {
+            patch[k] = emptyToNull((hostedThemePatch as any)[k]);
+          }
+        }
+        return setHostedTheme(ownerId, patch as any);
+      })()
+    : await getHostedTheme(ownerId);
+
   // Best-effort: keep AI Receptionist business name in sync with Business Profile.
   // Only overwrite if the receptionist name is empty, or it previously matched the old profile name.
   try {
@@ -305,5 +345,5 @@ export async function PUT(req: Request) {
     // ignore
   }
 
-  return NextResponse.json({ ok: true, profile: normalizeProfile(row as any, flags) });
+  return NextResponse.json({ ok: true, profile: { ...normalizeProfile(row as any, flags), hostedTheme } });
 }

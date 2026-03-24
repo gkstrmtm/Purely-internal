@@ -10,17 +10,46 @@ import { getHostedBrandFont } from "@/lib/hostedBrandFont";
 import { getBlogAppearance } from "@/lib/blogAppearance";
 import { resolveHostedFont } from "@/lib/portalHostedFonts";
 import { deriveHostedBrandTheme } from "@/lib/hostedBrandTheme";
+import { getHostedTheme } from "@/lib/hostedTheme";
 import { HostedPortalAdBanner } from "@/components/HostedPortalAdBanner";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-function PendingVerification() {
+async function PendingVerification({ ownerId }: { ownerId: string }) {
+  const [hostedBrandFont, hostedTheme] = await Promise.all([
+    getHostedBrandFont(ownerId).catch(() => null),
+    getHostedTheme(ownerId).catch(() => null),
+  ]);
+
+  const theme = deriveHostedBrandTheme({
+    brandPrimaryHex: null,
+    brandSecondaryHex: null,
+    brandAccentHex: null,
+    brandTextHex: null,
+    overrides: hostedTheme,
+  });
+
   return (
-    <main className="mx-auto w-full max-w-2xl p-8">
-      <h1 className="text-2xl font-bold text-zinc-900">Domain pending verification</h1>
-      <p className="mt-2 text-sm text-zinc-700">This domain is saved, but not verified yet.</p>
-    </main>
+    <div
+      className="min-h-screen"
+      style={{
+        ...(theme.cssVars as any),
+        ...((hostedBrandFont as any)?.styleVars ?? {}),
+        backgroundColor: "var(--client-bg)",
+        color: "var(--client-text)",
+      }}
+    >
+      {(hostedBrandFont as any)?.googleCss ? <style>{(hostedBrandFont as any).googleCss}</style> : null}
+      <main className="mx-auto w-full max-w-2xl p-8">
+        <h1 className="text-2xl font-bold" style={{ color: "var(--client-text)" }}>
+          Domain pending verification
+        </h1>
+        <p className="mt-2 text-sm" style={{ color: "var(--client-muted)" }}>
+          This domain is saved, but not verified yet.
+        </p>
+      </main>
+    </div>
   );
 }
 
@@ -63,7 +92,7 @@ export default async function CustomDomainBlogsIndexPage({
 
   const mapping = await resolveCustomDomain(host);
   if (!mapping) notFound();
-  if (mapping.status !== "VERIFIED") return <PendingVerification />;
+  if (mapping.status !== "VERIFIED") return <PendingVerification ownerId={mapping.ownerId} />;
 
   const spUnknown: unknown = (await searchParams?.catch(() => ({}))) ?? {};
   const sp = spUnknown && typeof spUnknown === "object" ? (spUnknown as Record<string, unknown>) : {};
@@ -96,9 +125,10 @@ export default async function CustomDomainBlogsIndexPage({
     .findUnique({ where: { ownerId: site.ownerId }, select: profileSelect as any })
     .catch(() => null);
 
-  const [hostedBrandFont, appearance] = await Promise.all([
+  const [hostedBrandFont, appearance, hostedTheme] = await Promise.all([
     getHostedBrandFont(site.ownerId),
     getBlogAppearance(site.ownerId),
+    getHostedTheme(site.ownerId),
   ]);
 
   const titleFont = resolveHostedFont({
@@ -132,6 +162,7 @@ export default async function CustomDomainBlogsIndexPage({
     brandSecondaryHex: (profile as any)?.brandSecondaryHex ?? null,
     brandAccentHex: (profile as any)?.brandAccentHex ?? null,
     brandTextHex: (profile as any)?.brandTextHex ?? null,
+    overrides: hostedTheme,
   });
 
   const posts = await prisma.clientBlogPost.findMany({
@@ -149,9 +180,15 @@ export default async function CustomDomainBlogsIndexPage({
   const ctaBg = theme.ctaHex;
 
   return (
-    <div className="pa-blog-root min-h-screen bg-white" style={{ ...(themeStyle as any), ...hostedBrandFont.styleVars } as any}>
+    <div
+      className="pa-blog-root min-h-screen"
+      style={{ ...(themeStyle as any), ...(hostedBrandFont.styleVars as any), backgroundColor: "var(--client-bg)", color: "var(--client-text)" } as any}
+    >
       {fontCss ? <style>{fontCss}</style> : null}
-      <header className="relative z-50 border-b border-zinc-200 bg-white/80 backdrop-blur">
+      <header
+        className="relative z-50 border-b backdrop-blur"
+        style={{ borderColor: "var(--client-border)", backgroundColor: "var(--client-surface)" }}
+      >
         <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-4">
           <Link href="/blogs" className="flex items-center gap-3">
             {logoUrl ? (
@@ -197,24 +234,29 @@ export default async function CustomDomainBlogsIndexPage({
               <div className="font-brand text-3xl" style={{ color: "var(--client-link)" }}>
                 latest posts
               </div>
-              <p className="mt-2 max-w-2xl text-sm text-zinc-600">Fresh updates and helpful ideas.</p>
+              <p className="mt-2 max-w-2xl text-sm" style={{ color: "var(--client-muted)" }}>
+                Fresh updates and helpful ideas.
+              </p>
 
               <div className="mt-8 grid gap-6">
                 {posts.length === 0 ? (
-                  <div className="rounded-3xl border border-zinc-200 bg-zinc-50 p-8">
+                  <div className="rounded-3xl border p-8" style={{ borderColor: "var(--client-border)", backgroundColor: "var(--client-soft)" }}>
                     <div className="text-lg font-semibold" style={{ color: "var(--client-text)" }}>
                       New posts are coming soon.
                     </div>
-                    <div className="mt-2 text-sm text-zinc-600">Check back shortly.</div>
+                    <div className="mt-2 text-sm" style={{ color: "var(--client-muted)" }}>
+                      Check back shortly.
+                    </div>
                   </div>
                 ) : (
                   posts.map((post) => (
                     <Link
                       key={post.slug}
                       href={`/blogs/${post.slug}`}
-                      className="group rounded-3xl border border-zinc-200 bg-white p-7 shadow-sm transition hover:-translate-y-0.5 hover:border-zinc-300 hover:shadow-md"
+                      className="group rounded-3xl border p-7 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
+                      style={{ borderColor: "var(--client-border)", backgroundColor: "var(--client-surface)" }}
                     >
-                      <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
+                      <div className="text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--client-muted)" }}>
                         {formatBlogDate(post.publishedAt ?? post.updatedAt)}
                       </div>
                       <div
@@ -223,7 +265,9 @@ export default async function CustomDomainBlogsIndexPage({
                       >
                         {post.title}
                       </div>
-                      <div className="mt-3 text-sm leading-relaxed text-zinc-700">{post.excerpt}</div>
+                      <div className="mt-3 text-sm leading-relaxed" style={{ color: "var(--client-muted)" }}>
+                        {post.excerpt}
+                      </div>
                       <div className="mt-5 text-sm font-bold" style={{ color: "var(--client-link)" }}>
                         read more
                       </div>
@@ -235,20 +279,24 @@ export default async function CustomDomainBlogsIndexPage({
               <div className="mt-10 flex items-center justify-between">
                 <Link
                   href={page > 1 ? `/blogs?page=${page - 1}` : `/blogs`}
-                  className={`rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold hover:bg-zinc-50 ${
+                  className={`rounded-2xl border px-4 py-2 text-sm font-semibold ${
                     page <= 1 ? "pointer-events-none opacity-50" : ""
                   }`}
+                  style={{ borderColor: "var(--client-border)", backgroundColor: "var(--client-surface)", color: "var(--client-text)" }}
                 >
                   newer
                 </Link>
 
-                <div className="text-xs font-semibold text-zinc-500">page {page}</div>
+                <div className="text-xs font-semibold" style={{ color: "var(--client-muted)" }}>
+                  page {page}
+                </div>
 
                 <Link
                   href={`/blogs?page=${page + 1}`}
-                  className={`rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold hover:bg-zinc-50 ${
+                  className={`rounded-2xl border px-4 py-2 text-sm font-semibold ${
                     posts.length < take ? "pointer-events-none opacity-50" : ""
                   }`}
+                  style={{ borderColor: "var(--client-border)", backgroundColor: "var(--client-surface)", color: "var(--client-text)" }}
                 >
                   older
                 </Link>
@@ -256,17 +304,24 @@ export default async function CustomDomainBlogsIndexPage({
             </div>
 
             <aside className="lg:pt-1">
-              <div className="sticky top-6 rounded-3xl border border-zinc-200 bg-white p-7 shadow-sm">
+              <div
+                className="sticky top-6 rounded-3xl border p-7 shadow-sm"
+                style={{ borderColor: "var(--client-border)", backgroundColor: "var(--client-surface)" }}
+              >
                 <div className="font-brand text-2xl" style={{ color: "var(--client-link)" }}>
                   about
                 </div>
-                <p className="mt-3 text-sm leading-relaxed text-zinc-700">{brandName} shares updates, guides, and helpful ideas here.</p>
+                <p className="mt-3 text-sm leading-relaxed" style={{ color: "var(--client-muted)" }}>
+                  {brandName} shares updates, guides, and helpful ideas here.
+                </p>
 
                 <div className="mt-6 rounded-2xl p-5" style={{ backgroundColor: "var(--client-soft)" }}>
                   <div className="text-sm font-bold" style={{ color: "var(--client-text)" }}>
                     want a blog like this?
                   </div>
-                  <p className="mt-2 text-sm text-zinc-700">This blog is hosted and managed by Purely Automation.</p>
+                  <p className="mt-2 text-sm" style={{ color: "var(--client-muted)" }}>
+                    This blog is hosted and managed by Purely Automation.
+                  </p>
                   <div className="mt-4">
                     <a
                       href="https://purelyautomation.com"
@@ -283,11 +338,13 @@ export default async function CustomDomainBlogsIndexPage({
         </section>
       </main>
 
-      <footer className="border-t border-zinc-200 bg-white">
+      <footer className="border-t" style={{ borderColor: "var(--client-border)", backgroundColor: "var(--client-surface)" }}>
         <div className="mx-auto flex max-w-6xl flex-col gap-4 px-6 py-10 sm:flex-row sm:items-center sm:justify-between">
-          <div className="text-sm text-zinc-600">
+          <div className="text-sm" style={{ color: "var(--client-muted)" }}>
             © {new Date().getFullYear()} {brandName}
-            <span className="ml-2 text-zinc-400">•</span>
+            <span className="ml-2" style={{ color: "var(--client-muted)" }}>
+              •
+            </span>
             <span className="ml-2">
               Powered by{" "}
               <a

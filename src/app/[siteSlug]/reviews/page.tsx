@@ -11,6 +11,7 @@ import { getReviewRequestsServiceData } from "@/lib/reviewRequests";
 import { getHostedBrandFont } from "@/lib/hostedBrandFont";
 import { resolveHostedFont } from "@/lib/portalHostedFonts";
 import { deriveHostedBrandTheme } from "@/lib/hostedBrandTheme";
+import { getHostedTheme } from "@/lib/hostedTheme";
 import { PublicReviewsClient } from "./PublicReviewsClient";
 
 export const dynamic = "force-dynamic";
@@ -67,12 +68,13 @@ export default async function PublicReviewsPage({ params }: { params: Promise<{ 
   if (hasAccentHex) profileSelect.brandAccentHex = true;
   if (hasTextHex) profileSelect.brandTextHex = true;
 
-  const [profile, data] = await Promise.all([
+  const [profile, data, hostedTheme] = await Promise.all([
     prisma.businessProfile.findUnique({
       where: { ownerId },
       select: profileSelect as any,
     }),
     getReviewRequestsServiceData(ownerId),
+    getHostedTheme(ownerId),
   ]);
 
   const settings = data.settings;
@@ -90,6 +92,7 @@ export default async function PublicReviewsPage({ params }: { params: Promise<{ 
     brandSecondaryHex: (profile as any)?.brandSecondaryHex ?? null,
     brandAccentHex: (profile as any)?.brandAccentHex ?? null,
     brandTextHex: (profile as any)?.brandTextHex ?? null,
+    overrides: hostedTheme,
   });
 
   const brandPrimary = theme.surfaceHex;
@@ -231,18 +234,30 @@ export default async function PublicReviewsPage({ params }: { params: Promise<{ 
 
   return (
     <div
-      className="min-h-screen bg-white text-zinc-900"
-      style={{ ...(themeStyle as any), ...(pageFontStyle as any), ...hostedBrandFont.styleVars } as any}
+      className="min-h-screen"
+      style={{
+        ...(themeStyle as any),
+        ...(pageFontStyle as any),
+        ...(hostedBrandFont.styleVars as any),
+        backgroundColor: "var(--client-bg)",
+        color: "var(--client-text)",
+      } as any}
     >
       {hostedFont.googleImportCss ? <style>{hostedFont.googleImportCss}</style> : null}
-      <header className="relative z-50 border-b border-zinc-200 bg-white/80 backdrop-blur">
+      <header
+        className="relative z-50 border-b backdrop-blur"
+        style={{ borderColor: "var(--client-border)", backgroundColor: "var(--client-surface)" }}
+      >
         <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-6 py-4">
           <Link href={`/${siteHandle}/reviews`} className="flex items-center gap-3">
             {logoUrl ? (
               // eslint-disable-next-line @next/next/no-img-element
               <img src={logoUrl} alt={businessName} className="h-10 w-10 rounded-xl object-cover" />
             ) : (
-              <div className="grid h-10 w-10 place-items-center rounded-xl border border-zinc-200 bg-white shadow-sm">
+              <div
+                className="grid h-10 w-10 place-items-center rounded-xl border shadow-sm"
+                style={{ borderColor: "var(--client-border)", backgroundColor: "var(--client-surface)" }}
+              >
                 <Image
                   src="/brand/purelylogo.png"
                   alt=""
@@ -256,20 +271,23 @@ export default async function PublicReviewsPage({ params }: { params: Promise<{ 
               <div className="truncate text-sm font-semibold" style={{ color: "var(--client-text)" }}>
                 {businessName}
               </div>
-              <div className="text-xs text-zinc-500">{siteHandle}</div>
+              <div className="text-xs" style={{ color: "var(--client-muted)" }}>
+                {siteHandle}
+              </div>
             </div>
           </Link>
 
           <div className="flex items-center gap-3">
             {blogSite ? (
               <Link
-                className="hidden rounded-xl px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-100 sm:inline"
+                className="hidden rounded-xl px-3 py-2 text-sm font-semibold sm:inline"
+                style={{ color: "var(--client-muted)" }}
                 href={`/${siteHandle}/blogs`}
               >
                 blogs
               </Link>
             ) : null}
-            <Link href="/" className="inline-flex items-center gap-3 rounded-xl px-3 py-2 hover:bg-zinc-100" aria-label="Purely Automation">
+            <Link href="/" className="inline-flex items-center gap-3 rounded-xl px-3 py-2" aria-label="Purely Automation">
               <Image
                 src="/brand/1.png"
                 alt="Purely Automation"
@@ -318,13 +336,17 @@ export default async function PublicReviewsPage({ params }: { params: Promise<{ 
           </div>
         </section>
 
-        <section className="bg-zinc-50">
+        <section style={{ backgroundColor: "var(--client-bg)" }}>
           <div className="mx-auto max-w-6xl px-6 py-14">
             {Array.isArray(settings.publicPage.photoUrls) && settings.publicPage.photoUrls.length ? (
               <div className="-mt-24 mb-10">
                 <div className="flex gap-4 overflow-x-auto pb-3">
                   {settings.publicPage.photoUrls.slice(0, 12).map((u) => (
-                    <div key={u} className="h-50 w-80 shrink-0 overflow-hidden rounded-3xl border border-zinc-200 bg-white shadow-sm">
+                    <div
+                      key={u}
+                      className="h-50 w-80 shrink-0 overflow-hidden rounded-3xl border shadow-sm"
+                      style={{ borderColor: "var(--client-border)", backgroundColor: "var(--client-surface)" }}
+                    >
                       {/* eslint-disable-next-line @next/next/no-img-element */}
                       <img src={u} alt="" className="h-full w-full object-cover" />
                     </div>
@@ -367,7 +389,9 @@ export default async function PublicReviewsPage({ params }: { params: Promise<{ 
                     <div className="font-brand text-2xl" style={{ color: "var(--client-text)" }}>
                       Verified pages
                     </div>
-                    <div className="mt-1 text-sm text-zinc-600">Browse other verified pages.</div>
+                    <div className="mt-1 text-sm" style={{ color: "var(--client-muted)" }}>
+                      Browse other verified pages.
+                    </div>
                   </div>
                 </div>
 
@@ -376,20 +400,25 @@ export default async function PublicReviewsPage({ params }: { params: Promise<{ 
                     <Link
                       key={b.ownerId}
                       href={`/${b.handle}/reviews`}
-                      className="group w-70 shrink-0 rounded-3xl border border-zinc-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:border-zinc-300 hover:shadow-md"
+                      className="group w-70 shrink-0 rounded-3xl border p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
+                      style={{ borderColor: "var(--client-border)", backgroundColor: "var(--client-surface)" }}
                     >
                       <div className="flex items-center gap-3">
                         {b.logoUrl ? (
                           // eslint-disable-next-line @next/next/no-img-element
                           <img src={b.logoUrl} alt={b.name} className="h-11 w-11 rounded-2xl object-cover" />
                         ) : (
-                          <div className="grid h-11 w-11 place-items-center rounded-2xl bg-[rgba(29,78,216,0.08)]">
-                            <div className="h-3 w-3 rounded-full bg-(--color-brand-blue)" />
+                          <div className="grid h-11 w-11 place-items-center rounded-2xl" style={{ backgroundColor: "var(--client-soft)" }}>
+                            <div className="h-3 w-3 rounded-full" style={{ backgroundColor: "var(--client-primary)" }} />
                           </div>
                         )}
                         <div className="min-w-0">
-                          <div className="truncate text-sm font-semibold text-zinc-900 group-hover:underline">{b.name}</div>
-                          <div className="truncate text-xs text-zinc-500">/{b.handle}/reviews</div>
+                          <div className="truncate text-sm font-semibold group-hover:underline" style={{ color: "var(--client-text)" }}>
+                            {b.name}
+                          </div>
+                          <div className="truncate text-xs" style={{ color: "var(--client-muted)" }}>
+                            /{b.handle}/reviews
+                          </div>
                         </div>
                       </div>
                     </Link>
@@ -398,24 +427,31 @@ export default async function PublicReviewsPage({ params }: { params: Promise<{ 
               </div>
             ) : null}
 
-            <div className="mt-14 rounded-3xl border border-zinc-200 bg-white p-8 shadow-sm">
+            <div
+              className="mt-14 rounded-3xl border p-8 shadow-sm"
+              style={{ borderColor: "var(--client-border)", backgroundColor: "var(--client-surface)" }}
+            >
               <div className="grid gap-6 lg:grid-cols-[1fr_auto] lg:items-center">
                 <div>
-                  <div className="font-brand text-2xl text-(--color-brand-blue)">want a page like this?</div>
-                  <p className="mt-2 max-w-2xl text-sm text-zinc-700">
+                  <div className="font-brand text-2xl" style={{ color: "var(--client-link)" }}>
+                    want a page like this?
+                  </div>
+                  <p className="mt-2 max-w-2xl text-sm" style={{ color: "var(--client-muted)" }}>
                     Purely helps businesses collect reviews and publish a clean, verified page customers can trust.
                   </p>
                 </div>
                 <div className="flex flex-col gap-3 sm:flex-row">
                   <Link
                     href="/portal/get-started"
-                    className="inline-flex items-center justify-center rounded-2xl bg-(--color-brand-blue) px-6 py-3 text-base font-extrabold text-white shadow-sm hover:bg-blue-700"
+                    className="inline-flex items-center justify-center rounded-2xl px-6 py-3 text-base font-extrabold shadow-sm"
+                    style={{ backgroundColor: "var(--client-accent)", color: "var(--client-on-accent)" }}
                   >
                     get started
                   </Link>
                   <Link
                     href="/#demo"
-                    className="inline-flex items-center justify-center rounded-2xl border border-[rgba(29,78,216,0.15)] bg-white px-6 py-3 text-base font-bold text-(--color-brand-blue) hover:bg-zinc-50"
+                    className="inline-flex items-center justify-center rounded-2xl border px-6 py-3 text-base font-bold"
+                    style={{ borderColor: "var(--client-border)", backgroundColor: "var(--client-surface)", color: "var(--client-link)" }}
                   >
                     book a call
                   </Link>
@@ -426,9 +462,11 @@ export default async function PublicReviewsPage({ params }: { params: Promise<{ 
         </section>
       </main>
 
-      <footer className="border-t border-zinc-200 bg-white">
+      <footer className="border-t" style={{ borderColor: "var(--client-border)", backgroundColor: "var(--client-surface)" }}>
         <div className="mx-auto flex max-w-6xl flex-col gap-4 px-6 py-10 sm:flex-row sm:items-center sm:justify-between">
-          <div className="text-sm text-zinc-600">© {new Date().getFullYear()} {businessName}</div>
+          <div className="text-sm" style={{ color: "var(--client-muted)" }}>
+            © {new Date().getFullYear()} {businessName}
+          </div>
           <div className="flex items-center gap-4">
             {blogSite ? (
               <Link

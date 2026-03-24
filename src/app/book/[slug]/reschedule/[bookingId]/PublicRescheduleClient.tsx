@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
 import { useToast } from "@/components/ToastProvider";
+import { deriveHostedBrandTheme, type HostedBrandThemeInput } from "@/lib/hostedBrandTheme";
 
 type Site = {
   slug: string;
@@ -13,6 +14,13 @@ type Site = {
   meetingLocation?: string | null;
   meetingDetails?: string | null;
   hostName?: string | null;
+  businessName?: string | null;
+  logoUrl?: string | null;
+  brandPrimaryHex?: string | null;
+  brandSecondaryHex?: string | null;
+  brandAccentHex?: string | null;
+  brandTextHex?: string | null;
+  hostedTheme?: HostedBrandThemeInput["overrides"] | null;
 };
 
 type Booking = {
@@ -99,6 +107,48 @@ export function PublicRescheduleClient({
 
   const [error, setError] = useState<string | null>(null);
   const [doneUrl, setDoneUrl] = useState<string | null>(null);
+
+  const theme = useMemo(() => {
+    return deriveHostedBrandTheme({
+      brandPrimaryHex: site?.brandPrimaryHex ?? undefined,
+      brandSecondaryHex: site?.brandSecondaryHex ?? undefined,
+      brandAccentHex: site?.brandAccentHex ?? undefined,
+      brandTextHex: site?.brandTextHex ?? undefined,
+      overrides: site?.hostedTheme ?? null,
+    });
+  }, [
+    site?.brandAccentHex,
+    site?.brandPrimaryHex,
+    site?.brandSecondaryHex,
+    site?.brandTextHex,
+    site?.hostedTheme,
+  ]);
+
+  const bookingStyleVars = useMemo(
+    () =>
+      ({
+        ["--booking-bg" as any]: theme.bgHex,
+        ["--booking-surface" as any]: theme.cardSurfaceHex,
+        ["--booking-soft" as any]: theme.softHex,
+        ["--booking-border" as any]: theme.borderHex,
+        ["--booking-muted" as any]: theme.mutedTextHex,
+        ["--booking-primary" as any]: theme.ctaHex,
+        ["--booking-on-primary" as any]: theme.onCtaHex,
+        ["--booking-link" as any]: theme.linkHex,
+        ["--booking-text" as any]: theme.textHex,
+      }) as any,
+    [
+      theme.bgHex,
+      theme.borderHex,
+      theme.cardSurfaceHex,
+      theme.ctaHex,
+      theme.linkHex,
+      theme.mutedTextHex,
+      theme.onCtaHex,
+      theme.softHex,
+      theme.textHex,
+    ],
+  );
 
   useEffect(() => {
     if (error) toast.error(error);
@@ -222,9 +272,14 @@ export function PublicRescheduleClient({
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-[#f5f9ff]">
+      <div
+        className="min-h-screen"
+        style={{ ...(bookingStyleVars as any), backgroundColor: "var(--booking-bg)", color: "var(--booking-text)" }}
+      >
         <div className="mx-auto max-w-3xl px-6 py-12">
-          <div className="rounded-3xl border border-zinc-200 bg-white p-6 text-sm text-zinc-600">Loading…</div>
+          <div className="rounded-3xl border p-6 text-sm" style={{ borderColor: "var(--booking-border)", backgroundColor: "var(--booking-surface)", color: "var(--booking-muted)" }}>
+            Loading…
+          </div>
         </div>
       </div>
     );
@@ -232,13 +287,20 @@ export function PublicRescheduleClient({
 
   if (error && (!site || !booking)) {
     return (
-      <div className="min-h-screen bg-[#f5f9ff]">
+      <div
+        className="min-h-screen"
+        style={{ ...(bookingStyleVars as any), backgroundColor: "var(--booking-bg)", color: "var(--booking-text)" }}
+      >
         <div className="mx-auto max-w-3xl px-6 py-12">
-          <div className="rounded-3xl border border-zinc-200 bg-white p-6">
-            <div className="text-base font-semibold text-brand-ink">Reschedule</div>
-            <div className="mt-2 text-sm text-zinc-600">{error}</div>
+          <div className="rounded-3xl border p-6" style={{ borderColor: "var(--booking-border)", backgroundColor: "var(--booking-surface)" }}>
+            <div className="text-base font-semibold" style={{ color: "var(--booking-text)" }}>
+              Reschedule
+            </div>
+            <div className="mt-2 text-sm" style={{ color: "var(--booking-muted)" }}>
+              {error}
+            </div>
             <div className="mt-6">
-              <Link href="/" className="text-sm font-semibold text-brand-ink hover:underline">
+              <Link href="/" className="text-sm font-semibold hover:underline" style={{ color: "var(--booking-link)" }}>
                 Back to Purely Automation
               </Link>
             </div>
@@ -252,14 +314,25 @@ export function PublicRescheduleClient({
 
   if (step === "done") {
     return (
-      <div className="min-h-screen bg-[#f5f9ff]">
+      <div
+        className="min-h-screen"
+        style={{ ...(bookingStyleVars as any), backgroundColor: "var(--booking-bg)", color: "var(--booking-text)" }}
+      >
         <div className="mx-auto max-w-3xl px-6 py-12">
-          <div className="rounded-3xl border border-zinc-200 bg-white p-8">
-            <div className="text-xs font-semibold uppercase tracking-wide text-emerald-700">Rescheduled</div>
-            <h1 className="mt-3 text-2xl font-bold text-zinc-900">You’re all set.</h1>
-            <div className="mt-3 text-sm text-zinc-600">We emailed you confirmation.</div>
+          <div className="rounded-3xl border p-8" style={{ borderColor: "var(--booking-border)", backgroundColor: "var(--booking-surface)" }}>
+            <div className="text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--booking-link)" }}>
+              Rescheduled
+            </div>
+            <h1 className="mt-3 text-2xl font-bold" style={{ color: "var(--booking-text)" }}>
+              You’re all set.
+            </h1>
+            <div className="mt-3 text-sm" style={{ color: "var(--booking-muted)" }}>
+              We emailed you confirmation.
+            </div>
             {doneUrl ? (
-              <div className="mt-6 text-sm text-zinc-600">Need to reschedule again? Use the latest link in your email.</div>
+              <div className="mt-6 text-sm" style={{ color: "var(--booking-muted)" }}>
+                Need to reschedule again? Use the latest link in your email.
+              </div>
             ) : null}
           </div>
         </div>
@@ -268,13 +341,18 @@ export function PublicRescheduleClient({
   }
 
   return (
-    <div className="min-h-screen bg-[#f5f9ff]">
+    <div
+      className="min-h-screen"
+      style={{ ...(bookingStyleVars as any), backgroundColor: "var(--booking-bg)", color: "var(--booking-text)" }}
+    >
       <div className="mx-auto max-w-5xl px-6 py-12">
-        <div className="rounded-3xl border border-zinc-200 bg-white p-8">
+        <div className="rounded-3xl border p-8" style={{ borderColor: "var(--booking-border)", backgroundColor: "var(--booking-surface)" }}>
           <div className="flex items-start justify-between gap-4">
             <div className="min-w-0">
-              <h1 className="truncate text-2xl font-bold text-zinc-900">Reschedule: {site.title}</h1>
-              <div className="mt-2 text-sm text-zinc-600">
+              <h1 className="truncate text-2xl font-bold" style={{ color: "var(--booking-text)" }}>
+                Reschedule: {site.title}
+              </h1>
+              <div className="mt-2 text-sm" style={{ color: "var(--booking-muted)" }}>
                 Current: {new Date(booking.startAt).toLocaleString()} ({site.durationMinutes} minutes)
               </div>
             </div>
@@ -283,30 +361,38 @@ export function PublicRescheduleClient({
           <div className="mt-8 grid grid-cols-1 gap-6 lg:grid-cols-3">
             <div className="lg:col-span-2">
               <div className="flex items-center justify-between gap-3">
-                <div className="text-sm font-semibold text-zinc-900">Pick a new time</div>
-                <div className="text-xs font-semibold text-zinc-500">{site.timeZone}</div>
+                <div className="text-sm font-semibold" style={{ color: "var(--booking-text)" }}>
+                  Pick a new time
+                </div>
+                <div className="text-xs font-semibold" style={{ color: "var(--booking-muted)" }}>
+                  {site.timeZone}
+                </div>
               </div>
 
               <div className="mt-4">
                 <div className="flex items-center justify-between gap-3">
                   <button
                     type="button"
-                    className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
+                    className="rounded-2xl border bg-(--booking-surface) px-3 py-2 text-sm font-semibold text-(--booking-text) transition hover:bg-(--booking-soft)"
+                    style={{ borderColor: "var(--booking-border)" }}
                     onClick={() => setMonth((m) => addMonths(m, -1))}
                   >
                     Prev
                   </button>
-                  <div className="text-sm font-semibold text-zinc-900">{monthLabel(month)}</div>
+                  <div className="text-sm font-semibold" style={{ color: "var(--booking-text)" }}>
+                    {monthLabel(month)}
+                  </div>
                   <button
                     type="button"
-                    className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
+                    className="rounded-2xl border bg-(--booking-surface) px-3 py-2 text-sm font-semibold text-(--booking-text) transition hover:bg-(--booking-soft)"
+                    style={{ borderColor: "var(--booking-border)" }}
                     onClick={() => setMonth((m) => addMonths(m, 1))}
                   >
                     Next
                   </button>
                 </div>
 
-                <div className="mt-4 grid grid-cols-7 gap-2 text-center text-xs font-semibold text-zinc-500">
+                <div className="mt-4 grid grid-cols-7 gap-2 text-center text-xs font-semibold text-(--booking-muted)">
                   {['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].map((d) => (
                     <div key={d}>{d}</div>
                   ))}
@@ -331,9 +417,9 @@ export function PublicRescheduleClient({
                           "rounded-2xl border px-2 py-3 text-sm font-semibold transition " +
                           (hasTimes
                             ? isSelected
-                              ? "border-zinc-900 bg-zinc-900 text-white"
-                              : "border-zinc-200 bg-white text-zinc-900 hover:bg-zinc-50"
-                            : "cursor-not-allowed border-zinc-100 bg-zinc-50 text-zinc-300") +
+                              ? "border-(--booking-link) bg-[color-mix(in_srgb,var(--booking-link)_10%,var(--booking-surface))] text-(--booking-text)"
+                              : "border-(--booking-border) bg-(--booking-surface) text-(--booking-text) hover:bg-(--booking-soft)"
+                            : "cursor-not-allowed border-(--booking-border) bg-(--booking-soft) text-(--booking-muted) opacity-50") +
                           (!inMonth ? " opacity-60" : "")
                         }
                         aria-label={d.toDateString()}
@@ -344,21 +430,25 @@ export function PublicRescheduleClient({
                   })}
                 </div>
 
-                <div className="mt-4 text-xs text-zinc-600">
+                <div className="mt-4 text-xs text-(--booking-muted)">
                   {slotsLoading ? "Loading available days…" : "Select a highlighted day to see times."}
                 </div>
               </div>
 
               {selectedDate ? (
                 <div className="mt-6">
-                  <div className="text-sm font-semibold text-zinc-900">
+                  <div className="text-sm font-semibold" style={{ color: "var(--booking-text)" }}>
                     {new Date(`${selectedDate}T00:00:00`).toLocaleDateString()}
                   </div>
                   <div className="mt-3">
                     {slotsLoading ? (
-                      <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-700">Loading times…</div>
+                      <div className="rounded-2xl border bg-(--booking-soft) p-4 text-sm text-(--booking-text)" style={{ borderColor: "var(--booking-border)" }}>
+                        Loading times…
+                      </div>
                     ) : daySlots.length === 0 ? (
-                      <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-700">No times available on this day.</div>
+                      <div className="rounded-2xl border bg-(--booking-soft) p-4 text-sm text-(--booking-text)" style={{ borderColor: "var(--booking-border)" }}>
+                        No times available on this day.
+                      </div>
                     ) : (
                       <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                         {daySlots.map((s) => (
@@ -369,11 +459,11 @@ export function PublicRescheduleClient({
                             className={
                               "rounded-2xl border px-4 py-3 text-left text-sm transition-colors " +
                               (selected === s.startAt
-                                ? "border-zinc-900 bg-zinc-900 text-white"
-                                : "border-zinc-200 hover:bg-zinc-50")
+                                ? "border-(--booking-link) bg-[color-mix(in_srgb,var(--booking-link)_10%,var(--booking-surface))]"
+                                : "border-(--booking-border) bg-(--booking-surface) hover:bg-(--booking-soft)")
                             }
                           >
-                            <div className="font-semibold">
+                            <div className="font-semibold" style={{ color: "var(--booking-text)" }}>
                               {new Date(s.startAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}
                             </div>
                           </button>
@@ -387,17 +477,26 @@ export function PublicRescheduleClient({
             </div>
 
             <div>
-              <div className="text-sm font-semibold text-zinc-900">Confirm</div>
-              <div className="mt-3 rounded-2xl border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-700">
-                <div className="font-semibold text-zinc-900">{booking.contactName}</div>
-                <div className="mt-1 text-xs text-zinc-600">{booking.contactEmail}</div>
+              <div className="text-sm font-semibold" style={{ color: "var(--booking-text)" }}>
+                Confirm
+              </div>
+              <div
+                className="mt-3 rounded-2xl border bg-(--booking-soft) p-4 text-sm"
+                style={{ borderColor: "var(--booking-border)", color: "var(--booking-text)" }}
+              >
+                <div className="font-semibold" style={{ color: "var(--booking-text)" }}>
+                  {booking.contactName}
+                </div>
+                <div className="mt-1 text-xs" style={{ color: "var(--booking-muted)" }}>
+                  {booking.contactEmail}
+                </div>
               </div>
 
               <button
                 type="button"
                 disabled={!selected || busy}
                 onClick={() => applyReschedule()}
-                className="mt-4 inline-flex w-full items-center justify-center rounded-2xl bg-zinc-900 px-4 py-3 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
+                className="mt-4 inline-flex w-full items-center justify-center rounded-2xl bg-(--booking-primary) px-4 py-3 text-sm font-semibold text-(--booking-on-primary) hover:opacity-95 disabled:opacity-60"
               >
                 {busy ? "Rescheduling…" : "Confirm reschedule"}
               </button>
@@ -405,8 +504,8 @@ export function PublicRescheduleClient({
           </div>
         </div>
 
-        <div className="mt-10 border-t border-zinc-200 pt-6 text-center text-xs text-zinc-600">
-          <Link href="/" className="font-semibold hover:underline">
+        <div className="mt-10 border-t pt-6 text-center text-xs" style={{ borderColor: "var(--booking-border)", color: "var(--booking-muted)" }}>
+          <Link href="/" className="font-semibold hover:underline" style={{ color: "var(--booking-link)" }}>
             Powered by Purely Automation
           </Link>
         </div>
