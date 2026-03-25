@@ -51,12 +51,15 @@ const ACTION_COVERAGE = [
   { action: "engagement.ping", method: "POST", endpoint: "/api/portal/engagement/ping" },
   { action: "engagement.active_time", method: "POST", endpoint: "/api/portal/engagement/active-time" },
 
+  { action: "push.register", method: "POST", endpoint: "/api/portal/push/register" },
+
   { action: "profile.get", method: "GET", endpoint: "/api/portal/profile" },
 
   { action: "notifications.recipients.list", method: "GET", endpoint: "/api/portal/notifications/recipients" },
 
   { action: "voice_agent.tools.get", method: "GET", endpoint: "/api/portal/voice-agent/tools" },
   { action: "voice_agent.voices.list", method: "GET", endpoint: "/api/portal/voice-agent/voices" },
+  { action: "voice_agent.voices.preview", method: "POST", endpoint: "/api/portal/voice-agent/voices/preview" },
 
   { action: "ai_agents.list", method: "GET", endpoint: "/api/portal/ai-agents" },
 
@@ -268,6 +271,7 @@ const ACTION_COVERAGE = [
   { action: "business_profile.update", method: "PUT", endpoint: "/api/portal/business-profile" },
   { action: "onboarding.status.get", method: "GET", endpoint: "/api/portal/onboarding/status" },
   { action: "suggested_setup.preview.get", method: "GET", endpoint: "/api/portal/suggested-setup/preview" },
+  { action: "suggested_setup.apply", method: "POST", endpoint: "/api/portal/suggested-setup/apply" },
 
   // ElevenLabs ConvAI helpers (sensitive tokens/URLs; no deterministic execute-first)
   { action: "elevenlabs.convai.token.get", method: "POST", endpoint: "/api/portal/elevenlabs/convai/token" },

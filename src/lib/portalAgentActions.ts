@@ -95,6 +95,7 @@ export const PortalAgentActionKeySchema = z.enum([
   "contacts.tags.remove",
   "onboarding.status.get",
   "suggested_setup.preview.get",
+  "suggested_setup.apply",
 
   "ai_agents.list",
 
@@ -103,6 +104,8 @@ export const PortalAgentActionKeySchema = z.enum([
   "auth.resend_verification",
   "engagement.ping",
   "engagement.active_time",
+
+  "push.register",
 
   "referrals.link.get",
   "referrals.link.rotate",
@@ -127,6 +130,7 @@ export const PortalAgentActionKeySchema = z.enum([
 
   "voice_agent.tools.get",
   "voice_agent.voices.list",
+  "voice_agent.voices.preview",
 
   "webhooks.get",
   "bug_report.submit",
@@ -314,6 +318,12 @@ export const PortalAgentActionArgsSchemaByKey = {
 
   "voice_agent.tools.get": z.object({}).strict(),
   "voice_agent.voices.list": z.object({}).strict(),
+  "voice_agent.voices.preview": z
+    .object({
+      voiceId: z.string().trim().min(1).max(200),
+      text: z.string().trim().min(1).max(500),
+    })
+    .strict(),
 
   "funnel.create": z
     .object({
@@ -955,6 +965,11 @@ export const PortalAgentActionArgsSchemaByKey = {
   "onboarding.status.get": z.object({}).strict(),
 
   "suggested_setup.preview.get": z.object({}).strict(),
+  "suggested_setup.apply": z
+    .object({
+      actionIds: z.array(z.string().trim().min(1)).min(1).max(50),
+    })
+    .strict(),
 
   "ai_agents.list": z.object({}).strict(),
 
@@ -1012,6 +1027,14 @@ export const PortalAgentActionArgsSchemaByKey = {
     .object({
       dtSec: z.number().int().min(1).max(60),
       path: z.string().trim().max(512).optional().nullable(),
+    })
+    .strict(),
+
+  "push.register": z
+    .object({
+      expoPushToken: z.string().trim().min(1).max(400),
+      platform: z.string().trim().max(64).optional().nullable(),
+      deviceName: z.string().trim().max(128).optional().nullable(),
     })
     .strict(),
 
@@ -2261,6 +2284,7 @@ export function portalAgentActionsIndexText(): string {
     "- contacts.tags.remove: Remove a tag from a contact (fields: contactId, tagId)",
     "- onboarding.status.get: Get onboarding completion status (business profile + blogs setup)",
     "- suggested_setup.preview.get: Get suggested setup preview (entitlements + proposed actions)",
+    "- suggested_setup.apply: Apply selected suggested setup actions (fields: actionIds)",
     "- ai_agents.list: List known ElevenLabs agent IDs referenced by your portal account (voice/chat/outbound)",
     "- contact_tags.list: List contact tags",
     "- contact_tags.create: Create a contact tag (fields: name, color?)",
@@ -2270,6 +2294,7 @@ export function portalAgentActionsIndexText(): string {
     "- auth.resend_verification: Resend your email verification message (returns alreadyVerified=true if applicable)",
     "- engagement.ping: Record a lightweight portal engagement ping (fields: path?, source?)",
     "- engagement.active_time: Record portal active time telemetry and hours-saved rollups (fields: dtSec, path?)",
+    "- push.register: Register your device for push notifications (fields: expoPushToken, platform?, deviceName?)",
     "- referrals.link.get: Get your referral link + referral stats",
     "- referrals.link.rotate: Rotate your referral code and return the updated referral link + stats",
     "- profile.get: Get the current portal member profile (name/email/phone/city/state + voice agent status)",
@@ -2290,6 +2315,7 @@ export function portalAgentActionsIndexText(): string {
     "- support_chat.send: Ask the support chat assistant a question (fields: message, url?, meta?, context.recentMessages?)",
     "- voice_agent.tools.get: List voice agent tool IDs resolved from your ElevenLabs API key (call transfer, calendar booking, etc)",
     "- voice_agent.voices.list: List available ElevenLabs voices (requires voice agent API key)",
+    "- voice_agent.voices.preview: Generate a short voice preview audio clip (fields: voiceId, text)",
     "- services.catalog.get: List the portal services catalog (grouped by category)",
     "- services.status.get: Get portal service status for each service (active/needs_setup/locked/etc)",
     "- services.lifecycle.update: Pause/cancel/resume a service (fields: serviceSlug, action=pause|cancel|resume)",

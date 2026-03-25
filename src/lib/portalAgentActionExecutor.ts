@@ -1,6 +1,8 @@
 import crypto from "crypto";
 import { Resolver, resolve4, resolve6, resolveCname, resolveNs, resolveTxt } from "dns/promises";
 
+import { Expo } from "expo-server-sdk";
+
 import { Prisma } from "@prisma/client";
 
 import { z } from "zod";
@@ -119,7 +121,7 @@ import { ensurePortalAiOutboundCallsSchema } from "@/lib/portalAiOutboundCallsSc
 import { enqueueOutboundCallForTaggedContact, normalizeTagIdList } from "@/lib/portalAiOutboundCalls";
 import { enqueueOutboundMessageForTaggedContact } from "@/lib/portalAiOutboundMessages";
 import { normalizeToolIdList, normalizeToolKeyList, parseVoiceAgentConfig } from "@/lib/voiceAgentConfig.shared";
-import { resolveElevenLabsConvaiToolIdsByKeys, listElevenLabsVoices } from "@/lib/elevenLabsConvai";
+import { resolveElevenLabsConvaiToolIdsByKeys, listElevenLabsVoices, synthesizeElevenLabsVoicePreview } from "@/lib/elevenLabsConvai";
 import { VOICE_TOOL_DEFS } from "@/lib/voiceAgentTools";
 import { getAiReceptionistServiceData, listAiReceptionistEvents, toPublicSettings } from "@/lib/aiReceptionist";
 import { syncAiReceptionistKnowledgeBase } from "@/lib/portalAiReceptionistKnowledgeBaseSync.server";
@@ -132,6 +134,7 @@ import { clampSalesRangeKey, getSalesReportForOwner } from "@/lib/salesReporting
 import { isPortalSupportChatConfigured, runPortalSupportChat } from "@/lib/portalSupportChat";
 import { getOrCreatePortalReferralCode, getPortalReferralStats, rotatePortalReferralCode } from "@/lib/portalReferrals.server";
 import { buildSuggestedSetupPreviewForOwner } from "@/lib/suggestedSetup/server";
+import { applySuggestedSetupActions } from "@/lib/suggestedSetup/executor";
 
 const MAX_REMOTE_MEDIA_BYTES = 15 * 1024 * 1024; // matches /api/portal/media/import-remote
 
@@ -8384,6 +8387,44 @@ async function runDirectAction(opts: {
       }
     }
 
+    case "suggested_setup.apply": {
+      // Gate apply on Profile edit so portal members can use setup.
+      // Individual actions are still approval-gated and revalidated at apply time.
+      const ok = await requireServiceCapability("profile", "edit");
+      if (!ok) return { status: 403, json: { ok: false, error: "Forbidden" } };
+
+      const actionIds = readStringArray((args as any)?.actionIds).slice(0, 50);
+      if (!actionIds.length) return { status: 400, json: { ok: false, error: "Invalid input" } };
+
+      let preview: { proposedActions: any[] };
+      try {
+        preview = (await buildSuggestedSetupPreviewForOwner(ownerId)).preview as any;
+      } catch {
+        return { status: 500, json: { ok: false, error: "Unable to apply suggested setup" } };
+      }
+
+      const proposed = Array.isArray(preview?.proposedActions) ? (preview.proposedActions as any[]) : [];
+      const proposedById = new Map(proposed.map((a) => [String((a as any)?.id || ""), a] as const));
+
+      const selected = actionIds
+        .map((id) => proposedById.get(id))
+        .filter((a): a is any => Boolean(a));
+
+      if (!selected.length) {
+        return { status: 409, json: { ok: false, error: "No matching actions to apply" } };
+      }
+
+      const res = await applySuggestedSetupActions({ ownerId, actions: selected as any });
+      if (!res.ok) {
+        return {
+          status: 500,
+          json: { ok: false, error: res.error, appliedIds: res.appliedIds, skippedIds: res.skippedIds },
+        };
+      }
+
+      return { status: 200, json: { ok: true, appliedIds: res.appliedIds, skippedIds: res.skippedIds } };
+    }
+
     case "contact_tags.list": {
       const ok = await requireAnyServiceCapability(
         [
@@ -8783,6 +8824,51 @@ async function runDirectAction(opts: {
           select: { id: true },
         });
       });
+
+      return { status: 200, json: { ok: true } };
+    }
+
+    case "push.register": {
+      const membership = await requirePortalMember();
+      if (!membership) return { status: 403, json: { ok: false, error: "Forbidden" } };
+
+      const userId = membership.memberId;
+
+      const expoPushToken = String((args as any)?.expoPushToken || "")
+        .trim()
+        .slice(0, 400);
+      const platformRaw = typeof (args as any)?.platform === "string" ? String((args as any).platform) : null;
+      const deviceNameRaw = typeof (args as any)?.deviceName === "string" ? String((args as any).deviceName) : null;
+      const platform = platformRaw ? platformRaw.trim().slice(0, 64) : null;
+      const deviceName = deviceNameRaw ? deviceNameRaw.trim().slice(0, 128) : null;
+
+      if (!expoPushToken || !Expo.isExpoPushToken(expoPushToken)) {
+        return { status: 400, json: { ok: false, error: "Invalid Expo push token" } };
+      }
+
+      const now = new Date();
+      try {
+        await prisma.portalDeviceToken.upsert({
+          where: { expoPushToken },
+          create: {
+            userId,
+            expoPushToken,
+            platform,
+            deviceName,
+            lastSeenAt: now,
+            revokedAt: null,
+          },
+          update: {
+            userId,
+            platform,
+            deviceName,
+            lastSeenAt: now,
+            revokedAt: null,
+          },
+        });
+      } catch {
+        return { status: 503, json: { ok: false, error: "Push registration unavailable (DB not migrated yet)" } };
+      }
 
       return { status: 200, json: { ok: true } };
     }
@@ -9530,6 +9616,81 @@ async function runDirectAction(opts: {
       }
 
       return { status: 200, json: { ok: true, voices: result.voices } };
+    }
+
+    case "voice_agent.voices.preview": {
+      const anyOk = (await requireServiceCapability("aiOutboundCalls", "view")) || (await requireServiceCapability("aiReceptionist", "view"));
+      if (!anyOk) return { status: 403, json: { ok: false, error: "Forbidden" } };
+
+      const voiceId = String((args as any)?.voiceId || "")
+        .trim()
+        .slice(0, 200);
+      const text = String((args as any)?.text || "")
+        .trim()
+        .slice(0, 500);
+      if (!voiceId || !text) return { status: 400, json: { ok: false, error: "Invalid input" } };
+
+      const PROFILE_EXTRAS_SERVICE_SLUG = "profile";
+
+      const envFirst = (keys: string[]): string => {
+        for (const key of keys) {
+          const v = (process.env[key] ?? "").trim();
+          if (v) return v;
+        }
+        return "";
+      };
+
+      const envVoiceAgentApiKey = (): string => {
+        return envFirst(["VOICE_AGENT_API_KEY", "ELEVENLABS_API_KEY", "ELEVEN_LABS_API_KEY"]).slice(0, 400);
+      };
+
+      const getProfileVoiceAgentApiKey = async (oid: string): Promise<string | null> => {
+        const row = await prisma.portalServiceSetup.findUnique({
+          where: { ownerId_serviceSlug: { ownerId: oid, serviceSlug: PROFILE_EXTRAS_SERVICE_SLUG } },
+          select: { dataJson: true },
+        });
+
+        const rec =
+          row?.dataJson && typeof row.dataJson === "object" && !Array.isArray(row.dataJson)
+            ? (row.dataJson as Record<string, unknown>)
+            : null;
+
+        const raw = (rec as any)?.voiceAgentApiKey;
+        const key = typeof raw === "string" ? raw.trim().slice(0, 400) : "";
+        return key || envVoiceAgentApiKey() || null;
+      };
+
+      const friendlyVoiceAgentError = (status?: number): string => {
+        if (status === 401 || status === 403) return "Voice agent API key is invalid. Update it in Profile and try again.";
+        if (status === 429) return "Voice agent is temporarily rate-limited. Please try again in a minute.";
+        return "Voice preview failed. Please try again.";
+      };
+
+      const apiKey = ((await getProfileVoiceAgentApiKey(ownerId).catch(() => null)) || "").trim();
+      if (!apiKey) {
+        return { status: 400, json: { ok: false, error: "Missing voice agent API key. Set it in Profile first." } };
+      }
+
+      const result = await synthesizeElevenLabsVoicePreview({ apiKey, voiceId, text });
+      if (!result.ok) {
+        return { status: result.status || 502, json: { ok: false, error: friendlyVoiceAgentError(result.status) } };
+      }
+
+      const buf = Buffer.from(result.audio);
+      const MAX_AUDIO_BYTES = 2 * 1024 * 1024;
+      if (!buf.length || buf.length > MAX_AUDIO_BYTES) {
+        return { status: 502, json: { ok: false, error: "Voice preview returned an unexpectedly large payload" } };
+      }
+
+      return {
+        status: 200,
+        json: {
+          ok: true,
+          contentType: result.contentType || "audio/mpeg",
+          audioBase64: buf.toString("base64"),
+          byteLength: buf.length,
+        },
+      };
     }
 
     case "webhooks.get": {
