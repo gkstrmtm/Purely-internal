@@ -78,7 +78,7 @@ import {
 } from "@/lib/reviewRequests";
 import { mirrorUploadToMediaLibrary } from "@/lib/portalMediaUploads";
 import { safeFilename, newPublicToken, newTag, normalizeMimeType, normalizeNameKey } from "@/lib/portalMedia";
-import { addPortalDashboardWidget, isDashboardWidgetId, removePortalDashboardWidget, resetPortalDashboard, savePortalDashboardData, type DashboardWidgetId } from "@/lib/portalDashboard";
+import { addPortalDashboardWidget, getPortalDashboardData, isDashboardWidgetId, removePortalDashboardWidget, resetPortalDashboard, savePortalDashboardData, type DashboardWidgetId } from "@/lib/portalDashboard";
 import { hasPublicColumn } from "@/lib/dbSchema";
 import { cancelFollowUpsForBooking, scheduleFollowUpsForBooking } from "@/lib/followUpAutomation";
 import { trySendTransactionalEmail, sendTransactionalEmail } from "@/lib/emailSender";
@@ -4705,6 +4705,104 @@ async function runDirectAction(opts: {
       };
     }
 
+    case "ai_agents.list": {
+      const ok = await requireServiceCapability("profile", "view");
+      if (!ok) return { status: 403, json: { ok: false, error: "Forbidden" } };
+
+      const normalizeAgentId = (raw: unknown): string => {
+        const s = typeof raw === "string" ? raw.trim() : "";
+        if (!s) return "";
+        const cleaned = s.slice(0, 120);
+        // ElevenLabs convai agent ids are `agent_...`
+        if (!cleaned.startsWith("agent_")) return "";
+        return cleaned;
+      };
+
+      const normalizeLabel = (raw: unknown): string => {
+        const s = typeof raw === "string" ? raw.trim().replace(/\s+/g, " ") : "";
+        return s ? s.slice(0, 160) : "";
+      };
+
+      const asRecord = (value: unknown): Record<string, unknown> => {
+        return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+      };
+
+      const pushUnique = (list: string[], value: string) => {
+        if (!value) return;
+        if (list.includes(value)) return;
+        list.push(value);
+      };
+
+      const addAgent = (map: Map<string, { id: string; labels: string[] }>, idRaw: unknown, labelRaw?: unknown) => {
+        const id = normalizeAgentId(idRaw);
+        if (!id) return;
+        const label = normalizeLabel(labelRaw);
+        const existing = map.get(id);
+        if (existing) {
+          pushUnique(existing.labels, label);
+          return;
+        }
+        map.set(id, { id, labels: label ? [label] : [] });
+      };
+
+      const PROFILE_EXTRAS_SERVICE_SLUG = "profile";
+      const AI_RECEPTIONIST_SERVICE_SLUG = "ai-receptionist";
+
+      const agentsMap = new Map<string, { id: string; labels: string[] }>();
+
+      const setups = await prisma.portalServiceSetup.findMany({
+        where: {
+          ownerId,
+          serviceSlug: { in: [PROFILE_EXTRAS_SERVICE_SLUG, AI_RECEPTIONIST_SERVICE_SLUG] },
+        },
+        select: { serviceSlug: true, dataJson: true },
+      });
+
+      for (const s of setups) {
+        const data = asRecord((s as any).dataJson);
+
+        if (s.serviceSlug === PROFILE_EXTRAS_SERVICE_SLUG) {
+          addAgent(agentsMap, (data as any).voiceAgentId, "Profile: Voice");
+          continue;
+        }
+
+        if (s.serviceSlug === AI_RECEPTIONIST_SERVICE_SLUG) {
+          const settings = asRecord(((data as any).settings ?? data) as any);
+          addAgent(agentsMap, (settings as any).voiceAgentId, "AI Receptionist: Voice");
+          addAgent(
+            agentsMap,
+            (settings as any).chatAgentId ?? (settings as any).messagingAgentId,
+            "AI Receptionist: SMS",
+          );
+          continue;
+        }
+      }
+
+      const campaigns = await prisma.portalAiOutboundCallCampaign.findMany({
+        where: { ownerId },
+        select: { id: true, name: true, voiceAgentId: true, chatAgentId: true, updatedAt: true },
+        orderBy: { updatedAt: "desc" },
+        take: 60,
+      });
+
+      for (const c of campaigns) {
+        const n = normalizeLabel((c as any).name) || "Outbound campaign";
+        if ((c as any).voiceAgentId) addAgent(agentsMap, (c as any).voiceAgentId, `AI Outbound: ${n} (Calls)`);
+        if ((c as any).chatAgentId) addAgent(agentsMap, (c as any).chatAgentId, `AI Outbound: ${n} (Messages)`);
+      }
+
+      const agents = Array.from(agentsMap.values())
+        .map((a) => {
+          const label = a.labels.length ? a.labels.join(" · ") : "";
+          const name = label ? label.slice(0, 180) : undefined;
+          return { id: a.id, ...(name ? { name } : {}) };
+        })
+        .slice(0, 200);
+      agents.sort((a, b) => (a.name || a.id).localeCompare(b.name || b.id));
+
+      return { status: 200, json: { ok: true, agents } };
+    }
+
     case "webhooks.get": {
       const ok = await requireServiceCapability("webhooks", "view");
       if (!ok) return { status: 403, json: { ok: false, error: "Forbidden" } };
@@ -9277,6 +9375,12 @@ async function runDirectAction(opts: {
       const scope = args.scope === "embedded" ? "embedded" : "default";
       const data = await resetPortalDashboard(ownerId, scope);
       return { status: 200, json: { ok: true, scope, data } };
+    }
+
+    case "dashboard.get": {
+      const scope = args.scope === "embedded" ? "embedded" : "default";
+      const data = await getPortalDashboardData(ownerId, scope);
+      return { status: 200, json: { ok: true, data } };
     }
 
     case "dashboard.add_widget": {

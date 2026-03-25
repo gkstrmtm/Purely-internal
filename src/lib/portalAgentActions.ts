@@ -76,6 +76,8 @@ export const PortalAgentActionKeySchema = z.enum([
   "contacts.create",
   "onboarding.status.get",
 
+  "ai_agents.list",
+
   "me.get",
 
   "webhooks.get",
@@ -130,6 +132,8 @@ export const PortalAgentActionKeySchema = z.enum([
   "media.folder.ensure",
   "media.items.move",
   "media.import_remote_image",
+
+  "dashboard.get",
   "dashboard.reset",
   "dashboard.add_widget",
   "dashboard.remove_widget",
@@ -709,6 +713,8 @@ export const PortalAgentActionArgsSchemaByKey = {
 
   "onboarding.status.get": z.object({}).strict(),
 
+  "ai_agents.list": z.object({}).strict(),
+
   "contact_tags.list": z.object({}).strict(),
 
   "contact_tags.create": z
@@ -1010,6 +1016,12 @@ export const PortalAgentActionArgsSchemaByKey = {
       folderId: z.string().trim().min(1).optional().nullable(),
       folderName: z.string().trim().min(1).max(120).optional().nullable(),
       parentId: z.string().trim().min(1).optional().nullable(),
+    })
+    .strict(),
+
+  "dashboard.get": z
+    .object({
+      scope: z.enum(["default", "embedded"]).optional().nullable(),
     })
     .strict(),
 
@@ -1787,6 +1799,7 @@ export function portalAgentActionsIndexText(): string {
     "- contacts.list: List recent contacts (fields: limit?)",
     "- contacts.create: Create a contact (fields: name, email?, phone?, tags?, customVariables?)",
     "- onboarding.status.get: Get onboarding completion status (business profile + blogs setup)",
+    "- ai_agents.list: List known ElevenLabs agent IDs referenced by your portal account (voice/chat/outbound)",
     "- contact_tags.list: List contact tags",
     "- contact_tags.create: Create a contact tag (fields: name, color?)",
     "- contact_tags.update: Update a contact tag (fields: tagId, name?, color?)",
@@ -1834,6 +1847,7 @@ export function portalAgentActionsIndexText(): string {
     "- media.folder.ensure: Ensure a Media Library folder exists (fields: name, parentId?, color?)",
     "- media.items.move: Move media items into a folder (fields: itemIds, folderId? OR folderName(+parentId?))",
     "- media.import_remote_image: Import an image from a URL into Media Library (fields: url, fileName?, folderId? OR folderName(+parentId?))",
+    "- dashboard.get: Get the portal dashboard data (fields: scope=default|embedded?)",
     "- dashboard.reset: Reset the portal dashboard layout (fields: scope=default|embedded?)",
     "- dashboard.add_widget: Add a dashboard widget (fields: scope?, widgetId)",
     "- dashboard.remove_widget: Remove a dashboard widget (fields: scope?, widgetId)",

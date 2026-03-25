@@ -34,6 +34,8 @@ const ACTION_COVERAGE = [
 
   { action: "me.get", method: "GET", endpoint: "/api/portal/me" },
 
+  { action: "ai_agents.list", method: "GET", endpoint: "/api/portal/ai-agents" },
+
   { action: "webhooks.get", method: "GET", endpoint: "/api/portal/webhooks" },
   { action: "support_chat.send", method: "POST", endpoint: "/api/portal/support-chat" },
 
@@ -67,6 +69,8 @@ const ACTION_COVERAGE = [
   { action: "media.folder.ensure", method: "POST", endpoint: "/api/portal/media/folders" },
   { action: "media.items.move", method: "POST", endpoint: "/api/portal/media/items" },
   { action: "media.import_remote_image", method: "POST", endpoint: "/api/portal/media/import-remote" },
+
+  { action: "dashboard.get", method: "GET", endpoint: "/api/portal/dashboard" },
 
   { action: "dashboard.reset", method: "POST", endpoint: "/api/portal/dashboard/reset" },
   { action: "dashboard.add_widget", method: "POST", endpoint: "/api/portal/dashboard/widgets" },
