@@ -2,21 +2,29 @@ import crypto from "crypto";
 
 import { Prisma } from "@prisma/client";
 
+import { PORTAL_SERVICES } from "@/app/portal/services/catalog";
+import { groupPortalServices } from "@/app/portal/services/categories";
 import { prisma } from "@/lib/db";
 import { sendEmail } from "@/lib/leadOutbound";
+import { getPortalServiceStatusesForOwner } from "@/lib/portalServicesStatus";
 import {
   createPortalAccountInvite,
   getPortalAccountMemberRole,
   listPortalAccountInvites,
   listPortalAccountMembers,
 } from "@/lib/portalAccounts";
-import { normalizePortalPermissions } from "@/lib/portalPermissions";
+import { hasPortalServiceCapability, normalizePortalPermissions, type PortalServiceCapability } from "@/lib/portalPermissions";
+import type { PortalServiceKey } from "@/lib/portalPermissions.shared";
 import {
   PortalAgentActionArgsSchemaByKey,
   type PortalAgentActionKey,
 } from "@/lib/portalAgentActions";
-import { consumeCredits, consumeCreditsOnce } from "@/lib/credits";
+import { consumeCredits, consumeCreditsOnce, getCreditsLifecycleForOwner, getCreditsState, setAutoTopUp } from "@/lib/credits";
 import { PORTAL_CREDIT_COSTS } from "@/lib/portalCreditCosts";
+import { creditsPerTopUpPackage } from "@/lib/creditsTopup";
+import { getUsdPerCreditForOwner } from "@/lib/creditsPricing.server";
+import { moduleByKey, usdToCents } from "@/lib/portalModulesCatalog";
+import type { PortalVariant } from "@/lib/portalVariant";
 import { ensurePortalTasksSchema } from "@/lib/portalTasksSchema";
 import { runOwnerAutomationByIdForEvent } from "@/lib/portalAutomationsRunner";
 import { generateClientBlogDraft } from "@/lib/clientBlogAutomation";
@@ -38,8 +46,28 @@ import {
 import { ensurePortalContactsSchema } from "@/lib/portalContactsSchema";
 import { findOrCreatePortalContact, normalizePhoneKey } from "@/lib/portalContacts";
 import { listDuplicatePortalContactsByPhoneKey, mergePortalContacts } from "@/lib/portalContactDedup";
-import { addContactTagAssignment, createOwnerContactTag, ensurePortalContactTagsReady } from "@/lib/portalContactTags";
+import {
+  addContactTagAssignment,
+  createOwnerContactTag,
+  deleteOwnerContactTag,
+  ensureOwnerContactTagsSeededFromLeadScrapingPresets,
+  ensurePortalContactTagsReady,
+  listOwnerContactTags,
+  updateOwnerContactTag,
+} from "@/lib/portalContactTags";
+import { extractEmailAddress, getPortalInboxSettings, regeneratePortalInboxWebhookToken } from "@/lib/portalInbox";
 import { sendPortalInboxMessageNow } from "@/lib/portalInboxSend";
+import { ensurePortalInboxSchema } from "@/lib/portalInboxSchema";
+import { getOrCreateOwnerMailboxAddress, getOwnerMailboxAddressForUi, updateOwnerMailboxLocalPartOnce } from "@/lib/portalMailbox";
+import {
+  getMissedCallTextBackServiceData,
+  getOwnerProfilePhoneE164,
+  listMissedCallTextBackEvents,
+  parseMissedCallTextBackSettings,
+  regenerateMissedCallWebhookToken,
+  setMissedCallTextBackSettings,
+} from "@/lib/missedCallTextBack";
+import { getPublicWebhookBaseUrl, twilioSmsWebhookUrl } from "@/lib/twilioProvisioning";
 import {
   getReviewRequestsServiceData,
   listReviewRequestEvents,
@@ -60,9 +88,9 @@ import { signBookingRescheduleToken } from "@/lib/bookingReschedule";
 import { getOwnerTwilioSmsConfig, getOwnerTwilioSmsConfigMasked, sendOwnerTwilioSms } from "@/lib/portalTwilio";
 import { normalizePhoneStrict } from "@/lib/phone";
 import { ensurePortalNurtureSchema } from "@/lib/portalNurtureSchema";
-import { getOrCreateStripeCustomerId, isStripeConfigured, stripeGet, stripePost } from "@/lib/stripeFetch";
+import { getOrCreateStripeCustomerId, isStripeConfigured, stripeDelete, stripeGet, stripePost } from "@/lib/stripeFetch";
 import { generateText } from "@/lib/ai";
-import { getBusinessProfileAiContext } from "@/lib/businessProfileAiContext.server";
+import { getBusinessProfileAiContext, getBusinessProfileTemplateVars } from "@/lib/businessProfileAiContext.server";
 import { ensureVercelProjectDomain } from "@/lib/vercelProjectDomains";
 import { coerceBlocksJson, type CreditFunnelBlock } from "@/lib/creditFunnelBlocks";
 import { blocksToCustomHtmlDocument } from "@/lib/funnelBlocksToCustomHtmlDocument";
@@ -71,6 +99,14 @@ import { stripeGetWithKey, stripePostWithKey } from "@/lib/stripeFetchWithKey.se
 import { ensurePortalAiOutboundCallsSchema } from "@/lib/portalAiOutboundCallsSchema";
 import { normalizeTagIdList } from "@/lib/portalAiOutboundCalls";
 import { normalizeToolIdList, normalizeToolKeyList, parseVoiceAgentConfig } from "@/lib/voiceAgentConfig.shared";
+import { getAiReceptionistServiceData, listAiReceptionistEvents, toPublicSettings } from "@/lib/aiReceptionist";
+import { syncAiReceptionistKnowledgeBase } from "@/lib/portalAiReceptionistKnowledgeBaseSync.server";
+import { uploadAiReceptionistKnowledgeBaseFile } from "@/lib/portalAiReceptionistKnowledgeBaseSync.server";
+import { getPortalBusinessProfile, upsertPortalBusinessProfile } from "@/lib/portalBusinessProfile.server";
+import { getElevenLabsConvaiConversationSignedUrl, getElevenLabsConvaiConversationToken } from "@/lib/portalElevenLabsConvaiAuth.server";
+import { clampPortalReportingRangeKey, getPortalReportingSummaryForOwner } from "@/lib/portalReportingSummary.server";
+import { clampStripeChargesRangeKey, getStripeChargesReportForOwner } from "@/lib/portalStripeChargesReport.server";
+import { clampSalesRangeKey, getSalesReportForOwner } from "@/lib/salesReportingReport.server";
 
 const MAX_REMOTE_MEDIA_BYTES = 15 * 1024 * 1024; // matches /api/portal/media/import-remote
 
@@ -428,6 +464,54 @@ async function runDirectAction(opts: {
     const memberId = String(actorUserId || "").trim() || ownerId;
     const myRole = memberId === ownerId ? "OWNER" : await getPortalAccountMemberRole({ ownerId, userId: memberId });
     return myRole === "OWNER" || myRole === "ADMIN";
+  }
+
+  async function requireServiceCapability(service: PortalServiceKey, capability: PortalServiceCapability = "view") {
+    const memberId = String(actorUserId || "").trim() || ownerId;
+    if (memberId === ownerId) return true;
+
+    const row = await (prisma as any).portalAccountMember
+      .findUnique({
+        where: { ownerId_userId: { ownerId, userId: memberId } },
+        select: { role: true, permissionsJson: true },
+      })
+      .catch(() => null);
+
+    const memberRoleRaw = typeof row?.role === "string" ? String(row.role) : "";
+    const role = memberRoleRaw === "ADMIN" || memberRoleRaw === "MEMBER" ? memberRoleRaw : null;
+    if (!role) return false;
+    return hasPortalServiceCapability({ role, permissionsJson: row?.permissionsJson, service, capability });
+  }
+
+  async function requireAnyServiceCapability(services: PortalServiceKey[], capability: PortalServiceCapability = "view") {
+    for (const service of services) {
+      if (await requireServiceCapability(service, capability)) return true;
+    }
+    return false;
+  }
+
+  function decodeBase64ToBytes(raw: string, maxBytes: number):
+    | { ok: true; bytes: Uint8Array<ArrayBuffer> }
+    | { ok: false; error: string } {
+    const s = String(raw || "").trim();
+    if (!s) return { ok: false, error: "Missing contentBase64" };
+
+    const cleaned = s.startsWith("data:") ? s.slice(s.indexOf(",") + 1) : s;
+    if (!/^[a-z0-9+/=\s]+$/i.test(cleaned)) return { ok: false, error: "Invalid base64" };
+
+    let buf: Buffer;
+    try {
+      buf = Buffer.from(cleaned, "base64");
+    } catch {
+      return { ok: false, error: "Invalid base64" };
+    }
+
+    if (!buf.length) return { ok: false, error: "Empty file" };
+    if (buf.length > maxBytes) return { ok: false, error: `File too large (max ${maxBytes} bytes)` };
+    const arrayBuffer = new ArrayBuffer(buf.byteLength);
+    const bytes: Uint8Array<ArrayBuffer> = new Uint8Array(arrayBuffer);
+    bytes.set(buf);
+    return { ok: true, bytes };
   }
 
   type FunnelBuilderSettings = {
@@ -3554,6 +3638,751 @@ async function runDirectAction(opts: {
       return { status: 200, json: { ok: true, newsletterId: newsletter.id, creditsRemaining: consumed.state.balance } };
     }
 
+    case "billing.summary.get": {
+      if (!(await requireOwnerOrAdmin())) return { status: 403, json: { ok: false, error: "Forbidden" } };
+
+      type StripeSubscription = {
+        id: string;
+        status: string;
+        cancel_at_period_end?: boolean;
+        current_period_end?: number;
+        currency?: string;
+        items?: {
+          data?: Array<{
+            quantity?: number;
+            price?: {
+              id?: string;
+              nickname?: string | null;
+              unit_amount?: number | null;
+              recurring?: { interval?: string | null } | null;
+              product?: any;
+            };
+          }>;
+        };
+      };
+
+      type StripeInvoice = {
+        id: string;
+        status?: string;
+        paid?: boolean;
+        currency?: string;
+        amount_paid?: number;
+        created?: number;
+      };
+
+      type StripePaymentIntent = {
+        id: string;
+        status?: string;
+        currency?: string;
+        amount?: number;
+        created?: number;
+        invoice?: string | null;
+      };
+
+      function startOfMonthUnix(now = new Date()): number {
+        return Math.floor(new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0).getTime() / 1000);
+      }
+
+      function normalizeId(v: unknown) {
+        return typeof v === "string" ? v.trim() : "";
+      }
+
+      function titleForSubscription(sub: StripeSubscription): string {
+        const productName =
+          sub.items?.data?.[0]?.price?.product && typeof sub.items.data[0].price?.product?.name === "string"
+            ? String(sub.items.data[0].price.product.name)
+            : "";
+        if (productName) return productName;
+
+        const nickname = typeof sub.items?.data?.[0]?.price?.nickname === "string" ? String(sub.items.data[0].price.nickname) : "";
+        if (nickname) return nickname;
+
+        const priceId = normalizeId(sub.items?.data?.[0]?.price?.id);
+        if (priceId) return `Subscription (${priceId})`;
+
+        return "Subscription";
+      }
+
+      const ownerUser = await prisma.user.findUnique({ where: { id: ownerId }, select: { email: true } }).catch(() => null);
+      const email = ownerUser?.email ? String(ownerUser.email) : "";
+
+      if (!isStripeConfigured()) {
+        return { status: 200, json: { ok: true, configured: false } };
+      }
+
+      if (!email) {
+        return {
+          status: 200,
+          json: {
+            ok: true,
+            configured: true,
+            monthlyCents: 0,
+            currency: "usd",
+            spentThisMonthCents: 0,
+            spentThisMonthCurrency: "usd",
+            monthlyBreakdown: [] as Array<{ subscriptionId: string; title: string; monthlyCents: number; currency: string }>,
+          },
+        };
+      }
+
+      try {
+        const customer = await getOrCreateStripeCustomerId(email);
+
+        const subs = await stripeGet<{ data: StripeSubscription[] }>("/v1/subscriptions", {
+          customer,
+          status: "all",
+          limit: 25,
+          "expand[]": "data.items.data.price",
+        });
+
+        const active = subs.data.filter((s) => ["active", "trialing", "past_due"].includes(String(s.status)));
+
+        let monthlyCents = 0;
+        const monthlyBreakdown: Array<{ subscriptionId: string; title: string; monthlyCents: number; currency: string }> = [];
+
+        for (const sub of active) {
+          const currency = (sub.currency || "usd").toLowerCase();
+          let subMonthly = 0;
+
+          for (const item of sub.items?.data ?? []) {
+            const qty = typeof item.quantity === "number" && Number.isFinite(item.quantity) ? item.quantity : 1;
+            const unit = item.price?.unit_amount;
+            const interval = item.price?.recurring?.interval;
+            if (typeof unit !== "number") continue;
+            if (interval && interval !== "month") continue;
+            subMonthly += unit * qty;
+          }
+
+          monthlyCents += subMonthly;
+          monthlyBreakdown.push({
+            subscriptionId: sub.id,
+            title: titleForSubscription(sub),
+            monthlyCents: subMonthly,
+            currency,
+          });
+        }
+
+        const currency = (monthlyBreakdown[0]?.currency || "usd").toLowerCase();
+        const monthStart = startOfMonthUnix();
+
+        const invoices = await stripeGet<{ data: StripeInvoice[] }>("/v1/invoices", {
+          customer,
+          limit: 100,
+          "created[gte]": String(monthStart),
+        }).catch(() => ({ data: [] as StripeInvoice[] }));
+
+        let spentFromInvoices = 0;
+        let spentCurrency = currency;
+        for (const inv of invoices.data ?? []) {
+          const paid = Boolean(inv.paid) || String(inv.status || "").toLowerCase() === "paid";
+          if (!paid) continue;
+          const amt = typeof inv.amount_paid === "number" ? inv.amount_paid : 0;
+          if (amt > 0) spentFromInvoices += amt;
+          if (!spentCurrency && typeof inv.currency === "string") spentCurrency = inv.currency.toLowerCase();
+        }
+
+        const paymentIntents = await stripeGet<{ data: StripePaymentIntent[] }>("/v1/payment_intents", {
+          customer,
+          limit: 100,
+          "created[gte]": String(monthStart),
+        }).catch(() => ({ data: [] as StripePaymentIntent[] }));
+
+        let spentFromNonInvoicePis = 0;
+        for (const pi of paymentIntents.data ?? []) {
+          if (pi && pi.invoice) continue;
+          const ok = String(pi.status || "").toLowerCase() === "succeeded";
+          if (!ok) continue;
+          const amt = typeof pi.amount === "number" ? pi.amount : 0;
+          if (amt > 0) spentFromNonInvoicePis += amt;
+          if (!spentCurrency && typeof pi.currency === "string") spentCurrency = pi.currency.toLowerCase();
+        }
+
+        const spentThisMonthCents = spentFromInvoices + spentFromNonInvoicePis;
+
+        const representative = active[0];
+        const subscription = representative
+          ? {
+              id: representative.id,
+              status: String(representative.status),
+              cancelAtPeriodEnd: Boolean(representative.cancel_at_period_end),
+              currentPeriodEnd: typeof representative.current_period_end === "number" ? representative.current_period_end : null,
+            }
+          : undefined;
+
+        return {
+          status: 200,
+          json: {
+            ok: true,
+            configured: true,
+            monthlyCents,
+            currency,
+            spentThisMonthCents,
+            spentThisMonthCurrency: (spentCurrency || currency || "usd").toLowerCase(),
+            monthlyBreakdown,
+            subscription,
+          },
+        };
+      } catch (e) {
+        return {
+          status: 200,
+          json: {
+            ok: false,
+            configured: true,
+            error: "Failed to load billing summary",
+            details: e instanceof Error ? e.message : "Unknown error",
+          },
+        };
+      }
+    }
+
+    case "billing.subscriptions.list": {
+      if (!(await requireOwnerOrAdmin())) return { status: 403, json: { ok: false, error: "Forbidden" } };
+
+      type StripeSubscription = {
+        id: string;
+        status: string;
+        cancel_at_period_end?: boolean;
+        current_period_end?: number;
+        currency?: string;
+        items?: {
+          data?: Array<{
+            quantity?: number;
+            price?: {
+              id?: string;
+              nickname?: string | null;
+              unit_amount?: number | null;
+              currency?: string | null;
+              recurring?: { interval?: string | null } | null;
+              product?: any;
+            };
+          }>;
+        };
+      };
+
+      function normalizeId(v: unknown) {
+        return typeof v === "string" ? v.trim() : "";
+      }
+
+      function priceEnv(key: string) {
+        const v = process.env[key];
+        return typeof v === "string" && v.trim() ? v.trim() : "";
+      }
+
+      function titleForSubscription(opts: { sub: StripeSubscription; nurtureBySubId: Map<string, string> }): string {
+        const bySub = opts.nurtureBySubId.get(opts.sub.id);
+        if (bySub) return `Nurture Campaign: ${bySub}`;
+
+        const map = new Map<string, string>();
+        map.set(priceEnv("STRIPE_PRICE_BLOG_AUTOMATION"), "Automated Blogs");
+        map.set(priceEnv("STRIPE_PRICE_BOOKING_AUTOMATION"), "Booking Automation");
+        map.set(priceEnv("STRIPE_PRICE_CRM_AUTOMATION"), "Follow-up Automation");
+        map.set(priceEnv("STRIPE_PRICE_LEAD_OUTBOUND"), "AI Outbound");
+        map.set(priceEnv("STRIPE_PRICE_NURTURE_CAMPAIGN_MONTHLY"), "Nurture Campaigns");
+
+        for (const item of opts.sub.items?.data ?? []) {
+          const priceId = normalizeId(item.price?.id);
+          if (priceId && map.has(priceId)) return map.get(priceId)!;
+        }
+
+        const productName =
+          opts.sub.items?.data?.[0]?.price?.product && typeof opts.sub.items.data[0].price?.product?.name === "string"
+            ? String(opts.sub.items.data[0].price?.product?.name)
+            : "";
+        if (productName) return productName;
+
+        const nickname = typeof opts.sub.items?.data?.[0]?.price?.nickname === "string" ? opts.sub.items.data[0].price?.nickname : "";
+        if (nickname) return nickname;
+
+        return "Subscription";
+      }
+
+      const ownerUser = await prisma.user.findUnique({ where: { id: ownerId }, select: { email: true } }).catch(() => null);
+      const email = ownerUser?.email ? String(ownerUser.email) : "";
+
+      if (!isStripeConfigured()) {
+        return { status: 200, json: { ok: true, configured: false, subscriptions: [] as any[] } };
+      }
+
+      if (!email) {
+        return { status: 200, json: { ok: true, configured: true, subscriptions: [] as any[] } };
+      }
+
+      const nurtureCampaigns = await prisma.portalNurtureCampaign
+        .findMany({ where: { ownerId }, select: { id: true, name: true, stripeSubscriptionId: true } })
+        .catch(() => [] as Array<{ id: string; name: string; stripeSubscriptionId: string | null }>);
+
+      const nurtureBySubId = new Map<string, string>();
+      for (const c of nurtureCampaigns) {
+        const id = normalizeId(c.stripeSubscriptionId);
+        if (id) nurtureBySubId.set(id, String(c.name || "Campaign"));
+      }
+
+      const customer = await getOrCreateStripeCustomerId(email);
+      const subs = await stripeGet<{ data: StripeSubscription[] }>("/v1/subscriptions", {
+        customer,
+        status: "all",
+        limit: 100,
+        "expand[]": ["data.items.data.price", "data.items.data.price.product"],
+      });
+
+      const active = subs.data.filter((s) => ["active", "trialing", "past_due"].includes(String(s.status)));
+
+      return {
+        status: 200,
+        json: {
+          ok: true,
+          configured: true,
+          subscriptions: active.map((s) => {
+            const currency = String(s.currency || (s.items?.data?.[0]?.price?.currency ?? "usd")).toLowerCase();
+            return {
+              id: s.id,
+              title: titleForSubscription({ sub: s, nurtureBySubId }),
+              status: String(s.status),
+              cancelAtPeriodEnd: Boolean(s.cancel_at_period_end),
+              currentPeriodEnd: typeof s.current_period_end === "number" ? s.current_period_end : null,
+              currency,
+              items:
+                (s.items?.data ?? []).map((it) => ({
+                  quantity: typeof it.quantity === "number" ? it.quantity : 1,
+                  priceId: normalizeId(it.price?.id),
+                  unitAmount: typeof it.price?.unit_amount === "number" ? it.price.unit_amount : null,
+                  interval: typeof it.price?.recurring?.interval === "string" ? it.price.recurring.interval : null,
+                })) ?? [],
+            };
+          }),
+        },
+      };
+    }
+
+    case "billing.info.get": {
+      if (!(await requireOwnerOrAdmin())) return { status: 403, json: { ok: false, error: "Forbidden" } };
+
+      type StripeCustomer = {
+        id: string;
+        email: string | null;
+        name: string | null;
+        phone: string | null;
+        address: {
+          line1: string | null;
+          line2: string | null;
+          city: string | null;
+          state: string | null;
+          postal_code: string | null;
+          country: string | null;
+        } | null;
+        invoice_settings?: {
+          default_payment_method?:
+            | string
+            | null
+            | {
+                id: string;
+                card?: { brand?: string; last4?: string; exp_month?: number; exp_year?: number } | null;
+                billing_details?: {
+                  name?: string | null;
+                  email?: string | null;
+                  phone?: string | null;
+                  address?: {
+                    line1?: string | null;
+                    line2?: string | null;
+                    city?: string | null;
+                    state?: string | null;
+                    postal_code?: string | null;
+                    country?: string | null;
+                  } | null;
+                } | null;
+              };
+        };
+      };
+
+      if (!isStripeConfigured()) {
+        return { status: 200, json: { ok: true, stripeConfigured: false } };
+      }
+
+      const ownerUser = await prisma.user.findUnique({ where: { id: ownerId }, select: { email: true } }).catch(() => null);
+      const email = String(ownerUser?.email || "").trim();
+      if (!email) return { status: 400, json: { ok: false, error: "Missing user email" } };
+
+      try {
+        const customerId = await getOrCreateStripeCustomerId(email, { ownerId });
+
+        const customer = await stripeGet<StripeCustomer>(`/v1/customers/${encodeURIComponent(customerId)}`, {
+          "expand[]": "invoice_settings.default_payment_method",
+        });
+
+        const pm = customer?.invoice_settings?.default_payment_method;
+        const pmObj = pm && typeof pm === "object" ? pm : null;
+
+        return {
+          status: 200,
+          json: {
+            ok: true,
+            stripeConfigured: true,
+            customer: {
+              id: customer.id,
+              email: customer.email,
+              name: customer.name,
+              phone: customer.phone,
+              address: customer.address
+                ? {
+                    line1: customer.address.line1,
+                    line2: customer.address.line2,
+                    city: customer.address.city,
+                    state: customer.address.state,
+                    postalCode: customer.address.postal_code,
+                    country: customer.address.country,
+                  }
+                : null,
+            },
+            defaultPaymentMethod: pmObj
+              ? {
+                  id: pmObj.id,
+                  brand: pmObj.card?.brand ?? null,
+                  last4: pmObj.card?.last4 ?? null,
+                  expMonth: pmObj.card?.exp_month ?? null,
+                  expYear: pmObj.card?.exp_year ?? null,
+                }
+              : pm && typeof pm === "string"
+                ? { id: pm, brand: null, last4: null, expMonth: null, expYear: null }
+                : null,
+          },
+        };
+      } catch (e) {
+        const message = e instanceof Error ? e.message : "Stripe error";
+        return { status: 502, json: { ok: false, error: message } };
+      }
+    }
+
+    case "pricing.get": {
+      const ok = await requireServiceCapability("billing", "view");
+      if (!ok) return { status: 403, json: { ok: false, error: "Forbidden" } };
+
+      function modulePricing(key: Parameters<typeof moduleByKey>[0]) {
+        const m = moduleByKey(key);
+        return {
+          monthlyCents: usdToCents(m.monthlyUsd),
+          setupCents: usdToCents(m.setupUsd),
+          currency: "usd",
+          usageBased: Boolean(m.usageBased),
+          title: m.title,
+          description: m.description,
+        };
+      }
+
+      const owner = await prisma.user.findUnique({ where: { id: ownerId }, select: { clientPortalVariant: true } }).catch(() => null);
+      const portalVariant: PortalVariant = owner?.clientPortalVariant === "CREDIT" ? "credit" : "portal";
+
+      const blog = modulePricing("blog");
+      const booking = modulePricing("booking");
+      const automations = modulePricing("automations");
+      const reviews = modulePricing("reviews");
+      const newsletter = modulePricing("newsletter");
+      const nurture = modulePricing("nurture");
+      const aiReceptionist = modulePricing("aiReceptionist");
+      const leadScraping = modulePricing("leadScraping");
+      const crm = modulePricing("crm");
+      const leadOutbound = modulePricing("leadOutbound");
+
+      return {
+        status: 200,
+        json: {
+          ok: true,
+          stripeConfigured: isStripeConfigured(),
+          credits: {
+            usdValue: await getUsdPerCreditForOwner({ ownerId, portalVariant }),
+            rollOver: true,
+            topup: {
+              creditsPerPackage: creditsPerTopUpPackage(),
+            },
+          },
+          modules: {
+            blog,
+            booking,
+            automations,
+            reviews,
+            newsletter,
+            nurture,
+            aiReceptionist,
+            leadScraping,
+            crm,
+            leadOutbound,
+          },
+        },
+      };
+    }
+
+    case "credits.get": {
+      if (!(await requireOwnerOrAdmin())) return { status: 403, json: { ok: false, error: "Forbidden" } };
+
+      function purchaseAvailable() {
+        if (process.env.NODE_ENV !== "production") return true;
+        return Boolean(isStripeConfigured());
+      }
+
+      const owner = await prisma.user.findUnique({ where: { id: ownerId }, select: { clientPortalVariant: true } }).catch(() => null);
+      const portalVariant: PortalVariant = owner?.clientPortalVariant === "CREDIT" ? "credit" : "portal";
+
+      const [state, lifecycle, creditUsdValue] = await Promise.all([
+        getCreditsState(ownerId),
+        getCreditsLifecycleForOwner(ownerId),
+        getUsdPerCreditForOwner({ ownerId, portalVariant }),
+      ]);
+
+      return {
+        status: 200,
+        json: {
+          ok: true,
+          credits: state.balance,
+          autoTopUp: state.autoTopUp,
+          lifecycle,
+          purchaseAvailable: purchaseAvailable(),
+          billingPath: "/portal/app/billing",
+          creditUsdValue,
+          creditsPerPackage: creditsPerTopUpPackage(),
+          freeCredits: false,
+        },
+      };
+    }
+
+    case "credits.auto_topup.set": {
+      if (!(await requireOwnerOrAdmin())) return { status: 403, json: { ok: false, error: "Forbidden" } };
+
+      function purchaseAvailable() {
+        if (process.env.NODE_ENV !== "production") return true;
+        return Boolean(isStripeConfigured());
+      }
+
+      const autoTopUp = Boolean((args as any)?.autoTopUp);
+      const next = await setAutoTopUp(ownerId, autoTopUp);
+
+      return {
+        status: 200,
+        json: {
+          ok: true,
+          credits: next.balance,
+          autoTopUp: next.autoTopUp,
+          purchaseAvailable: purchaseAvailable(),
+          billingPath: "/portal/app/billing",
+        },
+      };
+    }
+
+    case "reporting.summary.get": {
+      if (!(await requireServiceCapability("reporting" as PortalServiceKey, "view"))) {
+        return { status: 403, json: { ok: false, error: "Forbidden" } };
+      }
+
+      const rangeRaw = typeof (args as any).range === "string" ? String((args as any).range) : null;
+      const range = clampPortalReportingRangeKey(rangeRaw);
+      const payload = await getPortalReportingSummaryForOwner(ownerId, range);
+      return { status: 200, json: payload };
+    }
+
+    case "reporting.sales.get": {
+      if (!(await requireServiceCapability("reporting" as PortalServiceKey, "view"))) {
+        return { status: 403, json: { ok: false, error: "Forbidden" } };
+      }
+
+      const rangeRaw = typeof (args as any).range === "string" ? String((args as any).range) : null;
+      const range = clampSalesRangeKey(rangeRaw);
+      const payload = await getSalesReportForOwner(ownerId, range);
+      if (!payload.ok) return { status: 400, json: payload };
+      return { status: 200, json: payload };
+    }
+
+    case "reporting.stripe.get": {
+      if (!(await requireServiceCapability("reporting" as PortalServiceKey, "view"))) {
+        return { status: 403, json: { ok: false, error: "Forbidden" } };
+      }
+
+      const rangeRaw = typeof (args as any).range === "string" ? String((args as any).range) : null;
+      const range = clampStripeChargesRangeKey(rangeRaw);
+      const payload = await getStripeChargesReportForOwner(ownerId, range);
+      if (!payload.ok) return { status: 400, json: payload };
+      return { status: 200, json: payload };
+    }
+
+    case "credit.contacts.list": {
+      if (!(await requireOwnerOrAdmin())) return { status: 403, json: { ok: false, error: "Forbidden" } };
+      await ensurePortalContactsSchema().catch(() => null);
+
+      function normalizeKey(raw: string) {
+        return raw
+          .trim()
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, "")
+          .slice(0, 80);
+      }
+
+      const q = typeof (args as any).q === "string" ? String((args as any).q).trim() : "";
+      const qKey = normalizeKey(q);
+
+      const contacts = await (prisma as any).portalContact.findMany({
+        where: {
+          ownerId,
+          ...(qKey
+            ? {
+                OR: [{ nameKey: { contains: qKey } }, { emailKey: { contains: qKey } }, { phoneKey: { contains: qKey } }],
+              }
+            : {}),
+        },
+        orderBy: [{ updatedAt: "desc" }, { createdAt: "desc" }, { id: "asc" }],
+        take: 50,
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          phone: true,
+          createdAt: true,
+          updatedAt: true,
+        },
+      });
+
+      return { status: 200, json: { ok: true, contacts } };
+    }
+
+    case "credit.pulls.list": {
+      if (!(await requireOwnerOrAdmin())) return { status: 403, json: { ok: false, error: "Forbidden" } };
+      const contactId = typeof (args as any).contactId === "string" ? String((args as any).contactId).trim() : "";
+
+      const pulls = await prisma.creditPull.findMany({
+        where: {
+          ownerId,
+          ...(contactId ? { contactId } : {}),
+        },
+        orderBy: [{ requestedAt: "desc" }, { id: "desc" }],
+        take: 20,
+        select: {
+          id: true,
+          status: true,
+          provider: true,
+          requestedAt: true,
+          completedAt: true,
+          error: true,
+          contactId: true,
+        },
+      });
+
+      return { status: 200, json: { ok: true, pulls } };
+    }
+
+    case "credit.disputes.letters.list": {
+      if (!(await requireOwnerOrAdmin())) return { status: 403, json: { ok: false, error: "Forbidden" } };
+      const contactId = typeof (args as any).contactId === "string" ? String((args as any).contactId).trim() : "";
+
+      const letters = await prisma.creditDisputeLetter.findMany({
+        where: {
+          ownerId,
+          ...(contactId ? { contactId } : {}),
+        },
+        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+        take: 50,
+        select: {
+          id: true,
+          status: true,
+          subject: true,
+          createdAt: true,
+          updatedAt: true,
+          generatedAt: true,
+          pdfMediaItemId: true,
+          pdfGeneratedAt: true,
+          sentAt: true,
+          lastSentTo: true,
+          contactId: true,
+          creditPullId: true,
+          contact: { select: { id: true, name: true, email: true, phone: true } },
+        },
+      });
+
+      return { status: 200, json: { ok: true, letters } };
+    }
+
+    case "credit.disputes.letter.get": {
+      if (!(await requireOwnerOrAdmin())) return { status: 403, json: { ok: false, error: "Forbidden" } };
+      const letterId = String((args as any).letterId || "").trim();
+      if (!letterId) return { status: 404, json: { ok: false, error: "Not found" } };
+
+      const letter = await prisma.creditDisputeLetter.findFirst({
+        where: { id: letterId, ownerId },
+        select: {
+          id: true,
+          status: true,
+          subject: true,
+          bodyText: true,
+          createdAt: true,
+          updatedAt: true,
+          generatedAt: true,
+          pdfMediaItemId: true,
+          pdfGeneratedAt: true,
+          sentAt: true,
+          lastSentTo: true,
+          contactId: true,
+          creditPullId: true,
+          contact: { select: { id: true, name: true, email: true, phone: true } },
+          pdfMediaItem: { select: { id: true, publicToken: true } },
+        },
+      });
+
+      if (!letter) return { status: 404, json: { ok: false, error: "Not found" } };
+      return { status: 200, json: { ok: true, letter } };
+    }
+
+    case "credit.reports.list": {
+      if (!(await requireOwnerOrAdmin())) return { status: 403, json: { ok: false, error: "Forbidden" } };
+
+      const reports = await prisma.creditReport.findMany({
+        where: { ownerId },
+        orderBy: [{ importedAt: "desc" }, { id: "desc" }],
+        take: 25,
+        select: {
+          id: true,
+          provider: true,
+          importedAt: true,
+          createdAt: true,
+          contactId: true,
+          contact: { select: { id: true, name: true, email: true } },
+          _count: { select: { items: true } },
+        },
+      });
+
+      return { status: 200, json: { ok: true, reports } };
+    }
+
+    case "credit.reports.get": {
+      if (!(await requireOwnerOrAdmin())) return { status: 403, json: { ok: false, error: "Forbidden" } };
+      const reportId = String((args as any).reportId || "").trim();
+      if (!reportId) return { status: 404, json: { ok: false, error: "Not found" } };
+
+      const report = await prisma.creditReport.findFirst({
+        where: { id: reportId, ownerId },
+        select: {
+          id: true,
+          provider: true,
+          importedAt: true,
+          createdAt: true,
+          rawJson: true,
+          contactId: true,
+          contact: { select: { id: true, name: true, email: true } },
+          items: {
+            orderBy: [{ auditTag: "asc" }, { createdAt: "desc" }],
+            take: 500,
+            select: {
+              id: true,
+              bureau: true,
+              kind: true,
+              label: true,
+              auditTag: true,
+              disputeStatus: true,
+              createdAt: true,
+              updatedAt: true,
+            },
+          },
+        },
+      });
+
+      if (!report) return { status: 404, json: { ok: false, error: "Not found" } };
+      return { status: 200, json: { ok: true, report } };
+    }
+
     case "automations.run": {
       const automationId = String(args.automationId || "").trim();
       if (!automationId) return { status: 400, json: { ok: false, error: "Invalid input" } };
@@ -3701,6 +4530,499 @@ async function runDirectAction(opts: {
       }
 
       return { status: 200, json: { ok: true, contactId } };
+    }
+
+    case "onboarding.status.get": {
+      const ok = await requireServiceCapability("businessProfile", "edit");
+      if (!ok) return { status: 403, json: { ok: false, error: "Forbidden" } };
+
+      const [profile, blogSite] = await Promise.all([
+        prisma.businessProfile.findUnique({
+          where: { ownerId },
+          select: {
+            businessName: true,
+            websiteUrl: true,
+            industry: true,
+            businessModel: true,
+            primaryGoals: true,
+            targetCustomer: true,
+            brandVoice: true,
+          },
+        }),
+        prisma.clientBlogSite.findUnique({
+          where: { ownerId },
+          select: {
+            id: true,
+            name: true,
+            primaryDomain: true,
+            verifiedAt: true,
+          },
+        }),
+      ]);
+
+      const businessProfileComplete = Boolean(profile?.businessName?.trim());
+      const blogsSetupComplete = Boolean(blogSite?.id);
+
+      return {
+        status: 200,
+        json: {
+          ok: true,
+          businessProfileComplete,
+          blogsSetupComplete,
+          needsOnboarding: !businessProfileComplete,
+          profile,
+          blogSite,
+        },
+      };
+    }
+
+    case "contact_tags.list": {
+      const ok = await requireAnyServiceCapability(
+        [
+          "inbox",
+          "people",
+          "automations",
+          "newsletter",
+          "nurtureCampaigns",
+          "aiOutboundCalls",
+          "reviews",
+          "booking",
+          "followUp",
+          "leadScraping",
+        ],
+        "view",
+      );
+      if (!ok) return { status: 403, json: { ok: false, error: "Forbidden" } };
+
+      await ensureOwnerContactTagsSeededFromLeadScrapingPresets(ownerId).catch(() => null);
+      const tags = await listOwnerContactTags(ownerId);
+      return { status: 200, json: { ok: true, tags } };
+    }
+
+    case "contact_tags.create": {
+      const ok = await requireAnyServiceCapability(
+        [
+          "inbox",
+          "people",
+          "automations",
+          "newsletter",
+          "nurtureCampaigns",
+          "aiOutboundCalls",
+          "reviews",
+          "booking",
+          "followUp",
+          "leadScraping",
+        ],
+        "edit",
+      );
+      if (!ok) return { status: 403, json: { ok: false, error: "Forbidden" } };
+
+      const name = String((args as any)?.name || "").trim().slice(0, 60);
+      if (!name) return { status: 400, json: { ok: false, error: "Invalid input" } };
+      const color = typeof (args as any)?.color === "string" ? String((args as any).color).trim().slice(0, 16) : null;
+
+      const created = await createOwnerContactTag({ ownerId, name, color: color || null }).catch(() => null);
+      if (!created) return { status: 500, json: { ok: false, error: "Failed to create tag" } };
+
+      return { status: 200, json: { ok: true, tag: created } };
+    }
+
+    case "contact_tags.update": {
+      const ok = await requireAnyServiceCapability(
+        ["inbox", "people", "automations", "nurtureCampaigns", "aiOutboundCalls", "leadScraping"],
+        "edit",
+      );
+      if (!ok) return { status: 403, json: { ok: false, error: "Forbidden" } };
+
+      const tagId = String((args as any)?.tagId || "").trim().slice(0, 120);
+      if (!tagId) return { status: 400, json: { ok: false, error: "Invalid tag id" } };
+
+      const name = typeof (args as any)?.name === "string" ? String((args as any).name).trim().slice(0, 60) : undefined;
+      const color = (args as any)?.color === null
+        ? null
+        : typeof (args as any)?.color === "string"
+          ? String((args as any).color).trim().slice(0, 16)
+          : undefined;
+
+      const updated = await updateOwnerContactTag({ ownerId, tagId, name, color } as any).catch(() => null);
+      if (!updated) return { status: 404, json: { ok: false, error: "Not found" } };
+
+      return { status: 200, json: { ok: true, tag: updated } };
+    }
+
+    case "contact_tags.delete": {
+      const ok = await requireAnyServiceCapability(
+        ["inbox", "people", "automations", "nurtureCampaigns", "aiOutboundCalls", "leadScraping"],
+        "edit",
+      );
+      if (!ok) return { status: 403, json: { ok: false, error: "Forbidden" } };
+
+      const tagId = String((args as any)?.tagId || "").trim().slice(0, 120);
+      if (!tagId) return { status: 400, json: { ok: false, error: "Invalid tag id" } };
+
+      const deleted = await deleteOwnerContactTag(ownerId, tagId).catch(() => false);
+      if (!deleted) return { status: 404, json: { ok: false, error: "Not found" } };
+
+      return { status: 200, json: { ok: true } };
+    }
+
+    case "me.get": {
+      const memberId = String(actorUserId || "").trim() || ownerId;
+      if (memberId === ownerId) {
+        return {
+          status: 200,
+          json: {
+            ok: true,
+            ownerId,
+            memberId,
+            role: "OWNER" as const,
+            permissions: normalizePortalPermissions({}, "OWNER"),
+          },
+        };
+      }
+
+      const row = await (prisma as any).portalAccountMember
+        .findUnique({
+          where: { ownerId_userId: { ownerId, userId: memberId } },
+          select: { role: true, permissionsJson: true },
+        })
+        .catch(() => null);
+
+      const roleRaw = typeof row?.role === "string" ? String(row.role) : null;
+      const role = roleRaw === "ADMIN" || roleRaw === "MEMBER" ? roleRaw : null;
+      if (!role) return { status: 403, json: { ok: false, error: "Forbidden" } };
+
+      return {
+        status: 200,
+        json: {
+          ok: true,
+          ownerId,
+          memberId,
+          role,
+          permissions: normalizePortalPermissions(row?.permissionsJson, role),
+        },
+      };
+    }
+
+    case "services.catalog.get": {
+      const memberId = String(actorUserId || "").trim() || ownerId;
+      if (memberId !== ownerId) {
+        const row = await (prisma as any).portalAccountMember
+          .findUnique({
+            where: { ownerId_userId: { ownerId, userId: memberId } },
+            select: { role: true },
+          })
+          .catch(() => null);
+
+        const roleRaw = typeof row?.role === "string" ? String(row.role) : null;
+        const role = roleRaw === "ADMIN" || roleRaw === "MEMBER" ? roleRaw : null;
+        if (!role) return { status: 403, json: { ok: false, error: "Forbidden" } };
+      }
+
+      const services = PORTAL_SERVICES.filter((s) => !s.variants || s.variants.includes("portal"));
+      const groups = groupPortalServices(services).map((g) => ({
+        key: g.key,
+        title: g.title,
+        services: g.services.map((s) => ({
+          slug: s.slug,
+          title: s.title,
+          description: s.description,
+          accent: s.accent,
+          hidden: Boolean(s.hidden),
+          included: Boolean(s.included),
+          entitlementKey: s.entitlementKey ?? null,
+        })),
+      }));
+
+      return { status: 200, json: { ok: true, groups } };
+    }
+
+    case "services.status.get": {
+      const memberId = String(actorUserId || "").trim() || ownerId;
+      if (memberId !== ownerId) {
+        const row = await (prisma as any).portalAccountMember
+          .findUnique({
+            where: { ownerId_userId: { ownerId, userId: memberId } },
+            select: { role: true },
+          })
+          .catch(() => null);
+
+        const roleRaw = typeof row?.role === "string" ? String(row.role) : null;
+        const role = roleRaw === "ADMIN" || roleRaw === "MEMBER" ? roleRaw : null;
+        if (!role) return { status: 403, json: { ok: false, error: "Forbidden" } };
+      }
+
+      const [owner, actor] = await Promise.all([
+        prisma.user.findUnique({ where: { id: ownerId }, select: { clientPortalVariant: true } }).catch(() => null),
+        prisma.user.findUnique({ where: { id: memberId }, select: { email: true } }).catch(() => null),
+      ]);
+      const portalVariant: PortalVariant = owner?.clientPortalVariant === "CREDIT" ? "credit" : "portal";
+
+      const result = await getPortalServiceStatusesForOwner({
+        ownerId,
+        fallbackEmail: actor?.email,
+        portalVariant,
+      });
+
+      return {
+        status: 200,
+        json: {
+          ok: true,
+          ownerId: result.ownerId,
+          billingModel: result.billingModel,
+          entitlements: result.entitlements,
+          statuses: result.statuses,
+        },
+      };
+    }
+
+    case "services.lifecycle.update": {
+      const ok = await requireServiceCapability("billing", "edit");
+      if (!ok) return { status: 403, json: { ok: false, error: "Forbidden" } };
+
+      const serviceSlug = String((args as any)?.serviceSlug || "").trim();
+      const actionRaw = String((args as any)?.action || "").trim();
+      const action = actionRaw === "pause" || actionRaw === "cancel" || actionRaw === "resume" ? actionRaw : null;
+      if (!serviceSlug || !action) return { status: 400, json: { ok: false, error: "Invalid payload" } };
+
+      const known = PORTAL_SERVICES.some((s) => s.slug === serviceSlug);
+      if (!known) return { status: 400, json: { ok: false, error: "Unknown service" } };
+
+      const now = new Date();
+      const targetState = action === "resume" ? "active" : action;
+      const slugsToUpdate = serviceSlug === "follow-up" || serviceSlug === "lead-scraping" ? ["follow-up", "lead-scraping"] : [serviceSlug];
+
+      function readObj(value: unknown): Record<string, unknown> | null {
+        if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+        return value as any;
+      }
+
+      function subMatchesService(sub: any, slug: string) {
+        const moduleMeta = String(sub?.metadata?.module ?? "").trim();
+        const planIdsRaw = String(sub?.metadata?.planIds ?? "").trim();
+        const planIds = new Set(planIdsRaw.split(",").map((x: string) => x.trim()).filter(Boolean));
+
+        if (slug === "blogs") return moduleMeta === "blog" || planIds.has("blogs");
+        if (slug === "booking") return moduleMeta === "booking" || planIds.has("booking");
+        if (slug === "automations") return moduleMeta === "automations" || planIds.has("automations");
+        if (slug === "reviews") return moduleMeta === "reviews" || planIds.has("reviews");
+        if (slug === "newsletter") return moduleMeta === "newsletter" || planIds.has("newsletter");
+        if (slug === "nurture-campaigns") return moduleMeta === "nurture" || planIds.has("nurture");
+        if (slug === "ai-receptionist") return moduleMeta === "aiReceptionist" || planIds.has("ai-receptionist");
+        if (slug === "ai-outbound-calls") return moduleMeta === "leadOutbound" || planIds.has("ai-outbound");
+        if (slug === "follow-up" || slug === "lead-scraping") return moduleMeta === "crm";
+        return false;
+      }
+
+      await prisma.$transaction(async (tx) => {
+        for (const slug of slugsToUpdate) {
+          const existing = await tx.portalServiceSetup.findUnique({
+            where: { ownerId_serviceSlug: { ownerId, serviceSlug: slug } },
+            select: { dataJson: true, status: true },
+          });
+
+          const prevJson = readObj(existing?.dataJson) ?? {};
+          const prevLifecycle = readObj(prevJson.lifecycle) ?? {};
+
+          const nextJson = {
+            ...prevJson,
+            lifecycle: {
+              ...prevLifecycle,
+              state: targetState,
+              updatedAtIso: now.toISOString(),
+            },
+          };
+
+          await tx.portalServiceSetup.upsert({
+            where: { ownerId_serviceSlug: { ownerId, serviceSlug: slug } },
+            create: { ownerId, serviceSlug: slug, status: existing?.status ?? "COMPLETE", dataJson: nextJson },
+            update: { dataJson: nextJson },
+            select: { id: true },
+          });
+        }
+      });
+
+      const canceledSubscriptionIds: string[] = [];
+
+      if (action !== "resume" && isStripeConfigured()) {
+        const memberId = String(actorUserId || "").trim() || ownerId;
+        const actor = await prisma.user.findUnique({ where: { id: memberId }, select: { email: true } }).catch(() => null);
+        const email = actor?.email;
+
+        if (email) {
+          try {
+            const customer = await getOrCreateStripeCustomerId(String(email));
+            const subs = await stripeGet<{ data: any[] }>("/v1/subscriptions", {
+              customer,
+              status: "all",
+              limit: 50,
+              "expand[]": ["data.items.data.price"],
+            });
+
+            const active = (subs.data ?? []).filter((s) => ["active", "trialing", "past_due"].includes(String(s?.status || "")));
+            for (const sub of active) {
+              if (!subMatchesService(sub, serviceSlug)) continue;
+              const subId = String(sub?.id || "").trim();
+              if (!subId) continue;
+              await stripeDelete(`/v1/subscriptions/${subId}`);
+              canceledSubscriptionIds.push(subId);
+            }
+          } catch {
+            // Best-effort; lifecycle state still updates.
+          }
+        }
+      }
+
+      return {
+        status: 200,
+        json: { ok: true, serviceSlug, updatedSlugs: slugsToUpdate, state: targetState, canceledSubscriptionIds },
+      };
+    }
+
+    case "mailbox.get": {
+      const ok = await requireServiceCapability("profile", "view");
+      if (!ok) return { status: 403, json: { ok: false, error: "Forbidden" } };
+
+      const memberId = String(actorUserId || "").trim() || ownerId;
+      const mailbox = await getOwnerMailboxAddressForUi(ownerId).catch(() => null);
+      const canChange = memberId === ownerId ? Boolean(mailbox?.canChange) : false;
+
+      return {
+        status: 200,
+        json: {
+          ok: true,
+          mailbox: mailbox
+            ? {
+                emailAddress: mailbox.emailAddress,
+                localPart: mailbox.localPart,
+                canChange,
+              }
+            : null,
+        },
+      };
+    }
+
+    case "mailbox.update": {
+      const ok = await requireServiceCapability("profile", "view");
+      if (!ok) return { status: 403, json: { ok: false, error: "Forbidden" } };
+
+      const memberId = String(actorUserId || "").trim() || ownerId;
+      if (memberId !== ownerId) return { status: 403, json: { ok: false, error: "Forbidden" } };
+
+      const localPart = String((args as any)?.localPart || "").trim().slice(0, 48);
+      if (localPart.length < 2) return { status: 400, json: { ok: false, error: "Invalid input" } };
+
+      const res = await updateOwnerMailboxLocalPartOnce({ ownerId, desiredLocalPart: localPart });
+      if (!res.ok) return { status: 400, json: { ok: false, error: res.error } };
+
+      return {
+        status: 200,
+        json: {
+          ok: true,
+          mailbox: {
+            emailAddress: res.emailAddress,
+            localPart: res.localPart,
+            canChange: false,
+          },
+        },
+      };
+    }
+
+    case "missed_call_textback.settings.get": {
+      const ok = await requireServiceCapability("missedCallTextback", "view");
+      if (!ok) return { status: 403, json: { ok: false, error: "Forbidden" } };
+
+      const [data, profilePhone] = await Promise.all([
+        getMissedCallTextBackServiceData(ownerId),
+        getOwnerProfilePhoneE164(ownerId),
+      ]);
+
+      const twilio = await getOwnerTwilioSmsConfigMasked(ownerId);
+      const base = getPublicWebhookBaseUrl();
+      const webhookUrl = `${base}/hooks/api/public/twilio/voice`;
+      const webhookUrlLegacy = `${base}/hooks/api/public/twilio/missed-call-textback/${data.settings.webhookToken}/voice`;
+      const events = await listMissedCallTextBackEvents(ownerId, 120);
+
+      return {
+        status: 200,
+        json: {
+          ok: true,
+          settings: data.settings,
+          events,
+          profilePhone,
+          twilioConfigured: twilio.configured,
+          twilioReason: twilio.configured ? undefined : "Twilio not configured in portal",
+          webhookUrl,
+          webhookUrlLegacy,
+          notes: { variables: ["{from}", "{to}"] },
+        },
+      };
+    }
+
+    case "missed_call_textback.settings.update": {
+      const ok = await requireServiceCapability("missedCallTextback", "edit");
+      if (!ok) return { status: 403, json: { ok: false, error: "Forbidden" } };
+
+      const regenerateToken = (args as any)?.regenerateToken === true;
+
+      if (regenerateToken) {
+        const next = await regenerateMissedCallWebhookToken(ownerId);
+        const [events, profilePhone, twilio] = await Promise.all([
+          listMissedCallTextBackEvents(ownerId, 120),
+          getOwnerProfilePhoneE164(ownerId),
+          getOwnerTwilioSmsConfigMasked(ownerId),
+        ]);
+
+        const base = getPublicWebhookBaseUrl();
+        const webhookUrl = `${base}/hooks/api/public/twilio/voice`;
+        const webhookUrlLegacy = `${base}/hooks/api/public/twilio/missed-call-textback/${next.webhookToken}/voice`;
+
+        return {
+          status: 200,
+          json: {
+            ok: true,
+            settings: next,
+            events,
+            profilePhone,
+            twilioConfigured: twilio.configured,
+            twilioReason: twilio.configured ? undefined : "Twilio not configured in portal",
+            webhookUrl,
+            webhookUrlLegacy,
+            notes: { variables: ["{from}", "{to}"] },
+          },
+        };
+      }
+
+      if ((args as any)?.settings === undefined) {
+        return { status: 400, json: { ok: false, error: "Invalid input" } };
+      }
+
+      const normalized = parseMissedCallTextBackSettings((args as any).settings);
+      const next = await setMissedCallTextBackSettings(ownerId, normalized);
+      const [events, profilePhone, twilio] = await Promise.all([
+        listMissedCallTextBackEvents(ownerId, 120),
+        getOwnerProfilePhoneE164(ownerId),
+        getOwnerTwilioSmsConfigMasked(ownerId),
+      ]);
+
+      const base = getPublicWebhookBaseUrl();
+      const webhookUrl = `${base}/hooks/api/public/twilio/voice`;
+      const webhookUrlLegacy = `${base}/hooks/api/public/twilio/missed-call-textback/${next.webhookToken}/voice`;
+
+      return {
+        status: 200,
+        json: {
+          ok: true,
+          settings: next,
+          events,
+          profilePhone,
+          twilioConfigured: twilio.configured,
+          twilioReason: twilio.configured ? undefined : "Twilio not configured in portal",
+          webhookUrl,
+          webhookUrlLegacy,
+          notes: { variables: ["{from}", "{to}"] },
+        },
+      };
     }
 
     case "people.users.list": {
@@ -3988,6 +5310,353 @@ async function runDirectAction(opts: {
 
       await prisma.portalContact.updateMany({ where: { ownerId, id: contactId }, data: { customVariables: customVariablesUpdate } });
       return { status: 200, json: { ok: true, key, value } };
+    }
+
+    case "inbox.threads.list": {
+      const channelRaw = String((args as any)?.channel || "EMAIL").trim().toUpperCase();
+      const channel = channelRaw === "SMS" ? ("SMS" as const) : ("EMAIL" as const);
+      const takeRaw = typeof (args as any)?.take === "number" && Number.isFinite((args as any).take) ? Math.floor((args as any).take) : 200;
+      const take = Math.max(1, Math.min(200, takeRaw));
+
+      await ensurePortalInboxSchema();
+
+      const threads = (await (prisma as any).portalInboxThread.findMany({
+        where: { ownerId, channel },
+        orderBy: { lastMessageAt: "desc" },
+        take,
+        select: {
+          id: true,
+          channel: true,
+          peerAddress: true,
+          contactId: true,
+          subject: true,
+          lastMessageAt: true,
+          lastMessagePreview: true,
+          lastMessageDirection: true,
+          lastMessageFrom: true,
+          lastMessageTo: true,
+          lastMessageSubject: true,
+        },
+      })) as any[];
+
+      const threadsNeedingContact = (threads || []).filter((t) => !t?.contactId && t?.peerAddress).slice(0, 25);
+      if (threadsNeedingContact.length) {
+        await Promise.all(
+          threadsNeedingContact.map(async (t) => {
+            const peerAddressRaw = String(t.peerAddress ?? "").trim();
+            if (!peerAddressRaw) return;
+
+            const email = channel === "EMAIL" ? extractEmailAddress(peerAddressRaw) || peerAddressRaw : null;
+            const phone = channel === "SMS" ? peerAddressRaw : null;
+            const name = channel === "EMAIL" ? email || peerAddressRaw : peerAddressRaw;
+
+            const contactId = await findOrCreatePortalContact({ ownerId, name, email, phone });
+            if (!contactId) return;
+
+            try {
+              await (prisma as any).portalInboxThread.updateMany({
+                where: { ownerId, id: t.id, contactId: null },
+                data: { contactId },
+              });
+              t.contactId = contactId;
+            } catch {
+              // ignore
+            }
+          }),
+        );
+      }
+
+      const contactIds = Array.from(new Set((threads || []).map((t: any) => String(t.contactId || "")).filter(Boolean))).slice(0, 500);
+
+      const contactsById = new Map<string, { id: string; name: string; email: string | null; phone: string | null }>();
+      if (contactIds.length) {
+        try {
+          const rows = await (prisma as any).portalContact.findMany({
+            where: { ownerId, id: { in: contactIds } },
+            take: 500,
+            select: { id: true, name: true, email: true, phone: true },
+          });
+
+          for (const r of rows || []) {
+            contactsById.set(String(r.id), {
+              id: String(r.id),
+              name: String(r.name ?? "").slice(0, 80) || "Contact",
+              email: r.email ? String(r.email).slice(0, 120) : null,
+              phone: r.phone ? String(r.phone).slice(0, 40) : null,
+            });
+          }
+        } catch {
+          // ignore
+        }
+      }
+
+      const tagsByContactId = new Map<string, Array<{ id: string; name: string; color: string | null }>>();
+      if (contactIds.length) {
+        try {
+          const rows = await (prisma as any).portalContactTagAssignment.findMany({
+            where: { ownerId, contactId: { in: contactIds } },
+            take: 2000,
+            select: {
+              contactId: true,
+              tag: { select: { id: true, name: true, color: true } },
+            },
+          });
+
+          for (const r of rows || []) {
+            const cid = String(r.contactId);
+            const t = r.tag;
+            if (!t) continue;
+            const list = tagsByContactId.get(cid) || [];
+            list.push({ id: String(t.id), name: String(t.name), color: t.color ? String(t.color) : null });
+            tagsByContactId.set(cid, list);
+          }
+        } catch {
+          // ignore
+        }
+      }
+
+      const withTags = (threads || []).map((t: any) => ({
+        ...t,
+        contactId: t.contactId ? String(t.contactId) : null,
+        contact: t.contactId ? contactsById.get(String(t.contactId)) || null : null,
+        contactTags: t.contactId ? tagsByContactId.get(String(t.contactId)) || [] : [],
+      }));
+
+      return { status: 200, json: { ok: true, threads: withTags } };
+    }
+
+    case "inbox.thread.messages.list": {
+      const threadId = String((args as any)?.threadId || "").trim();
+      if (!threadId) return { status: 400, json: { ok: false, error: "Missing threadId" } };
+
+      // Best-effort background schema installer (safe if already installed).
+      void ensurePortalInboxSchema().catch(() => undefined);
+
+      const thread = await (prisma as any).portalInboxThread.findFirst({ where: { id: threadId, ownerId }, select: { id: true } });
+      if (!thread) return { status: 404, json: { ok: false, error: "Conversation not found." } };
+
+      const takeRaw = typeof (args as any)?.take === "number" && Number.isFinite((args as any).take) ? Math.floor((args as any).take) : 120;
+      const take = Math.max(10, Math.min(500, takeRaw));
+
+      const messageSelectBase = {
+        id: true,
+        channel: true,
+        direction: true,
+        fromAddress: true,
+        toAddress: true,
+        subject: true,
+        bodyText: true,
+        provider: true,
+        providerMessageId: true,
+        createdAt: true,
+      } as const;
+
+      let messages: any[] = [];
+      try {
+        messages = await (prisma as any).portalInboxMessage.findMany({
+          where: { ownerId, threadId },
+          orderBy: { createdAt: "asc" },
+          take,
+          select: {
+            ...messageSelectBase,
+            attachments: {
+              select: { id: true, fileName: true, mimeType: true, fileSize: true, publicToken: true },
+            },
+          },
+        });
+      } catch (err) {
+        console.error("[agent/inbox.messages] load failed; retrying without attachments", {
+          ownerId,
+          threadId,
+          take,
+          err: err instanceof Error ? err.message : String(err ?? ""),
+        });
+
+        const fallbackTake = Math.min(120, take);
+        messages = await (prisma as any).portalInboxMessage.findMany({
+          where: { ownerId, threadId },
+          orderBy: { createdAt: "asc" },
+          take: fallbackTake,
+          select: messageSelectBase,
+        });
+      }
+
+      const deduped: any[] = [];
+      const seen = new Map<string, number>();
+      for (const m of messages ?? []) {
+        const provider = typeof m?.provider === "string" ? m.provider : "";
+        const providerMessageId = typeof m?.providerMessageId === "string" ? m.providerMessageId : "";
+        const key = provider && providerMessageId ? `${provider}:${providerMessageId}` : "";
+        if (!key) {
+          deduped.push(m);
+          continue;
+        }
+
+        const idx = seen.get(key);
+        if (idx === undefined) {
+          seen.set(key, deduped.length);
+          deduped.push(m);
+          continue;
+        }
+
+        const existing = deduped[idx];
+        const existingAtt = Array.isArray(existing?.attachments) ? existing.attachments.length : 0;
+        const nextAtt = Array.isArray(m?.attachments) ? m.attachments.length : 0;
+        const existingBody = String(existing?.bodyText ?? "").trim();
+        const nextBody = String(m?.bodyText ?? "").trim();
+
+        if (nextAtt > existingAtt || (!existingBody && nextBody)) {
+          deduped[idx] = m;
+        }
+      }
+
+      const withUrls = deduped.map((m: any) => ({
+        ...m,
+        attachments: Array.isArray(m.attachments)
+          ? m.attachments.map((a: any) => ({
+              id: a.id,
+              fileName: a.fileName,
+              mimeType: a.mimeType,
+              fileSize: a.fileSize,
+              url: `/api/public/inbox/attachment/${a.id}/${a.publicToken}`,
+            }))
+          : [],
+      }));
+
+      let scheduledMessages: any[] = [];
+      try {
+        const scheduledRows = (await (prisma as any).portalInboxScheduledMessage
+          .findMany({
+            where: { ownerId, threadId, status: { in: ["PENDING", "SENDING"] } },
+            orderBy: { scheduledFor: "asc" },
+            take: 50,
+            select: {
+              id: true,
+              channel: true,
+              toAddress: true,
+              subject: true,
+              bodyText: true,
+              attachmentIds: true,
+              scheduledFor: true,
+              status: true,
+              createdAt: true,
+              updatedAt: true,
+            },
+          })
+          .catch(() => [])) as any[];
+
+        const scheduledAttachmentIds = Array.from(
+          new Set(
+            scheduledRows
+              .flatMap((r: any) => (Array.isArray(r?.attachmentIds) ? r.attachmentIds : []))
+              .map((x: any) => String(x || "").trim())
+              .filter(Boolean),
+          ),
+        ).slice(0, 250);
+
+        const scheduledAttachments = scheduledAttachmentIds.length
+          ? (((await (prisma as any).portalInboxAttachment
+              .findMany({
+                where: { ownerId, id: { in: scheduledAttachmentIds }, messageId: null },
+                select: { id: true, fileName: true, mimeType: true, fileSize: true, publicToken: true },
+              })
+              .catch(() => [])) as any[]) ?? [])
+          : ([] as any[]);
+
+        const scheduledAttachmentById = new Map<string, any>();
+        for (const a of scheduledAttachments) {
+          const id = String(a?.id || "").trim();
+          if (id) scheduledAttachmentById.set(id, a);
+        }
+
+        scheduledMessages = scheduledRows.map((r: any) => {
+          const attachmentIds = Array.isArray(r?.attachmentIds)
+            ? r.attachmentIds.map((x: any) => String(x || "").trim()).filter(Boolean)
+            : [];
+
+          const attachments = attachmentIds
+            .map((id: string) => scheduledAttachmentById.get(id))
+            .filter(Boolean)
+            .map((a: any) => ({
+              id: a.id,
+              fileName: a.fileName,
+              mimeType: a.mimeType,
+              fileSize: a.fileSize,
+              url: `/api/public/inbox/attachment/${a.id}/${a.publicToken}`,
+            }));
+
+          return {
+            id: String(r?.id || ""),
+            channel: r?.channel,
+            toAddress: String(r?.toAddress || ""),
+            subject: r?.subject ?? null,
+            bodyText: String(r?.bodyText || ""),
+            scheduledFor: r?.scheduledFor instanceof Date ? r.scheduledFor.toISOString() : String(r?.scheduledFor || ""),
+            status: r?.status,
+            createdAt: r?.createdAt instanceof Date ? r.createdAt.toISOString() : String(r?.createdAt || ""),
+            updatedAt: r?.updatedAt instanceof Date ? r.updatedAt.toISOString() : String(r?.updatedAt || ""),
+            attachments,
+          };
+        });
+      } catch (err) {
+        console.error("[agent/inbox.messages] scheduled enrichment failed", {
+          ownerId,
+          threadId,
+          err: err instanceof Error ? err.message : String(err ?? ""),
+        });
+        scheduledMessages = [];
+      }
+
+      return { status: 200, json: { ok: true, messages: withUrls, scheduledMessages } };
+    }
+
+    case "inbox.settings.get": {
+      const [settings, twilio, mailbox] = await Promise.all([
+        getPortalInboxSettings(ownerId),
+        getOwnerTwilioSmsConfigMasked(ownerId),
+        getOrCreateOwnerMailboxAddress(ownerId).catch(() => null),
+      ]);
+
+      return {
+        status: 200,
+        json: {
+          ok: true,
+          settings,
+          twilio,
+          mailbox: mailbox ? { emailAddress: mailbox.emailAddress, localPart: mailbox.localPart } : null,
+          webhooks: {
+            twilioInboundSmsUrl: twilioSmsWebhookUrl(getPublicWebhookBaseUrl()),
+            twilioInboundSmsUrlLegacy: `${getPublicWebhookBaseUrl()}/api/public/inbox/${encodeURIComponent(settings.webhookToken)}/twilio/sms`,
+          },
+        },
+      };
+    }
+
+    case "inbox.settings.update": {
+      const regenerateToken = Boolean((args as any)?.regenerateToken);
+      if (!regenerateToken) {
+        return { status: 400, json: { ok: false, error: "Nothing to do" } };
+      }
+
+      const [settings, twilio, mailbox] = await Promise.all([
+        regeneratePortalInboxWebhookToken(ownerId),
+        getOwnerTwilioSmsConfigMasked(ownerId),
+        getOrCreateOwnerMailboxAddress(ownerId).catch(() => null),
+      ]);
+
+      return {
+        status: 200,
+        json: {
+          ok: true,
+          settings,
+          twilio,
+          mailbox: mailbox ? { emailAddress: mailbox.emailAddress, localPart: mailbox.localPart } : null,
+          webhooks: {
+            twilioInboundSmsUrl: twilioSmsWebhookUrl(getPublicWebhookBaseUrl()),
+            twilioInboundSmsUrlLegacy: `${getPublicWebhookBaseUrl()}/api/public/inbox/${encodeURIComponent(settings.webhookToken)}/twilio/sms`,
+          },
+        },
+      };
     }
 
     case "inbox.send_sms": {
@@ -6873,6 +8542,559 @@ async function runDirectAction(opts: {
           },
         },
       };
+    }
+
+    case "ai_receptionist.settings.get": {
+      if (!(await requireOwnerOrAdmin())) return { status: 403, json: { ok: false, error: "Forbidden" } };
+
+      const data = await getAiReceptionistServiceData(ownerId);
+      const events = await listAiReceptionistEvents(ownerId, 80);
+
+      const baseUrl = getPublicWebhookBaseUrl();
+      const webhookUrl = `${baseUrl}/api/public/twilio/voice`;
+      const token = String((data as any)?.settings?.webhookToken || "").trim();
+      const webhookUrlLegacy = token ? `${baseUrl}/api/public/twilio/ai-receptionist/${encodeURIComponent(token)}/voice` : null;
+
+      const twilio = await getOwnerTwilioSmsConfigMasked(ownerId).catch(() => null);
+
+      return {
+        status: 200,
+        json: {
+          ok: true,
+          settings: toPublicSettings((data as any)?.settings ?? {}),
+          events,
+          webhookUrl,
+          webhookUrlLegacy,
+          twilioConfigured: Boolean((twilio as any)?.configured),
+          twilio: twilio ?? undefined,
+        },
+      };
+    }
+
+    case "ai_receptionist.recordings.get": {
+      if (!(await requireOwnerOrAdmin())) return { status: 403, json: { ok: false, error: "Forbidden" } };
+
+      const sid = String((args as any).recordingSid || "").trim();
+      if (!sid) return { status: 400, json: { ok: false, error: "Missing recordingSid" } };
+      if (sid.length > 64) return { status: 400, json: { ok: false, error: "Invalid recordingSid" } };
+
+      const events = await listAiReceptionistEvents(ownerId, 200);
+      const allowed = (events || []).some((e: any) => typeof e?.recordingSid === "string" && e.recordingSid === sid);
+      if (!allowed) return { status: 404, json: { ok: false, error: "Not found" } };
+
+      const url = `/api/portal/ai-receptionist/recordings/${encodeURIComponent(sid)}`;
+      return { status: 200, json: { ok: true, recordingSid: sid, url } };
+    }
+
+    case "ai_receptionist.recordings.demo.get": {
+      if (!(await requireOwnerOrAdmin())) return { status: 403, json: { ok: false, error: "Forbidden" } };
+      const id = String((args as any).id || "").trim().slice(0, 40);
+      if (!id) return { status: 400, json: { ok: false, error: "Missing id" } };
+      const url = `/api/portal/ai-receptionist/recordings/demo/${encodeURIComponent(id)}`;
+      return { status: 200, json: { ok: true, id, url } };
+    }
+
+    case "ai_receptionist.demo_audio.get": {
+      if (!(await requireOwnerOrAdmin())) return { status: 403, json: { ok: false, error: "Forbidden" } };
+      const id = String((args as any).id || "").trim().slice(0, 40);
+      if (!id) return { status: 400, json: { ok: false, error: "Missing id" } };
+      const url = `/api/portal/ai-receptionist/demo-audio/${encodeURIComponent(id)}`;
+      return { status: 200, json: { ok: true, id, url } };
+    }
+
+    case "ai_receptionist.sms_knowledge_base.sync": {
+      if (!(await requireServiceCapability("aiReceptionist", "edit"))) {
+        return { status: 403, json: { ok: false, error: "Forbidden" } };
+      }
+
+      const knowledgeBaseRaw = (args as any)?.knowledgeBase ?? null;
+      return await syncAiReceptionistKnowledgeBase({ ownerId, kind: "sms", knowledgeBaseRaw });
+    }
+
+    case "ai_receptionist.voice_knowledge_base.sync": {
+      if (!(await requireServiceCapability("aiReceptionist", "edit"))) {
+        return { status: 403, json: { ok: false, error: "Forbidden" } };
+      }
+
+      const knowledgeBaseRaw = (args as any)?.knowledgeBase ?? null;
+      return await syncAiReceptionistKnowledgeBase({ ownerId, kind: "voice", knowledgeBaseRaw });
+    }
+
+    case "ai_receptionist.sms_knowledge_base.upload": {
+      if (!(await requireServiceCapability("aiReceptionist", "edit"))) {
+        return { status: 403, json: { ok: false, error: "Forbidden" } };
+      }
+
+      const fileName = String((args as any)?.fileName || "document").trim().slice(0, 200) || "document";
+      const mimeType = typeof (args as any)?.mimeType === "string" ? String((args as any).mimeType).trim().slice(0, 120) : "";
+      const decoded = decodeBase64ToBytes(String((args as any)?.contentBase64 || ""), 7 * 1024 * 1024);
+      if (!decoded.ok) return { status: 400, json: { ok: false, error: decoded.error } };
+
+      const file = new Blob([decoded.bytes], { type: mimeType || "application/octet-stream" });
+      const knowledgeBaseRaw = (args as any)?.knowledgeBase ?? null;
+      return await uploadAiReceptionistKnowledgeBaseFile({ ownerId, kind: "sms", file, fileName, knowledgeBaseRaw });
+    }
+
+    case "ai_receptionist.voice_knowledge_base.upload": {
+      if (!(await requireServiceCapability("aiReceptionist", "edit"))) {
+        return { status: 403, json: { ok: false, error: "Forbidden" } };
+      }
+
+      const fileName = String((args as any)?.fileName || "document").trim().slice(0, 200) || "document";
+      const mimeType = typeof (args as any)?.mimeType === "string" ? String((args as any).mimeType).trim().slice(0, 120) : "";
+      const decoded = decodeBase64ToBytes(String((args as any)?.contentBase64 || ""), 7 * 1024 * 1024);
+      if (!decoded.ok) return { status: 400, json: { ok: false, error: decoded.error } };
+
+      const file = new Blob([decoded.bytes], { type: mimeType || "application/octet-stream" });
+      const knowledgeBaseRaw = (args as any)?.knowledgeBase ?? null;
+      return await uploadAiReceptionistKnowledgeBaseFile({ ownerId, kind: "voice", file, fileName, knowledgeBaseRaw });
+    }
+
+    case "business_profile.get": {
+      if (!(await requireServiceCapability("businessProfile", "view"))) {
+        return { status: 403, json: { ok: false, error: "Forbidden" } };
+      }
+
+      return await getPortalBusinessProfile({ ownerId });
+    }
+
+    case "business_profile.update": {
+      if (!(await requireServiceCapability("businessProfile", "edit"))) {
+        return { status: 403, json: { ok: false, error: "Forbidden" } };
+      }
+
+      return await upsertPortalBusinessProfile({ ownerId, body: args });
+    }
+
+    case "elevenlabs.convai.token.get": {
+      if (!(await requireServiceCapability("profile", "view"))) {
+        return { status: 403, json: { ok: false, error: "Forbidden" } };
+      }
+
+      const agentId = String((args as any)?.agentId || "").trim().slice(0, 120);
+      return await getElevenLabsConvaiConversationToken({ ownerId, agentId });
+    }
+
+    case "elevenlabs.convai.signed_url.get": {
+      if (!(await requireServiceCapability("profile", "view"))) {
+        return { status: 403, json: { ok: false, error: "Forbidden" } };
+      }
+
+      const agentId = String((args as any)?.agentId || "").trim().slice(0, 120);
+      return await getElevenLabsConvaiConversationSignedUrl({ ownerId, agentId });
+    }
+
+    case "ai_receptionist.settings.generate": {
+      if (!(await requireOwnerOrAdmin())) return { status: 403, json: { ok: false, error: "Forbidden" } };
+
+      const charged = await consumeCredits(ownerId, PORTAL_CREDIT_COSTS.aiCallStepGenerate);
+      if (!charged.ok) return { status: 402, json: { ok: false, error: "Insufficient credits" } };
+
+      const context = typeof (args as any).context === "string" ? String((args as any).context).trim().slice(0, 4000) : "";
+      const mode = (args as any).mode === "FORWARD" ? "FORWARD" : "AI";
+      const aiCanTransferToHuman = (args as any).aiCanTransferToHuman === true;
+      const forwardToPhoneE164 = typeof (args as any).forwardToPhoneE164 === "string" ? String((args as any).forwardToPhoneE164).trim().slice(0, 60) : "";
+
+      const businessContext = await getBusinessProfileAiContext(ownerId).catch(() => "");
+      const templateVars = await getBusinessProfileTemplateVars(ownerId).catch(() => ({} as Record<string, string>));
+      const businessNameFallback = String(templateVars["businessName"] || templateVars["business.name"] || "")
+        .trim()
+        .slice(0, 120);
+
+      const stripCodeFences = (text: string) => {
+        let s = String(text || "").trim();
+        if (s.startsWith("```")) {
+          s = s.replace(/^```[a-zA-Z0-9_-]*\n?/, "");
+          s = s.replace(/\n?```$/, "");
+        }
+        return s.trim();
+      };
+
+      const normalizeGeneratedSystemPrompt = (raw: string, businessName: string) => {
+        let s = stripCodeFences(raw);
+        s = s.replace(/^system\s*prompt\s*:\s*/i, "").trim();
+        s = s.replace(/^here(?:'|’)s\s+the\s+system\s+prompt\s*:\s*/i, "").trim();
+
+        const looksLikeHumanInstructions = /\bmake\s+sure\s+(the\s+ai|your\s+ai|it\s+always)\b/i.test(s);
+        const mentionsReceptionist = /\b(ai\s+receptionist|receptionist)\b/i.test(s);
+        const startsDirectToAi = /^you\s+are\b/i.test(s);
+
+        if (!startsDirectToAi) {
+          const business = businessName.trim() ? businessName.trim() : "the business";
+          const prefix = `You are an AI receptionist for ${business}.`;
+          s = `${prefix}\n\n${s}`.trim();
+        }
+        if (!mentionsReceptionist) {
+          s = `You are an AI receptionist.\n\n${s}`.trim();
+        }
+        if (looksLikeHumanInstructions) {
+          s = s
+            .replace(/\bmake\s+sure\s+the\s+ai\b/gi, "Always")
+            .replace(/\bmake\s+sure\s+your\s+ai\b/gi, "Always")
+            .replace(/\bmake\s+sure\s+it\b/gi, "Always")
+            .trim();
+        }
+
+        return s.slice(0, 6000).trim();
+      };
+
+      const extractFirstJsonObject = (text: string) => {
+        const s = String(text || "");
+        const start = s.indexOf("{");
+        const end = s.lastIndexOf("}");
+        if (start < 0 || end < 0 || end <= start) return null;
+        const candidate = s.slice(start, end + 1);
+        try {
+          return JSON.parse(candidate);
+        } catch {
+          return null;
+        }
+      };
+
+      const system = [
+        "You generate AI receptionist settings JSON for a small-business phone answering product.",
+        "Return ONLY valid JSON. No markdown, no commentary.",
+        "JSON keys: businessName, greeting, systemPrompt.",
+        "The systemPrompt MUST be directly usable as an AI system prompt. Write it as instructions to the AI (direct second-person), not instructions to a human developer.",
+        "No matter what the user asks for, ALWAYS output a receptionist systemPrompt and a receptionist greeting.",
+        "Do not invent facts. If something is unknown, omit it or keep it generic.",
+        "Keep greeting friendly and short. Keep systemPrompt detailed, structured, practical, and safe.",
+        "The systemPrompt should include: role, goals, what to ask/collect, what to do when missing info, tone, safety constraints, and call flow (greet → identify intent → help → capture details → next step).",
+      ].join("\n");
+
+      const user = [
+        businessContext ? businessContext : "",
+        "",
+        "Requested settings:",
+        `- Mode: ${mode}`,
+        `- AI can transfer to human: ${aiCanTransferToHuman ? "yes" : "no"}`,
+        forwardToPhoneE164 ? `- Transfer/forward number: ${forwardToPhoneE164}` : "",
+        "",
+        context ? ["Additional quick context from the user:", context].join("\n") : "",
+        "",
+        "Write JSON with:",
+        "- businessName: the business name (use Business Profile if present)",
+        "- greeting: what the receptionist says first (1-2 sentences)",
+        "- systemPrompt: DETAILED AI system prompt instructions (direct-to-AI). Include lead capture + booking help; avoid legal claims; never be creepy; ask one question at a time; do not wait for a response before offering helpful next steps.",
+      ]
+        .filter(Boolean)
+        .join("\n");
+
+      let raw = "";
+      try {
+        raw = await generateText({ system, user, model: process.env.AI_MODEL ?? "gpt-4o-mini" });
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : "AI request failed";
+        return { status: 502, json: { ok: false, error: msg } };
+      }
+
+      const extracted = extractFirstJsonObject(raw);
+      const rec = extracted && typeof extracted === "object" && !Array.isArray(extracted) ? (extracted as any) : null;
+      const businessName = typeof rec?.businessName === "string" ? rec.businessName.trim().slice(0, 120) : "";
+      const greeting = typeof rec?.greeting === "string" ? rec.greeting.trim().slice(0, 360) : "";
+      const systemPromptRaw = typeof rec?.systemPrompt === "string" ? String(rec.systemPrompt) : "";
+      const systemPrompt = systemPromptRaw ? normalizeGeneratedSystemPrompt(systemPromptRaw, businessName || businessNameFallback) : "";
+
+      if (businessName || greeting || systemPrompt) {
+        return {
+          status: 200,
+          json: {
+            ok: true,
+            settings: {
+              ...(businessName ? { businessName } : {}),
+              ...(greeting ? { greeting } : {}),
+              ...(systemPrompt ? { systemPrompt } : {}),
+            },
+          },
+        };
+      }
+
+      return {
+        status: 200,
+        json: {
+          ok: true,
+          settings: {
+            ...(businessNameFallback ? { businessName: businessNameFallback } : {}),
+          },
+          warning: "AI response was not valid JSON; returned a fallback business name only.",
+        },
+      };
+    }
+
+    case "ai_receptionist.sms_system_prompt.generate": {
+      if (!(await requireOwnerOrAdmin())) return { status: 403, json: { ok: false, error: "Forbidden" } };
+
+      const charged = await consumeCredits(ownerId, PORTAL_CREDIT_COSTS.aiCallStepGenerate);
+      if (!charged.ok) return { status: 402, json: { ok: false, error: "Insufficient credits" } };
+
+      const context = typeof (args as any).context === "string" ? String((args as any).context).trim().slice(0, 4000) : "";
+
+      const businessContext = await getBusinessProfileAiContext(ownerId).catch(() => "");
+      const templateVars = await getBusinessProfileTemplateVars(ownerId).catch(() => ({} as Record<string, string>));
+      const businessNameFallback = String(templateVars["businessName"] || templateVars["business.name"] || "")
+        .trim()
+        .slice(0, 120);
+
+      const stripCodeFences = (text: string) => {
+        let s = String(text || "").trim();
+        if (s.startsWith("```")) {
+          s = s.replace(/^```[a-zA-Z0-9_-]*\n?/, "");
+          s = s.replace(/\n?```$/, "");
+        }
+        return s.trim();
+      };
+
+      const normalizeSmsSystemPrompt = (raw: string, businessName: string) => {
+        let s = stripCodeFences(raw);
+        s = s.replace(/^system\s*prompt\s*:\s*/i, "").trim();
+
+        const mentionsSms = /\b(sms|text|inbound\s+sms)\b/i.test(s);
+        const startsDirectToAi = /^you\s+are\b/i.test(s);
+        const business = businessName.trim() ? businessName.trim() : "the business";
+
+        if (!startsDirectToAi) {
+          s = `You are an AI receptionist for ${business}.\n\n${s}`.trim();
+        }
+        if (!mentionsSms) {
+          s = `You handle inbound SMS auto-replies (text messages).\n\n${s}`.trim();
+        }
+
+        s = s
+          .replace(/\bmake\s+sure\s+the\s+ai\b/gi, "Always")
+          .replace(/\bmake\s+sure\s+it\b/gi, "Always")
+          .trim();
+
+        return s.slice(0, 6000).trim();
+      };
+
+      const system = [
+        "You write system prompts for an AI receptionist product.",
+        "Return ONLY the system prompt text. No markdown. No JSON.",
+        "The prompt is for INBOUND SMS auto-replies.",
+        "No matter what the user asks, ALWAYS output an inbound-SMS AI receptionist system prompt.",
+        "Constraints: keep replies short (1-3 sentences), under 320 characters when possible; no markdown; ask at most one question.",
+        "Do not invent facts. If hours/pricing are unknown, ask or keep it generic.",
+        "Keep it practical: answer basic questions, capture lead details when appropriate, and offer next steps.",
+      ].join("\n");
+
+      const user = [
+        businessNameFallback ? `Business name: ${businessNameFallback}` : "",
+        businessContext ? businessContext : "",
+        context ? ["Additional quick context from the user:", context].join("\n") : "",
+        "",
+        "Write the SMS system prompt now.",
+      ]
+        .filter(Boolean)
+        .join("\n\n")
+        .slice(0, 8000);
+
+      let raw = "";
+      try {
+        raw = await generateText({ system, user, model: process.env.AI_MODEL ?? "gpt-4o-mini" });
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : "AI request failed";
+        return { status: 502, json: { ok: false, error: msg } };
+      }
+
+      const smsSystemPrompt = normalizeSmsSystemPrompt(String(raw || ""), businessNameFallback);
+      if (!smsSystemPrompt) return { status: 502, json: { ok: false, error: "Empty AI response" } };
+
+      return { status: 200, json: { ok: true, smsSystemPrompt } };
+    }
+
+    case "ai_receptionist.text.polish": {
+      if (!(await requireOwnerOrAdmin())) return { status: 403, json: { ok: false, error: "Forbidden" } };
+
+      const charged = await consumeCredits(ownerId, PORTAL_CREDIT_COSTS.aiCallStepGenerate);
+      if (!charged.ok) return { status: 402, json: { ok: false, error: "Insufficient credits" } };
+
+      const kind = (args as any).kind === "greeting" ? "greeting" : "systemPrompt";
+      const channel = (args as any).channel === "sms" ? "sms" : "voice";
+      const text = String((args as any).text || "").trim().slice(0, 8000);
+      if (!text) return { status: 400, json: { ok: false, error: "Missing text" } };
+
+      const businessContext = await getBusinessProfileAiContext(ownerId).catch(() => "");
+      const templateVars = await getBusinessProfileTemplateVars(ownerId).catch(() => ({} as Record<string, string>));
+      const businessNameFallback = String(templateVars["businessName"] || templateVars["business.name"] || "")
+        .trim()
+        .slice(0, 120);
+
+      const stripCodeFences = (raw: string) => {
+        let s = String(raw || "").trim();
+        if (s.startsWith("```")) {
+          s = s.replace(/^```[a-zA-Z0-9_-]*\n?/, "");
+          s = s.replace(/\n?```$/, "");
+        }
+        return s.trim();
+      };
+
+      const normalizePolishedText = (raw: string) => {
+        let s = stripCodeFences(raw);
+        s = s.replace(/^polished\s*(system\s*prompt|prompt|greeting)\s*:\s*/i, "").trim();
+        s = s.replace(/^system\s*prompt\s*:\s*/i, "").trim();
+        s = s.replace(/^greeting\s*:\s*/i, "").trim();
+
+        if (kind === "systemPrompt") {
+          const startsDirectToAi = /^you\s+are\b/i.test(s);
+          const mentionsReceptionist = /\b(ai\s+receptionist|receptionist)\b/i.test(s);
+          const mentionsSms = /\b(sms|text|inbound\s+sms)\b/i.test(s);
+
+          if (!startsDirectToAi) {
+            const business = businessNameFallback.trim() ? businessNameFallback.trim() : "the business";
+            s = `You are an AI receptionist for ${business}.\n\n${s}`.trim();
+          }
+          if (!mentionsReceptionist) {
+            s = `You are an AI receptionist.\n\n${s}`.trim();
+          }
+          if (channel === "sms" && !mentionsSms) {
+            s = `You handle inbound SMS auto-replies (text messages).\n\n${s}`.trim();
+          }
+
+          s = s
+            .replace(/\bmake\s+sure\s+(the\s+ai|your\s+ai)\b/gi, "Always")
+            .replace(/\bmake\s+sure\s+it\b/gi, "Always")
+            .trim();
+
+          return s.slice(0, 6000).trim();
+        }
+
+        const maxLen = channel === "sms" ? 320 : 360;
+        return s.slice(0, maxLen).trim();
+      };
+
+      const system = [
+        "You are an expert prompt-polisher for a small-business AI receptionist product.",
+        "You are NOT writing advice to a human. You are rewriting text so it can be used by the AI receptionist.",
+        "Return ONLY the polished text. No markdown. No quotes. No JSON.",
+        "Preserve the user’s intent and facts. Do not invent business hours, pricing, addresses, policies, or offers.",
+        "Avoid confusion: rewrite unclear instructions into clear, direct, executable instructions.",
+        "Conversation behavior: do not ask multiple questions in a row; ask at most one question at a time.",
+        "Do not require waiting for a response before giving a helpful next step; keep moving with concise options.",
+        kind === "greeting"
+          ? channel === "sms"
+            ? "Greeting constraints (SMS): keep it short (1-3 sentences), ideally under 320 characters; no markdown."
+            : "Greeting constraints (voice): keep it friendly and short (1-2 sentences)."
+          : "System prompt constraints: write as direct instructions to the AI (start with 'You are...'). Keep it structured and detailed.",
+      ].join("\n");
+
+      const user = [
+        businessNameFallback ? `Business name: ${businessNameFallback}` : "",
+        businessContext ? businessContext : "",
+        `Target: ${channel.toUpperCase()} ${kind === "systemPrompt" ? "SYSTEM PROMPT" : "GREETING"}`,
+        "",
+        "Original text to polish:",
+        text,
+        "",
+        "Now return the polished text.",
+      ]
+        .filter(Boolean)
+        .join("\n")
+        .slice(0, 10000);
+
+      let raw = "";
+      try {
+        raw = await generateText({ system, user, model: process.env.AI_MODEL ?? "gpt-4o-mini" });
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : "AI request failed";
+        return { status: 502, json: { ok: false, error: msg } };
+      }
+
+      const polished = normalizePolishedText(raw);
+      if (!polished) return { status: 502, json: { ok: false, error: "Empty AI response" } };
+      return { status: 200, json: { ok: true, polished } };
+    }
+
+    case "ai_receptionist.sms_reply.preview": {
+      if (!(await requireOwnerOrAdmin())) return { status: 403, json: { ok: false, error: "Forbidden" } };
+
+      const inbound = String((args as any).inbound || "").trim().slice(0, 4000);
+      if (!inbound) return { status: 400, json: { ok: false, error: "Missing inbound" } };
+
+      const isOptOutMessage = (raw: string) => {
+        const s = String(raw || "").trim().toLowerCase();
+        if (!s) return false;
+        if (s === "stop" || s === "unsubscribe" || s === "cancel" || s === "end" || s === "quit") return true;
+        if (s.startsWith("stop ") || s.includes("\nstop") || s.includes("\rstop")) return true;
+        return false;
+      };
+
+      if (isOptOutMessage(inbound)) {
+        return { status: 200, json: { ok: true, wouldReply: false, reason: "Opt-out keyword" } };
+      }
+
+      const data = await getAiReceptionistServiceData(ownerId).catch(() => null);
+      const s = (data as any)?.settings as any;
+      if (!s || !s.smsEnabled) {
+        return { status: 200, json: { ok: true, wouldReply: false, reason: "SMS auto-replies disabled" } };
+      }
+
+      const includeIds = Array.isArray(s.smsIncludeTagIds) ? (s.smsIncludeTagIds as unknown[]).map((x) => String(x || "").trim()).filter(Boolean) : [];
+      const excludeIds = Array.isArray(s.smsExcludeTagIds) ? (s.smsExcludeTagIds as unknown[]).map((x) => String(x || "").trim()).filter(Boolean) : [];
+
+      const provided = Array.isArray((args as any).contactTagIds) ? ((args as any).contactTagIds as unknown[]) : [];
+      const tagIds = new Set(provided.map((x) => String(x || "").trim()).filter(Boolean));
+
+      if (excludeIds.length && excludeIds.some((id: string) => tagIds.has(id))) {
+        return { status: 200, json: { ok: true, wouldReply: false, reason: "Excluded by tag" } };
+      }
+      if (includeIds.length && !includeIds.some((id: string) => tagIds.has(id))) {
+        return { status: 200, json: { ok: true, wouldReply: false, reason: "Missing required include tag" } };
+      }
+
+      const businessName = typeof s.businessName === "string" ? s.businessName.trim() : "";
+      const smsPrompt = typeof s.smsSystemPrompt === "string" ? s.smsSystemPrompt.trim() : "";
+      const basePrompt = smsPrompt || (typeof s.systemPrompt === "string" ? s.systemPrompt.trim() : "");
+
+      const system = [
+        basePrompt || "You are a helpful receptionist.",
+        "You are replying via SMS.",
+        "Keep replies concise: 1-3 short sentences, under 320 characters when possible.",
+        "No markdown. No long lists. Ask at most one question.",
+        businessName ? `Business name: ${businessName}` : "",
+      ]
+        .filter(Boolean)
+        .join("\n\n")
+        .slice(0, 6000);
+
+      const history = Array.isArray((args as any).history) ? ((args as any).history as any[]) : [];
+      const transcript = history
+        .map((m) => {
+          const role = m?.role === "assistant" ? "Assistant" : "Customer";
+          const content = String(m?.content || "").trim();
+          if (!content) return null;
+          return `${role}: ${content}`;
+        })
+        .filter(Boolean)
+        .join("\n");
+
+      const user = [
+        transcript ? "Conversation:\n" + transcript : "",
+        "Latest inbound SMS:",
+        inbound,
+        "\nWrite the SMS reply text only.",
+      ]
+        .filter(Boolean)
+        .join("\n\n");
+
+      const charged = await consumeCredits(ownerId, PORTAL_CREDIT_COSTS.aiCallStepGenerate);
+      if (!charged.ok) return { status: 402, json: { ok: false, error: "Insufficient credits" } };
+
+      let replyRaw = "";
+      try {
+        replyRaw = await generateText({ system, user, model: process.env.AI_MODEL ?? "gpt-4o-mini" });
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : "AI request failed";
+        return { status: 502, json: { ok: false, error: msg } };
+      }
+
+      const normalizeSmsReply = (raw: string) => {
+        const text = String(raw || "").trim();
+        if (!text) return "";
+        const oneLine = text.replace(/\s+/g, " ").trim();
+        return oneLine.length > 1200 ? `${oneLine.slice(0, 1199)}…` : oneLine;
+      };
+
+      return { status: 200, json: { ok: true, wouldReply: true, reply: normalizeSmsReply(replyRaw) } };
     }
 
     case "media.folder.ensure": {

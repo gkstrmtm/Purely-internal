@@ -1234,7 +1234,8 @@ export async function createElevenLabsKnowledgeBaseText(opts: {
 
 export async function createElevenLabsKnowledgeBaseFile(opts: {
   apiKey: string;
-  file: File;
+  file: Blob;
+  fileName?: string;
   name?: string;
   parentFolderId?: string;
 }): Promise<{ ok: true; doc: KnowledgeBaseLocator } | { ok: false; error: string; status?: number }> {
@@ -1243,7 +1244,13 @@ export async function createElevenLabsKnowledgeBaseFile(opts: {
   if (!opts.file) return { ok: false, error: "Missing file" };
 
   const fd = new FormData();
-  fd.set("file", opts.file);
+  const fileName =
+    typeof opts.fileName === "string" && opts.fileName.trim()
+      ? opts.fileName.trim().slice(0, 200)
+      : typeof (opts.file as any)?.name === "string" && String((opts.file as any).name).trim()
+        ? String((opts.file as any).name).trim().slice(0, 200)
+        : "document";
+  fd.set("file", opts.file, fileName);
   if (typeof opts.name === "string" && opts.name.trim()) fd.set("name", opts.name.trim().slice(0, 200));
   if (typeof opts.parentFolderId === "string" && opts.parentFolderId.trim()) fd.set("parent_folder_id", opts.parentFolderId.trim().slice(0, 120));
 
@@ -1269,7 +1276,7 @@ export async function createElevenLabsKnowledgeBaseFile(opts: {
   }
 
   const id = typeof json?.id === "string" ? json.id : typeof json?.document_id === "string" ? json.document_id : "";
-  const name = typeof json?.name === "string" ? json.name : typeof opts.name === "string" ? opts.name : (opts.file as any)?.name;
+  const name = typeof json?.name === "string" ? json.name : typeof opts.name === "string" ? opts.name : fileName;
   const cleanedId = String(id || "").trim().slice(0, 200);
   const cleanedName = String(name || "").trim().slice(0, 200) || "Uploaded file";
   if (!cleanedId) return { ok: false, error: "Knowledge base file upload returned an unexpected response." };

@@ -1,41 +1,11 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
-import { prisma } from "@/lib/db";
 import { requireClientSessionForService } from "@/lib/portalAccess";
+import { getElevenLabsConvaiConversationToken } from "@/lib/portalElevenLabsConvaiAuth.server";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
-
-const PROFILE_EXTRAS_SERVICE_SLUG = "profile";
-
-function envFirst(keys: string[]): string {
-  for (const key of keys) {
-    const v = (process.env[key] ?? "").trim();
-    if (v) return v;
-  }
-  return "";
-}
-
-function envVoiceAgentApiKey(): string {
-  return envFirst(["VOICE_AGENT_API_KEY", "ELEVENLABS_API_KEY", "ELEVEN_LABS_API_KEY"]).slice(0, 400);
-}
-
-async function getOwnerVoiceAgentApiKey(ownerId: string): Promise<string | null> {
-  const row = await prisma.portalServiceSetup.findUnique({
-    where: { ownerId_serviceSlug: { ownerId, serviceSlug: PROFILE_EXTRAS_SERVICE_SLUG } },
-    select: { dataJson: true },
-  });
-
-  const rec =
-    row?.dataJson && typeof row.dataJson === "object" && !Array.isArray(row.dataJson)
-      ? (row.dataJson as Record<string, unknown>)
-      : null;
-
-  const raw = rec?.voiceAgentApiKey;
-  const key = typeof raw === "string" ? raw.trim().slice(0, 400) : "";
-  return key || envVoiceAgentApiKey() || null;
-}
 
 const bodySchema = z.object({
   agentId: z.string().trim().min(1).max(120),
@@ -51,13 +21,6 @@ export async function POST(req: Request) {
   }
 
   const ownerId = auth.session.user.id;
-  const apiKey = await getOwnerVoiceAgentApiKey(ownerId);
-  if (!apiKey) {
-    return NextResponse.json(
-      { ok: false, error: "Missing voice agent API key. Add it in Portal → Profile or set VOICE_AGENT_API_KEY." },
-      { status: 400 },
-    );
-  }
 
   const json = await req.json().catch(() => null);
   const parsed = bodySchema.safeParse(json);
@@ -67,30 +30,6 @@ export async function POST(req: Request) {
 
   const agentId = parsed.data.agentId;
 
-  const res = await fetch(
-    `https://api.elevenlabs.io/v1/convai/conversation/token?agent_id=${encodeURIComponent(agentId)}`,
-    {
-      method: "POST",
-      headers: {
-        "xi-api-key": apiKey,
-      },
-      cache: "no-store",
-    },
-  ).catch(() => null as any);
-
-  const body = await res?.json?.().catch(() => null);
-  const token = typeof body?.token === "string" ? body.token : null;
-
-  if (!res || !res.ok || !token) {
-    const err =
-      typeof body?.detail === "string"
-        ? body.detail
-        : typeof body?.error === "string"
-          ? body.error
-          : "Failed to get conversation token";
-
-    return NextResponse.json({ ok: false, error: err }, { status: 502 });
-  }
-
-  return NextResponse.json({ ok: true, token });
+  const result = await getElevenLabsConvaiConversationToken({ ownerId, agentId });
+  return NextResponse.json(result.json, { status: result.status });
 }

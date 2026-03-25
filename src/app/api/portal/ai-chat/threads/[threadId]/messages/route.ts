@@ -143,6 +143,51 @@ function detectDeterministicActionsFromText(opts: {
     return m?.[1] ? String(m[1]).trim() : "";
   };
 
+  const threadIdFromText = () => {
+    const m =
+      /\bthread\s*(?:id)?\s*[:#]?\s*([a-zA-Z0-9_-]{6,120})\b/i.exec(t) ||
+      /\bthreadId\s*[:=]\s*([a-zA-Z0-9_-]{6,120})\b/i.exec(t);
+    return m?.[1] ? String(m[1]).trim() : "";
+  };
+
+  const reportIdFromText = () => {
+    const m =
+      /\breport\s*(?:id)?\s*[:#]?\s*([a-zA-Z0-9_-]{6,120})\b/i.exec(t) ||
+      /\breportId\s*[:=]\s*([a-zA-Z0-9_-]{6,120})\b/i.exec(t);
+    return m?.[1] ? String(m[1]).trim() : "";
+  };
+
+  const letterIdFromText = () => {
+    const m =
+      /\bletter\s*(?:id)?\s*[:#]?\s*([a-zA-Z0-9_-]{6,120})\b/i.exec(t) ||
+      /\bletterId\s*[:=]\s*([a-zA-Z0-9_-]{6,120})\b/i.exec(t);
+    return m?.[1] ? String(m[1]).trim() : "";
+  };
+
+  const recordingSidFromText = () => {
+    const byKey =
+      /\brecording\s*sid\s*[:#]?\s*([a-zA-Z0-9]{6,64})\b/i.exec(t) ||
+      /\brecordingSid\s*[:=]\s*([a-zA-Z0-9]{6,64})\b/i.exec(t);
+    if (byKey?.[1]) return String(byKey[1]).trim();
+
+    const raw = /\b(RE[a-zA-Z0-9]{10,64})\b/.exec(t)?.[1];
+    return raw ? String(raw).trim() : "";
+  };
+
+  const demoIdFromText = () => {
+    const m =
+      /\bdemo\s*(?:audio|recording)?\s*(?:id)?\s*[:#]?\s*([a-zA-Z0-9_-]{1,40})\b/i.exec(t) ||
+      /\bid\s*[:=]\s*([a-zA-Z0-9_-]{1,40})\b/i.exec(t);
+    return m?.[1] ? String(m[1]).trim().slice(0, 40) : "";
+  };
+
+  const takeFromText = () => {
+    const m = /\btake\s*[:=]?\s*(\d{1,4})\b/i.exec(t);
+    const n = m?.[1] ? Number(m[1]) : NaN;
+    if (!Number.isFinite(n)) return undefined;
+    return Math.max(10, Math.min(500, Math.floor(n)));
+  };
+
   const queryFromText = () => {
     const m = /\bq\s*[:=]\s*([^\n]{2,120})/i.exec(t) || /\bquery\s*[:=]\s*([^\n]{2,120})/i.exec(t);
     const raw = m?.[1] ? String(m[1]).trim() : "";
@@ -230,6 +275,58 @@ function detectDeterministicActionsFromText(opts: {
   const isBlogsContext = /\bblogs?\b/i.test(t) || (/\bposts?\b/i.test(t) && /\bblog\b/i.test(t));
 
   const isNewsletterContext = /\bnewsletters?\b/i.test(t) || (/\b(audience|automation)\b/i.test(t) && /\bnewsletter\b/i.test(t));
+
+  const isBillingContext =
+    /\bbilling\b/i.test(t) ||
+    (/\bstripe\b/i.test(t) && /\b(billing|invoice|invoices|payment|payments|subscription|subscriptions|plan|plans)\b/i.test(t)) ||
+    (/\bsubscriptions?\b/i.test(t) && /\b(billing|payment|stripe|invoice|invoices|plan|plans)\b/i.test(t));
+
+  const isCreditContext =
+    /\bcredit\s+reports?\b/i.test(t) ||
+    (/\bcredit\b/i.test(t) && /\b(report|reports|dispute|disputes|letter|letters|bureau|tradelines?)\b/i.test(t));
+
+  const isInboxContext =
+    /\binbox\b/i.test(t) ||
+    (/\b(conversation|conversations|thread|threads|messages)\b/i.test(t) && /\b(email|emails|sms|text|texts)\b/i.test(t));
+
+  const isAiReceptionistContext = /\b(ai[\s-]*receptionist|receptionist)\b/i.test(t) || /\b(ai-receptionist)\b/i.test(lower);
+
+  // AI Receptionist: get recording playback link.
+  if (isAiReceptionistContext && recordingSidFromText() && /\b(recording|audio|listen|play|playback)\b/i.test(t)) {
+    return [{ key: "ai_receptionist.recordings.get", title: "Get call recording link", args: { recordingSid: recordingSidFromText() } }];
+  }
+
+  // AI Receptionist: get demo audio link.
+  if (isAiReceptionistContext && /\bdemo\b/i.test(t) && /\b(audio|tone|wav)\b/i.test(t)) {
+    const id = demoIdFromText() || "1";
+    return [{ key: "ai_receptionist.demo_audio.get", title: "Get demo audio link", args: { id } }];
+  }
+
+  // AI Receptionist: get demo recording link.
+  if (isAiReceptionistContext && /\bdemo\b/i.test(t) && /\b(recording|recordings)\b/i.test(t)) {
+    const id = demoIdFromText() || "1";
+    return [{ key: "ai_receptionist.recordings.demo.get", title: "Get demo recording link", args: { id } }];
+  }
+
+  // Inbox: get settings.
+  if (isInboxContext && /\b(show|get)\b[\s\S]{0,40}\b(inbox)\b[\s\S]{0,40}\b(settings?|webhooks?|mailbox)\b/i.test(t)) {
+    return [{ key: "inbox.settings.get", title: "Get inbox settings", args: {} }];
+  }
+
+  // Inbox: list threads.
+  if (
+    isInboxContext &&
+    (/\b(show|get|list)\b[\s\S]{0,40}\b(inbox)\b/i.test(t) || /\b(show|get|list)\b[\s\S]{0,40}\b(threads?|conversations?)\b/i.test(t))
+  ) {
+    const channel = /\b(sms|text|texts)\b/i.test(t) ? "SMS" : "EMAIL";
+    return [{ key: "inbox.threads.list", title: "List inbox threads", args: { channel, take: 50 } }];
+  }
+
+  // Inbox: load thread messages.
+  if (isInboxContext && threadIdFromText() && /\b(messages?|conversation|thread)\b/i.test(t)) {
+    const take = takeFromText();
+    return [{ key: "inbox.thread.messages.list", title: "Load conversation messages", args: { threadId: threadIdFromText(), ...(take ? { take } : {}) } }];
+  }
 
   // Funnel Builder: get settings.
   if (isFunnelBuilderContext && /\b(show|get)\b[\s\S]{0,30}\b(settings?)\b/i.test(t)) {
@@ -380,6 +477,52 @@ function detectDeterministicActionsFromText(opts: {
     if (q && q.length >= 2) {
       return [{ key: "newsletter.audience.contacts.search", title: "Search newsletter audience contacts", args: { q, take: 20 } }];
     }
+  }
+
+  // Billing: get summary/spend.
+  if (isBillingContext && /\b(show|get)\b[\s\S]{0,40}\b(summary|billing\s+summary|spend|spent|charges?|this\s+month|monthly|invoices?)\b/i.test(t)) {
+    return [{ key: "billing.summary.get", title: "Get billing summary", args: {} }];
+  }
+
+  // Billing: list subscriptions/plans.
+  if (isBillingContext && /\b(list|show|get)\b[\s\S]{0,40}\b(subscriptions?|plans?)\b/i.test(t)) {
+    return [{ key: "billing.subscriptions.list", title: "List billing subscriptions", args: {} }];
+  }
+
+  // Billing: get billing info / default payment method.
+  if (isBillingContext && /\b(show|get)\b[\s\S]{0,40}\b(billing\s*info|payment\s*method|default\s+payment\s*method|credit\s*card|card\s+on\s+file)\b/i.test(t)) {
+    return [{ key: "billing.info.get", title: "Get billing info", args: {} }];
+  }
+
+  // Credit: get a specific report.
+  if (isCreditContext && reportIdFromText() && /\b(show|get)\b[\s\S]{0,40}\b(report|credit\s+report)\b/i.test(t)) {
+    return [{ key: "credit.reports.get", title: "Get credit report", args: { reportId: reportIdFromText() } }];
+  }
+
+  // Credit: list reports.
+  if (isCreditContext && /\b(list|show|get)\b[\s\S]{0,40}\b(reports?|credit\s+reports?)\b/i.test(t)) {
+    return [{ key: "credit.reports.list", title: "List credit reports", args: {} }];
+  }
+
+  // Credit: get a specific dispute letter.
+  if (isCreditContext && letterIdFromText() && /\b(show|get)\b[\s\S]{0,40}\b(letter|dispute\s+letter|dispute)\b/i.test(t)) {
+    return [{ key: "credit.disputes.letter.get", title: "Get dispute letter", args: { letterId: letterIdFromText() } }];
+  }
+
+  // Credit: list dispute letters.
+  if (isCreditContext && /\b(list|show|get)\b[\s\S]{0,40}\b(disputes?|dispute\s+letters?|letters?)\b/i.test(t)) {
+    return [{ key: "credit.disputes.letters.list", title: "List dispute letters", args: {} }];
+  }
+
+  // Credit: list pulls.
+  if (isCreditContext && /\b(list|show|get)\b[\s\S]{0,40}\b(pulls?|credit\s+pulls?)\b/i.test(t)) {
+    return [{ key: "credit.pulls.list", title: "List credit pulls", args: {} }];
+  }
+
+  // Credit: list/search contacts.
+  if (isCreditContext && /\b(list|show|get|search|find)\b[\s\S]{0,40}\b(contacts?)\b/i.test(t)) {
+    const q = queryFromText();
+    return [{ key: "credit.contacts.list", title: "List credit contacts", args: { ...(q ? { q } : {}) } }];
   }
 
   // Reviews: get review request settings.

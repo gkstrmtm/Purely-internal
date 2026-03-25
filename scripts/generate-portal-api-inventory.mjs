@@ -27,6 +27,23 @@ const ACTION_COVERAGE = [
   { action: "people.contacts.merge", method: "POST", endpoint: "/api/portal/people/contacts/merge" },
   { action: "people.contacts.custom_variables.patch", method: "PATCH", endpoint: "/api/portal/people/contacts/[contactId]/custom-variables" },
 
+  { action: "contact_tags.list", method: "GET", endpoint: "/api/portal/contact-tags" },
+  { action: "contact_tags.create", method: "POST", endpoint: "/api/portal/contact-tags" },
+  { action: "contact_tags.update", method: "PATCH", endpoint: "/api/portal/contact-tags/[tagId]" },
+  { action: "contact_tags.delete", method: "DELETE", endpoint: "/api/portal/contact-tags/[tagId]" },
+
+  { action: "me.get", method: "GET", endpoint: "/api/portal/me" },
+
+  { action: "services.catalog.get", method: "GET", endpoint: "/api/portal/services/catalog" },
+  { action: "services.lifecycle.update", method: "POST", endpoint: "/api/portal/services/lifecycle" },
+  { action: "services.status.get", method: "GET", endpoint: "/api/portal/services/status" },
+
+  { action: "mailbox.get", method: "GET", endpoint: "/api/portal/mailbox" },
+  { action: "mailbox.update", method: "PUT", endpoint: "/api/portal/mailbox" },
+
+  { action: "missed_call_textback.settings.get", method: "GET", endpoint: "/api/portal/missed-call-textback/settings" },
+  { action: "missed_call_textback.settings.update", method: "PUT", endpoint: "/api/portal/missed-call-textback/settings" },
+
   { action: "reviews.send_request_for_booking", method: "POST", endpoint: "/api/portal/reviews/send" },
   { action: "reviews.send_request_for_contact", method: "POST", endpoint: "/api/portal/reviews/send-contact" },
   { action: "reviews.reply", method: "PUT", endpoint: "/api/portal/reviews/reply" },
@@ -121,6 +138,58 @@ const ACTION_COVERAGE = [
   { action: "newsletter.audience.contacts.search", method: "GET", endpoint: "/api/portal/newsletter/audience/contacts" },
   { action: "newsletter.automation.settings.get", method: "GET", endpoint: "/api/portal/newsletter/automation/settings" },
   { action: "newsletter.automation.settings.update", method: "PUT", endpoint: "/api/portal/newsletter/automation/settings" },
+
+  // Billing (safe reads)
+  { action: "billing.summary.get", method: "GET", endpoint: "/api/portal/billing/summary" },
+  { action: "billing.subscriptions.list", method: "GET", endpoint: "/api/portal/billing/subscriptions" },
+  { action: "billing.info.get", method: "GET", endpoint: "/api/portal/billing/billing-info" },
+  { action: "pricing.get", method: "GET", endpoint: "/api/portal/pricing" },
+
+  // Credits (billing-gated)
+  { action: "credits.get", method: "GET", endpoint: "/api/portal/credits" },
+  { action: "credits.auto_topup.set", method: "PUT", endpoint: "/api/portal/credits" },
+
+  // Reporting (safe reads)
+  { action: "reporting.summary.get", method: "GET", endpoint: "/api/portal/reporting" },
+  { action: "reporting.sales.get", method: "GET", endpoint: "/api/portal/reporting/sales" },
+  { action: "reporting.stripe.get", method: "GET", endpoint: "/api/portal/reporting/stripe" },
+
+  // Credit Reports (safe reads)
+  { action: "credit.contacts.list", method: "GET", endpoint: "/api/portal/credit/contacts" },
+  { action: "credit.pulls.list", method: "GET", endpoint: "/api/portal/credit/credit-pulls" },
+  { action: "credit.disputes.letters.list", method: "GET", endpoint: "/api/portal/credit/disputes" },
+  { action: "credit.disputes.letter.get", method: "GET", endpoint: "/api/portal/credit/disputes/[letterId]" },
+  { action: "credit.reports.list", method: "GET", endpoint: "/api/portal/credit/reports" },
+  { action: "credit.reports.get", method: "GET", endpoint: "/api/portal/credit/reports/[reportId]" },
+
+  // Inbox (safe reads)
+  { action: "inbox.threads.list", method: "GET", endpoint: "/api/portal/inbox/threads" },
+  { action: "inbox.thread.messages.list", method: "GET", endpoint: "/api/portal/inbox/threads/[threadId]/messages" },
+  { action: "inbox.settings.get", method: "GET", endpoint: "/api/portal/inbox/settings" },
+  { action: "inbox.settings.update", method: "PUT", endpoint: "/api/portal/inbox/settings" },
+
+  // AI Receptionist (safe-ish reads / playback helpers)
+  { action: "ai_receptionist.settings.get", method: "GET", endpoint: "/api/portal/ai-receptionist/settings" },
+  { action: "ai_receptionist.recordings.get", method: "GET", endpoint: "/api/portal/ai-receptionist/recordings/[recordingSid]" },
+  { action: "ai_receptionist.recordings.demo.get", method: "GET", endpoint: "/api/portal/ai-receptionist/recordings/demo/[id]" },
+  { action: "ai_receptionist.demo_audio.get", method: "GET", endpoint: "/api/portal/ai-receptionist/demo-audio/[id]" },
+  { action: "ai_receptionist.settings.generate", method: "POST", endpoint: "/api/portal/ai-receptionist/generate-settings" },
+  { action: "ai_receptionist.sms_system_prompt.generate", method: "POST", endpoint: "/api/portal/ai-receptionist/generate-sms-system-prompt" },
+  { action: "ai_receptionist.text.polish", method: "POST", endpoint: "/api/portal/ai-receptionist/polish" },
+  { action: "ai_receptionist.sms_reply.preview", method: "POST", endpoint: "/api/portal/ai-receptionist/preview-sms-reply" },
+  { action: "ai_receptionist.sms_knowledge_base.sync", method: "POST", endpoint: "/api/portal/ai-receptionist/sms-knowledge-base/sync" },
+  { action: "ai_receptionist.voice_knowledge_base.sync", method: "POST", endpoint: "/api/portal/ai-receptionist/voice-knowledge-base/sync" },
+  { action: "ai_receptionist.sms_knowledge_base.upload", method: "POST", endpoint: "/api/portal/ai-receptionist/sms-knowledge-base/upload" },
+  { action: "ai_receptionist.voice_knowledge_base.upload", method: "POST", endpoint: "/api/portal/ai-receptionist/voice-knowledge-base/upload" },
+
+  // Business Profile (safe-ish settings CRUD)
+  { action: "business_profile.get", method: "GET", endpoint: "/api/portal/business-profile" },
+  { action: "business_profile.update", method: "PUT", endpoint: "/api/portal/business-profile" },
+  { action: "onboarding.status.get", method: "GET", endpoint: "/api/portal/onboarding/status" },
+
+  // ElevenLabs ConvAI helpers (sensitive tokens/URLs; no deterministic execute-first)
+  { action: "elevenlabs.convai.token.get", method: "POST", endpoint: "/api/portal/elevenlabs/convai/token" },
+  { action: "elevenlabs.convai.signed_url.get", method: "POST", endpoint: "/api/portal/elevenlabs/convai/signed-url" },
 
   // Funnel Builder (non-AI CRUD parity)
   { action: "funnel_builder.settings.get", method: "GET", endpoint: "/api/portal/funnel-builder/settings" },

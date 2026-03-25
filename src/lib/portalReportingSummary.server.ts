@@ -1,0 +1,466 @@
+import { prisma } from "@/lib/db";
+import { getCreditsState } from "@/lib/credits";
+import { listAiReceptionistEvents } from "@/lib/aiReceptionist";
+import { listMissedCallTextBackEvents } from "@/lib/missedCallTextBack";
+
+export type PortalReportingRangeKey = "today" | "7d" | "30d" | "90d" | "all";
+
+export function clampPortalReportingRangeKey(value: string | null): PortalReportingRangeKey {
+  switch ((value ?? "").toLowerCase().trim()) {
+    case "today":
+      return "today";
+    case "7d":
+    case "7":
+      return "7d";
+    case "30d":
+    case "30":
+      return "30d";
+    case "90d":
+    case "90":
+      return "90d";
+    case "all":
+      return "all";
+    default:
+      return "30d";
+  }
+}
+
+function startForRange(range: PortalReportingRangeKey, now: Date): Date {
+  if (range === "all") return new Date(0);
+  if (range === "today") {
+    const d = new Date(now);
+    d.setUTCHours(0, 0, 0, 0);
+    return d;
+  }
+
+  const days = range === "7d" ? 7 : range === "30d" ? 30 : 90;
+  return new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
+}
+
+function dayKeyUtc(d: Date): string {
+  const y = d.getUTCFullYear();
+  const m = String(d.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(d.getUTCDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+function safeDate(value: unknown): Date | null {
+  if (typeof value !== "string" || !value.trim()) return null;
+  const d = new Date(value);
+  if (!Number.isFinite(d.getTime())) return null;
+  return d;
+}
+
+export type PortalReportingSummaryPayload = {
+  ok: true;
+  range: PortalReportingRangeKey;
+  startIso: string;
+  endIso: string;
+  creditsRemaining: number;
+  warnings?: string[];
+  kpis: {
+    automationsRun: number;
+    aiCalls: number;
+    aiCompleted: number;
+    aiFailed: number;
+    missedCallAttempts: number;
+    missedCalls: number;
+    textsSent: number;
+    textsFailed: number;
+    leadScrapeRuns: number;
+    leadScrapeChargedCredits: number;
+    leadScrapeRefundedCredits: number;
+    blogGenerations: number;
+    blogCreditsUsed: number;
+    creditsUsed: number;
+    bookingsCreated: number;
+    reviewsCollected: number;
+    avgReviewRating: number | null;
+    leadsCreated: number;
+    contactsCreated: number;
+
+    aiOutboundQueuedNow: number;
+    aiOutboundCompleted: number;
+    aiOutboundFailed: number;
+
+    nurtureEnrollmentsCreated: number;
+    nurtureEnrollmentsActiveNow: number;
+    nurtureEnrollmentsCompleted: number;
+
+    newsletterSendEvents: number;
+    newsletterSentCount: number;
+    newsletterFailedCount: number;
+
+    tasksOpenNow: number;
+    tasksCompleted: number;
+
+    inboxMessagesIn: number;
+    inboxMessagesOut: number;
+  };
+  daily: Array<{
+    day: string;
+    aiCalls: number;
+    missedCalls: number;
+    leadScrapeRuns: number;
+    bookings: number;
+    reviews: number;
+    creditsUsed: number;
+  }>;
+};
+
+export async function getPortalReportingSummaryForOwner(
+  ownerId: string,
+  range: PortalReportingRangeKey,
+): Promise<PortalReportingSummaryPayload> {
+  const now = new Date();
+  const start = startForRange(range, now);
+
+  const warnings: string[] = [];
+
+  async function safe<T>(label: string, fn: () => Promise<T>, fallback: T): Promise<T> {
+    try {
+      return await fn();
+    } catch (err) {
+      console.error(`/api/portal/reporting: ${label} failed`, err);
+      warnings.push(label);
+      return fallback;
+    }
+  }
+
+  const [
+    credits,
+    aiEventsRaw,
+    missedEventsRaw,
+    leadRuns,
+    bookingSite,
+    reviewsAgg,
+    leadsCount,
+    contactsCount,
+    aiOutboundQueuedNow,
+    aiOutboundCompleted,
+    aiOutboundFailed,
+    nurtureEnrollmentsCreated,
+    nurtureEnrollmentsActiveNow,
+    nurtureEnrollmentsCompleted,
+    newsletterAgg,
+    tasksOpenNow,
+    tasksCompleted,
+    inboxMessagesIn,
+    inboxMessagesOut,
+  ] = await Promise.all([
+    safe("credits", () => getCreditsState(ownerId), { balance: 0, autoTopUp: false }),
+    safe("aiEvents", () => listAiReceptionistEvents(ownerId, 200), []),
+    safe("missedCallEvents", () => listMissedCallTextBackEvents(ownerId, 200), []),
+    safe(
+      "leadScrapeRuns",
+      () =>
+        prisma.portalLeadScrapeRun.findMany({
+          where: { ownerId, createdAt: { gte: start } },
+          select: {
+            id: true,
+            createdAt: true,
+            requestedCount: true,
+            createdCount: true,
+            chargedCredits: true,
+            refundedCredits: true,
+            error: true,
+          },
+          orderBy: { createdAt: "desc" },
+          take: 200,
+        }),
+      [],
+    ),
+    safe("bookingSite", () => prisma.portalBookingSite.findUnique({ where: { ownerId }, select: { id: true } }), null),
+    safe(
+      "reviewsAgg",
+      () =>
+        prisma.portalReview.aggregate({
+          where: { ownerId, createdAt: { gte: start }, archivedAt: null },
+          _count: { id: true },
+          _avg: { rating: true },
+        }),
+      { _count: { id: 0 }, _avg: { rating: null } },
+    ),
+    safe("leadsCount", () => prisma.portalLead.count({ where: { ownerId, createdAt: { gte: start } } }), 0),
+    safe("contactsCount", () => prisma.portalContact.count({ where: { ownerId, createdAt: { gte: start } } }), 0),
+
+    safe(
+      "aiOutboundQueuedNow",
+      () => prisma.portalAiOutboundCallEnrollment.count({ where: { ownerId, status: "QUEUED" } }),
+      0,
+    ),
+    safe(
+      "aiOutboundCompleted",
+      () =>
+        prisma.portalAiOutboundCallEnrollment.count({
+          where: { ownerId, status: "COMPLETED", completedAt: { gte: start } },
+        }),
+      0,
+    ),
+    safe(
+      "aiOutboundFailed",
+      () =>
+        prisma.portalAiOutboundCallEnrollment.count({
+          where: { ownerId, status: "FAILED", updatedAt: { gte: start } },
+        }),
+      0,
+    ),
+
+    safe(
+      "nurtureEnrollmentsCreated",
+      () => prisma.portalNurtureEnrollment.count({ where: { ownerId, createdAt: { gte: start } } }),
+      0,
+    ),
+    safe("nurtureEnrollmentsActiveNow", () => prisma.portalNurtureEnrollment.count({ where: { ownerId, status: "ACTIVE" } }), 0),
+    safe(
+      "nurtureEnrollmentsCompleted",
+      () =>
+        prisma.portalNurtureEnrollment.count({
+          where: { ownerId, status: "COMPLETED", updatedAt: { gte: start } },
+        }),
+      0,
+    ),
+
+    safe(
+      "newsletterAgg",
+      () =>
+        prisma.portalNewsletterSendEvent.aggregate({
+          where: { ownerId, createdAt: { gte: start } },
+          _count: { id: true },
+          _sum: { sentCount: true, failedCount: true },
+        }),
+      { _count: { id: 0 }, _sum: { sentCount: 0, failedCount: 0 } },
+    ),
+
+    safe("tasksOpenNow", () => prisma.portalTask.count({ where: { ownerId, status: "OPEN" } }), 0),
+    safe(
+      "tasksCompleted",
+      () => prisma.portalTask.count({ where: { ownerId, status: "DONE", updatedAt: { gte: start } } }),
+      0,
+    ),
+
+    safe(
+      "inboxMessagesIn",
+      () =>
+        prisma.portalInboxMessage.count({
+          where: { ownerId, direction: "IN", createdAt: { gte: start } },
+        }),
+      0,
+    ),
+    safe(
+      "inboxMessagesOut",
+      () =>
+        prisma.portalInboxMessage.count({
+          where: { ownerId, direction: "OUT", createdAt: { gte: start } },
+        }),
+      0,
+    ),
+  ]);
+
+  const [blogAgg, blogEvents] = await Promise.all([
+    safe(
+      "blogGenerationAgg",
+      () =>
+        prisma.portalBlogGenerationEvent.aggregate({
+          where: { ownerId, createdAt: { gte: start } },
+          _count: { id: true },
+          _sum: { chargedCredits: true },
+        }),
+      { _count: { id: 0 }, _sum: { chargedCredits: 0 } } as any,
+    ),
+    safe(
+      "blogGenerationEvents",
+      () =>
+        prisma.portalBlogGenerationEvent.findMany({
+          where: { ownerId, createdAt: { gte: start } },
+          select: { createdAt: true, chargedCredits: true },
+          orderBy: { createdAt: "desc" },
+          take: 500,
+        }),
+      [],
+    ),
+  ]);
+
+  const bookingCount = bookingSite
+    ? await safe(
+        "bookingCount",
+        () => prisma.portalBooking.count({ where: { siteId: bookingSite.id, createdAt: { gte: start } } }),
+        0,
+      )
+    : 0;
+
+  const aiEvents = (aiEventsRaw as any[]).filter((e) => {
+    const d = safeDate((e as any)?.createdAtIso);
+    return d ? d >= start : false;
+  });
+
+  const missedEvents = (missedEventsRaw as any[]).filter((e) => {
+    const d = safeDate((e as any)?.createdAtIso);
+    return d ? d >= start : false;
+  });
+
+  const aiCompleted = aiEvents.filter((e) => (e as any).status === "COMPLETED").length;
+  const aiFailed = aiEvents.filter((e) => (e as any).status === "FAILED").length;
+  const missedCalls = missedEvents.filter((e) => (e as any).finalStatus === "MISSED").length;
+  const textsSent = missedEvents.filter((e) => (e as any).smsStatus === "SENT").length;
+  const textsFailed = missedEvents.filter((e) => (e as any).smsStatus === "FAILED").length;
+
+  const aiCreditsUsed = aiEvents.reduce(
+    (sum, e) => sum + (typeof (e as any).chargedCredits === "number" ? (e as any).chargedCredits : 0),
+    0,
+  );
+  const leadScrapeRuns = (leadRuns as any[]).length;
+  const leadScrapeCharged = (leadRuns as any[]).reduce((sum, r) => sum + ((r as any).chargedCredits || 0), 0);
+  const leadScrapeRefunded = (leadRuns as any[]).reduce((sum, r) => sum + ((r as any).refundedCredits || 0), 0);
+  const leadScrapeNetCredits = Math.max(0, leadScrapeCharged - leadScrapeRefunded);
+
+  const blogGenerations = typeof (blogAgg as any)?._count?.id === "number" ? (blogAgg as any)._count.id : 0;
+  const blogCreditsUsed = typeof (blogAgg as any)?._sum?.chargedCredits === "number" ? (blogAgg as any)._sum.chargedCredits : 0;
+
+  const creditsUsed = aiCreditsUsed + leadScrapeNetCredits + blogCreditsUsed;
+
+  const automationsRun = aiEvents.length + missedEvents.length + leadScrapeRuns + blogGenerations;
+
+  const daysBack = range === "today" ? 1 : range === "7d" ? 7 : range === "30d" ? 30 : range === "90d" ? 90 : 30;
+  const dailyMap = new Map<
+    string,
+    {
+      day: string;
+      aiCalls: number;
+      missedCalls: number;
+      leadScrapeRuns: number;
+      bookings: number;
+      reviews: number;
+      creditsUsed: number;
+    }
+  >();
+
+  for (let i = daysBack - 1; i >= 0; i--) {
+    const d = new Date(now.getTime() - i * 24 * 60 * 60 * 1000);
+    const key = dayKeyUtc(d);
+    dailyMap.set(key, { day: key, aiCalls: 0, missedCalls: 0, leadScrapeRuns: 0, bookings: 0, reviews: 0, creditsUsed: 0 });
+  }
+
+  for (const e of aiEvents) {
+    const d = safeDate((e as any)?.createdAtIso);
+    if (!d) continue;
+    const key = dayKeyUtc(d);
+    const row = dailyMap.get(key);
+    if (!row) continue;
+    row.aiCalls += 1;
+    row.creditsUsed += typeof (e as any).chargedCredits === "number" ? (e as any).chargedCredits : 0;
+  }
+
+  for (const e of missedEvents) {
+    const d = safeDate((e as any)?.createdAtIso);
+    if (!d) continue;
+    const key = dayKeyUtc(d);
+    const row = dailyMap.get(key);
+    if (!row) continue;
+    row.missedCalls += (e as any).finalStatus === "MISSED" ? 1 : 0;
+  }
+
+  for (const r of leadRuns as any[]) {
+    const key = dayKeyUtc((r as any).createdAt);
+    const row = dailyMap.get(key);
+    if (!row) continue;
+    row.leadScrapeRuns += 1;
+    const net = Math.max(0, ((r as any).chargedCredits || 0) - ((r as any).refundedCredits || 0));
+    row.creditsUsed += net;
+  }
+
+  for (const e of blogEvents as any[]) {
+    const d = e && typeof e === "object" && (e as any).createdAt instanceof Date ? (e as any).createdAt : null;
+    if (!d) continue;
+    const key = dayKeyUtc(d);
+    const row = dailyMap.get(key);
+    if (!row) continue;
+    const charged = typeof (e as any).chargedCredits === "number" ? (e as any).chargedCredits : 0;
+    row.creditsUsed += charged;
+  }
+
+  if (bookingSite) {
+    const bookings = await prisma.portalBooking.findMany({
+      where: { siteId: bookingSite.id, createdAt: { gte: start } },
+      select: { createdAt: true },
+      take: 500,
+      orderBy: { createdAt: "desc" },
+    });
+    for (const b of bookings) {
+      const key = dayKeyUtc(b.createdAt);
+      const row = dailyMap.get(key);
+      if (!row) continue;
+      row.bookings += 1;
+    }
+  }
+
+  const reviews = await safe(
+    "reviewsList",
+    () =>
+      prisma.portalReview.findMany({
+        where: { ownerId, createdAt: { gte: start }, archivedAt: null },
+        select: { createdAt: true },
+        take: 500,
+        orderBy: { createdAt: "desc" },
+      }),
+    [],
+  );
+
+  for (const r of reviews as any[]) {
+    const key = dayKeyUtc((r as any).createdAt);
+    const row = dailyMap.get(key);
+    if (!row) continue;
+    row.reviews += 1;
+  }
+
+  const daily = Array.from(dailyMap.values());
+
+  return {
+    ok: true,
+    range,
+    startIso: start.toISOString(),
+    endIso: now.toISOString(),
+    creditsRemaining: (credits as any).balance,
+    ...(warnings.length ? { warnings } : {}),
+    kpis: {
+      automationsRun,
+      aiCalls: aiEvents.length,
+      aiCompleted,
+      aiFailed,
+      missedCallAttempts: missedEvents.length,
+      missedCalls,
+      textsSent,
+      textsFailed,
+      leadScrapeRuns,
+      leadScrapeChargedCredits: leadScrapeCharged,
+      leadScrapeRefundedCredits: leadScrapeRefunded,
+      blogGenerations,
+      blogCreditsUsed,
+      creditsUsed,
+      bookingsCreated: bookingCount,
+      reviewsCollected: (reviewsAgg as any)._count.id,
+      avgReviewRating: (reviewsAgg as any)._avg.rating,
+      leadsCreated: leadsCount as any,
+      contactsCreated: contactsCount as any,
+
+      aiOutboundQueuedNow: aiOutboundQueuedNow as any,
+      aiOutboundCompleted: aiOutboundCompleted as any,
+      aiOutboundFailed: aiOutboundFailed as any,
+
+      nurtureEnrollmentsCreated: nurtureEnrollmentsCreated as any,
+      nurtureEnrollmentsActiveNow: nurtureEnrollmentsActiveNow as any,
+      nurtureEnrollmentsCompleted: nurtureEnrollmentsCompleted as any,
+
+      newsletterSendEvents: (newsletterAgg as any)?._count?.id ?? 0,
+      newsletterSentCount: (newsletterAgg as any)?._sum?.sentCount ?? 0,
+      newsletterFailedCount: (newsletterAgg as any)?._sum?.failedCount ?? 0,
+
+      tasksOpenNow: tasksOpenNow as any,
+      tasksCompleted: tasksCompleted as any,
+
+      inboxMessagesIn: inboxMessagesIn as any,
+      inboxMessagesOut: inboxMessagesOut as any,
+    },
+    daily,
+  };
+}

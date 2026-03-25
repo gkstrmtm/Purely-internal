@@ -57,10 +57,41 @@ export const PortalAgentActionKeySchema = z.enum([
   "newsletter.automation.settings.get",
   "newsletter.automation.settings.update",
   "newsletter.generate_now",
+
+  "billing.summary.get",
+  "billing.subscriptions.list",
+  "billing.info.get",
+  "pricing.get",
+  "credits.get",
+  "credits.auto_topup.set",
+  "credit.contacts.list",
+  "credit.pulls.list",
+  "credit.disputes.letters.list",
+  "credit.disputes.letter.get",
+  "credit.reports.list",
+  "credit.reports.get",
   "automations.run",
   "automations.create",
   "contacts.list",
   "contacts.create",
+  "onboarding.status.get",
+
+  "me.get",
+
+  "services.catalog.get",
+  "services.status.get",
+  "services.lifecycle.update",
+
+  "mailbox.get",
+  "mailbox.update",
+
+  "missed_call_textback.settings.get",
+  "missed_call_textback.settings.update",
+
+  "contact_tags.list",
+  "contact_tags.create",
+  "contact_tags.update",
+  "contact_tags.delete",
 
   "people.users.list",
   "people.users.invite",
@@ -71,6 +102,10 @@ export const PortalAgentActionKeySchema = z.enum([
   "people.contacts.duplicates.get",
   "people.contacts.merge",
   "people.contacts.custom_variables.patch",
+  "inbox.threads.list",
+  "inbox.thread.messages.list",
+  "inbox.settings.get",
+  "inbox.settings.update",
   "inbox.send_sms",
   "inbox.send_email",
   "reviews.send_request_for_booking",
@@ -136,6 +171,32 @@ export const PortalAgentActionKeySchema = z.enum([
   "ai_outbound_calls.contacts.search",
   "ai_outbound_calls.manual_calls.list",
   "ai_outbound_calls.manual_calls.get",
+
+  "ai_receptionist.settings.get",
+  "ai_receptionist.recordings.get",
+  "ai_receptionist.recordings.demo.get",
+  "ai_receptionist.demo_audio.get",
+
+  "ai_receptionist.settings.generate",
+  "ai_receptionist.sms_system_prompt.generate",
+  "ai_receptionist.text.polish",
+  "ai_receptionist.sms_reply.preview",
+
+  "ai_receptionist.sms_knowledge_base.sync",
+  "ai_receptionist.voice_knowledge_base.sync",
+
+  "ai_receptionist.sms_knowledge_base.upload",
+  "ai_receptionist.voice_knowledge_base.upload",
+
+  "business_profile.get",
+  "business_profile.update",
+
+  "elevenlabs.convai.token.get",
+  "elevenlabs.convai.signed_url.get",
+
+  "reporting.summary.get",
+  "reporting.sales.get",
+  "reporting.stripe.get",
 ]);
 
 export type PortalAgentActionKey = z.infer<typeof PortalAgentActionKeySchema>;
@@ -559,6 +620,54 @@ export const PortalAgentActionArgsSchemaByKey = {
     })
     .strict(),
 
+  "billing.summary.get": z.object({}).strict(),
+
+  "billing.subscriptions.list": z.object({}).strict(),
+
+  "billing.info.get": z.object({}).strict(),
+
+  "pricing.get": z.object({}).strict(),
+
+  "credits.get": z.object({}).strict(),
+
+  "credits.auto_topup.set": z
+    .object({
+      autoTopUp: z.boolean(),
+    })
+    .strict(),
+
+  "credit.contacts.list": z
+    .object({
+      q: z.string().trim().max(120).optional().nullable(),
+    })
+    .strict(),
+
+  "credit.pulls.list": z
+    .object({
+      contactId: z.string().trim().min(1).max(120).optional().nullable(),
+    })
+    .strict(),
+
+  "credit.disputes.letters.list": z
+    .object({
+      contactId: z.string().trim().min(1).max(120).optional().nullable(),
+    })
+    .strict(),
+
+  "credit.disputes.letter.get": z
+    .object({
+      letterId: z.string().trim().min(1).max(120),
+    })
+    .strict(),
+
+  "credit.reports.list": z.object({}).strict(),
+
+  "credit.reports.get": z
+    .object({
+      reportId: z.string().trim().min(1).max(120),
+    })
+    .strict(),
+
   "automations.run": z
     .object({
       automationId: z.string().trim().min(1).max(80),
@@ -594,6 +703,78 @@ export const PortalAgentActionArgsSchemaByKey = {
       customVariables: z.record(z.string().trim().max(60), z.string().trim().max(120)).optional().nullable(),
     })
     .strict(),
+
+  "onboarding.status.get": z.object({}).strict(),
+
+  "contact_tags.list": z.object({}).strict(),
+
+  "contact_tags.create": z
+    .object({
+      name: z.string().trim().min(1).max(60),
+      color: z
+        .string()
+        .trim()
+        .max(16)
+        .optional()
+        .nullable()
+        .transform((v) => {
+          if (v === null) return null;
+          if (v === undefined) return null;
+          return v === "" ? null : v;
+        }),
+    })
+    .strict(),
+
+  "contact_tags.update": z
+    .object({
+      tagId: z.string().trim().min(1).max(120),
+      name: z.string().trim().max(60).optional(),
+      color: z
+        .string()
+        .trim()
+        .max(16)
+        .optional()
+        .transform((v) => (v === "" ? null : v)),
+    })
+    .strict()
+    .refine((v) => v.name !== undefined || v.color !== undefined, { message: "No changes" }),
+
+  "contact_tags.delete": z
+    .object({
+      tagId: z.string().trim().min(1).max(120),
+    })
+    .strict(),
+
+  "me.get": z.object({}).strict(),
+
+  "services.catalog.get": z.object({}).strict(),
+
+  "services.status.get": z.object({}).strict(),
+
+  "services.lifecycle.update": z
+    .object({
+      serviceSlug: z.string().trim().min(1).max(80),
+      action: z.enum(["pause", "cancel", "resume"]),
+    })
+    .strict(),
+
+  "mailbox.get": z.object({}).strict(),
+
+  "mailbox.update": z
+    .object({
+      localPart: z.string().trim().min(2).max(48),
+    })
+    .strict(),
+
+  "missed_call_textback.settings.get": z.object({}).strict(),
+
+  "missed_call_textback.settings.update": z
+    .object({
+      settings: z.unknown().optional(),
+      regenerateToken: z.boolean().optional(),
+    })
+    .strict()
+    .refine((v) => v.regenerateToken === true || v.settings !== undefined, { message: "Missing settings" }),
 
   "people.users.list": z.object({}).strict(),
 
@@ -652,6 +833,28 @@ export const PortalAgentActionArgsSchemaByKey = {
       contactId: z.string().trim().min(1).max(120),
       key: z.string().trim().min(1).max(120),
       value: z.string().optional().nullable(),
+    })
+    .strict(),
+
+  "inbox.threads.list": z
+    .object({
+      channel: z.enum(["EMAIL", "SMS"]).optional().nullable(),
+      take: z.number().int().min(1).max(200).optional().nullable(),
+    })
+    .strict(),
+
+  "inbox.thread.messages.list": z
+    .object({
+      threadId: z.string().trim().min(1).max(120),
+      take: z.number().int().min(10).max(500).optional().nullable(),
+    })
+    .strict(),
+
+  "inbox.settings.get": z.object({}).strict(),
+
+  "inbox.settings.update": z
+    .object({
+      regenerateToken: z.boolean().optional(),
     })
     .strict(),
 
@@ -1200,6 +1403,265 @@ export const PortalAgentActionArgsSchemaByKey = {
       reconcileTwilio: z.boolean().optional().nullable(),
     })
     .strict(),
+
+  "ai_receptionist.settings.get": z.object({}).strict(),
+
+  "ai_receptionist.recordings.get": z
+    .object({
+      recordingSid: z.string().trim().min(1).max(64),
+    })
+    .strict(),
+
+  "ai_receptionist.recordings.demo.get": z
+    .object({
+      id: z.string().trim().min(1).max(40),
+    })
+    .strict(),
+
+  "ai_receptionist.demo_audio.get": z
+    .object({
+      id: z.string().trim().min(1).max(40),
+    })
+    .strict(),
+
+  "ai_receptionist.settings.generate": z
+    .object({
+      context: z.string().trim().max(4000).optional().nullable(),
+      mode: z.enum(["AI", "FORWARD"]).optional().nullable(),
+      aiCanTransferToHuman: z.boolean().optional().nullable(),
+      forwardToPhoneE164: z.string().trim().max(60).nullable().optional(),
+    })
+    .strict(),
+
+  "ai_receptionist.sms_system_prompt.generate": z
+    .object({
+      context: z.string().trim().max(4000).optional().nullable(),
+    })
+    .strict(),
+
+  "ai_receptionist.text.polish": z
+    .object({
+      kind: z.enum(["systemPrompt", "greeting"]),
+      channel: z.enum(["voice", "sms"]),
+      text: z.string().trim().min(1).max(8000),
+    })
+    .strict(),
+
+  "ai_receptionist.sms_reply.preview": z
+    .object({
+      inbound: z.string().trim().min(1).max(4000),
+      history: z
+        .array(
+          z
+            .object({
+              role: z.enum(["user", "assistant"]),
+              content: z.string().trim().min(1).max(2000),
+            })
+            .strict(),
+        )
+        .max(20)
+        .optional(),
+      contactTagIds: z.array(z.string().trim().min(1).max(80)).max(60).optional(),
+    })
+    .strict(),
+
+  "ai_receptionist.sms_knowledge_base.sync": z
+    .object({
+      knowledgeBase: z
+        .object({
+          seedUrl: z.string().trim().max(500).optional().nullable(),
+          crawlDepth: z.number().int().min(0).max(5).optional().nullable(),
+          maxUrls: z.number().int().min(0).max(1000).optional().nullable(),
+          text: z.string().trim().max(20000).optional().nullable(),
+        })
+        .strict()
+        .optional()
+        .nullable(),
+    })
+    .strict(),
+
+  "ai_receptionist.voice_knowledge_base.sync": z
+    .object({
+      knowledgeBase: z
+        .object({
+          seedUrl: z.string().trim().max(500).optional().nullable(),
+          crawlDepth: z.number().int().min(0).max(5).optional().nullable(),
+          maxUrls: z.number().int().min(0).max(1000).optional().nullable(),
+          text: z.string().trim().max(20000).optional().nullable(),
+        })
+        .strict()
+        .optional()
+        .nullable(),
+    })
+    .strict(),
+
+  "ai_receptionist.sms_knowledge_base.upload": z
+    .object({
+      fileName: z.string().trim().min(1).max(200),
+      mimeType: z.string().trim().max(120).optional().nullable(),
+      contentBase64: z.string().trim().min(1).max(12_000_000),
+      knowledgeBase: z
+        .object({
+          seedUrl: z.string().trim().max(500).optional().nullable(),
+          crawlDepth: z.number().int().min(0).max(5).optional().nullable(),
+          maxUrls: z.number().int().min(0).max(1000).optional().nullable(),
+          text: z.string().trim().max(20000).optional().nullable(),
+        })
+        .strict()
+        .optional()
+        .nullable(),
+    })
+    .strict(),
+
+  "ai_receptionist.voice_knowledge_base.upload": z
+    .object({
+      fileName: z.string().trim().min(1).max(200),
+      mimeType: z.string().trim().max(120).optional().nullable(),
+      contentBase64: z.string().trim().min(1).max(12_000_000),
+      knowledgeBase: z
+        .object({
+          seedUrl: z.string().trim().max(500).optional().nullable(),
+          crawlDepth: z.number().int().min(0).max(5).optional().nullable(),
+          maxUrls: z.number().int().min(0).max(1000).optional().nullable(),
+          text: z.string().trim().max(20000).optional().nullable(),
+        })
+        .strict()
+        .optional()
+        .nullable(),
+    })
+    .strict(),
+
+  "business_profile.get": z.object({}).strict(),
+
+  "business_profile.update": z
+    .object({
+      businessName: z.string().trim().min(2),
+      websiteUrl: z.string().trim().max(500).optional().or(z.literal("")),
+      industry: z.string().trim().max(120).optional().or(z.literal("")),
+      businessModel: z.string().trim().max(200).optional().or(z.literal("")),
+      primaryGoals: z.array(z.string().trim().min(1)).max(10).optional(),
+      targetCustomer: z.string().trim().max(240).optional().or(z.literal("")),
+      brandVoice: z.string().trim().max(240).optional().or(z.literal("")),
+
+      logoUrl: z.string().trim().max(500).optional().or(z.literal("")),
+      brandPrimaryHex: z
+        .string()
+        .trim()
+        .regex(/^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/, "Primary color must be a hex code like #1d4ed8")
+        .optional()
+        .or(z.literal("")),
+      brandSecondaryHex: z
+        .string()
+        .trim()
+        .regex(/^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/, "Secondary color must be a hex code like #22c55e")
+        .optional()
+        .or(z.literal("")),
+      brandAccentHex: z
+        .string()
+        .trim()
+        .regex(/^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/, "Accent color must be a hex code like #fb7185")
+        .optional()
+        .or(z.literal("")),
+      brandTextHex: z
+        .string()
+        .trim()
+        .regex(/^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/, "Text color must be a hex code like #0f172a")
+        .optional()
+        .or(z.literal("")),
+
+      brandFontFamily: z.string().trim().max(200).optional().or(z.literal("")),
+      brandFontGoogleFamily: z.string().trim().max(80).optional().or(z.literal("")),
+
+      hostedTheme: z
+        .object({
+          bgHex: z
+            .string()
+            .trim()
+            .regex(/^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/, "Background must be a hex code like #ffffff")
+            .optional()
+            .or(z.literal("")),
+          surfaceHex: z
+            .string()
+            .trim()
+            .regex(/^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/, "Surface must be a hex code like #ffffff")
+            .optional()
+            .or(z.literal("")),
+          softHex: z
+            .string()
+            .trim()
+            .regex(/^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/, "Soft background must be a hex code")
+            .optional()
+            .or(z.literal("")),
+          borderHex: z
+            .string()
+            .trim()
+            .regex(/^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/, "Border must be a hex code")
+            .optional()
+            .or(z.literal("")),
+          textHex: z
+            .string()
+            .trim()
+            .regex(/^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/, "Text must be a hex code")
+            .optional()
+            .or(z.literal("")),
+          mutedTextHex: z
+            .string()
+            .trim()
+            .regex(/^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/, "Muted text must be a hex code")
+            .optional()
+            .or(z.literal("")),
+          primaryHex: z
+            .string()
+            .trim()
+            .regex(/^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/, "Primary must be a hex code")
+            .optional()
+            .or(z.literal("")),
+          accentHex: z
+            .string()
+            .trim()
+            .regex(/^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/, "Accent must be a hex code")
+            .optional()
+            .or(z.literal("")),
+          linkHex: z
+            .string()
+            .trim()
+            .regex(/^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/, "Link must be a hex code")
+            .optional()
+            .or(z.literal("")),
+        })
+        .optional(),
+    })
+    .strict(),
+
+  "elevenlabs.convai.token.get": z
+    .object({
+      agentId: z.string().trim().min(1).max(120),
+    })
+    .strict(),
+
+  "elevenlabs.convai.signed_url.get": z
+    .object({
+      agentId: z.string().trim().min(1).max(120),
+    })
+    .strict(),
+
+  "reporting.summary.get": z
+    .object({
+      range: z.enum(["today", "7d", "30d", "90d", "all"]).optional().nullable(),
+    })
+    .strict(),
+
+  "reporting.sales.get": z
+    .object({
+      range: z.enum(["7d", "30d"]).optional().nullable(),
+    })
+    .strict(),
+
+  "reporting.stripe.get": z
+    .object({
+      range: z.enum(["7d", "30d"]).optional().nullable(),
+    })
+    .strict(),
 } as const;
 
 export type PortalAgentActionArgs<K extends PortalAgentActionKey> = z.infer<(typeof PortalAgentActionArgsSchemaByKey)[K]>;
@@ -1268,10 +1730,38 @@ export function portalAgentActionsIndexText(): string {
     "- newsletter.automation.settings.get: Get newsletter automation settings (fields: kind=external|internal?)",
     "- newsletter.automation.settings.update: Update newsletter automation settings (fields: kind, enabled, frequencyDays, requireApproval?, channels?, topics?, promptAnswers?, deliveryEmailHint?, deliverySmsHint?, includeImages?, royaltyFreeImages?, includeImagesWhereNeeded?, fontKey?, audience?)",
     "- newsletter.generate_now: Generate a newsletter draft now (fields: kind=external|internal)",
+    "- billing.summary.get: Get billing summary",
+    "- billing.subscriptions.list: List active subscriptions",
+    "- billing.info.get: Get billing profile info (customer + default payment method)",
+    "- pricing.get: Get module and credits pricing (includes credit USD value)",
+    "- credits.get: Get credits balance + auto-top-up state",
+    "- credits.auto_topup.set: Enable/disable auto-top-up (fields: autoTopUp)",
+    "- reporting.summary.get: Get reporting dashboard KPIs (fields: range=today|7d|30d|90d|all?)",
+    "- reporting.sales.get: Get sales report (fields: range=7d|30d?)",
+    "- reporting.stripe.get: Get Stripe charges report (fields: range=7d|30d?)",
+    "- credit.contacts.list: List/search credit contacts (fields: q?)",
+    "- credit.pulls.list: List credit pulls (fields: contactId?)",
+    "- credit.disputes.letters.list: List credit dispute letters (fields: contactId?)",
+    "- credit.disputes.letter.get: Get a credit dispute letter (fields: letterId)",
+    "- credit.reports.list: List credit reports",
+    "- credit.reports.get: Get a credit report (fields: reportId)",
     "- automations.run: Run an automation by id (fields: automationId, contact?)",
     "- automations.create: Create a new automation shell (fields: name)",
     "- contacts.list: List recent contacts (fields: limit?)",
     "- contacts.create: Create a contact (fields: name, email?, phone?, tags?, customVariables?)",
+    "- onboarding.status.get: Get onboarding completion status (business profile + blogs setup)",
+    "- contact_tags.list: List contact tags",
+    "- contact_tags.create: Create a contact tag (fields: name, color?)",
+    "- contact_tags.update: Update a contact tag (fields: tagId, name?, color?)",
+    "- contact_tags.delete: Delete a contact tag (fields: tagId)",
+    "- me.get: Get the current portal member identity (ownerId/memberId/role) and effective permissions",
+    "- services.catalog.get: List the portal services catalog (grouped by category)",
+    "- services.status.get: Get portal service status for each service (active/needs_setup/locked/etc)",
+    "- services.lifecycle.update: Pause/cancel/resume a service (fields: serviceSlug, action=pause|cancel|resume)",
+    "- mailbox.get: Get the portal mailbox email alias",
+    "- mailbox.update: Update the portal mailbox email alias local-part (fields: localPart)",
+    "- missed_call_textback.settings.get: Get Missed-Call Text Back settings and recent events",
+    "- missed_call_textback.settings.update: Update Missed-Call Text Back settings or regenerate webhook token (fields: settings? OR regenerateToken=true)",
     "- people.users.list: List portal team members and invites",
     "- people.users.invite: Invite a team member (fields: email, role=ADMIN|MEMBER?, permissions?)",
     "- people.users.update: Update a team member role/permissions (fields: userId, role?, permissions?)",
@@ -1281,6 +1771,10 @@ export function portalAgentActionsIndexText(): string {
     "- people.contacts.duplicates.get: List duplicate contact groups (fields: limitGroups?, summaryOnly?)",
     "- people.contacts.merge: Merge duplicate contacts (fields: primaryContactId, mergeContactIds, primaryEmail?)",
     "- people.contacts.custom_variables.patch: Set/remove a contact custom variable (fields: contactId, key, value?)",
+    "- inbox.threads.list: List inbox threads (fields: channel=EMAIL|SMS?, take?)",
+    "- inbox.thread.messages.list: Load messages for a thread (fields: threadId, take?)",
+    "- inbox.settings.get: Get inbox settings (mailbox + webhook URLs)",
+    "- inbox.settings.update: Regenerate inbox webhook token (fields: regenerateToken=true)",
     "- inbox.send_sms: Send an SMS (fields: to, body, threadId?)",
     "- inbox.send_email: Send an email (fields: to, subject, body, threadId?)",
     "- reviews.send_request_for_booking: Send a review request for a completed booking (fields: bookingId)",
@@ -1345,6 +1839,22 @@ export function portalAgentActionsIndexText(): string {
     "- ai_outbound_calls.contacts.search: Search contacts (AI outbound calls) (fields: q?, take?)",
     "- ai_outbound_calls.manual_calls.list: List manual calls (fields: campaignId?, reconcileTwilio?)",
     "- ai_outbound_calls.manual_calls.get: Get a manual call (fields: id, reconcileTwilio?)",
+    "- ai_receptionist.settings.get: Get AI receptionist settings and recent call events",
+    "- ai_receptionist.recordings.get: Get a link to an AI receptionist call recording audio stream (fields: recordingSid)",
+    "- ai_receptionist.recordings.demo.get: Get a demo AI receptionist recording audio link (fields: id)",
+    "- ai_receptionist.demo_audio.get: Get a demo AI receptionist audio link (fields: id)",
+    "- ai_receptionist.settings.generate: Generate AI receptionist settings (fields: context?, mode?, aiCanTransferToHuman?, forwardToPhoneE164?)",
+    "- ai_receptionist.sms_system_prompt.generate: Generate an inbound SMS system prompt for the AI receptionist (fields: context?)",
+    "- ai_receptionist.text.polish: Polish receptionist text (fields: kind, channel, text)",
+    "- ai_receptionist.sms_reply.preview: Preview an AI receptionist SMS reply (fields: inbound, history?, contactTagIds?)",
+    "- ai_receptionist.sms_knowledge_base.sync: Sync the AI receptionist SMS knowledge base (fields: knowledgeBase.seedUrl?, knowledgeBase.crawlDepth?, knowledgeBase.maxUrls?, knowledgeBase.text?)",
+    "- ai_receptionist.voice_knowledge_base.sync: Sync the AI receptionist Voice knowledge base (fields: knowledgeBase.seedUrl?, knowledgeBase.crawlDepth?, knowledgeBase.maxUrls?, knowledgeBase.text?)",
+    "- ai_receptionist.sms_knowledge_base.upload: Upload a file to the AI receptionist SMS knowledge base (fields: fileName, mimeType?, contentBase64, knowledgeBase.seedUrl?, knowledgeBase.crawlDepth?, knowledgeBase.maxUrls?, knowledgeBase.text?)",
+    "- ai_receptionist.voice_knowledge_base.upload: Upload a file to the AI receptionist Voice knowledge base (fields: fileName, mimeType?, contentBase64, knowledgeBase.seedUrl?, knowledgeBase.crawlDepth?, knowledgeBase.maxUrls?, knowledgeBase.text?)",
+    "- business_profile.get: Get the Business Profile (and hosted theme)",
+    "- business_profile.update: Create/update the Business Profile (fields: businessName, websiteUrl?, industry?, businessModel?, primaryGoals?, targetCustomer?, brandVoice?, logoUrl?, brandPrimaryHex?, brandSecondaryHex?, brandAccentHex?, brandTextHex?, brandFontFamily?, brandFontGoogleFamily?, hostedTheme?)",
+    "- elevenlabs.convai.token.get: Get an ElevenLabs ConvAI conversation token for an agent (fields: agentId) (returns sensitive token)",
+    "- elevenlabs.convai.signed_url.get: Get an ElevenLabs ConvAI signed URL for an agent (fields: agentId) (returns sensitive URL)",
   ].join("\n");
 }
 
