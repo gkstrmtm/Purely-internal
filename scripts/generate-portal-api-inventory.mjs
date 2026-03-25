@@ -213,6 +213,7 @@ const ACTION_COVERAGE = [
   { action: "newsletter.royalty_free_images.suggest", method: "POST", endpoint: "/api/portal/newsletter/royalty-free-images/suggest" },
   { action: "newsletter.automation.settings.get", method: "GET", endpoint: "/api/portal/newsletter/automation/settings" },
   { action: "newsletter.automation.settings.update", method: "PUT", endpoint: "/api/portal/newsletter/automation/settings" },
+  { action: "newsletter.generate_now", method: "POST", endpoint: "/api/portal/newsletter/automation/generate-now" },
 
   // Billing (safe reads)
   { action: "billing.summary.get", method: "GET", endpoint: "/api/portal/billing/summary" },
