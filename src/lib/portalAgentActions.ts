@@ -148,6 +148,7 @@ export const PortalAgentActionKeySchema = z.enum([
   "reviews.questions.answer",
   "media.folders.list",
   "media.folder.ensure",
+  "media.items.list",
   "media.items.move",
   "media.import_remote_image",
   "media.list.get",
@@ -1053,6 +1054,14 @@ export const PortalAgentActionArgsSchemaByKey = {
     })
     .strict(),
 
+  "media.items.list": z
+    .object({
+      q: z.string().trim().max(240).optional().nullable(),
+      folderId: z.string().trim().min(1).max(80).optional().nullable(),
+      limit: z.number().int().min(1).max(500).optional().nullable(),
+    })
+    .strict(),
+
   "media.items.move": z
     .object({
       itemIds: z.array(z.string().trim().min(1).max(80)).min(1).max(20),
@@ -1918,6 +1927,7 @@ export function portalAgentActionsIndexText(): string {
     "- reviews.questions.answer: Answer a review question (fields: id, answer?)",
     "- media.folders.list: List all Media Library folders",
     "- media.folder.ensure: Ensure a Media Library folder exists (fields: name, parentId?, color?)",
+    "- media.items.list: List/search Media Library items (fields: q?, folderId?, limit?)",
     "- media.items.move: Move media items into a folder (fields: itemIds, folderId? OR folderName(+parentId?))",
     "- media.import_remote_image: Import an image from a URL into Media Library (fields: url, fileName?, folderId? OR folderName(+parentId?))",
     "- media.list.get: List Media Library folders/items for a folder (fields: folderId?)",

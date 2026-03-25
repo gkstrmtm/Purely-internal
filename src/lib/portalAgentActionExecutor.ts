@@ -9909,6 +9909,57 @@ async function runDirectAction(opts: {
       };
     }
 
+    case "media.items.list": {
+      const ok = await requireServiceCapability("media" as PortalServiceKey, "view");
+      if (!ok) return { status: 403, json: { ok: false, error: "Insufficient permissions" } };
+
+      const q = typeof args.q === "string" ? String(args.q).trim() : "";
+      const folderId = typeof args.folderId === "string" && args.folderId.trim() ? String(args.folderId).trim() : null;
+      const limitRaw = typeof args.limit === "number" && Number.isFinite(args.limit) ? Math.floor(args.limit) : 200;
+      const limit = Math.max(1, Math.min(500, limitRaw || 200));
+
+      const where: any = { ownerId };
+      if (folderId) where.folderId = folderId;
+      if (q) {
+        where.OR = [
+          { fileName: { contains: q, mode: "insensitive" } },
+          { tag: { contains: q, mode: "insensitive" } },
+        ];
+      }
+
+      const mediaItemUrls = (row: { id: string; publicToken: string; mimeType: string; fileName: string }) => {
+        const openUrl = `/api/public/media/item/${row.id}/${row.publicToken}`;
+        const downloadUrl = `/api/public/media/item/${row.id}/${row.publicToken}?download=1`;
+        const shareUrl = openUrl;
+        const previewUrl = isLikelyImageMimeType(row.mimeType, row.fileName) ? openUrl : undefined;
+        return { openUrl, downloadUrl, shareUrl, previewUrl };
+      };
+
+      const items = await (prisma as any).portalMediaItem.findMany({
+        where,
+        orderBy: [{ createdAt: "desc" }],
+        take: limit,
+        select: { id: true, folderId: true, fileName: true, mimeType: true, fileSize: true, tag: true, publicToken: true, createdAt: true },
+      });
+
+      return {
+        status: 200,
+        json: {
+          ok: true,
+          items: (items as any[]).map((it: any) => ({
+            id: it.id,
+            folderId: it.folderId,
+            fileName: it.fileName,
+            mimeType: it.mimeType,
+            fileSize: it.fileSize,
+            tag: it.tag,
+            createdAt: it.createdAt.toISOString(),
+            ...mediaItemUrls(it),
+          })),
+        },
+      };
+    }
+
     case "media.list.get": {
       const ok = await requireServiceCapability("media" as PortalServiceKey, "view");
       if (!ok) return { status: 403, json: { ok: false, error: "Insufficient permissions" } };
