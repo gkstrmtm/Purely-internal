@@ -37,6 +37,8 @@ const ACTION_COVERAGE = [
 
   { action: "me.get", method: "GET", endpoint: "/api/portal/me" },
 
+  { action: "profile.get", method: "GET", endpoint: "/api/portal/profile" },
+
   { action: "notifications.recipients.list", method: "GET", endpoint: "/api/portal/notifications/recipients" },
 
   { action: "voice_agent.tools.get", method: "GET", endpoint: "/api/portal/voice-agent/tools" },
@@ -46,6 +48,8 @@ const ACTION_COVERAGE = [
 
   { action: "webhooks.get", method: "GET", endpoint: "/api/portal/webhooks" },
   { action: "support_chat.send", method: "POST", endpoint: "/api/portal/support-chat" },
+
+  { action: "integrations.twilio.get", method: "GET", endpoint: "/api/portal/integrations/twilio" },
 
   { action: "services.catalog.get", method: "GET", endpoint: "/api/portal/services/catalog" },
   { action: "services.lifecycle.update", method: "POST", endpoint: "/api/portal/services/lifecycle" },

@@ -82,6 +82,10 @@ export const PortalAgentActionKeySchema = z.enum([
 
   "me.get",
 
+  "profile.get",
+
+  "integrations.twilio.get",
+
   "notifications.recipients.list",
 
   "voice_agent.tools.get",
@@ -777,6 +781,14 @@ export const PortalAgentActionArgsSchemaByKey = {
     .strict(),
 
   "me.get": z.object({}).strict(),
+
+  "profile.get": z.object({}).strict(),
+
+  "integrations.twilio.get": z
+    .object({
+      includeDiagnostics: z.boolean().optional().nullable(),
+    })
+    .strict(),
 
   "webhooks.get": z.object({}).strict(),
 
@@ -1829,6 +1841,8 @@ export function portalAgentActionsIndexText(): string {
     "- contact_tags.update: Update a contact tag (fields: tagId, name?, color?)",
     "- contact_tags.delete: Delete a contact tag (fields: tagId)",
     "- me.get: Get the current portal member identity (ownerId/memberId/role) and effective permissions",
+    "- profile.get: Get the current portal member profile (name/email/phone/city/state + voice agent status)",
+    "- integrations.twilio.get: Get Twilio SMS integration status + webhook URLs (fields: includeDiagnostics?)",
     "- notifications.recipients.list: List notification recipient contacts for the portal account",
     "- webhooks.get: Get canonical webhook URLs (Twilio inbound/status callback + legacy tokens)",
     "- support_chat.send: Ask the support chat assistant a question (fields: message, url?, meta?, context.recentMessages?)",

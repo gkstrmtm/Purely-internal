@@ -67,7 +67,7 @@ import {
   regenerateMissedCallWebhookToken,
   setMissedCallTextBackSettings,
 } from "@/lib/missedCallTextBack";
-import { getPublicWebhookBaseUrl, twilioSmsStatusCallbackUrl, twilioSmsWebhookUrl } from "@/lib/twilioProvisioning";
+import { getPublicWebhookBaseUrl, inspectTwilioSmsWebhookConfig, twilioSmsStatusCallbackUrl, twilioSmsWebhookUrl } from "@/lib/twilioProvisioning";
 import {
   getReviewRequestsServiceData,
   listReviewRequestEvents,
@@ -4838,6 +4838,122 @@ async function runDirectAction(opts: {
           memberId,
           role,
           permissions: normalizePortalPermissions(row?.permissionsJson, role),
+        },
+      };
+    }
+
+    case "profile.get": {
+      const ok = await requireServiceCapability("profile", "view");
+      if (!ok) return { status: 403, json: { ok: false, error: "Forbidden" } };
+
+      const userId = String(actorUserId || "").trim() || ownerId;
+
+      const envFirst = (keys: string[]): string => {
+        for (const key of keys) {
+          const v = (process.env[key] ?? "").trim();
+          if (v) return v;
+        }
+        return "";
+      };
+
+      const envVoiceAgentId = (): string => {
+        return envFirst(["VOICE_AGENT_ID", "ELEVENLABS_AGENT_ID", "ELEVEN_LABS_AGENT_ID"]).slice(0, 120);
+      };
+
+      const envVoiceAgentApiKey = (): string => {
+        return envFirst(["VOICE_AGENT_API_KEY", "ELEVENLABS_API_KEY", "ELEVEN_LABS_API_KEY"]).slice(0, 400);
+      };
+
+      const asProfileRec = (dataJson: unknown): Record<string, unknown> => {
+        return dataJson && typeof dataJson === "object" && !Array.isArray(dataJson) ? (dataJson as Record<string, unknown>) : {};
+      };
+
+      const normalizeCityState = (input: { city?: unknown; state?: unknown }): { city: string; state: string } => {
+        const city = typeof input.city === "string" ? input.city.trim().slice(0, 120) : "";
+        const state = typeof input.state === "string" ? input.state.trim().slice(0, 40) : "";
+        return { city, state };
+      };
+
+      const [user, profileSetup, ownerSetup] = await Promise.all([
+        prisma.user.findUnique({
+          where: { id: userId },
+          select: { id: true, name: true, email: true, role: true, updatedAt: true },
+        }),
+        prisma.portalServiceSetup.findUnique({
+          where: { ownerId_serviceSlug: { ownerId: userId, serviceSlug: "profile" } },
+          select: { dataJson: true },
+        }),
+        prisma.portalServiceSetup
+          .findUnique({
+            where: { ownerId_serviceSlug: { ownerId, serviceSlug: "profile" } },
+            select: { dataJson: true },
+          })
+          .catch(() => null),
+      ]);
+
+      const rec = asProfileRec((profileSetup as any)?.dataJson);
+      const phoneRaw = typeof (rec as any).phone === "string" ? String((rec as any).phone) : "";
+      const phoneParsed = phoneRaw ? normalizePhoneStrict(phoneRaw) : null;
+      const phone = phoneParsed && phoneParsed.ok ? phoneParsed.e164 : null;
+
+      const voiceAgentIdRaw = typeof (rec as any).voiceAgentId === "string" ? String((rec as any).voiceAgentId).trim().slice(0, 120) : "";
+      const voiceAgentId = voiceAgentIdRaw || envVoiceAgentId() || null;
+
+      const apiKeyRaw = typeof (rec as any).voiceAgentApiKey === "string" ? String((rec as any).voiceAgentApiKey).trim().slice(0, 400) : "";
+      const voiceAgentApiKey = apiKeyRaw || envVoiceAgentApiKey() || "";
+
+      const ownerRec = asProfileRec((ownerSetup as any)?.dataJson);
+      const cityState = normalizeCityState({ city: (ownerRec as any).city, state: (ownerRec as any).state });
+
+      return {
+        status: 200,
+        json: {
+          ok: true,
+          user: user
+            ? {
+                ...(user as any),
+                phone,
+                voiceAgentId,
+                voiceAgentApiKeyConfigured: Boolean(voiceAgentApiKey && voiceAgentApiKey.trim()),
+                city: cityState.city || null,
+                state: cityState.state || null,
+              }
+            : null,
+        },
+      };
+    }
+
+    case "integrations.twilio.get": {
+      const ok = await requireServiceCapability("twilio", "view");
+      if (!ok) return { status: 403, json: { ok: false, error: "Forbidden" } };
+
+      const twilio = await getOwnerTwilioSmsConfigMasked(ownerId);
+      const publicBaseUrl = getPublicWebhookBaseUrl();
+
+      const includeDiagnostics = (args as any)?.includeDiagnostics === true;
+      const diagnostics = includeDiagnostics
+        ? await (async () => {
+            const cfg = await getOwnerTwilioSmsConfig(ownerId).catch(() => null);
+            if (!cfg) return null;
+            return await inspectTwilioSmsWebhookConfig({
+              accountSid: cfg.accountSid,
+              authToken: cfg.authToken,
+              fromNumberE164: cfg.fromNumberE164,
+              baseUrl: publicBaseUrl,
+            }).catch((e) => ({ ok: false as const, error: e instanceof Error ? e.message : "Diagnostics failed" }));
+          })()
+        : null;
+
+      return {
+        status: 200,
+        json: {
+          ok: true,
+          twilio,
+          webhooks: {
+            smsInboundUrl: twilioSmsWebhookUrl(publicBaseUrl),
+            smsStatusCallbackUrl: twilioSmsStatusCallbackUrl(publicBaseUrl),
+          },
+          diagnostics,
         },
       };
     }
