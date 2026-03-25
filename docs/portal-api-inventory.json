@@ -1,0 +1,1740 @@
+{
+  "generatedAtIso": "2026-03-25T01:36:41.308Z",
+  "routes": [
+    {
+      "endpoint": "/api/portal/ads/claim",
+      "methods": [
+        "POST"
+      ],
+      "file": "src/app/api/portal/ads/claim/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/ads/click",
+      "methods": [
+        "GET"
+      ],
+      "file": "src/app/api/portal/ads/click/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/ads/next",
+      "methods": [
+        "GET"
+      ],
+      "file": "src/app/api/portal/ads/next/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/ads/reward",
+      "methods": [
+        "POST"
+      ],
+      "file": "src/app/api/portal/ads/reward/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/ai-agents",
+      "methods": [
+        "GET"
+      ],
+      "file": "src/app/api/portal/ai-agents/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/ai-chat/actions/execute",
+      "methods": [
+        "POST"
+      ],
+      "file": "src/app/api/portal/ai-chat/actions/execute/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/ai-chat/attachments",
+      "methods": [
+        "POST"
+      ],
+      "file": "src/app/api/portal/ai-chat/attachments/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/ai-chat/cron",
+      "methods": [
+        "GET"
+      ],
+      "file": "src/app/api/portal/ai-chat/cron/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/ai-chat/scheduled",
+      "methods": [
+        "GET"
+      ],
+      "file": "src/app/api/portal/ai-chat/scheduled/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/ai-chat/scheduled/[messageId]",
+      "methods": [
+        "DELETE",
+        "PATCH"
+      ],
+      "file": "src/app/api/portal/ai-chat/scheduled/[messageId]/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/ai-chat/threads",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "file": "src/app/api/portal/ai-chat/threads/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/ai-chat/threads/[threadId]/flush",
+      "methods": [
+        "POST"
+      ],
+      "file": "src/app/api/portal/ai-chat/threads/[threadId]/flush/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/ai-chat/threads/[threadId]/messages",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "file": "src/app/api/portal/ai-chat/threads/[threadId]/messages/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/ai-outbound-calls/campaigns",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "file": "src/app/api/portal/ai-outbound-calls/campaigns/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/ai-outbound-calls/campaigns/[campaignId]",
+      "methods": [
+        "PATCH"
+      ],
+      "file": "src/app/api/portal/ai-outbound-calls/campaigns/[campaignId]/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/ai-outbound-calls/campaigns/[campaignId]/activity",
+      "methods": [
+        "GET"
+      ],
+      "file": "src/app/api/portal/ai-outbound-calls/campaigns/[campaignId]/activity/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/ai-outbound-calls/campaigns/[campaignId]/enroll-message",
+      "methods": [
+        "POST"
+      ],
+      "file": "src/app/api/portal/ai-outbound-calls/campaigns/[campaignId]/enroll-message/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/ai-outbound-calls/campaigns/[campaignId]/generate-agent-config",
+      "methods": [
+        "POST"
+      ],
+      "file": "src/app/api/portal/ai-outbound-calls/campaigns/[campaignId]/generate-agent-config/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/ai-outbound-calls/campaigns/[campaignId]/knowledge-base/sync",
+      "methods": [
+        "POST"
+      ],
+      "file": "src/app/api/portal/ai-outbound-calls/campaigns/[campaignId]/knowledge-base/sync/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/ai-outbound-calls/campaigns/[campaignId]/knowledge-base/upload",
+      "methods": [
+        "POST"
+      ],
+      "file": "src/app/api/portal/ai-outbound-calls/campaigns/[campaignId]/knowledge-base/upload/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/ai-outbound-calls/campaigns/[campaignId]/manual-call",
+      "methods": [
+        "POST"
+      ],
+      "file": "src/app/api/portal/ai-outbound-calls/campaigns/[campaignId]/manual-call/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/ai-outbound-calls/campaigns/[campaignId]/messages-activity",
+      "methods": [
+        "GET"
+      ],
+      "file": "src/app/api/portal/ai-outbound-calls/campaigns/[campaignId]/messages-activity/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/ai-outbound-calls/campaigns/[campaignId]/messages-knowledge-base/sync",
+      "methods": [
+        "POST"
+      ],
+      "file": "src/app/api/portal/ai-outbound-calls/campaigns/[campaignId]/messages-knowledge-base/sync/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/ai-outbound-calls/campaigns/[campaignId]/messages-knowledge-base/upload",
+      "methods": [
+        "POST"
+      ],
+      "file": "src/app/api/portal/ai-outbound-calls/campaigns/[campaignId]/messages-knowledge-base/upload/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/ai-outbound-calls/campaigns/[campaignId]/preview-message-reply",
+      "methods": [
+        "POST"
+      ],
+      "file": "src/app/api/portal/ai-outbound-calls/campaigns/[campaignId]/preview-message-reply/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/ai-outbound-calls/campaigns/[campaignId]/sync-agent",
+      "methods": [
+        "POST"
+      ],
+      "file": "src/app/api/portal/ai-outbound-calls/campaigns/[campaignId]/sync-agent/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/ai-outbound-calls/campaigns/[campaignId]/sync-chat-agent",
+      "methods": [
+        "POST"
+      ],
+      "file": "src/app/api/portal/ai-outbound-calls/campaigns/[campaignId]/sync-chat-agent/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/ai-outbound-calls/contacts/search",
+      "methods": [
+        "GET"
+      ],
+      "file": "src/app/api/portal/ai-outbound-calls/contacts/search/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/ai-outbound-calls/cron",
+      "methods": [
+        "GET"
+      ],
+      "file": "src/app/api/portal/ai-outbound-calls/cron/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/ai-outbound-calls/manual-calls",
+      "methods": [
+        "GET"
+      ],
+      "file": "src/app/api/portal/ai-outbound-calls/manual-calls/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/ai-outbound-calls/manual-calls/[id]",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "file": "src/app/api/portal/ai-outbound-calls/manual-calls/[id]/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/ai-outbound-calls/recordings/[recordingSid]",
+      "methods": [
+        "GET"
+      ],
+      "file": "src/app/api/portal/ai-outbound-calls/recordings/[recordingSid]/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/ai-receptionist/demo-audio/[id]",
+      "methods": [
+        "GET"
+      ],
+      "file": "src/app/api/portal/ai-receptionist/demo-audio/[id]/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/ai-receptionist/events/[callSid]",
+      "methods": [
+        "DELETE",
+        "POST"
+      ],
+      "file": "src/app/api/portal/ai-receptionist/events/[callSid]/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/ai-receptionist/generate-settings",
+      "methods": [
+        "POST"
+      ],
+      "file": "src/app/api/portal/ai-receptionist/generate-settings/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/ai-receptionist/generate-sms-system-prompt",
+      "methods": [
+        "POST"
+      ],
+      "file": "src/app/api/portal/ai-receptionist/generate-sms-system-prompt/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/ai-receptionist/polish",
+      "methods": [
+        "POST"
+      ],
+      "file": "src/app/api/portal/ai-receptionist/polish/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/ai-receptionist/preview-sms-reply",
+      "methods": [
+        "POST"
+      ],
+      "file": "src/app/api/portal/ai-receptionist/preview-sms-reply/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/ai-receptionist/recordings/[recordingSid]",
+      "methods": [
+        "GET"
+      ],
+      "file": "src/app/api/portal/ai-receptionist/recordings/[recordingSid]/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/ai-receptionist/recordings/demo/[id]",
+      "methods": [
+        "GET"
+      ],
+      "file": "src/app/api/portal/ai-receptionist/recordings/demo/[id]/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/ai-receptionist/settings",
+      "methods": [
+        "GET",
+        "PUT"
+      ],
+      "file": "src/app/api/portal/ai-receptionist/settings/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/ai-receptionist/sms-knowledge-base/sync",
+      "methods": [
+        "POST"
+      ],
+      "file": "src/app/api/portal/ai-receptionist/sms-knowledge-base/sync/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/ai-receptionist/sms-knowledge-base/upload",
+      "methods": [
+        "POST"
+      ],
+      "file": "src/app/api/portal/ai-receptionist/sms-knowledge-base/upload/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/ai-receptionist/voice-knowledge-base/sync",
+      "methods": [
+        "POST"
+      ],
+      "file": "src/app/api/portal/ai-receptionist/voice-knowledge-base/sync/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/ai-receptionist/voice-knowledge-base/upload",
+      "methods": [
+        "POST"
+      ],
+      "file": "src/app/api/portal/ai-receptionist/voice-knowledge-base/upload/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/auth/resend-verification",
+      "methods": [
+        "POST"
+      ],
+      "file": "src/app/api/portal/auth/resend-verification/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/auth/verification-email/cron",
+      "methods": [
+        "GET"
+      ],
+      "file": "src/app/api/portal/auth/verification-email/cron/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/auth/verify-email",
+      "methods": [
+        "POST"
+      ],
+      "file": "src/app/api/portal/auth/verify-email/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/auth/webview-session",
+      "methods": [
+        "GET"
+      ],
+      "file": "src/app/api/portal/auth/webview-session/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/automations/cron",
+      "methods": [
+        "GET"
+      ],
+      "file": "src/app/api/portal/automations/cron/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/automations/run",
+      "methods": [
+        "POST"
+      ],
+      "file": "src/app/api/portal/automations/run/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/automations/settings",
+      "methods": [
+        "GET",
+        "PUT"
+      ],
+      "file": "src/app/api/portal/automations/settings/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/automations/test-sms",
+      "methods": [
+        "POST"
+      ],
+      "file": "src/app/api/portal/automations/test-sms/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/billing/billing-info",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "file": "src/app/api/portal/billing/billing-info/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/billing/cancel",
+      "methods": [
+        "POST"
+      ],
+      "file": "src/app/api/portal/billing/cancel/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/billing/cancel-subscription",
+      "methods": [
+        "POST"
+      ],
+      "file": "src/app/api/portal/billing/cancel-subscription/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/billing/checkout-module",
+      "methods": [
+        "POST"
+      ],
+      "file": "src/app/api/portal/billing/checkout-module/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/billing/create-portal-session",
+      "methods": [
+        "POST"
+      ],
+      "file": "src/app/api/portal/billing/create-portal-session/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/billing/credits-only-cancel",
+      "methods": [
+        "POST"
+      ],
+      "file": "src/app/api/portal/billing/credits-only-cancel/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/billing/monthly-credits/cron",
+      "methods": [
+        "GET"
+      ],
+      "file": "src/app/api/portal/billing/monthly-credits/cron/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/billing/onboarding-checkout",
+      "methods": [
+        "POST"
+      ],
+      "file": "src/app/api/portal/billing/onboarding-checkout/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/billing/onboarding-confirm",
+      "methods": [
+        "POST"
+      ],
+      "file": "src/app/api/portal/billing/onboarding-confirm/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/billing/setup-intent",
+      "methods": [
+        "POST"
+      ],
+      "file": "src/app/api/portal/billing/setup-intent/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/billing/setup-intent/finalize",
+      "methods": [
+        "POST"
+      ],
+      "file": "src/app/api/portal/billing/setup-intent/finalize/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/billing/subscriptions",
+      "methods": [
+        "GET"
+      ],
+      "file": "src/app/api/portal/billing/subscriptions/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/billing/summary",
+      "methods": [
+        "GET"
+      ],
+      "file": "src/app/api/portal/billing/summary/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/billing/upgrade-checkout",
+      "methods": [
+        "POST"
+      ],
+      "file": "src/app/api/portal/billing/upgrade-checkout/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/blogs/appearance",
+      "methods": [
+        "GET",
+        "PUT"
+      ],
+      "file": "src/app/api/portal/blogs/appearance/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/blogs/automation/cron",
+      "methods": [
+        "GET"
+      ],
+      "file": "src/app/api/portal/blogs/automation/cron/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/blogs/automation/generate-now",
+      "methods": [
+        "POST"
+      ],
+      "file": "src/app/api/portal/blogs/automation/generate-now/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/blogs/automation/settings",
+      "methods": [
+        "GET",
+        "PUT"
+      ],
+      "file": "src/app/api/portal/blogs/automation/settings/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/blogs/posts",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "file": "src/app/api/portal/blogs/posts/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/blogs/posts/[postId]",
+      "methods": [
+        "DELETE",
+        "GET",
+        "PUT"
+      ],
+      "file": "src/app/api/portal/blogs/posts/[postId]/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/blogs/posts/[postId]/archive",
+      "methods": [
+        "POST"
+      ],
+      "file": "src/app/api/portal/blogs/posts/[postId]/archive/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/blogs/posts/[postId]/export",
+      "methods": [
+        "GET"
+      ],
+      "file": "src/app/api/portal/blogs/posts/[postId]/export/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/blogs/posts/[postId]/generate",
+      "methods": [
+        "POST"
+      ],
+      "file": "src/app/api/portal/blogs/posts/[postId]/generate/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/blogs/posts/[postId]/publish",
+      "methods": [
+        "POST"
+      ],
+      "file": "src/app/api/portal/blogs/posts/[postId]/publish/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/blogs/site",
+      "methods": [
+        "GET",
+        "POST",
+        "PUT"
+      ],
+      "file": "src/app/api/portal/blogs/site/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/blogs/site/verify",
+      "methods": [
+        "POST"
+      ],
+      "file": "src/app/api/portal/blogs/site/verify/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/blogs/usage",
+      "methods": [
+        "GET"
+      ],
+      "file": "src/app/api/portal/blogs/usage/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/booking/bookings",
+      "methods": [
+        "GET"
+      ],
+      "file": "src/app/api/portal/booking/bookings/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/booking/bookings/[bookingId]/cancel",
+      "methods": [
+        "POST"
+      ],
+      "file": "src/app/api/portal/booking/bookings/[bookingId]/cancel/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/booking/bookings/[bookingId]/contact",
+      "methods": [
+        "POST"
+      ],
+      "file": "src/app/api/portal/booking/bookings/[bookingId]/contact/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/booking/bookings/[bookingId]/reschedule",
+      "methods": [
+        "POST"
+      ],
+      "file": "src/app/api/portal/booking/bookings/[bookingId]/reschedule/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/booking/calendars",
+      "methods": [
+        "GET",
+        "PUT"
+      ],
+      "file": "src/app/api/portal/booking/calendars/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/booking/form",
+      "methods": [
+        "GET",
+        "PUT"
+      ],
+      "file": "src/app/api/portal/booking/form/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/booking/reminders/ai/generate-step",
+      "methods": [
+        "POST"
+      ],
+      "file": "src/app/api/portal/booking/reminders/ai/generate-step/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/booking/reminders/cron",
+      "methods": [
+        "GET"
+      ],
+      "file": "src/app/api/portal/booking/reminders/cron/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/booking/reminders/settings",
+      "methods": [
+        "GET",
+        "PUT"
+      ],
+      "file": "src/app/api/portal/booking/reminders/settings/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/booking/settings",
+      "methods": [
+        "GET",
+        "PUT"
+      ],
+      "file": "src/app/api/portal/booking/settings/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/booking/site",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "file": "src/app/api/portal/booking/site/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/booking/suggestions",
+      "methods": [
+        "GET"
+      ],
+      "file": "src/app/api/portal/booking/suggestions/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/bug-report",
+      "methods": [
+        "POST"
+      ],
+      "file": "src/app/api/portal/bug-report/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/business-profile",
+      "methods": [
+        "GET",
+        "PUT"
+      ],
+      "file": "src/app/api/portal/business-profile/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/contact-tags",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "file": "src/app/api/portal/contact-tags/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/contact-tags/[tagId]",
+      "methods": [
+        "DELETE",
+        "PATCH"
+      ],
+      "file": "src/app/api/portal/contact-tags/[tagId]/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/contacts/[contactId]",
+      "methods": [
+        "GET",
+        "PATCH"
+      ],
+      "file": "src/app/api/portal/contacts/[contactId]/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/contacts/[contactId]/tags",
+      "methods": [
+        "DELETE",
+        "GET",
+        "POST"
+      ],
+      "file": "src/app/api/portal/contacts/[contactId]/tags/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/credit/contacts",
+      "methods": [
+        "GET"
+      ],
+      "file": "src/app/api/portal/credit/contacts/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/credit/credit-pulls",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "file": "src/app/api/portal/credit/credit-pulls/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/credit/disputes",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "file": "src/app/api/portal/credit/disputes/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/credit/disputes/[letterId]",
+      "methods": [
+        "GET",
+        "PATCH"
+      ],
+      "file": "src/app/api/portal/credit/disputes/[letterId]/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/credit/disputes/[letterId]/pdf",
+      "methods": [
+        "POST"
+      ],
+      "file": "src/app/api/portal/credit/disputes/[letterId]/pdf/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/credit/disputes/[letterId]/send",
+      "methods": [
+        "POST"
+      ],
+      "file": "src/app/api/portal/credit/disputes/[letterId]/send/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/credit/reports",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "file": "src/app/api/portal/credit/reports/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/credit/reports/[reportId]",
+      "methods": [
+        "GET"
+      ],
+      "file": "src/app/api/portal/credit/reports/[reportId]/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/credit/reports/[reportId]/items/[itemId]",
+      "methods": [
+        "PATCH"
+      ],
+      "file": "src/app/api/portal/credit/reports/[reportId]/items/[itemId]/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/credit/reports/pull",
+      "methods": [
+        "POST"
+      ],
+      "file": "src/app/api/portal/credit/reports/pull/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/credits",
+      "methods": [
+        "GET",
+        "PUT"
+      ],
+      "file": "src/app/api/portal/credits/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/credits/topup",
+      "methods": [
+        "POST"
+      ],
+      "file": "src/app/api/portal/credits/topup/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/credits/topup/confirm-checkout",
+      "methods": [
+        "POST"
+      ],
+      "file": "src/app/api/portal/credits/topup/confirm-checkout/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/dashboard",
+      "methods": [
+        "GET",
+        "PUT"
+      ],
+      "file": "src/app/api/portal/dashboard/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/elevenlabs/convai/signed-url",
+      "methods": [
+        "POST"
+      ],
+      "file": "src/app/api/portal/elevenlabs/convai/signed-url/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/elevenlabs/convai/token",
+      "methods": [
+        "POST"
+      ],
+      "file": "src/app/api/portal/elevenlabs/convai/token/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/engagement/active-time",
+      "methods": [
+        "POST"
+      ],
+      "file": "src/app/api/portal/engagement/active-time/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/engagement/ping",
+      "methods": [
+        "POST"
+      ],
+      "file": "src/app/api/portal/engagement/ping/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/follow-up/ai/generate-step",
+      "methods": [
+        "POST"
+      ],
+      "file": "src/app/api/portal/follow-up/ai/generate-step/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/follow-up/cron",
+      "methods": [
+        "GET"
+      ],
+      "file": "src/app/api/portal/follow-up/cron/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/follow-up/custom-variables",
+      "methods": [
+        "GET",
+        "PUT"
+      ],
+      "file": "src/app/api/portal/follow-up/custom-variables/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/follow-up/settings",
+      "methods": [
+        "GET",
+        "PUT"
+      ],
+      "file": "src/app/api/portal/follow-up/settings/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/follow-up/test-send",
+      "methods": [
+        "POST"
+      ],
+      "file": "src/app/api/portal/follow-up/test-send/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/funnel-builder/custom-code-block/generate",
+      "methods": [
+        "POST"
+      ],
+      "file": "src/app/api/portal/funnel-builder/custom-code-block/generate/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/funnel-builder/domains",
+      "methods": [
+        "GET",
+        "PATCH",
+        "POST"
+      ],
+      "file": "src/app/api/portal/funnel-builder/domains/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/funnel-builder/domains/[domainId]/verify",
+      "methods": [
+        "POST"
+      ],
+      "file": "src/app/api/portal/funnel-builder/domains/[domainId]/verify/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/funnel-builder/form-field-keys",
+      "methods": [
+        "GET"
+      ],
+      "file": "src/app/api/portal/funnel-builder/form-field-keys/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/funnel-builder/forms",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "file": "src/app/api/portal/funnel-builder/forms/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/funnel-builder/forms/[formId]",
+      "methods": [
+        "DELETE",
+        "GET",
+        "PATCH"
+      ],
+      "file": "src/app/api/portal/funnel-builder/forms/[formId]/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/funnel-builder/forms/[formId]/submissions",
+      "methods": [
+        "GET"
+      ],
+      "file": "src/app/api/portal/funnel-builder/forms/[formId]/submissions/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/funnel-builder/funnels",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "file": "src/app/api/portal/funnel-builder/funnels/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/funnel-builder/funnels/[funnelId]",
+      "methods": [
+        "DELETE",
+        "GET",
+        "PATCH"
+      ],
+      "file": "src/app/api/portal/funnel-builder/funnels/[funnelId]/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/funnel-builder/funnels/[funnelId]/pages",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "file": "src/app/api/portal/funnel-builder/funnels/[funnelId]/pages/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/funnel-builder/funnels/[funnelId]/pages/[pageId]",
+      "methods": [
+        "DELETE",
+        "PATCH"
+      ],
+      "file": "src/app/api/portal/funnel-builder/funnels/[funnelId]/pages/[pageId]/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/funnel-builder/funnels/[funnelId]/pages/[pageId]/export-custom-html",
+      "methods": [
+        "POST"
+      ],
+      "file": "src/app/api/portal/funnel-builder/funnels/[funnelId]/pages/[pageId]/export-custom-html/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/funnel-builder/funnels/[funnelId]/pages/[pageId]/generate-html",
+      "methods": [
+        "POST"
+      ],
+      "file": "src/app/api/portal/funnel-builder/funnels/[funnelId]/pages/[pageId]/generate-html/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/funnel-builder/funnels/[funnelId]/pages/global-header",
+      "methods": [
+        "POST"
+      ],
+      "file": "src/app/api/portal/funnel-builder/funnels/[funnelId]/pages/global-header/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/funnel-builder/sales/products",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "file": "src/app/api/portal/funnel-builder/sales/products/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/funnel-builder/settings",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "file": "src/app/api/portal/funnel-builder/settings/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/inbox/attachments",
+      "methods": [
+        "POST"
+      ],
+      "file": "src/app/api/portal/inbox/attachments/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/inbox/attachments/[id]",
+      "methods": [
+        "DELETE"
+      ],
+      "file": "src/app/api/portal/inbox/attachments/[id]/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/inbox/attachments/from-media",
+      "methods": [
+        "POST"
+      ],
+      "file": "src/app/api/portal/inbox/attachments/from-media/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/inbox/scheduled/[scheduledId]",
+      "methods": [
+        "PATCH"
+      ],
+      "file": "src/app/api/portal/inbox/scheduled/[scheduledId]/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/inbox/scheduled/cron",
+      "methods": [
+        "GET"
+      ],
+      "file": "src/app/api/portal/inbox/scheduled/cron/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/inbox/send",
+      "methods": [
+        "POST"
+      ],
+      "file": "src/app/api/portal/inbox/send/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/inbox/settings",
+      "methods": [
+        "GET",
+        "PUT"
+      ],
+      "file": "src/app/api/portal/inbox/settings/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/inbox/threads",
+      "methods": [
+        "GET"
+      ],
+      "file": "src/app/api/portal/inbox/threads/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/inbox/threads/[threadId]/contact",
+      "methods": [
+        "POST"
+      ],
+      "file": "src/app/api/portal/inbox/threads/[threadId]/contact/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/inbox/threads/[threadId]/messages",
+      "methods": [
+        "GET"
+      ],
+      "file": "src/app/api/portal/inbox/threads/[threadId]/messages/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/integrations/sales-reporting",
+      "methods": [
+        "DELETE",
+        "GET",
+        "PUT"
+      ],
+      "file": "src/app/api/portal/integrations/sales-reporting/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/integrations/stripe",
+      "methods": [
+        "DELETE",
+        "GET",
+        "PUT"
+      ],
+      "file": "src/app/api/portal/integrations/stripe/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/integrations/twilio",
+      "methods": [
+        "GET",
+        "PUT"
+      ],
+      "file": "src/app/api/portal/integrations/twilio/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/lead-scraping/contact",
+      "methods": [
+        "POST"
+      ],
+      "file": "src/app/api/portal/lead-scraping/contact/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/lead-scraping/cron",
+      "methods": [
+        "GET"
+      ],
+      "file": "src/app/api/portal/lead-scraping/cron/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/lead-scraping/leads",
+      "methods": [
+        "GET"
+      ],
+      "file": "src/app/api/portal/lead-scraping/leads/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/lead-scraping/leads/[leadId]",
+      "methods": [
+        "DELETE",
+        "PATCH"
+      ],
+      "file": "src/app/api/portal/lead-scraping/leads/[leadId]/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/lead-scraping/outbound/ai/draft-template",
+      "methods": [
+        "POST"
+      ],
+      "file": "src/app/api/portal/lead-scraping/outbound/ai/draft-template/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/lead-scraping/outbound/approve",
+      "methods": [
+        "POST"
+      ],
+      "file": "src/app/api/portal/lead-scraping/outbound/approve/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/lead-scraping/outbound/send",
+      "methods": [
+        "POST"
+      ],
+      "file": "src/app/api/portal/lead-scraping/outbound/send/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/lead-scraping/run",
+      "methods": [
+        "POST"
+      ],
+      "file": "src/app/api/portal/lead-scraping/run/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/lead-scraping/settings",
+      "methods": [
+        "GET",
+        "PUT"
+      ],
+      "file": "src/app/api/portal/lead-scraping/settings/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/mailbox",
+      "methods": [
+        "GET",
+        "PUT"
+      ],
+      "file": "src/app/api/portal/mailbox/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/me",
+      "methods": [
+        "GET"
+      ],
+      "file": "src/app/api/portal/me/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/media/blob-upload",
+      "methods": [
+        "POST"
+      ],
+      "file": "src/app/api/portal/media/blob-upload/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/media/folders",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "file": "src/app/api/portal/media/folders/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/media/folders/[id]",
+      "methods": [
+        "PATCH"
+      ],
+      "file": "src/app/api/portal/media/folders/[id]/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/media/import-remote",
+      "methods": [
+        "POST"
+      ],
+      "file": "src/app/api/portal/media/import-remote/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/media/items",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "file": "src/app/api/portal/media/items/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/media/items/[id]",
+      "methods": [
+        "DELETE",
+        "PATCH"
+      ],
+      "file": "src/app/api/portal/media/items/[id]/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/media/items/from-blob",
+      "methods": [
+        "POST"
+      ],
+      "file": "src/app/api/portal/media/items/from-blob/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/media/list",
+      "methods": [
+        "GET"
+      ],
+      "file": "src/app/api/portal/media/list/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/media/stats",
+      "methods": [
+        "GET"
+      ],
+      "file": "src/app/api/portal/media/stats/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/missed-call-textback/settings",
+      "methods": [
+        "GET",
+        "PUT"
+      ],
+      "file": "src/app/api/portal/missed-call-textback/settings/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/newsletter/audience/contacts",
+      "methods": [
+        "GET"
+      ],
+      "file": "src/app/api/portal/newsletter/audience/contacts/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/newsletter/automation/cron",
+      "methods": [
+        "GET"
+      ],
+      "file": "src/app/api/portal/newsletter/automation/cron/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/newsletter/automation/generate-now",
+      "methods": [
+        "POST"
+      ],
+      "file": "src/app/api/portal/newsletter/automation/generate-now/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/newsletter/automation/settings",
+      "methods": [
+        "GET",
+        "PUT"
+      ],
+      "file": "src/app/api/portal/newsletter/automation/settings/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/newsletter/newsletters",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "file": "src/app/api/portal/newsletter/newsletters/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/newsletter/newsletters/[newsletterId]",
+      "methods": [
+        "GET",
+        "PUT"
+      ],
+      "file": "src/app/api/portal/newsletter/newsletters/[newsletterId]/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/newsletter/newsletters/[newsletterId]/send",
+      "methods": [
+        "POST"
+      ],
+      "file": "src/app/api/portal/newsletter/newsletters/[newsletterId]/send/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/newsletter/royalty-free-images",
+      "methods": [
+        "GET"
+      ],
+      "file": "src/app/api/portal/newsletter/royalty-free-images/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/newsletter/royalty-free-images/suggest",
+      "methods": [
+        "POST"
+      ],
+      "file": "src/app/api/portal/newsletter/royalty-free-images/suggest/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/newsletter/site",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "file": "src/app/api/portal/newsletter/site/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/newsletter/usage",
+      "methods": [
+        "GET"
+      ],
+      "file": "src/app/api/portal/newsletter/usage/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/notifications/recipients",
+      "methods": [
+        "GET"
+      ],
+      "file": "src/app/api/portal/notifications/recipients/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/nurture/ai/generate-step",
+      "methods": [
+        "POST"
+      ],
+      "file": "src/app/api/portal/nurture/ai/generate-step/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/nurture/campaigns",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "file": "src/app/api/portal/nurture/campaigns/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/nurture/campaigns/[campaignId]",
+      "methods": [
+        "DELETE",
+        "GET",
+        "PATCH"
+      ],
+      "file": "src/app/api/portal/nurture/campaigns/[campaignId]/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/nurture/campaigns/[campaignId]/confirm-checkout",
+      "methods": [
+        "POST"
+      ],
+      "file": "src/app/api/portal/nurture/campaigns/[campaignId]/confirm-checkout/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/nurture/campaigns/[campaignId]/enroll",
+      "methods": [
+        "POST"
+      ],
+      "file": "src/app/api/portal/nurture/campaigns/[campaignId]/enroll/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/nurture/campaigns/[campaignId]/steps",
+      "methods": [
+        "POST"
+      ],
+      "file": "src/app/api/portal/nurture/campaigns/[campaignId]/steps/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/nurture/cron",
+      "methods": [
+        "GET"
+      ],
+      "file": "src/app/api/portal/nurture/cron/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/nurture/steps/[stepId]",
+      "methods": [
+        "DELETE",
+        "PATCH"
+      ],
+      "file": "src/app/api/portal/nurture/steps/[stepId]/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/onboarding/status",
+      "methods": [
+        "GET"
+      ],
+      "file": "src/app/api/portal/onboarding/status/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/people/contacts",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "file": "src/app/api/portal/people/contacts/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/people/contacts/[contactId]/custom-variables",
+      "methods": [
+        "PATCH"
+      ],
+      "file": "src/app/api/portal/people/contacts/[contactId]/custom-variables/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/people/contacts/custom-variable-keys",
+      "methods": [
+        "GET"
+      ],
+      "file": "src/app/api/portal/people/contacts/custom-variable-keys/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/people/contacts/duplicates",
+      "methods": [
+        "GET"
+      ],
+      "file": "src/app/api/portal/people/contacts/duplicates/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/people/contacts/import",
+      "methods": [
+        "POST"
+      ],
+      "file": "src/app/api/portal/people/contacts/import/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/people/contacts/merge",
+      "methods": [
+        "POST"
+      ],
+      "file": "src/app/api/portal/people/contacts/merge/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/people/leads/[leadId]",
+      "methods": [
+        "PATCH"
+      ],
+      "file": "src/app/api/portal/people/leads/[leadId]/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/people/users",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "file": "src/app/api/portal/people/users/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/people/users/[userId]",
+      "methods": [
+        "DELETE",
+        "PATCH"
+      ],
+      "file": "src/app/api/portal/people/users/[userId]/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/pricing",
+      "methods": [
+        "GET"
+      ],
+      "file": "src/app/api/portal/pricing/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/profile",
+      "methods": [
+        "GET",
+        "PUT"
+      ],
+      "file": "src/app/api/portal/profile/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/profile/password",
+      "methods": [
+        "PUT"
+      ],
+      "file": "src/app/api/portal/profile/password/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/push/register",
+      "methods": [
+        "POST"
+      ],
+      "file": "src/app/api/portal/push/register/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/referrals/link",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "file": "src/app/api/portal/referrals/link/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/reporting",
+      "methods": [
+        "GET"
+      ],
+      "file": "src/app/api/portal/reporting/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/reporting/sales",
+      "methods": [
+        "GET"
+      ],
+      "file": "src/app/api/portal/reporting/sales/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/reporting/stripe",
+      "methods": [
+        "GET"
+      ],
+      "file": "src/app/api/portal/reporting/stripe/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/reviews/archive",
+      "methods": [
+        "POST"
+      ],
+      "file": "src/app/api/portal/reviews/archive/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/reviews/bookings",
+      "methods": [
+        "GET"
+      ],
+      "file": "src/app/api/portal/reviews/bookings/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/reviews/contacts",
+      "methods": [
+        "GET"
+      ],
+      "file": "src/app/api/portal/reviews/contacts/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/reviews/cron",
+      "methods": [
+        "GET"
+      ],
+      "file": "src/app/api/portal/reviews/cron/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/reviews/events",
+      "methods": [
+        "GET"
+      ],
+      "file": "src/app/api/portal/reviews/events/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/reviews/handle",
+      "methods": [
+        "GET"
+      ],
+      "file": "src/app/api/portal/reviews/handle/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/reviews/inbox",
+      "methods": [
+        "GET"
+      ],
+      "file": "src/app/api/portal/reviews/inbox/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/reviews/questions",
+      "methods": [
+        "GET"
+      ],
+      "file": "src/app/api/portal/reviews/questions/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/reviews/questions/answer",
+      "methods": [
+        "PUT"
+      ],
+      "file": "src/app/api/portal/reviews/questions/answer/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/reviews/reply",
+      "methods": [
+        "PUT"
+      ],
+      "file": "src/app/api/portal/reviews/reply/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/reviews/send",
+      "methods": [
+        "POST"
+      ],
+      "file": "src/app/api/portal/reviews/send/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/reviews/send-contact",
+      "methods": [
+        "POST"
+      ],
+      "file": "src/app/api/portal/reviews/send-contact/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/reviews/settings",
+      "methods": [
+        "GET",
+        "PUT"
+      ],
+      "file": "src/app/api/portal/reviews/settings/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/reviews/site",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "file": "src/app/api/portal/reviews/site/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/seed-demo",
+      "methods": [
+        "POST"
+      ],
+      "file": "src/app/api/portal/seed-demo/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/services/catalog",
+      "methods": [
+        "GET"
+      ],
+      "file": "src/app/api/portal/services/catalog/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/services/lifecycle",
+      "methods": [
+        "POST"
+      ],
+      "file": "src/app/api/portal/services/lifecycle/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/services/status",
+      "methods": [
+        "GET"
+      ],
+      "file": "src/app/api/portal/services/status/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/suggested-setup/apply",
+      "methods": [
+        "POST"
+      ],
+      "file": "src/app/api/portal/suggested-setup/apply/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/suggested-setup/preview",
+      "methods": [
+        "GET"
+      ],
+      "file": "src/app/api/portal/suggested-setup/preview/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/support-chat",
+      "methods": [
+        "POST"
+      ],
+      "file": "src/app/api/portal/support-chat/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/tasks",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "file": "src/app/api/portal/tasks/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/tasks/[taskId]",
+      "methods": [
+        "PATCH"
+      ],
+      "file": "src/app/api/portal/tasks/[taskId]/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/tasks/assignees",
+      "methods": [
+        "GET"
+      ],
+      "file": "src/app/api/portal/tasks/assignees/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/voice-agent/tools",
+      "methods": [
+        "GET"
+      ],
+      "file": "src/app/api/portal/voice-agent/tools/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/voice-agent/voices",
+      "methods": [
+        "GET"
+      ],
+      "file": "src/app/api/portal/voice-agent/voices/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/voice-agent/voices/preview",
+      "methods": [
+        "POST"
+      ],
+      "file": "src/app/api/portal/voice-agent/voices/preview/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/webhooks",
+      "methods": [
+        "GET"
+      ],
+      "file": "src/app/api/portal/webhooks/route.ts"
+    }
+  ]
+}

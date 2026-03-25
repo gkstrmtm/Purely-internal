@@ -69,10 +69,10 @@ function shouldAutoExecuteFromUserText(text: string) {
   // Avoid auto-executing on obvious questions.
   if (/\b(how|why|what|can you|could you|should i|help me|explain)\b/i.test(t)) return false;
 
-  const verb = /\b(create|make|build|generate|run|start|trigger)\b/i.test(t);
+  const verb = /\b(create|make|build|generate|run|start|trigger|send|text|sms|email|reply|respond|reset|optimize|add|remove|move|import|upload)\b/i.test(t);
   if (!verb) return false;
 
-  return /\b(task|funnel|newsletter|blog|automation|calendar|booking|appointment|contacts?|text|sms|email|message|media|media library|folder|dashboard|reporting)\b/i.test(t);
+  return /\b(task|funnel|newsletter|blog|automation|calendar|booking|appointment|contacts?|people|review|reviews|text|sms|email|message|media|media library|folder|dashboard|reporting)\b/i.test(t);
 }
 
 function normalizePhoneLike(raw: string): string | null {
@@ -94,6 +94,47 @@ function detectDeterministicActionsFromText(opts: {
   const lower = t.toLowerCase();
   const attachments = Array.isArray(opts.attachments) ? opts.attachments : [];
   if (!t && !attachments.length) return [];
+
+  // People: create a contact when the user provides at least a name.
+  if (/\b(create|add|new)\b/i.test(t) && /\bcontact\b/i.test(t)) {
+    const emailMatch = /\b([A-Z0-9._%+-]{1,64}@[A-Z0-9.-]{2,80}\.[A-Z]{2,})\b/i.exec(t);
+    const email = emailMatch?.[1] ? String(emailMatch[1]).trim().slice(0, 120) : null;
+
+    const phoneMatch = /(\+?\d[\d\s().-]{7,}\d)/.exec(t);
+    const phone = phoneMatch ? normalizePhoneLike(phoneMatch[1]) : null;
+
+    const tagsMatch = /\btags?\s*[:=]\s*([^\n]{1,600})/i.exec(t);
+    const tags = tagsMatch?.[1] ? String(tagsMatch[1]).trim().slice(0, 600) : null;
+
+    let name = "";
+    const quotedName = /\bcontact\b\s+"([^"\n]{2,80})"/i.exec(t) || /\bcontact\b\s+'([^'\n]{2,80})'/i.exec(t);
+    if (quotedName?.[1]) {
+      name = String(quotedName[1]).trim().slice(0, 80);
+    } else {
+      const after = /\bcontact\b\s*(?:named|called)?\s*([^\n]{2,120})/i.exec(t);
+      if (after?.[1]) {
+        const candidate = String(after[1])
+          .replace(/\b(tags?|email|phone)\b[\s\S]*$/i, "")
+          .replace(/\b([A-Z0-9._%+-]{1,64}@[A-Z0-9.-]{2,80}\.[A-Z]{2,})\b/i, "")
+          .replace(/(\+?\d[\d\s().-]{7,}\d)/, "")
+          .trim();
+        name = candidate.slice(0, 80);
+      }
+    }
+
+    if (name) {
+      return [{
+        key: "contacts.create",
+        title: "Create contact",
+        args: {
+          name,
+          ...(email ? { email } : {}),
+          ...(phone ? { phone } : {}),
+          ...(tags ? { tags } : {}),
+        },
+      }];
+    }
+  }
 
   // Media Library: move the *current message attachments* into a folder.
   if (attachments.length && /\b(folder|media library|media)\b/i.test(t) && /\b(put|move|add|save|organize|file|files)\b/i.test(t)) {
@@ -132,6 +173,40 @@ function detectDeterministicActionsFromText(opts: {
   // List contacts.
   if (/\b(list|show)\b[\s\S]{0,20}\bcontacts\b/i.test(t)) {
     return [{ key: "contacts.list", title: "List contacts", args: { limit: 20 } }];
+  }
+
+  // Reviews: send a review request (bookingId/contactId required).
+  if (/\b(send|request)\b/i.test(t) && /\breview\b/i.test(t)) {
+    const bookingIdMatch = /\bbooking\s*(?:id)?\s*[:#]?\s*([a-zA-Z0-9_-]{6,120})\b/i.exec(t) || /\bbookingId\s*[:=]\s*([a-zA-Z0-9_-]{6,120})\b/i.exec(t);
+    const contactIdMatch = /\bcontact\s*(?:id)?\s*[:#]?\s*([a-zA-Z0-9_-]{6,120})\b/i.exec(t) || /\bcontactId\s*[:=]\s*([a-zA-Z0-9_-]{6,120})\b/i.exec(t);
+    const bookingId = bookingIdMatch?.[1] ? String(bookingIdMatch[1]).trim() : "";
+    const contactId = contactIdMatch?.[1] ? String(contactIdMatch[1]).trim() : "";
+
+    if (bookingId) {
+      return [{ key: "reviews.send_request_for_booking", title: "Send review request", args: { bookingId } }];
+    }
+    if (contactId) {
+      return [{ key: "reviews.send_request_for_contact", title: "Send review request", args: { contactId } }];
+    }
+  }
+
+  // Reviews: reply (or clear reply) on a review.
+  if (/\breview\b/i.test(t) && /\b(reply|respond)\b/i.test(t)) {
+    const reviewIdMatch = /\breview\s*(?:id)?\s*[:#]?\s*([a-zA-Z0-9_-]{6,120})\b/i.exec(t) || /\breviewId\s*[:=]\s*([a-zA-Z0-9_-]{6,120})\b/i.exec(t);
+    const reviewId = reviewIdMatch?.[1] ? String(reviewIdMatch[1]).trim() : "";
+    if (reviewId) {
+      const clear = /\b(clear|remove|delete)\b[\s\S]{0,20}\breply\b/i.test(t);
+      if (clear) {
+        return [{ key: "reviews.reply", title: "Clear review reply", args: { reviewId, reply: null } }];
+      }
+
+      const quoted = /"([\s\S]{1,2000})"/.exec(t);
+      const replyMatch = /\breply\s*[:\-]\s*([\s\S]{1,2000})$/i.exec(t);
+      const reply = String((quoted?.[1] || replyMatch?.[1] || "").trim()).slice(0, 2000);
+      if (reply) {
+        return [{ key: "reviews.reply", title: "Reply to review", args: { reviewId, reply } }];
+      }
+    }
   }
 
   // Build/create a funnel.

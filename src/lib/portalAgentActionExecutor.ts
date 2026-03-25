@@ -15,10 +15,14 @@ import { uniqueNewsletterSlug } from "@/lib/portalNewsletter";
 import { slugify } from "@/lib/slugify";
 import { getBookingCalendarsConfig, setBookingCalendarsConfig } from "@/lib/bookingCalendars";
 import { ensurePortalContactsSchema } from "@/lib/portalContactsSchema";
+import { findOrCreatePortalContact, normalizePhoneKey } from "@/lib/portalContacts";
+import { addContactTagAssignment, createOwnerContactTag, ensurePortalContactTagsReady } from "@/lib/portalContactTags";
 import { sendPortalInboxMessageNow } from "@/lib/portalInboxSend";
+import { sendReviewRequestForBooking, sendReviewRequestForContact } from "@/lib/reviewRequests";
 import { mirrorUploadToMediaLibrary } from "@/lib/portalMediaUploads";
 import { safeFilename, newPublicToken, newTag, normalizeMimeType, normalizeNameKey } from "@/lib/portalMedia";
 import { addPortalDashboardWidget, isDashboardWidgetId, removePortalDashboardWidget, resetPortalDashboard, savePortalDashboardData, type DashboardWidgetId } from "@/lib/portalDashboard";
+import { hasPublicColumn } from "@/lib/dbSchema";
 
 const MAX_REMOTE_MEDIA_BYTES = 15 * 1024 * 1024; // matches /api/portal/media/import-remote
 
@@ -28,6 +32,30 @@ function sanitizeHumanName(raw: unknown, maxLen: number) {
     .replace(/\s+/g, " ")
     .trim()
     .slice(0, maxLen);
+}
+
+function splitTagsFlexible(raw: unknown): string[] {
+  const parts = Array.isArray(raw)
+    ? raw
+        .map((x) => String(x ?? "").trim())
+        .filter(Boolean)
+    : String(raw ?? "")
+        .trim()
+        .split(/[\n\r,;|]+/g)
+        .map((p) => p.trim())
+        .filter(Boolean);
+
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const p of parts) {
+    const v = String(p || "").trim().slice(0, 60);
+    const key = v.toLowerCase();
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    out.push(v);
+    if (out.length >= 10) break;
+  }
+  return out;
 }
 
 async function newUniqueMediaFolderTag(ownerId: string) {
@@ -447,6 +475,51 @@ async function runDirectAction(opts: {
       };
     }
 
+    case "contacts.create": {
+      await ensurePortalContactsSchema().catch(() => null);
+
+      const name = sanitizeHumanName(args.name, 80);
+      if (!name) return { status: 400, json: { ok: false, error: "Name is required" } };
+
+      const email = typeof args.email === "string" && args.email.trim() ? String(args.email).trim().slice(0, 120) : null;
+      const phone = typeof args.phone === "string" && args.phone.trim() ? String(args.phone).trim().slice(0, 40) : null;
+      if (phone) {
+        const norm = normalizePhoneKey(phone);
+        if (norm.error) return { status: 400, json: { ok: false, error: norm.error } };
+      }
+
+      const tags = splitTagsFlexible(args.tags);
+      const customVariablesRaw = args.customVariables && typeof args.customVariables === "object" && !Array.isArray(args.customVariables)
+        ? (args.customVariables as Record<string, string>)
+        : null;
+
+      const customVariables = customVariablesRaw
+        ? Object.fromEntries(Object.entries(customVariablesRaw).slice(0, 30).map(([k, v]) => [String(k).slice(0, 60), String(v).slice(0, 120)]))
+        : null;
+
+      await ensurePortalContactTagsReady().catch(() => null);
+
+      const contactId = await findOrCreatePortalContact({
+        ownerId,
+        name,
+        email,
+        phone,
+        customVariables,
+      });
+
+      if (!contactId) return { status: 400, json: { ok: false, error: "Could not create contact" } };
+
+      if (tags.length) {
+        for (const tagName of tags) {
+          const tag = await createOwnerContactTag({ ownerId, name: tagName }).catch(() => null);
+          if (!tag) continue;
+          await addContactTagAssignment({ ownerId, contactId, tagId: tag.id }).catch(() => null);
+        }
+      }
+
+      return { status: 200, json: { ok: true, contactId } };
+    }
+
     case "inbox.send_sms": {
       const to = String(args.to || "").trim();
       const body = String(args.body || "").trim();
@@ -482,6 +555,51 @@ async function runDirectAction(opts: {
 
       if (!sent.ok) return { status: 400, json: { ok: false, error: sent.error } };
       return { status: 200, json: { ok: true, threadId: sent.threadId } };
+    }
+
+    case "reviews.send_request_for_booking": {
+      const bookingId = String(args.bookingId || "").trim();
+      if (!bookingId) return { status: 400, json: { ok: false, error: "Missing bookingId" } };
+
+      const result = await sendReviewRequestForBooking({ ownerId, bookingId });
+      if (!result.ok) {
+        const status = result.error === "Insufficient credits" ? 402 : 400;
+        return { status, json: { ok: false, error: result.error } };
+      }
+      return { status: 200, json: { ok: true } };
+    }
+
+    case "reviews.send_request_for_contact": {
+      const contactId = String(args.contactId || "").trim();
+      if (!contactId) return { status: 400, json: { ok: false, error: "Missing contactId" } };
+
+      const result = await sendReviewRequestForContact({ ownerId, contactId });
+      if (!result.ok) return { status: 400, json: { ok: false, error: result.error } };
+      return { status: 200, json: { ok: true } };
+    }
+
+    case "reviews.reply": {
+      const reviewId = String(args.reviewId || "").trim();
+      const replyRaw = typeof args.reply === "string" ? args.reply : "";
+      const reply = String(replyRaw).trim().slice(0, 2000);
+      if (!reviewId) return { status: 400, json: { ok: false, error: "Missing reviewId" } };
+
+      const [hasReply, hasReplyAt] = await Promise.all([
+        hasPublicColumn("PortalReview", "businessReply"),
+        hasPublicColumn("PortalReview", "businessReplyAt"),
+      ]);
+      if (!hasReply) return { status: 409, json: { ok: false, error: "Replies are not enabled in this environment yet." } };
+
+      const updated = await (prisma as any).portalReview.updateMany({
+        where: { id: reviewId, ownerId },
+        data: {
+          businessReply: reply ? reply : null,
+          ...(hasReplyAt ? { businessReplyAt: reply ? new Date() : null } : {}),
+        },
+      });
+
+      if (!updated?.count) return { status: 404, json: { ok: false, error: "Not found" } };
+      return { status: 200, json: { ok: true } };
     }
 
     case "booking.calendar.create": {
@@ -705,6 +823,13 @@ function resultMarkdown(action: PortalAgentActionKey, json: any): { markdown: st
     };
   }
 
+  if (action === "contacts.create" && json?.ok && json?.contactId) {
+    return {
+      markdown: `Created the contact.\n\n[Open people](/portal/app/people)`,
+      linkUrl: "/portal/app/people",
+    };
+  }
+
   if (action === "inbox.send_sms" && json?.ok) {
     return {
       markdown: `Sent the text.\n\n[Open Inbox](/portal/app/services/inbox/sms)`,
@@ -716,6 +841,20 @@ function resultMarkdown(action: PortalAgentActionKey, json: any): { markdown: st
     return {
       markdown: `Sent the email.\n\n[Open Inbox](/portal/app/services/inbox/email)`,
       linkUrl: "/portal/app/services/inbox/email",
+    };
+  }
+
+  if ((action === "reviews.send_request_for_booking" || action === "reviews.send_request_for_contact") && json?.ok) {
+    return {
+      markdown: `Sent the review request.\n\n[Open reviews](/portal/app/services/reviews)`,
+      linkUrl: "/portal/app/services/reviews",
+    };
+  }
+
+  if (action === "reviews.reply" && json?.ok) {
+    return {
+      markdown: `Saved your review reply.\n\n[Open reviews](/portal/app/services/reviews)`,
+      linkUrl: "/portal/app/services/reviews",
     };
   }
 

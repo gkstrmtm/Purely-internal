@@ -9,8 +9,12 @@ export const PortalAgentActionKeySchema = z.enum([
   "automations.run",
   "automations.create",
   "contacts.list",
+  "contacts.create",
   "inbox.send_sms",
   "inbox.send_email",
+  "reviews.send_request_for_booking",
+  "reviews.send_request_for_contact",
+  "reviews.reply",
   "media.folder.ensure",
   "media.items.move",
   "media.import_remote_image",
@@ -82,6 +86,16 @@ export const PortalAgentActionArgsSchemaByKey = {
     })
     .strict(),
 
+  "contacts.create": z
+    .object({
+      name: z.string().trim().min(1).max(80),
+      email: z.string().trim().max(120).optional().nullable(),
+      phone: z.string().trim().max(40).optional().nullable(),
+      tags: z.union([z.array(z.string().trim().min(1).max(60)).max(10), z.string().trim().max(600)]).optional().nullable(),
+      customVariables: z.record(z.string().trim().max(60), z.string().trim().max(120)).optional().nullable(),
+    })
+    .strict(),
+
   "inbox.send_sms": z
     .object({
       to: z.string().trim().min(3).max(64),
@@ -96,6 +110,25 @@ export const PortalAgentActionArgsSchemaByKey = {
       subject: z.string().trim().min(1).max(140),
       body: z.string().trim().min(1).max(20000),
       threadId: z.string().trim().min(1).max(120).optional(),
+    })
+    .strict(),
+
+  "reviews.send_request_for_booking": z
+    .object({
+      bookingId: z.string().trim().min(1).max(120),
+    })
+    .strict(),
+
+  "reviews.send_request_for_contact": z
+    .object({
+      contactId: z.string().trim().min(1).max(120),
+    })
+    .strict(),
+
+  "reviews.reply": z
+    .object({
+      reviewId: z.string().trim().min(1).max(120),
+      reply: z.string().max(2000).optional().nullable(),
     })
     .strict(),
 
@@ -186,8 +219,12 @@ export function portalAgentActionsIndexText(): string {
     "- automations.run: Run an automation by id (fields: automationId, contact?)",
     "- automations.create: Create a new automation shell (fields: name)",
     "- contacts.list: List recent contacts (fields: limit?)",
+    "- contacts.create: Create a contact (fields: name, email?, phone?, tags?, customVariables?)",
     "- inbox.send_sms: Send an SMS (fields: to, body, threadId?)",
     "- inbox.send_email: Send an email (fields: to, subject, body, threadId?)",
+    "- reviews.send_request_for_booking: Send a review request for a completed booking (fields: bookingId)",
+    "- reviews.send_request_for_contact: Send a review request to a contact (fields: contactId)",
+    "- reviews.reply: Reply to a review (fields: reviewId, reply?)",
     "- media.folder.ensure: Ensure a Media Library folder exists (fields: name, parentId?, color?)",
     "- media.items.move: Move media items into a folder (fields: itemIds, folderId? OR folderName(+parentId?))",
     "- media.import_remote_image: Import an image from a URL into Media Library (fields: url, fileName?, folderId? OR folderName(+parentId?))",
