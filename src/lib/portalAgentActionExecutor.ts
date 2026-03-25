@@ -118,6 +118,7 @@ import { disconnectSalesProvider, getSalesReportingStatus } from "@/lib/salesRep
 import { isPortalEncryptionConfigured } from "@/lib/portalEncryption.server";
 import { stripeGetWithKey, stripePostWithKey } from "@/lib/stripeFetchWithKey.server";
 import { ensurePortalAiOutboundCallsSchema } from "@/lib/portalAiOutboundCallsSchema";
+import { ensurePortalAiChatSchema } from "@/lib/portalAiChatSchema";
 import { enqueueOutboundCallForTaggedContact, normalizeTagIdList } from "@/lib/portalAiOutboundCalls";
 import { enqueueOutboundMessageForTaggedContact } from "@/lib/portalAiOutboundMessages";
 import { normalizeToolIdList, normalizeToolKeyList, parseVoiceAgentConfig } from "@/lib/voiceAgentConfig.shared";
@@ -9504,6 +9505,433 @@ async function runDirectAction(opts: {
 
       const contacts = await listPortalAccountRecipientContacts(ownerId).catch(() => []);
       return { status: 200, json: { ok: true, recipients: contacts } };
+    }
+
+    case "ai_chat.threads.list": {
+      const membership = await requirePortalMember();
+      if (!membership) return { status: 403, json: { ok: false, error: "Forbidden" } };
+
+      await ensurePortalAiChatSchema();
+
+      const threads = await (prisma as any).portalAiChatThread.findMany({
+        where: { ownerId },
+        orderBy: [{ lastMessageAt: "desc" }, { updatedAt: "desc" }],
+        take: 200,
+        select: {
+          id: true,
+          title: true,
+          lastMessageAt: true,
+          createdAt: true,
+          updatedAt: true,
+        },
+      });
+
+      return { status: 200, json: { ok: true, threads } };
+    }
+
+    case "ai_chat.threads.create": {
+      const membership = await requirePortalMember();
+      if (!membership) return { status: 403, json: { ok: false, error: "Forbidden" } };
+
+      await ensurePortalAiChatSchema();
+
+      const title = String((args as any)?.title || "").trim().slice(0, 120) || "New chat";
+      const thread = await (prisma as any).portalAiChatThread.create({
+        data: {
+          ownerId,
+          title,
+          createdByUserId: membership.memberId,
+          lastMessageAt: null,
+        },
+        select: {
+          id: true,
+          title: true,
+          lastMessageAt: true,
+          createdAt: true,
+          updatedAt: true,
+        },
+      });
+
+      return { status: 200, json: { ok: true, thread } };
+    }
+
+    case "ai_chat.threads.flush": {
+      const membership = await requirePortalMember();
+      if (!membership) return { status: 403, json: { ok: false, error: "Forbidden" } };
+      void args;
+      return { status: 200, json: { ok: true, processed: 0, note: "AI Chat scheduling is disabled" } };
+    }
+
+    case "ai_chat.messages.list": {
+      const membership = await requirePortalMember();
+      if (!membership) return { status: 403, json: { ok: false, error: "Forbidden" } };
+
+      await ensurePortalAiChatSchema();
+
+      const threadId = String((args as any)?.threadId || "").trim().slice(0, 120);
+      if (!threadId) return { status: 400, json: { ok: false, error: "Invalid request" } };
+
+      const thread = await (prisma as any).portalAiChatThread.findFirst({
+        where: { id: threadId, ownerId },
+        select: { id: true },
+      });
+      if (!thread) return { status: 404, json: { ok: false, error: "Not found" } };
+
+      const messages = await (prisma as any).portalAiChatMessage.findMany({
+        where: { ownerId, threadId },
+        orderBy: { createdAt: "asc" },
+        take: 1000,
+        select: {
+          id: true,
+          role: true,
+          text: true,
+          attachmentsJson: true,
+          createdAt: true,
+          sendAt: true,
+          sentAt: true,
+          createdByUserId: true,
+        },
+      });
+
+      return { status: 200, json: { ok: true, messages } };
+    }
+
+    case "ai_chat.messages.send": {
+      const membership = await requirePortalMember();
+      if (!membership) return { status: 403, json: { ok: false, error: "Forbidden" } };
+
+      await ensurePortalAiChatSchema();
+
+      const threadId = String((args as any)?.threadId || "").trim().slice(0, 120);
+      if (!threadId) return { status: 400, json: { ok: false, error: "Invalid request" } };
+
+      const thread = await (prisma as any).portalAiChatThread.findFirst({
+        where: { id: threadId, ownerId },
+        select: { id: true, title: true },
+      });
+      if (!thread) return { status: 404, json: { ok: false, error: "Not found" } };
+
+      const cleanText = String((args as any)?.text || "").trim().slice(0, 4000);
+      const url = typeof (args as any)?.url === "string" ? String((args as any).url).trim().slice(0, 2000) : "";
+      const attachments = Array.isArray((args as any)?.attachments) ? ((args as any).attachments as any[]).slice(0, 10) : [];
+      if (!cleanText && attachments.length === 0) {
+        return { status: 400, json: { ok: false, error: "Text or attachments required" } };
+      }
+
+      const now = new Date();
+
+      const attachmentLines = attachments
+        .map((a) => {
+          const name = String(a?.fileName || "Attachment").slice(0, 200);
+          const u = String(a?.url || "").slice(0, 500);
+          return u ? `- ${name}: ${u}` : `- ${name}`;
+        })
+        .join("\n");
+
+      const promptMessage = [
+        cleanText || "Please review the attachments.",
+        attachmentLines ? "\nAttachments:\n" + attachmentLines : null,
+      ]
+        .filter(Boolean)
+        .join("\n");
+
+      const userMsg = await (prisma as any).portalAiChatMessage.create({
+        data: {
+          ownerId,
+          threadId,
+          role: "user",
+          text: cleanText,
+          attachmentsJson: attachments.length ? attachments : null,
+          createdByUserId: membership.memberId,
+          sendAt: null,
+          sentAt: now,
+        },
+        select: {
+          id: true,
+          role: true,
+          text: true,
+          attachmentsJson: true,
+          createdAt: true,
+          sendAt: true,
+          sentAt: true,
+        },
+      });
+
+      await (prisma as any).portalAiChatThread.update({ where: { id: threadId }, data: { lastMessageAt: now } });
+
+      if (!isPortalSupportChatConfigured()) {
+        return {
+          status: 503,
+          json: { ok: false, error: "AI chat is not configured for this environment." },
+        };
+      }
+
+      const recentRows = await (prisma as any).portalAiChatMessage.findMany({
+        where: { ownerId, threadId },
+        orderBy: { createdAt: "desc" },
+        take: 13,
+        select: { id: true, role: true, text: true },
+      });
+
+      const recentMessages = recentRows
+        .filter((m: any) => m.id !== userMsg.id)
+        .reverse()
+        .slice(-12)
+        .map((m: any) => ({
+          role: m.role === "assistant" ? "assistant" : "user",
+          text: String(m.text || "").slice(0, 2000),
+        }));
+
+      const reply = await runPortalSupportChat({
+        message: promptMessage,
+        url: url || undefined,
+        recentMessages,
+      });
+
+      const assistantMsg = await (prisma as any).portalAiChatMessage.create({
+        data: {
+          ownerId,
+          threadId,
+          role: "assistant",
+          text: reply,
+          attachmentsJson: null,
+          createdByUserId: null,
+          sendAt: null,
+          sentAt: now,
+        },
+        select: {
+          id: true,
+          role: true,
+          text: true,
+          attachmentsJson: true,
+          createdAt: true,
+          sendAt: true,
+          sentAt: true,
+        },
+      });
+
+      await (prisma as any).portalAiChatThread.update({ where: { id: threadId }, data: { lastMessageAt: new Date() } });
+
+      const cleanSuggestedTitle = (raw: string): string => {
+        const s = String(raw || "")
+          .trim()
+          .replace(/[\r\n\t]+/g, " ")
+          .replace(/\s+/g, " ");
+        return s.replace(/^"|"$/g, "").replace(/^'|'$/g, "").slice(0, 60).trim();
+      };
+
+      // Best-effort AI-generated thread title when untouched.
+      try {
+        const isDefaultTitle = String((thread as any).title || "").trim() === "New chat";
+        if (isDefaultTitle && isPortalSupportChatConfigured()) {
+          const titleSystem = [
+            "You name chat threads in a business automation portal.",
+            "Return a short, helpful title (2-6 words).",
+            "No quotes. No trailing punctuation.",
+          ].join("\n");
+
+          const titleUser = [
+            "Conversation:",
+            `User: ${promptMessage}`,
+            `Assistant: ${reply}`,
+            "\nTitle:",
+          ].join("\n");
+
+          const proposed = cleanSuggestedTitle(await generateText({ system: titleSystem, user: titleUser }));
+          if (proposed && proposed.length >= 3 && proposed.toLowerCase() !== "new chat") {
+            await (prisma as any).portalAiChatThread.update({ where: { id: threadId }, data: { title: proposed } });
+          }
+        }
+      } catch {
+        // ignore
+      }
+
+      return {
+        status: 200,
+        json: { ok: true, userMessage: userMsg, assistantMessage: assistantMsg, assistantActions: [], autoActionMessage: null },
+      };
+    }
+
+    case "ai_chat.attachments.upload": {
+      const membership = await requirePortalMember();
+      if (!membership) return { status: 403, json: { ok: false, error: "Forbidden" } };
+
+      const files = Array.isArray((args as any)?.files) ? ((args as any).files as any[]).slice(0, 10) : [];
+      if (!files.length) return { status: 400, json: { ok: false, error: "Missing files" } };
+
+      const MAX_BYTES = 10 * 1024 * 1024;
+      const attachments: Array<{ id: string; fileName: string; mimeType: string; fileSize: number; url: string }> = [];
+
+      for (const f of files) {
+        const fileName = safeFilename(typeof f?.fileName === "string" ? f.fileName : "upload.bin");
+        const mimeType = normalizeMimeType(typeof f?.mimeType === "string" ? f.mimeType : "application/octet-stream", fileName);
+        const decoded = decodeBase64ToBytes(typeof f?.contentBase64 === "string" ? f.contentBase64 : "", MAX_BYTES);
+        if (!decoded.ok) return { status: 400, json: { ok: false, error: decoded.error } };
+
+        const bytes = Buffer.from(decoded.bytes);
+        const mirrored = await mirrorUploadToMediaLibrary({ ownerId, fileName, mimeType, bytes });
+        if (!mirrored) return { status: 500, json: { ok: false, error: "Upload failed" } };
+
+        attachments.push({
+          id: String(mirrored.id),
+          fileName,
+          mimeType,
+          fileSize: bytes.length,
+          url: String(mirrored.openUrl),
+        });
+      }
+
+      return { status: 200, json: { ok: true, attachments } };
+    }
+
+    case "ai_chat.scheduled.list": {
+      const membership = await requirePortalMember();
+      if (!membership) return { status: 403, json: { ok: false, error: "Forbidden" } };
+
+      await ensurePortalAiChatSchema();
+
+      const rows = await (prisma as any).portalAiChatMessage.findMany({
+        where: {
+          ownerId,
+          role: "user",
+          sentAt: null,
+          sendAt: { not: null },
+        },
+        orderBy: { sendAt: "asc" },
+        take: 200,
+        select: {
+          id: true,
+          threadId: true,
+          text: true,
+          sendAt: true,
+          repeatEveryMinutes: true,
+          createdAt: true,
+        },
+      });
+
+      const threadIds = Array.from(new Set(rows.map((r: any) => String(r.threadId)))).slice(0, 300);
+      const threads = threadIds.length
+        ? await (prisma as any).portalAiChatThread.findMany({
+            where: { ownerId, id: { in: threadIds } },
+            select: { id: true, title: true },
+          })
+        : [];
+
+      const titleByThreadId = new Map<string, string>();
+      for (const t of threads) titleByThreadId.set(String(t.id), String((t as any).title || "Chat"));
+
+      const scheduled = rows.map((r: any) => ({
+        id: String(r.id),
+        threadId: String(r.threadId),
+        threadTitle: titleByThreadId.get(String(r.threadId)) || "Chat",
+        text: String(r.text || ""),
+        sendAt: r.sendAt ? new Date(r.sendAt).toISOString() : null,
+        repeatEveryMinutes:
+          typeof r.repeatEveryMinutes === "number" && Number.isFinite(r.repeatEveryMinutes)
+            ? Math.max(0, Math.floor(r.repeatEveryMinutes))
+            : 0,
+        createdAt: r.createdAt ? new Date(r.createdAt).toISOString() : null,
+      }));
+
+      return { status: 200, json: { ok: true, scheduled } };
+    }
+
+    case "ai_chat.scheduled.update": {
+      const membership = await requirePortalMember();
+      if (!membership) return { status: 403, json: { ok: false, error: "Forbidden" } };
+
+      await ensurePortalAiChatSchema();
+
+      const messageId = String((args as any)?.messageId || "").trim().slice(0, 120);
+      if (!messageId) return { status: 400, json: { ok: false, error: "Invalid input" } };
+
+      const msg = await (prisma as any).portalAiChatMessage.findFirst({
+        where: { id: messageId, ownerId, role: "user" },
+        select: { id: true, sentAt: true },
+      });
+      if (!msg) return { status: 404, json: { ok: false, error: "Not found" } };
+      if (msg.sentAt) return { status: 409, json: { ok: false, error: "Already sent" } };
+
+      const data: Record<string, unknown> = {};
+
+      if ("sendAtIso" in (args as any)) {
+        const iso = (args as any).sendAtIso;
+        if (iso === null) {
+          data.sendAt = null;
+        } else if (typeof iso === "string") {
+          const d = new Date(iso);
+          if (!Number.isFinite(d.getTime())) {
+            return { status: 400, json: { ok: false, error: "Invalid sendAt" } };
+          }
+          data.sendAt = d;
+        }
+      }
+
+      if ("repeatEveryMinutes" in (args as any)) {
+        const v = (args as any).repeatEveryMinutes;
+        if (v === null) data.repeatEveryMinutes = null;
+        else if (typeof v === "number" && Number.isFinite(v)) data.repeatEveryMinutes = Math.max(0, Math.floor(v));
+      }
+
+      await (prisma as any).portalAiChatMessage.update({ where: { id: messageId }, data });
+      return { status: 200, json: { ok: true } };
+    }
+
+    case "ai_chat.scheduled.delete": {
+      const membership = await requirePortalMember();
+      if (!membership) return { status: 403, json: { ok: false, error: "Forbidden" } };
+
+      await ensurePortalAiChatSchema();
+
+      const messageId = String((args as any)?.messageId || "").trim().slice(0, 120);
+      if (!messageId) return { status: 400, json: { ok: false, error: "Invalid input" } };
+
+      const msg = await (prisma as any).portalAiChatMessage.findFirst({
+        where: { id: messageId, ownerId, role: "user" },
+        select: { id: true, sentAt: true },
+      });
+      if (!msg) return { status: 404, json: { ok: false, error: "Not found" } };
+      if (msg.sentAt) return { status: 409, json: { ok: false, error: "Already sent" } };
+
+      await (prisma as any).portalAiChatMessage.delete({ where: { id: messageId } });
+      return { status: 200, json: { ok: true } };
+    }
+
+    case "ai_chat.actions.execute": {
+      const membership = await requirePortalMember();
+      if (!membership) return { status: 403, json: { ok: false, error: "Forbidden" } };
+
+      await ensurePortalAiChatSchema();
+
+      const threadId = String((args as any)?.threadId || "").trim().slice(0, 120);
+      if (!threadId) return { status: 400, json: { ok: false, error: "Invalid input" } };
+
+      const thread = await (prisma as any).portalAiChatThread.findFirst({ where: { id: threadId, ownerId }, select: { id: true } });
+      if (!thread) return { status: 404, json: { ok: false, error: "Not found" } };
+
+      const actionKey = (args as any)?.action as PortalAgentActionKey;
+      const execArgs = (args as any)?.args ?? {};
+
+      const exec = await executePortalAgentActionForThread({
+        ownerId,
+        actorUserId: membership.memberId,
+        threadId,
+        action: actionKey,
+        args: execArgs,
+      });
+
+      if (!exec.ok && exec.status === 400) {
+        return { status: 400, json: { ok: false, error: exec.error || "Invalid action args" } };
+      }
+
+      return { status: 200, json: exec };
+    }
+
+    case "ai_chat.cron.run": {
+      const membership = await requirePortalMember();
+      if (!membership) return { status: 403, json: { ok: false, error: "Forbidden" } };
+      void args;
+      return { status: 200, json: { ok: true, processed: 0, note: "AI Chat scheduling is disabled" } };
     }
 
     case "voice_agent.tools.get": {

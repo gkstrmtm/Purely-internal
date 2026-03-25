@@ -63,6 +63,18 @@ const ACTION_COVERAGE = [
 
   { action: "ai_agents.list", method: "GET", endpoint: "/api/portal/ai-agents" },
 
+  { action: "ai_chat.threads.list", method: "GET", endpoint: "/api/portal/ai-chat/threads" },
+  { action: "ai_chat.threads.create", method: "POST", endpoint: "/api/portal/ai-chat/threads" },
+  { action: "ai_chat.threads.flush", method: "POST", endpoint: "/api/portal/ai-chat/threads/[threadId]/flush" },
+  { action: "ai_chat.messages.list", method: "GET", endpoint: "/api/portal/ai-chat/threads/[threadId]/messages" },
+  { action: "ai_chat.messages.send", method: "POST", endpoint: "/api/portal/ai-chat/threads/[threadId]/messages" },
+  { action: "ai_chat.attachments.upload", method: "POST", endpoint: "/api/portal/ai-chat/attachments" },
+  { action: "ai_chat.actions.execute", method: "POST", endpoint: "/api/portal/ai-chat/actions/execute" },
+  { action: "ai_chat.cron.run", method: "GET", endpoint: "/api/portal/ai-chat/cron" },
+  { action: "ai_chat.scheduled.list", method: "GET", endpoint: "/api/portal/ai-chat/scheduled" },
+  { action: "ai_chat.scheduled.update", method: "PATCH", endpoint: "/api/portal/ai-chat/scheduled/[messageId]" },
+  { action: "ai_chat.scheduled.delete", method: "DELETE", endpoint: "/api/portal/ai-chat/scheduled/[messageId]" },
+
   { action: "webhooks.get", method: "GET", endpoint: "/api/portal/webhooks" },
   { action: "support_chat.send", method: "POST", endpoint: "/api/portal/support-chat" },
 

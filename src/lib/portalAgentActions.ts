@@ -99,6 +99,18 @@ export const PortalAgentActionKeySchema = z.enum([
 
   "ai_agents.list",
 
+  "ai_chat.threads.list",
+  "ai_chat.threads.create",
+  "ai_chat.threads.flush",
+  "ai_chat.messages.list",
+  "ai_chat.messages.send",
+  "ai_chat.scheduled.list",
+  "ai_chat.scheduled.update",
+  "ai_chat.scheduled.delete",
+  "ai_chat.attachments.upload",
+  "ai_chat.actions.execute",
+  "ai_chat.cron.run",
+
   "me.get",
 
   "auth.resend_verification",
@@ -315,6 +327,90 @@ export const PortalAgentActionArgsSchemaByKey = {
   "tasks.assignees.list": z.object({}).strict(),
 
   "notifications.recipients.list": z.object({}).strict(),
+
+  "ai_chat.threads.list": z.object({}).strict(),
+  "ai_chat.threads.create": z
+    .object({
+      title: z.string().trim().min(1).max(120).optional(),
+    })
+    .strict(),
+  "ai_chat.threads.flush": z
+    .object({
+      threadId: z.string().trim().min(1).max(120),
+    })
+    .strict(),
+
+  "ai_chat.messages.list": z
+    .object({
+      threadId: z.string().trim().min(1).max(120),
+    })
+    .strict(),
+  "ai_chat.messages.send": z
+    .object({
+      threadId: z.string().trim().min(1).max(120),
+      text: z.string().trim().max(4000).optional(),
+      url: z.string().trim().optional(),
+      attachments: z
+        .array(
+          z
+            .object({
+              id: z.string().trim().min(1).max(200).optional(),
+              fileName: z.string().trim().min(1).max(200),
+              mimeType: z.string().trim().min(1).max(120).optional(),
+              fileSize: z.number().int().nonnegative().optional(),
+              url: z.string().trim().min(1).max(500),
+            })
+            .strict(),
+        )
+        .max(10)
+        .optional(),
+    })
+    .strict()
+    .refine(
+      (d) => Boolean((d.text || "").trim()) || (Array.isArray(d.attachments) && d.attachments.length > 0),
+      { message: "Text or attachments required" },
+    ),
+
+  "ai_chat.scheduled.list": z.object({}).strict(),
+  "ai_chat.scheduled.update": z
+    .object({
+      messageId: z.string().trim().min(1).max(120),
+      sendAtIso: z.string().trim().min(1).max(64).nullable().optional(),
+      repeatEveryMinutes: z.number().int().min(0).max(60 * 24 * 365).nullable().optional(),
+    })
+    .strict(),
+  "ai_chat.scheduled.delete": z
+    .object({
+      messageId: z.string().trim().min(1).max(120),
+    })
+    .strict(),
+
+  "ai_chat.attachments.upload": z
+    .object({
+      files: z
+        .array(
+          z
+            .object({
+              fileName: z.string().trim().min(1).max(200),
+              mimeType: z.string().trim().min(1).max(120).optional(),
+              contentBase64: z.string().trim().min(1).max(30_000_000),
+            })
+            .strict(),
+        )
+        .min(1)
+        .max(10),
+    })
+    .strict(),
+
+  "ai_chat.actions.execute": z
+    .object({
+      threadId: z.string().trim().min(1).max(120),
+      action: PortalAgentActionKeySchema,
+      args: z.record(z.string(), z.unknown()).optional(),
+    })
+    .strict(),
+
+  "ai_chat.cron.run": z.object({}).strict(),
 
   "voice_agent.tools.get": z.object({}).strict(),
   "voice_agent.voices.list": z.object({}).strict(),
@@ -2286,6 +2382,17 @@ export function portalAgentActionsIndexText(): string {
     "- suggested_setup.preview.get: Get suggested setup preview (entitlements + proposed actions)",
     "- suggested_setup.apply: Apply selected suggested setup actions (fields: actionIds)",
     "- ai_agents.list: List known ElevenLabs agent IDs referenced by your portal account (voice/chat/outbound)",
+    "- ai_chat.threads.list: List AI chat threads",
+    "- ai_chat.threads.create: Create a new AI chat thread (fields: title?)",
+    "- ai_chat.messages.list: List messages in an AI chat thread (fields: threadId)",
+    "- ai_chat.messages.send: Send a chat message and get an assistant reply (fields: threadId, text?, url?, attachments?)",
+    "- ai_chat.attachments.upload: Upload one or more files for chat (fields: files[{fileName,mimeType?,contentBase64}])",
+    "- ai_chat.actions.execute: Execute a whitelisted portal action and append the result to a thread (fields: threadId, action, args?)",
+    "- ai_chat.scheduled.list: List scheduled (unsent) AI chat user messages",
+    "- ai_chat.scheduled.update: Update a scheduled message (fields: messageId, sendAtIso?, repeatEveryMinutes?)",
+    "- ai_chat.scheduled.delete: Delete a scheduled message (fields: messageId)",
+    "- ai_chat.threads.flush: No-op (scheduling is disabled; kept for legacy callers)",
+    "- ai_chat.cron.run: No-op (scheduling is disabled; kept for legacy callers)",
     "- contact_tags.list: List contact tags",
     "- contact_tags.create: Create a contact tag (fields: name, color?)",
     "- contact_tags.update: Update a contact tag (fields: tagId, name?, color?)",
