@@ -105,7 +105,7 @@ import { ensurePortalNurtureSchema } from "@/lib/portalNurtureSchema";
 import { getOrCreateStripeCustomerId, isStripeConfigured, stripeDelete, stripeGet, stripePost } from "@/lib/stripeFetch";
 import { generateText } from "@/lib/ai";
 import { getBusinessProfileAiContext, getBusinessProfileTemplateVars } from "@/lib/businessProfileAiContext.server";
-import { getAppBaseUrl, listPortalAccountRecipientContacts } from "@/lib/portalNotifications";
+import { getAppBaseUrl, listPortalAccountRecipientContacts, tryNotifyPortalAccountUsers, tryNotifyPortalUserIds } from "@/lib/portalNotifications";
 import { ensureVercelProjectDomain } from "@/lib/vercelProjectDomains";
 import { coerceBlocksJson, type CreditFunnelBlock } from "@/lib/creditFunnelBlocks";
 import { blocksToCustomHtmlDocument } from "@/lib/funnelBlocksToCustomHtmlDocument";
@@ -1042,6 +1042,10 @@ async function runDirectAction(opts: {
 
   switch (action) {
     case "tasks.create": {
+      if (!(await requireServiceCapability("tasks", "edit"))) {
+        return { status: 403, json: { ok: false, error: "Forbidden" } };
+      }
+
       await ensurePortalTasksSchema().catch(() => null);
 
       const title = String(args.title || "").trim().slice(0, 160);
@@ -1062,10 +1066,57 @@ async function runDirectAction(opts: {
         VALUES ($1,$2,$3,$4,$5,'OPEN',$6,$7,DEFAULT,$8)
       `;
       await prisma.$executeRawUnsafe(sql, id, ownerId, actorUserId, title, description || null, assignedToUserId, dueAt, now);
+
+      // Best-effort: notify the assignee (and owner), or the whole account if assigned to everyone.
+      try {
+        const baseUrl = getAppBaseUrl();
+        const text = [
+          assignedToUserId ? "A task was assigned to you." : "A new task was created.",
+          "",
+          `Title: ${title}`,
+          description ? "" : null,
+          description ? `Description: ${description.slice(0, 2000)}` : null,
+          dueAt ? `Due: ${dueAt.toISOString()}` : null,
+          "",
+          `Open tasks: ${baseUrl}/portal/app/tasks`,
+        ]
+          .filter(Boolean)
+          .join("\n");
+
+        if (assignedToUserId) {
+          const userIds = Array.from(new Set([assignedToUserId, ownerId].filter(Boolean)));
+          void tryNotifyPortalUserIds({
+            userIds,
+            subject: `Task assigned: ${title}`,
+            text,
+          }).catch(() => null);
+        } else {
+          void tryNotifyPortalAccountUsers({
+            ownerId,
+            kind: "task_created",
+            subject: `New task: ${title}`,
+            text,
+          }).catch(() => null);
+        }
+      } catch {
+        // ignore
+      }
+
+      // Best-effort automation trigger.
+      try {
+        await runOwnerAutomationsForEvent({ ownerId, triggerKind: "task_added", message: { from: "", to: "", body: title } });
+      } catch {
+        // ignore
+      }
+
       return { status: 200, json: { ok: true, taskId: id } };
     }
 
     case "tasks.create_for_all": {
+      if (!(await requireServiceCapability("tasks", "edit"))) {
+        return { status: 403, json: { ok: false, error: "Forbidden" } };
+      }
+
       await ensurePortalTasksSchema().catch(() => null);
 
       const title = String(args.title || "").trim().slice(0, 160);
@@ -1100,6 +1151,146 @@ async function runDirectAction(opts: {
       }
 
       return { status: 200, json: { ok: true, count: taskIds.length, taskIds } };
+    }
+
+    case "tasks.update": {
+      const taskId = String((args as any)?.taskId || "").trim();
+      if (!taskId) return { status: 400, json: { ok: false, error: "Invalid taskId" } };
+
+      const statusReq = (args as any)?.status as unknown;
+      const wantsStatusOnly =
+        (statusReq === "OPEN" || statusReq === "DONE") &&
+        (args as any).title === undefined &&
+        (args as any).description === undefined &&
+        (args as any).assignedToUserId === undefined &&
+        (args as any).dueAtIso === undefined;
+
+      const allowed = wantsStatusOnly
+        ? await requireServiceCapability("tasks", "view")
+        : await requireServiceCapability("tasks", "edit");
+      if (!allowed) return { status: 403, json: { ok: false, error: "Forbidden" } };
+
+      try {
+        await ensurePortalTasksSchema();
+      } catch (e) {
+        return { status: 500, json: { ok: false, error: e instanceof Error ? e.message : "Task storage not ready" } };
+      }
+
+      const memberId = String(actorUserId || "").trim() || ownerId;
+
+      // If the client is trying to mark a task DONE/OPEN, and the task is assigned to everyone
+      // (assignedToUserId is NULL), store completion per-member instead of closing the task globally.
+      let everyoneTaskCompletionHandled = false;
+      if (statusReq === "DONE" || statusReq === "OPEN") {
+        const row = (await prisma.$queryRawUnsafe(
+          `SELECT "assignedToUserId" FROM "PortalTask" WHERE "ownerId" = $1 AND "id" = $2 LIMIT 1`,
+          ownerId,
+          taskId,
+        )) as any[];
+
+        const assignedToUserId = row?.[0]?.assignedToUserId ? String(row[0].assignedToUserId) : null;
+
+        if (wantsStatusOnly && assignedToUserId && String(assignedToUserId) !== String(memberId)) {
+          return { status: 403, json: { ok: false, error: "You can only update tasks assigned to you." } };
+        }
+
+        if (row?.length && !assignedToUserId) {
+          const now = new Date();
+          if (statusReq === "DONE") {
+            const id = crypto.randomUUID().replace(/-/g, "");
+            await prisma.$executeRawUnsafe(
+              `INSERT INTO "PortalTaskMemberCompletion" ("id","ownerId","taskId","userId","completedAt")
+               VALUES ($1,$2,$3,$4,$5)
+               ON CONFLICT ("taskId","userId") DO UPDATE SET "completedAt" = EXCLUDED."completedAt"`,
+              id,
+              ownerId,
+              taskId,
+              memberId,
+              now,
+            );
+          } else {
+            await prisma.$executeRawUnsafe(
+              `DELETE FROM "PortalTaskMemberCompletion" WHERE "ownerId" = $1 AND "taskId" = $2 AND "userId" = $3`,
+              ownerId,
+              taskId,
+              memberId,
+            );
+          }
+
+          // Keep task ordering consistent in the UI.
+          await prisma.$executeRawUnsafe(
+            `UPDATE "PortalTask" SET "updatedAt" = $3 WHERE "ownerId" = $1 AND "id" = $2`,
+            ownerId,
+            taskId,
+            now,
+          );
+
+          everyoneTaskCompletionHandled = true;
+        }
+      }
+
+      // Only the creator can change assignee after creation.
+      if ((args as any).assignedToUserId !== undefined) {
+        const row = (await prisma.$queryRawUnsafe(
+          `SELECT "createdByUserId" FROM "PortalTask" WHERE "ownerId" = $1 AND "id" = $2 LIMIT 1`,
+          ownerId,
+          taskId,
+        )) as any[];
+        const createdByUserId = row?.[0]?.createdByUserId ? String(row[0].createdByUserId) : null;
+        const canEditAssignee = createdByUserId ? createdByUserId === String(memberId) : String(memberId) === String(ownerId);
+        if (!canEditAssignee) {
+          return { status: 403, json: { ok: false, error: "Only the task creator can change the assignee." } };
+        }
+      }
+
+      const sets: string[] = [];
+      const params: any[] = [ownerId, taskId];
+
+      if ((args as any).status && !everyoneTaskCompletionHandled) {
+        params.push((args as any).status);
+        sets.push(`"status" = $${params.length}::"PortalTaskStatus"`);
+      }
+
+      if (typeof (args as any).title === "string") {
+        params.push(String((args as any).title).trim().slice(0, 160));
+        sets.push(`"title" = $${params.length}`);
+      }
+
+      if ((args as any).description !== undefined) {
+        const desc = (args as any).description === null ? null : String((args as any).description || "").trim().slice(0, 5000);
+        params.push(desc);
+        sets.push(`"description" = $${params.length}`);
+      }
+
+      if ((args as any).assignedToUserId !== undefined) {
+        const v = (args as any).assignedToUserId ? String((args as any).assignedToUserId).trim() : null;
+        params.push(v || null);
+        sets.push(`"assignedToUserId" = $${params.length}`);
+      }
+
+      if ((args as any).dueAtIso !== undefined) {
+        const raw = (args as any).dueAtIso ? String((args as any).dueAtIso).trim() : "";
+        const dueAt = raw ? new Date(raw) : null;
+        if (dueAt && !Number.isFinite(dueAt.getTime())) {
+          return { status: 400, json: { ok: false, error: "Invalid due date" } };
+        }
+        params.push(dueAt);
+        sets.push(`"dueAt" = $${params.length}`);
+      }
+
+      if (!sets.length) return { status: 200, json: { ok: true } };
+
+      params.push(new Date());
+      sets.push(`"updatedAt" = $${params.length}`);
+
+      const sql = `
+        UPDATE "PortalTask"
+        SET ${sets.join(", ")}
+        WHERE "ownerId" = $1 AND "id" = $2
+      `;
+
+      await prisma.$executeRawUnsafe(sql, ...params);
+      return { status: 200, json: { ok: true } };
     }
 
     case "tasks.list": {

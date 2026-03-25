@@ -3,6 +3,7 @@ import { z } from "zod";
 export const PortalAgentActionKeySchema = z.enum([
   "tasks.create",
   "tasks.create_for_all",
+  "tasks.update",
   "tasks.list",
   "tasks.assignees.list",
   "funnel.create",
@@ -267,6 +268,17 @@ export const PortalAgentActionArgsSchemaByKey = {
     .object({
       title: z.string().trim().min(1).max(160),
       description: z.string().trim().max(5000).optional(),
+      dueAtIso: z.string().trim().optional().nullable(),
+    })
+    .strict(),
+
+  "tasks.update": z
+    .object({
+      taskId: z.string().trim().min(1).max(120),
+      status: z.enum(["OPEN", "DONE", "CANCELED"]).optional(),
+      title: z.string().trim().min(1).max(160).optional(),
+      description: z.string().trim().max(5000).optional().nullable(),
+      assignedToUserId: z.string().trim().min(1).optional().nullable(),
       dueAtIso: z.string().trim().optional().nullable(),
     })
     .strict(),
@@ -1957,6 +1969,7 @@ export function portalAgentActionsIndexText(): string {
     "Available actions (choose at most 2):",
     "- tasks.create: Create a portal task (fields: title, description?, assignedToUserId?, dueAtIso?)",
     "- tasks.create_for_all: Create the same task for every team member (fields: title, description?, dueAtIso?)",
+    "- tasks.update: Update a task (fields: taskId, status?, title?, description?, assignedToUserId?, dueAtIso?)",
     "- tasks.list: List tasks (fields: status=OPEN|DONE|CANCELED|ALL?, assigned=all|me?, limit?)",
     "- tasks.assignees.list: List task assignees (team members)",
     "- funnel.create: Create a Funnel Builder funnel (fields: name, slug)",

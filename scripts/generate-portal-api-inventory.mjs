@@ -25,6 +25,8 @@ const ACTION_COVERAGE = [
   { action: "contacts.tags.remove", method: "DELETE", endpoint: "/api/portal/contacts/[contactId]/tags" },
 
   { action: "tasks.list", method: "GET", endpoint: "/api/portal/tasks" },
+  { action: "tasks.create", method: "POST", endpoint: "/api/portal/tasks" },
+  { action: "tasks.update", method: "PATCH", endpoint: "/api/portal/tasks/[taskId]" },
   { action: "tasks.assignees.list", method: "GET", endpoint: "/api/portal/tasks/assignees" },
 
   { action: "people.users.list", method: "GET", endpoint: "/api/portal/people/users" },
