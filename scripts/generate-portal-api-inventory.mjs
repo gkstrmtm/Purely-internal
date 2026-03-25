@@ -216,6 +216,7 @@ const ACTION_COVERAGE = [
   { action: "business_profile.get", method: "GET", endpoint: "/api/portal/business-profile" },
   { action: "business_profile.update", method: "PUT", endpoint: "/api/portal/business-profile" },
   { action: "onboarding.status.get", method: "GET", endpoint: "/api/portal/onboarding/status" },
+  { action: "suggested_setup.preview.get", method: "GET", endpoint: "/api/portal/suggested-setup/preview" },
 
   // ElevenLabs ConvAI helpers (sensitive tokens/URLs; no deterministic execute-first)
   { action: "elevenlabs.convai.token.get", method: "POST", endpoint: "/api/portal/elevenlabs/convai/token" },

@@ -77,6 +77,7 @@ export const PortalAgentActionKeySchema = z.enum([
   "contacts.list",
   "contacts.create",
   "onboarding.status.get",
+  "suggested_setup.preview.get",
 
   "ai_agents.list",
 
@@ -750,6 +751,8 @@ export const PortalAgentActionArgsSchemaByKey = {
     .strict(),
 
   "onboarding.status.get": z.object({}).strict(),
+
+  "suggested_setup.preview.get": z.object({}).strict(),
 
   "ai_agents.list": z.object({}).strict(),
 
@@ -1875,6 +1878,7 @@ export function portalAgentActionsIndexText(): string {
     "- contacts.list: List recent contacts (fields: limit?)",
     "- contacts.create: Create a contact (fields: name, email?, phone?, tags?, customVariables?)",
     "- onboarding.status.get: Get onboarding completion status (business profile + blogs setup)",
+    "- suggested_setup.preview.get: Get suggested setup preview (entitlements + proposed actions)",
     "- ai_agents.list: List known ElevenLabs agent IDs referenced by your portal account (voice/chat/outbound)",
     "- contact_tags.list: List contact tags",
     "- contact_tags.create: Create a contact tag (fields: name, color?)",

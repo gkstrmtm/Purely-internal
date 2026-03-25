@@ -114,6 +114,7 @@ import { clampStripeChargesRangeKey, getStripeChargesReportForOwner } from "@/li
 import { clampSalesRangeKey, getSalesReportForOwner } from "@/lib/salesReportingReport.server";
 import { isPortalSupportChatConfigured, runPortalSupportChat } from "@/lib/portalSupportChat";
 import { getOrCreatePortalReferralCode, getPortalReferralStats } from "@/lib/portalReferrals.server";
+import { buildSuggestedSetupPreviewForOwner } from "@/lib/suggestedSetup/server";
 
 const MAX_REMOTE_MEDIA_BYTES = 15 * 1024 * 1024; // matches /api/portal/media/import-remote
 
@@ -4715,6 +4716,27 @@ async function runDirectAction(opts: {
           blogSite,
         },
       };
+    }
+
+    case "suggested_setup.preview.get": {
+      const ok = await requireServiceCapability("profile", "view");
+      if (!ok) return { status: 403, json: { ok: false, error: "Forbidden" } };
+
+      try {
+        const { entitlements, preview } = await buildSuggestedSetupPreviewForOwner(ownerId);
+
+        return {
+          status: 200,
+          json: {
+            ok: true,
+            entitlements,
+            activationProfile: preview.activationProfile,
+            proposedActions: preview.proposedActions,
+          },
+        };
+      } catch {
+        return { status: 500, json: { ok: false, error: "Unable to load suggested setup" } };
+      }
     }
 
     case "contact_tags.list": {
