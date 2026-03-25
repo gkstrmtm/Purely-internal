@@ -76,6 +76,10 @@ const ACTION_COVERAGE = [
 
   { action: "automations.run", method: "POST", endpoint: "/api/portal/automations/run" },
 
+  { action: "automations.settings.get", method: "GET", endpoint: "/api/portal/automations/settings" },
+  { action: "automations.settings.update", method: "PUT", endpoint: "/api/portal/automations/settings" },
+  { action: "automations.test_sms", method: "POST", endpoint: "/api/portal/automations/test-sms" },
+
   { action: "services.catalog.get", method: "GET", endpoint: "/api/portal/services/catalog" },
   { action: "services.lifecycle.update", method: "POST", endpoint: "/api/portal/services/lifecycle" },
   { action: "services.status.get", method: "GET", endpoint: "/api/portal/services/status" },

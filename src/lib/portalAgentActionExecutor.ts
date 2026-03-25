@@ -2,6 +2,8 @@ import crypto from "crypto";
 
 import { Prisma } from "@prisma/client";
 
+import { z } from "zod";
+
 import { PORTAL_SERVICES } from "@/app/portal/services/catalog";
 import { groupPortalServices } from "@/app/portal/services/categories";
 import { prisma } from "@/lib/db";
@@ -22,12 +24,13 @@ import {
 } from "@/lib/portalAgentActions";
 import { consumeCredits, consumeCreditsOnce, getCreditsLifecycleForOwner, getCreditsState, setAutoTopUp } from "@/lib/credits";
 import { PORTAL_CREDIT_COSTS } from "@/lib/portalCreditCosts";
+import { upsertHoursSavedEvent } from "@/lib/hoursSaved";
 import { creditsPerTopUpPackage } from "@/lib/creditsTopup";
 import { getUsdPerCreditForOwner } from "@/lib/creditsPricing.server";
 import { moduleByKey, usdToCents } from "@/lib/portalModulesCatalog";
 import { portalBasePath, type PortalVariant } from "@/lib/portalVariant";
 import { ensurePortalTasksSchema } from "@/lib/portalTasksSchema";
-import { runOwnerAutomationByIdForEvent, runOwnerAutomationsForEvent } from "@/lib/portalAutomationsRunner";
+import { runOwnerAutomationByIdForEvent, runOwnerAutomationByIdForInboundSms, runOwnerAutomationsForEvent } from "@/lib/portalAutomationsRunner";
 import { generateClientBlogDraft } from "@/lib/clientBlogAutomation";
 import { generateClientNewsletterDraft } from "@/lib/clientNewsletterAutomation";
 import { uniqueNewsletterSlug } from "@/lib/portalNewsletter";
@@ -886,6 +889,156 @@ async function runDirectAction(opts: {
     if (Number.isNaN(createdAt.getTime())) return null;
     return { createdAt, id };
   }
+
+  // Automations Settings (mirrors /api/portal/automations/settings)
+  function newAutomationWebhookToken() {
+    return `${Math.random().toString(36).slice(2)}${Math.random().toString(36).slice(2)}`
+      .replace(/[^a-z0-9]/gi, "")
+      .slice(0, 32);
+  }
+
+  const automationTriggerConfigSchema = z
+    .object({
+      kind: z.literal("trigger"),
+      triggerKind: z.enum([
+        "manual",
+        "inbound_sms",
+        "inbound_mms",
+        "inbound_call",
+        "inbound_email",
+        "form_submitted",
+        "new_lead",
+        "lead_scraped",
+        "tag_added",
+        "contact_created",
+        "task_added",
+        "inbound_webhook",
+        "scheduled_time",
+        "missed_appointment",
+        "appointment_booked",
+        "missed_call",
+        "review_received",
+        "follow_up_sent",
+        "outbound_sent",
+      ]),
+    })
+    .passthrough();
+
+  const automationActionConfigSchema = z
+    .object({
+      kind: z.literal("action"),
+      actionKind: z.enum([
+        "send_sms",
+        "send_email",
+        "add_tag",
+        "create_task",
+        "assign_lead",
+        "find_contact",
+        "send_webhook",
+        "send_review_request",
+        "send_booking_link",
+        "update_contact",
+        "trigger_service",
+      ]),
+    })
+    .passthrough();
+
+  const automationDelayConfigSchema = z
+    .object({
+      kind: z.literal("delay"),
+      minutes: z.number().int().min(0).max(43200),
+    })
+    .passthrough();
+
+  const automationConditionConfigSchema = z
+    .object({
+      kind: z.literal("condition"),
+      left: z.string().max(60),
+      op: z.enum([
+        "equals",
+        "contains",
+        "starts_with",
+        "ends_with",
+        "is_empty",
+        "is_not_empty",
+        "gt",
+        "gte",
+        "lt",
+        "lte",
+        "before",
+        "after",
+      ]),
+      right: z.string().max(120),
+    })
+    .passthrough();
+
+  const automationNoteConfigSchema = z
+    .object({
+      kind: z.literal("note"),
+      text: z.string().max(500),
+    })
+    .passthrough();
+
+  const automationNodeConfigSchema = z.union([
+    automationTriggerConfigSchema,
+    automationActionConfigSchema,
+    automationDelayConfigSchema,
+    automationConditionConfigSchema,
+    automationNoteConfigSchema,
+  ]);
+
+  const automationNodeSchema = z.object({
+    id: z.string().min(1).max(60),
+    type: z.enum(["trigger", "action", "delay", "condition", "note"]),
+    label: z.string().max(80),
+    x: z.number().finite(),
+    y: z.number().finite(),
+    config: automationNodeConfigSchema.optional(),
+  });
+
+  const automationEdgeSchema = z.object({
+    id: z.string().min(1).max(80),
+    from: z.string().min(1).max(60),
+    fromPort: z.enum(["out", "true", "false"]).optional(),
+    to: z.string().min(1).max(60),
+  });
+
+  const automationSchema = z.object({
+    id: z.string().min(1).max(60),
+    name: z.string().min(1).max(80),
+    paused: z.boolean().optional(),
+    updatedAtIso: z.string().optional(),
+    createdAtIso: z.string().optional(),
+    createdBy: z
+      .object({
+        userId: z.string().min(1).max(80),
+        email: z.string().max(200).optional(),
+        name: z.string().max(200).optional(),
+      })
+      .optional(),
+    nodes: z.array(automationNodeSchema).max(250),
+    edges: z.array(automationEdgeSchema).max(500),
+  });
+
+  function parseAutomations(raw: unknown) {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return [] as any[];
+    const rec = raw as Record<string, unknown>;
+    const list = Array.isArray(rec.automations) ? rec.automations : [];
+
+    const out: any[] = [];
+    for (const a of list) {
+      const parsed = automationSchema.safeParse(a);
+      if (!parsed.success) continue;
+      out.push(parsed.data);
+      if (out.length >= 50) break;
+    }
+
+    return out;
+  }
+
+  const automationsPutSchema = z.object({
+    automations: z.array(automationSchema).max(50),
+  });
 
   switch (action) {
     case "tasks.create": {
@@ -4634,6 +4787,149 @@ async function runDirectAction(opts: {
       });
 
       return { status: 200, json: { ok: true, automationId: id, creditsRemaining: charged.state.balance } };
+    }
+
+    case "automations.settings.get": {
+      const ok = await requireServiceCapability("automations" as PortalServiceKey, "view");
+      if (!ok) return { status: 403, json: { ok: false, error: "Forbidden" } };
+
+      const actor = await prisma.user.findUnique({ where: { id: actorUserId }, select: { id: true, email: true, name: true } }).catch(() => null);
+      const viewer = {
+        userId: String(actorUserId),
+        email: String(actor?.email || ""),
+        name: String(actor?.name || ""),
+      };
+
+      const row = await prisma.portalServiceSetup.findUnique({
+        where: { ownerId_serviceSlug: { ownerId, serviceSlug: "automations" } },
+        select: { dataJson: true },
+      });
+
+      const dataJson = (row?.dataJson ?? null) as any;
+      const webhookTokenRaw = typeof dataJson?.webhookToken === "string" ? String(dataJson.webhookToken).trim() : "";
+      const webhookToken = webhookTokenRaw.length >= 12 ? webhookTokenRaw : newAutomationWebhookToken();
+
+      // Ensure the token exists (best-effort), matching the route behavior.
+      if (webhookTokenRaw !== webhookToken) {
+        const nextData = {
+          ...(dataJson && typeof dataJson === "object" && !Array.isArray(dataJson) ? dataJson : {}),
+          version: 1,
+          webhookToken,
+          automations: parseAutomations(dataJson ?? null),
+        };
+        await prisma.portalServiceSetup.upsert({
+          where: { ownerId_serviceSlug: { ownerId, serviceSlug: "automations" } },
+          create: { ownerId, serviceSlug: "automations", status: "COMPLETE", dataJson: nextData as any },
+          update: { status: "COMPLETE", dataJson: nextData as any },
+          select: { id: true },
+        });
+      }
+
+      const automations = parseAutomations(dataJson ?? null);
+      return { status: 200, json: { ok: true, webhookToken, viewer, automations } };
+    }
+
+    case "automations.settings.update": {
+      const ok = await requireServiceCapability("automations" as PortalServiceKey, "edit");
+      if (!ok) return { status: 403, json: { ok: false, error: "Forbidden" } };
+
+      const parsed = automationsPutSchema.safeParse({ automations: (args as any)?.automations });
+      if (!parsed.success) return { status: 400, json: { ok: false, error: "Invalid input" } };
+
+      const actor = await prisma.user.findUnique({ where: { id: actorUserId }, select: { id: true, email: true, name: true } }).catch(() => null);
+      const viewer = {
+        userId: String(actorUserId),
+        email: String(actor?.email || ""),
+        name: String(actor?.name || ""),
+      };
+
+      const existing = await prisma.portalServiceSetup.findUnique({
+        where: { ownerId_serviceSlug: { ownerId, serviceSlug: "automations" } },
+        select: { dataJson: true },
+      });
+      const existingDataJson = (existing?.dataJson ?? null) as any;
+
+      const existingAutomations = parseAutomations(existingDataJson ?? null);
+      const existingById = new Map(existingAutomations.map((a) => [a.id, a] as const));
+
+      const next = parsed.data.automations.map((a) => {
+        const prev = existingById.get(a.id) as any | undefined;
+        const createdBy = a.createdBy || prev?.createdBy || viewer;
+        const createdAtIso =
+          typeof a.createdAtIso === "string" && a.createdAtIso.trim()
+            ? a.createdAtIso
+            : typeof prev?.createdAtIso === "string" && String(prev.createdAtIso).trim()
+              ? String(prev.createdAtIso)
+              : new Date().toISOString();
+        return {
+          ...a,
+          createdBy,
+          createdAtIso,
+          updatedAtIso: typeof a.updatedAtIso === "string" && a.updatedAtIso.trim() ? a.updatedAtIso : new Date().toISOString(),
+        };
+      });
+
+      const newlyCreated = next.filter((a) => !existingById.has(a.id));
+      if (newlyCreated.length) {
+        const needCredits = newlyCreated.length * PORTAL_CREDIT_COSTS.automationCreate;
+        const charged = await consumeCredits(ownerId, needCredits);
+        if (!charged.ok) {
+          return { status: 402, json: { ok: false, error: "Insufficient credits" } };
+        }
+      }
+
+      const existingTokenRaw = typeof existingDataJson?.webhookToken === "string" ? String(existingDataJson.webhookToken).trim() : "";
+      const webhookToken = existingTokenRaw.length >= 12 ? existingTokenRaw : newAutomationWebhookToken();
+
+      await prisma.portalServiceSetup.upsert({
+        where: { ownerId_serviceSlug: { ownerId, serviceSlug: "automations" } },
+        create: {
+          ownerId,
+          serviceSlug: "automations",
+          status: "COMPLETE",
+          dataJson: { version: 1, webhookToken, automations: next } as any,
+        },
+        update: {
+          status: "COMPLETE",
+          dataJson: { version: 1, webhookToken, automations: next } as any,
+        },
+        select: { id: true },
+      });
+
+      await Promise.all(
+        newlyCreated.map((a) =>
+          upsertHoursSavedEvent({
+            ownerId,
+            kind: "automation_built",
+            sourceId: a.id,
+            secondsSaved: 15 * 60,
+          }).catch(() => null),
+        ),
+      );
+
+      return { status: 200, json: { ok: true, webhookToken, automations: next } };
+    }
+
+    case "automations.test_sms": {
+      const ok = await requireServiceCapability("automations" as PortalServiceKey, "edit");
+      if (!ok) return { status: 403, json: { ok: false, error: "Forbidden" } };
+
+      const automationId = String((args as any)?.automationId || "").trim();
+      const from = String((args as any)?.from || "").trim();
+      const body = typeof (args as any)?.body === "string" ? String((args as any).body).trim().slice(0, 2000) : "";
+
+      const twilio = await getOwnerTwilioSmsConfig(ownerId).catch(() => null);
+      const to = twilio?.fromNumberE164 || "";
+
+      await runOwnerAutomationByIdForInboundSms({
+        ownerId,
+        automationId,
+        from,
+        to,
+        body,
+      });
+
+      return { status: 200, json: { ok: true } };
     }
 
     case "contacts.list": {

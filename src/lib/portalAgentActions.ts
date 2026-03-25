@@ -74,6 +74,9 @@ export const PortalAgentActionKeySchema = z.enum([
   "credit.reports.get",
   "automations.run",
   "automations.create",
+  "automations.settings.get",
+  "automations.settings.update",
+  "automations.test_sms",
   "contacts.list",
   "contacts.create",
   "contacts.get",
@@ -747,6 +750,22 @@ export const PortalAgentActionArgsSchemaByKey = {
   "automations.create": z
     .object({
       name: z.string().trim().min(1).max(80),
+    })
+    .strict(),
+
+  "automations.settings.get": z.object({}).strict(),
+
+  "automations.settings.update": z
+    .object({
+      automations: z.array(z.unknown()).max(50),
+    })
+    .strict(),
+
+  "automations.test_sms": z
+    .object({
+      automationId: z.string().trim().min(1).max(200),
+      from: z.string().trim().min(3).max(32),
+      body: z.string().trim().min(0).max(2000).default(""),
     })
     .strict(),
 
@@ -1993,6 +2012,9 @@ export function portalAgentActionsIndexText(): string {
     "- credit.reports.get: Get a credit report (fields: reportId)",
     "- automations.run: Run an automation by id (fields: automationId, contact?)",
     "- automations.create: Create a new automation shell (fields: name)",
+    "- automations.settings.get: Get automations settings (returns webhookToken, viewer, automations)",
+    "- automations.settings.update: Replace automations settings (fields: automations)",
+    "- automations.test_sms: Trigger an automation as if an inbound SMS occurred (fields: automationId, from, body?)",
     "- contacts.list: List recent contacts (fields: limit?)",
     "- contacts.create: Create a contact (fields: name, email?, phone?, tags?, customVariables?)",
     "- contacts.get: Get a contact by id with recent activity (fields: contactId)",
