@@ -9882,6 +9882,33 @@ async function runDirectAction(opts: {
       return { status: 200, json: { ok: true, item } };
     }
 
+    case "media.folders.list": {
+      const ok = await requireServiceCapability("media" as PortalServiceKey, "view");
+      if (!ok) return { status: 403, json: { ok: false, error: "Insufficient permissions" } };
+
+      const rows = await (prisma as any).portalMediaFolder.findMany({
+        where: { ownerId },
+        orderBy: [{ nameKey: "asc" }],
+        select: { id: true, parentId: true, name: true, tag: true, color: true, createdAt: true },
+        take: 5000,
+      });
+
+      return {
+        status: 200,
+        json: {
+          ok: true,
+          folders: (rows as any[]).map((r: any) => ({
+            id: r.id,
+            parentId: r.parentId,
+            name: r.name,
+            tag: r.tag,
+            color: r.color ?? null,
+            createdAt: r.createdAt.toISOString(),
+          })),
+        },
+      };
+    }
+
     case "media.list.get": {
       const ok = await requireServiceCapability("media" as PortalServiceKey, "view");
       if (!ok) return { status: 403, json: { ok: false, error: "Insufficient permissions" } };

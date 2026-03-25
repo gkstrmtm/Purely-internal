@@ -146,6 +146,7 @@ export const PortalAgentActionKeySchema = z.enum([
   "reviews.handle.get",
   "reviews.questions.list",
   "reviews.questions.answer",
+  "media.folders.list",
   "media.folder.ensure",
   "media.items.move",
   "media.import_remote_image",
@@ -1042,6 +1043,8 @@ export const PortalAgentActionArgsSchemaByKey = {
     })
     .strict(),
 
+  "media.folders.list": z.object({}).strict(),
+
   "media.folder.ensure": z
     .object({
       name: z.string().trim().min(1).max(120),
@@ -1913,6 +1916,7 @@ export function portalAgentActionsIndexText(): string {
     "- reviews.handle.get: Get the public reviews page handle",
     "- reviews.questions.list: List review Q&A questions",
     "- reviews.questions.answer: Answer a review question (fields: id, answer?)",
+    "- media.folders.list: List all Media Library folders",
     "- media.folder.ensure: Ensure a Media Library folder exists (fields: name, parentId?, color?)",
     "- media.items.move: Move media items into a folder (fields: itemIds, folderId? OR folderName(+parentId?))",
     "- media.import_remote_image: Import an image from a URL into Media Library (fields: url, fileName?, folderId? OR folderName(+parentId?))",
