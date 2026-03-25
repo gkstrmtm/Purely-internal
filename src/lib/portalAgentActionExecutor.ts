@@ -27,7 +27,7 @@ import { getUsdPerCreditForOwner } from "@/lib/creditsPricing.server";
 import { moduleByKey, usdToCents } from "@/lib/portalModulesCatalog";
 import { portalBasePath, type PortalVariant } from "@/lib/portalVariant";
 import { ensurePortalTasksSchema } from "@/lib/portalTasksSchema";
-import { runOwnerAutomationByIdForEvent } from "@/lib/portalAutomationsRunner";
+import { runOwnerAutomationByIdForEvent, runOwnerAutomationsForEvent } from "@/lib/portalAutomationsRunner";
 import { generateClientBlogDraft } from "@/lib/clientBlogAutomation";
 import { generateClientNewsletterDraft } from "@/lib/clientNewsletterAutomation";
 import { uniqueNewsletterSlug } from "@/lib/portalNewsletter";
@@ -53,7 +53,9 @@ import {
   deleteOwnerContactTag,
   ensureOwnerContactTagsSeededFromLeadScrapingPresets,
   ensurePortalContactTagsReady,
+  listContactTagsForContact,
   listOwnerContactTags,
+  removeContactTagAssignment,
   updateOwnerContactTag,
 } from "@/lib/portalContactTags";
 import { extractEmailAddress, getPortalInboxSettings, regeneratePortalInboxWebhookToken } from "@/lib/portalInbox";
@@ -109,7 +111,8 @@ import { getSalesReportingStatus } from "@/lib/salesReportingIntegration.server"
 import { isPortalEncryptionConfigured } from "@/lib/portalEncryption.server";
 import { stripeGetWithKey, stripePostWithKey } from "@/lib/stripeFetchWithKey.server";
 import { ensurePortalAiOutboundCallsSchema } from "@/lib/portalAiOutboundCallsSchema";
-import { normalizeTagIdList } from "@/lib/portalAiOutboundCalls";
+import { enqueueOutboundCallForTaggedContact, normalizeTagIdList } from "@/lib/portalAiOutboundCalls";
+import { enqueueOutboundMessageForTaggedContact } from "@/lib/portalAiOutboundMessages";
 import { normalizeToolIdList, normalizeToolKeyList, parseVoiceAgentConfig } from "@/lib/voiceAgentConfig.shared";
 import { resolveElevenLabsConvaiToolIdsByKeys, listElevenLabsVoices } from "@/lib/elevenLabsConvai";
 import { VOICE_TOOL_DEFS } from "@/lib/voiceAgentTools";
@@ -4703,6 +4706,269 @@ async function runDirectAction(opts: {
       }
 
       return { status: 200, json: { ok: true, contactId } };
+    }
+
+    case "contacts.get": {
+      const ok = await requireServiceCapability("people", "view");
+      if (!ok) return { status: 403, json: { ok: false, error: "Forbidden" } };
+
+      await ensurePortalContactsSchema().catch(() => null);
+      await ensurePortalContactTagsReady().catch(() => null);
+
+      const contactId = String((args as any).contactId || "").trim().slice(0, 120);
+      if (!contactId) return { status: 400, json: { ok: false, error: "Invalid contact id" } };
+
+      const contact = await prisma.portalContact.findFirst({
+        where: { id: contactId, ownerId },
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          phone: true,
+          customVariables: true,
+          createdAt: true,
+          updatedAt: true,
+          portalLeads: {
+            select: {
+              id: true,
+              businessName: true,
+              phone: true,
+              website: true,
+              niche: true,
+              source: true,
+              kind: true,
+              createdAt: true,
+              assignedToUserId: true,
+            },
+            orderBy: { createdAt: "desc" },
+            take: 50,
+          },
+          inboxThreads: {
+            select: {
+              id: true,
+              channel: true,
+              peerAddress: true,
+              subject: true,
+              lastMessageAt: true,
+              lastMessagePreview: true,
+            },
+            orderBy: { lastMessageAt: "desc" },
+            take: 25,
+          },
+          bookings: {
+            select: {
+              id: true,
+              startAt: true,
+              endAt: true,
+              status: true,
+              createdAt: true,
+              site: { select: { title: true } },
+            },
+            orderBy: { startAt: "desc" },
+            take: 25,
+          },
+          reviews: {
+            select: {
+              id: true,
+              rating: true,
+              body: true,
+              createdAt: true,
+              archivedAt: true,
+            },
+            orderBy: { createdAt: "desc" },
+            take: 25,
+          },
+          tagAssignments: {
+            select: {
+              tag: { select: { id: true, name: true, color: true } },
+            },
+          },
+        },
+      });
+
+      if (!contact) return { status: 404, json: { ok: false, error: "Not found" } };
+
+      return {
+        status: 200,
+        json: {
+          ok: true,
+          contact: {
+            id: contact.id,
+            name: contact.name,
+            email: contact.email,
+            phone: contact.phone,
+            customVariables:
+              (contact as any).customVariables && typeof (contact as any).customVariables === "object"
+                ? ((contact as any).customVariables as any)
+                : null,
+            createdAtIso: contact.createdAt.toISOString(),
+            updatedAtIso: contact.updatedAt.toISOString(),
+            tags: (contact as any).tagAssignments
+              ? (contact as any).tagAssignments
+                  .map((a: any) => a?.tag)
+                  .filter(Boolean)
+                  .map((t: any) => ({
+                    id: String(t.id),
+                    name: String(t.name || "").slice(0, 60),
+                    color: typeof t.color === "string" ? String(t.color) : null,
+                  }))
+              : [],
+            leads: contact.portalLeads.map((l) => ({
+              id: l.id,
+              businessName: l.businessName,
+              phone: l.phone,
+              website: l.website,
+              niche: l.niche,
+              source: l.source,
+              kind: l.kind,
+              createdAtIso: l.createdAt.toISOString(),
+              assignedToUserId: l.assignedToUserId,
+            })),
+            inboxThreads: contact.inboxThreads.map((t) => ({
+              id: t.id,
+              channel: t.channel,
+              peerAddress: t.peerAddress,
+              subject: t.subject,
+              lastMessageAtIso: t.lastMessageAt.toISOString(),
+              lastMessagePreview: t.lastMessagePreview,
+            })),
+            bookings: contact.bookings.map((b) => ({
+              id: b.id,
+              siteTitle: b.site?.title ?? null,
+              startAtIso: b.startAt.toISOString(),
+              endAtIso: b.endAt.toISOString(),
+              status: b.status,
+              createdAtIso: b.createdAt.toISOString(),
+            })),
+            reviews: contact.reviews.map((r) => ({
+              id: r.id,
+              rating: r.rating,
+              body: r.body,
+              archivedAtIso: r.archivedAt ? r.archivedAt.toISOString() : null,
+              createdAtIso: r.createdAt.toISOString(),
+            })),
+          },
+        },
+      };
+    }
+
+    case "contacts.update": {
+      const ok = await requireServiceCapability("people", "edit");
+      if (!ok) return { status: 403, json: { ok: false, error: "Forbidden" } };
+
+      await ensurePortalContactsSchema().catch(() => null);
+
+      const contactId = String((args as any).contactId || "").trim().slice(0, 120);
+      if (!contactId) return { status: 400, json: { ok: false, error: "Invalid contact id" } };
+
+      const name = typeof (args as any).name === "string" ? String((args as any).name).trim() : "";
+      const emailRaw = typeof (args as any).email === "string" ? String((args as any).email).trim() : "";
+      const phoneRaw = typeof (args as any).phone === "string" ? String((args as any).phone).trim() : "";
+      const hasCustomVariables = Object.prototype.hasOwnProperty.call(args || {}, "customVariables");
+      const customVariablesRaw = (args as any).customVariables;
+
+      if (!name) return { status: 400, json: { ok: false, error: "Name is required." } };
+      if (name.length > 120) return { status: 400, json: { ok: false, error: "Name is too long." } };
+
+      let email: string | null = null;
+      if (emailRaw) {
+        const emailOk = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailRaw);
+        if (!emailOk) return { status: 400, json: { ok: false, error: "Invalid email." } };
+        email = emailRaw.toLowerCase();
+      }
+
+      let phone: string | null = null;
+      if (phoneRaw) {
+        const normalized = normalizePhoneStrict(phoneRaw);
+        if (!normalized.ok) return { status: 400, json: { ok: false, error: normalized.error || "Invalid phone number." } };
+        phone = normalized.e164;
+      }
+
+      const customVariables =
+        customVariablesRaw && typeof customVariablesRaw === "object" && !Array.isArray(customVariablesRaw)
+          ? (customVariablesRaw as Record<string, string>)
+          : null;
+
+      let customVariablesUpdate: Prisma.InputJsonValue | Prisma.NullableJsonNullValueInput | undefined;
+      if (hasCustomVariables) {
+        if (customVariablesRaw === null) customVariablesUpdate = Prisma.DbNull;
+        else if (customVariables) customVariablesUpdate = customVariables;
+        else return { status: 400, json: { ok: false, error: "Invalid custom variables." } };
+      }
+
+      const updated = await prisma.portalContact.updateMany({
+        where: { id: contactId, ownerId },
+        data: {
+          name,
+          email,
+          phone,
+          customVariables: customVariablesUpdate,
+        },
+      });
+
+      if (!updated.count) return { status: 404, json: { ok: false, error: "Contact not found." } };
+      return { status: 200, json: { ok: true } };
+    }
+
+    case "contacts.tags.list": {
+      const anyOk = await requireAnyServiceCapability(["inbox", "people", "automations", "newsletter"], "view");
+      if (!anyOk) return { status: 403, json: { ok: false, error: "Forbidden" } };
+
+      const contactId = String((args as any).contactId || "").trim().slice(0, 120);
+      if (!contactId) return { status: 400, json: { ok: false, error: "Invalid contact id" } };
+
+      const tags = await listContactTagsForContact(ownerId, contactId);
+      return { status: 200, json: { ok: true, tags } };
+    }
+
+    case "contacts.tags.add": {
+      const anyOk = await requireAnyServiceCapability(["inbox", "people", "automations", "newsletter"], "edit");
+      if (!anyOk) return { status: 403, json: { ok: false, error: "Forbidden" } };
+
+      const contactId = String((args as any).contactId || "").trim().slice(0, 120);
+      const tagId = String((args as any).tagId || "").trim().slice(0, 120);
+      if (!contactId) return { status: 400, json: { ok: false, error: "Invalid contact id" } };
+      if (!tagId) return { status: 400, json: { ok: false, error: "Invalid input" } };
+
+      const ok = await addContactTagAssignment({ ownerId, contactId, tagId });
+      if (!ok) return { status: 500, json: { ok: false, error: "Failed to add tag" } };
+
+      try {
+        await runOwnerAutomationsForEvent({ ownerId, triggerKind: "tag_added", contact: { id: contactId }, event: { tagId } });
+      } catch {
+        // ignore
+      }
+
+      try {
+        await enqueueOutboundCallForTaggedContact({ ownerId, contactId, tagId });
+      } catch {
+        // ignore
+      }
+
+      try {
+        await enqueueOutboundMessageForTaggedContact({ ownerId, contactId, tagId });
+      } catch {
+        // ignore
+      }
+
+      const tags = await listContactTagsForContact(ownerId, contactId);
+      return { status: 200, json: { ok: true, tags } };
+    }
+
+    case "contacts.tags.remove": {
+      const anyOk = await requireAnyServiceCapability(["inbox", "people", "automations", "newsletter"], "edit");
+      if (!anyOk) return { status: 403, json: { ok: false, error: "Forbidden" } };
+
+      const contactId = String((args as any).contactId || "").trim().slice(0, 120);
+      const tagId = String((args as any).tagId || "").trim().slice(0, 120);
+      if (!contactId) return { status: 400, json: { ok: false, error: "Invalid contact id" } };
+      if (!tagId) return { status: 400, json: { ok: false, error: "Invalid input" } };
+
+      const ok = await removeContactTagAssignment({ ownerId, contactId, tagId });
+      if (!ok) return { status: 500, json: { ok: false, error: "Failed to remove tag" } };
+
+      const tags = await listContactTagsForContact(ownerId, contactId);
+      return { status: 200, json: { ok: true, tags } };
     }
 
     case "onboarding.status.get": {

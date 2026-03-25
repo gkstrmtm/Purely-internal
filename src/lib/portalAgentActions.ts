@@ -76,6 +76,11 @@ export const PortalAgentActionKeySchema = z.enum([
   "automations.create",
   "contacts.list",
   "contacts.create",
+  "contacts.get",
+  "contacts.update",
+  "contacts.tags.list",
+  "contacts.tags.add",
+  "contacts.tags.remove",
   "onboarding.status.get",
   "suggested_setup.preview.get",
 
@@ -757,6 +762,42 @@ export const PortalAgentActionArgsSchemaByKey = {
       phone: z.string().trim().max(40).optional().nullable(),
       tags: z.union([z.array(z.string().trim().min(1).max(60)).max(10), z.string().trim().max(600)]).optional().nullable(),
       customVariables: z.record(z.string().trim().max(60), z.string().trim().max(120)).optional().nullable(),
+    })
+    .strict(),
+
+  "contacts.get": z
+    .object({
+      contactId: z.string().trim().min(1).max(120),
+    })
+    .strict(),
+
+  "contacts.update": z
+    .object({
+      contactId: z.string().trim().min(1).max(120),
+      name: z.string().trim().min(1).max(120),
+      email: z.string().trim().max(200).optional().nullable(),
+      phone: z.string().trim().max(60).optional().nullable(),
+      customVariables: z.record(z.string().trim().max(60), z.string()).optional().nullable(),
+    })
+    .strict(),
+
+  "contacts.tags.list": z
+    .object({
+      contactId: z.string().trim().min(1).max(120),
+    })
+    .strict(),
+
+  "contacts.tags.add": z
+    .object({
+      contactId: z.string().trim().min(1).max(120),
+      tagId: z.string().trim().min(1).max(120),
+    })
+    .strict(),
+
+  "contacts.tags.remove": z
+    .object({
+      contactId: z.string().trim().min(1).max(120),
+      tagId: z.string().trim().min(1).max(120),
     })
     .strict(),
 
@@ -1944,6 +1985,11 @@ export function portalAgentActionsIndexText(): string {
     "- automations.create: Create a new automation shell (fields: name)",
     "- contacts.list: List recent contacts (fields: limit?)",
     "- contacts.create: Create a contact (fields: name, email?, phone?, tags?, customVariables?)",
+    "- contacts.get: Get a contact by id with recent activity (fields: contactId)",
+    "- contacts.update: Update a contact (fields: contactId, name, email?, phone?, customVariables?)",
+    "- contacts.tags.list: List tag assignments for a contact (fields: contactId)",
+    "- contacts.tags.add: Assign a tag to a contact (fields: contactId, tagId)",
+    "- contacts.tags.remove: Remove a tag from a contact (fields: contactId, tagId)",
     "- onboarding.status.get: Get onboarding completion status (business profile + blogs setup)",
     "- suggested_setup.preview.get: Get suggested setup preview (entitlements + proposed actions)",
     "- ai_agents.list: List known ElevenLabs agent IDs referenced by your portal account (voice/chat/outbound)",
