@@ -37,6 +37,11 @@ const ACTION_COVERAGE = [
 
   { action: "me.get", method: "GET", endpoint: "/api/portal/me" },
 
+  { action: "notifications.recipients.list", method: "GET", endpoint: "/api/portal/notifications/recipients" },
+
+  { action: "voice_agent.tools.get", method: "GET", endpoint: "/api/portal/voice-agent/tools" },
+  { action: "voice_agent.voices.list", method: "GET", endpoint: "/api/portal/voice-agent/voices" },
+
   { action: "ai_agents.list", method: "GET", endpoint: "/api/portal/ai-agents" },
 
   { action: "webhooks.get", method: "GET", endpoint: "/api/portal/webhooks" },

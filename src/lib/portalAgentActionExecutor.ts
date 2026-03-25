@@ -91,6 +91,7 @@ import { ensurePortalNurtureSchema } from "@/lib/portalNurtureSchema";
 import { getOrCreateStripeCustomerId, isStripeConfigured, stripeDelete, stripeGet, stripePost } from "@/lib/stripeFetch";
 import { generateText } from "@/lib/ai";
 import { getBusinessProfileAiContext, getBusinessProfileTemplateVars } from "@/lib/businessProfileAiContext.server";
+import { listPortalAccountRecipientContacts } from "@/lib/portalNotifications";
 import { ensureVercelProjectDomain } from "@/lib/vercelProjectDomains";
 import { coerceBlocksJson, type CreditFunnelBlock } from "@/lib/creditFunnelBlocks";
 import { blocksToCustomHtmlDocument } from "@/lib/funnelBlocksToCustomHtmlDocument";
@@ -99,6 +100,8 @@ import { stripeGetWithKey, stripePostWithKey } from "@/lib/stripeFetchWithKey.se
 import { ensurePortalAiOutboundCallsSchema } from "@/lib/portalAiOutboundCallsSchema";
 import { normalizeTagIdList } from "@/lib/portalAiOutboundCalls";
 import { normalizeToolIdList, normalizeToolKeyList, parseVoiceAgentConfig } from "@/lib/voiceAgentConfig.shared";
+import { resolveElevenLabsConvaiToolIdsByKeys, listElevenLabsVoices } from "@/lib/elevenLabsConvai";
+import { VOICE_TOOL_DEFS } from "@/lib/voiceAgentTools";
 import { getAiReceptionistServiceData, listAiReceptionistEvents, toPublicSettings } from "@/lib/aiReceptionist";
 import { syncAiReceptionistKnowledgeBase } from "@/lib/portalAiReceptionistKnowledgeBaseSync.server";
 import { uploadAiReceptionistKnowledgeBaseFile } from "@/lib/portalAiReceptionistKnowledgeBaseSync.server";
@@ -4935,6 +4938,135 @@ async function runDirectAction(opts: {
       agents.sort((a, b) => (a.name || a.id).localeCompare(b.name || b.id));
 
       return { status: 200, json: { ok: true, agents } };
+    }
+
+    case "notifications.recipients.list": {
+      const anyOk =
+        (await requireServiceCapability("profile", "view")) ||
+        (await requireServiceCapability("booking", "view")) ||
+        (await requireServiceCapability("inbox", "view")) ||
+        (await requireServiceCapability("tasks", "view")) ||
+        (await requireServiceCapability("automations", "view")) ||
+        (await requireServiceCapability("blogs", "view")) ||
+        (await requireServiceCapability("newsletter", "view")) ||
+        (await requireServiceCapability("reviews", "view"));
+
+      if (!anyOk) return { status: 403, json: { ok: false, error: "Forbidden" } };
+
+      const contacts = await listPortalAccountRecipientContacts(ownerId).catch(() => []);
+      return { status: 200, json: { ok: true, recipients: contacts } };
+    }
+
+    case "voice_agent.tools.get": {
+      if (!(await requireServiceCapability("aiOutboundCalls", "view"))) {
+        return { status: 403, json: { ok: false, error: "Forbidden" } };
+      }
+
+      const PROFILE_EXTRAS_SERVICE_SLUG = "profile";
+
+      const envFirst = (keys: string[]): string => {
+        for (const key of keys) {
+          const v = (process.env[key] ?? "").trim();
+          if (v) return v;
+        }
+        return "";
+      };
+
+      const envVoiceAgentApiKey = (): string => {
+        return envFirst(["VOICE_AGENT_API_KEY", "ELEVENLABS_API_KEY", "ELEVEN_LABS_API_KEY"]).slice(0, 400);
+      };
+
+      const getProfileVoiceAgentApiKey = async (oid: string): Promise<string | null> => {
+        const row = await prisma.portalServiceSetup.findUnique({
+          where: { ownerId_serviceSlug: { ownerId: oid, serviceSlug: PROFILE_EXTRAS_SERVICE_SLUG } },
+          select: { dataJson: true },
+        });
+
+        const rec =
+          row?.dataJson && typeof row.dataJson === "object" && !Array.isArray(row.dataJson)
+            ? (row.dataJson as Record<string, unknown>)
+            : null;
+
+        const raw = (rec as any)?.voiceAgentApiKey;
+        const key = typeof raw === "string" ? raw.trim().slice(0, 400) : "";
+        return key || envVoiceAgentApiKey() || null;
+      };
+
+      const apiKey = (await getProfileVoiceAgentApiKey(ownerId).catch(() => null)) || "";
+      const apiKeyConfigured = Boolean(apiKey.trim());
+
+      const toolKeys = VOICE_TOOL_DEFS.map((d) => d.key);
+      const resolved = apiKeyConfigured
+        ? await resolveElevenLabsConvaiToolIdsByKeys({ apiKey, toolKeys }).catch(() => ({ ok: false, error: "" }))
+        : null;
+
+      const toolIdsByKey = resolved && (resolved as any).ok === true ? (resolved as any).toolIds : ({} as Record<string, string[]>);
+
+      const tools = VOICE_TOOL_DEFS.map((d) => {
+        const xs = Array.isArray((toolIdsByKey as any)[d.key]) ? ((toolIdsByKey as any)[d.key] as string[]) : [];
+        const toolId = xs.find((x) => typeof x === "string" && x.trim())?.trim() || null;
+        return {
+          key: d.key,
+          label: d.label,
+          description: d.description,
+          toolId,
+        };
+      });
+
+      return { status: 200, json: { ok: true, apiKeyConfigured, tools } };
+    }
+
+    case "voice_agent.voices.list": {
+      const anyOk = (await requireServiceCapability("aiOutboundCalls", "view")) || (await requireServiceCapability("aiReceptionist", "view"));
+      if (!anyOk) return { status: 403, json: { ok: false, error: "Forbidden" } };
+
+      const PROFILE_EXTRAS_SERVICE_SLUG = "profile";
+
+      const envFirst = (keys: string[]): string => {
+        for (const key of keys) {
+          const v = (process.env[key] ?? "").trim();
+          if (v) return v;
+        }
+        return "";
+      };
+
+      const envVoiceAgentApiKey = (): string => {
+        return envFirst(["VOICE_AGENT_API_KEY", "ELEVENLABS_API_KEY", "ELEVEN_LABS_API_KEY"]).slice(0, 400);
+      };
+
+      const getProfileVoiceAgentApiKey = async (oid: string): Promise<string | null> => {
+        const row = await prisma.portalServiceSetup.findUnique({
+          where: { ownerId_serviceSlug: { ownerId: oid, serviceSlug: PROFILE_EXTRAS_SERVICE_SLUG } },
+          select: { dataJson: true },
+        });
+
+        const rec =
+          row?.dataJson && typeof row.dataJson === "object" && !Array.isArray(row.dataJson)
+            ? (row.dataJson as Record<string, unknown>)
+            : null;
+
+        const raw = (rec as any)?.voiceAgentApiKey;
+        const key = typeof raw === "string" ? raw.trim().slice(0, 400) : "";
+        return key || envVoiceAgentApiKey() || null;
+      };
+
+      const friendlyVoiceAgentError = (status?: number): string => {
+        if (status === 401 || status === 403) return "Voice agent API key is invalid. Update it in Profile and try again.";
+        if (status === 429) return "Voice agent is temporarily rate-limited. Please try again in a minute.";
+        return "Unable to load voices. Please try again.";
+      };
+
+      const apiKey = ((await getProfileVoiceAgentApiKey(ownerId).catch(() => null)) || "").trim();
+      if (!apiKey) {
+        return { status: 400, json: { ok: false, error: "Missing voice agent API key. Set it in Profile first." } };
+      }
+
+      const result = await listElevenLabsVoices({ apiKey });
+      if (!result.ok) {
+        return { status: result.status || 502, json: { ok: false, error: friendlyVoiceAgentError(result.status) } };
+      }
+
+      return { status: 200, json: { ok: true, voices: result.voices } };
     }
 
     case "webhooks.get": {

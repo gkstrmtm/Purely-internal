@@ -82,6 +82,11 @@ export const PortalAgentActionKeySchema = z.enum([
 
   "me.get",
 
+  "notifications.recipients.list",
+
+  "voice_agent.tools.get",
+  "voice_agent.voices.list",
+
   "webhooks.get",
   "support_chat.send",
 
@@ -237,6 +242,11 @@ export const PortalAgentActionArgsSchemaByKey = {
     .strict(),
 
   "tasks.assignees.list": z.object({}).strict(),
+
+  "notifications.recipients.list": z.object({}).strict(),
+
+  "voice_agent.tools.get": z.object({}).strict(),
+  "voice_agent.voices.list": z.object({}).strict(),
 
   "funnel.create": z
     .object({
@@ -1819,8 +1829,11 @@ export function portalAgentActionsIndexText(): string {
     "- contact_tags.update: Update a contact tag (fields: tagId, name?, color?)",
     "- contact_tags.delete: Delete a contact tag (fields: tagId)",
     "- me.get: Get the current portal member identity (ownerId/memberId/role) and effective permissions",
+    "- notifications.recipients.list: List notification recipient contacts for the portal account",
     "- webhooks.get: Get canonical webhook URLs (Twilio inbound/status callback + legacy tokens)",
     "- support_chat.send: Ask the support chat assistant a question (fields: message, url?, meta?, context.recentMessages?)",
+    "- voice_agent.tools.get: List voice agent tool IDs resolved from your ElevenLabs API key (call transfer, calendar booking, etc)",
+    "- voice_agent.voices.list: List available ElevenLabs voices (requires voice agent API key)",
     "- services.catalog.get: List the portal services catalog (grouped by category)",
     "- services.status.get: Get portal service status for each service (active/needs_setup/locked/etc)",
     "- services.lifecycle.update: Pause/cancel/resume a service (fields: serviceSlug, action=pause|cancel|resume)",
