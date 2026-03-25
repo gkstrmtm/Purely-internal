@@ -149,6 +149,7 @@ export const PortalAgentActionKeySchema = z.enum([
   "media.folder.ensure",
   "media.items.move",
   "media.import_remote_image",
+  "media.stats.get",
 
   "dashboard.get",
   "dashboard.reset",
@@ -1067,6 +1068,8 @@ export const PortalAgentActionArgsSchemaByKey = {
     })
     .strict(),
 
+  "media.stats.get": z.object({}).strict(),
+
   "dashboard.get": z
     .object({
       scope: z.enum(["default", "embedded"]).optional().nullable(),
@@ -1906,6 +1909,7 @@ export function portalAgentActionsIndexText(): string {
     "- media.folder.ensure: Ensure a Media Library folder exists (fields: name, parentId?, color?)",
     "- media.items.move: Move media items into a folder (fields: itemIds, folderId? OR folderName(+parentId?))",
     "- media.import_remote_image: Import an image from a URL into Media Library (fields: url, fileName?, folderId? OR folderName(+parentId?))",
+    "- media.stats.get: Get Media Library stats (items/folders counts)",
     "- dashboard.get: Get the portal dashboard data (fields: scope=default|embedded?)",
     "- dashboard.reset: Reset the portal dashboard layout (fields: scope=default|embedded?)",
     "- dashboard.add_widget: Add a dashboard widget (fields: scope?, widgetId)",

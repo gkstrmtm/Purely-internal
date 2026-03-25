@@ -9882,6 +9882,18 @@ async function runDirectAction(opts: {
       return { status: 200, json: { ok: true, item } };
     }
 
+    case "media.stats.get": {
+      const ok = await requireServiceCapability("media" as PortalServiceKey, "view");
+      if (!ok) return { status: 403, json: { ok: false, error: "Insufficient permissions" } };
+
+      const [itemsCount, foldersCount] = await Promise.all([
+        (prisma as any).portalMediaItem.count({ where: { ownerId } }),
+        (prisma as any).portalMediaFolder.count({ where: { ownerId } }),
+      ]);
+
+      return { status: 200, json: { ok: true, itemsCount, foldersCount } };
+    }
+
     case "dashboard.reset": {
       const scope = args.scope === "embedded" ? "embedded" : "default";
       const data = await resetPortalDashboard(ownerId, scope);
