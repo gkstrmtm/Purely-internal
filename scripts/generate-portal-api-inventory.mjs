@@ -37,6 +37,11 @@ const ACTION_COVERAGE = [
 
   { action: "me.get", method: "GET", endpoint: "/api/portal/me" },
 
+  { action: "auth.resend_verification", method: "POST", endpoint: "/api/portal/auth/resend-verification" },
+
+  { action: "engagement.ping", method: "POST", endpoint: "/api/portal/engagement/ping" },
+  { action: "engagement.active_time", method: "POST", endpoint: "/api/portal/engagement/active-time" },
+
   { action: "profile.get", method: "GET", endpoint: "/api/portal/profile" },
 
   { action: "notifications.recipients.list", method: "GET", endpoint: "/api/portal/notifications/recipients" },

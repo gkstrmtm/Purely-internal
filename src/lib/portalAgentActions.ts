@@ -83,6 +83,10 @@ export const PortalAgentActionKeySchema = z.enum([
 
   "me.get",
 
+  "auth.resend_verification",
+  "engagement.ping",
+  "engagement.active_time",
+
   "referrals.link.get",
   "referrals.link.rotate",
 
@@ -800,6 +804,22 @@ export const PortalAgentActionArgsSchemaByKey = {
     .strict(),
 
   "me.get": z.object({}).strict(),
+
+  "auth.resend_verification": z.object({}).strict(),
+
+  "engagement.ping": z
+    .object({
+      path: z.string().trim().max(512).optional().nullable(),
+      source: z.string().trim().max(64).optional().nullable(),
+    })
+    .strict(),
+
+  "engagement.active_time": z
+    .object({
+      dtSec: z.number().int().min(1).max(60),
+      path: z.string().trim().max(512).optional().nullable(),
+    })
+    .strict(),
 
   "referrals.link.get": z.object({}).strict(),
 
@@ -1911,6 +1931,9 @@ export function portalAgentActionsIndexText(): string {
     "- contact_tags.update: Update a contact tag (fields: tagId, name?, color?)",
     "- contact_tags.delete: Delete a contact tag (fields: tagId)",
     "- me.get: Get the current portal member identity (ownerId/memberId/role) and effective permissions",
+    "- auth.resend_verification: Resend your email verification message (returns alreadyVerified=true if applicable)",
+    "- engagement.ping: Record a lightweight portal engagement ping (fields: path?, source?)",
+    "- engagement.active_time: Record portal active time telemetry and hours-saved rollups (fields: dtSec, path?)",
     "- referrals.link.get: Get your referral link + referral stats",
     "- referrals.link.rotate: Rotate your referral code and return the updated referral link + stats",
     "- profile.get: Get the current portal member profile (name/email/phone/city/state + voice agent status)",

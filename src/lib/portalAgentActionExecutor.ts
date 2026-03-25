@@ -5,6 +5,7 @@ import { Prisma } from "@prisma/client";
 import { PORTAL_SERVICES } from "@/app/portal/services/catalog";
 import { groupPortalServices } from "@/app/portal/services/categories";
 import { prisma } from "@/lib/db";
+import { dbHasPublicColumn } from "@/lib/dbSchemaCompat";
 import { sendEmail } from "@/lib/leadOutbound";
 import { getPortalServiceStatusesForOwner } from "@/lib/portalServicesStatus";
 import {
@@ -78,6 +79,7 @@ import {
 } from "@/lib/reviewRequests";
 import { mirrorUploadToMediaLibrary } from "@/lib/portalMediaUploads";
 import { isLikelyImageMimeType, safeFilename, newPublicToken, newTag, normalizeMimeType, normalizeNameKey } from "@/lib/portalMedia";
+import { sendVerifyEmail } from "@/lib/portalEmailVerification.server";
 import { addPortalDashboardWidget, getPortalDashboardData, isDashboardWidgetId, removePortalDashboardWidget, resetPortalDashboard, savePortalDashboardData, type DashboardWidgetId } from "@/lib/portalDashboard";
 import { hasPublicColumn } from "@/lib/dbSchema";
 import {
@@ -479,6 +481,22 @@ async function runDirectAction(opts: {
     const memberId = String(actorUserId || "").trim() || ownerId;
     const myRole = memberId === ownerId ? "OWNER" : await getPortalAccountMemberRole({ ownerId, userId: memberId });
     return myRole === "OWNER" || myRole === "ADMIN";
+  }
+
+  async function requirePortalMember(): Promise<null | { memberId: string; role: "OWNER" | "ADMIN" | "MEMBER" }> {
+    const memberId = String(actorUserId || "").trim() || ownerId;
+    if (memberId === ownerId) return { memberId, role: "OWNER" };
+
+    const row = await (prisma as any).portalAccountMember
+      .findUnique({
+        where: { ownerId_userId: { ownerId, userId: memberId } },
+        select: { role: true },
+      })
+      .catch(() => null);
+
+    const roleRaw = typeof row?.role === "string" ? String(row.role) : null;
+    const role = roleRaw === "ADMIN" || roleRaw === "MEMBER" ? roleRaw : null;
+    return role ? { memberId, role } : null;
   }
 
   async function requireServiceCapability(service: PortalServiceKey, capability: PortalServiceCapability = "view") {
@@ -4878,6 +4896,281 @@ async function runDirectAction(opts: {
           permissions: normalizePortalPermissions(row?.permissionsJson, role),
         },
       };
+    }
+
+    case "auth.resend_verification": {
+      const membership = await requirePortalMember();
+      if (!membership) return { status: 403, json: { ok: false, error: "Forbidden" } };
+
+      const userId = membership.memberId;
+
+      const hasEmailVerifiedAt = await dbHasPublicColumn({ tableNames: ["User", "user"], columnName: "emailVerifiedAt" }).catch(
+        () => false,
+      );
+
+      const select: Record<string, boolean> = { email: true };
+      if (hasEmailVerifiedAt) select.emailVerifiedAt = true;
+
+      const row = await prisma.user.findUnique({ where: { id: userId }, select: select as any }).catch(() => null);
+      const email = typeof (row as any)?.email === "string" ? String((row as any).email).trim() : "";
+      if (!email) return { status: 400, json: { ok: false, error: "Missing email" } };
+      if (hasEmailVerifiedAt && (row as any).emailVerifiedAt) {
+        return { status: 200, json: { ok: true, alreadyVerified: true } };
+      }
+
+      const res = await sendVerifyEmail({ userId, toEmail: email });
+      if (!res.ok) return { status: 502, json: { ok: false, error: res.reason } };
+
+      return { status: 200, json: { ok: true } };
+    }
+
+    case "engagement.ping": {
+      const membership = await requirePortalMember();
+      if (!membership) return { status: 403, json: { ok: false, error: "Forbidden" } };
+
+      const serviceSlug = "portal_engagement";
+      const nowMs = Date.now();
+      const path = typeof (args as any)?.path === "string" ? String((args as any).path).trim().slice(0, 512) : "";
+      const source = typeof (args as any)?.source === "string" ? String((args as any).source).trim().slice(0, 64) : "";
+
+      const readObj = (value: unknown): Record<string, unknown> => {
+        return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+      };
+
+      try {
+        const existing = await prisma.portalServiceSetup
+          .findUnique({
+            where: { ownerId_serviceSlug: { ownerId, serviceSlug } },
+            select: { dataJson: true },
+          })
+          .catch(() => null);
+
+        const prev = readObj(existing?.dataJson);
+        const next = {
+          ...prev,
+          version: 2,
+          lastSeenAtMs: nowMs,
+          ...(path ? { lastSeenPath: path } : {}),
+          ...(source ? { lastSeenSource: source } : {}),
+        };
+
+        await prisma.portalServiceSetup.upsert({
+          where: { ownerId_serviceSlug: { ownerId, serviceSlug } },
+          create: { ownerId, serviceSlug, status: "COMPLETE", dataJson: next },
+          update: { status: "COMPLETE", dataJson: next },
+          select: { id: true },
+        });
+      } catch {
+        // ignore transient DB errors
+      }
+
+      return { status: 200, json: { ok: true } };
+    }
+
+    case "engagement.active_time": {
+      const membership = await requirePortalMember();
+      if (!membership) return { status: 403, json: { ok: false, error: "Forbidden" } };
+
+      const dtSec = Number.isFinite(Number((args as any)?.dtSec)) ? Math.max(1, Math.min(60, Math.floor(Number((args as any).dtSec)))) : 0;
+      if (!dtSec) return { status: 400, json: { ok: false, error: "Invalid input" } };
+
+      const KIND = "portal_active_time";
+      const MAX_SECONDS_PER_DAY = 8 * 60 * 60;
+      const ENGAGEMENT_SERVICE_SLUG = "portal_engagement";
+      const MAX_RECENT_ACTIVITY = 500;
+
+      function readObj(value: unknown): Record<string, unknown> {
+        return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+      }
+
+      function readRecordNumberMap(value: unknown): Record<string, number> {
+        const rec = value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
+        if (!rec) return {};
+        const out: Record<string, number> = {};
+        for (const [kRaw, vRaw] of Object.entries(rec)) {
+          const k = String(kRaw || "").trim();
+          if (!k) continue;
+          const n = typeof vRaw === "number" ? vRaw : typeof vRaw === "string" ? Number(vRaw) : NaN;
+          if (!Number.isFinite(n)) continue;
+          out[k] = Math.max(0, Math.floor(n));
+        }
+        return out;
+      }
+
+      function topKeysByValue(map: Record<string, number>, keep: number): Record<string, number> {
+        const entries = Object.entries(map)
+          .filter(([k, v]) => Boolean(k) && Number.isFinite(v) && v > 0)
+          .sort((a, b) => b[1] - a[1]);
+        const next: Record<string, number> = {};
+        for (const [k, v] of entries.slice(0, keep)) next[k] = v;
+        return next;
+      }
+
+      function readActivityList(value: unknown): Array<{ atMs: number; path: string; pageKey?: string; dtSec: number }> {
+        if (!Array.isArray(value)) return [];
+        const out: Array<{ atMs: number; path: string; pageKey?: string; dtSec: number }> = [];
+        for (const raw of value) {
+          if (!raw || typeof raw !== "object" || Array.isArray(raw)) continue;
+          const r: any = raw as any;
+          const atMs = Number.isFinite(Number(r.atMs)) ? Math.max(0, Math.floor(Number(r.atMs))) : 0;
+          const dtSec = Number.isFinite(Number(r.dtSec)) ? Math.max(1, Math.min(60, Math.floor(Number(r.dtSec)))) : 0;
+          const path = typeof r.path === "string" ? r.path.trim().slice(0, 512) : "";
+          const pageKey = typeof r.pageKey === "string" ? r.pageKey.trim().slice(0, 140) : "";
+          if (!atMs || !dtSec || !path) continue;
+          out.push(pageKey ? { atMs, dtSec, path, pageKey } : { atMs, dtSec, path });
+        }
+        out.sort((a, b) => b.atMs - a.atMs);
+        return out.slice(0, MAX_RECENT_ACTIVITY);
+      }
+
+      function stripQueryHash(pathRaw: string): string {
+        const s = String(pathRaw || "").trim();
+        if (!s) return "";
+        const q = s.indexOf("?");
+        const h = s.indexOf("#");
+        const cut = q === -1 ? h : h === -1 ? q : Math.min(q, h);
+        return (cut === -1 ? s : s.slice(0, cut)).trim();
+      }
+
+      function derivePageKeyFromPath(pathRaw: unknown): string | null {
+        const raw = typeof pathRaw === "string" ? stripQueryHash(pathRaw) : "";
+        const path = raw.trim();
+        if (!path || !path.startsWith("/")) return null;
+
+        const lower = path.toLowerCase();
+        const variants = ["/portal/app", "/credit/app"] as const;
+        for (const base of variants) {
+          if (lower === base || lower === `${base}/`) return `${base}/dashboard`;
+          if (lower.startsWith(`${base}/services/`)) {
+            const rest = path.slice(`${base}/services/`.length);
+            const slug = rest.split("/")[0]?.trim() || "";
+            return slug ? `${base}/services/${slug.slice(0, 80)}` : null;
+          }
+          if (lower.startsWith(`${base}/`)) {
+            const rest = path.slice(`${base}/`.length);
+            const section = rest.split("/")[0]?.trim() || "";
+            return section ? `${base}/${section.slice(0, 80)}` : `${base}/dashboard`;
+          }
+        }
+        return null;
+      }
+
+      function deriveServiceKeyFromPath(pathRaw: unknown): string | null {
+        const path = typeof pathRaw === "string" ? pathRaw.trim() : "";
+        if (!path || !path.startsWith("/")) return null;
+
+        const lower = path.toLowerCase();
+
+        const variants = ["/portal/app", "/credit/app"] as const;
+        for (const base of variants) {
+          if (lower === base || lower === `${base}/`) return "dashboard";
+          if (lower.startsWith(`${base}/services/`)) {
+            const rest = path.slice(`${base}/services/`.length);
+            const slug = rest.split("/")[0]?.trim() || "";
+            return slug ? slug.slice(0, 80) : null;
+          }
+          if (lower.startsWith(`${base}/`)) {
+            const rest = path.slice(`${base}/`.length);
+            const section = rest.split("/")[0]?.trim() || "";
+            return section ? section.slice(0, 80) : null;
+          }
+        }
+
+        return null;
+      }
+
+      function dayKeyUtc(d: Date): string {
+        const y = d.getUTCFullYear();
+        const m = String(d.getUTCMonth() + 1).padStart(2, "0");
+        const day = String(d.getUTCDate()).padStart(2, "0");
+        return `${y}-${m}-${day}`;
+      }
+
+      const path = typeof (args as any)?.path === "string" ? stripQueryHash(String((args as any).path)).trim().slice(0, 512) : "";
+      const serviceKey = deriveServiceKeyFromPath(path);
+      const pageKey = derivePageKeyFromPath(path);
+
+      try {
+        const nowMs = Date.now();
+        const existing = await prisma.portalServiceSetup
+          .findUnique({
+            where: { ownerId_serviceSlug: { ownerId, serviceSlug: ENGAGEMENT_SERVICE_SLUG } },
+            select: { dataJson: true },
+          })
+          .catch(() => null);
+
+        const prev = readObj(existing?.dataJson);
+
+        const prevServiceTimeSec = readRecordNumberMap((prev as any).serviceTimeSec);
+        const nextServiceTimeSec = { ...prevServiceTimeSec };
+        if (serviceKey) {
+          nextServiceTimeSec[serviceKey] = Math.max(0, (nextServiceTimeSec[serviceKey] ?? 0) + dtSec);
+        }
+
+        const prevPathTimeSec = readRecordNumberMap((prev as any).pathTimeSec);
+        const nextPathTimeSec = { ...prevPathTimeSec };
+        if (pageKey) {
+          nextPathTimeSec[pageKey] = Math.max(0, (nextPathTimeSec[pageKey] ?? 0) + dtSec);
+        }
+
+        const prevActivity = readActivityList((prev as any).recentActivity);
+        const nextActivity = [{ atMs: nowMs, path, ...(pageKey ? { pageKey } : {}), dtSec }, ...prevActivity].slice(0, MAX_RECENT_ACTIVITY);
+
+        const next = {
+          ...prev,
+          version: 3,
+          lastSeenAtMs: nowMs,
+          ...(path ? { lastSeenPath: path } : {}),
+          ...(pageKey ? { lastSeenPageKey: pageKey } : {}),
+          ...(serviceKey ? { lastSeenService: serviceKey } : {}),
+          ...(Object.keys(nextServiceTimeSec).length ? { serviceTimeSec: topKeysByValue(nextServiceTimeSec, 40) } : {}),
+          ...(Object.keys(nextPathTimeSec).length ? { pathTimeSec: topKeysByValue(nextPathTimeSec, 80) } : {}),
+          ...(nextActivity.length ? { recentActivity: nextActivity } : {}),
+        };
+
+        await prisma.portalServiceSetup.upsert({
+          where: { ownerId_serviceSlug: { ownerId, serviceSlug: ENGAGEMENT_SERVICE_SLUG } },
+          create: { ownerId, serviceSlug: ENGAGEMENT_SERVICE_SLUG, status: "COMPLETE", dataJson: next },
+          update: { status: "COMPLETE", dataJson: next },
+          select: { id: true },
+        });
+      } catch {
+        // ignore transient DB errors
+      }
+
+      const now = new Date();
+      const dayKey = dayKeyUtc(now);
+      const occurredAt = new Date(`${dayKey}T00:00:00.000Z`);
+
+      await prisma.$transaction(async (tx) => {
+        const existing = await tx.portalHoursSavedEvent.findUnique({
+          where: { ownerId_kind_sourceId: { ownerId, kind: KIND as any, sourceId: dayKey } },
+          select: { id: true, secondsSaved: true },
+        });
+
+        if (!existing) {
+          await tx.portalHoursSavedEvent.create({
+            data: {
+              ownerId,
+              kind: KIND as any,
+              sourceId: dayKey,
+              secondsSaved: Math.min(MAX_SECONDS_PER_DAY, dtSec),
+              occurredAt,
+            },
+            select: { id: true },
+          });
+          return;
+        }
+
+        const nextTotal = Math.min(MAX_SECONDS_PER_DAY, Math.max(0, existing.secondsSaved) + dtSec);
+        await tx.portalHoursSavedEvent.update({
+          where: { id: existing.id },
+          data: { secondsSaved: nextTotal, occurredAt },
+          select: { id: true },
+        });
+      });
+
+      return { status: 200, json: { ok: true } };
     }
 
     case "referrals.link.get": {
