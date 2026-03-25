@@ -95,7 +95,9 @@ import { listPortalAccountRecipientContacts } from "@/lib/portalNotifications";
 import { ensureVercelProjectDomain } from "@/lib/vercelProjectDomains";
 import { coerceBlocksJson, type CreditFunnelBlock } from "@/lib/creditFunnelBlocks";
 import { blocksToCustomHtmlDocument } from "@/lib/funnelBlocksToCustomHtmlDocument";
-import { getStripeSecretKeyForOwner } from "@/lib/stripeIntegration.server";
+import { getStripeIntegrationStatus, getStripeSecretKeyForOwner } from "@/lib/stripeIntegration.server";
+import { getSalesReportingStatus } from "@/lib/salesReportingIntegration.server";
+import { isPortalEncryptionConfigured } from "@/lib/portalEncryption.server";
 import { stripeGetWithKey, stripePostWithKey } from "@/lib/stripeFetchWithKey.server";
 import { ensurePortalAiOutboundCallsSchema } from "@/lib/portalAiOutboundCallsSchema";
 import { normalizeTagIdList } from "@/lib/portalAiOutboundCalls";
@@ -4956,6 +4958,68 @@ async function runDirectAction(opts: {
           diagnostics,
         },
       };
+    }
+
+    case "integrations.stripe.get": {
+      const ok = await requireServiceCapability("profile", "view");
+      if (!ok) return { status: 403, json: { ok: false, error: "Forbidden" } };
+
+      const vercelEnv = (process.env.VERCEL_ENV ?? "").trim() || null;
+
+      try {
+        const stripe = await getStripeIntegrationStatus(ownerId);
+        return {
+          status: 200,
+          json: { ok: true, stripe, vercelEnv, expectedEnvVar: "PORTAL_ENCRYPTION_MASTER_KEY" },
+        };
+      } catch {
+        const encryptionConfigured = isPortalEncryptionConfigured();
+        return {
+          status: 200,
+          json: {
+            ok: true,
+            stripe: {
+              configured: false,
+              prefix: null,
+              accountId: null,
+              connectedAtIso: null,
+              encryptionConfigured,
+            },
+            vercelEnv,
+            expectedEnvVar: "PORTAL_ENCRYPTION_MASTER_KEY",
+          },
+        };
+      }
+    }
+
+    case "integrations.sales_reporting.get": {
+      const ok = await requireServiceCapability("profile", "view");
+      if (!ok) return { status: 403, json: { ok: false, error: "Forbidden" } };
+
+      try {
+        const status = await getSalesReportingStatus(ownerId);
+        return { status: 200, json: { ok: true, ...(status as any) } };
+      } catch {
+        return {
+          status: 200,
+          json: {
+            ok: true,
+            encryptionConfigured: isPortalEncryptionConfigured(),
+            activeProvider: null,
+            providers: {
+              stripe: { configured: false },
+              authorizenet: { configured: false },
+              braintree: { configured: false },
+              razorpay: { configured: false },
+              paystack: { configured: false },
+              flutterwave: { configured: false },
+              mollie: { configured: false },
+              mercadopago: { configured: false },
+            },
+            stripe: { configured: false, prefix: null, accountId: null, connectedAtIso: null },
+          },
+        };
+      }
     }
 
     case "ai_agents.list": {

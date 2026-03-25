@@ -50,6 +50,8 @@ const ACTION_COVERAGE = [
   { action: "support_chat.send", method: "POST", endpoint: "/api/portal/support-chat" },
 
   { action: "integrations.twilio.get", method: "GET", endpoint: "/api/portal/integrations/twilio" },
+  { action: "integrations.stripe.get", method: "GET", endpoint: "/api/portal/integrations/stripe" },
+  { action: "integrations.sales_reporting.get", method: "GET", endpoint: "/api/portal/integrations/sales-reporting" },
 
   { action: "services.catalog.get", method: "GET", endpoint: "/api/portal/services/catalog" },
   { action: "services.lifecycle.update", method: "POST", endpoint: "/api/portal/services/lifecycle" },
