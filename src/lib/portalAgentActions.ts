@@ -49,6 +49,9 @@ export const PortalAgentActionKeySchema = z.enum([
   "blogs.automation.settings.get",
   "blogs.automation.settings.update",
   "blogs.generate_now",
+  "blogs.posts.generate_draft",
+  "blogs.posts.publish",
+  "blogs.site.verify",
   "newsletter.site.get",
   "newsletter.site.update",
   "newsletter.usage.get",
@@ -589,6 +592,26 @@ export const PortalAgentActionArgsSchemaByKey = {
     .strict(),
 
   "blogs.generate_now": z.object({}).strict(),
+
+  "blogs.posts.generate_draft": z
+    .object({
+      postId: z.string().trim().min(1).max(120),
+      prompt: z.string().trim().min(1).max(2000).optional().nullable(),
+      topic: z.string().trim().min(1).max(200).optional().nullable(),
+    })
+    .strict(),
+
+  "blogs.posts.publish": z
+    .object({
+      postId: z.string().trim().min(1).max(120),
+    })
+    .strict(),
+
+  "blogs.site.verify": z
+    .object({
+      domain: z.string().trim().min(1).max(260),
+    })
+    .strict(),
 
   "newsletter.site.get": z.object({}).strict(),
 
@@ -2121,6 +2144,9 @@ export function portalAgentActionsIndexText(): string {
     "- blogs.automation.settings.get: Get blog automation settings",
     "- blogs.automation.settings.update: Update blog automation settings (fields: enabled, frequencyDays, topics, autoPublish?)",
     "- blogs.generate_now: Generate a blog draft now",
+    "- blogs.posts.generate_draft: Generate an AI draft for a specific post (fields: postId, prompt?/topic?)",
+    "- blogs.posts.publish: Publish a blog post (fields: postId)",
+    "- blogs.site.verify: Verify your blog primary domain via DNS TXT record (fields: domain)",
     "- newsletter.site.get: Get newsletter site settings",
     "- newsletter.site.update: Create/update newsletter site settings (fields: name, primaryDomain?, slug?)",
     "- newsletter.usage.get: Get newsletter usage stats (fields: range=7d|30d|90d|all?)",

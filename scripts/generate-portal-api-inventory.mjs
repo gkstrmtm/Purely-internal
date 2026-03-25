@@ -195,6 +195,10 @@ const ACTION_COVERAGE = [
   { action: "blogs.posts.export_markdown", method: "GET", endpoint: "/api/portal/blogs/posts/[postId]/export" },
   { action: "blogs.automation.settings.get", method: "GET", endpoint: "/api/portal/blogs/automation/settings" },
   { action: "blogs.automation.settings.update", method: "PUT", endpoint: "/api/portal/blogs/automation/settings" },
+  { action: "blogs.generate_now", method: "POST", endpoint: "/api/portal/blogs/automation/generate-now" },
+  { action: "blogs.posts.generate_draft", method: "POST", endpoint: "/api/portal/blogs/posts/[postId]/generate" },
+  { action: "blogs.posts.publish", method: "POST", endpoint: "/api/portal/blogs/posts/[postId]/publish" },
+  { action: "blogs.site.verify", method: "POST", endpoint: "/api/portal/blogs/site/verify" },
 
   // Newsletter (safe settings + CRUD)
   { action: "newsletter.site.get", method: "GET", endpoint: "/api/portal/newsletter/site" },

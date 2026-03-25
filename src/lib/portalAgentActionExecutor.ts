@@ -1,4 +1,5 @@
 import crypto from "crypto";
+import { resolveTxt } from "dns/promises";
 
 import { Prisma } from "@prisma/client";
 
@@ -3238,10 +3239,64 @@ async function runDirectAction(opts: {
     }
 
     case "blogs.generate_now": {
+      type StoredSettings = {
+        enabled?: boolean;
+        frequencyDays?: number;
+        topics?: string[];
+        cursor?: number;
+        autoPublish?: boolean;
+        lastRunAt?: string;
+      };
+
+      function normalizeSettings(value: unknown) {
+        const rec = value && typeof value === "object" ? (value as Record<string, unknown>) : null;
+        const topics = Array.isArray(rec?.topics)
+          ? (rec?.topics as unknown[])
+              .filter((x) => typeof x === "string")
+              .map((s) => String(s).trim())
+              .filter(Boolean)
+              .slice(0, 50)
+          : [];
+
+        return {
+          enabled: Boolean(rec?.enabled),
+          frequencyDays:
+            typeof rec?.frequencyDays === "number" && Number.isFinite(rec.frequencyDays)
+              ? Math.min(30, Math.max(1, Math.floor(rec.frequencyDays)))
+              : 7,
+          topics,
+          cursor: typeof rec?.cursor === "number" && Number.isFinite(rec.cursor) ? Math.max(0, Math.floor(rec.cursor)) : 0,
+          autoPublish: Boolean(rec?.autoPublish),
+          lastRunAt: typeof rec?.lastRunAt === "string" ? rec.lastRunAt : undefined,
+        };
+      }
+
+      function aiConfigured() {
+        return Boolean((process.env.AI_BASE_URL ?? "").trim() && (process.env.AI_API_KEY ?? "").trim());
+      }
+
+      if (!aiConfigured()) {
+        return {
+          status: 503,
+          json: {
+            error: "AI is not configured for this environment. Set AI_BASE_URL and AI_API_KEY.",
+          },
+        };
+      }
+
       const site = await prisma.clientBlogSite.findUnique({ where: { ownerId }, select: { id: true } });
       if (!site?.id) {
-        return { status: 409, json: { ok: false, error: "Create your blog workspace first." } };
+        return { status: 409, json: { error: "Create your blog workspace first." } };
       }
+
+      const setup = await prisma.portalServiceSetup.findUnique({
+        where: { ownerId_serviceSlug: { ownerId, serviceSlug: "blogs" } },
+        select: { id: true, dataJson: true },
+      });
+
+      const s = normalizeSettings(setup?.dataJson);
+      const cursor = s.cursor;
+      const topic = s.topics.length ? s.topics[cursor % s.topics.length] : undefined;
 
       const needCredits = PORTAL_CREDIT_COSTS.blogGenerateDraft;
       const consumed = await consumeCredits(ownerId, needCredits);
@@ -3251,39 +3306,362 @@ async function runDirectAction(opts: {
           json: {
             ok: false,
             code: "INSUFFICIENT_CREDITS",
-            error: "Not enough credits to generate a blog post.",
+            error: "Not enough credits to generate a blog post. Top off your credits in Billing.",
             credits: consumed.state.balance,
             billingPath: "/portal/app/billing",
           },
         };
       }
 
-      const profile = await prisma.businessProfile.findUnique({
+      try {
+        const profile = await prisma.businessProfile.findUnique({
+          where: { ownerId },
+          select: {
+            businessName: true,
+            websiteUrl: true,
+            industry: true,
+            businessModel: true,
+            primaryGoals: true,
+            targetCustomer: true,
+            brandVoice: true,
+          },
+        });
+
+        const primaryGoals = Array.isArray(profile?.primaryGoals)
+          ? (profile?.primaryGoals as unknown[]).filter((x) => typeof x === "string").map((x) => String(x)).slice(0, 10)
+          : undefined;
+
+        const draft = await generateClientBlogDraft({
+          businessName: profile?.businessName,
+          websiteUrl: profile?.websiteUrl,
+          industry: profile?.industry,
+          businessModel: profile?.businessModel,
+          primaryGoals,
+          targetCustomer: profile?.targetCustomer,
+          brandVoice: profile?.brandVoice,
+          topic,
+        });
+
+        const slug = await uniqueBlogSlug(site.id, draft.title);
+
+        const post = await prisma.clientBlogPost.create({
+          data: {
+            siteId: site.id,
+            status: s.autoPublish ? "PUBLISHED" : "DRAFT",
+            slug,
+            title: draft.title,
+            excerpt: draft.excerpt,
+            content: draft.content,
+            seoKeywords: draft.seoKeywords?.length ? draft.seoKeywords : undefined,
+            ...(s.autoPublish ? { publishedAt: new Date() } : {}),
+          },
+          select: { id: true },
+        });
+
+        if (s.autoPublish) {
+          const baseUrl = getAppBaseUrl();
+          void tryNotifyPortalAccountUsers({
+            ownerId,
+            kind: "blog_published",
+            subject: `Blog published: ${draft.title}`,
+            text: ["A blog post was published.", "", `Title: ${draft.title}`, `Slug: ${slug}`, `Open blogs: ${baseUrl}/portal/app/blogs`].join("\n"),
+          }).catch(() => null);
+        }
+
+        try {
+          await prisma.portalBlogGenerationEvent.create({
+            data: {
+              ownerId,
+              siteId: site.id,
+              postId: post.id,
+              source: "GENERATE_NOW",
+              chargedCredits: needCredits,
+              topic: topic ?? undefined,
+            },
+            select: { id: true },
+          });
+        } catch {
+          // Best-effort usage tracking.
+        }
+
+        if (setup?.id) {
+          try {
+            const nextJson: StoredSettings = {
+              enabled: s.enabled,
+              frequencyDays: s.frequencyDays,
+              topics: s.topics,
+              cursor: s.cursor + 1,
+              autoPublish: s.autoPublish,
+              lastRunAt: new Date().toISOString(),
+            };
+            await prisma.portalServiceSetup.update({ where: { id: setup.id }, data: { dataJson: nextJson } });
+          } catch {
+            // ignore
+          }
+        }
+
+        return { status: 200, json: { ok: true, postId: post.id, creditsRemaining: consumed.state.balance } };
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : "Unknown error";
+        return { status: 500, json: { error: msg } };
+      }
+    }
+
+    case "blogs.posts.generate_draft": {
+      function aiConfigured() {
+        return Boolean((process.env.AI_BASE_URL ?? "").trim() && (process.env.AI_API_KEY ?? "").trim());
+      }
+
+      const postId = String((args as any)?.postId || "").trim();
+
+      const post = await prisma.clientBlogPost.findFirst({
+        where: { id: postId, site: { ownerId } },
+        select: { id: true, status: true, siteId: true },
+      });
+      if (!post) return { status: 404, json: { error: "Not found" } };
+
+      if (!aiConfigured()) {
+        return {
+          status: 503,
+          json: {
+            error: "AI is not configured for this environment. Set AI_BASE_URL and AI_API_KEY.",
+          },
+        };
+      }
+
+      const prompt = typeof (args as any)?.prompt === "string" ? String((args as any).prompt) : null;
+      const topic = typeof (args as any)?.topic === "string" ? String((args as any).topic) : null;
+      const finalTopic = (prompt ?? topic)?.trim() || undefined;
+
+      const needCredits = PORTAL_CREDIT_COSTS.blogGenerateDraft;
+      const consumed = await consumeCredits(ownerId, needCredits);
+      if (!consumed.ok) {
+        return {
+          status: 402,
+          json: {
+            ok: false,
+            code: "INSUFFICIENT_CREDITS",
+            error: "Not enough credits to generate with AI. Top off your credits in Billing.",
+            credits: consumed.state.balance,
+            billingPath: "/portal/app/billing",
+          },
+        };
+      }
+
+      try {
+        const profile = await prisma.businessProfile.findUnique({
+          where: { ownerId },
+          select: {
+            businessName: true,
+            websiteUrl: true,
+            industry: true,
+            businessModel: true,
+            primaryGoals: true,
+            targetCustomer: true,
+            brandVoice: true,
+          },
+        });
+
+        const primaryGoals = Array.isArray(profile?.primaryGoals)
+          ? (profile?.primaryGoals as unknown[])
+              .filter((x) => typeof x === "string")
+              .map((x) => String(x))
+              .slice(0, 10)
+          : undefined;
+
+        const draft = await generateClientBlogDraft({
+          businessName: profile?.businessName,
+          websiteUrl: profile?.websiteUrl,
+          industry: profile?.industry,
+          businessModel: profile?.businessModel,
+          primaryGoals,
+          targetCustomer: profile?.targetCustomer,
+          brandVoice: profile?.brandVoice,
+          topic: finalTopic,
+        });
+
+        try {
+          await prisma.portalBlogGenerationEvent.create({
+            data: {
+              ownerId,
+              siteId: post.siteId,
+              postId: post.id,
+              source: "DRAFT_GENERATE",
+              chargedCredits: needCredits,
+              topic: finalTopic,
+            },
+            select: { id: true },
+          });
+        } catch {
+          // Best-effort usage tracking.
+        }
+
+        const state = await getCreditsState(ownerId);
+        return { status: 200, json: { ok: true, draft, estimatedCredits: needCredits, creditsRemaining: state.balance } };
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : "Unknown error";
+        return { status: 500, json: { error: msg } };
+      }
+    }
+
+    case "blogs.posts.publish": {
+      const postId = String((args as any)?.postId || "").trim();
+
+      const existing = await prisma.clientBlogPost.findFirst({
+        where: { id: postId, site: { ownerId } },
+        select: { id: true, archivedAt: true, publishedAt: true },
+      });
+      if (!existing) return { status: 404, json: { error: "Not found" } };
+      if (existing.archivedAt) return { status: 400, json: { error: "Post is archived" } };
+
+      const updated = await prisma.clientBlogPost.update({
+        where: { id: existing.id },
+        data: {
+          status: "PUBLISHED",
+          ...(existing.publishedAt ? {} : { publishedAt: new Date() }),
+        },
+        select: {
+          id: true,
+          status: true,
+          slug: true,
+          title: true,
+          excerpt: true,
+          content: true,
+          publishedAt: true,
+          updatedAt: true,
+        },
+      });
+
+      const baseUrl = getAppBaseUrl();
+      void tryNotifyPortalAccountUsers({
+        ownerId,
+        kind: "blog_published",
+        subject: `Blog published: ${updated.title || updated.slug || updated.id}`,
+        text: [
+          "A blog post was published.",
+          "",
+          updated.title ? `Title: ${updated.title}` : null,
+          updated.slug ? `Slug: ${updated.slug}` : null,
+          updated.publishedAt ? `Published: ${new Date(updated.publishedAt).toISOString()}` : null,
+          "",
+          `Open blogs: ${baseUrl}/portal/app/blogs`,
+        ]
+          .filter(Boolean)
+          .join("\n"),
+      }).catch(() => null);
+
+      return { status: 200, json: { ok: true, post: updated } };
+    }
+
+    case "blogs.site.verify": {
+      function normalizeDomain(raw: string) {
+        const v = String(raw || "").trim().toLowerCase();
+        const withoutProtocol = v.replace(/^https?:\/\//, "");
+        const withoutPath = withoutProtocol.split("/")[0] ?? "";
+        const d = withoutPath.replace(/:\d+$/, "");
+        return d;
+      }
+
+      function flattenTxt(rows: string[][]) {
+        const out: string[] = [];
+        for (const r of rows) out.push(r.join(""));
+        return out;
+      }
+
+      const domainInput = String((args as any)?.domain || "").trim();
+
+      const [hasPrimaryDomain, hasVerificationToken, hasVerifiedAt] = await Promise.all([
+        hasPublicColumn("ClientBlogSite", "primaryDomain"),
+        hasPublicColumn("ClientBlogSite", "verificationToken"),
+        hasPublicColumn("ClientBlogSite", "verifiedAt"),
+      ]);
+
+      if (!hasPrimaryDomain || !hasVerificationToken) {
+        return {
+          status: 409,
+          json: {
+            ok: false,
+            verified: false,
+            error: "Blog domain verification isn’t available yet (database migration pending).",
+          },
+        };
+      }
+
+      const site = await prisma.clientBlogSite.findUnique({
         where: { ownerId },
-        select: { businessName: true, websiteUrl: true, industry: true, businessModel: true, primaryGoals: true, targetCustomer: true, brandVoice: true },
+        select: { id: true, primaryDomain: true, verificationToken: true, verifiedAt: true },
       });
 
-      const primaryGoals = Array.isArray(profile?.primaryGoals)
-        ? (profile?.primaryGoals as unknown[]).filter((x) => typeof x === "string").map((x) => String(x)).slice(0, 10)
-        : undefined;
+      if (!site) return { status: 404, json: { error: "No blog site found" } };
 
-      const draft = await generateClientBlogDraft({
-        businessName: profile?.businessName,
-        websiteUrl: profile?.websiteUrl,
-        industry: profile?.industry,
-        businessModel: profile?.businessModel,
-        primaryGoals,
-        targetCustomer: profile?.targetCustomer,
-        brandVoice: profile?.brandVoice,
-      });
+      const domain = normalizeDomain(domainInput);
+      if (!domain) return { status: 400, json: { error: "Invalid domain" } };
 
-      const slug = await uniqueBlogSlug(site.id, draft.title);
-      const post = await prisma.clientBlogPost.create({
-        data: { siteId: site.id, status: "DRAFT", slug, title: draft.title, excerpt: draft.excerpt, content: draft.content, seoKeywords: draft.seoKeywords?.length ? draft.seoKeywords : undefined },
-        select: { id: true },
-      });
+      if ((site.primaryDomain ?? "") !== domain) {
+        return {
+          status: 400,
+          json: { error: "Domain does not match the one saved in your blog settings" },
+        };
+      }
 
-      return { status: 200, json: { ok: true, postId: post.id, creditsRemaining: consumed.state.balance } };
+      const recordName = `_purelyautomation.${domain}`;
+      const expected = `verify=${site.verificationToken}`;
+
+      try {
+        const txt = await resolveTxt(recordName);
+        const values = flattenTxt(txt);
+        const ok = values.some((v) => String(v).trim() === expected);
+
+        if (!ok) {
+          return {
+            status: 200,
+            json: {
+              ok: false,
+              verified: false,
+              error: "TXT record not found yet",
+              recordName,
+              expected,
+              found: values.slice(0, 25),
+            },
+          };
+        }
+
+        const updated = await prisma.clientBlogSite.update({
+          where: { id: site.id },
+          data: { ...(hasVerifiedAt ? { verifiedAt: new Date() } : {}) },
+          select: { id: true, primaryDomain: true, ...(hasVerifiedAt ? { verifiedAt: true } : {}) } as any,
+        });
+
+        return {
+          status: 200,
+          json: {
+            ok: true,
+            verified: true,
+            site: {
+              ...updated,
+              verifiedAt: hasVerifiedAt
+                ? ((updated as any).verifiedAt instanceof Date
+                    ? (updated as any).verifiedAt.toISOString()
+                    : (updated as any).verifiedAt ?? null)
+                : null,
+            },
+            recordName,
+            expected,
+          },
+        };
+      } catch (e) {
+        return {
+          status: 200,
+          json: {
+            ok: false,
+            verified: false,
+            error: "DNS lookup failed",
+            details: e instanceof Error ? e.message : "Unknown error",
+            recordName,
+            expected,
+          },
+        };
+      }
     }
 
     case "newsletter.site.get": {
