@@ -17,6 +17,9 @@ const ACTION_COVERAGE = [
   { action: "contacts.list", method: "GET", endpoint: "/api/portal/people/contacts" },
   { action: "contacts.create", method: "POST", endpoint: "/api/portal/people/contacts" },
 
+  { action: "tasks.list", method: "GET", endpoint: "/api/portal/tasks" },
+  { action: "tasks.assignees.list", method: "GET", endpoint: "/api/portal/tasks/assignees" },
+
   { action: "people.users.list", method: "GET", endpoint: "/api/portal/people/users" },
   { action: "people.users.invite", method: "POST", endpoint: "/api/portal/people/users" },
   { action: "people.users.update", method: "PATCH", endpoint: "/api/portal/people/users/[userId]" },

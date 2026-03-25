@@ -914,6 +914,140 @@ async function runDirectAction(opts: {
       return { status: 200, json: { ok: true, count: taskIds.length, taskIds } };
     }
 
+    case "tasks.list": {
+      if (!(await requireServiceCapability("tasks", "view"))) {
+        return { status: 403, json: { ok: false, error: "Forbidden" } };
+      }
+
+      await ensurePortalTasksSchema().catch(() => null);
+
+      const memberId = String(actorUserId || "").trim() || ownerId;
+
+      const statusRaw = String((args as any)?.status ?? "OPEN")
+        .trim()
+        .toUpperCase();
+      const assignedRaw = String((args as any)?.assigned ?? "all")
+        .trim()
+        .toLowerCase();
+      const limitRaw = (args as any)?.limit;
+      const limit = Math.max(1, Math.min(500, typeof limitRaw === "number" ? Math.floor(limitRaw) : 200));
+
+      const status =
+        statusRaw === "ALL"
+          ? null
+          : statusRaw === "OPEN" || statusRaw === "DONE" || statusRaw === "CANCELED"
+            ? statusRaw
+            : "OPEN";
+
+      const whereParts: string[] = [`t."ownerId" = $1`];
+      const params: any[] = [ownerId, memberId];
+
+      if (status) {
+        params.push(status);
+        whereParts.push(`t."status" = $${params.length}`);
+      }
+
+      if (assignedRaw === "me") {
+        whereParts.push(`(t."assignedToUserId" = $2 OR t."assignedToUserId" IS NULL)`);
+      }
+
+      params.push(limit);
+
+      const sql = `
+        SELECT
+          t."id",
+          t."ownerId",
+          t."createdByUserId",
+          t."title",
+          t."description",
+          t."status",
+          t."assignedToUserId",
+          t."dueAt",
+          t."createdAt",
+          t."updatedAt",
+          u."email" as "assignedEmail",
+          u."name" as "assignedName",
+          c."completedAt" as "viewerCompletedAt"
+        FROM "PortalTask" t
+        LEFT JOIN "User" u ON u."id" = t."assignedToUserId"
+        LEFT JOIN "PortalTaskMemberCompletion" c ON c."taskId" = t."id" AND c."userId" = $2
+        WHERE ${whereParts.join(" AND ")}
+        ORDER BY t."updatedAt" DESC
+        LIMIT $${params.length}
+      `;
+
+      const rows = (await prisma.$queryRawUnsafe(sql, ...params).catch(() => [])) as any[];
+
+      return {
+        status: 200,
+        json: {
+          ok: true,
+          viewerUserId: String(memberId),
+          tasks: rows.map((r) => ({
+            id: String(r.id),
+            title: String(r.title || ""),
+            description: r.description ? String(r.description) : null,
+            status: String(r.status || "OPEN"),
+            assignedToUserId: r.assignedToUserId ? String(r.assignedToUserId) : null,
+            assignedTo: r.assignedToUserId
+              ? { userId: String(r.assignedToUserId), email: String(r.assignedEmail || ""), name: String(r.assignedName || "") }
+              : null,
+            createdByUserId: r.createdByUserId ? String(r.createdByUserId) : null,
+            canEditAssignee: r.createdByUserId ? String(r.createdByUserId) === String(memberId) : String(ownerId) === String(memberId),
+            viewerDoneAtIso: r.viewerCompletedAt ? new Date(r.viewerCompletedAt).toISOString() : null,
+            dueAtIso: r.dueAt ? new Date(r.dueAt).toISOString() : null,
+            createdAtIso: r.createdAt ? new Date(r.createdAt).toISOString() : null,
+            updatedAtIso: r.updatedAt ? new Date(r.updatedAt).toISOString() : null,
+          })),
+        },
+      };
+    }
+
+    case "tasks.assignees.list": {
+      if (!(await requireServiceCapability("tasks", "view"))) {
+        return { status: 403, json: { ok: false, error: "Forbidden" } };
+      }
+
+      await ensurePortalTasksSchema().catch(() => null);
+
+      const owner = await prisma.user.findUnique({
+        where: { id: ownerId },
+        select: { id: true, email: true, name: true, active: true },
+      });
+
+      const rows = (await prisma.portalAccountMember.findMany({
+        where: { ownerId },
+        select: {
+          userId: true,
+          role: true,
+          user: { select: { id: true, email: true, name: true, active: true } },
+        },
+        orderBy: { createdAt: "asc" },
+        take: 200,
+      })) as any[];
+
+      const members = [
+        ...(owner
+          ? [
+              {
+                userId: owner.id,
+                role: "OWNER",
+                user: { id: owner.id, email: owner.email, name: owner.name, active: owner.active },
+                implicit: true,
+              },
+            ]
+          : []),
+        ...rows.map((r) => ({
+          userId: String(r.userId),
+          role: String(r.role || "MEMBER"),
+          user: r.user,
+          implicit: false,
+        })),
+      ].filter((m, idx, arr) => arr.findIndex((x) => x.userId === m.userId) === idx);
+
+      return { status: 200, json: { ok: true, ownerId, members } };
+    }
+
     case "funnel.create": {
       const needCredits = PORTAL_CREDIT_COSTS.funnelCreate;
       const charged = await consumeCredits(ownerId, needCredits);

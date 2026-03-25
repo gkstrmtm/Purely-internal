@@ -3,6 +3,8 @@ import { z } from "zod";
 export const PortalAgentActionKeySchema = z.enum([
   "tasks.create",
   "tasks.create_for_all",
+  "tasks.list",
+  "tasks.assignees.list",
   "funnel.create",
 
   "funnel_builder.settings.get",
@@ -225,6 +227,16 @@ export const PortalAgentActionArgsSchemaByKey = {
       dueAtIso: z.string().trim().optional().nullable(),
     })
     .strict(),
+
+  "tasks.list": z
+    .object({
+      status: z.enum(["OPEN", "DONE", "CANCELED", "ALL"]).optional().nullable(),
+      assigned: z.enum(["all", "me"]).optional().nullable(),
+      limit: z.number().int().min(1).max(500).optional().nullable(),
+    })
+    .strict(),
+
+  "tasks.assignees.list": z.object({}).strict(),
 
   "funnel.create": z
     .object({
@@ -1727,6 +1739,8 @@ export function portalAgentActionsIndexText(): string {
     "Available actions (choose at most 2):",
     "- tasks.create: Create a portal task (fields: title, description?, assignedToUserId?, dueAtIso?)",
     "- tasks.create_for_all: Create the same task for every team member (fields: title, description?, dueAtIso?)",
+    "- tasks.list: List tasks (fields: status=OPEN|DONE|CANCELED|ALL?, assigned=all|me?, limit?)",
+    "- tasks.assignees.list: List task assignees (team members)",
     "- funnel.create: Create a Funnel Builder funnel (fields: name, slug)",
     "- funnel_builder.settings.get: Get Funnel Builder settings",
     "- funnel_builder.settings.update: Update Funnel Builder settings (fields: notifyEmails?, webhookUrl?, regenerateSecret?)",
