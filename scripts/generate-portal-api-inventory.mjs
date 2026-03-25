@@ -62,6 +62,8 @@ const ACTION_COVERAGE = [
   { action: "follow_up.settings.update", method: "PUT", endpoint: "/api/portal/follow-up/settings" },
   { action: "follow_up.custom_variables.get", method: "GET", endpoint: "/api/portal/follow-up/custom-variables" },
   { action: "follow_up.custom_variables.update", method: "PUT", endpoint: "/api/portal/follow-up/custom-variables" },
+  { action: "follow_up.ai.generate_step", method: "POST", endpoint: "/api/portal/follow-up/ai/generate-step" },
+  { action: "follow_up.test_send", method: "POST", endpoint: "/api/portal/follow-up/test-send" },
 
   { action: "automations.run", method: "POST", endpoint: "/api/portal/automations/run" },
 

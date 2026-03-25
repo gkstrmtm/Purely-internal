@@ -101,6 +101,8 @@ export const PortalAgentActionKeySchema = z.enum([
   "follow_up.settings.update",
   "follow_up.custom_variables.get",
   "follow_up.custom_variables.update",
+  "follow_up.ai.generate_step",
+  "follow_up.test_send",
 
   "notifications.recipients.list",
 
@@ -851,6 +853,25 @@ export const PortalAgentActionArgsSchemaByKey = {
     .object({
       key: z.string().trim().min(1).max(32).regex(/^[a-zA-Z][a-zA-Z0-9_]*$/),
       value: z.string().max(800).default(""),
+    })
+    .strict(),
+
+  "follow_up.ai.generate_step": z
+    .object({
+      kind: z.enum(["SMS", "EMAIL"]),
+      stepName: z.string().trim().max(80).optional(),
+      prompt: z.string().trim().max(2000).optional(),
+      existingSubject: z.string().trim().max(200).optional(),
+      existingBody: z.string().trim().max(8000).optional(),
+    })
+    .strict(),
+
+  "follow_up.test_send": z
+    .object({
+      channel: z.enum(["EMAIL", "SMS"]),
+      to: z.string().trim().min(3).max(200),
+      subject: z.string().trim().max(120).optional(),
+      body: z.string().trim().min(1).max(2000),
     })
     .strict(),
 
@@ -1944,6 +1965,8 @@ export function portalAgentActionsIndexText(): string {
     "- follow_up.settings.update: Update Follow-Up automation settings (fields: settings)",
     "- follow_up.custom_variables.get: Get Follow-Up custom variables (available to lead scraping and follow-up)",
     "- follow_up.custom_variables.update: Set a Follow-Up custom variable (fields: key, value)",
+    "- follow_up.ai.generate_step: Draft Follow-Up message copy (fields: kind, stepName?, prompt?, existingSubject?, existingBody?)",
+    "- follow_up.test_send: Send a test follow-up message (fields: channel, to, subject?, body)",
     "- notifications.recipients.list: List notification recipient contacts for the portal account",
     "- webhooks.get: Get canonical webhook URLs (Twilio inbound/status callback + legacy tokens)",
     "- support_chat.send: Ask the support chat assistant a question (fields: message, url?, meta?, context.recentMessages?)",

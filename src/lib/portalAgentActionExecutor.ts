@@ -5534,6 +5534,108 @@ async function runDirectAction(opts: {
       };
     }
 
+    case "follow_up.ai.generate_step": {
+      const ok = await requireServiceCapability("followUp", "view");
+      if (!ok) return { status: 403, json: { ok: false, error: "Forbidden" } };
+
+      const kind = args.kind === "EMAIL" ? "EMAIL" : "SMS";
+      const stepName = typeof args.stepName === "string" ? args.stepName.trim().slice(0, 80) : "";
+      const prompt = typeof args.prompt === "string" ? args.prompt.trim().slice(0, 2000) : "";
+      const existingSubject = typeof args.existingSubject === "string" ? args.existingSubject.trim().slice(0, 200) : "";
+      const existingBody = typeof args.existingBody === "string" ? args.existingBody.trim().slice(0, 8000) : "";
+
+      const businessContext = await getBusinessProfileAiContext(ownerId).catch(() => "");
+      const needCredits = PORTAL_CREDIT_COSTS.aiDraftStep;
+      const consumed = await consumeCredits(ownerId, needCredits);
+      if (!consumed.ok) {
+        return { status: 402, json: { ok: false, error: "INSUFFICIENT_CREDITS", code: "INSUFFICIENT_CREDITS", credits: consumed.state.balance } };
+      }
+
+      const system =
+        kind === "SMS" ? "You write short, practical follow-ups for a small business." : "You write friendly, concise follow-up emails for a small business.";
+
+      const user = [
+        "Draft the copy for a booking follow-up step.",
+        businessContext ? businessContext : "",
+        stepName ? `Step: ${stepName}` : "",
+        `Channel: ${kind}`,
+        "",
+        "Allowed variables (keep braces exactly):",
+        "- {contact.firstName}, {contact.name}, {contact.email}, {contact.phone}, {contact.businessName}",
+        "- {business.name}, {business.email}, {business.phone}",
+        "- {owner.email}, {owner.phone}",
+        "- {user.name}, {user.email}",
+        "- {when}, {timeZone}, {location}, {meetingLink}",
+        kind === "SMS" ? "Keep it under 320 characters if possible." : "",
+        kind === "EMAIL" ? "Return a subject and body." : "",
+        "",
+        existingSubject ? `Existing subject: ${existingSubject}` : "",
+        existingBody ? `Existing body: ${existingBody}` : "",
+        prompt ? `Extra instruction: ${prompt}` : "",
+        "",
+        kind === "EMAIL"
+          ? "Prefer returning JSON: {\"subject\": \"...\", \"body\": \"...\"}. If you don't return JSON, start with 'Subject: ...' on the first line."
+          : "Return the SMS body only (no JSON needed).",
+      ]
+        .filter(Boolean)
+        .join("\n");
+
+      const content = await generateText({ system, user });
+
+      if (kind === "EMAIL") {
+        const fromJson = tryParseJsonDraft(content);
+        if (fromJson?.body || fromJson?.subject) {
+          return {
+            status: 200,
+            json: {
+              ok: true,
+              subject: String(fromJson.subject || "").slice(0, 200),
+              body: String(fromJson.body || "").slice(0, 8000),
+            },
+          };
+        }
+
+        const parsedFallback = parseSubjectBodyFallback(content);
+        return {
+          status: 200,
+          json: {
+            ok: true,
+            subject: String(parsedFallback.subject || "").slice(0, 200),
+            body: String(parsedFallback.body || "").slice(0, 8000),
+          },
+        };
+      }
+
+      return { status: 200, json: { ok: true, body: String(content || "").trim().slice(0, 8000) } };
+    }
+
+    case "follow_up.test_send": {
+      const ok = await requireServiceCapability("followUp", "view");
+      if (!ok) return { status: 403, json: { ok: false, error: "Forbidden" } };
+
+      const channel = args.channel === "EMAIL" ? "EMAIL" : "SMS";
+      const to = String(args.to || "").trim().slice(0, 200);
+      const subject = typeof args.subject === "string" ? args.subject.trim().slice(0, 120) : "";
+      const body = String(args.body || "").trim().slice(0, 2000);
+
+      const charged = await consumeCredits(ownerId, PORTAL_CREDIT_COSTS.sendAction);
+      if (!charged.ok) {
+        return { status: 402, json: { ok: false, error: "Insufficient credits" } };
+      }
+
+      const profile = await prisma.businessProfile.findUnique({ where: { ownerId }, select: { businessName: true } });
+      const fromName = profile?.businessName?.trim() || "Purely Automation";
+
+      if (channel === "EMAIL") {
+        await sendTransactionalEmail({ to, subject: subject || "Test follow-up", text: body, fromName });
+      } else {
+        const res = await sendOwnerTwilioSms({ ownerId, to, body: body.slice(0, 900) });
+        if (!res.ok) throw new Error(res.error || "SMS send failed");
+      }
+
+      return { status: 200, json: { ok: true, note: "Sent." } };
+    }
+
     case "ai_agents.list": {
       const ok = await requireServiceCapability("profile", "view");
       if (!ok) return { status: 403, json: { ok: false, error: "Forbidden" } };
