@@ -4,6 +4,32 @@ export const PortalAgentActionKeySchema = z.enum([
   "tasks.create",
   "tasks.create_for_all",
   "funnel.create",
+
+  "funnel_builder.settings.get",
+  "funnel_builder.settings.update",
+  "funnel_builder.domains.list",
+  "funnel_builder.domains.create",
+  "funnel_builder.domains.update",
+  "funnel_builder.forms.list",
+  "funnel_builder.forms.create",
+  "funnel_builder.forms.get",
+  "funnel_builder.forms.update",
+  "funnel_builder.forms.delete",
+  "funnel_builder.forms.submissions.list",
+  "funnel_builder.form_field_keys.get",
+  "funnel_builder.funnels.list",
+  "funnel_builder.funnels.get",
+  "funnel_builder.funnels.update",
+  "funnel_builder.funnels.delete",
+  "funnel_builder.pages.list",
+  "funnel_builder.pages.create",
+  "funnel_builder.pages.update",
+  "funnel_builder.pages.delete",
+  "funnel_builder.pages.export_custom_html",
+  "funnel_builder.pages.global_header",
+  "funnel_builder.sales.products.list",
+  "funnel_builder.sales.products.create",
+
   "blogs.generate_now",
   "newsletter.generate_now",
   "automations.run",
@@ -102,6 +128,178 @@ export const PortalAgentActionArgsSchemaByKey = {
     .object({
       name: z.string().trim().min(1).max(120),
       slug: z.string().trim().min(2).max(60),
+    })
+    .strict(),
+
+  "funnel_builder.settings.get": z.object({}).strict(),
+
+  "funnel_builder.settings.update": z
+    .object({
+      notifyEmails: z.array(z.string().trim().max(200)).max(10).optional(),
+      webhookUrl: z.string().trim().max(800).optional().nullable(),
+      regenerateSecret: z.boolean().optional().nullable(),
+    })
+    .strict(),
+
+  "funnel_builder.domains.list": z.object({}).strict(),
+
+  "funnel_builder.domains.create": z
+    .object({
+      domain: z.string().trim().min(1).max(253),
+    })
+    .strict(),
+
+  "funnel_builder.domains.update": z
+    .object({
+      domain: z.string().trim().min(1).max(253),
+      rootMode: z.enum(["DISABLED", "DIRECTORY", "REDIRECT"]).optional().nullable(),
+      rootFunnelSlug: z.string().trim().max(80).optional().nullable(),
+    })
+    .strict(),
+
+  "funnel_builder.forms.list": z.object({}).strict(),
+
+  "funnel_builder.forms.create": z
+    .object({
+      slug: z.string().trim().min(2).max(60),
+      name: z.string().trim().max(120).optional().nullable(),
+    })
+    .strict(),
+
+  "funnel_builder.forms.get": z
+    .object({
+      formId: z.string().trim().min(1).max(120),
+    })
+    .strict(),
+
+  "funnel_builder.forms.update": z
+    .object({
+      formId: z.string().trim().min(1).max(120),
+      name: z.string().trim().max(120).optional(),
+      status: z.enum(["DRAFT", "ACTIVE", "ARCHIVED"]).optional(),
+      slug: z.string().trim().max(60).optional(),
+      schemaJson: z.unknown().optional(),
+    })
+    .strict(),
+
+  "funnel_builder.forms.delete": z
+    .object({
+      formId: z.string().trim().min(1).max(120),
+    })
+    .strict(),
+
+  "funnel_builder.forms.submissions.list": z
+    .object({
+      formId: z.string().trim().min(1).max(120),
+      limit: z.number().int().min(1).max(100).optional().nullable(),
+      cursor: z.string().trim().max(120).optional().nullable(),
+    })
+    .strict(),
+
+  "funnel_builder.form_field_keys.get": z.object({}).strict(),
+
+  "funnel_builder.funnels.list": z.object({}).strict(),
+
+  "funnel_builder.funnels.get": z
+    .object({
+      funnelId: z.string().trim().min(1).max(120),
+    })
+    .strict(),
+
+  "funnel_builder.funnels.update": z
+    .object({
+      funnelId: z.string().trim().min(1).max(120),
+      name: z.string().trim().max(120).optional(),
+      status: z.enum(["DRAFT", "ACTIVE", "ARCHIVED"]).optional(),
+      slug: z.string().trim().max(60).optional(),
+      domain: z.union([z.string().trim().max(253), z.null()]).optional(),
+      seo: z.unknown().optional().nullable(),
+    })
+    .strict(),
+
+  "funnel_builder.funnels.delete": z
+    .object({
+      funnelId: z.string().trim().min(1).max(120),
+    })
+    .strict(),
+
+  "funnel_builder.pages.list": z
+    .object({
+      funnelId: z.string().trim().min(1).max(120),
+    })
+    .strict(),
+
+  "funnel_builder.pages.create": z
+    .object({
+      funnelId: z.string().trim().min(1).max(120),
+      slug: z.string().trim().min(1).max(64),
+      title: z.string().trim().max(200).optional().nullable(),
+      contentMarkdown: z.string().optional().nullable(),
+      sortOrder: z.number().finite().optional().nullable(),
+    })
+    .strict(),
+
+  "funnel_builder.pages.update": z
+    .object({
+      funnelId: z.string().trim().min(1).max(120),
+      pageId: z.string().trim().min(1).max(120),
+      title: z.string().trim().max(200).optional(),
+      contentMarkdown: z.string().optional(),
+      sortOrder: z.number().finite().optional(),
+      editorMode: z.enum(["MARKDOWN", "BLOCKS", "CUSTOM_HTML"]).optional(),
+      customHtml: z.string().optional(),
+      blocksJson: z.unknown().optional(),
+      customChatJson: z.unknown().optional(),
+      slug: z.string().trim().max(64).optional(),
+      seo: z.unknown().optional().nullable(),
+    })
+    .strict(),
+
+  "funnel_builder.pages.delete": z
+    .object({
+      funnelId: z.string().trim().min(1).max(120),
+      pageId: z.string().trim().min(1).max(120),
+    })
+    .strict(),
+
+  "funnel_builder.pages.export_custom_html": z
+    .object({
+      funnelId: z.string().trim().min(1).max(120),
+      pageId: z.string().trim().min(1).max(120),
+      blocksJson: z.unknown().optional(),
+      title: z.string().trim().max(200).optional(),
+      setEditorMode: z.enum(["BLOCKS", "CUSTOM_HTML"]).optional(),
+    })
+    .strict(),
+
+  "funnel_builder.pages.global_header": z
+    .discriminatedUnion("mode", [
+      z
+        .object({
+          mode: z.literal("apply"),
+          funnelId: z.string().trim().min(1).max(120),
+          headerBlock: z.unknown(),
+        })
+        .strict(),
+      z
+        .object({
+          mode: z.literal("unset"),
+          funnelId: z.string().trim().min(1).max(120),
+          keepOnPageId: z.string().trim().min(1).max(120),
+          localHeaderBlock: z.unknown(),
+        })
+        .strict(),
+    ]),
+
+  "funnel_builder.sales.products.list": z.object({}).strict(),
+
+  "funnel_builder.sales.products.create": z
+    .object({
+      name: z.string().trim().min(1).max(120),
+      description: z.string().trim().max(1000).optional().nullable(),
+      imageUrls: z.array(z.string().trim().url().max(500)).max(8).optional().nullable(),
+      priceCents: z.number().int().min(50).max(100_000_00),
+      currency: z.string().trim().min(3).max(10).optional().nullable(),
     })
     .strict(),
 
@@ -621,6 +819,30 @@ export function portalAgentActionsIndexText(): string {
     "- tasks.create: Create a portal task (fields: title, description?, assignedToUserId?, dueAtIso?)",
     "- tasks.create_for_all: Create the same task for every team member (fields: title, description?, dueAtIso?)",
     "- funnel.create: Create a Funnel Builder funnel (fields: name, slug)",
+    "- funnel_builder.settings.get: Get Funnel Builder settings",
+    "- funnel_builder.settings.update: Update Funnel Builder settings (fields: notifyEmails?, webhookUrl?, regenerateSecret?)",
+    "- funnel_builder.domains.list: List Funnel Builder custom domains",
+    "- funnel_builder.domains.create: Add a Funnel Builder custom domain (fields: domain)",
+    "- funnel_builder.domains.update: Update domain root behavior (fields: domain, rootMode?, rootFunnelSlug?)",
+    "- funnel_builder.forms.list: List Funnel Builder forms",
+    "- funnel_builder.forms.create: Create a Funnel Builder form (fields: slug, name?)",
+    "- funnel_builder.forms.get: Get a Funnel Builder form (fields: formId)",
+    "- funnel_builder.forms.update: Update a Funnel Builder form (fields: formId, name?, status?, slug?, schemaJson?)",
+    "- funnel_builder.forms.delete: Delete a Funnel Builder form (fields: formId)",
+    "- funnel_builder.forms.submissions.list: List form submissions (fields: formId, limit?, cursor?)",
+    "- funnel_builder.form_field_keys.get: List unique form field keys across forms",
+    "- funnel_builder.funnels.list: List funnels",
+    "- funnel_builder.funnels.get: Get a funnel (fields: funnelId)",
+    "- funnel_builder.funnels.update: Update a funnel (fields: funnelId, name?, status?, slug?, domain?, seo?)",
+    "- funnel_builder.funnels.delete: Delete a funnel (fields: funnelId)",
+    "- funnel_builder.pages.list: List pages for a funnel (fields: funnelId)",
+    "- funnel_builder.pages.create: Create a page (fields: funnelId, slug, title?, contentMarkdown?, sortOrder?)",
+    "- funnel_builder.pages.update: Update a page (fields: funnelId, pageId, title?, contentMarkdown?, sortOrder?, editorMode?, customHtml?, blocksJson?, customChatJson?, slug?, seo?)",
+    "- funnel_builder.pages.delete: Delete a page (fields: funnelId, pageId)",
+    "- funnel_builder.pages.export_custom_html: Generate and store custom HTML from blocks (fields: funnelId, pageId, blocksJson?, title?, setEditorMode?)",
+    "- funnel_builder.pages.global_header: Apply/unset a global header block (fields: mode, funnelId, headerBlock OR keepOnPageId+localHeaderBlock)",
+    "- funnel_builder.sales.products.list: List Stripe products (Funnel Builder sales)",
+    "- funnel_builder.sales.products.create: Create a Stripe product (fields: name, description?, imageUrls?, priceCents, currency?)",
     "- blogs.generate_now: Generate a blog draft now",
     "- newsletter.generate_now: Generate a newsletter draft now (fields: kind=external|internal)",
     "- automations.run: Run an automation by id (fields: automationId, contact?)",

@@ -61,6 +61,11 @@ import { ensurePortalNurtureSchema } from "@/lib/portalNurtureSchema";
 import { getOrCreateStripeCustomerId, isStripeConfigured, stripeGet, stripePost } from "@/lib/stripeFetch";
 import { generateText } from "@/lib/ai";
 import { getBusinessProfileAiContext } from "@/lib/businessProfileAiContext.server";
+import { ensureVercelProjectDomain } from "@/lib/vercelProjectDomains";
+import { coerceBlocksJson, type CreditFunnelBlock } from "@/lib/creditFunnelBlocks";
+import { blocksToCustomHtmlDocument } from "@/lib/funnelBlocksToCustomHtmlDocument";
+import { getStripeSecretKeyForOwner } from "@/lib/stripeIntegration.server";
+import { stripeGetWithKey, stripePostWithKey } from "@/lib/stripeFetchWithKey.server";
 
 const MAX_REMOTE_MEDIA_BYTES = 15 * 1024 * 1024; // matches /api/portal/media/import-remote
 
@@ -191,6 +196,64 @@ function normalizeSlug(raw: unknown) {
   if (!cleaned) return null;
   if (cleaned.length < 2 || cleaned.length > 60) return null;
   return cleaned;
+}
+
+function normalizeHexColor(raw: unknown) {
+  const s = typeof raw === "string" ? raw.trim() : "";
+  if (!s) return null;
+  if (s === "transparent") return "transparent";
+  if (!/^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(s)) return null;
+  return s;
+}
+
+function normalizeFunnelBuilderFormStyle(raw: unknown) {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
+  const r = raw as any;
+  const out: any = {};
+
+  const pageBg = normalizeHexColor(r.pageBg);
+  const cardBg = normalizeHexColor(r.cardBg);
+  const buttonBg = normalizeHexColor(r.buttonBg);
+  const buttonText = normalizeHexColor(r.buttonText);
+  const inputBg = normalizeHexColor(r.inputBg);
+  const inputBorder = normalizeHexColor(r.inputBorder);
+  const textColor = normalizeHexColor(r.textColor);
+
+  if (pageBg) out.pageBg = pageBg;
+  if (cardBg) out.cardBg = cardBg;
+  if (buttonBg) out.buttonBg = buttonBg;
+  if (buttonText) out.buttonText = buttonText;
+  if (inputBg) out.inputBg = inputBg;
+  if (inputBorder) out.inputBorder = inputBorder;
+  if (textColor) out.textColor = textColor;
+
+  if (typeof r.radiusPx === "number" && Number.isFinite(r.radiusPx)) {
+    out.radiusPx = Math.max(0, Math.min(40, Math.round(r.radiusPx)));
+  }
+
+  return out;
+}
+
+function normalizeFunnelBuilderFormSchema(schema: unknown): any {
+  if (!schema || typeof schema !== "object" || Array.isArray(schema)) return { fields: [] };
+  const fields = (schema as any).fields;
+  const style = normalizeFunnelBuilderFormStyle((schema as any).style);
+  if (!Array.isArray(fields)) return { fields: [] };
+  const out: any[] = [];
+  for (const f of fields) {
+    if (!f || typeof f !== "object") continue;
+    const name = typeof (f as any).name === "string" ? (f as any).name.trim() : "";
+    const label = typeof (f as any).label === "string" ? (f as any).label.trim() : "";
+    const type = (f as any).type;
+    const required = (f as any).required === true;
+    if (!name || !label) continue;
+    if (type !== "text" && type !== "email" && type !== "tel" && type !== "textarea") continue;
+    out.push({ name: name.slice(0, 64), label: label.slice(0, 160), type, required });
+  }
+
+  const normalized: any = { fields: out.slice(0, 50) };
+  if (style && typeof style === "object" && Object.keys(style).length) normalized.style = style;
+  return normalized;
 }
 
 function withRandomSuffix(base: string, maxLen = 60) {
@@ -356,6 +419,349 @@ async function runDirectAction(opts: {
     return { body: raw };
   }
 
+  async function requireOwnerOrAdmin() {
+    const memberId = String(actorUserId || "").trim() || ownerId;
+    const myRole = memberId === ownerId ? "OWNER" : await getPortalAccountMemberRole({ ownerId, userId: memberId });
+    return myRole === "OWNER" || myRole === "ADMIN";
+  }
+
+  type FunnelBuilderSettings = {
+    notifyEmails: string[];
+    webhookUrl: string | null;
+    webhookSecret: string;
+  };
+
+  function normalizeEmailList(raw: unknown): string[] {
+    if (!Array.isArray(raw)) return [];
+    const out: string[] = [];
+    for (const v of raw) {
+      if (typeof v !== "string") continue;
+      const e = v.trim().toLowerCase();
+      if (!e) continue;
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e)) continue;
+      out.push(e);
+    }
+    return Array.from(new Set(out)).slice(0, 10);
+  }
+
+  function normalizeWebhookUrl(raw: unknown): string | null {
+    if (typeof raw !== "string") return null;
+    const s = raw.trim();
+    if (!s) return null;
+    try {
+      const u = new URL(s);
+      if (u.protocol !== "https:" && u.protocol !== "http:") return null;
+      return u.toString();
+    } catch {
+      return null;
+    }
+  }
+
+  function parseFunnelBuilderSettings(dataJson: unknown): FunnelBuilderSettings {
+    const rec = dataJson && typeof dataJson === "object" && !Array.isArray(dataJson) ? (dataJson as any) : {};
+    const notifyEmails = normalizeEmailList(rec.notifyEmails);
+    const webhookUrl = normalizeWebhookUrl(rec.webhookUrl);
+    const webhookSecret = typeof rec.webhookSecret === "string" && rec.webhookSecret.trim().length >= 16
+      ? rec.webhookSecret.trim()
+      : crypto.randomBytes(24).toString("hex");
+    return { notifyEmails, webhookUrl, webhookSecret };
+  }
+
+  type DomainRootMode = "DISABLED" | "DIRECTORY" | "REDIRECT";
+
+  function safeRootMode(raw: unknown): DomainRootMode {
+    const s = typeof raw === "string" ? raw.trim().toUpperCase() : "";
+    if (s === "DISABLED" || s === "DIRECTORY" || s === "REDIRECT") return s;
+    return "DIRECTORY";
+  }
+
+  function safeRedirectSlug(raw: unknown): string | null {
+    const s = typeof raw === "string" ? raw.trim().toLowerCase() : "";
+    if (!s) return null;
+    if (s.length > 80) return null;
+    if (!/^[a-z0-9][a-z0-9-]*$/.test(s)) return null;
+    return s;
+  }
+
+  function readDomainSettings(settingsJson: unknown, domain: string): { rootMode: DomainRootMode; rootFunnelSlug: string | null } {
+    if (!settingsJson || typeof settingsJson !== "object" || Array.isArray(settingsJson)) {
+      return { rootMode: "DIRECTORY", rootFunnelSlug: null };
+    }
+    const domains = (settingsJson as any).customDomains;
+    if (!domains || typeof domains !== "object" || Array.isArray(domains)) {
+      return { rootMode: "DIRECTORY", rootFunnelSlug: null };
+    }
+    const row = (domains as any)[domain];
+    if (!row || typeof row !== "object" || Array.isArray(row)) {
+      return { rootMode: "DIRECTORY", rootFunnelSlug: null };
+    }
+    const rootMode = safeRootMode((row as any).rootMode);
+    const rootFunnelSlug = safeRedirectSlug((row as any).rootFunnelSlug);
+    return { rootMode, rootFunnelSlug };
+  }
+
+  function writeDomainSettings(settingsJson: unknown, domain: string, next: { rootMode: DomainRootMode; rootFunnelSlug: string | null }) {
+    const base = settingsJson && typeof settingsJson === "object" && !Array.isArray(settingsJson) ? { ...(settingsJson as any) } : {};
+    const customDomains =
+      base.customDomains && typeof base.customDomains === "object" && !Array.isArray(base.customDomains)
+        ? { ...(base.customDomains as any) }
+        : {};
+    customDomains[domain] = { rootMode: next.rootMode, rootFunnelSlug: next.rootFunnelSlug };
+    base.customDomains = customDomains;
+    return base;
+  }
+
+  function normalizeCustomDomain(raw: unknown) {
+    let s = typeof raw === "string" ? raw.trim().toLowerCase() : "";
+    if (!s) return null;
+
+    s = s.replace(/^https?:\/\//, "");
+    s = s.split("/")[0] || "";
+    s = s.split("?")[0] || "";
+    s = s.split("#")[0] || "";
+
+    if (!s) return null;
+    if (s.length > 253) return null;
+    if (!/^[a-z0-9.-]+\.[a-z]{2,}$/.test(s)) return null;
+    if (s.includes("..")) return null;
+    if (s.startsWith("-") || s.endsWith("-")) return null;
+
+    return s;
+  }
+
+  function readFunnelDomains(settingsJson: unknown): Record<string, string> {
+    if (!settingsJson || typeof settingsJson !== "object" || Array.isArray(settingsJson)) return {};
+    const raw = (settingsJson as any).funnelDomains;
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
+
+    const out: Record<string, string> = {};
+    for (const [k, v] of Object.entries(raw as any)) {
+      if (typeof k !== "string" || !k.trim()) continue;
+      const domain = normalizeCustomDomain(v);
+      if (!domain) continue;
+      out[k] = domain;
+    }
+    return out;
+  }
+
+  function writeFunnelDomain(settingsJson: unknown, funnelId: string, domain: string | null) {
+    const base = settingsJson && typeof settingsJson === "object" && !Array.isArray(settingsJson) ? { ...(settingsJson as any) } : {};
+    const funnelDomains =
+      base.funnelDomains && typeof base.funnelDomains === "object" && !Array.isArray(base.funnelDomains)
+        ? { ...(base.funnelDomains as any) }
+        : {};
+
+    if (domain) funnelDomains[funnelId] = domain;
+    else delete funnelDomains[funnelId];
+
+    base.funnelDomains = funnelDomains;
+    return base;
+  }
+
+  type FunnelSeo = {
+    title?: string;
+    description?: string;
+    imageUrl?: string;
+    noIndex?: boolean;
+  };
+
+  function readFunnelSeo(settingsJson: unknown, funnelId: string): FunnelSeo | null {
+    if (!settingsJson || typeof settingsJson !== "object" || Array.isArray(settingsJson)) return null;
+    const raw = (settingsJson as any).funnelSeo;
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+    const row = (raw as any)[funnelId];
+    if (!row || typeof row !== "object" || Array.isArray(row)) return null;
+
+    const title = typeof (row as any).title === "string" ? (row as any).title.trim().slice(0, 120) : "";
+    const description = typeof (row as any).description === "string" ? (row as any).description.trim().slice(0, 300) : "";
+    const imageUrl = typeof (row as any).imageUrl === "string" ? (row as any).imageUrl.trim().slice(0, 500) : "";
+    const noIndex = (row as any).noIndex === true;
+
+    const out: FunnelSeo = {};
+    if (title) out.title = title;
+    if (description) out.description = description;
+    if (imageUrl) out.imageUrl = imageUrl;
+    if (noIndex) out.noIndex = true;
+
+    return Object.keys(out).length ? out : null;
+  }
+
+  function safeSeo(raw: unknown): FunnelSeo | null {
+    if (raw === null) return null;
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+
+    const title = typeof (raw as any).title === "string" ? (raw as any).title.trim().slice(0, 120) : "";
+    const description = typeof (raw as any).description === "string" ? (raw as any).description.trim().slice(0, 300) : "";
+    const imageUrl = typeof (raw as any).imageUrl === "string" ? (raw as any).imageUrl.trim().slice(0, 500) : "";
+    const noIndex = (raw as any).noIndex === true;
+
+    const out: FunnelSeo = {};
+    if (title) out.title = title;
+    if (description) out.description = description;
+    if (imageUrl) out.imageUrl = imageUrl;
+    if (noIndex) out.noIndex = true;
+    return out;
+  }
+
+  function writeFunnelSeo(settingsJson: unknown, funnelId: string, seo: FunnelSeo | null) {
+    const base = settingsJson && typeof settingsJson === "object" && !Array.isArray(settingsJson) ? { ...(settingsJson as any) } : {};
+    const funnelSeo =
+      base.funnelSeo && typeof base.funnelSeo === "object" && !Array.isArray(base.funnelSeo)
+        ? { ...(base.funnelSeo as any) }
+        : {};
+
+    if (seo === null) delete funnelSeo[funnelId];
+    else funnelSeo[funnelId] = seo;
+
+    base.funnelSeo = funnelSeo;
+    return base;
+  }
+
+  function removeFunnelFromDomainRedirects(settingsJson: unknown, funnelSlug: string) {
+    if (!settingsJson || typeof settingsJson !== "object" || Array.isArray(settingsJson)) return settingsJson;
+    const base: any = { ...(settingsJson as any) };
+    const customDomains =
+      base.customDomains && typeof base.customDomains === "object" && !Array.isArray(base.customDomains)
+        ? { ...(base.customDomains as any) }
+        : null;
+    if (!customDomains) return base;
+
+    let changed = false;
+    for (const [domain, row] of Object.entries(customDomains)) {
+      if (!row || typeof row !== "object" || Array.isArray(row)) continue;
+      const rootMode = typeof (row as any).rootMode === "string" ? String((row as any).rootMode).trim().toUpperCase() : "";
+      const rootFunnelSlug = typeof (row as any).rootFunnelSlug === "string" ? String((row as any).rootFunnelSlug).trim().toLowerCase() : "";
+      if (rootMode === "REDIRECT" && rootFunnelSlug && rootFunnelSlug === funnelSlug) {
+        customDomains[domain] = { ...(row as any), rootMode: "DIRECTORY", rootFunnelSlug: null };
+        changed = true;
+      }
+    }
+
+    if (!changed) return base;
+    base.customDomains = customDomains;
+    return base;
+  }
+
+  type FunnelPageSeo = {
+    faviconUrl?: string;
+  };
+
+  function readFunnelPageSeo(settingsJson: unknown, pageId: string): FunnelPageSeo | null {
+    if (!pageId) return null;
+    if (!settingsJson || typeof settingsJson !== "object" || Array.isArray(settingsJson)) return null;
+    const raw = (settingsJson as any).funnelPageSeo;
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+    const row = (raw as any)[pageId];
+    if (!row || typeof row !== "object" || Array.isArray(row)) return null;
+
+    const faviconUrl = typeof (row as any).faviconUrl === "string" ? String((row as any).faviconUrl).trim().slice(0, 500) : "";
+
+    const out: FunnelPageSeo = {};
+    if (faviconUrl) out.faviconUrl = faviconUrl;
+    return Object.keys(out).length ? out : null;
+  }
+
+  function safePageSeo(raw: unknown): FunnelPageSeo | null {
+    if (raw === null) return null;
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+    const faviconUrl = typeof (raw as any).faviconUrl === "string" ? String((raw as any).faviconUrl).trim().slice(0, 500) : "";
+    const out: FunnelPageSeo = {};
+    if (faviconUrl) out.faviconUrl = faviconUrl;
+    return out;
+  }
+
+  function writeFunnelPageSeo(settingsJson: unknown, pageId: string, seo: FunnelPageSeo | null) {
+    const base = settingsJson && typeof settingsJson === "object" && !Array.isArray(settingsJson) ? { ...(settingsJson as any) } : {};
+    const funnelPageSeo =
+      base.funnelPageSeo && typeof base.funnelPageSeo === "object" && !Array.isArray(base.funnelPageSeo)
+        ? { ...(base.funnelPageSeo as any) }
+        : {};
+
+    if (seo === null) delete funnelPageSeo[pageId];
+    else funnelPageSeo[pageId] = seo;
+
+    base.funnelPageSeo = funnelPageSeo;
+    return base;
+  }
+
+  const GLOBAL_HEADER_KEY = "__global_header__";
+
+  function getGlobalHeaderBlockFromPages(pages: Array<{ blocksJson: unknown }>): CreditFunnelBlock | null {
+    for (const p of pages) {
+      const blocks = coerceBlocksJson(p.blocksJson);
+      for (const b of blocks) {
+        if (b.type !== "headerNav") continue;
+        const key = typeof (b.props as any)?.globalKey === "string" ? String((b.props as any).globalKey) : "";
+        if (key !== GLOBAL_HEADER_KEY) continue;
+        return {
+          ...b,
+          props: {
+            ...(b.props as any),
+            isGlobal: true,
+            globalKey: GLOBAL_HEADER_KEY,
+          },
+        } as CreditFunnelBlock;
+      }
+    }
+    return null;
+  }
+
+  function isHeaderNavBlock(b: CreditFunnelBlock | null | undefined): b is Extract<CreditFunnelBlock, { type: "headerNav" }> {
+    return Boolean(b && typeof b === "object" && (b as any).type === "headerNav");
+  }
+
+  function removeGlobalHeaders(blocks: CreditFunnelBlock[]): CreditFunnelBlock[] {
+    let changed = false;
+    const out = blocks.filter((b) => {
+      if (b.type !== "headerNav") return true;
+      const p: any = b.props as any;
+      const isGlobal = p?.isGlobal === true;
+      const globalKey = typeof p?.globalKey === "string" ? String(p.globalKey).trim() : "";
+      if (isGlobal || globalKey === GLOBAL_HEADER_KEY) {
+        changed = true;
+        return false;
+      }
+      return true;
+    });
+    return changed ? out : blocks;
+  }
+
+  function coerceHeaderNavFromUnknown(raw: unknown, forceGlobal: boolean): Extract<CreditFunnelBlock, { type: "headerNav" }> | null {
+    const arr = coerceBlocksJson([raw]);
+    const first = arr[0] || null;
+    if (!isHeaderNavBlock(first)) return null;
+
+    const next: any = {
+      ...first,
+      props: {
+        ...(first.props as any),
+        globalKey: GLOBAL_HEADER_KEY,
+        ...(forceGlobal ? { isGlobal: true } : { isGlobal: false, globalKey: undefined }),
+      },
+    };
+
+    const coerced = coerceBlocksJson([next])[0] as any;
+    return isHeaderNavBlock(coerced) ? (coerced as any) : null;
+  }
+
+  function parseSubmissionLimit(raw: unknown): number {
+    const n = typeof raw === "number" ? raw : typeof raw === "string" ? Number(raw) : NaN;
+    if (!Number.isFinite(n)) return 50;
+    return Math.max(1, Math.min(100, Math.floor(n)));
+  }
+
+  function parseSubmissionCursor(raw: unknown): { createdAt: Date; id: string } | null {
+    if (typeof raw !== "string") return null;
+    const s = raw.trim();
+    if (!s) return null;
+    const [createdAtRaw, idRaw] = s.split("|");
+    const id = String(idRaw || "").trim();
+    const createdAt = new Date(String(createdAtRaw || ""));
+    if (!id) return null;
+    if (Number.isNaN(createdAt.getTime())) return null;
+    return { createdAt, id };
+  }
+
   switch (action) {
     case "tasks.create": {
       await ensurePortalTasksSchema().catch(() => null);
@@ -451,6 +857,1043 @@ async function runDirectAction(opts: {
 
       if (!funnel) return { status: 500, json: { ok: false, error: "Unable to create funnel" } };
       return { status: 200, json: { ok: true, funnel } };
+    }
+
+    case "funnel_builder.settings.get": {
+      if (!(await requireOwnerOrAdmin())) return { status: 403, json: { ok: false, error: "Forbidden" } };
+
+      const row = await prisma.creditFunnelBuilderSettings
+        .findUnique({ where: { ownerId }, select: { dataJson: true } })
+        .catch(() => null);
+      const settings = parseFunnelBuilderSettings(row?.dataJson);
+
+      if (!row || (row.dataJson as any)?.webhookSecret !== settings.webhookSecret) {
+        await prisma.creditFunnelBuilderSettings
+          .upsert({ where: { ownerId }, update: { dataJson: settings as any }, create: { ownerId, dataJson: settings as any } })
+          .catch(() => null);
+      }
+
+      return { status: 200, json: { ok: true, settings } };
+    }
+
+    case "funnel_builder.settings.update": {
+      if (!(await requireOwnerOrAdmin())) return { status: 403, json: { ok: false, error: "Forbidden" } };
+
+      const row = await prisma.creditFunnelBuilderSettings
+        .findUnique({ where: { ownerId }, select: { dataJson: true } })
+        .catch(() => null);
+      const current = parseFunnelBuilderSettings(row?.dataJson);
+
+      const next: FunnelBuilderSettings = {
+        notifyEmails: normalizeEmailList(args?.notifyEmails ?? current.notifyEmails),
+        webhookUrl: normalizeWebhookUrl(args?.webhookUrl) ?? null,
+        webhookSecret: args?.regenerateSecret === true ? crypto.randomBytes(24).toString("hex") : current.webhookSecret,
+      };
+
+      await prisma.creditFunnelBuilderSettings.upsert({
+        where: { ownerId },
+        update: { dataJson: next as any },
+        create: { ownerId, dataJson: next as any },
+      });
+
+      return { status: 200, json: { ok: true, settings: next } };
+    }
+
+    case "funnel_builder.domains.list": {
+      if (!(await requireOwnerOrAdmin())) return { status: 403, json: { ok: false, error: "Forbidden" } };
+
+      const settings = await prisma.creditFunnelBuilderSettings
+        .findUnique({ where: { ownerId }, select: { dataJson: true } })
+        .catch(() => null);
+      const settingsJson = settings?.dataJson ?? null;
+
+      const domains = await prisma.creditCustomDomain.findMany({
+        where: { ownerId },
+        orderBy: { updatedAt: "desc" },
+        select: { id: true, domain: true, status: true, verifiedAt: true, createdAt: true, updatedAt: true },
+      });
+
+      const domainsWithSettings = domains.map((d) => {
+        const s = readDomainSettings(settingsJson, d.domain);
+        return { ...d, rootMode: s.rootMode, rootFunnelSlug: s.rootFunnelSlug };
+      });
+
+      return { status: 200, json: { ok: true, domains: domainsWithSettings } };
+    }
+
+    case "funnel_builder.domains.create": {
+      if (!(await requireOwnerOrAdmin())) return { status: 403, json: { ok: false, error: "Forbidden" } };
+
+      const domain = normalizeCustomDomain(args?.domain);
+      if (!domain) {
+        return {
+          status: 400,
+          json: { ok: false, error: "Please enter a valid domain like example.com (no https://, no paths)." },
+        };
+      }
+
+      const row = await prisma.creditCustomDomain
+        .upsert({
+          where: { ownerId_domain: { ownerId, domain } },
+          update: { domain },
+          create: { ownerId, domain },
+          select: { id: true, domain: true, status: true, verifiedAt: true, createdAt: true, updatedAt: true },
+        })
+        .catch((e) => {
+          const msg = String((e as any)?.message || "");
+          if (msg.includes("CreditCustomDomain_ownerId_domain_key") || msg.toLowerCase().includes("unique")) return null;
+          throw e;
+        });
+
+      if (!row) return { status: 409, json: { ok: false, error: "Domain already exists" } };
+
+      let provisioning: Awaited<ReturnType<typeof ensureVercelProjectDomain>> | null = null;
+      try {
+        provisioning = await ensureVercelProjectDomain(domain);
+      } catch {
+        provisioning = null;
+      }
+
+      return { status: 200, json: { ok: true, domain: row, provisioning } };
+    }
+
+    case "funnel_builder.domains.update": {
+      if (!(await requireOwnerOrAdmin())) return { status: 403, json: { ok: false, error: "Forbidden" } };
+
+      const domain = normalizeCustomDomain(args?.domain);
+      if (!domain) {
+        return {
+          status: 400,
+          json: { ok: false, error: "Please enter a valid domain like example.com (no https://, no paths)." },
+        };
+      }
+
+      const exists = await prisma.creditCustomDomain.findUnique({
+        where: { ownerId_domain: { ownerId, domain } },
+        select: { id: true },
+      });
+      if (!exists) return { status: 404, json: { ok: false, error: "Domain not found" } };
+
+      const rootMode = safeRootMode(args?.rootMode);
+      const rootFunnelSlug = safeRedirectSlug(args?.rootFunnelSlug);
+      if (rootMode === "REDIRECT" && !rootFunnelSlug) {
+        return { status: 400, json: { ok: false, error: "Pick a funnel to redirect to" } };
+      }
+
+      const existingSettings = await prisma.creditFunnelBuilderSettings
+        .findUnique({ where: { ownerId }, select: { dataJson: true } })
+        .catch(() => null);
+
+      const nextJson = writeDomainSettings(existingSettings?.dataJson ?? null, domain, {
+        rootMode,
+        rootFunnelSlug: rootMode === "REDIRECT" ? rootFunnelSlug : null,
+      });
+
+      await prisma.creditFunnelBuilderSettings.upsert({
+        where: { ownerId },
+        update: { dataJson: nextJson as any },
+        create: { ownerId, dataJson: nextJson as any },
+        select: { ownerId: true },
+      });
+
+      return {
+        status: 200,
+        json: {
+          ok: true,
+          domain,
+          rootMode,
+          rootFunnelSlug: rootMode === "REDIRECT" ? rootFunnelSlug : null,
+        },
+      };
+    }
+
+    case "funnel_builder.forms.list": {
+      if (!(await requireOwnerOrAdmin())) return { status: 403, json: { ok: false, error: "Forbidden" } };
+
+      const forms = await prisma.creditForm.findMany({
+        where: { ownerId },
+        orderBy: { updatedAt: "desc" },
+        select: { id: true, slug: true, name: true, status: true, createdAt: true, updatedAt: true },
+      });
+
+      return { status: 200, json: { ok: true, forms } };
+    }
+
+    case "funnel_builder.forms.create": {
+      if (!(await requireOwnerOrAdmin())) return { status: 403, json: { ok: false, error: "Forbidden" } };
+
+      const slug = normalizeSlug(args?.slug);
+      const nameRaw = typeof args?.name === "string" ? args.name.trim() : "";
+      const name = nameRaw || (slug ? slug.replace(/-/g, " ") : "");
+
+      if (!slug) return { status: 400, json: { ok: false, error: "Invalid slug" } };
+      if (!name || name.length > 120) return { status: 400, json: { ok: false, error: "Invalid name" } };
+
+      let form: any = null;
+      let candidate = slug;
+      for (let i = 0; i < 8; i += 1) {
+        form = await prisma.creditForm
+          .create({
+            data: { ownerId, slug: candidate, name },
+            select: { id: true, slug: true, name: true, status: true, createdAt: true, updatedAt: true },
+          })
+          .catch((e) => {
+            const msg = String((e as any)?.message || "");
+            if (msg.includes("CreditForm_slug_key") || msg.toLowerCase().includes("unique")) return null;
+            throw e;
+          });
+        if (form) break;
+        candidate = withRandomSuffix(slug);
+      }
+
+      if (!form) return { status: 500, json: { ok: false, error: "Unable to create form" } };
+      return { status: 200, json: { ok: true, form } };
+    }
+
+    case "funnel_builder.forms.get": {
+      if (!(await requireOwnerOrAdmin())) return { status: 403, json: { ok: false, error: "Forbidden" } };
+
+      const id = String(args?.formId || "").trim();
+      if (!id) return { status: 400, json: { ok: false, error: "Invalid id" } };
+
+      const form = await prisma.creditForm.findFirst({
+        where: { id, ownerId },
+        select: { id: true, slug: true, name: true, status: true, schemaJson: true, createdAt: true, updatedAt: true },
+      });
+      if (!form) return { status: 404, json: { ok: false, error: "Not found" } };
+      return { status: 200, json: { ok: true, form } };
+    }
+
+    case "funnel_builder.forms.update": {
+      if (!(await requireOwnerOrAdmin())) return { status: 403, json: { ok: false, error: "Forbidden" } };
+
+      const id = String(args?.formId || "").trim();
+      if (!id) return { status: 400, json: { ok: false, error: "Invalid id" } };
+
+      const existing = await prisma.creditForm.findFirst({ where: { id, ownerId }, select: { id: true } });
+      if (!existing) return { status: 404, json: { ok: false, error: "Not found" } };
+
+      const data: any = {};
+
+      if (typeof args?.name === "string") {
+        const name = args.name.trim();
+        if (!name || name.length > 120) return { status: 400, json: { ok: false, error: "Invalid name" } };
+        data.name = name;
+      }
+
+      if (typeof args?.status === "string") {
+        if (args.status !== "DRAFT" && args.status !== "ACTIVE" && args.status !== "ARCHIVED") {
+          return { status: 400, json: { ok: false, error: "Invalid status" } };
+        }
+        data.status = args.status;
+      }
+
+      if (typeof args?.slug === "string") {
+        const slug = normalizeSlug(args.slug);
+        if (!slug) return { status: 400, json: { ok: false, error: "Invalid slug" } };
+        data.slug = slug;
+      }
+
+      if (args?.schemaJson !== undefined) {
+        data.schemaJson = normalizeFunnelBuilderFormSchema(args.schemaJson);
+      }
+
+      const desiredSlug = typeof (data as any)?.slug === "string" ? String((data as any).slug) : null;
+      let form: any = null;
+      let candidate = desiredSlug;
+      for (let i = 0; i < 8; i += 1) {
+        if (candidate) (data as any).slug = candidate;
+
+        form = await prisma.creditForm
+          .update({
+            where: { id },
+            data,
+            select: { id: true, slug: true, name: true, status: true, schemaJson: true, createdAt: true, updatedAt: true },
+          })
+          .catch((e) => {
+            const msg = String((e as any)?.message || "");
+            if (msg.toLowerCase().includes("unique") || msg.includes("CreditForm_slug_key")) return null;
+            throw e;
+          });
+
+        if (form) break;
+        if (!desiredSlug) break;
+        candidate = withRandomSuffix(desiredSlug);
+      }
+
+      if (!form) return { status: 500, json: { ok: false, error: "Unable to update form" } };
+      return { status: 200, json: { ok: true, form } };
+    }
+
+    case "funnel_builder.forms.delete": {
+      if (!(await requireOwnerOrAdmin())) return { status: 403, json: { ok: false, error: "Forbidden" } };
+
+      const id = String(args?.formId || "").trim();
+      if (!id) return { status: 400, json: { ok: false, error: "Invalid id" } };
+
+      const existing = await prisma.creditForm.findFirst({ where: { id, ownerId }, select: { id: true } });
+      if (!existing) return { status: 404, json: { ok: false, error: "Not found" } };
+
+      await prisma.creditForm.delete({ where: { id: existing.id }, select: { id: true } });
+      return { status: 200, json: { ok: true } };
+    }
+
+    case "funnel_builder.forms.submissions.list": {
+      if (!(await requireOwnerOrAdmin())) return { status: 403, json: { ok: false, error: "Forbidden" } };
+
+      const id = String(args?.formId || "").trim();
+      if (!id) return { status: 400, json: { ok: false, error: "Invalid id" } };
+
+      const form = await prisma.creditForm.findFirst({ where: { id, ownerId }, select: { id: true } });
+      if (!form) return { status: 404, json: { ok: false, error: "Not found" } };
+
+      const limit = parseSubmissionLimit(args?.limit);
+      const cursor = parseSubmissionCursor(args?.cursor);
+
+      const submissions = await prisma.creditFormSubmission.findMany({
+        where: {
+          formId: form.id,
+          ...(cursor
+            ? {
+                OR: [
+                  { createdAt: { lt: cursor.createdAt } },
+                  { createdAt: cursor.createdAt, id: { lt: cursor.id } },
+                ],
+              }
+            : {}),
+        },
+        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+        take: limit + 1,
+        select: { id: true, createdAt: true, dataJson: true, ip: true, userAgent: true },
+      });
+
+      const hasMore = submissions.length > limit;
+      const page = hasMore ? submissions.slice(0, limit) : submissions;
+      const nextCursor = hasMore ? `${page[page.length - 1]!.createdAt.toISOString()}|${page[page.length - 1]!.id}` : null;
+
+      return {
+        status: 200,
+        json: {
+          ok: true,
+          submissions: page.map((s) => ({
+            id: s.id,
+            createdAt: s.createdAt.toISOString(),
+            dataJson: s.dataJson,
+            ip: s.ip,
+            userAgent: s.userAgent,
+          })),
+          nextCursor,
+        },
+      };
+    }
+
+    case "funnel_builder.form_field_keys.get": {
+      if (!(await requireOwnerOrAdmin())) return { status: 403, json: { ok: false, error: "Forbidden" } };
+
+      function parseFormFields(schemaJson: unknown): Array<{ key: string; label: string }> {
+        if (!schemaJson || typeof schemaJson !== "object") return [];
+        const rawFields = (schemaJson as any).fields;
+        if (!Array.isArray(rawFields)) return [];
+
+        const out: Array<{ key: string; label: string }> = [];
+        for (const f of rawFields) {
+          if (!f || typeof f !== "object") continue;
+          const key = typeof (f as any).name === "string" ? String((f as any).name).trim() : "";
+          const label = typeof (f as any).label === "string" ? String((f as any).label).trim() : "";
+          if (!key || !label) continue;
+          out.push({ key, label });
+        }
+        return out;
+      }
+
+      const forms = await prisma.creditForm.findMany({
+        where: { ownerId },
+        orderBy: { updatedAt: "desc" },
+        select: { id: true, slug: true, name: true, schemaJson: true },
+        take: 200,
+      });
+
+      const seen = new Set<string>();
+      const fields: Array<{ key: string; label: string; formId: string; formSlug: string; formName: string }> = [];
+      for (const form of forms) {
+        const formFields = parseFormFields(form.schemaJson);
+        for (const f of formFields) {
+          const key = f.key;
+          if (seen.has(key)) continue;
+          seen.add(key);
+          fields.push({ key, label: f.label, formId: form.id, formSlug: form.slug, formName: form.name });
+        }
+      }
+
+      fields.sort((a, b) => {
+        const al = (a.label || a.key).toLowerCase();
+        const bl = (b.label || b.key).toLowerCase();
+        if (al < bl) return -1;
+        if (al > bl) return 1;
+        return a.key.localeCompare(b.key);
+      });
+
+      return { status: 200, json: { ok: true, fields } };
+    }
+
+    case "funnel_builder.funnels.list": {
+      if (!(await requireOwnerOrAdmin())) return { status: 403, json: { ok: false, error: "Forbidden" } };
+
+      const settings = await prisma.creditFunnelBuilderSettings
+        .findUnique({ where: { ownerId }, select: { dataJson: true } })
+        .catch(() => null);
+      const funnelDomains = readFunnelDomains(settings?.dataJson ?? null);
+
+      const funnels = await prisma.creditFunnel.findMany({
+        where: { ownerId },
+        orderBy: { updatedAt: "desc" },
+        select: { id: true, slug: true, name: true, status: true, createdAt: true, updatedAt: true },
+      });
+
+      const funnelsWithDomains = funnels.map((f) => ({ ...f, assignedDomain: funnelDomains[f.id] ?? null }));
+      return { status: 200, json: { ok: true, funnels: funnelsWithDomains } };
+    }
+
+    case "funnel_builder.funnels.get": {
+      if (!(await requireOwnerOrAdmin())) return { status: 403, json: { ok: false, error: "Forbidden" } };
+
+      const id = String(args?.funnelId || "").trim();
+      if (!id) return { status: 400, json: { ok: false, error: "Invalid id" } };
+
+      const funnel = await prisma.creditFunnel.findFirst({
+        where: { id, ownerId },
+        select: { id: true, slug: true, name: true, status: true, createdAt: true, updatedAt: true },
+      });
+      if (!funnel) return { status: 404, json: { ok: false, error: "Not found" } };
+
+      const settings = await prisma.creditFunnelBuilderSettings
+        .findUnique({ where: { ownerId }, select: { dataJson: true } })
+        .catch(() => null);
+      const funnelDomains = readFunnelDomains(settings?.dataJson ?? null);
+      const seo = readFunnelSeo(settings?.dataJson ?? null, funnel.id);
+
+      return { status: 200, json: { ok: true, funnel: { ...funnel, assignedDomain: funnelDomains[funnel.id] ?? null, seo } } };
+    }
+
+    case "funnel_builder.funnels.update": {
+      if (!(await requireOwnerOrAdmin())) return { status: 403, json: { ok: false, error: "Forbidden" } };
+
+      const id = String(args?.funnelId || "").trim();
+      if (!id) return { status: 400, json: { ok: false, error: "Invalid id" } };
+
+      const existing = await prisma.creditFunnel.findFirst({ where: { id, ownerId }, select: { id: true } });
+      if (!existing) return { status: 404, json: { ok: false, error: "Not found" } };
+
+      const data: any = {};
+
+      const wantsDomainUpdate = typeof args?.domain !== "undefined";
+      const requestedDomainRaw = wantsDomainUpdate ? args.domain : undefined;
+      const requestedDomain =
+        requestedDomainRaw === null ? null : typeof requestedDomainRaw === "string" ? normalizeCustomDomain(requestedDomainRaw) : null;
+      if (wantsDomainUpdate && requestedDomainRaw !== null && !requestedDomain) {
+        return { status: 400, json: { ok: false, error: "Invalid domain" } };
+      }
+
+      const wantsSeoUpdate = typeof args?.seo !== "undefined";
+      const requestedSeoRaw = wantsSeoUpdate ? args.seo : undefined;
+      const requestedSeo = wantsSeoUpdate ? (requestedSeoRaw === null ? null : safeSeo(requestedSeoRaw)) : undefined;
+      if (wantsSeoUpdate && requestedSeoRaw !== null && requestedSeo == null) {
+        return { status: 400, json: { ok: false, error: "Invalid seo" } };
+      }
+
+      if (wantsDomainUpdate && requestedDomain) {
+        const exists = await prisma.creditCustomDomain.findUnique({
+          where: { ownerId_domain: { ownerId, domain: requestedDomain } },
+          select: { id: true },
+        });
+        if (!exists) return { status: 404, json: { ok: false, error: "Domain not found" } };
+      }
+
+      if (typeof args?.name === "string") {
+        const name = args.name.trim();
+        if (!name || name.length > 120) return { status: 400, json: { ok: false, error: "Invalid name" } };
+        data.name = name;
+      }
+
+      if (typeof args?.status === "string") {
+        if (args.status !== "DRAFT" && args.status !== "ACTIVE" && args.status !== "ARCHIVED") {
+          return { status: 400, json: { ok: false, error: "Invalid status" } };
+        }
+        data.status = args.status;
+      }
+
+      if (typeof args?.slug === "string") {
+        const slug = normalizeSlug(args.slug);
+        if (!slug) return { status: 400, json: { ok: false, error: "Invalid slug" } };
+        data.slug = slug;
+      }
+
+      const desiredSlug = typeof (data as any)?.slug === "string" ? String((data as any).slug) : null;
+      let funnel: any = null;
+      let candidate = desiredSlug;
+      for (let i = 0; i < 8; i += 1) {
+        if (candidate) (data as any).slug = candidate;
+
+        funnel = await prisma.creditFunnel
+          .update({
+            where: { id },
+            data,
+            select: { id: true, slug: true, name: true, status: true, createdAt: true, updatedAt: true },
+          })
+          .catch((e) => {
+            const msg = String((e as any)?.message || "");
+            if (msg.toLowerCase().includes("unique") || msg.includes("CreditFunnel_slug_key")) return null;
+            throw e;
+          });
+
+        if (funnel) break;
+        if (!desiredSlug) break;
+        candidate = withRandomSuffix(desiredSlug);
+      }
+
+      if (!funnel) return { status: 500, json: { ok: false, error: "Unable to update funnel" } };
+
+      let assignedDomain: string | null = null;
+      let seo: FunnelSeo | null = null;
+
+      if (wantsDomainUpdate || wantsSeoUpdate) {
+        const existingSettings = await prisma.creditFunnelBuilderSettings
+          .findUnique({ where: { ownerId }, select: { dataJson: true } })
+          .catch(() => null);
+
+        let nextJson: any = existingSettings?.dataJson ?? null;
+        if (wantsDomainUpdate) nextJson = writeFunnelDomain(nextJson, funnel.id, requestedDomain);
+        if (wantsSeoUpdate) nextJson = writeFunnelSeo(nextJson, funnel.id, (requestedSeo as any) ?? null);
+
+        await prisma.creditFunnelBuilderSettings.upsert({
+          where: { ownerId },
+          update: { dataJson: nextJson as any },
+          create: { ownerId, dataJson: nextJson as any },
+          select: { ownerId: true },
+        });
+
+        const funnelDomains = readFunnelDomains(nextJson);
+        assignedDomain = funnelDomains[funnel.id] ?? null;
+        seo = readFunnelSeo(nextJson, funnel.id);
+      } else {
+        const settings = await prisma.creditFunnelBuilderSettings
+          .findUnique({ where: { ownerId }, select: { dataJson: true } })
+          .catch(() => null);
+        const settingsJson = settings?.dataJson ?? null;
+        const funnelDomains = readFunnelDomains(settingsJson);
+        assignedDomain = funnelDomains[funnel.id] ?? null;
+        seo = readFunnelSeo(settingsJson, funnel.id);
+      }
+
+      return { status: 200, json: { ok: true, funnel: { ...funnel, assignedDomain, seo } } };
+    }
+
+    case "funnel_builder.funnels.delete": {
+      if (!(await requireOwnerOrAdmin())) return { status: 403, json: { ok: false, error: "Forbidden" } };
+
+      const id = String(args?.funnelId || "").trim();
+      if (!id) return { status: 400, json: { ok: false, error: "Invalid id" } };
+
+      const existing = await prisma.creditFunnel.findFirst({ where: { id, ownerId }, select: { id: true, slug: true } });
+      if (!existing) return { status: 404, json: { ok: false, error: "Not found" } };
+
+      try {
+        const settings = await prisma.creditFunnelBuilderSettings
+          .findUnique({ where: { ownerId }, select: { dataJson: true } })
+          .catch(() => null);
+        const settingsJson = settings?.dataJson ?? null;
+        let nextJson: any = settingsJson;
+        nextJson = writeFunnelDomain(nextJson, existing.id, null);
+        nextJson = writeFunnelSeo(nextJson, existing.id, null);
+        nextJson = removeFunnelFromDomainRedirects(nextJson, existing.slug);
+
+        if (settingsJson != null) {
+          await prisma.creditFunnelBuilderSettings.update({ where: { ownerId }, data: { dataJson: nextJson as any }, select: { ownerId: true } });
+        }
+      } catch {
+        // ignore
+      }
+
+      await prisma.creditFunnel.delete({ where: { id: existing.id }, select: { id: true } });
+      return { status: 200, json: { ok: true } };
+    }
+
+    case "funnel_builder.pages.list": {
+      if (!(await requireOwnerOrAdmin())) return { status: 403, json: { ok: false, error: "Forbidden" } };
+
+      const funnelId = String(args?.funnelId || "").trim();
+      if (!funnelId) return { status: 400, json: { ok: false, error: "Invalid funnelId" } };
+
+      const funnel = await prisma.creditFunnel.findFirst({ where: { id: funnelId, ownerId }, select: { id: true } });
+      if (!funnel) return { status: 404, json: { ok: false, error: "Not found" } };
+
+      const pages = await prisma.creditFunnelPage.findMany({
+        where: { funnelId },
+        orderBy: [{ sortOrder: "asc" }, { id: "asc" }],
+        select: {
+          id: true,
+          slug: true,
+          title: true,
+          sortOrder: true,
+          contentMarkdown: true,
+          editorMode: true,
+          blocksJson: true,
+          customHtml: true,
+          customChatJson: true,
+          createdAt: true,
+          updatedAt: true,
+        },
+      });
+
+      const settings = await prisma.creditFunnelBuilderSettings
+        .findUnique({ where: { ownerId }, select: { dataJson: true } })
+        .catch(() => null);
+
+      const pagesWithSeo = pages.map((p) => ({ ...p, seo: readFunnelPageSeo(settings?.dataJson ?? null, p.id) }));
+      return { status: 200, json: { ok: true, pages: pagesWithSeo } };
+    }
+
+    case "funnel_builder.pages.create": {
+      if (!(await requireOwnerOrAdmin())) return { status: 403, json: { ok: false, error: "Forbidden" } };
+
+      const funnelId = String(args?.funnelId || "").trim();
+      if (!funnelId) return { status: 400, json: { ok: false, error: "Invalid funnelId" } };
+
+      const funnel = await prisma.creditFunnel.findFirst({ where: { id: funnelId, ownerId }, select: { id: true } });
+      if (!funnel) return { status: 404, json: { ok: false, error: "Not found" } };
+
+      const charged = await consumeCredits(ownerId, PORTAL_CREDIT_COSTS.funnelPageCreate);
+      if (!charged.ok) {
+        return { status: 402, json: { ok: false, error: "Insufficient credits", credits: charged.state.balance } };
+      }
+
+      const pagesForHeader = await prisma.creditFunnelPage.findMany({ where: { funnelId }, select: { blocksJson: true } });
+      const globalHeaderBlock = getGlobalHeaderBlockFromPages(pagesForHeader);
+
+      const slugRaw = typeof args?.slug === "string" ? args.slug.trim().toLowerCase() : "";
+      const title = typeof args?.title === "string" ? args.title.trim() : "";
+      const contentMarkdown = typeof args?.contentMarkdown === "string" ? args.contentMarkdown : "";
+      const sortOrder = Number.isFinite(Number(args?.sortOrder)) ? Number(args.sortOrder) : 0;
+
+      const normalizedSlug = slugRaw
+        .replace(/[^a-z0-9-]/g, "-")
+        .replace(/-+/g, "-")
+        .replace(/^-|-$/g, "")
+        .slice(0, 64);
+      if (!normalizedSlug) return { status: 400, json: { ok: false, error: "Slug is required" } };
+
+      const page = await prisma.creditFunnelPage.create({
+        data: {
+          funnelId,
+          slug: normalizedSlug,
+          title: title || normalizedSlug,
+          contentMarkdown,
+          sortOrder,
+          ...(globalHeaderBlock ? { blocksJson: [globalHeaderBlock] as any } : {}),
+        },
+        select: {
+          id: true,
+          slug: true,
+          title: true,
+          sortOrder: true,
+          contentMarkdown: true,
+          editorMode: true,
+          blocksJson: true,
+          customHtml: true,
+          customChatJson: true,
+          createdAt: true,
+          updatedAt: true,
+        },
+      });
+
+      return { status: 200, json: { ok: true, page, creditsRemaining: charged.state.balance } };
+    }
+
+    case "funnel_builder.pages.update": {
+      if (!(await requireOwnerOrAdmin())) return { status: 403, json: { ok: false, error: "Forbidden" } };
+
+      const funnelId = String(args?.funnelId || "").trim();
+      const pageId = String(args?.pageId || "").trim();
+      if (!funnelId || !pageId) return { status: 400, json: { ok: false, error: "Invalid id" } };
+
+      const page = await prisma.creditFunnelPage.findFirst({
+        where: { id: pageId, funnelId, funnel: { ownerId } },
+        select: { id: true },
+      });
+      if (!page) return { status: 404, json: { ok: false, error: "Not found" } };
+
+      const wantsSeoUpdate = typeof args?.seo !== "undefined";
+      const requestedSeoRaw = wantsSeoUpdate ? args.seo : undefined;
+      const requestedSeo = wantsSeoUpdate ? (requestedSeoRaw === null ? null : safePageSeo(requestedSeoRaw)) : undefined;
+      if (wantsSeoUpdate && requestedSeoRaw !== null && requestedSeo == null) {
+        return { status: 400, json: { ok: false, error: "Invalid seo" } };
+      }
+
+      const data: any = {};
+      if (typeof args?.title === "string") data.title = args.title.trim();
+      if (typeof args?.contentMarkdown === "string") data.contentMarkdown = args.contentMarkdown;
+      if (typeof args?.sortOrder === "number" && Number.isFinite(args.sortOrder)) data.sortOrder = args.sortOrder;
+
+      if (typeof args?.editorMode === "string") {
+        const m = args.editorMode.trim().toUpperCase();
+        if (m !== "MARKDOWN" && m !== "BLOCKS" && m !== "CUSTOM_HTML") {
+          return { status: 400, json: { ok: false, error: "Invalid editorMode" } };
+        }
+        data.editorMode = m;
+      }
+      if (typeof args?.customHtml === "string") data.customHtml = args.customHtml;
+      if (args?.blocksJson !== undefined) data.blocksJson = args.blocksJson;
+      if (args?.customChatJson !== undefined) data.customChatJson = args.customChatJson;
+
+      if (typeof args?.slug === "string") {
+        const slug = args.slug
+          .trim()
+          .toLowerCase()
+          .replace(/[^a-z0-9-]/g, "-")
+          .replace(/-+/g, "-")
+          .replace(/^-|-$/g, "")
+          .slice(0, 64);
+        if (!slug) return { status: 400, json: { ok: false, error: "Invalid slug" } };
+        data.slug = slug;
+      }
+
+      const updated = Object.keys(data).length
+        ? await prisma.creditFunnelPage.update({
+            where: { id: pageId },
+            data,
+            select: {
+              id: true,
+              slug: true,
+              title: true,
+              sortOrder: true,
+              contentMarkdown: true,
+              editorMode: true,
+              blocksJson: true,
+              customHtml: true,
+              customChatJson: true,
+              createdAt: true,
+              updatedAt: true,
+            },
+          })
+        : await prisma.creditFunnelPage.findUniqueOrThrow({
+            where: { id: pageId },
+            select: {
+              id: true,
+              slug: true,
+              title: true,
+              sortOrder: true,
+              contentMarkdown: true,
+              editorMode: true,
+              blocksJson: true,
+              customHtml: true,
+              customChatJson: true,
+              createdAt: true,
+              updatedAt: true,
+            },
+          });
+
+      let nextSeo: FunnelPageSeo | null = null;
+      if (wantsSeoUpdate) {
+        const existingSettings = await prisma.creditFunnelBuilderSettings
+          .findUnique({ where: { ownerId }, select: { dataJson: true } })
+          .catch(() => null);
+        const nextJson = writeFunnelPageSeo(existingSettings?.dataJson ?? null, pageId, (requestedSeo as any) ?? null);
+
+        await prisma.creditFunnelBuilderSettings.upsert({
+          where: { ownerId },
+          update: { dataJson: nextJson as any },
+          create: { ownerId, dataJson: nextJson as any },
+          select: { ownerId: true },
+        });
+
+        nextSeo = readFunnelPageSeo(nextJson, pageId);
+      } else {
+        const existingSettings = await prisma.creditFunnelBuilderSettings
+          .findUnique({ where: { ownerId }, select: { dataJson: true } })
+          .catch(() => null);
+        nextSeo = readFunnelPageSeo(existingSettings?.dataJson ?? null, pageId);
+      }
+
+      return { status: 200, json: { ok: true, page: { ...updated, seo: nextSeo } } };
+    }
+
+    case "funnel_builder.pages.delete": {
+      if (!(await requireOwnerOrAdmin())) return { status: 403, json: { ok: false, error: "Forbidden" } };
+
+      const funnelId = String(args?.funnelId || "").trim();
+      const pageId = String(args?.pageId || "").trim();
+      if (!funnelId || !pageId) return { status: 400, json: { ok: false, error: "Invalid id" } };
+
+      const page = await prisma.creditFunnelPage.findFirst({
+        where: { id: pageId, funnelId, funnel: { ownerId } },
+        select: { id: true },
+      });
+      if (!page) return { status: 404, json: { ok: false, error: "Not found" } };
+
+      try {
+        const existingSettings = await prisma.creditFunnelBuilderSettings
+          .findUnique({ where: { ownerId }, select: { dataJson: true } })
+          .catch(() => null);
+        if (existingSettings?.dataJson != null) {
+          const nextJson = writeFunnelPageSeo(existingSettings.dataJson, pageId, null);
+          await prisma.creditFunnelBuilderSettings.update({ where: { ownerId }, data: { dataJson: nextJson as any }, select: { ownerId: true } });
+        }
+      } catch {
+        // ignore
+      }
+
+      await prisma.creditFunnelPage.delete({ where: { id: pageId } });
+      return { status: 200, json: { ok: true } };
+    }
+
+    case "funnel_builder.pages.export_custom_html": {
+      if (!(await requireOwnerOrAdmin())) return { status: 403, json: { ok: false, error: "Forbidden" } };
+
+      const funnelId = String(args?.funnelId || "").trim();
+      const pageId = String(args?.pageId || "").trim();
+      if (!funnelId || !pageId) return { status: 400, json: { ok: false, error: "Invalid id" } };
+
+      const page = await prisma.creditFunnelPage
+        .findFirst({
+          where: { id: pageId, funnelId, funnel: { ownerId } },
+          select: { id: true, slug: true, title: true, editorMode: true, blocksJson: true, customHtml: true, customChatJson: true, updatedAt: true },
+        })
+        .catch(() => null);
+
+      if (!page) return { status: 404, json: { ok: false, error: "Not found" } };
+
+      const owner = await prisma.user.findUnique({ where: { id: ownerId }, select: { clientPortalVariant: true } }).catch(() => null);
+      const basePath = owner?.clientPortalVariant === "CREDIT" ? "/credit" : "";
+
+      function coerceBlocks(raw: unknown): CreditFunnelBlock[] {
+        if (!Array.isArray(raw)) return [];
+        return (raw as CreditFunnelBlock[]).filter((b) => b && typeof b === "object");
+      }
+
+      const blocksFromClient = coerceBlocks(args?.blocksJson);
+      const blocksFromDb = coerceBlocks(page.blocksJson);
+      const blocks = blocksFromClient.length ? blocksFromClient : blocksFromDb;
+
+      const html = blocksToCustomHtmlDocument({
+        blocks,
+        pageId: page.id,
+        ownerId,
+        basePath,
+        title: typeof args?.title === "string" && args.title.trim() ? args.title.trim() : page.title || "Funnel page",
+      });
+
+      const updated = await prisma.creditFunnelPage.update({
+        where: { id: page.id },
+        data: {
+          ...(blocksFromClient.length ? { blocksJson: blocksFromClient as any } : null),
+          customHtml: html,
+          ...(typeof args?.setEditorMode === "string" ? { editorMode: args.setEditorMode } : null),
+        },
+        select: {
+          id: true,
+          slug: true,
+          title: true,
+          editorMode: true,
+          blocksJson: true,
+          customHtml: true,
+          customChatJson: true,
+          updatedAt: true,
+        },
+      });
+
+      return { status: 200, json: { ok: true, html: updated.customHtml, page: updated } };
+    }
+
+    case "funnel_builder.pages.global_header": {
+      if (!(await requireOwnerOrAdmin())) return { status: 403, json: { ok: false, error: "Forbidden" } };
+
+      const funnelId = String(args?.funnelId || "").trim();
+      if (!funnelId) return { status: 400, json: { ok: false, error: "Invalid funnelId" } };
+
+      const funnel = await prisma.creditFunnel.findFirst({ where: { id: funnelId, ownerId }, select: { id: true } });
+      if (!funnel) return { status: 404, json: { ok: false, error: "Not found" } };
+
+      const pages = await prisma.creditFunnelPage.findMany({
+        where: { funnelId },
+        orderBy: [{ sortOrder: "asc" }, { id: "asc" }],
+        select: {
+          id: true,
+          slug: true,
+          title: true,
+          sortOrder: true,
+          contentMarkdown: true,
+          editorMode: true,
+          blocksJson: true,
+          customHtml: true,
+          customChatJson: true,
+          createdAt: true,
+          updatedAt: true,
+        },
+      });
+
+      if (args?.mode === "apply") {
+        const header = coerceHeaderNavFromUnknown(args?.headerBlock, true);
+        if (!header) return { status: 400, json: { ok: false, error: "Invalid header block" } };
+
+        const updates = pages.map((p) => {
+          const coerced = coerceBlocksJson(p.blocksJson);
+          const first = coerced[0];
+          const pageSettings = first && first.type === "page" ? first : null;
+          const editable = coerced.filter((b) => b.type !== "page");
+          const withoutGlobal = removeGlobalHeaders(editable);
+          const nextEditable = [header, ...withoutGlobal];
+          const nextBlocks = pageSettings ? [pageSettings, ...nextEditable] : nextEditable;
+          return prisma.creditFunnelPage.update({
+            where: { id: p.id },
+            data: { blocksJson: nextBlocks },
+            select: {
+              id: true,
+              slug: true,
+              title: true,
+              sortOrder: true,
+              contentMarkdown: true,
+              editorMode: true,
+              blocksJson: true,
+              customHtml: true,
+              customChatJson: true,
+              createdAt: true,
+              updatedAt: true,
+            },
+          });
+        });
+
+        const updatedPages = await prisma.$transaction(updates);
+        return { status: 200, json: { ok: true, pages: updatedPages } };
+      }
+
+      if (args?.mode === "unset") {
+        const localHeader = coerceHeaderNavFromUnknown(args?.localHeaderBlock, false);
+        if (!localHeader) return { status: 400, json: { ok: false, error: "Invalid header block" } };
+
+        const keepOnPageId = String(args?.keepOnPageId || "").trim();
+        const updates = pages.map((p) => {
+          const coerced = coerceBlocksJson(p.blocksJson);
+          const first = coerced[0];
+          const pageSettings = first && first.type === "page" ? first : null;
+          const editable = coerced.filter((b) => b.type !== "page");
+          const withoutGlobal = removeGlobalHeaders(editable);
+          const nextEditable = p.id === keepOnPageId ? [localHeader, ...withoutGlobal] : withoutGlobal;
+          const nextBlocks = pageSettings ? [pageSettings, ...nextEditable] : nextEditable;
+          return prisma.creditFunnelPage.update({
+            where: { id: p.id },
+            data: { blocksJson: nextBlocks },
+            select: {
+              id: true,
+              slug: true,
+              title: true,
+              sortOrder: true,
+              contentMarkdown: true,
+              editorMode: true,
+              blocksJson: true,
+              customHtml: true,
+              customChatJson: true,
+              createdAt: true,
+              updatedAt: true,
+            },
+          });
+        });
+
+        const updatedPages = await prisma.$transaction(updates);
+        return { status: 200, json: { ok: true, pages: updatedPages } };
+      }
+
+      return { status: 400, json: { ok: false, error: "Invalid payload" } };
+    }
+
+    case "funnel_builder.sales.products.list": {
+      if (!(await requireOwnerOrAdmin())) return { status: 403, json: { ok: false, error: "Forbidden" } };
+
+      const secretKey = await getStripeSecretKeyForOwner(ownerId).catch(() => null);
+      if (!secretKey) return { status: 400, json: { ok: false, error: "Stripe is not connected" } };
+
+      type StripePrice = {
+        id: string;
+        unit_amount: number | null;
+        currency: string;
+      };
+
+      type StripeProduct = {
+        id: string;
+        name: string;
+        description: string | null;
+        images: string[];
+        active: boolean;
+        default_price?: StripePrice | string | null;
+      };
+
+      type StripeList<T> = { data: T[] };
+
+      function normalizeStripeProduct(p: StripeProduct) {
+        const defaultPriceObj = p.default_price && typeof p.default_price === "object" ? (p.default_price as StripePrice) : null;
+        return {
+          id: String(p.id || ""),
+          name: String(p.name || ""),
+          description: p.description ? String(p.description) : null,
+          images: Array.isArray(p.images) ? p.images.map((s) => String(s)).filter(Boolean).slice(0, 8) : [],
+          active: Boolean(p.active),
+          defaultPrice: defaultPriceObj
+            ? {
+                id: String(defaultPriceObj.id || ""),
+                unitAmount: typeof defaultPriceObj.unit_amount === "number" ? defaultPriceObj.unit_amount : null,
+                currency: String(defaultPriceObj.currency || "").toLowerCase() || "usd",
+              }
+            : null,
+        };
+      }
+
+      const list = await stripeGetWithKey<StripeList<StripeProduct>>(secretKey, "/v1/products", {
+        limit: 100,
+        active: true,
+        "expand[]": ["data.default_price"],
+      });
+
+      const products = Array.isArray(list?.data) ? list.data.map(normalizeStripeProduct) : [];
+      return { status: 200, json: { ok: true, products } };
+    }
+
+    case "funnel_builder.sales.products.create": {
+      if (!(await requireOwnerOrAdmin())) return { status: 403, json: { ok: false, error: "Forbidden" } };
+
+      const secretKey = await getStripeSecretKeyForOwner(ownerId).catch(() => null);
+      if (!secretKey) return { status: 400, json: { ok: false, error: "Stripe is not connected" } };
+
+      const name = typeof args?.name === "string" ? args.name.trim() : "";
+      if (!name || name.length > 120) return { status: 400, json: { ok: false, error: "Invalid name" } };
+
+      const description = typeof args?.description === "string" ? args.description.trim().slice(0, 1000) : "";
+      const imageUrls = Array.isArray(args?.imageUrls)
+        ? (args.imageUrls as unknown[]).map((s) => String(s).trim()).filter(Boolean).slice(0, 8)
+        : [];
+
+      const priceCents = typeof args?.priceCents === "number" && Number.isFinite(args.priceCents) ? Math.floor(args.priceCents) : NaN;
+      if (!Number.isFinite(priceCents) || priceCents < 50 || priceCents > 100_000_00) {
+        return { status: 400, json: { ok: false, error: "Invalid priceCents" } };
+      }
+
+      const currency = typeof args?.currency === "string" && args.currency.trim() ? args.currency.trim().toLowerCase() : "usd";
+
+      const created = await stripePostWithKey<any>(secretKey, "/v1/products", {
+        name,
+        ...(description ? { description } : {}),
+        ...(imageUrls.length ? { "images[]": imageUrls } : {}),
+        "default_price_data[unit_amount]": priceCents,
+        "default_price_data[currency]": currency,
+      });
+
+      const product = {
+        id: String(created?.id || ""),
+        name: String(created?.name || ""),
+        description: created?.description ? String(created.description) : null,
+        images: Array.isArray(created?.images) ? created.images.map((s: any) => String(s)).filter(Boolean).slice(0, 8) : [],
+        active: Boolean(created?.active),
+      };
+
+      return { status: 200, json: { ok: true, product } };
     }
 
     case "blogs.generate_now": {

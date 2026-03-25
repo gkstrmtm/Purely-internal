@@ -82,6 +82,41 @@ const ACTION_COVERAGE = [
   { action: "nurture.campaigns.enroll", method: "POST", endpoint: "/api/portal/nurture/campaigns/[campaignId]/enroll" },
   { action: "nurture.billing.confirm_checkout", method: "POST", endpoint: "/api/portal/nurture/campaigns/[campaignId]/confirm-checkout" },
   { action: "nurture.ai.generate_step", method: "POST", endpoint: "/api/portal/nurture/ai/generate-step" },
+
+  // Funnel Builder (non-AI CRUD parity)
+  { action: "funnel_builder.settings.get", method: "GET", endpoint: "/api/portal/funnel-builder/settings" },
+  { action: "funnel_builder.settings.update", method: "POST", endpoint: "/api/portal/funnel-builder/settings" },
+
+  { action: "funnel_builder.domains.list", method: "GET", endpoint: "/api/portal/funnel-builder/domains" },
+  { action: "funnel_builder.domains.create", method: "POST", endpoint: "/api/portal/funnel-builder/domains" },
+  { action: "funnel_builder.domains.update", method: "PATCH", endpoint: "/api/portal/funnel-builder/domains" },
+
+  { action: "funnel_builder.forms.list", method: "GET", endpoint: "/api/portal/funnel-builder/forms" },
+  { action: "funnel_builder.forms.create", method: "POST", endpoint: "/api/portal/funnel-builder/forms" },
+  { action: "funnel_builder.forms.get", method: "GET", endpoint: "/api/portal/funnel-builder/forms/[formId]" },
+  { action: "funnel_builder.forms.update", method: "PATCH", endpoint: "/api/portal/funnel-builder/forms/[formId]" },
+  { action: "funnel_builder.forms.delete", method: "DELETE", endpoint: "/api/portal/funnel-builder/forms/[formId]" },
+  { action: "funnel_builder.forms.submissions.list", method: "GET", endpoint: "/api/portal/funnel-builder/forms/[formId]/submissions" },
+  { action: "funnel_builder.form_field_keys.get", method: "GET", endpoint: "/api/portal/funnel-builder/form-field-keys" },
+
+  { action: "funnel_builder.funnels.list", method: "GET", endpoint: "/api/portal/funnel-builder/funnels" },
+  { action: "funnel_builder.funnels.get", method: "GET", endpoint: "/api/portal/funnel-builder/funnels/[funnelId]" },
+  { action: "funnel_builder.funnels.update", method: "PATCH", endpoint: "/api/portal/funnel-builder/funnels/[funnelId]" },
+  { action: "funnel_builder.funnels.delete", method: "DELETE", endpoint: "/api/portal/funnel-builder/funnels/[funnelId]" },
+
+  { action: "funnel_builder.pages.list", method: "GET", endpoint: "/api/portal/funnel-builder/funnels/[funnelId]/pages" },
+  { action: "funnel_builder.pages.create", method: "POST", endpoint: "/api/portal/funnel-builder/funnels/[funnelId]/pages" },
+  { action: "funnel_builder.pages.update", method: "PATCH", endpoint: "/api/portal/funnel-builder/funnels/[funnelId]/pages/[pageId]" },
+  { action: "funnel_builder.pages.delete", method: "DELETE", endpoint: "/api/portal/funnel-builder/funnels/[funnelId]/pages/[pageId]" },
+  {
+    action: "funnel_builder.pages.export_custom_html",
+    method: "POST",
+    endpoint: "/api/portal/funnel-builder/funnels/[funnelId]/pages/[pageId]/export-custom-html",
+  },
+  { action: "funnel_builder.pages.global_header", method: "POST", endpoint: "/api/portal/funnel-builder/funnels/[funnelId]/pages/global-header" },
+
+  { action: "funnel_builder.sales.products.list", method: "GET", endpoint: "/api/portal/funnel-builder/sales/products" },
+  { action: "funnel_builder.sales.products.create", method: "POST", endpoint: "/api/portal/funnel-builder/sales/products" },
 ];
 
 const HTTP_METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE"];

@@ -196,6 +196,33 @@ function detectDeterministicActionsFromText(opts: {
     return [{ key: "people.contacts.custom_variable_keys.get", title: "List contact custom variable keys", args: {} }];
   }
 
+  const isFunnelBuilderContext = /\b(funnel\s*builder|funnel-builder)\b/i.test(t) || (/\bfunnel\b/i.test(t) && /\b(builder|landing\s*page|landing\s*pages)\b/i.test(t));
+
+  // Funnel Builder: get settings.
+  if (isFunnelBuilderContext && /\b(show|get)\b[\s\S]{0,30}\b(settings?)\b/i.test(t)) {
+    return [{ key: "funnel_builder.settings.get", title: "Get Funnel Builder settings", args: {} }];
+  }
+
+  // Funnel Builder: list domains.
+  if (isFunnelBuilderContext && /\b(list|show|get)\b[\s\S]{0,30}\b(domains?)\b/i.test(t)) {
+    return [{ key: "funnel_builder.domains.list", title: "List Funnel Builder domains", args: {} }];
+  }
+
+  // Funnel Builder: list funnels.
+  if (isFunnelBuilderContext && /\b(list|show|get)\b[\s\S]{0,30}\b(funnels?)\b/i.test(t)) {
+    return [{ key: "funnel_builder.funnels.list", title: "List funnels", args: {} }];
+  }
+
+  // Funnel Builder: list forms.
+  if (isFunnelBuilderContext && /\b(list|show|get)\b[\s\S]{0,30}\b(forms?)\b/i.test(t)) {
+    return [{ key: "funnel_builder.forms.list", title: "List forms", args: {} }];
+  }
+
+  // Funnel Builder: list Stripe products (sales).
+  if (isFunnelBuilderContext && /\b(list|show|get)\b[\s\S]{0,30}\b(products?)\b/i.test(t) && /\b(stripe|sales|checkout|price|pricing)\b/i.test(t)) {
+    return [{ key: "funnel_builder.sales.products.list", title: "List Stripe products", args: {} }];
+  }
+
   // Reviews: get review request settings.
   if (/\b(show|get)\b[\s\S]{0,30}\b(reviews?|review requests?)\b[\s\S]{0,30}\b(settings?)\b/i.test(t)) {
     return [{ key: "reviews.settings.get", title: "Get review request settings", args: {} }];
