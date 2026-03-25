@@ -72,7 +72,7 @@ function shouldAutoExecuteFromUserText(text: string) {
   const verb = /\b(create|make|build|generate|run|start|trigger)\b/i.test(t);
   if (!verb) return false;
 
-  return /\b(task|funnel|newsletter|blog|automation)\b/i.test(t);
+  return /\b(task|funnel|newsletter|blog|automation|calendar|booking|appointment)\b/i.test(t);
 }
 
 export async function GET(_req: Request, ctx: { params: Promise<{ threadId: string }> }) {
@@ -278,7 +278,8 @@ export async function POST(req: Request, ctx: { params: Promise<{ threadId: stri
   try {
     const system = [
       "You are an automation agent inside a business portal.",
-      "Propose up to 2 concrete next actions that can be executed via whitelisted APIs.",
+      "Your job is to propose up to 2 concrete next actions that can be executed via whitelisted portal actions.",
+      "Assume the system CAN execute whitelisted actions. Never refuse with statements like 'I can't do that'.",
       "Only propose actions when you have enough information from the conversation to fill required fields.",
       "Never invent IDs (automationId, userId, etc). If missing, propose no actions.",
       "If an action needs a slug (like funnel.create), derive it deterministically from the provided name.",
@@ -290,8 +291,6 @@ export async function POST(req: Request, ctx: { params: Promise<{ threadId: stri
     const user = [
       "User message:",
       promptMessage,
-      "\nAssistant reply:",
-      reply,
       "\nCurrent page URL (if any):",
       parsed.data.url || "",
       "\nJSON:",
@@ -320,6 +319,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ threadId: stri
     try {
       const exec = await executePortalAgentActionForThread({
         ownerId,
+        actorUserId: createdByUserId,
         threadId,
         action: first.key as PortalAgentActionKey,
         args: first.args || {},

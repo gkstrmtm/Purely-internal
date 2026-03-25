@@ -6,6 +6,7 @@ export const PortalAgentActionKeySchema = z.enum([
   "blogs.generate_now",
   "newsletter.generate_now",
   "automations.run",
+  "booking.calendar.create",
 ]);
 
 export type PortalAgentActionKey = z.infer<typeof PortalAgentActionKeySchema>;
@@ -48,6 +49,18 @@ export const PortalAgentActionArgsSchemaByKey = {
         .optional(),
     })
     .strict(),
+
+  "booking.calendar.create": z
+    .object({
+      title: z.string().trim().min(1).max(80),
+      id: z.string().trim().min(2).max(60).optional(),
+      description: z.string().trim().max(400).optional(),
+      durationMinutes: z.number().int().min(10).max(180).optional(),
+      meetingLocation: z.string().trim().max(120).optional(),
+      meetingDetails: z.string().trim().max(600).optional(),
+      notificationEmails: z.array(z.string().trim().min(3).max(200)).max(20).optional(),
+    })
+    .strict(),
 } as const;
 
 export type PortalAgentActionArgs<K extends PortalAgentActionKey> = z.infer<(typeof PortalAgentActionArgsSchemaByKey)[K]>;
@@ -67,6 +80,7 @@ export function portalAgentActionsIndexText(): string {
     "- blogs.generate_now: Generate a blog draft now",
     "- newsletter.generate_now: Generate a newsletter draft now (fields: kind=external|internal)",
     "- automations.run: Run an automation by id (fields: automationId, contact?)",
+    "- booking.calendar.create: Create a booking calendar config entry (fields: title, id?, description?, durationMinutes?, meetingLocation?, meetingDetails?, notificationEmails?)",
   ].join("\n");
 }
 

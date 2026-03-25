@@ -55,9 +55,10 @@ function computeFixedMenuStyle(opts: {
   estHeight: number;
   alignX: "left" | "right";
   minHeight?: number;
+  gapPx?: number;
 }) {
   const VIEWPORT_PAD = 12;
-  const GAP = 8;
+  const GAP = typeof opts.gapPx === "number" && Number.isFinite(opts.gapPx) ? Math.max(0, opts.gapPx) : 8;
   const viewportW = window.innerWidth;
   const viewportH = window.innerHeight;
 
@@ -267,6 +268,8 @@ export function PortalAiChatClient() {
   const [uploading, setUploading] = useState(false);
 
   const [attachMenu, setAttachMenu] = useState<FixedMenuStyle | null>(null);
+  const [attachMenuAnchorRect, setAttachMenuAnchorRect] = useState<DOMRect | null>(null);
+  const attachMenuRef = useRef<HTMLDivElement | null>(null);
   const [mediaPickerOpen, setMediaPickerOpen] = useState(false);
   const [runningActionKey, setRunningActionKey] = useState<string | null>(null);
 
@@ -629,7 +632,13 @@ export function PortalAiChatClient() {
     try {
       const res = await fetch("/api/portal/ai-chat/scheduled", { cache: "no-store" });
       const json = await res.json().catch(() => null);
-      if (!json?.ok) throw new Error(json?.error || "Failed to load scheduled tasks");
+      // Calm UX: if there are no scheduled tasks (or the endpoint returns non-ok), show empty state.
+      // Avoid flashing scary "Failed to load" errors for a normal empty state.
+      if (!json?.ok) {
+        setScheduledRows([]);
+        setScheduledEditing({});
+        return;
+      }
       const rows = Array.isArray(json.scheduled) ? (json.scheduled as any[]) : [];
       const normalized = rows
         .map((r) => ({
@@ -655,17 +664,38 @@ export function PortalAiChatClient() {
         };
       }
       setScheduledEditing(nextEditing);
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : String(e));
+    } catch {
+      setScheduledRows([]);
+      setScheduledEditing({});
     } finally {
       setScheduledLoading(false);
     }
-  }, [toast]);
+  }, []);
 
   useEffect(() => {
     if (!scheduledOpen) return;
     void loadScheduled();
   }, [scheduledOpen, loadScheduled]);
+
+  useEffect(() => {
+    if (!attachMenu || !attachMenuAnchorRect) return;
+    const el = attachMenuRef.current;
+    if (!el) return;
+    const h = el.getBoundingClientRect().height;
+    if (!Number.isFinite(h) || h <= 0) return;
+
+    const next = computeFixedMenuStyle({
+      rect: attachMenuAnchorRect,
+      width: 260,
+      estHeight: h,
+      alignX: "left",
+      minHeight: 120,
+      gapPx: 4,
+    });
+    if (Math.abs(next.top - attachMenu.top) > 2 || Math.abs(next.left - attachMenu.left) > 2) {
+      setAttachMenu(next);
+    }
+  }, [attachMenu, attachMenuAnchorRect]);
 
   const saveScheduledRow = useCallback(
     async (id: string) => {
@@ -724,6 +754,7 @@ export function PortalAiChatClient() {
 
       {attachMenu ? (
         <div
+          ref={attachMenuRef}
           className="fixed z-12045 overflow-auto rounded-2xl border border-zinc-200 bg-white shadow-lg"
           style={{ left: attachMenu.left, top: attachMenu.top, width: attachMenu.width, maxHeight: attachMenu.maxHeight }}
           onMouseDown={(e) => e.stopPropagation()}
@@ -845,10 +876,12 @@ export function PortalAiChatClient() {
                 onClick={(e) => {
                   if (attachMenu) {
                     setAttachMenu(null);
+                    setAttachMenuAnchorRect(null);
                     return;
                   }
                   const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-                  setAttachMenu(computeFixedMenuStyle({ rect, width: 260, estHeight: 160, alignX: "left", minHeight: 120 }));
+                  setAttachMenuAnchorRect(rect);
+                  setAttachMenu(computeFixedMenuStyle({ rect, width: 260, estHeight: 140, alignX: "left", minHeight: 120, gapPx: 4 }));
                 }}
                 aria-label="Add attachment"
                 title="Add attachment"
@@ -923,6 +956,7 @@ export function PortalAiChatClient() {
         onClose={() => setScheduledOpen(false)}
         widthClassName="w-[min(900px,calc(100vw-32px))]"
         closeVariant="x"
+        hideHeaderDivider
       >
         {scheduledLoading ? (
           <div className="text-sm text-zinc-600">Loading…</div>

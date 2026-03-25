@@ -2,6 +2,9 @@
 
 import React, { createContext, useCallback, useContext, useMemo, useRef, useState } from "react";
 
+import { AppModal } from "@/components/AppModal";
+import { IconCopy } from "@/app/portal/PortalIcons";
+
 type ToastKind = "error" | "success" | "info";
 
 type ToastItem = {
@@ -26,6 +29,9 @@ function classNames(...xs: Array<string | false | null | undefined>) {
 export function ToastProvider({ children }: { children: React.ReactNode }) {
   const [toasts, setToasts] = useState<ToastItem[]>([]);
   const timeoutsRef = useRef<Map<string, any>>(new Map());
+
+  const [errorDetailsOpen, setErrorDetailsOpen] = useState(false);
+  const [errorDetailsMessage, setErrorDetailsMessage] = useState("");
 
   const remove = useCallback((id: string) => {
     setToasts((prev) => prev.filter((t) => t.id !== id));
@@ -62,7 +68,47 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
   return (
     <ToastContext.Provider value={value}>
       {children}
-      <div className="pointer-events-none fixed left-0 right-0 top-3 z-[9999] flex justify-center px-3">
+
+      <AppModal
+        open={errorDetailsOpen}
+        title="Error details"
+        description="Click Copy to share or inspect the full error."
+        onClose={() => setErrorDetailsOpen(false)}
+        widthClassName="w-[min(720px,calc(100vw-32px))]"
+        closeVariant="x"
+        footer={
+          <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
+            <button
+              type="button"
+              className="inline-flex items-center justify-center gap-2 rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
+              onClick={async () => {
+                try {
+                  await navigator.clipboard.writeText(String(errorDetailsMessage || ""));
+                  push({ kind: "success", message: "Copied" });
+                } catch {
+                  push({ kind: "error", message: "Unable to copy" });
+                }
+              }}
+            >
+              <IconCopy size={18} />
+              Copy
+            </button>
+            <button
+              type="button"
+              className="rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95"
+              onClick={() => setErrorDetailsOpen(false)}
+            >
+              Close
+            </button>
+          </div>
+        }
+      >
+        <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+          <pre className="whitespace-pre-wrap wrap-break-word text-xs text-zinc-800">{String(errorDetailsMessage || "")}</pre>
+        </div>
+      </AppModal>
+
+      <div className="pointer-events-none fixed left-0 right-0 top-3 z-9999 flex justify-center px-3">
         <div className="flex w-full max-w-lg flex-col gap-2">
           {toasts.map((t) => (
             <div
@@ -77,7 +123,13 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
               )}
               role="status"
               aria-live="polite"
-              onClick={() => remove(t.id)}
+              onClick={() => {
+                if (t.kind === "error") {
+                  setErrorDetailsMessage(t.message);
+                  setErrorDetailsOpen(true);
+                }
+                remove(t.id);
+              }}
             >
               <div className="font-semibold">
                 {t.kind === "error" ? "Error" : t.kind === "success" ? "Success" : "Notice"}
