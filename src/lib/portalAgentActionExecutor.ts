@@ -14,6 +14,106 @@ import { generateClientNewsletterDraft } from "@/lib/clientNewsletterAutomation"
 import { uniqueNewsletterSlug } from "@/lib/portalNewsletter";
 import { slugify } from "@/lib/slugify";
 import { getBookingCalendarsConfig, setBookingCalendarsConfig } from "@/lib/bookingCalendars";
+import { ensurePortalContactsSchema } from "@/lib/portalContactsSchema";
+import { sendPortalInboxMessageNow } from "@/lib/portalInboxSend";
+import { mirrorUploadToMediaLibrary } from "@/lib/portalMediaUploads";
+import { safeFilename, newPublicToken, newTag, normalizeMimeType, normalizeNameKey } from "@/lib/portalMedia";
+import { addPortalDashboardWidget, isDashboardWidgetId, removePortalDashboardWidget, resetPortalDashboard, savePortalDashboardData, type DashboardWidgetId } from "@/lib/portalDashboard";
+
+const MAX_REMOTE_MEDIA_BYTES = 15 * 1024 * 1024; // matches /api/portal/media/import-remote
+
+function sanitizeHumanName(raw: unknown, maxLen: number) {
+  return String(raw || "")
+    .replace(/[\r\n\t\0]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, maxLen);
+}
+
+async function newUniqueMediaFolderTag(ownerId: string) {
+  let tag = newTag();
+  for (let i = 0; i < 5; i++) {
+    const exists = await (prisma as any).portalMediaFolder.findFirst({ where: { ownerId, tag }, select: { id: true } });
+    if (!exists) return tag;
+    tag = newTag();
+  }
+  return tag;
+}
+
+function dashboardWidgetsForNiche(nicheRaw: string | null | undefined): DashboardWidgetId[] {
+  const niche = String(nicheRaw || "").trim().toLowerCase();
+
+  const base: DashboardWidgetId[] = [
+    "hoursSaved",
+    "billing",
+    "services",
+    "creditsRemaining",
+    "creditsRunway",
+    "successRate",
+    "failures",
+    "dailyActivity",
+    "tasks",
+    "inboxMessagesIn",
+    "inboxMessagesOut",
+    "reviewsCollected",
+    "avgReviewRating",
+    "bookingsCreated",
+    "leadsCaptured",
+  ];
+
+  if (!niche) return base;
+
+  const add = (ids: DashboardWidgetId[]) => ids.forEach((id) => base.push(id));
+
+  if (/(lawn|landscap|tree|roof|plumb|hvac|electric|pest|pressure\s*wash|contractor|home\s*service|garage|pool)/.test(niche)) {
+    add(["missedCalls", "aiCalls", "leadsCreated", "contactsCreated", "leadScrapeRuns"]);
+  }
+
+  if (/(dent|ortho|chiro|med|clinic|spa|salon|barber|wellness|therapy)/.test(niche)) {
+    add(["missedCalls", "aiCalls", "newsletterSends", "nurtureEnrollments"]);
+  }
+
+  if (/(real\s*estate|realtor|broker|mortgage|loan|insurance)/.test(niche)) {
+    add(["leadsCreated", "contactsCreated", "aiOutboundCalls", "leadScrapeRuns"]);
+  }
+
+  // De-dupe while preserving order.
+  const seen = new Set<string>();
+  return base.filter((id) => {
+    if (seen.has(id)) return false;
+    seen.add(id);
+    return true;
+  });
+}
+
+function simpleDashboardLayout(widgetIds: DashboardWidgetId[]) {
+  // Keep big widgets at the bottom.
+  const big = new Set<DashboardWidgetId>(["dailyActivity", "services"]);
+  const perf = (id: DashboardWidgetId) => id.startsWith("perf");
+
+  const smallIds = widgetIds.filter((id) => !big.has(id));
+  const bigIds = widgetIds.filter((id) => big.has(id));
+
+  const layout: Array<{ i: DashboardWidgetId; x: number; y: number; w: number; h: number; minW?: number; minH?: number }> = [];
+  const colW = 3;
+  const rowH = 8;
+
+  smallIds.forEach((id, idx) => {
+    const x = (idx % 4) * colW;
+    const y = Math.floor(idx / 4) * rowH;
+    const w = perf(id) ? 6 : 3;
+    const h = perf(id) ? 10 : 8;
+    layout.push({ i: id, x, y, w, h, minW: w === 3 ? 3 : 3, minH: 4 });
+  });
+
+  let y = Math.ceil(smallIds.length / 4) * rowH;
+  for (const id of bigIds) {
+    layout.push({ i: id, x: 0, y, w: 12, h: id === "dailyActivity" ? 22 : 14, minW: 6, minH: id === "dailyActivity" ? 16 : 10 });
+    y += id === "dailyActivity" ? 22 : 14;
+  }
+
+  return layout;
+}
 
 function normalizeSlug(raw: unknown) {
   const s = typeof raw === "string" ? raw.trim().toLowerCase() : "";
@@ -77,6 +177,43 @@ async function runDirectAction(opts: {
       `;
       await prisma.$executeRawUnsafe(sql, id, ownerId, actorUserId, title, description || null, assignedToUserId, dueAt, now);
       return { status: 200, json: { ok: true, taskId: id } };
+    }
+
+    case "tasks.create_for_all": {
+      await ensurePortalTasksSchema().catch(() => null);
+
+      const title = String(args.title || "").trim().slice(0, 160);
+      const description = String(args.description || "").trim().slice(0, 5000);
+
+      const dueAtIso = typeof args.dueAtIso === "string" ? args.dueAtIso.trim() : "";
+      const dueAt = dueAtIso ? new Date(dueAtIso) : null;
+      if (dueAt && !Number.isFinite(dueAt.getTime())) {
+        return { status: 400, json: { ok: false, error: "Invalid due date" } };
+      }
+
+      const members = await prisma.portalAccountMember.findMany({
+        where: { ownerId },
+        select: { userId: true },
+        take: 200,
+      });
+
+      const uniqueUserIds = Array.from(new Set(members.map((m) => String(m.userId)))).filter(Boolean).slice(0, 200);
+      if (!uniqueUserIds.length) return { status: 409, json: { ok: false, error: "No team members found" } };
+
+      const now = new Date();
+      const sql = `
+        INSERT INTO "PortalTask" ("id","ownerId","createdByUserId","title","description","status","assignedToUserId","dueAt","createdAt","updatedAt")
+        VALUES ($1,$2,$3,$4,$5,'OPEN',$6,$7,DEFAULT,$8)
+      `;
+
+      const taskIds: string[] = [];
+      for (const userId of uniqueUserIds) {
+        const id = crypto.randomUUID().replace(/-/g, "");
+        await prisma.$executeRawUnsafe(sql, id, ownerId, actorUserId, title, description || null, userId, dueAt, now);
+        taskIds.push(id);
+      }
+
+      return { status: 200, json: { ok: true, count: taskIds.length, taskIds } };
     }
 
     case "funnel.create": {
@@ -218,6 +355,135 @@ async function runDirectAction(opts: {
       return { status: 200, json: { ok: true } };
     }
 
+    case "automations.create": {
+      const name = String(args.name || "").trim().slice(0, 80);
+      if (!name) return { status: 400, json: { ok: false, error: "Invalid name" } };
+
+      const needCredits = PORTAL_CREDIT_COSTS.automationCreate;
+      const charged = await consumeCredits(ownerId, needCredits);
+      if (!charged.ok) {
+        return { status: 402, json: { ok: false, error: "Insufficient credits", credits: charged.state.balance } };
+      }
+
+      const row = await prisma.portalServiceSetup.findUnique({
+        where: { ownerId_serviceSlug: { ownerId, serviceSlug: "automations" } },
+        select: { dataJson: true },
+      });
+
+      const dataJson = (row?.dataJson ?? null) as any;
+      const existing = dataJson && typeof dataJson === "object" && !Array.isArray(dataJson) ? (dataJson as Record<string, unknown>) : {};
+      const list = Array.isArray((existing as any).automations) ? ((existing as any).automations as any[]) : [];
+
+      const id = `a_${crypto.randomUUID().replace(/-/g, "").slice(0, 20)}`;
+      const createdAtIso = new Date().toISOString();
+      const actor = await prisma.user.findUnique({ where: { id: actorUserId }, select: { id: true, email: true, name: true } }).catch(() => null);
+
+      const automation = {
+        id,
+        name,
+        paused: false,
+        createdAtIso,
+        updatedAtIso: createdAtIso,
+        createdBy: {
+          userId: actorUserId,
+          email: String(actor?.email || "").slice(0, 200) || undefined,
+          name: String(actor?.name || "").slice(0, 200) || undefined,
+        },
+        nodes: [
+          {
+            id: "trigger",
+            type: "trigger",
+            label: "Manual trigger",
+            x: 80,
+            y: 120,
+            config: { kind: "trigger", triggerKind: "manual" },
+          },
+        ],
+        edges: [],
+      };
+
+      const nextAutomations = [automation, ...list].slice(0, 50);
+
+      const nextData = {
+        ...existing,
+        version: typeof (existing as any).version === "number" ? (existing as any).version : 1,
+        automations: nextAutomations,
+      };
+
+      await prisma.portalServiceSetup.upsert({
+        where: { ownerId_serviceSlug: { ownerId, serviceSlug: "automations" } },
+        create: { ownerId, serviceSlug: "automations", status: "COMPLETE", dataJson: nextData as any },
+        update: { status: "COMPLETE", dataJson: nextData as any },
+        select: { id: true },
+      });
+
+      return { status: 200, json: { ok: true, automationId: id, creditsRemaining: charged.state.balance } };
+    }
+
+    case "contacts.list": {
+      await ensurePortalContactsSchema().catch(() => null);
+      const limit = typeof args.limit === "number" && Number.isFinite(args.limit) ? Math.max(1, Math.min(100, Math.floor(args.limit))) : 20;
+
+      const rows = await (prisma as any).portalContact
+        .findMany({
+          where: { ownerId },
+          orderBy: { updatedAt: "desc" },
+          take: limit,
+          select: { id: true, name: true, email: true, phone: true, updatedAt: true },
+        })
+        .catch(() => [] as any[]);
+
+      return {
+        status: 200,
+        json: {
+          ok: true,
+          contacts: (rows || []).map((r: any) => ({
+            id: String(r.id),
+            name: r.name ? String(r.name) : null,
+            email: r.email ? String(r.email) : null,
+            phone: r.phone ? String(r.phone) : null,
+          })),
+        },
+      };
+    }
+
+    case "inbox.send_sms": {
+      const to = String(args.to || "").trim();
+      const body = String(args.body || "").trim();
+      if (!to || !body) return { status: 400, json: { ok: false, error: "Missing to/body" } };
+
+      const sent = await sendPortalInboxMessageNow({
+        ownerId,
+        channel: "sms",
+        to,
+        body,
+        threadId: typeof args.threadId === "string" ? String(args.threadId) : undefined,
+        baseUrl: (process.env.NEXTAUTH_URL || "http://localhost:3000").replace(/\/$/, ""),
+      });
+
+      if (!sent.ok) return { status: 400, json: { ok: false, error: sent.error } };
+      return { status: 200, json: { ok: true, threadId: sent.threadId } };
+    }
+
+    case "inbox.send_email": {
+      const to = String(args.to || "").trim();
+      const subject = String(args.subject || "").trim();
+      const body = String(args.body || "").trim();
+      if (!to || !subject || !body) return { status: 400, json: { ok: false, error: "Missing to/subject/body" } };
+
+      const sent = await sendPortalInboxMessageNow({
+        ownerId,
+        channel: "email",
+        to,
+        subject,
+        body,
+        threadId: typeof args.threadId === "string" ? String(args.threadId) : undefined,
+      });
+
+      if (!sent.ok) return { status: 400, json: { ok: false, error: sent.error } };
+      return { status: 200, json: { ok: true, threadId: sent.threadId } };
+    }
+
     case "booking.calendar.create": {
       const title = String(args.title || "").trim().slice(0, 80);
       if (!title) return { status: 400, json: { ok: false, error: "Invalid title" } };
@@ -245,6 +511,137 @@ async function runDirectAction(opts: {
 
       const saved = await setBookingCalendarsConfig(ownerId, { version: 1, calendars: nextCalendars });
       return { status: 200, json: { ok: true, config: saved, calendarId: id } };
+    }
+
+    case "media.folder.ensure": {
+      const name = sanitizeHumanName(args.name, 120);
+      if (!name) return { status: 400, json: { ok: false, error: "Invalid folder name" } };
+      const parentId = typeof args.parentId === "string" && args.parentId.trim() ? String(args.parentId).trim() : null;
+      const color = typeof args.color === "string" && args.color.trim() ? String(args.color).trim().slice(0, 32) : null;
+
+      if (parentId) {
+        const parent = await (prisma as any).portalMediaFolder.findFirst({ where: { id: parentId, ownerId }, select: { id: true } });
+        if (!parent) return { status: 404, json: { ok: false, error: "Parent folder not found" } };
+      }
+
+      const nameKey = normalizeNameKey(name);
+      const existing = await (prisma as any).portalMediaFolder.findFirst({ where: { ownerId, parentId, nameKey }, select: { id: true, publicToken: true } });
+      if (existing) {
+        return { status: 200, json: { ok: true, folderId: existing.id, shareUrl: `/media/f/${existing.id}/${existing.publicToken}` } };
+      }
+
+      const tag = await newUniqueMediaFolderTag(ownerId);
+      const created = await (prisma as any).portalMediaFolder.create({
+        data: { ownerId, parentId, name, nameKey, tag, publicToken: newPublicToken(), color },
+        select: { id: true, publicToken: true },
+      });
+
+      return { status: 200, json: { ok: true, folderId: created.id, shareUrl: `/media/f/${created.id}/${created.publicToken}` } };
+    }
+
+    case "media.items.move": {
+      const itemIds = Array.isArray(args.itemIds) ? (args.itemIds as unknown[]).filter((x) => typeof x === "string").map((x) => String(x).trim()).filter(Boolean).slice(0, 20) : [];
+      if (!itemIds.length) return { status: 400, json: { ok: false, error: "Missing itemIds" } };
+
+      let folderId = typeof args.folderId === "string" && args.folderId.trim() ? String(args.folderId).trim() : null;
+      const folderName = typeof args.folderName === "string" && args.folderName.trim() ? sanitizeHumanName(args.folderName, 120) : null;
+      const parentId = typeof args.parentId === "string" && args.parentId.trim() ? String(args.parentId).trim() : null;
+
+      if (!folderId && folderName) {
+        const ensured = await runDirectAction({ action: "media.folder.ensure", ownerId, actorUserId, args: { name: folderName, parentId } } as any);
+        if (!ensured.json?.ok || !ensured.json?.folderId) return { status: ensured.status, json: ensured.json };
+        folderId = String(ensured.json.folderId);
+      }
+
+      if (folderId) {
+        const folder = await (prisma as any).portalMediaFolder.findFirst({ where: { id: folderId, ownerId }, select: { id: true } });
+        if (!folder) return { status: 404, json: { ok: false, error: "Folder not found" } };
+      }
+
+      const updated = await (prisma as any).portalMediaItem.updateMany({
+        where: { ownerId, id: { in: itemIds } },
+        data: { folderId },
+      });
+
+      return { status: 200, json: { ok: true, moved: updated?.count ?? itemIds.length, folderId } };
+    }
+
+    case "media.import_remote_image": {
+      const urlRaw = typeof args.url === "string" ? args.url.trim() : "";
+      if (!urlRaw) return { status: 400, json: { ok: false, error: "Missing url" } };
+
+      const u = new URL(urlRaw);
+      if (u.protocol !== "http:" && u.protocol !== "https:") return { status: 400, json: { ok: false, error: "Invalid URL" } };
+
+      let folderId = typeof args.folderId === "string" && args.folderId.trim() ? String(args.folderId).trim() : null;
+      const folderName = typeof args.folderName === "string" && args.folderName.trim() ? sanitizeHumanName(args.folderName, 120) : null;
+      const parentId = typeof args.parentId === "string" && args.parentId.trim() ? String(args.parentId).trim() : null;
+      if (!folderId && folderName) {
+        const ensured = await runDirectAction({ action: "media.folder.ensure", ownerId, actorUserId, args: { name: folderName, parentId } } as any);
+        if (!ensured.json?.ok || !ensured.json?.folderId) return { status: ensured.status, json: ensured.json };
+        folderId = String(ensured.json.folderId);
+      }
+
+      const resp = await fetch(u.toString(), { headers: { "user-agent": "purelyautomation/portal-media-import" } }).catch(() => null);
+      if (!resp || !resp.ok) return { status: 502, json: { ok: false, error: "Failed to download" } };
+
+      const contentType = String(resp.headers.get("content-type") || "application/octet-stream").slice(0, 120);
+      const arrayBuffer = await resp.arrayBuffer();
+      const bytes = Buffer.from(arrayBuffer);
+      if (bytes.length > MAX_REMOTE_MEDIA_BYTES) {
+        return { status: 400, json: { ok: false, error: `File too large (max ${Math.floor(MAX_REMOTE_MEDIA_BYTES / (1024 * 1024))}MB)` } };
+      }
+      if (!contentType.startsWith("image/")) {
+        return { status: 400, json: { ok: false, error: "Only images are supported" } };
+      }
+
+      const nameFromUrl = (() => {
+        const last = u.pathname.split("/").filter(Boolean).pop() || "image";
+        try {
+          return decodeURIComponent(last);
+        } catch {
+          return last;
+        }
+      })();
+      const fileNameRaw = sanitizeHumanName(args.fileName, 240) || nameFromUrl || "image";
+      const fileName = safeFilename(fileNameRaw);
+      const mimeType = normalizeMimeType(contentType, fileName);
+
+      const item = await mirrorUploadToMediaLibrary({ ownerId, folderId, fileName, mimeType, bytes });
+      if (!item) return { status: 500, json: { ok: false, error: "Import failed" } };
+      return { status: 200, json: { ok: true, item } };
+    }
+
+    case "dashboard.reset": {
+      const scope = args.scope === "embedded" ? "embedded" : "default";
+      const data = await resetPortalDashboard(ownerId, scope);
+      return { status: 200, json: { ok: true, scope, data } };
+    }
+
+    case "dashboard.add_widget": {
+      const scope = args.scope === "embedded" ? "embedded" : "default";
+      const idRaw = typeof args.widgetId === "string" ? args.widgetId.trim() : "";
+      if (!isDashboardWidgetId(idRaw)) return { status: 400, json: { ok: false, error: "Unknown widget" } };
+      const data = await addPortalDashboardWidget(ownerId, scope, idRaw);
+      return { status: 200, json: { ok: true, scope, widgetId: idRaw, data } };
+    }
+
+    case "dashboard.remove_widget": {
+      const scope = args.scope === "embedded" ? "embedded" : "default";
+      const idRaw = typeof args.widgetId === "string" ? args.widgetId.trim() : "";
+      if (!isDashboardWidgetId(idRaw)) return { status: 400, json: { ok: false, error: "Unknown widget" } };
+      const data = await removePortalDashboardWidget(ownerId, scope, idRaw);
+      return { status: 200, json: { ok: true, scope, widgetId: idRaw, data } };
+    }
+
+    case "dashboard.optimize": {
+      const scope = args.scope === "embedded" ? "embedded" : "default";
+      const profile = await prisma.businessProfile.findUnique({ where: { ownerId }, select: { industry: true, businessModel: true } }).catch(() => null);
+      const niche = sanitizeHumanName(args.niche, 120) || sanitizeHumanName(profile?.industry, 120) || sanitizeHumanName(profile?.businessModel, 120) || "";
+
+      const widgetIds = dashboardWidgetsForNiche(niche);
+      const data = await savePortalDashboardData(ownerId, scope, { version: 1, widgets: widgetIds.map((id) => ({ id })), layout: simpleDashboardLayout(widgetIds) } as any);
+      return { status: 200, json: { ok: true, scope, niche: niche || null, data } };
     }
   }
 }
@@ -287,10 +684,97 @@ function resultMarkdown(action: PortalAgentActionKey, json: any): { markdown: st
     };
   }
 
+  if (action === "automations.create" && json?.ok && json?.automationId) {
+    return {
+      markdown: `Created an automation.\n\n[Open automations](/portal/app/services/automations)`,
+      linkUrl: "/portal/app/services/automations",
+    };
+  }
+
+  if (action === "contacts.list" && json?.ok) {
+    const rows = Array.isArray(json.contacts) ? (json.contacts as any[]) : [];
+    const lines = rows.slice(0, 20).map((c) => {
+      const name = String(c?.name || "").trim() || "(No name)";
+      const email = String(c?.email || "").trim();
+      const phone = String(c?.phone || "").trim();
+      const bits = [email, phone].filter(Boolean).join(" · ");
+      return `- ${name}${bits ? ` (${bits})` : ""}`;
+    });
+    return {
+      markdown: rows.length ? `Here are your recent contacts:\n\n${lines.join("\n")}` : "No contacts yet.",
+    };
+  }
+
+  if (action === "inbox.send_sms" && json?.ok) {
+    return {
+      markdown: `Sent the text.\n\n[Open Inbox](/portal/app/services/inbox/sms)`,
+      linkUrl: "/portal/app/services/inbox/sms",
+    };
+  }
+
+  if (action === "inbox.send_email" && json?.ok) {
+    return {
+      markdown: `Sent the email.\n\n[Open Inbox](/portal/app/services/inbox/email)`,
+      linkUrl: "/portal/app/services/inbox/email",
+    };
+  }
+
+  if (action === "tasks.create_for_all" && json?.ok) {
+    const count = typeof json.count === "number" ? json.count : null;
+    return {
+      markdown: `Created ${count ?? ""} tasks for your team.\n\n[Open tasks](/portal/app/tasks)`.replace(/\s+/g, " ").trim(),
+      linkUrl: "/portal/app/tasks",
+    };
+  }
+
   if (action === "booking.calendar.create" && json?.ok) {
     return {
       markdown: `Created a booking calendar.\n\n[Open booking](/portal/app/services/booking)`,
       linkUrl: "/portal/app/services/booking",
+    };
+  }
+
+  if (action === "media.folder.ensure" && json?.ok && json?.folderId) {
+    return {
+      markdown: `Ready.\n\n[Open Media Library](/portal/app/services/media-library)`,
+      linkUrl: "/portal/app/services/media-library",
+    };
+  }
+
+  if (action === "media.items.move" && json?.ok) {
+    const moved = typeof json.moved === "number" ? json.moved : null;
+    return {
+      markdown: `Moved ${moved ?? ""} file(s) into the folder.\n\n[Open Media Library](/portal/app/services/media-library)`.replace(/\s+/g, " ").trim(),
+      linkUrl: "/portal/app/services/media-library",
+    };
+  }
+
+  if (action === "media.import_remote_image" && json?.ok && json?.item?.id) {
+    return {
+      markdown: `Imported the image into Media Library.\n\n[Open Media Library](/portal/app/services/media-library)`,
+      linkUrl: "/portal/app/services/media-library",
+    };
+  }
+
+  if (action === "dashboard.reset" && json?.ok) {
+    return {
+      markdown: `Reset your dashboard layout.\n\n[Open dashboard](/portal/app)`,
+      linkUrl: "/portal/app",
+    };
+  }
+
+  if ((action === "dashboard.add_widget" || action === "dashboard.remove_widget") && json?.ok) {
+    return {
+      markdown: `Updated your dashboard.\n\n[Open dashboard](/portal/app)`,
+      linkUrl: "/portal/app",
+    };
+  }
+
+  if (action === "dashboard.optimize" && json?.ok) {
+    const niche = typeof json.niche === "string" && json.niche.trim() ? json.niche.trim() : null;
+    return {
+      markdown: `Optimized your dashboard${niche ? ` for ${niche}` : ""}.\n\n[Open dashboard](/portal/app)`,
+      linkUrl: "/portal/app",
     };
   }
 
