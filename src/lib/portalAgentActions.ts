@@ -153,6 +153,8 @@ export const PortalAgentActionKeySchema = z.enum([
   "inbox.threads.list",
   "inbox.thread.messages.list",
   "inbox.scheduled.update",
+  "inbox.attachments.create_from_media",
+  "inbox.attachments.delete",
   "inbox.settings.get",
   "inbox.settings.update",
   "inbox.send_sms",
@@ -1137,6 +1139,18 @@ export const PortalAgentActionArgsSchemaByKey = {
     .object({
       scheduledId: z.string().trim().min(1).max(120),
       scheduledFor: z.string().datetime(),
+    })
+    .strict(),
+
+  "inbox.attachments.create_from_media": z
+    .object({
+      mediaItemId: z.string().trim().min(1).max(120),
+    })
+    .strict(),
+
+  "inbox.attachments.delete": z
+    .object({
+      id: z.string().trim().min(1).max(120),
     })
     .strict(),
 
@@ -2158,6 +2172,8 @@ export function portalAgentActionsIndexText(): string {
     "- inbox.threads.list: List inbox threads (fields: channel=EMAIL|SMS?, take?)",
     "- inbox.thread.messages.list: Load messages for a thread (fields: threadId, take?)",
     "- inbox.scheduled.update: Reschedule a pending scheduled inbox message (fields: scheduledId, scheduledFor)",
+    "- inbox.attachments.create_from_media: Create an inbox attachment from a Media Library item (fields: mediaItemId)",
+    "- inbox.attachments.delete: Delete an unsent inbox attachment (fields: id)",
     "- inbox.settings.get: Get inbox settings (mailbox + webhook URLs)",
     "- inbox.settings.update: Regenerate inbox webhook token (fields: regenerateToken=true)",
     "- inbox.send_sms: Send an SMS (fields: to, body, threadId?)",

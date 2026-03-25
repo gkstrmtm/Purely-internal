@@ -7995,6 +7995,82 @@ async function runDirectAction(opts: {
       return { status: 200, json: { ok: true } };
     }
 
+    case "inbox.attachments.create_from_media": {
+      const mediaItemId = String((args as any)?.mediaItemId || "").trim();
+      if (!mediaItemId) return { status: 400, json: { ok: false, error: "Invalid request" } };
+
+      // Avoid runtime failures if migrations haven't been applied yet.
+      await ensurePortalInboxSchema();
+
+      const media = await (prisma as any).portalMediaItem.findFirst({
+        where: { id: mediaItemId, ownerId },
+        select: { fileName: true, mimeType: true, fileSize: true, bytes: true, storageUrl: true },
+      });
+
+      if (!media) return { status: 404, json: { ok: false, error: "Not found" } };
+
+      if (!media.bytes) {
+        return {
+          status: 400,
+          json: {
+            ok: false,
+            error: "This media item is stored externally and can't be attached from the media library yet.",
+          },
+        };
+      }
+
+      const publicToken = crypto.randomUUID().replace(/-/g, "");
+      const row = await (prisma as any).portalInboxAttachment.create({
+        data: {
+          ownerId,
+          messageId: null,
+          fileName: String(media.fileName || "attachment").slice(0, 200),
+          mimeType: String(media.mimeType || "application/octet-stream").slice(0, 120),
+          fileSize: Number(media.fileSize || (media.bytes?.length ?? 0)),
+          bytes: media.bytes as Buffer,
+          publicToken,
+        },
+        select: { id: true, fileName: true, mimeType: true, fileSize: true, publicToken: true },
+      });
+
+      return {
+        status: 200,
+        json: {
+          ok: true,
+          attachment: {
+            id: row.id,
+            fileName: row.fileName,
+            mimeType: row.mimeType,
+            fileSize: row.fileSize,
+            url: `/api/public/inbox/attachment/${row.id}/${row.publicToken}`,
+          },
+        },
+      };
+    }
+
+    case "inbox.attachments.delete": {
+      const id = String((args as any)?.id || "").trim();
+      if (!id) return { status: 400, json: { ok: false, error: "Missing id" } };
+
+      await ensurePortalInboxSchema();
+
+      const row = await (prisma as any).portalInboxAttachment.findFirst({
+        where: { id: String(id), ownerId },
+        select: { id: true, messageId: true },
+      });
+
+      if (!row) return { status: 404, json: { ok: false, error: "Not found" } };
+      if (row.messageId) {
+        return {
+          status: 400,
+          json: { ok: false, error: "This attachment is already sent." },
+        };
+      }
+
+      await (prisma as any).portalInboxAttachment.delete({ where: { id: row.id } });
+      return { status: 200, json: { ok: true } };
+    }
+
     case "inbox.settings.get": {
       const [settings, twilio, mailbox] = await Promise.all([
         getPortalInboxSettings(ownerId),

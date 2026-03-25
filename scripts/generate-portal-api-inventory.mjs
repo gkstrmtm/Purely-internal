@@ -236,6 +236,8 @@ const ACTION_COVERAGE = [
   { action: "inbox.threads.list", method: "GET", endpoint: "/api/portal/inbox/threads" },
   { action: "inbox.thread.messages.list", method: "GET", endpoint: "/api/portal/inbox/threads/[threadId]/messages" },
   { action: "inbox.scheduled.update", method: "PATCH", endpoint: "/api/portal/inbox/scheduled/[scheduledId]" },
+  { action: "inbox.attachments.create_from_media", method: "POST", endpoint: "/api/portal/inbox/attachments/from-media" },
+  { action: "inbox.attachments.delete", method: "DELETE", endpoint: "/api/portal/inbox/attachments/[id]" },
   { action: "inbox.settings.get", method: "GET", endpoint: "/api/portal/inbox/settings" },
   { action: "inbox.settings.update", method: "PUT", endpoint: "/api/portal/inbox/settings" },
 
