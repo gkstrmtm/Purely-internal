@@ -10,13 +10,13 @@ import { useToast } from "@/components/ToastProvider";
 import {
   IconChevron,
   IconAiChatGlyph,
+  IconCalendar,
   IconDashboardGlyph,
   IconHamburger,
   IconHelpCircle,
   IconInboxGlyph,
   IconLock,
   IconPeopleGlyph,
-  IconPhoneCall,
   IconServicesGlyph,
   IconServiceGlyph,
   IconSettingsGlyph,
@@ -165,6 +165,8 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
     pathname.includes("/app/services/funnel-builder/") &&
     (pathname.includes("/funnels/") || pathname.includes("/forms/")) &&
     pathname.includes("/edit");
+
+  const isAiChat = typeof pathname === "string" && pathname.startsWith(`${basePath}/app/ai-chat`);
 
   const isAutomationsEditor =
     typeof pathname === "string" &&
@@ -996,7 +998,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                   className="inline-flex h-10 w-10 items-center justify-center rounded-xl bg-transparent text-zinc-700 transition-colors hover:text-zinc-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--color-brand-blue)"
                   aria-label="Book a call"
                 >
-                  <IconPhoneCall size={22} />
+                  <IconCalendar size={22} />
                 </Link>
                 <Link
                   href={`${basePath}/tutorials/getting-started?embed=1`}
@@ -1655,7 +1657,12 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
             </div>
           </header>
 
-          <main className="min-h-0 min-w-0 flex-1 p-4 pb-4 sm:p-8 sm:pb-6">
+          <main
+            className={classNames(
+              "min-h-0 min-w-0 flex-1",
+              isAiChat ? "p-0" : "p-4 pb-4 sm:p-8 sm:pb-6",
+            )}
+          >
             {topBannerCampaign ? (
               <div className="mb-4 rounded-3xl border border-brand-ink/10 bg-linear-to-r from-brand-blue/15 via-white to-white p-4 text-brand-ink">
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -1723,10 +1730,12 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
             ) : null}
 
             {children}
-            <div
-              aria-hidden
-              className="h-[calc(env(safe-area-inset-bottom)+5rem)] sm:h-[calc(env(safe-area-inset-bottom)+2rem)]"
-            />
+            {!isAiChat ? (
+              <div
+                aria-hidden
+                className="h-[calc(env(safe-area-inset-bottom)+5rem)] sm:h-[calc(env(safe-area-inset-bottom)+2rem)]"
+              />
+            ) : null}
           </main>
 
           {rewardCampaign && rewardEligible ? (

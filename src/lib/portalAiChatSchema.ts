@@ -60,10 +60,14 @@ CREATE TABLE IF NOT EXISTS "PortalAiChatMessage" (
   "createdByUserId" TEXT,
   "sendAt" TIMESTAMP(3),
   "sentAt" TIMESTAMP(3),
+  "repeatEveryMinutes" INTEGER,
   "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
   CONSTRAINT "PortalAiChatMessage_pkey" PRIMARY KEY ("id")
 );
     `.trim(),
+
+    // Older installs may already have the table without newer scheduling fields.
+    `ALTER TABLE "PortalAiChatMessage" ADD COLUMN IF NOT EXISTS "repeatEveryMinutes" INTEGER;`,
 
     `CREATE INDEX IF NOT EXISTS "PortalAiChatThread_ownerId_lastMessageAt_idx" ON "PortalAiChatThread"("ownerId", "lastMessageAt");`,
 

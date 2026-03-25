@@ -336,7 +336,7 @@ export async function proxy(req: NextRequest) {
           mobileUrl.searchParams.set("pa_mobileapp", "1");
           return NextResponse.redirect(mobileUrl);
         }
-      } catch (e) {
+      } catch {
         // fall-through to normal handling
       }
 
@@ -448,7 +448,7 @@ export async function proxy(req: NextRequest) {
         mobileUrl.searchParams.set("pa_mobileapp", "1");
         return NextResponse.redirect(mobileUrl);
       }
-    } catch (e) {
+    } catch {
       // fall through
     }
 

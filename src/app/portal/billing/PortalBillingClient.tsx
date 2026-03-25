@@ -1693,7 +1693,7 @@ export function PortalBillingClient({
 
       <div
         id="pa-billing-credits"
-        style={isLgUp && billingColHeightPx ? { maxHeight: billingColHeightPx } : undefined}
+        style={isLgUp && billingColHeightPx ? { height: billingColHeightPx } : undefined}
         className={[
           "flex min-h-0 flex-col overflow-hidden",
           hideMonthlyBreakdown ? null : "rounded-3xl border border-zinc-200 bg-white p-6",

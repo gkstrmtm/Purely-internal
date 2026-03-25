@@ -21,7 +21,16 @@ export async function processDuePortalAiChatScheduledMessages(opts?: { limit?: n
     },
     orderBy: { sendAt: "asc" },
     take: limit,
-    select: { id: true, ownerId: true, threadId: true, text: true },
+    select: {
+      id: true,
+      ownerId: true,
+      threadId: true,
+      text: true,
+      attachmentsJson: true,
+      createdByUserId: true,
+      sendAt: true,
+      repeatEveryMinutes: true,
+    },
   });
 
   let processed = 0;
@@ -29,6 +38,11 @@ export async function processDuePortalAiChatScheduledMessages(opts?: { limit?: n
   for (const p of pending) {
     const ownerId = String(p.ownerId);
     const threadId = String(p.threadId);
+    const repeatEveryMinutes =
+      typeof (p as any).repeatEveryMinutes === "number" && Number.isFinite((p as any).repeatEveryMinutes)
+        ? Math.max(0, Math.floor((p as any).repeatEveryMinutes))
+        : 0;
+    const scheduledAt = (p as any).sendAt ? new Date((p as any).sendAt) : null;
 
     // Mark as sent first to avoid double-processing.
     await (prisma as any).portalAiChatMessage.update({
@@ -72,6 +86,26 @@ export async function processDuePortalAiChatScheduledMessages(opts?: { limit?: n
       where: { id: threadId },
       data: { lastMessageAt: new Date() },
     });
+
+    // If this was a repeating scheduled message, enqueue the next run.
+    if (repeatEveryMinutes > 0) {
+      const base = scheduledAt && Number.isFinite(scheduledAt.getTime()) ? scheduledAt : now;
+      const nextAt = new Date(base.getTime() + repeatEveryMinutes * 60_000);
+      await (prisma as any).portalAiChatMessage.create({
+        data: {
+          ownerId,
+          threadId,
+          role: "user",
+          text: String((p as any).text || "").slice(0, 4000),
+          attachmentsJson: (p as any).attachmentsJson ?? null,
+          createdByUserId: (p as any).createdByUserId ?? null,
+          sendAt: nextAt,
+          sentAt: null,
+          repeatEveryMinutes,
+        },
+        select: { id: true },
+      });
+    }
 
     processed += 1;
   }

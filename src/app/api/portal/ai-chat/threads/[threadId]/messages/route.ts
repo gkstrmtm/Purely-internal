@@ -5,7 +5,13 @@ import { requireClientSession } from "@/lib/apiAuth";
 import { generateText } from "@/lib/ai";
 import { prisma } from "@/lib/db";
 import { ensurePortalAiChatSchema } from "@/lib/portalAiChatSchema";
-import { PortalAgentActionKeySchema, extractJsonObject, portalAgentActionsIndexText } from "@/lib/portalAgentActions";
+import {
+  PortalAgentActionKeySchema,
+  extractJsonObject,
+  portalAgentActionsIndexText,
+  type PortalAgentActionKey,
+} from "@/lib/portalAgentActions";
+import { executePortalAgentActionForThread } from "@/lib/portalAgentActionExecutor";
 import { isPortalSupportChatConfigured, runPortalSupportChat } from "@/lib/portalSupportChat";
 
 export const dynamic = "force-dynamic";
@@ -53,6 +59,21 @@ const ActionProposalSchema = z
       .default([]),
   })
   .strict();
+
+function shouldAutoExecuteFromUserText(text: string) {
+  const t = String(text || "")
+    .trim()
+    .toLowerCase();
+  if (!t) return false;
+
+  // Avoid auto-executing on obvious questions.
+  if (/\b(how|why|what|can you|could you|should i|help me|explain)\b/i.test(t)) return false;
+
+  const verb = /\b(create|make|build|generate|run|start|trigger)\b/i.test(t);
+  if (!verb) return false;
+
+  return /\b(task|funnel|newsletter|blog|automation)\b/i.test(t);
+}
 
 export async function GET(_req: Request, ctx: { params: Promise<{ threadId: string }> }) {
   const auth = await requireClientSession();
@@ -252,8 +273,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ threadId: stri
     // best-effort
   }
 
-  // Best-effort: propose actions the user can click to execute.
-  // IMPORTANT: we only PROPOSE actions; execution requires an explicit user click.
+  // Best-effort: propose actions the agent can execute.
   let assistantActions: Array<{ key: string; title: string; confirmLabel?: string; args: Record<string, unknown> }> = [];
   try {
     const system = [
@@ -261,6 +281,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ threadId: stri
       "Propose up to 2 concrete next actions that can be executed via whitelisted APIs.",
       "Only propose actions when you have enough information from the conversation to fill required fields.",
       "Never invent IDs (automationId, userId, etc). If missing, propose no actions.",
+      "If an action needs a slug (like funnel.create), derive it deterministically from the provided name.",
       "Output JSON only, in this exact shape: {\"actions\":[{\"key\":...,\"title\":...,\"confirmLabel\":...,\"args\":{...}}]}",
       "Do not include markdown fences unless needed.",
       "\n" + portalAgentActionsIndexText(),
@@ -291,5 +312,27 @@ export async function POST(req: Request, ctx: { params: Promise<{ threadId: stri
     // ignore
   }
 
-  return NextResponse.json({ ok: true, userMessage: userMsg, assistantMessage: assistantMsg, assistantActions });
+  // Best-effort: auto-execute when the user is clearly asking to do something.
+  // This avoids modal-driven workflows for common "make/create" requests.
+  let autoActionMessage: any = null;
+  if (shouldAutoExecuteFromUserText(cleanText) && assistantActions.length) {
+    const first = assistantActions[0];
+    try {
+      const exec = await executePortalAgentActionForThread({
+        ownerId,
+        threadId,
+        action: first.key as PortalAgentActionKey,
+        args: first.args || {},
+      });
+      if (exec.assistantMessage) {
+        autoActionMessage = exec.assistantMessage;
+        // Avoid showing "Run" buttons for actions we already attempted.
+        assistantActions = [];
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  return NextResponse.json({ ok: true, userMessage: userMsg, assistantMessage: assistantMsg, assistantActions, autoActionMessage });
 }
