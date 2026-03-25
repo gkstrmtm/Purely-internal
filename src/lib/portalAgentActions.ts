@@ -10,6 +10,16 @@ export const PortalAgentActionKeySchema = z.enum([
   "automations.create",
   "contacts.list",
   "contacts.create",
+
+  "people.users.list",
+  "people.users.invite",
+  "people.users.update",
+  "people.users.delete",
+  "people.leads.update",
+  "people.contacts.custom_variable_keys.get",
+  "people.contacts.duplicates.get",
+  "people.contacts.merge",
+  "people.contacts.custom_variables.patch",
   "inbox.send_sms",
   "inbox.send_email",
   "reviews.send_request_for_booking",
@@ -136,6 +146,66 @@ export const PortalAgentActionArgsSchemaByKey = {
       phone: z.string().trim().max(40).optional().nullable(),
       tags: z.union([z.array(z.string().trim().min(1).max(60)).max(10), z.string().trim().max(600)]).optional().nullable(),
       customVariables: z.record(z.string().trim().max(60), z.string().trim().max(120)).optional().nullable(),
+    })
+    .strict(),
+
+  "people.users.list": z.object({}).strict(),
+
+  "people.users.invite": z
+    .object({
+      email: z.string().trim().email().max(200),
+      role: z.enum(["ADMIN", "MEMBER"]).optional().nullable(),
+      permissions: z.unknown().optional(),
+    })
+    .strict(),
+
+  "people.users.update": z
+    .object({
+      userId: z.string().trim().min(1).max(120),
+      role: z.enum(["ADMIN", "MEMBER"]).optional().nullable(),
+      permissions: z.unknown().optional(),
+    })
+    .strict(),
+
+  "people.users.delete": z
+    .object({
+      userId: z.string().trim().min(1).max(120),
+    })
+    .strict(),
+
+  "people.leads.update": z
+    .object({
+      leadId: z.string().trim().min(1).max(64),
+      businessName: z.string().trim().min(1).max(200).optional(),
+      email: z.string().trim().max(200).optional().nullable(),
+      phone: z.string().trim().max(40).optional().nullable(),
+      website: z.string().trim().max(500).optional().nullable(),
+      contactId: z.string().trim().max(120).optional().nullable(),
+    })
+    .strict(),
+
+  "people.contacts.custom_variable_keys.get": z.object({}).strict(),
+
+  "people.contacts.duplicates.get": z
+    .object({
+      limitGroups: z.number().int().min(1).max(200).optional().nullable(),
+      summaryOnly: z.boolean().optional().nullable(),
+    })
+    .strict(),
+
+  "people.contacts.merge": z
+    .object({
+      primaryContactId: z.string().trim().min(1).max(80),
+      mergeContactIds: z.array(z.string().trim().min(1).max(80)).min(1).max(50),
+      primaryEmail: z.string().trim().max(200).optional().nullable(),
+    })
+    .strict(),
+
+  "people.contacts.custom_variables.patch": z
+    .object({
+      contactId: z.string().trim().min(1).max(120),
+      key: z.string().trim().min(1).max(120),
+      value: z.string().optional().nullable(),
     })
     .strict(),
 
@@ -557,6 +627,15 @@ export function portalAgentActionsIndexText(): string {
     "- automations.create: Create a new automation shell (fields: name)",
     "- contacts.list: List recent contacts (fields: limit?)",
     "- contacts.create: Create a contact (fields: name, email?, phone?, tags?, customVariables?)",
+    "- people.users.list: List portal team members and invites",
+    "- people.users.invite: Invite a team member (fields: email, role=ADMIN|MEMBER?, permissions?)",
+    "- people.users.update: Update a team member role/permissions (fields: userId, role?, permissions?)",
+    "- people.users.delete: Remove a team member (fields: userId)",
+    "- people.leads.update: Update a lead (fields: leadId, businessName?, email?, phone?, website?, contactId?)",
+    "- people.contacts.custom_variable_keys.get: List existing contact custom variable keys",
+    "- people.contacts.duplicates.get: List duplicate contact groups (fields: limitGroups?, summaryOnly?)",
+    "- people.contacts.merge: Merge duplicate contacts (fields: primaryContactId, mergeContactIds, primaryEmail?)",
+    "- people.contacts.custom_variables.patch: Set/remove a contact custom variable (fields: contactId, key, value?)",
     "- inbox.send_sms: Send an SMS (fields: to, body, threadId?)",
     "- inbox.send_email: Send an email (fields: to, subject, body, threadId?)",
     "- reviews.send_request_for_booking: Send a review request for a completed booking (fields: bookingId)",

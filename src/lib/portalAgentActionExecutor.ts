@@ -3,6 +3,14 @@ import crypto from "crypto";
 import { Prisma } from "@prisma/client";
 
 import { prisma } from "@/lib/db";
+import { sendEmail } from "@/lib/leadOutbound";
+import {
+  createPortalAccountInvite,
+  getPortalAccountMemberRole,
+  listPortalAccountInvites,
+  listPortalAccountMembers,
+} from "@/lib/portalAccounts";
+import { normalizePortalPermissions } from "@/lib/portalPermissions";
 import {
   PortalAgentActionArgsSchemaByKey,
   type PortalAgentActionKey,
@@ -27,6 +35,7 @@ import {
 } from "@/lib/appointmentReminders";
 import { ensurePortalContactsSchema } from "@/lib/portalContactsSchema";
 import { findOrCreatePortalContact, normalizePhoneKey } from "@/lib/portalContacts";
+import { listDuplicatePortalContactsByPhoneKey, mergePortalContacts } from "@/lib/portalContactDedup";
 import { addContactTagAssignment, createOwnerContactTag, ensurePortalContactTagsReady } from "@/lib/portalContactTags";
 import { sendPortalInboxMessageNow } from "@/lib/portalInboxSend";
 import {
@@ -43,10 +52,11 @@ import { addPortalDashboardWidget, isDashboardWidgetId, removePortalDashboardWid
 import { hasPublicColumn } from "@/lib/dbSchema";
 import { cancelFollowUpsForBooking, scheduleFollowUpsForBooking } from "@/lib/followUpAutomation";
 import { trySendTransactionalEmail, sendTransactionalEmail } from "@/lib/emailSender";
-import { buildPortalTemplateVars } from "@/lib/portalTemplateVars";
+import { buildPortalTemplateVars, normalizePortalContactCustomVarKey } from "@/lib/portalTemplateVars";
 import { renderTextTemplate } from "@/lib/textTemplate";
 import { signBookingRescheduleToken } from "@/lib/bookingReschedule";
 import { getOwnerTwilioSmsConfigMasked, sendOwnerTwilioSms } from "@/lib/portalTwilio";
+import { normalizePhoneStrict } from "@/lib/phone";
 import { ensurePortalNurtureSchema } from "@/lib/portalNurtureSchema";
 import { getOrCreateStripeCustomerId, isStripeConfigured, stripeGet, stripePost } from "@/lib/stripeFetch";
 import { generateText } from "@/lib/ai";
@@ -682,6 +692,293 @@ async function runDirectAction(opts: {
       }
 
       return { status: 200, json: { ok: true, contactId } };
+    }
+
+    case "people.users.list": {
+      const memberId = String(actorUserId || "").trim() || ownerId;
+
+      const owner = await prisma.user.findUnique({ where: { id: ownerId }, select: { id: true, email: true, name: true } });
+      const members = await listPortalAccountMembers(ownerId).catch(() => [] as any[]);
+      const invites = await listPortalAccountInvites(ownerId).catch(() => [] as any[]);
+
+      const mergedMembers = [
+        ...(owner
+          ? [
+              {
+                userId: owner.id,
+                role: "OWNER",
+                user: { id: owner.id, email: owner.email, name: owner.name, role: "CLIENT", active: true },
+                implicit: true,
+              },
+            ]
+          : []),
+        ...members.map((m) => ({
+          userId: m.userId,
+          role: m.role,
+          user: m.user,
+          permissionsJson: m.permissionsJson,
+          implicit: false,
+        })),
+      ].filter((m, idx, arr) => arr.findIndex((x) => x.userId === m.userId) === idx);
+
+      const myRole = memberId === ownerId ? "OWNER" : await getPortalAccountMemberRole({ ownerId, userId: memberId });
+      return { status: 200, json: { ok: true, ownerId, memberId, myRole, members: mergedMembers, invites } };
+    }
+
+    case "people.users.invite": {
+      const memberId = String(actorUserId || "").trim() || ownerId;
+      const myRole = memberId === ownerId ? "OWNER" : await getPortalAccountMemberRole({ ownerId, userId: memberId });
+      if (myRole !== "OWNER" && myRole !== "ADMIN") return { status: 403, json: { ok: false, error: "Forbidden" } };
+
+      const emailRaw = typeof args.email === "string" ? args.email : "";
+      const email = emailRaw.toLowerCase().trim();
+      if (!email) return { status: 400, json: { ok: false, error: "Invalid input" } };
+
+      const role = args.role === "ADMIN" ? "ADMIN" : "MEMBER";
+      const permissionsJson = normalizePortalPermissions((args as any)?.permissions, role);
+
+      const invite = await createPortalAccountInvite({ ownerId, email, role, permissionsJson }).catch(() => null);
+      if (!invite) return { status: 500, json: { ok: false, error: "Failed to create invite" } };
+
+      const base =
+        process.env.NODE_ENV === "production"
+          ? "https://purelyautomation.com"
+          : String(process.env.NEXTAUTH_URL ?? process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000").replace(/\/+$/, "");
+      const link = `${base}/portalinvite/${invite.token}`;
+
+      try {
+        await sendEmail({
+          to: email,
+          subject: "You’ve been invited to Purely Automation",
+          text: `You’ve been invited to access a Purely Automation client portal.\n\nAccept invite: ${link}\n\nThis invite expires on ${new Date(invite.expiresAt).toLocaleString()}.`,
+        });
+      } catch {
+        // ignore
+      }
+
+      return { status: 200, json: { ok: true, invite, link } };
+    }
+
+    case "people.users.update": {
+      const memberId = String(actorUserId || "").trim() || ownerId;
+      const myRole = memberId === ownerId ? "OWNER" : await getPortalAccountMemberRole({ ownerId, userId: memberId });
+      if (myRole !== "OWNER" && myRole !== "ADMIN") return { status: 403, json: { ok: false, error: "Forbidden" } };
+
+      const targetUserId = String((args as any)?.userId || "").trim();
+      if (!targetUserId) return { status: 400, json: { ok: false, error: "Invalid user" } };
+      if (targetUserId === ownerId) return { status: 400, json: { ok: false, error: "Owner permissions cannot be changed." } };
+
+      const existing = await (prisma as any).portalAccountMember.findUnique({
+        where: { ownerId_userId: { ownerId, userId: targetUserId } },
+        select: { role: true, permissionsJson: true },
+      });
+      if (!existing) return { status: 404, json: { ok: false, error: "Not found" } };
+
+      const roleRaw = typeof existing?.role === "string" ? String(existing.role) : null;
+      const currentRole = roleRaw === "ADMIN" || roleRaw === "MEMBER" ? roleRaw : "MEMBER";
+
+      const nextRole = (args as any)?.role === "ADMIN" ? "ADMIN" : (args as any)?.role === "MEMBER" ? "MEMBER" : currentRole;
+
+      const nextPermissionsJson =
+        nextRole === "ADMIN"
+          ? null
+          : normalizePortalPermissions(
+              (args as any)?.permissions !== undefined ? (args as any)?.permissions : (existing?.permissionsJson as any),
+              nextRole,
+            );
+
+      await (prisma as any).portalAccountMember.update({
+        where: { ownerId_userId: { ownerId, userId: targetUserId } },
+        data: { role: nextRole, permissionsJson: nextPermissionsJson },
+        select: { id: true },
+      });
+
+      return { status: 200, json: { ok: true } };
+    }
+
+    case "people.users.delete": {
+      const memberId = String(actorUserId || "").trim() || ownerId;
+      const myRole = memberId === ownerId ? "OWNER" : await getPortalAccountMemberRole({ ownerId, userId: memberId });
+      if (myRole !== "OWNER" && myRole !== "ADMIN") return { status: 403, json: { ok: false, error: "Forbidden" } };
+
+      const targetUserId = String((args as any)?.userId || "").trim();
+      if (!targetUserId) return { status: 400, json: { ok: false, error: "Invalid user" } };
+      if (targetUserId === ownerId) return { status: 400, json: { ok: false, error: "Owner cannot be removed." } };
+      if (targetUserId === memberId) return { status: 400, json: { ok: false, error: "You can’t remove yourself." } };
+
+      const deleted = await (prisma as any).portalAccountMember.deleteMany({ where: { ownerId, userId: targetUserId } });
+      if (!deleted?.count) return { status: 404, json: { ok: false, error: "Not found" } };
+      return { status: 200, json: { ok: true } };
+    }
+
+    case "people.leads.update": {
+      const leadId = String((args as any)?.leadId || "").trim();
+      if (!leadId) return { status: 400, json: { ok: false, error: "Invalid lead id" } };
+
+      const hasAnyChange =
+        (args as any).businessName !== undefined ||
+        (args as any).email !== undefined ||
+        (args as any).phone !== undefined ||
+        (args as any).website !== undefined ||
+        (args as any).contactId !== undefined;
+      if (!hasAnyChange) return { status: 400, json: { ok: false, error: "No changes provided" } };
+
+      const data: any = {};
+
+      if ((args as any).businessName !== undefined) {
+        const businessName = String((args as any).businessName || "").trim();
+        if (!businessName) return { status: 400, json: { ok: false, error: "Invalid businessName" } };
+        data.businessName = businessName;
+      }
+
+      if ((args as any).email !== undefined) {
+        const raw = (args as any).email === null ? null : String((args as any).email || "").trim();
+        const email = raw ? raw.toLowerCase() : null;
+        if (email && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return { status: 400, json: { ok: false, error: "Invalid email" } };
+        data.email = email;
+      }
+
+      if ((args as any).phone !== undefined) {
+        const raw = (args as any).phone === null ? null : String((args as any).phone || "").trim();
+        if (!raw) data.phone = null;
+        else {
+          const res = normalizePhoneStrict(raw);
+          if (!res.ok) return { status: 400, json: { ok: false, error: "Invalid phone" } };
+          data.phone = res.e164;
+        }
+      }
+
+      if ((args as any).website !== undefined) {
+        const raw = (args as any).website === null ? null : String((args as any).website || "").trim();
+        if (!raw) data.website = null;
+        else {
+          try {
+            const u = new URL(raw);
+            if (u.protocol !== "http:" && u.protocol !== "https:") throw new Error("Invalid protocol");
+          } catch {
+            return { status: 400, json: { ok: false, error: "Invalid website URL" } };
+          }
+          data.website = raw;
+        }
+      }
+
+      if ((args as any).contactId !== undefined) {
+        const raw = (args as any).contactId === null ? null : String((args as any).contactId || "").trim();
+        data.contactId = raw ? raw : null;
+      }
+
+      try {
+        const updated = await prisma.portalLead.updateMany({ where: { id: leadId, ownerId }, data });
+        if (!updated.count) return { status: 404, json: { ok: false, error: "Not found" } };
+        return { status: 200, json: { ok: true } };
+      } catch {
+        return { status: 500, json: { ok: false, error: "Update failed" } };
+      }
+    }
+
+    case "people.contacts.custom_variable_keys.get": {
+      function isMissingRelationError(e: unknown) {
+        const msg = e instanceof Error ? e.message : String(e ?? "");
+        return /does not exist|relation .* does not exist|no such table/i.test(msg);
+      }
+
+      try {
+        const rows = await prisma.$queryRaw<Array<{ key: string | null }>>`
+          SELECT DISTINCT jsonb_object_keys("customVariables") AS key
+          FROM "PortalContact"
+          WHERE "ownerId" = ${ownerId}
+            AND "customVariables" IS NOT NULL
+            AND jsonb_typeof("customVariables") = 'object'
+          LIMIT 250;
+        `;
+
+        const out: string[] = [];
+        const seen = new Set<string>();
+        for (const r of rows || []) {
+          const key = normalizePortalContactCustomVarKey(String(r?.key ?? ""));
+          if (!key || seen.has(key)) continue;
+          seen.add(key);
+          out.push(key);
+          if (out.length >= 50) break;
+        }
+
+        out.sort((a, b) => a.localeCompare(b));
+        return { status: 200, json: { ok: true, keys: out } };
+      } catch (e) {
+        if (isMissingRelationError(e)) return { status: 200, json: { ok: true, keys: [] } };
+        return { status: 200, json: { ok: true, keys: [] } };
+      }
+    }
+
+    case "people.contacts.duplicates.get": {
+      const limitGroups = typeof (args as any)?.limitGroups === "number" ? (args as any).limitGroups : 100;
+      const summaryOnly = Boolean((args as any)?.summaryOnly);
+      const n = Math.max(1, Math.min(200, Number(limitGroups) || 100));
+
+      const res = await listDuplicatePortalContactsByPhoneKey({ ownerId, limitGroups: n });
+      if (!res.ok) return { status: 500, json: { ok: false, error: res.error } };
+
+      if (summaryOnly) {
+        const groups = res.groups;
+        const groupsNeedingChoice = groups.filter((g) => g.needsEmailChoice).length;
+        const totalDuplicateContacts = groups.reduce((sum, g) => sum + g.contacts.length, 0);
+        return { status: 200, json: { ok: true, groupsCount: groups.length, groupsNeedingChoice, totalDuplicateContacts } };
+      }
+
+      return { status: 200, json: { ok: true, groups: res.groups } };
+    }
+
+    case "people.contacts.merge": {
+      const primaryContactId = String((args as any)?.primaryContactId || "").trim();
+      const mergeContactIds = Array.isArray((args as any)?.mergeContactIds) ? (args as any).mergeContactIds : [];
+      const primaryEmail = typeof (args as any)?.primaryEmail === "string" ? String((args as any).primaryEmail).trim() : null;
+
+      if (!primaryContactId || !mergeContactIds.length) return { status: 400, json: { ok: false, error: "Invalid input" } };
+
+      const res = await mergePortalContacts({
+        ownerId,
+        primaryContactId,
+        mergeContactIds: mergeContactIds.map((x: any) => String(x)).filter(Boolean).slice(0, 50),
+        primaryEmail: primaryEmail || null,
+      });
+
+      if (!res.ok) {
+        const status = res.code === "EMAIL_CONFLICT" ? 409 : res.code === "PHONE_MISMATCH" ? 400 : 400;
+        return { status, json: { ok: false, error: res.error, code: res.code, details: res.details } };
+      }
+
+      return { status: 200, json: res };
+    }
+
+    case "people.contacts.custom_variables.patch": {
+      const contactId = String((args as any)?.contactId || "").trim();
+      if (!contactId) return { status: 400, json: { ok: false, error: "Invalid contact id" } };
+
+      const key = normalizePortalContactCustomVarKey(String((args as any)?.key || ""));
+      if (!key) return { status: 400, json: { ok: false, error: "Invalid key" } };
+
+      const value = String((args as any)?.value ?? "").trim();
+
+      const existing = await prisma.portalContact
+        .findFirst({ where: { ownerId, id: contactId }, select: { id: true, customVariables: true } })
+        .catch(() => null);
+
+      if (!existing?.id) return { status: 404, json: { ok: false, error: "Not found" } };
+
+      const base: Record<string, string> =
+        existing.customVariables && typeof existing.customVariables === "object" && !Array.isArray(existing.customVariables)
+          ? ({ ...(existing.customVariables as Record<string, string>) } as Record<string, string>)
+          : {};
+
+      if (!value) delete base[key];
+      else base[key] = value;
+
+      const customVariablesUpdate: Prisma.InputJsonValue | Prisma.NullableJsonNullValueInput = Object.keys(base).length
+        ? (base as Prisma.InputJsonValue)
+        : Prisma.DbNull;
+
+      await prisma.portalContact.updateMany({ where: { ownerId, id: contactId }, data: { customVariables: customVariablesUpdate } });
+      return { status: 200, json: { ok: true, key, value } };
     }
 
     case "inbox.send_sms": {
@@ -2956,6 +3253,29 @@ function resultMarkdown(action: PortalAgentActionKey, json: any): { markdown: st
   if (action === "contacts.create" && json?.ok && json?.contactId) {
     return {
       markdown: `Created the contact.\n\n[Open people](/portal/app/people)`,
+      linkUrl: "/portal/app/people",
+    };
+  }
+
+  if ((action === "people.users.list" || action === "people.contacts.custom_variable_keys.get") && json?.ok) {
+    return {
+      markdown: `Done.\n\n[Open people](/portal/app/people)`,
+      linkUrl: "/portal/app/people",
+    };
+  }
+
+  if (
+    (action === "people.users.invite" ||
+      action === "people.users.update" ||
+      action === "people.users.delete" ||
+      action === "people.leads.update" ||
+      action === "people.contacts.duplicates.get" ||
+      action === "people.contacts.merge" ||
+      action === "people.contacts.custom_variables.patch") &&
+    json?.ok
+  ) {
+    return {
+      markdown: `Saved.\n\n[Open people](/portal/app/people)`,
       linkUrl: "/portal/app/people",
     };
   }

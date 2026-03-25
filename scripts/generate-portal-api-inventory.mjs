@@ -17,6 +17,16 @@ const ACTION_COVERAGE = [
   { action: "contacts.list", method: "GET", endpoint: "/api/portal/people/contacts" },
   { action: "contacts.create", method: "POST", endpoint: "/api/portal/people/contacts" },
 
+  { action: "people.users.list", method: "GET", endpoint: "/api/portal/people/users" },
+  { action: "people.users.invite", method: "POST", endpoint: "/api/portal/people/users" },
+  { action: "people.users.update", method: "PATCH", endpoint: "/api/portal/people/users/[userId]" },
+  { action: "people.users.delete", method: "DELETE", endpoint: "/api/portal/people/users/[userId]" },
+  { action: "people.leads.update", method: "PATCH", endpoint: "/api/portal/people/leads/[leadId]" },
+  { action: "people.contacts.custom_variable_keys.get", method: "GET", endpoint: "/api/portal/people/contacts/custom-variable-keys" },
+  { action: "people.contacts.duplicates.get", method: "GET", endpoint: "/api/portal/people/contacts/duplicates" },
+  { action: "people.contacts.merge", method: "POST", endpoint: "/api/portal/people/contacts/merge" },
+  { action: "people.contacts.custom_variables.patch", method: "PATCH", endpoint: "/api/portal/people/contacts/[contactId]/custom-variables" },
+
   { action: "reviews.send_request_for_booking", method: "POST", endpoint: "/api/portal/reviews/send" },
   { action: "reviews.send_request_for_contact", method: "POST", endpoint: "/api/portal/reviews/send-contact" },
   { action: "reviews.reply", method: "PUT", endpoint: "/api/portal/reviews/reply" },

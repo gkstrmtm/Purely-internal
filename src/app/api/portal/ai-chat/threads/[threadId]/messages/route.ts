@@ -180,6 +180,22 @@ function detectDeterministicActionsFromText(opts: {
     }];
   }
 
+  // People: list team members/invites.
+  if (/\b(list|show|get)\b[\s\S]{0,30}\b(team|members?|users?|invites?)\b/i.test(t) && /\b(people|team|members?|users?)\b/i.test(t)) {
+    return [{ key: "people.users.list", title: "List team members", args: {} }];
+  }
+
+  // People: list duplicate contacts.
+  if (/\b(duplicates?|dedup|merge)\b/i.test(t) && /\bcontacts?\b/i.test(t)) {
+    const summaryOnly = /\bsummary\b/i.test(t);
+    return [{ key: "people.contacts.duplicates.get", title: "List duplicate contacts", args: { limitGroups: 100, summaryOnly } }];
+  }
+
+  // People: list contact custom variable keys.
+  if (/\bcustom\s+variable\s+keys?\b/i.test(t) && /\bcontacts?\b/i.test(t)) {
+    return [{ key: "people.contacts.custom_variable_keys.get", title: "List contact custom variable keys", args: {} }];
+  }
+
   // Reviews: get review request settings.
   if (/\b(show|get)\b[\s\S]{0,30}\b(reviews?|review requests?)\b[\s\S]{0,30}\b(settings?)\b/i.test(t)) {
     return [{ key: "reviews.settings.get", title: "Get review request settings", args: {} }];
