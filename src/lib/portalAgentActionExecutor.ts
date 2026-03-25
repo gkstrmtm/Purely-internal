@@ -23,6 +23,12 @@ import { mirrorUploadToMediaLibrary } from "@/lib/portalMediaUploads";
 import { safeFilename, newPublicToken, newTag, normalizeMimeType, normalizeNameKey } from "@/lib/portalMedia";
 import { addPortalDashboardWidget, isDashboardWidgetId, removePortalDashboardWidget, resetPortalDashboard, savePortalDashboardData, type DashboardWidgetId } from "@/lib/portalDashboard";
 import { hasPublicColumn } from "@/lib/dbSchema";
+import { cancelFollowUpsForBooking, scheduleFollowUpsForBooking } from "@/lib/followUpAutomation";
+import { trySendTransactionalEmail, sendTransactionalEmail } from "@/lib/emailSender";
+import { buildPortalTemplateVars } from "@/lib/portalTemplateVars";
+import { renderTextTemplate } from "@/lib/textTemplate";
+import { signBookingRescheduleToken } from "@/lib/bookingReschedule";
+import { sendOwnerTwilioSms } from "@/lib/portalTwilio";
 
 const MAX_REMOTE_MEDIA_BYTES = 15 * 1024 * 1024; // matches /api/portal/media/import-remote
 
@@ -631,6 +637,347 @@ async function runDirectAction(opts: {
       return { status: 200, json: { ok: true, config: saved, calendarId: id } };
     }
 
+    case "booking.bookings.list": {
+      const take = typeof args.take === "number" && Number.isFinite(args.take) ? Math.max(1, Math.min(50, Math.floor(args.take))) : 25;
+
+      const site = await prisma.portalBookingSite.findUnique({ where: { ownerId }, select: { id: true } });
+      if (!site) return { status: 200, json: { ok: true, upcoming: [], recent: [] } };
+
+      const now = new Date();
+      await ensurePortalContactTagsReady().catch(() => null);
+
+      const [hasCalendarId, hasContactId] = await Promise.all([
+        hasPublicColumn("PortalBooking", "calendarId"),
+        hasPublicColumn("PortalBooking", "contactId"),
+      ]);
+
+      const select: Record<string, boolean> = {
+        id: true,
+        startAt: true,
+        endAt: true,
+        status: true,
+        contactName: true,
+        contactEmail: true,
+        contactPhone: true,
+        notes: true,
+        createdAt: true,
+        canceledAt: true,
+      };
+      if (hasCalendarId) select.calendarId = true;
+      if (hasContactId) select.contactId = true;
+
+      const [upcoming, recent] = await Promise.all([
+        prisma.portalBooking.findMany({
+          where: { siteId: site.id, status: "SCHEDULED", startAt: { gte: now } },
+          orderBy: { startAt: "asc" },
+          take,
+          select: select as any,
+        }),
+        prisma.portalBooking.findMany({
+          where: { siteId: site.id, OR: [{ status: "CANCELED" }, { startAt: { lt: now } }] },
+          orderBy: { startAt: "desc" },
+          take,
+          select: select as any,
+        }),
+      ]);
+
+      if (hasContactId) {
+        const all = ([...(upcoming || []), ...(recent || [])] as any[]).filter(Boolean);
+        const missing = all.filter((b) => !b.contactId && typeof b.contactName === "string" && b.contactName.trim());
+        for (const b of missing.slice(0, 15)) {
+          try {
+            const contactId = await findOrCreatePortalContact({
+              ownerId,
+              name: String(b.contactName || "").slice(0, 80),
+              email: b.contactEmail ? String(b.contactEmail) : null,
+              phone: b.contactPhone ? String(b.contactPhone) : null,
+            });
+            if (!contactId) continue;
+            await prisma.portalBooking.updateMany({ where: { id: String(b.id), siteId: site.id }, data: { contactId } });
+            b.contactId = contactId;
+          } catch {
+            // ignore
+          }
+        }
+      }
+
+      const all = [...(upcoming || []), ...(recent || [])] as any[];
+      const contactIds = Array.from(new Set(all.map((b) => String((b as any).contactId || "")).filter(Boolean)));
+
+      const tagsByContactId = new Map<string, Array<{ id: string; name: string; color: string | null }>>();
+      if (contactIds.length) {
+        try {
+          const rows = await (prisma as any).portalContactTagAssignment.findMany({
+            where: { ownerId, contactId: { in: contactIds } },
+            take: 4000,
+            select: { contactId: true, tag: { select: { id: true, name: true, color: true } } },
+          });
+          for (const r of rows || []) {
+            const cid = String(r.contactId);
+            const t = r.tag;
+            if (!t) continue;
+            const list = tagsByContactId.get(cid) || [];
+            list.push({ id: String(t.id), name: String(t.name), color: t.color ? String(t.color) : null });
+            tagsByContactId.set(cid, list);
+          }
+        } catch {
+          // ignore
+        }
+      }
+
+      const withTags = (list: any[]) =>
+        (list || []).map((b: any) => ({
+          ...b,
+          contactId: b.contactId ? String(b.contactId) : null,
+          contactTags: b.contactId ? tagsByContactId.get(String(b.contactId)) || [] : [],
+        }));
+
+      return { status: 200, json: { ok: true, upcoming: withTags(upcoming as any), recent: withTags(recent as any) } };
+    }
+
+    case "booking.cancel": {
+      const bookingId = String(args.bookingId || "").trim();
+      if (!bookingId) return { status: 400, json: { ok: false, error: "Missing bookingId" } };
+
+      const site = await prisma.portalBookingSite.findUnique({ where: { ownerId }, select: { id: true, title: true, timeZone: true } });
+      if (!site) return { status: 404, json: { ok: false, error: "Not found" } };
+
+      const booking = await prisma.portalBooking.findUnique({ where: { id: bookingId } });
+      if (!booking || booking.siteId !== site.id) return { status: 404, json: { ok: false, error: "Not found" } };
+
+      if (booking.status !== "SCHEDULED") {
+        return { status: 200, json: { ok: true, booking } };
+      }
+
+      const updated = await prisma.portalBooking.update({ where: { id: bookingId }, data: { status: "CANCELED", canceledAt: new Date() } });
+
+      try {
+        await cancelFollowUpsForBooking(String(ownerId), String(updated.id));
+      } catch {
+        // ignore
+      }
+
+      try {
+        if (updated.contactEmail) {
+          const profile = await prisma.businessProfile.findUnique({ where: { ownerId }, select: { businessName: true } });
+          const fromName = profile?.businessName?.trim() || "Purely Automation";
+          const when = new Intl.DateTimeFormat(undefined, {
+            timeZone: site.timeZone,
+            weekday: "short",
+            month: "short",
+            day: "numeric",
+            year: "numeric",
+            hour: "numeric",
+            minute: "2-digit",
+          }).format(new Date(updated.startAt));
+
+          const body = [
+            `Your booking was canceled: ${site.title}`,
+            "",
+            `When: ${when} (${site.timeZone})`,
+            "",
+            "If you have questions, reply to this email.",
+          ].join("\n");
+
+          await trySendTransactionalEmail({ to: [updated.contactEmail], subject: `Booking canceled: ${site.title}`, text: body, fromName }).catch(() => null);
+        }
+      } catch {
+        // ignore
+      }
+
+      return { status: 200, json: { ok: true, booking: updated } };
+    }
+
+    case "booking.reschedule": {
+      const bookingId = String(args.bookingId || "").trim();
+      const startAtIso = String(args.startAtIso || "").trim();
+      const forceAvailability = Boolean(args.forceAvailability);
+      if (!bookingId) return { status: 400, json: { ok: false, error: "Missing bookingId" } };
+      if (!startAtIso) return { status: 400, json: { ok: false, error: "Missing startAtIso" } };
+
+      const site = await (prisma as any).portalBookingSite.findUnique({
+        where: { ownerId },
+        select: { id: true, slug: true, title: true, durationMinutes: true, timeZone: true },
+      });
+      if (!site) return { status: 404, json: { ok: false, error: "Not found" } };
+
+      const booking = await (prisma as any).portalBooking.findUnique({ where: { id: bookingId } });
+      if (!booking || booking.siteId !== site.id) return { status: 404, json: { ok: false, error: "Not found" } };
+
+      if (booking.status !== "SCHEDULED") {
+        return { status: 200, json: { ok: true, booking } };
+      }
+
+      const startAt = new Date(startAtIso);
+      if (Number.isNaN(startAt.getTime())) return { status: 400, json: { ok: false, error: "Please choose a valid time." } };
+
+      const durationMs = new Date(booking.endAt).getTime() - new Date(booking.startAt).getTime();
+      const safeDurationMs = Number.isFinite(durationMs) && durationMs > 0 ? durationMs : Number(site.durationMinutes) * 60_000;
+      const endAt = new Date(startAt.getTime() + safeDurationMs);
+
+      const existing = await (prisma as any).portalBooking.findMany({
+        where: {
+          siteId: site.id,
+          status: "SCHEDULED",
+          id: { not: booking.id },
+          startAt: { lt: endAt },
+          endAt: { gt: startAt },
+        },
+        select: { startAt: true, endAt: true },
+      });
+
+      const overlaps = (aStart: Date, aEnd: Date, bStart: Date, bEnd: Date) => aStart < bEnd && bStart < aEnd;
+      for (const b of existing || []) {
+        if (overlaps(startAt, endAt, b.startAt, b.endAt)) {
+          return { status: 409, json: { ok: false, error: "That time conflicts with another booking." } };
+        }
+      }
+
+      const coverage = await prisma.availabilityBlock.findFirst({
+        where: { userId: ownerId, startAt: { lte: startAt }, endAt: { gte: endAt } },
+        select: { id: true },
+      });
+
+      if (!coverage) {
+        if (forceAvailability) {
+          await prisma.availabilityBlock.create({ data: { userId: ownerId, startAt, endAt }, select: { id: true } });
+        } else {
+          return { status: 409, json: { ok: false, error: "No availability covers that time. Enable Force availability to schedule it anyway.", noAvailability: true } };
+        }
+      }
+
+      const updated = await (prisma as any).portalBooking.update({ where: { id: booking.id }, data: { startAt, endAt } });
+
+      try {
+        await scheduleFollowUpsForBooking(String(ownerId), String(updated.id));
+      } catch {
+        // ignore
+      }
+
+      const rescheduleToken = signBookingRescheduleToken({ bookingId: String(updated.id), contactEmail: String(updated.contactEmail || "") });
+      const origin = (process.env.NEXTAUTH_URL || process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000").replace(/\/$/, "");
+      const rescheduleUrl = rescheduleToken
+        ? new URL(
+            `/book/${encodeURIComponent(String(site.slug))}/reschedule/${encodeURIComponent(String(updated.id))}?t=${encodeURIComponent(rescheduleToken)}`,
+            origin,
+          ).toString()
+        : null;
+
+      try {
+        const profile = await prisma.businessProfile.findUnique({ where: { ownerId }, select: { businessName: true } });
+        const fromName = profile?.businessName?.trim() || "Purely Automation";
+        const when = `${new Intl.DateTimeFormat(undefined, {
+          timeZone: site.timeZone,
+          weekday: "short",
+          month: "short",
+          day: "numeric",
+          year: "numeric",
+          hour: "numeric",
+          minute: "2-digit",
+        }).format(startAt)} (${site.timeZone})`;
+
+        if (updated.contactEmail) {
+          await trySendTransactionalEmail({
+            to: [updated.contactEmail],
+            subject: `Booking rescheduled: ${site.title}`,
+            text: [
+              `Your booking was rescheduled: ${site.title}`,
+              "",
+              `New time: ${when}`,
+              rescheduleUrl ? "" : null,
+              rescheduleUrl ? `Reschedule link: ${rescheduleUrl}` : null,
+            ]
+              .filter(Boolean)
+              .join("\n"),
+            fromName,
+          }).catch(() => null);
+        }
+
+        if (updated.contactPhone) {
+          await sendOwnerTwilioSms({ ownerId, to: updated.contactPhone, body: `Rescheduled: ${site.title} - ${when}`.slice(0, 900) }).catch(() => null);
+        }
+      } catch {
+        // ignore
+      }
+
+      return { status: 200, json: { ok: true, booking: updated, rescheduleUrl } };
+    }
+
+    case "booking.contact": {
+      const bookingId = String(args.bookingId || "").trim();
+      const messageTemplate = String(args.message || "").trim().slice(0, 2000);
+      const subjectTemplate = typeof args.subject === "string" ? String(args.subject).trim().slice(0, 120) : null;
+      const sendEmailRequested = Boolean(args.sendEmail);
+      const sendSmsRequested = Boolean(args.sendSms);
+      if (!bookingId) return { status: 400, json: { ok: false, error: "Missing bookingId" } };
+      if (!messageTemplate) return { status: 400, json: { ok: false, error: "Missing message" } };
+      if (!sendEmailRequested && !sendSmsRequested) return { status: 400, json: { ok: false, error: "Choose Email and/or Text." } };
+
+      const site = await prisma.portalBookingSite.findUnique({ where: { ownerId }, select: { id: true, title: true, timeZone: true } });
+      if (!site) return { status: 404, json: { ok: false, error: "Not found" } };
+
+      const booking = await prisma.portalBooking.findUnique({ where: { id: bookingId } });
+      if (!booking || booking.siteId !== site.id) return { status: 404, json: { ok: false, error: "Not found" } };
+
+      const profile = await prisma.businessProfile.findUnique({ where: { ownerId }, select: { businessName: true } });
+      const fromName = profile?.businessName?.trim() || site.title || "Purely Automation";
+
+      const subjectT = subjectTemplate || `Follow-up: ${site.title}`;
+
+      const when = (() => {
+        try {
+          return new Date(booking.startAt).toLocaleString(undefined, {
+            timeZone: site.timeZone,
+            weekday: "short",
+            month: "short",
+            day: "numeric",
+            hour: "numeric",
+            minute: "2-digit",
+          });
+        } catch {
+          return new Date(booking.startAt).toLocaleString();
+        }
+      })();
+
+      const vars = {
+        ...buildPortalTemplateVars({
+          contact: {
+            id: (booking as any).contactId ?? null,
+            name: (booking as any).contactName ?? null,
+            email: (booking as any).contactEmail ?? null,
+            phone: (booking as any).contactPhone ?? null,
+          },
+          business: { name: fromName },
+        }),
+        when,
+        timeZone: site.timeZone,
+        startAt: new Date(booking.startAt).toISOString(),
+        endAt: new Date(booking.endAt).toISOString(),
+        bookingTitle: site.title,
+        calendarTitle: site.title,
+      };
+
+      const subject = renderTextTemplate(subjectT, vars).trim().slice(0, 120) || subjectT;
+      const message = renderTextTemplate(messageTemplate, vars);
+
+      const sent = { email: false, sms: false };
+
+      if (sendEmailRequested) {
+        if (!booking.contactEmail) return { status: 400, json: { ok: false, error: "This booking has no email address." } };
+        await sendTransactionalEmail({ to: booking.contactEmail, subject, text: message, fromName });
+        sent.email = true;
+      }
+
+      if (sendSmsRequested) {
+        if (!booking.contactPhone) return { status: 400, json: { ok: false, error: "This booking has no phone number." } };
+        const res = await sendOwnerTwilioSms({ ownerId, to: booking.contactPhone, body: message.slice(0, 900) });
+        if (!res.ok) return { status: 400, json: { ok: false, error: res.error || "Texting is not configured yet." } };
+        sent.sms = true;
+      }
+
+      return { status: 200, json: { ok: true, sent } };
+    }
+
     case "media.folder.ensure": {
       const name = sanitizeHumanName(args.name, 120);
       if (!name) return { status: 400, json: { ok: false, error: "Invalid folder name" } };
@@ -869,6 +1216,83 @@ function resultMarkdown(action: PortalAgentActionKey, json: any): { markdown: st
   if (action === "booking.calendar.create" && json?.ok) {
     return {
       markdown: `Created a booking calendar.\n\n[Open booking](/portal/app/services/booking)`,
+      linkUrl: "/portal/app/services/booking",
+    };
+  }
+
+  if (action === "booking.bookings.list" && json?.ok) {
+    const upcoming = Array.isArray(json.upcoming) ? (json.upcoming as any[]) : [];
+    const recent = Array.isArray(json.recent) ? (json.recent as any[]) : [];
+
+    const fmt = (d: any) => {
+      try {
+        return new Date(d).toLocaleString();
+      } catch {
+        return String(d || "");
+      }
+    };
+
+    const linesUpcoming = upcoming.slice(0, 10).map((b) => {
+      const when = b?.startAt ? fmt(b.startAt) : "(no time)";
+      const name = String(b?.contactName || "").trim() || "(No name)";
+      const id = String(b?.id || "").trim();
+      return `- ${when} — ${name}${id ? ` (bookingId: ${id})` : ""}`;
+    });
+
+    const linesRecent = recent.slice(0, 6).map((b) => {
+      const when = b?.startAt ? fmt(b.startAt) : "(no time)";
+      const name = String(b?.contactName || "").trim() || "(No name)";
+      const status = String(b?.status || "").trim();
+      const id = String(b?.id || "").trim();
+      return `- ${when} — ${name}${status ? ` [${status}]` : ""}${id ? ` (bookingId: ${id})` : ""}`;
+    });
+
+    return {
+      markdown: [
+        upcoming.length ? "Upcoming bookings:" : "No upcoming bookings.",
+        upcoming.length ? "" : null,
+        upcoming.length ? linesUpcoming.join("\n") : null,
+        "",
+        recent.length ? "Recent bookings:" : "No recent bookings.",
+        recent.length ? "" : null,
+        recent.length ? linesRecent.join("\n") : null,
+        "\n[Open booking](/portal/app/services/booking)",
+      ]
+        .filter(Boolean)
+        .join("\n"),
+      linkUrl: "/portal/app/services/booking",
+    };
+  }
+
+  if (action === "booking.cancel" && json?.ok) {
+    return {
+      markdown: `Canceled the booking.\n\n[Open booking](/portal/app/services/booking)`,
+      linkUrl: "/portal/app/services/booking",
+    };
+  }
+
+  if (action === "booking.reschedule" && json?.ok) {
+    const url = typeof json.rescheduleUrl === "string" && json.rescheduleUrl.trim() ? json.rescheduleUrl.trim() : null;
+    return {
+      markdown: [
+        "Rescheduled the booking.",
+        url ? "" : null,
+        url ? `Customer reschedule link: ${url}` : null,
+        "\n[Open booking](/portal/app/services/booking)",
+      ]
+        .filter(Boolean)
+        .join("\n"),
+      linkUrl: "/portal/app/services/booking",
+    };
+  }
+
+  if (action === "booking.contact" && json?.ok) {
+    const sent = json?.sent && typeof json.sent === "object" ? json.sent : null;
+    const email = Boolean((sent as any)?.email);
+    const sms = Boolean((sent as any)?.sms);
+    const channels = [email ? "email" : null, sms ? "text" : null].filter(Boolean).join(" + ") || "message";
+    return {
+      markdown: `Sent the booking follow-up via ${channels}.\n\n[Open booking](/portal/app/services/booking)`,
       linkUrl: "/portal/app/services/booking",
     };
   }

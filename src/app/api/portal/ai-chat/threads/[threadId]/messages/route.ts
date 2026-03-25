@@ -95,6 +95,66 @@ function detectDeterministicActionsFromText(opts: {
   const attachments = Array.isArray(opts.attachments) ? opts.attachments : [];
   if (!t && !attachments.length) return [];
 
+  const bookingIdFromText = () => {
+    const m = /\bbooking\s*(?:id)?\s*[:#]?\s*([a-zA-Z0-9_-]{6,120})\b/i.exec(t) || /\bbookingId\s*[:=]\s*([a-zA-Z0-9_-]{6,120})\b/i.exec(t);
+    return m?.[1] ? String(m[1]).trim() : "";
+  };
+
+  const startAtIsoFromText = () => {
+    const m = /\b(\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(?::\d{2})?(?:\.\d{1,3})?(?:Z|[+-]\d{2}:\d{2})?)\b/.exec(t) || /\b(\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(?::\d{2})?)\b/.exec(t);
+    const raw = m?.[1] ? String(m[1]).trim() : "";
+    if (!raw) return "";
+    return raw.includes(" ") ? raw.replace(" ", "T") : raw;
+  };
+
+  // Booking: list bookings.
+  if (/\b(list|show)\b[\s\S]{0,30}\b(bookings?|appointments?)\b/i.test(t)) {
+    return [{ key: "booking.bookings.list", title: "List bookings", args: { take: 25 } }];
+  }
+
+  // Booking: cancel.
+  if (/\b(cancel)\b/i.test(t) && /\b(booking|appointment)\b/i.test(t)) {
+    const bookingId = bookingIdFromText();
+    if (bookingId) return [{ key: "booking.cancel", title: "Cancel booking", args: { bookingId } }];
+  }
+
+  // Booking: reschedule.
+  if (/\b(reschedule)\b/i.test(t) && /\b(booking|appointment)\b/i.test(t)) {
+    const bookingId = bookingIdFromText();
+    const startAtIso = startAtIsoFromText();
+    if (bookingId && startAtIso) {
+      const forceAvailability = /\b(force)\b[\s\S]{0,20}\bavailability\b/i.test(t);
+      return [{
+        key: "booking.reschedule",
+        title: "Reschedule booking",
+        args: { bookingId, startAtIso, ...(forceAvailability ? { forceAvailability: true } : {}) },
+      }];
+    }
+  }
+
+  // Booking: contact.
+  if (/\b(contact|message|follow[- ]?up)\b/i.test(t) && /\b(booking|appointment)\b/i.test(t)) {
+    const bookingId = bookingIdFromText();
+    if (bookingId) {
+      const sendEmail = /\b(email)\b/i.test(t);
+      const sendSms = /\b(text|sms)\b/i.test(t);
+      const quoted = /"([\s\S]{1,2000})"/.exec(t);
+      const msg = String((quoted?.[1] || "").trim()).slice(0, 2000);
+      if ((sendEmail || sendSms) && msg) {
+        return [{
+          key: "booking.contact",
+          title: "Contact booking",
+          args: {
+            bookingId,
+            message: msg,
+            ...(sendEmail ? { sendEmail: true } : {}),
+            ...(sendSms ? { sendSms: true } : {}),
+          },
+        }];
+      }
+    }
+  }
+
   // People: create a contact when the user provides at least a name.
   if (/\b(create|add|new)\b/i.test(t) && /\bcontact\b/i.test(t)) {
     const emailMatch = /\b([A-Z0-9._%+-]{1,64}@[A-Z0-9.-]{2,80}\.[A-Z]{2,})\b/i.exec(t);

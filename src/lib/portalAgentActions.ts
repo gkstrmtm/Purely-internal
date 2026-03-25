@@ -23,6 +23,10 @@ export const PortalAgentActionKeySchema = z.enum([
   "dashboard.remove_widget",
   "dashboard.optimize",
   "booking.calendar.create",
+  "booking.bookings.list",
+  "booking.cancel",
+  "booking.reschedule",
+  "booking.contact",
 ]);
 
 export type PortalAgentActionKey = z.infer<typeof PortalAgentActionKeySchema>;
@@ -197,6 +201,36 @@ export const PortalAgentActionArgsSchemaByKey = {
       notificationEmails: z.array(z.string().trim().min(3).max(200)).max(20).optional(),
     })
     .strict(),
+
+  "booking.bookings.list": z
+    .object({
+      take: z.number().int().min(1).max(50).optional(),
+    })
+    .strict(),
+
+  "booking.cancel": z
+    .object({
+      bookingId: z.string().trim().min(1).max(120),
+    })
+    .strict(),
+
+  "booking.reschedule": z
+    .object({
+      bookingId: z.string().trim().min(1).max(120),
+      startAtIso: z.string().trim().min(1).max(60),
+      forceAvailability: z.boolean().optional(),
+    })
+    .strict(),
+
+  "booking.contact": z
+    .object({
+      bookingId: z.string().trim().min(1).max(120),
+      subject: z.string().trim().max(120).optional().nullable(),
+      message: z.string().trim().min(1).max(2000),
+      sendEmail: z.boolean().optional(),
+      sendSms: z.boolean().optional(),
+    })
+    .strict(),
 } as const;
 
 export type PortalAgentActionArgs<K extends PortalAgentActionKey> = z.infer<(typeof PortalAgentActionArgsSchemaByKey)[K]>;
@@ -233,6 +267,10 @@ export function portalAgentActionsIndexText(): string {
     "- dashboard.remove_widget: Remove a dashboard widget (fields: scope?, widgetId)",
     "- dashboard.optimize: Optimize dashboard widgets/layout for a niche (fields: scope?, niche?)",
     "- booking.calendar.create: Create a booking calendar config entry (fields: title, id?, description?, durationMinutes?, meetingLocation?, meetingDetails?, notificationEmails?)",
+    "- booking.bookings.list: List upcoming/recent bookings (fields: take?)",
+    "- booking.cancel: Cancel a booking (fields: bookingId)",
+    "- booking.reschedule: Reschedule a booking start time (fields: bookingId, startAtIso, forceAvailability?)",
+    "- booking.contact: Contact a booking lead via email and/or SMS (fields: bookingId, message, subject?, sendEmail?, sendSms?)",
   ].join("\n");
 }
 

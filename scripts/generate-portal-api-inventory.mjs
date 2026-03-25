@@ -29,6 +29,11 @@ const ACTION_COVERAGE = [
   { action: "dashboard.add_widget", method: "POST", endpoint: "/api/portal/dashboard/widgets" },
   { action: "dashboard.remove_widget", method: "DELETE", endpoint: "/api/portal/dashboard/widgets" },
   { action: "dashboard.optimize", method: "POST", endpoint: "/api/portal/dashboard/optimize" },
+
+  { action: "booking.bookings.list", method: "GET", endpoint: "/api/portal/booking/bookings" },
+  { action: "booking.cancel", method: "POST", endpoint: "/api/portal/booking/bookings/[bookingId]/cancel" },
+  { action: "booking.reschedule", method: "POST", endpoint: "/api/portal/booking/bookings/[bookingId]/reschedule" },
+  { action: "booking.contact", method: "POST", endpoint: "/api/portal/booking/bookings/[bookingId]/contact" },
 ];
 
 const HTTP_METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE"];
