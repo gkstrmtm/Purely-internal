@@ -77,7 +77,7 @@ import {
   setReviewRequestsSettings,
 } from "@/lib/reviewRequests";
 import { mirrorUploadToMediaLibrary } from "@/lib/portalMediaUploads";
-import { safeFilename, newPublicToken, newTag, normalizeMimeType, normalizeNameKey } from "@/lib/portalMedia";
+import { isLikelyImageMimeType, safeFilename, newPublicToken, newTag, normalizeMimeType, normalizeNameKey } from "@/lib/portalMedia";
 import { addPortalDashboardWidget, getPortalDashboardData, isDashboardWidgetId, removePortalDashboardWidget, resetPortalDashboard, savePortalDashboardData, type DashboardWidgetId } from "@/lib/portalDashboard";
 import { hasPublicColumn } from "@/lib/dbSchema";
 import { cancelFollowUpsForBooking, getFollowUpServiceData, getFollowUpSettings, scheduleFollowUpsForBooking } from "@/lib/followUpAutomation";
@@ -9880,6 +9880,116 @@ async function runDirectAction(opts: {
       const item = await mirrorUploadToMediaLibrary({ ownerId, folderId, fileName, mimeType, bytes });
       if (!item) return { status: 500, json: { ok: false, error: "Import failed" } };
       return { status: 200, json: { ok: true, item } };
+    }
+
+    case "media.list.get": {
+      const ok = await requireServiceCapability("media" as PortalServiceKey, "view");
+      if (!ok) return { status: 403, json: { ok: false, error: "Insufficient permissions" } };
+
+      const folderId = typeof args.folderId === "string" && args.folderId.trim() ? String(args.folderId).trim() : null;
+
+      const mediaItemUrls = (row: { id: string; publicToken: string; mimeType: string; fileName: string }) => {
+        const openUrl = `/api/public/media/item/${row.id}/${row.publicToken}`;
+        const downloadUrl = `/api/public/media/item/${row.id}/${row.publicToken}?download=1`;
+        const shareUrl = openUrl;
+        const previewUrl = isLikelyImageMimeType(row.mimeType, row.fileName) ? openUrl : undefined;
+        return { openUrl, downloadUrl, shareUrl, previewUrl };
+      };
+
+      const folderUrls = (row: { id: string; publicToken: string }) => {
+        const shareUrl = `/media/f/${row.id}/${row.publicToken}`;
+        const downloadUrl = `/api/public/media/folder/${row.id}/${row.publicToken}`;
+        return { shareUrl, downloadUrl };
+      };
+
+      const folder = folderId
+        ? await (prisma as any).portalMediaFolder.findFirst({
+            where: { id: folderId, ownerId },
+            select: { id: true, name: true, parentId: true, tag: true, publicToken: true, color: true, createdAt: true },
+          })
+        : null;
+
+      if (folderId && !folder) {
+        return { status: 404, json: { ok: false, error: "Folder not found" } };
+      }
+
+      const breadcrumbs: Array<{ id: string; name: string; parentId: string | null; tag: string; publicToken: string; createdAt: Date; color?: string | null }> = [];
+      if (folder) {
+        let cur: any = folder;
+        breadcrumbs.unshift(cur);
+
+        let guard = 0;
+        while (cur?.parentId && guard < 50) {
+          guard += 1;
+          const parent = await (prisma as any).portalMediaFolder.findFirst({
+            where: { id: cur.parentId, ownerId },
+            select: { id: true, name: true, parentId: true, tag: true, publicToken: true, color: true, createdAt: true },
+          });
+          if (!parent) break;
+          breadcrumbs.unshift(parent);
+          cur = parent;
+        }
+      }
+
+      const [folders, items] = await Promise.all([
+        (prisma as any).portalMediaFolder.findMany({
+          where: { ownerId, parentId: folderId },
+          orderBy: [{ nameKey: "asc" }],
+          select: { id: true, name: true, parentId: true, tag: true, publicToken: true, color: true, createdAt: true },
+        }),
+        (prisma as any).portalMediaItem.findMany({
+          where: { ownerId, folderId: folderId },
+          orderBy: [{ createdAt: "desc" }],
+          select: { id: true, folderId: true, fileName: true, mimeType: true, fileSize: true, tag: true, publicToken: true, createdAt: true },
+          take: 500,
+        }),
+      ]);
+
+      return {
+        status: 200,
+        json: {
+          ok: true,
+          folder: folder
+            ? {
+                id: folder.id,
+                name: folder.name,
+                parentId: folder.parentId,
+                tag: folder.tag,
+                createdAt: folder.createdAt.toISOString(),
+                ...folderUrls(folder),
+                color: folder.color ?? null,
+              }
+            : null,
+          breadcrumbs: breadcrumbs.map((b) => ({
+            id: b.id,
+            name: b.name,
+            parentId: b.parentId,
+            tag: b.tag,
+            createdAt: b.createdAt.toISOString(),
+            ...folderUrls(b),
+            color: (b as any).color ?? null,
+          })),
+          folders: (folders as any[]).map((f: any) => ({
+            id: f.id,
+            name: f.name,
+            parentId: f.parentId,
+            tag: f.tag,
+            createdAt: f.createdAt.toISOString(),
+            ...folderUrls(f),
+            color: f.color ?? null,
+          })),
+          items: (items as any[]).map((it: any) => ({
+            id: it.id,
+            folderId: it.folderId,
+            fileName: it.fileName,
+            mimeType: it.mimeType,
+            fileSize: it.fileSize,
+            tag: it.tag,
+            createdAt: it.createdAt.toISOString(),
+            ...mediaItemUrls(it),
+          })),
+        },
+      };
     }
 
     case "media.stats.get": {
