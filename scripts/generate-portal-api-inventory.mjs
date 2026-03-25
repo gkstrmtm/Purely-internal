@@ -110,6 +110,18 @@ const ACTION_COVERAGE = [
   { action: "blogs.automation.settings.get", method: "GET", endpoint: "/api/portal/blogs/automation/settings" },
   { action: "blogs.automation.settings.update", method: "PUT", endpoint: "/api/portal/blogs/automation/settings" },
 
+  // Newsletter (safe settings + CRUD)
+  { action: "newsletter.site.get", method: "GET", endpoint: "/api/portal/newsletter/site" },
+  { action: "newsletter.site.update", method: "POST", endpoint: "/api/portal/newsletter/site" },
+  { action: "newsletter.usage.get", method: "GET", endpoint: "/api/portal/newsletter/usage" },
+  { action: "newsletter.newsletters.list", method: "GET", endpoint: "/api/portal/newsletter/newsletters" },
+  { action: "newsletter.newsletters.create", method: "POST", endpoint: "/api/portal/newsletter/newsletters" },
+  { action: "newsletter.newsletters.get", method: "GET", endpoint: "/api/portal/newsletter/newsletters/[newsletterId]" },
+  { action: "newsletter.newsletters.update", method: "PUT", endpoint: "/api/portal/newsletter/newsletters/[newsletterId]" },
+  { action: "newsletter.audience.contacts.search", method: "GET", endpoint: "/api/portal/newsletter/audience/contacts" },
+  { action: "newsletter.automation.settings.get", method: "GET", endpoint: "/api/portal/newsletter/automation/settings" },
+  { action: "newsletter.automation.settings.update", method: "PUT", endpoint: "/api/portal/newsletter/automation/settings" },
+
   // Funnel Builder (non-AI CRUD parity)
   { action: "funnel_builder.settings.get", method: "GET", endpoint: "/api/portal/funnel-builder/settings" },
   { action: "funnel_builder.settings.update", method: "POST", endpoint: "/api/portal/funnel-builder/settings" },

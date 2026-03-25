@@ -46,6 +46,16 @@ export const PortalAgentActionKeySchema = z.enum([
   "blogs.automation.settings.get",
   "blogs.automation.settings.update",
   "blogs.generate_now",
+  "newsletter.site.get",
+  "newsletter.site.update",
+  "newsletter.usage.get",
+  "newsletter.newsletters.list",
+  "newsletter.newsletters.create",
+  "newsletter.newsletters.get",
+  "newsletter.newsletters.update",
+  "newsletter.audience.contacts.search",
+  "newsletter.automation.settings.get",
+  "newsletter.automation.settings.update",
   "newsletter.generate_now",
   "automations.run",
   "automations.create",
@@ -428,6 +438,120 @@ export const PortalAgentActionArgsSchemaByKey = {
     .strict(),
 
   "blogs.generate_now": z.object({}).strict(),
+
+  "newsletter.site.get": z.object({}).strict(),
+
+  "newsletter.site.update": z
+    .object({
+      name: z.string().trim().min(2).max(120),
+      primaryDomain: z.string().trim().max(253).optional().nullable(),
+      slug: z.string().trim().max(80).optional().nullable(),
+    })
+    .strict(),
+
+  "newsletter.usage.get": z
+    .object({
+      range: z.enum(["7d", "30d", "90d", "all"]).optional(),
+    })
+    .strict(),
+
+  "newsletter.newsletters.list": z
+    .object({
+      kind: z.enum(["external", "internal"]).optional(),
+      take: z.number().int().min(1).max(200).optional(),
+    })
+    .strict(),
+
+  "newsletter.newsletters.create": z
+    .object({
+      kind: z.enum(["external", "internal"]),
+      status: z.enum(["DRAFT", "READY"]).optional(),
+      title: z.string().trim().min(1).max(180),
+      excerpt: z.string().trim().max(6000),
+      content: z.string().trim().max(200000),
+      smsText: z
+        .string()
+        .trim()
+        .max(240)
+        .optional()
+        .nullable()
+        .transform((v) => {
+          if (v === undefined) return null;
+          if (v === null) return null;
+          const t = String(v).trim();
+          return t ? t : null;
+        }),
+    })
+    .strict(),
+
+  "newsletter.newsletters.get": z
+    .object({
+      newsletterId: z.string().trim().min(1).max(120),
+    })
+    .strict(),
+
+  "newsletter.newsletters.update": z
+    .object({
+      newsletterId: z.string().trim().min(1).max(120),
+      title: z.string().trim().min(1).max(180),
+      excerpt: z.string().trim().max(6000),
+      content: z.string().trim().max(200000),
+      smsText: z
+        .string()
+        .trim()
+        .max(240)
+        .optional()
+        .nullable()
+        .transform((v) => {
+          if (v === undefined) return null;
+          if (v === null) return null;
+          const t = String(v).trim();
+          return t ? t : null;
+        }),
+      hostedOnly: z.boolean().optional(),
+    })
+    .strict(),
+
+  "newsletter.audience.contacts.search": z
+    .object({
+      q: z.string().trim().max(120).optional(),
+      ids: z.array(z.string().trim().min(1).max(80)).max(200).optional(),
+      take: z.number().int().min(1).max(200).optional(),
+    })
+    .strict(),
+
+  "newsletter.automation.settings.get": z
+    .object({
+      kind: z.enum(["external", "internal"]).optional(),
+    })
+    .strict(),
+
+  "newsletter.automation.settings.update": z
+    .object({
+      kind: z.enum(["external", "internal"]),
+      enabled: z.boolean(),
+      frequencyDays: z.number().int().min(1).max(365),
+      requireApproval: z.boolean().optional(),
+      channels: z.object({ email: z.boolean().optional(), sms: z.boolean().optional() }).optional(),
+      topics: z.array(z.string().trim().min(1).max(200)).max(50).optional(),
+      promptAnswers: z.record(z.string().trim().min(1).max(80), z.string().trim().min(1).max(2000)).optional(),
+      deliveryEmailHint: z.string().trim().max(1500).optional(),
+      deliverySmsHint: z.string().trim().max(800).optional(),
+      includeImages: z.boolean().optional(),
+      royaltyFreeImages: z.boolean().optional(),
+      includeImagesWhereNeeded: z.boolean().optional(),
+      fontKey: z.string().trim().min(1).max(40).optional(),
+      audience: z
+        .object({
+          tagIds: z.array(z.string().trim().min(1).max(80)).max(200).optional(),
+          contactIds: z.array(z.string().trim().min(1).max(80)).max(200).optional(),
+          emails: z.array(z.string().trim().min(1).max(254)).max(200).optional(),
+          userIds: z.array(z.string().trim().min(1).max(80)).max(200).optional(),
+          sendAllUsers: z.boolean().optional(),
+        })
+        .optional(),
+    })
+    .strict(),
 
   "newsletter.generate_now": z
     .object({
@@ -1133,6 +1257,16 @@ export function portalAgentActionsIndexText(): string {
     "- blogs.automation.settings.get: Get blog automation settings",
     "- blogs.automation.settings.update: Update blog automation settings (fields: enabled, frequencyDays, topics, autoPublish?)",
     "- blogs.generate_now: Generate a blog draft now",
+    "- newsletter.site.get: Get newsletter site settings",
+    "- newsletter.site.update: Create/update newsletter site settings (fields: name, primaryDomain?, slug?)",
+    "- newsletter.usage.get: Get newsletter usage stats (fields: range=7d|30d|90d|all?)",
+    "- newsletter.newsletters.list: List newsletters (fields: kind=external|internal?, take?)",
+    "- newsletter.newsletters.create: Create a newsletter (fields: kind, status?, title, excerpt, content, smsText?)",
+    "- newsletter.newsletters.get: Get a newsletter (fields: newsletterId)",
+    "- newsletter.newsletters.update: Update a newsletter (fields: newsletterId, title, excerpt, content, smsText?, hostedOnly?)",
+    "- newsletter.audience.contacts.search: Search contacts for newsletter audience (fields: q? OR ids?, take?)",
+    "- newsletter.automation.settings.get: Get newsletter automation settings (fields: kind=external|internal?)",
+    "- newsletter.automation.settings.update: Update newsletter automation settings (fields: kind, enabled, frequencyDays, requireApproval?, channels?, topics?, promptAnswers?, deliveryEmailHint?, deliverySmsHint?, includeImages?, royaltyFreeImages?, includeImagesWhereNeeded?, fontKey?, audience?)",
     "- newsletter.generate_now: Generate a newsletter draft now (fields: kind=external|internal)",
     "- automations.run: Run an automation by id (fields: automationId, contact?)",
     "- automations.create: Create a new automation shell (fields: name)",

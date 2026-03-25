@@ -22,6 +22,7 @@ import { runOwnerAutomationByIdForEvent } from "@/lib/portalAutomationsRunner";
 import { generateClientBlogDraft } from "@/lib/clientBlogAutomation";
 import { generateClientNewsletterDraft } from "@/lib/clientNewsletterAutomation";
 import { uniqueNewsletterSlug } from "@/lib/portalNewsletter";
+import { normalizeNewsletterFontKey } from "@/lib/portalNewsletterFonts";
 import { slugify } from "@/lib/slugify";
 import { getBookingCalendarsConfig, setBookingCalendarsConfig } from "@/lib/bookingCalendars";
 import { getBookingFormConfig, setBookingFormConfig } from "@/lib/bookingForm";
@@ -2684,6 +2685,830 @@ async function runDirectAction(opts: {
       });
 
       return { status: 200, json: { ok: true, postId: post.id, creditsRemaining: consumed.state.balance } };
+    }
+
+    case "newsletter.site.get": {
+      const canUseSlugColumn = await hasPublicColumn("ClientBlogSite", "slug");
+
+      async function ensurePublicSlug(desiredName: string) {
+        const profile = await prisma.businessProfile.findUnique({ where: { ownerId }, select: { businessName: true } });
+        const base = slugify(profile?.businessName ?? desiredName) || "site";
+        const desired = base.length >= 3 ? base : "site";
+
+        let slug = desired;
+        if (canUseSlugColumn) {
+          const collision = (await (prisma.clientBlogSite as any).findUnique({ where: { slug }, select: { ownerId: true } })) as any;
+          if (collision && collision.ownerId !== ownerId) {
+            slug = `${desired}-${ownerId.slice(0, 6)}`;
+          }
+        }
+        return slug;
+      }
+
+      const select: any = {
+        id: true,
+        name: true,
+        primaryDomain: true,
+        verifiedAt: true,
+        verificationToken: true,
+        updatedAt: true,
+        ...(canUseSlugColumn ? { slug: true } : {}),
+      };
+
+      let site = (await prisma.clientBlogSite.findUnique({ where: { ownerId }, select } as any)) as any;
+
+      const currentSlug = (site as any)?.slug as string | null | undefined;
+      if (site && canUseSlugColumn && !currentSlug) {
+        const slug = await ensurePublicSlug(String(site.name || "Site"));
+        site = (await (prisma.clientBlogSite as any).update({ where: { ownerId }, data: { slug }, select } as any)) as any;
+      }
+
+      let fallbackSlug: string | null = null;
+      if (site && !canUseSlugColumn) {
+        fallbackSlug = await getStoredBlogSiteSlug(ownerId);
+        if (!fallbackSlug) {
+          fallbackSlug = await ensureStoredBlogSiteSlug(ownerId, String(site.name || "Site"));
+        }
+      }
+
+      return {
+        status: 200,
+        json: {
+          ok: true,
+          site: site
+            ? {
+                ...(site as any),
+                slug: canUseSlugColumn ? ((site as any).slug ?? null) : fallbackSlug,
+              }
+            : null,
+        },
+      };
+    }
+
+    case "newsletter.site.update": {
+      if (!(await requireOwnerOrAdmin())) return { status: 403, json: { ok: false, error: "Forbidden" } };
+
+      const canUseSlugColumn = await hasPublicColumn("ClientBlogSite", "slug");
+
+      async function ensurePublicSlug(desiredName: string) {
+        const profile = await prisma.businessProfile.findUnique({ where: { ownerId }, select: { businessName: true } });
+        const base = slugify(profile?.businessName ?? desiredName) || "site";
+        const desired = base.length >= 3 ? base : "site";
+
+        let slug = desired;
+        if (canUseSlugColumn) {
+          const collision = (await (prisma.clientBlogSite as any).findUnique({ where: { slug }, select: { ownerId: true } })) as any;
+          if (collision && collision.ownerId !== ownerId) {
+            slug = `${desired}-${ownerId.slice(0, 6)}`;
+          }
+        }
+        return slug;
+      }
+
+      const slugFieldProvided = Object.prototype.hasOwnProperty.call(args as any, "slug");
+      const rawSlug = typeof (args as any).slug === "string" ? String((args as any).slug).trim() : "";
+      const requestedSlug = rawSlug.length ? slugify(rawSlug) : null;
+
+      if (slugFieldProvided && !canUseSlugColumn) {
+        try {
+          if (requestedSlug) {
+            await setStoredBlogSiteSlug(ownerId, requestedSlug);
+          } else {
+            await ensureStoredBlogSiteSlug(ownerId, String((args as any).name || "").trim());
+          }
+        } catch (e) {
+          return { status: 409, json: { ok: false, error: e instanceof Error ? e.message : "That link is already taken." } };
+        }
+      }
+
+      const select: any = {
+        id: true,
+        name: true,
+        primaryDomain: true,
+        verifiedAt: true,
+        verificationToken: true,
+        updatedAt: true,
+        ...(canUseSlugColumn ? { slug: true } : {}),
+      };
+
+      const existing = (await prisma.clientBlogSite.findUnique({ where: { ownerId }, select } as any)) as any;
+
+      const name = String((args as any).name || "").trim();
+      const primaryDomain = normalizeDomain(typeof (args as any).primaryDomain === "string" ? (args as any).primaryDomain : null);
+
+      if (existing) {
+        const currentPrimaryDomain = normalizeDomain((existing as any)?.primaryDomain);
+        const domainChanged = primaryDomain !== currentPrimaryDomain;
+        const tokenMissing = Boolean(primaryDomain) && !String((existing as any)?.verificationToken || "").trim();
+        const nextVerificationToken =
+          domainChanged && primaryDomain
+            ? crypto.randomBytes(18).toString("hex")
+            : tokenMissing
+              ? crypto.randomBytes(18).toString("hex")
+              : (existing as any)?.verificationToken;
+
+        let nextSlug: string | undefined = undefined;
+        if (canUseSlugColumn && slugFieldProvided) {
+          nextSlug = requestedSlug ? requestedSlug : await ensurePublicSlug(name);
+
+          const current = (existing as any)?.slug as string | null | undefined;
+          if (nextSlug && nextSlug !== current) {
+            const collision = (await (prisma.clientBlogSite as any).findUnique({ where: { slug: nextSlug }, select: { ownerId: true } })) as any;
+            if (collision && collision.ownerId !== ownerId) {
+              return { status: 409, json: { ok: false, error: "That link is already taken." } };
+            }
+          }
+        }
+
+        const updated = (await (prisma.clientBlogSite as any).update({
+          where: { ownerId },
+          data: {
+            name,
+            primaryDomain,
+            ...(domainChanged
+              ? { verifiedAt: null, verificationToken: nextVerificationToken }
+              : tokenMissing
+                ? { verificationToken: nextVerificationToken }
+                : {}),
+            ...(primaryDomain ? {} : domainChanged ? { verifiedAt: null } : {}),
+            ...(canUseSlugColumn && nextSlug !== undefined ? { slug: nextSlug } : {}),
+          },
+          select,
+        })) as any;
+
+        return {
+          status: 200,
+          json: {
+            ok: true,
+            site: {
+              ...(updated as any),
+              slug: canUseSlugColumn ? ((updated as any).slug ?? null) : (await getStoredBlogSiteSlug(ownerId)),
+            },
+          },
+        };
+      }
+
+      const token = crypto.randomBytes(18).toString("hex");
+      const slug = requestedSlug ? requestedSlug : await ensurePublicSlug(name);
+
+      if (!canUseSlugColumn) {
+        try {
+          if (requestedSlug) {
+            await setStoredBlogSiteSlug(ownerId, requestedSlug);
+          } else {
+            await ensureStoredBlogSiteSlug(ownerId, name);
+          }
+        } catch {
+          await ensureStoredBlogSiteSlug(ownerId, name);
+        }
+      }
+
+      if (canUseSlugColumn && slug) {
+        const collision = (await (prisma.clientBlogSite as any).findUnique({ where: { slug }, select: { ownerId: true } })) as any;
+        if (collision && collision.ownerId !== ownerId) {
+          return { status: 409, json: { ok: false, error: "That link is already taken." } };
+        }
+      }
+
+      const created = (await (prisma.clientBlogSite as any).create({
+        data: {
+          ownerId,
+          name,
+          primaryDomain,
+          verificationToken: token,
+          ...(canUseSlugColumn ? { slug } : {}),
+        },
+        select,
+      })) as any;
+
+      return {
+        status: 200,
+        json: {
+          ok: true,
+          site: {
+            ...(created as any),
+            slug: canUseSlugColumn ? ((created as any).slug ?? null) : (await getStoredBlogSiteSlug(ownerId)),
+          },
+        },
+      };
+    }
+
+    case "newsletter.usage.get": {
+      type RangeKey = "7d" | "30d" | "90d" | "all";
+      const raw = typeof (args as any)?.range === "string" ? String((args as any).range).trim() : "30d";
+      const range = ((): RangeKey => {
+        switch (raw.toLowerCase()) {
+          case "7d":
+          case "7":
+            return "7d";
+          case "90d":
+          case "90":
+            return "90d";
+          case "all":
+            return "all";
+          case "30d":
+          case "30":
+          default:
+            return "30d";
+        }
+      })();
+
+      const now = new Date();
+      const start = range === "all" ? new Date(0) : new Date(now.getTime() - (range === "7d" ? 7 : range === "30d" ? 30 : 90) * 24 * 60 * 60 * 1000);
+
+      const [site, aggRange, aggAll] = await Promise.all([
+        prisma.clientBlogSite.findUnique({ where: { ownerId }, select: { id: true } }),
+        prisma.portalNewsletterGenerationEvent.aggregate({
+          where: { ownerId, createdAt: { gte: start } },
+          _count: { id: true },
+          _sum: { chargedCredits: true },
+        }),
+        prisma.portalNewsletterGenerationEvent.aggregate({
+          where: { ownerId },
+          _count: { id: true },
+          _sum: { chargedCredits: true },
+        }),
+      ]);
+
+      return {
+        status: 200,
+        json: {
+          ok: true,
+          range,
+          siteId: site?.id ?? null,
+          creditsUsed: {
+            range: typeof aggRange._sum.chargedCredits === "number" ? aggRange._sum.chargedCredits : 0,
+            all: typeof aggAll._sum.chargedCredits === "number" ? aggAll._sum.chargedCredits : 0,
+          },
+          generations: {
+            range: typeof aggRange._count.id === "number" ? aggRange._count.id : 0,
+            all: typeof aggAll._count.id === "number" ? aggAll._count.id : 0,
+          },
+        },
+      };
+    }
+
+    case "newsletter.newsletters.list": {
+      const kindRaw = typeof (args as any)?.kind === "string" ? String((args as any).kind).trim().toLowerCase() : "external";
+      const kind = kindRaw === "internal" ? ("INTERNAL" as const) : ("EXTERNAL" as const);
+      const take = typeof (args as any)?.take === "number" && Number.isFinite((args as any).take) ? Math.min(200, Math.max(1, Math.floor((args as any).take))) : 50;
+
+      const site = await prisma.clientBlogSite.findUnique({ where: { ownerId }, select: { id: true, slug: true } });
+      if (!site?.id) return { status: 200, json: { ok: true, site: null, newsletters: [] } };
+
+      const newsletters = await prisma.clientNewsletter.findMany({
+        where: { siteId: site.id, kind },
+        orderBy: { createdAt: "desc" },
+        take,
+        select: {
+          id: true,
+          kind: true,
+          status: true,
+          slug: true,
+          title: true,
+          excerpt: true,
+          sentAt: true,
+          createdAt: true,
+          updatedAt: true,
+        },
+      });
+
+      return {
+        status: 200,
+        json: {
+          ok: true,
+          site: { id: site.id, slug: (site as any).slug ?? null },
+          newsletters: newsletters.map((n) => ({
+            id: n.id,
+            kind: n.kind,
+            status: n.status,
+            slug: n.slug,
+            title: n.title,
+            excerpt: n.excerpt,
+            sentAtIso: n.sentAt ? n.sentAt.toISOString() : null,
+            createdAtIso: n.createdAt.toISOString(),
+            updatedAtIso: n.updatedAt.toISOString(),
+          })),
+        },
+      };
+    }
+
+    case "newsletter.newsletters.create": {
+      if (!(await requireOwnerOrAdmin())) return { status: 403, json: { ok: false, error: "Forbidden" } };
+
+      const kindRaw = typeof (args as any)?.kind === "string" ? String((args as any).kind).trim().toLowerCase() : "external";
+      const kind = kindRaw === "internal" ? ("INTERNAL" as const) : ("EXTERNAL" as const);
+      const status = (args as any)?.status === "READY" ? "READY" : "DRAFT";
+
+      const site = await prisma.clientBlogSite.findUnique({ where: { ownerId }, select: { id: true } });
+      if (!site?.id) return { status: 404, json: { ok: false, error: "Newsletter site not configured" } };
+
+      const slug = await uniqueNewsletterSlug(site.id, kind, String((args as any).title || "").trim());
+
+      const created = await prisma.clientNewsletter.create({
+        data: {
+          siteId: site.id,
+          kind,
+          status,
+          slug,
+          title: String((args as any).title || "").trim(),
+          excerpt: String((args as any).excerpt || "").trim(),
+          content: String((args as any).content || "").trim(),
+          smsText: (args as any).smsText ?? null,
+        },
+        select: { id: true, slug: true, status: true, createdAt: true },
+      });
+
+      return {
+        status: 200,
+        json: {
+          ok: true,
+          newsletter: {
+            id: created.id,
+            slug: created.slug,
+            status: created.status,
+            createdAtIso: created.createdAt.toISOString(),
+          },
+        },
+      };
+    }
+
+    case "newsletter.newsletters.get": {
+      const newsletterId = String((args as any)?.newsletterId || "").trim();
+
+      const site = await prisma.clientBlogSite.findUnique({ where: { ownerId }, select: { id: true, slug: true, name: true } });
+      if (!site?.id) return { status: 404, json: { ok: false, error: "Newsletter site not configured" } };
+
+      const newsletter = await prisma.clientNewsletter.findFirst({
+        where: { id: newsletterId, siteId: site.id },
+        select: {
+          id: true,
+          siteId: true,
+          kind: true,
+          status: true,
+          slug: true,
+          title: true,
+          excerpt: true,
+          content: true,
+          smsText: true,
+          sentAt: true,
+          createdAt: true,
+          updatedAt: true,
+        },
+      });
+
+      if (!newsletter) return { status: 404, json: { ok: false, error: "Not found" } };
+
+      return {
+        status: 200,
+        json: {
+          ok: true,
+          site: { id: site.id, slug: (site as any).slug ?? null, name: site.name },
+          newsletter: {
+            ...(newsletter as any),
+            sentAtIso: newsletter.sentAt ? newsletter.sentAt.toISOString() : null,
+            createdAtIso: newsletter.createdAt.toISOString(),
+            updatedAtIso: newsletter.updatedAt.toISOString(),
+          },
+        },
+      };
+    }
+
+    case "newsletter.newsletters.update": {
+      if (!(await requireOwnerOrAdmin())) return { status: 403, json: { ok: false, error: "Forbidden" } };
+
+      const newsletterId = String((args as any)?.newsletterId || "").trim();
+      const hostedOnly = Boolean((args as any)?.hostedOnly);
+
+      const site = await prisma.clientBlogSite.findUnique({ where: { ownerId }, select: { id: true } });
+      if (!site?.id) return { status: 404, json: { ok: false, error: "Newsletter site not configured" } };
+
+      const current = await prisma.clientNewsletter.findFirst({
+        where: { id: newsletterId, siteId: site.id },
+        select: { id: true, status: true, smsText: true },
+      });
+      if (!current) return { status: 404, json: { ok: false, error: "Not found" } };
+
+      if (current.status === "SENT" && !hostedOnly) {
+        return { status: 409, json: { ok: false, error: "Already sent" } };
+      }
+
+      const updated = await prisma.clientNewsletter.update({
+        where: { id: current.id },
+        data: {
+          title: String((args as any).title || "").trim(),
+          excerpt: String((args as any).excerpt || "").trim(),
+          content: String((args as any).content || "").trim(),
+          smsText: current.status === "SENT" ? current.smsText ?? null : ((args as any).smsText ?? null),
+        },
+        select: { id: true, updatedAt: true },
+      });
+
+      return { status: 200, json: { ok: true, newsletter: { id: updated.id, updatedAtIso: updated.updatedAt.toISOString() } } };
+    }
+
+    case "newsletter.audience.contacts.search": {
+      const take = typeof (args as any)?.take === "number" && Number.isFinite((args as any).take) ? Math.min(200, Math.max(1, Math.floor((args as any).take))) : 50;
+      const ids = Array.isArray((args as any)?.ids)
+        ? (args as any).ids
+            .map((x: any) => (typeof x === "string" ? x.trim() : ""))
+            .filter(Boolean)
+            .slice(0, 200)
+        : [];
+      const q = typeof (args as any)?.q === "string" ? String((args as any).q).trim() : "";
+
+      const where: any = { ownerId };
+      if (ids.length) {
+        where.id = { in: Array.from(new Set(ids)) };
+      } else if (q) {
+        where.OR = [
+          { name: { contains: q, mode: "insensitive" } },
+          { email: { contains: q, mode: "insensitive" } },
+          { phone: { contains: q, mode: "insensitive" } },
+        ];
+      }
+
+      const contacts = await prisma.portalContact.findMany({
+        where,
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          phone: true,
+          updatedAt: true,
+          tagAssignments: {
+            select: {
+              tag: { select: { id: true, name: true, color: true } },
+            },
+          },
+        },
+        orderBy: { updatedAt: "desc" },
+        take,
+      });
+
+      return {
+        status: 200,
+        json: {
+          ok: true,
+          contacts: contacts.map((c) => ({
+            id: c.id,
+            name: c.name,
+            email: c.email,
+            phone: c.phone,
+            tags: (c as any).tagAssignments
+              ? (c as any).tagAssignments
+                  .map((a: any) => a?.tag)
+                  .filter(Boolean)
+                  .map((t: any) => ({
+                    id: String(t.id),
+                    name: String(t.name || "").slice(0, 60),
+                    color: typeof t.color === "string" ? String(t.color) : null,
+                  }))
+              : [],
+          })),
+        },
+      };
+    }
+
+    case "newsletter.automation.settings.get": {
+      type NewsletterKind = "EXTERNAL" | "INTERNAL";
+      type StoredKindSettings = {
+        enabled?: boolean;
+        frequencyDays?: number;
+        cursor?: number;
+        requireApproval?: boolean;
+        channels?: { email?: boolean; sms?: boolean };
+        topics?: string[];
+        promptAnswers?: Record<string, string>;
+        deliveryEmailHint?: string;
+        deliverySmsHint?: string;
+        includeImages?: boolean;
+        royaltyFreeImages?: boolean;
+        includeImagesWhereNeeded?: boolean;
+        fontKey?: string;
+        audience?: {
+          tagIds?: string[];
+          contactIds?: string[];
+          emails?: string[];
+          userIds?: string[];
+          sendAllUsers?: boolean;
+        };
+      };
+
+      type StoredSettings = { external: StoredKindSettings; internal: StoredKindSettings };
+
+      function clampKind(raw: unknown): NewsletterKind {
+        const s = typeof raw === "string" ? raw : "external";
+        return s.toLowerCase().trim() === "internal" ? "INTERNAL" : "EXTERNAL";
+      }
+
+      function normalizeStrings(items: unknown, max: number) {
+        if (!Array.isArray(items)) return [];
+        const out: string[] = [];
+        const seen = new Set<string>();
+        for (const item of items) {
+          if (typeof item !== "string") continue;
+          const t = item.trim();
+          if (!t) continue;
+          const key = t.toLowerCase();
+          if (seen.has(key)) continue;
+          seen.add(key);
+          out.push(t);
+          if (out.length >= max) break;
+        }
+        return out;
+      }
+
+      function parseKindSettings(value: unknown) {
+        const rec = value && typeof value === "object" ? (value as Record<string, unknown>) : null;
+        const enabled = Boolean(rec?.enabled);
+        const frequencyDays =
+          typeof rec?.frequencyDays === "number" && Number.isFinite(rec.frequencyDays)
+            ? Math.min(365, Math.max(1, Math.floor(rec.frequencyDays)))
+            : 7;
+        const cursor = typeof rec?.cursor === "number" && Number.isFinite(rec.cursor) ? Math.max(0, Math.floor(rec.cursor)) : 0;
+        const requireApproval = Boolean(rec?.requireApproval);
+
+        const channelsRec = rec?.channels && typeof rec.channels === "object" ? (rec.channels as Record<string, unknown>) : null;
+        const channels = {
+          email: channelsRec ? Boolean(channelsRec.email ?? true) : true,
+          sms: channelsRec ? Boolean(channelsRec.sms ?? true) : true,
+        };
+
+        const topics = normalizeStrings(rec?.topics, 50);
+
+        const promptAnswersRaw = rec?.promptAnswers && typeof rec.promptAnswers === "object" ? (rec.promptAnswers as Record<string, unknown>) : null;
+        const promptAnswers: Record<string, string> = {};
+        if (promptAnswersRaw) {
+          for (const [k, v] of Object.entries(promptAnswersRaw)) {
+            if (typeof v !== "string") continue;
+            const vv = v.trim();
+            if (!vv) continue;
+            promptAnswers[String(k).slice(0, 60)] = vv.slice(0, 2000);
+          }
+        }
+
+        const audienceRaw = rec?.audience && typeof rec.audience === "object" ? (rec.audience as Record<string, unknown>) : null;
+        const audience = {
+          tagIds: normalizeStrings(audienceRaw?.tagIds, 200),
+          contactIds: normalizeStrings(audienceRaw?.contactIds, 200),
+          emails: normalizeStrings(audienceRaw?.emails, 200),
+          userIds: normalizeStrings(audienceRaw?.userIds, 200),
+          sendAllUsers: Boolean(audienceRaw?.sendAllUsers),
+        };
+
+        const deliveryEmailHint = typeof rec?.deliveryEmailHint === "string" ? rec.deliveryEmailHint.trim().slice(0, 1500) : "";
+        const deliverySmsHint = typeof rec?.deliverySmsHint === "string" ? rec.deliverySmsHint.trim().slice(0, 800) : "";
+        const includeImages = Boolean(rec?.includeImages);
+        const royaltyFreeImages = typeof rec?.royaltyFreeImages === "boolean" ? rec.royaltyFreeImages : true;
+        const includeImagesWhereNeeded = Boolean(rec?.includeImagesWhereNeeded);
+        const fontKey = normalizeNewsletterFontKey(rec?.fontKey);
+
+        return {
+          enabled,
+          frequencyDays,
+          cursor,
+          requireApproval,
+          channels,
+          topics,
+          promptAnswers,
+          audience,
+          fontKey,
+          royaltyFreeImages,
+          ...(deliveryEmailHint ? { deliveryEmailHint } : {}),
+          ...(deliverySmsHint ? { deliverySmsHint } : {}),
+          ...(includeImages ? { includeImages } : {}),
+          ...(includeImagesWhereNeeded ? { includeImagesWhereNeeded } : {}),
+        } as any;
+      }
+
+      function parseStored(value: unknown): { external: ReturnType<typeof parseKindSettings>; internal: ReturnType<typeof parseKindSettings> } {
+        const rec = value && typeof value === "object" ? (value as Record<string, unknown>) : null;
+        return { external: parseKindSettings(rec?.external), internal: parseKindSettings(rec?.internal) };
+      }
+
+      const kind = clampKind((args as any)?.kind);
+
+      const setup = await prisma.portalServiceSetup.findUnique({
+        where: { ownerId_serviceSlug: { ownerId, serviceSlug: "newsletter" } },
+        select: { id: true, dataJson: true, updatedAt: true },
+      });
+
+      const parsed = parseStored(setup?.dataJson);
+      const kindSettings = kind === "INTERNAL" ? parsed.internal : parsed.external;
+
+      const site = await prisma.clientBlogSite.findUnique({ where: { ownerId }, select: { id: true } });
+      let lastGeneratedAt: Date | null = null;
+      if (site?.id) {
+        const last = await prisma.clientNewsletter.findFirst({
+          where: { siteId: site.id, kind },
+          orderBy: { createdAt: "desc" },
+          select: { createdAt: true },
+        });
+        lastGeneratedAt = last?.createdAt ?? null;
+      }
+
+      const nextDueAt = lastGeneratedAt
+        ? new Date(lastGeneratedAt.getTime() + kindSettings.frequencyDays * 24 * 60 * 60 * 1000)
+        : new Date();
+
+      return {
+        status: 200,
+        json: {
+          ok: true,
+          kind,
+          settings: {
+            ...kindSettings,
+            lastGeneratedAt: lastGeneratedAt ? lastGeneratedAt.toISOString() : null,
+            nextDueAt: nextDueAt.toISOString(),
+          },
+        },
+      };
+    }
+
+    case "newsletter.automation.settings.update": {
+      if (!(await requireOwnerOrAdmin())) return { status: 403, json: { ok: false, error: "Forbidden" } };
+
+      type NewsletterKind = "EXTERNAL" | "INTERNAL";
+      type StoredKindSettings = {
+        enabled?: boolean;
+        frequencyDays?: number;
+        cursor?: number;
+        requireApproval?: boolean;
+        channels?: { email?: boolean; sms?: boolean };
+        topics?: string[];
+        promptAnswers?: Record<string, string>;
+        deliveryEmailHint?: string;
+        deliverySmsHint?: string;
+        includeImages?: boolean;
+        royaltyFreeImages?: boolean;
+        includeImagesWhereNeeded?: boolean;
+        fontKey?: string;
+        audience?: {
+          tagIds?: string[];
+          contactIds?: string[];
+          emails?: string[];
+          userIds?: string[];
+          sendAllUsers?: boolean;
+        };
+      };
+
+      type StoredSettings = { external: StoredKindSettings; internal: StoredKindSettings };
+
+      function clampKind(raw: unknown): NewsletterKind {
+        const s = typeof raw === "string" ? raw : "external";
+        return s.toLowerCase().trim() === "internal" ? "INTERNAL" : "EXTERNAL";
+      }
+
+      function normalizeStrings(items: unknown, max: number) {
+        if (!Array.isArray(items)) return [];
+        const out: string[] = [];
+        const seen = new Set<string>();
+        for (const item of items) {
+          if (typeof item !== "string") continue;
+          const t = item.trim();
+          if (!t) continue;
+          const key = t.toLowerCase();
+          if (seen.has(key)) continue;
+          seen.add(key);
+          out.push(t);
+          if (out.length >= max) break;
+        }
+        return out;
+      }
+
+      function parseKindSettings(value: unknown) {
+        const rec = value && typeof value === "object" ? (value as Record<string, unknown>) : null;
+        const enabled = Boolean(rec?.enabled);
+        const frequencyDays =
+          typeof rec?.frequencyDays === "number" && Number.isFinite(rec.frequencyDays)
+            ? Math.min(365, Math.max(1, Math.floor(rec.frequencyDays)))
+            : 7;
+        const cursor = typeof rec?.cursor === "number" && Number.isFinite(rec.cursor) ? Math.max(0, Math.floor(rec.cursor)) : 0;
+        const requireApproval = Boolean(rec?.requireApproval);
+
+        const channelsRec = rec?.channels && typeof rec.channels === "object" ? (rec.channels as Record<string, unknown>) : null;
+        const channels = {
+          email: channelsRec ? Boolean(channelsRec.email ?? true) : true,
+          sms: channelsRec ? Boolean(channelsRec.sms ?? true) : true,
+        };
+
+        const topics = normalizeStrings(rec?.topics, 50);
+
+        const promptAnswersRaw = rec?.promptAnswers && typeof rec.promptAnswers === "object" ? (rec.promptAnswers as Record<string, unknown>) : null;
+        const promptAnswers: Record<string, string> = {};
+        if (promptAnswersRaw) {
+          for (const [k, v] of Object.entries(promptAnswersRaw)) {
+            if (typeof v !== "string") continue;
+            const vv = v.trim();
+            if (!vv) continue;
+            promptAnswers[String(k).slice(0, 60)] = vv.slice(0, 2000);
+          }
+        }
+
+        const audienceRaw = rec?.audience && typeof rec.audience === "object" ? (rec.audience as Record<string, unknown>) : null;
+        const audience = {
+          tagIds: normalizeStrings(audienceRaw?.tagIds, 200),
+          contactIds: normalizeStrings(audienceRaw?.contactIds, 200),
+          emails: normalizeStrings(audienceRaw?.emails, 200),
+          userIds: normalizeStrings(audienceRaw?.userIds, 200),
+          sendAllUsers: Boolean(audienceRaw?.sendAllUsers),
+        };
+
+        const deliveryEmailHint = typeof rec?.deliveryEmailHint === "string" ? rec.deliveryEmailHint.trim().slice(0, 1500) : "";
+        const deliverySmsHint = typeof rec?.deliverySmsHint === "string" ? rec.deliverySmsHint.trim().slice(0, 800) : "";
+        const includeImages = Boolean(rec?.includeImages);
+        const royaltyFreeImages = typeof rec?.royaltyFreeImages === "boolean" ? rec.royaltyFreeImages : true;
+        const includeImagesWhereNeeded = Boolean(rec?.includeImagesWhereNeeded);
+        const fontKey = normalizeNewsletterFontKey(rec?.fontKey);
+
+        return {
+          enabled,
+          frequencyDays,
+          cursor,
+          requireApproval,
+          channels,
+          topics,
+          promptAnswers,
+          audience,
+          fontKey,
+          royaltyFreeImages,
+          ...(deliveryEmailHint ? { deliveryEmailHint } : {}),
+          ...(deliverySmsHint ? { deliverySmsHint } : {}),
+          ...(includeImages ? { includeImages } : {}),
+          ...(includeImagesWhereNeeded ? { includeImagesWhereNeeded } : {}),
+        } as any;
+      }
+
+      function parseStored(value: unknown): { external: ReturnType<typeof parseKindSettings>; internal: ReturnType<typeof parseKindSettings> } {
+        const rec = value && typeof value === "object" ? (value as Record<string, unknown>) : null;
+        return { external: parseKindSettings(rec?.external), internal: parseKindSettings(rec?.internal) };
+      }
+
+      const kind = clampKind((args as any)?.kind);
+
+      const existing = await prisma.portalServiceSetup.findUnique({
+        where: { ownerId_serviceSlug: { ownerId, serviceSlug: "newsletter" } },
+        select: { dataJson: true },
+      });
+
+      const prev = parseStored(existing?.dataJson);
+      const prevKind = kind === "INTERNAL" ? prev.internal : prev.external;
+      const nextFontKey = normalizeNewsletterFontKey((args as any).fontKey ?? (prevKind as any).fontKey ?? "brand");
+
+      const nextKind: StoredKindSettings = {
+        enabled: Boolean((args as any).enabled),
+        frequencyDays: Number((args as any).frequencyDays),
+        cursor: (prevKind as any).cursor,
+        requireApproval: Boolean((args as any).requireApproval),
+        fontKey: nextFontKey,
+        channels: {
+          email: (args as any).channels ? Boolean((args as any).channels.email ?? true) : (prevKind as any).channels.email,
+          sms: (args as any).channels ? Boolean((args as any).channels.sms ?? true) : (prevKind as any).channels.sms,
+        },
+        topics: normalizeStrings((args as any).topics ?? (prevKind as any).topics, 50),
+        promptAnswers: (args as any).promptAnswers ? (args as any).promptAnswers : (prevKind as any).promptAnswers,
+        deliveryEmailHint:
+          typeof (args as any).deliveryEmailHint === "string" ? String((args as any).deliveryEmailHint).trim().slice(0, 1500) : (prevKind as any).deliveryEmailHint,
+        deliverySmsHint:
+          typeof (args as any).deliverySmsHint === "string" ? String((args as any).deliverySmsHint).trim().slice(0, 800) : (prevKind as any).deliverySmsHint,
+        includeImages:
+          typeof (args as any).includeImages === "boolean" ? Boolean((args as any).includeImages) : Boolean((prevKind as any).includeImages),
+        royaltyFreeImages:
+          typeof (args as any).royaltyFreeImages === "boolean"
+            ? Boolean((args as any).royaltyFreeImages)
+            : typeof (prevKind as any).royaltyFreeImages === "boolean"
+              ? Boolean((prevKind as any).royaltyFreeImages)
+              : true,
+        includeImagesWhereNeeded:
+          typeof (args as any).includeImagesWhereNeeded === "boolean"
+            ? Boolean((args as any).includeImagesWhereNeeded)
+            : Boolean((prevKind as any).includeImagesWhereNeeded),
+        audience: {
+          tagIds: normalizeStrings((args as any).audience?.tagIds ?? (prevKind as any).audience.tagIds, 200),
+          contactIds: normalizeStrings((args as any).audience?.contactIds ?? (prevKind as any).audience.contactIds, 200),
+          emails: normalizeStrings((args as any).audience?.emails ?? (prevKind as any).audience.emails, 200),
+          userIds: normalizeStrings((args as any).audience?.userIds ?? (prevKind as any).audience.userIds, 200),
+          sendAllUsers: Boolean((args as any).audience?.sendAllUsers ?? (prevKind as any).audience.sendAllUsers),
+        },
+      };
+
+      const next: StoredSettings = {
+        external: kind === "EXTERNAL" ? nextKind : prev.external,
+        internal: kind === "INTERNAL" ? nextKind : prev.internal,
+      };
+
+      const row = await prisma.portalServiceSetup.upsert({
+        where: { ownerId_serviceSlug: { ownerId, serviceSlug: "newsletter" } },
+        create: { ownerId, serviceSlug: "newsletter", status: "IN_PROGRESS", dataJson: next },
+        update: { dataJson: next },
+        select: { id: true, dataJson: true, updatedAt: true },
+      });
+
+      const normalized = parseStored(row.dataJson);
+      const normalizedKind = kind === "INTERNAL" ? normalized.internal : normalized.external;
+
+      return { status: 200, json: { ok: true, kind, settings: normalizedKind, updatedAt: row.updatedAt.toISOString() } };
     }
 
     case "newsletter.generate_now": {

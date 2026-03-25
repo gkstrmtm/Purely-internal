@@ -136,6 +136,13 @@ function detectDeterministicActionsFromText(opts: {
     return m?.[1] ? String(m[1]).trim() : "";
   };
 
+  const newsletterIdFromText = () => {
+    const m =
+      /\bnewsletter\s*(?:id)?\s*[:#]?\s*([a-zA-Z0-9_-]{6,120})\b/i.exec(t) ||
+      /\bnewsletterId\s*[:=]\s*([a-zA-Z0-9_-]{6,120})\b/i.exec(t);
+    return m?.[1] ? String(m[1]).trim() : "";
+  };
+
   const queryFromText = () => {
     const m = /\bq\s*[:=]\s*([^\n]{2,120})/i.exec(t) || /\bquery\s*[:=]\s*([^\n]{2,120})/i.exec(t);
     const raw = m?.[1] ? String(m[1]).trim() : "";
@@ -221,6 +228,8 @@ function detectDeterministicActionsFromText(opts: {
     /\b(ai-outbound-calls)\b/i.test(lower);
 
   const isBlogsContext = /\bblogs?\b/i.test(t) || (/\bposts?\b/i.test(t) && /\bblog\b/i.test(t));
+
+  const isNewsletterContext = /\bnewsletters?\b/i.test(t) || (/\b(audience|automation)\b/i.test(t) && /\bnewsletter\b/i.test(t));
 
   // Funnel Builder: get settings.
   if (isFunnelBuilderContext && /\b(show|get)\b[\s\S]{0,30}\b(settings?)\b/i.test(t)) {
@@ -331,6 +340,45 @@ function detectDeterministicActionsFromText(opts: {
     const postId = postIdFromText();
     if (postId) {
       return [{ key: "blogs.posts.export_markdown", title: "Export blog post markdown", args: { postId } }];
+    }
+  }
+
+  // Newsletter: get site/workspace.
+  if (isNewsletterContext && /\b(show|get)\b[\s\S]{0,40}\b(site|workspace|domain|link|slug)\b/i.test(t)) {
+    return [{ key: "newsletter.site.get", title: "Get newsletter site", args: {} }];
+  }
+
+  // Newsletter: get usage.
+  if (isNewsletterContext && /\b(show|get)\b[\s\S]{0,40}\b(usage|credits|spend)\b/i.test(t)) {
+    const range = /\b(all|7d|30d|90d)\b/i.exec(lower)?.[1];
+    return [{ key: "newsletter.usage.get", title: "Get newsletter usage", args: { ...(range ? { range } : {}) } }];
+  }
+
+  // Newsletter: get automation settings.
+  if (isNewsletterContext && /\b(show|get)\b[\s\S]{0,40}\b(automation|schedule|scheduler)\b/i.test(t) && /\b(settings?)\b/i.test(t)) {
+    const kind = /\b(internal|external)\b/i.exec(lower)?.[1];
+    return [{ key: "newsletter.automation.settings.get", title: "Get newsletter automation settings", args: { ...(kind ? { kind } : {}) } }];
+  }
+
+  // Newsletter: list newsletters.
+  if (isNewsletterContext && /\b(list|show|get)\b[\s\S]{0,30}\b(newsletters?)\b/i.test(t)) {
+    const kind = /\b(internal|external)\b/i.exec(lower)?.[1];
+    return [{ key: "newsletter.newsletters.list", title: "List newsletters", args: { ...(kind ? { kind } : {}), take: 25 } }];
+  }
+
+  // Newsletter: get a specific newsletter.
+  if (isNewsletterContext && /\b(show|get)\b[\s\S]{0,30}\b(newsletter)\b/i.test(t)) {
+    const newsletterId = newsletterIdFromText();
+    if (newsletterId) {
+      return [{ key: "newsletter.newsletters.get", title: "Get newsletter", args: { newsletterId } }];
+    }
+  }
+
+  // Newsletter: audience contact search.
+  if (isNewsletterContext && /\b(search|find|lookup)\b[\s\S]{0,30}\b(contacts?|people)\b/i.test(t)) {
+    const q = queryFromText();
+    if (q && q.length >= 2) {
+      return [{ key: "newsletter.audience.contacts.search", title: "Search newsletter audience contacts", args: { q, take: 20 } }];
     }
   }
 
