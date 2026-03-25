@@ -102,6 +102,15 @@ export const PortalAgentActionKeySchema = z.enum([
   "nurture.campaigns.enroll",
   "nurture.billing.confirm_checkout",
   "nurture.ai.generate_step",
+
+  "ai_outbound_calls.campaigns.list",
+  "ai_outbound_calls.campaigns.create",
+  "ai_outbound_calls.campaigns.update",
+  "ai_outbound_calls.campaigns.activity.get",
+  "ai_outbound_calls.campaigns.messages_activity.get",
+  "ai_outbound_calls.contacts.search",
+  "ai_outbound_calls.manual_calls.list",
+  "ai_outbound_calls.manual_calls.get",
 ]);
 
 export type PortalAgentActionKey = z.infer<typeof PortalAgentActionKeySchema>;
@@ -802,6 +811,156 @@ export const PortalAgentActionArgsSchemaByKey = {
       existingBody: z.string().trim().max(8000).optional(),
     })
     .strict(),
+
+  "ai_outbound_calls.campaigns.list": z
+    .object({
+      lite: z.boolean().optional().nullable(),
+    })
+    .strict(),
+
+  "ai_outbound_calls.campaigns.create": z
+    .object({
+      name: z.string().trim().min(1).max(80).optional().nullable(),
+    })
+    .strict(),
+
+  "ai_outbound_calls.campaigns.update": z
+    .object({
+      campaignId: z.string().trim().min(1).max(120),
+      name: z.string().trim().min(1).max(80).optional(),
+      status: z.enum(["DRAFT", "ACTIVE", "PAUSED", "ARCHIVED"]).optional(),
+      audienceTagIds: z.array(z.string().trim().min(1).max(120)).max(50).optional(),
+      chatAudienceTagIds: z.array(z.string().trim().min(1).max(120)).max(50).optional(),
+      messageChannelPolicy: z.enum(["SMS", "EMAIL", "BOTH"]).optional(),
+      voiceAgentId: z.string().trim().max(120).optional(),
+      manualVoiceAgentId: z.string().trim().max(120).optional(),
+      voiceAgentConfig: z
+        .object({
+          firstMessage: z.string().trim().max(360).optional(),
+          goal: z.string().trim().max(6000).optional(),
+          personality: z.string().trim().max(6000).optional(),
+          environment: z.string().trim().max(6000).optional(),
+          tone: z.string().trim().max(6000).optional(),
+          guardRails: z.string().trim().max(6000).optional(),
+          toolKeys: z.array(z.string().trim().min(1).max(80)).max(50).optional(),
+          toolIds: z.array(z.string().trim().min(1).max(120)).max(50).optional(),
+        })
+        .strict()
+        .optional(),
+      voiceId: z.string().trim().max(200).optional(),
+      knowledgeBase: z
+        .object({
+          seedUrl: z.string().trim().max(500).optional(),
+          crawlDepth: z.number().int().min(0).max(3).optional(),
+          maxUrls: z.number().int().min(0).max(100).optional(),
+          text: z.string().trim().max(20000).optional(),
+          locators: z
+            .array(
+              z
+                .object({
+                  id: z.string().trim().min(1).max(200),
+                  name: z.string().trim().min(1).max(200),
+                  type: z.enum(["file", "url", "text", "folder"]),
+                  usage_mode: z.enum(["auto", "prompt"]).optional(),
+                })
+                .strict(),
+            )
+            .max(200)
+            .optional(),
+        })
+        .strict()
+        .optional(),
+      messagesKnowledgeBase: z
+        .object({
+          seedUrl: z.string().trim().max(500).optional(),
+          crawlDepth: z.number().int().min(0).max(3).optional(),
+          maxUrls: z.number().int().min(0).max(100).optional(),
+          text: z.string().trim().max(20000).optional(),
+          locators: z
+            .array(
+              z
+                .object({
+                  id: z.string().trim().min(1).max(200),
+                  name: z.string().trim().min(1).max(200),
+                  type: z.enum(["file", "url", "text", "folder"]),
+                  usage_mode: z.enum(["auto", "prompt"]).optional(),
+                })
+                .strict(),
+            )
+            .max(200)
+            .optional(),
+        })
+        .strict()
+        .optional(),
+      chatAgentId: z.string().trim().max(120).optional(),
+      manualChatAgentId: z.string().trim().max(120).optional(),
+      chatAgentConfig: z
+        .object({
+          firstMessage: z.string().trim().max(360).optional(),
+          goal: z.string().trim().max(6000).optional(),
+          personality: z.string().trim().max(6000).optional(),
+          environment: z.string().trim().max(6000).optional(),
+          tone: z.string().trim().max(6000).optional(),
+          guardRails: z.string().trim().max(6000).optional(),
+          toolKeys: z.array(z.string().trim().min(1).max(80)).max(50).optional(),
+          toolIds: z.array(z.string().trim().min(1).max(120)).max(50).optional(),
+        })
+        .strict()
+        .optional(),
+      callOutcomeTagging: z
+        .object({
+          enabled: z.boolean().optional(),
+          onCompletedTagIds: z.array(z.string().trim().min(1).max(120)).max(50).optional(),
+          onFailedTagIds: z.array(z.string().trim().min(1).max(120)).max(50).optional(),
+          onSkippedTagIds: z.array(z.string().trim().min(1).max(120)).max(50).optional(),
+        })
+        .strict()
+        .optional(),
+      messageOutcomeTagging: z
+        .object({
+          enabled: z.boolean().optional(),
+          onSentTagIds: z.array(z.string().trim().min(1).max(120)).max(50).optional(),
+          onFailedTagIds: z.array(z.string().trim().min(1).max(120)).max(50).optional(),
+          onSkippedTagIds: z.array(z.string().trim().min(1).max(120)).max(50).optional(),
+        })
+        .strict()
+        .optional(),
+    })
+    .strict(),
+
+  "ai_outbound_calls.campaigns.activity.get": z
+    .object({
+      campaignId: z.string().trim().min(1).max(120),
+    })
+    .strict(),
+
+  "ai_outbound_calls.campaigns.messages_activity.get": z
+    .object({
+      campaignId: z.string().trim().min(1).max(120),
+      take: z.number().int().min(1).max(60).optional().nullable(),
+    })
+    .strict(),
+
+  "ai_outbound_calls.contacts.search": z
+    .object({
+      q: z.string().trim().max(80).optional().nullable(),
+      take: z.number().int().min(1).max(20).optional().nullable(),
+    })
+    .strict(),
+
+  "ai_outbound_calls.manual_calls.list": z
+    .object({
+      campaignId: z.string().trim().max(120).optional().nullable(),
+      reconcileTwilio: z.boolean().optional().nullable(),
+    })
+    .strict(),
+
+  "ai_outbound_calls.manual_calls.get": z
+    .object({
+      id: z.string().trim().min(1).max(120),
+      reconcileTwilio: z.boolean().optional().nullable(),
+    })
+    .strict(),
 } as const;
 
 export type PortalAgentActionArgs<K extends PortalAgentActionKey> = z.infer<(typeof PortalAgentActionArgsSchemaByKey)[K]>;
@@ -913,6 +1072,15 @@ export function portalAgentActionsIndexText(): string {
     "- nurture.campaigns.enroll: Enroll contacts into a campaign using audience tags (fields: campaignId, tagIds?, dryRun?)",
     "- nurture.billing.confirm_checkout: Confirm a Stripe checkout for a campaign (fields: campaignId, sessionId)",
     "- nurture.ai.generate_step: Draft a nurture campaign step with AI (fields: kind=SMS|EMAIL, campaignName?, prompt?, existingSubject?, existingBody?)",
+
+    "- ai_outbound_calls.campaigns.list: List AI outbound call campaigns (fields: lite?)",
+    "- ai_outbound_calls.campaigns.create: Create an AI outbound call campaign (fields: name?)",
+    "- ai_outbound_calls.campaigns.update: Update an AI outbound call campaign (fields: campaignId, name?, status?, audienceTagIds?, chatAudienceTagIds?, messageChannelPolicy?, voiceAgentId?, manualVoiceAgentId?, voiceAgentConfig?, voiceId?, knowledgeBase?, messagesKnowledgeBase?, chatAgentId?, manualChatAgentId?, chatAgentConfig?, callOutcomeTagging?, messageOutcomeTagging?)",
+    "- ai_outbound_calls.campaigns.activity.get: Get AI outbound call campaign call activity (fields: campaignId)",
+    "- ai_outbound_calls.campaigns.messages_activity.get: Get AI outbound call campaign message activity (fields: campaignId, take?)",
+    "- ai_outbound_calls.contacts.search: Search contacts (AI outbound calls) (fields: q?, take?)",
+    "- ai_outbound_calls.manual_calls.list: List manual calls (fields: campaignId?, reconcileTwilio?)",
+    "- ai_outbound_calls.manual_calls.get: Get a manual call (fields: id, reconcileTwilio?)",
   ].join("\n");
 }
 

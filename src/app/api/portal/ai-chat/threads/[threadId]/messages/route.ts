@@ -124,6 +124,19 @@ function detectDeterministicActionsFromText(opts: {
     return ids;
   };
 
+  const manualCallIdFromText = () => {
+    const m =
+      /\bmanual\s*call\s*(?:id)?\s*[:#]?\s*([a-zA-Z0-9_-]{6,120})\b/i.exec(t) ||
+      /\bmanualCallId\s*[:=]\s*([a-zA-Z0-9_-]{6,120})\b/i.exec(t);
+    return m?.[1] ? String(m[1]).trim() : "";
+  };
+
+  const queryFromText = () => {
+    const m = /\bq\s*[:=]\s*([^\n]{2,120})/i.exec(t) || /\bquery\s*[:=]\s*([^\n]{2,120})/i.exec(t);
+    const raw = m?.[1] ? String(m[1]).trim() : "";
+    return raw.slice(0, 80);
+  };
+
   const startAtIsoFromText = () => {
     const m = /\b(\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(?::\d{2})?(?:\.\d{1,3})?(?:Z|[+-]\d{2}:\d{2})?)\b/.exec(t) || /\b(\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(?::\d{2})?)\b/.exec(t);
     const raw = m?.[1] ? String(m[1]).trim() : "";
@@ -198,6 +211,10 @@ function detectDeterministicActionsFromText(opts: {
 
   const isFunnelBuilderContext = /\b(funnel\s*builder|funnel-builder)\b/i.test(t) || (/\bfunnel\b/i.test(t) && /\b(builder|landing\s*page|landing\s*pages)\b/i.test(t));
 
+  const isAiOutboundCallsContext =
+    /\b(ai[\s-]*outbound|outbound\s*calls?|ai\s*outbound\s*calls?)\b/i.test(t) ||
+    /\b(ai-outbound-calls)\b/i.test(lower);
+
   // Funnel Builder: get settings.
   if (isFunnelBuilderContext && /\b(show|get)\b[\s\S]{0,30}\b(settings?)\b/i.test(t)) {
     return [{ key: "funnel_builder.settings.get", title: "Get Funnel Builder settings", args: {} }];
@@ -221,6 +238,50 @@ function detectDeterministicActionsFromText(opts: {
   // Funnel Builder: list Stripe products (sales).
   if (isFunnelBuilderContext && /\b(list|show|get)\b[\s\S]{0,30}\b(products?)\b/i.test(t) && /\b(stripe|sales|checkout|price|pricing)\b/i.test(t)) {
     return [{ key: "funnel_builder.sales.products.list", title: "List Stripe products", args: {} }];
+  }
+
+  // AI Outbound Calls: list campaigns.
+  if (isAiOutboundCallsContext && /\b(list|show|get)\b[\s\S]{0,30}\b(campaigns?)\b/i.test(t)) {
+    const lite = /\blite\b/i.test(lower);
+    return [{ key: "ai_outbound_calls.campaigns.list", title: "List AI outbound call campaigns", args: { ...(lite ? { lite: true } : {}) } }];
+  }
+
+  // AI Outbound Calls: campaign call activity.
+  if (isAiOutboundCallsContext && /\b(activity|call\s+activity)\b/i.test(t) && /\bcampaign\b/i.test(t)) {
+    const campaignId = campaignIdFromText();
+    if (campaignId) {
+      return [{ key: "ai_outbound_calls.campaigns.activity.get", title: "Get campaign call activity", args: { campaignId } }];
+    }
+  }
+
+  // AI Outbound Calls: campaign message activity.
+  if (isAiOutboundCallsContext && /\b(messages?|message)\b/i.test(t) && /\bactivity\b/i.test(t) && /\bcampaign\b/i.test(t)) {
+    const campaignId = campaignIdFromText();
+    if (campaignId) {
+      return [{ key: "ai_outbound_calls.campaigns.messages_activity.get", title: "Get campaign message activity", args: { campaignId } }];
+    }
+  }
+
+  // AI Outbound Calls: manual calls list.
+  if (isAiOutboundCallsContext && /\b(list|show|get)\b[\s\S]{0,30}\b(manual\s*calls?)\b/i.test(t)) {
+    const campaignId = campaignIdFromText();
+    return [{ key: "ai_outbound_calls.manual_calls.list", title: "List manual calls", args: { ...(campaignId ? { campaignId } : {}), reconcileTwilio: false } }];
+  }
+
+  // AI Outbound Calls: manual call get.
+  if (isAiOutboundCallsContext && /\b(show|get)\b[\s\S]{0,30}\b(manual\s*call)\b/i.test(t)) {
+    const id = manualCallIdFromText();
+    if (id) {
+      return [{ key: "ai_outbound_calls.manual_calls.get", title: "Get manual call", args: { id, reconcileTwilio: false } }];
+    }
+  }
+
+  // AI Outbound Calls: contact search.
+  if (isAiOutboundCallsContext && /\b(search|find|lookup)\b[\s\S]{0,30}\b(contacts?|people)\b/i.test(t)) {
+    const q = queryFromText();
+    if (q && q.length >= 2) {
+      return [{ key: "ai_outbound_calls.contacts.search", title: "Search contacts", args: { q, take: 20 } }];
+    }
   }
 
   // Reviews: get review request settings.

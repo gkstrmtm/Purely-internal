@@ -83,6 +83,16 @@ const ACTION_COVERAGE = [
   { action: "nurture.billing.confirm_checkout", method: "POST", endpoint: "/api/portal/nurture/campaigns/[campaignId]/confirm-checkout" },
   { action: "nurture.ai.generate_step", method: "POST", endpoint: "/api/portal/nurture/ai/generate-step" },
 
+  // AI Outbound Calls (safe CRUD + reporting)
+  { action: "ai_outbound_calls.campaigns.list", method: "GET", endpoint: "/api/portal/ai-outbound-calls/campaigns" },
+  { action: "ai_outbound_calls.campaigns.create", method: "POST", endpoint: "/api/portal/ai-outbound-calls/campaigns" },
+  { action: "ai_outbound_calls.campaigns.update", method: "PATCH", endpoint: "/api/portal/ai-outbound-calls/campaigns/[campaignId]" },
+  { action: "ai_outbound_calls.campaigns.activity.get", method: "GET", endpoint: "/api/portal/ai-outbound-calls/campaigns/[campaignId]/activity" },
+  { action: "ai_outbound_calls.campaigns.messages_activity.get", method: "GET", endpoint: "/api/portal/ai-outbound-calls/campaigns/[campaignId]/messages-activity" },
+  { action: "ai_outbound_calls.contacts.search", method: "GET", endpoint: "/api/portal/ai-outbound-calls/contacts/search" },
+  { action: "ai_outbound_calls.manual_calls.list", method: "GET", endpoint: "/api/portal/ai-outbound-calls/manual-calls" },
+  { action: "ai_outbound_calls.manual_calls.get", method: "GET", endpoint: "/api/portal/ai-outbound-calls/manual-calls/[id]" },
+
   // Funnel Builder (non-AI CRUD parity)
   { action: "funnel_builder.settings.get", method: "GET", endpoint: "/api/portal/funnel-builder/settings" },
   { action: "funnel_builder.settings.update", method: "POST", endpoint: "/api/portal/funnel-builder/settings" },

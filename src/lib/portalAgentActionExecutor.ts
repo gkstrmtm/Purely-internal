@@ -55,7 +55,7 @@ import { trySendTransactionalEmail, sendTransactionalEmail } from "@/lib/emailSe
 import { buildPortalTemplateVars, normalizePortalContactCustomVarKey } from "@/lib/portalTemplateVars";
 import { renderTextTemplate } from "@/lib/textTemplate";
 import { signBookingRescheduleToken } from "@/lib/bookingReschedule";
-import { getOwnerTwilioSmsConfigMasked, sendOwnerTwilioSms } from "@/lib/portalTwilio";
+import { getOwnerTwilioSmsConfig, getOwnerTwilioSmsConfigMasked, sendOwnerTwilioSms } from "@/lib/portalTwilio";
 import { normalizePhoneStrict } from "@/lib/phone";
 import { ensurePortalNurtureSchema } from "@/lib/portalNurtureSchema";
 import { getOrCreateStripeCustomerId, isStripeConfigured, stripeGet, stripePost } from "@/lib/stripeFetch";
@@ -66,6 +66,9 @@ import { coerceBlocksJson, type CreditFunnelBlock } from "@/lib/creditFunnelBloc
 import { blocksToCustomHtmlDocument } from "@/lib/funnelBlocksToCustomHtmlDocument";
 import { getStripeSecretKeyForOwner } from "@/lib/stripeIntegration.server";
 import { stripeGetWithKey, stripePostWithKey } from "@/lib/stripeFetchWithKey.server";
+import { ensurePortalAiOutboundCallsSchema } from "@/lib/portalAiOutboundCallsSchema";
+import { normalizeTagIdList } from "@/lib/portalAiOutboundCalls";
+import { normalizeToolIdList, normalizeToolKeyList, parseVoiceAgentConfig } from "@/lib/voiceAgentConfig.shared";
 
 const MAX_REMOTE_MEDIA_BYTES = 15 * 1024 * 1024; // matches /api/portal/media/import-remote
 
@@ -4499,6 +4502,814 @@ async function runDirectAction(opts: {
       }
 
       return { status: 200, json: { ok: true, body: String(content || "").trim().slice(0, 8000) } };
+    }
+
+    case "ai_outbound_calls.campaigns.list": {
+      if (!(await requireOwnerOrAdmin())) return { status: 403, json: { ok: false, error: "Forbidden" } };
+
+      const lite = Boolean(args?.lite);
+
+      // Ensure can be slow if the database is locked; schema existence is best-effort here.
+      await ensurePortalAiOutboundCallsSchema().catch(() => null);
+
+      function safeRecord(raw: unknown): Record<string, unknown> {
+        return raw && typeof raw === "object" && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {};
+      }
+
+      function parseCallOutcomeTagging(raw: unknown) {
+        const rec = safeRecord(raw);
+        return {
+          enabled: Boolean(rec.enabled),
+          onCompletedTagIds: normalizeTagIdList(rec.onCompletedTagIds),
+          onFailedTagIds: normalizeTagIdList(rec.onFailedTagIds),
+          onSkippedTagIds: normalizeTagIdList(rec.onSkippedTagIds),
+        };
+      }
+
+      function parseMessageOutcomeTagging(raw: unknown) {
+        const rec = safeRecord(raw);
+        return {
+          enabled: Boolean(rec.enabled),
+          onSentTagIds: normalizeTagIdList(rec.onSentTagIds),
+          onFailedTagIds: normalizeTagIdList(rec.onFailedTagIds),
+          onSkippedTagIds: normalizeTagIdList(rec.onSkippedTagIds),
+        };
+      }
+
+      let campaigns: Array<any> = [];
+      let supportsChatKnowledgeBase = true;
+
+      try {
+        campaigns = await prisma.portalAiOutboundCallCampaign.findMany({
+          where: { ownerId },
+          select: {
+            id: true,
+            name: true,
+            status: true,
+            audienceTagIdsJson: true,
+            chatAudienceTagIdsJson: true,
+            voiceAgentId: true,
+            manualVoiceAgentId: true,
+            voiceAgentConfigJson: true,
+            voiceId: true,
+            knowledgeBaseJson: true,
+            chatKnowledgeBaseJson: true,
+            chatAgentId: true,
+            manualChatAgentId: true,
+            chatAgentConfigJson: true,
+            messageChannelPolicy: true,
+            callOutcomeTaggingJson: true,
+            messageOutcomeTaggingJson: true,
+            createdAt: true,
+            updatedAt: true,
+          },
+          orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
+          take: 200,
+        });
+      } catch {
+        supportsChatKnowledgeBase = false;
+        campaigns = await prisma.portalAiOutboundCallCampaign.findMany({
+          where: { ownerId },
+          select: {
+            id: true,
+            name: true,
+            status: true,
+            audienceTagIdsJson: true,
+            chatAudienceTagIdsJson: true,
+            voiceAgentId: true,
+            manualVoiceAgentId: true,
+            voiceAgentConfigJson: true,
+            voiceId: true,
+            knowledgeBaseJson: true,
+            chatAgentId: true,
+            manualChatAgentId: true,
+            chatAgentConfigJson: true,
+            messageChannelPolicy: true,
+            callOutcomeTaggingJson: true,
+            messageOutcomeTaggingJson: true,
+            createdAt: true,
+            updatedAt: true,
+          },
+          orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
+          take: 200,
+        });
+      }
+
+      const campaignIds = campaigns.map((c) => c.id);
+      const enrollAgg = lite
+        ? []
+        : await (async () => {
+            if (!campaignIds.length) return [];
+            try {
+              return await prisma.portalAiOutboundCallEnrollment.groupBy({
+                by: ["campaignId", "status"],
+                where: { ownerId, campaignId: { in: campaignIds } },
+                _count: { _all: true },
+              });
+            } catch {
+              return [];
+            }
+          })();
+
+      const countsByCampaign = new Map<string, { queued: number; completed: number }>();
+      for (const row of enrollAgg) {
+        const campaignId = String((row as any).campaignId);
+        const status = String((row as any).status);
+        const count = Number((row as any)?._count?._all ?? 0);
+        const next = countsByCampaign.get(campaignId) ?? { queued: 0, completed: 0 };
+        if (status === "QUEUED") next.queued += count;
+        if (status === "COMPLETED") next.completed += count;
+        countsByCampaign.set(campaignId, next);
+      }
+
+      return {
+        status: 200,
+        json: {
+          ok: true,
+          campaigns: campaigns.map((c) => {
+            const counts = countsByCampaign.get(String(c.id)) ?? { queued: 0, completed: 0 };
+            return {
+              id: c.id,
+              name: c.name,
+              status: c.status,
+              audienceTagIds: normalizeTagIdList((c as any).audienceTagIdsJson),
+              chatAudienceTagIds: normalizeTagIdList((c as any).chatAudienceTagIdsJson),
+              voiceAgentId: (c as any).voiceAgentId ? String((c as any).voiceAgentId) : "",
+              manualVoiceAgentId: (c as any).manualVoiceAgentId ? String((c as any).manualVoiceAgentId) : "",
+              voiceAgentConfig: parseVoiceAgentConfig((c as any).voiceAgentConfigJson),
+              voiceId: typeof (c as any).voiceId === "string" ? String((c as any).voiceId) : "",
+              knowledgeBase: (c as any).knowledgeBaseJson ?? null,
+              messagesKnowledgeBase: supportsChatKnowledgeBase ? (c as any).chatKnowledgeBaseJson ?? null : null,
+              chatAgentId: (c as any).chatAgentId ? String((c as any).chatAgentId) : "",
+              manualChatAgentId: (c as any).manualChatAgentId ? String((c as any).manualChatAgentId) : "",
+              chatAgentConfig: parseVoiceAgentConfig((c as any).chatAgentConfigJson),
+              messageChannelPolicy: String((c as any).messageChannelPolicy || "BOTH"),
+              callOutcomeTagging: parseCallOutcomeTagging((c as any).callOutcomeTaggingJson),
+              messageOutcomeTagging: parseMessageOutcomeTagging((c as any).messageOutcomeTaggingJson),
+              createdAtIso: (c as any).createdAt.toISOString(),
+              updatedAtIso: (c as any).updatedAt.toISOString(),
+              enrollQueued: counts.queued,
+              enrollCompleted: counts.completed,
+            };
+          }),
+        },
+      };
+    }
+
+    case "ai_outbound_calls.campaigns.create": {
+      if (!(await requireOwnerOrAdmin())) return { status: 403, json: { ok: false, error: "Forbidden" } };
+
+      await ensurePortalAiOutboundCallsSchema();
+
+      const now = new Date();
+      const id = crypto.randomUUID();
+      const name = typeof args?.name === "string" && args.name.trim() ? String(args.name).trim().slice(0, 80) : "New campaign";
+
+      await prisma.portalAiOutboundCallCampaign.create({
+        data: {
+          id,
+          ownerId,
+          name,
+          status: "DRAFT",
+          // Call scripts have been removed from the product; keep column non-null for legacy rows.
+          script: "",
+          audienceTagIdsJson: [],
+          chatAudienceTagIdsJson: [],
+          voiceAgentId: null,
+          chatAgentId: null,
+          messageChannelPolicy: "BOTH",
+          createdAt: now,
+          updatedAt: now,
+        },
+        select: { id: true },
+      });
+
+      return { status: 200, json: { ok: true, id } };
+    }
+
+    case "ai_outbound_calls.campaigns.update": {
+      if (!(await requireOwnerOrAdmin())) return { status: 403, json: { ok: false, error: "Forbidden" } };
+
+      const campaignId = String(args?.campaignId || "").trim();
+      if (!campaignId) return { status: 400, json: { ok: false, error: "Missing campaignId" } };
+
+      await ensurePortalAiOutboundCallsSchema();
+
+      function safeRecord(raw: unknown): Record<string, unknown> {
+        return raw && typeof raw === "object" && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {};
+      }
+
+      function parseCallOutcomeTagging(raw: unknown) {
+        const rec = safeRecord(raw);
+        return {
+          enabled: Boolean(rec.enabled),
+          onCompletedTagIds: normalizeTagIdList(rec.onCompletedTagIds),
+          onFailedTagIds: normalizeTagIdList(rec.onFailedTagIds),
+          onSkippedTagIds: normalizeTagIdList(rec.onSkippedTagIds),
+        };
+      }
+
+      function parseMessageOutcomeTagging(raw: unknown) {
+        const rec = safeRecord(raw);
+        return {
+          enabled: Boolean(rec.enabled),
+          onSentTagIds: normalizeTagIdList(rec.onSentTagIds),
+          onFailedTagIds: normalizeTagIdList(rec.onFailedTagIds),
+          onSkippedTagIds: normalizeTagIdList(rec.onSkippedTagIds),
+        };
+      }
+
+      const existing = await prisma.portalAiOutboundCallCampaign.findFirst({
+        where: { ownerId, id: campaignId },
+        select: {
+          id: true,
+          voiceAgentConfigJson: true,
+          chatAgentConfigJson: true,
+          callOutcomeTaggingJson: true,
+          messageOutcomeTaggingJson: true,
+          voiceId: true,
+          knowledgeBaseJson: true,
+          chatKnowledgeBaseJson: true,
+        },
+      });
+      if (!existing) return { status: 404, json: { ok: false, error: "Not found" } };
+
+      const data: any = { updatedAt: new Date() };
+      if (args.name !== undefined) data.name = String(args.name || "").trim();
+      if (args.status !== undefined) data.status = args.status;
+      if (args.audienceTagIds !== undefined) data.audienceTagIdsJson = normalizeTagIdList(args.audienceTagIds);
+      if (args.chatAudienceTagIds !== undefined) data.chatAudienceTagIdsJson = normalizeTagIdList(args.chatAudienceTagIds);
+      if (args.messageChannelPolicy !== undefined) data.messageChannelPolicy = args.messageChannelPolicy;
+
+      if (args.voiceAgentId !== undefined) {
+        const id = String(args.voiceAgentId || "").trim().slice(0, 120);
+        data.voiceAgentId = id ? id : null;
+      }
+
+      if (args.manualVoiceAgentId !== undefined) {
+        const id = String(args.manualVoiceAgentId || "").trim().slice(0, 120);
+        data.manualVoiceAgentId = id ? id : null;
+      }
+
+      if (args.voiceId !== undefined) {
+        const voiceId = String(args.voiceId || "").trim().slice(0, 200);
+        data.voiceId = voiceId ? voiceId : null;
+      }
+
+      if (args.chatAgentId !== undefined) {
+        const id = String(args.chatAgentId || "").trim().slice(0, 120);
+        data.chatAgentId = id ? id : null;
+      }
+
+      if (args.manualChatAgentId !== undefined) {
+        const id = String(args.manualChatAgentId || "").trim().slice(0, 120);
+        data.manualChatAgentId = id ? id : null;
+      }
+
+      if (args.voiceAgentConfig !== undefined) {
+        const base = parseVoiceAgentConfig((existing as any).voiceAgentConfigJson);
+        const patch = args.voiceAgentConfig || {};
+
+        const next = {
+          ...base,
+          ...(patch.firstMessage !== undefined ? { firstMessage: String(patch.firstMessage || "").trim().slice(0, 360) } : {}),
+          ...(patch.goal !== undefined ? { goal: String(patch.goal || "").trim().slice(0, 6000) } : {}),
+          ...(patch.personality !== undefined ? { personality: String(patch.personality || "").trim().slice(0, 6000) } : {}),
+          ...(patch.environment !== undefined ? { environment: String(patch.environment || "").trim().slice(0, 6000) } : {}),
+          ...(patch.tone !== undefined ? { tone: String(patch.tone || "").trim().slice(0, 6000) } : {}),
+          ...(patch.guardRails !== undefined ? { guardRails: String(patch.guardRails || "").trim().slice(0, 6000) } : {}),
+          ...(patch.toolKeys !== undefined ? { toolKeys: normalizeToolKeyList(patch.toolKeys) } : {}),
+          ...(patch.toolIds !== undefined ? { toolIds: normalizeToolIdList(patch.toolIds) } : {}),
+        };
+
+        data.voiceAgentConfigJson = next as any;
+      }
+
+      if (args.knowledgeBase !== undefined) {
+        const baseRec = safeRecord((existing as any).knowledgeBaseJson);
+        const base = {
+          version: 1,
+          seedUrl: typeof baseRec.seedUrl === "string" ? String(baseRec.seedUrl).trim().slice(0, 500) : "",
+          crawlDepth:
+            typeof baseRec.crawlDepth === "number" && Number.isFinite(baseRec.crawlDepth)
+              ? Math.max(0, Math.min(3, Math.floor(baseRec.crawlDepth)))
+              : 0,
+          maxUrls:
+            typeof baseRec.maxUrls === "number" && Number.isFinite(baseRec.maxUrls)
+              ? Math.max(0, Math.min(100, Math.floor(baseRec.maxUrls)))
+              : 0,
+          text: typeof baseRec.text === "string" ? String(baseRec.text).trim().slice(0, 20000) : "",
+          locators: Array.isArray(baseRec.locators) ? baseRec.locators : [],
+        };
+
+        const patch = args.knowledgeBase || {};
+        const next = {
+          ...base,
+          ...(patch.seedUrl !== undefined ? { seedUrl: String(patch.seedUrl || "").trim().slice(0, 500) } : {}),
+          ...(patch.crawlDepth !== undefined ? { crawlDepth: patch.crawlDepth } : {}),
+          ...(patch.maxUrls !== undefined ? { maxUrls: patch.maxUrls } : {}),
+          ...(patch.text !== undefined ? { text: String(patch.text || "").trim().slice(0, 20000) } : {}),
+          ...(patch.locators !== undefined ? { locators: Array.isArray(patch.locators) ? patch.locators.slice(0, 200) : [] } : {}),
+          updatedAtIso: new Date().toISOString(),
+        };
+
+        data.knowledgeBaseJson = next as any;
+      }
+
+      if (args.messagesKnowledgeBase !== undefined) {
+        const baseRec = safeRecord((existing as any).chatKnowledgeBaseJson);
+        const base = {
+          version: 1,
+          seedUrl: typeof baseRec.seedUrl === "string" ? String(baseRec.seedUrl).trim().slice(0, 500) : "",
+          crawlDepth:
+            typeof baseRec.crawlDepth === "number" && Number.isFinite(baseRec.crawlDepth)
+              ? Math.max(0, Math.min(3, Math.floor(baseRec.crawlDepth)))
+              : 0,
+          maxUrls:
+            typeof baseRec.maxUrls === "number" && Number.isFinite(baseRec.maxUrls)
+              ? Math.max(0, Math.min(100, Math.floor(baseRec.maxUrls)))
+              : 0,
+          text: typeof baseRec.text === "string" ? String(baseRec.text).trim().slice(0, 20000) : "",
+          locators: Array.isArray(baseRec.locators) ? baseRec.locators : [],
+        };
+
+        const patch = args.messagesKnowledgeBase || {};
+        const next = {
+          ...base,
+          ...(patch.seedUrl !== undefined ? { seedUrl: String(patch.seedUrl || "").trim().slice(0, 500) } : {}),
+          ...(patch.crawlDepth !== undefined ? { crawlDepth: patch.crawlDepth } : {}),
+          ...(patch.maxUrls !== undefined ? { maxUrls: patch.maxUrls } : {}),
+          ...(patch.text !== undefined ? { text: String(patch.text || "").trim().slice(0, 20000) } : {}),
+          ...(patch.locators !== undefined ? { locators: Array.isArray(patch.locators) ? patch.locators.slice(0, 200) : [] } : {}),
+          updatedAtIso: new Date().toISOString(),
+        };
+
+        data.chatKnowledgeBaseJson = next as any;
+      }
+
+      if (args.chatAgentConfig !== undefined) {
+        const base = parseVoiceAgentConfig((existing as any).chatAgentConfigJson);
+        const patch = args.chatAgentConfig || {};
+
+        const next = {
+          ...base,
+          ...(patch.firstMessage !== undefined ? { firstMessage: String(patch.firstMessage || "").trim().slice(0, 360) } : {}),
+          ...(patch.goal !== undefined ? { goal: String(patch.goal || "").trim().slice(0, 6000) } : {}),
+          ...(patch.personality !== undefined ? { personality: String(patch.personality || "").trim().slice(0, 6000) } : {}),
+          ...(patch.environment !== undefined ? { environment: String(patch.environment || "").trim().slice(0, 6000) } : {}),
+          ...(patch.tone !== undefined ? { tone: String(patch.tone || "").trim().slice(0, 6000) } : {}),
+          ...(patch.guardRails !== undefined ? { guardRails: String(patch.guardRails || "").trim().slice(0, 6000) } : {}),
+          ...(patch.toolKeys !== undefined ? { toolKeys: normalizeToolKeyList(patch.toolKeys) } : {}),
+          ...(patch.toolIds !== undefined ? { toolIds: normalizeToolIdList(patch.toolIds) } : {}),
+        };
+
+        data.chatAgentConfigJson = next as any;
+      }
+
+      if (args.callOutcomeTagging !== undefined) {
+        const base = parseCallOutcomeTagging((existing as any).callOutcomeTaggingJson);
+        const patch = args.callOutcomeTagging || {};
+
+        const next = {
+          ...base,
+          ...(patch.enabled !== undefined ? { enabled: Boolean(patch.enabled) } : {}),
+          ...(patch.onCompletedTagIds !== undefined ? { onCompletedTagIds: normalizeTagIdList(patch.onCompletedTagIds) } : {}),
+          ...(patch.onFailedTagIds !== undefined ? { onFailedTagIds: normalizeTagIdList(patch.onFailedTagIds) } : {}),
+          ...(patch.onSkippedTagIds !== undefined ? { onSkippedTagIds: normalizeTagIdList(patch.onSkippedTagIds) } : {}),
+        };
+
+        data.callOutcomeTaggingJson = next as any;
+      }
+
+      if (args.messageOutcomeTagging !== undefined) {
+        const base = parseMessageOutcomeTagging((existing as any).messageOutcomeTaggingJson);
+        const patch = args.messageOutcomeTagging || {};
+
+        const next = {
+          ...base,
+          ...(patch.enabled !== undefined ? { enabled: Boolean(patch.enabled) } : {}),
+          ...(patch.onSentTagIds !== undefined ? { onSentTagIds: normalizeTagIdList(patch.onSentTagIds) } : {}),
+          ...(patch.onFailedTagIds !== undefined ? { onFailedTagIds: normalizeTagIdList(patch.onFailedTagIds) } : {}),
+          ...(patch.onSkippedTagIds !== undefined ? { onSkippedTagIds: normalizeTagIdList(patch.onSkippedTagIds) } : {}),
+        };
+
+        data.messageOutcomeTaggingJson = next as any;
+      }
+
+      await prisma.portalAiOutboundCallCampaign.update({
+        where: { id: campaignId },
+        data,
+        select: { id: true },
+      });
+
+      return { status: 200, json: { ok: true } };
+    }
+
+    case "ai_outbound_calls.campaigns.activity.get": {
+      if (!(await requireOwnerOrAdmin())) return { status: 403, json: { ok: false, error: "Forbidden" } };
+
+      const campaignId = String(args?.campaignId || "").trim();
+      if (!campaignId) return { status: 400, json: { ok: false, error: "Missing campaignId" } };
+
+      await ensurePortalAiOutboundCallsSchema();
+
+      const campaign = await prisma.portalAiOutboundCallCampaign.findFirst({
+        where: { ownerId, id: campaignId },
+        select: { id: true },
+      });
+      if (!campaign) return { status: 404, json: { ok: false, error: "Not found" } };
+
+      const agg = await prisma.portalAiOutboundCallEnrollment.groupBy({
+        by: ["status"],
+        where: { ownerId, campaignId },
+        _count: { _all: true },
+      });
+
+      const counts = { queued: 0, calling: 0, completed: 0, failed: 0, skipped: 0 };
+      for (const row of agg) {
+        const status = String((row as any).status || "");
+        const count = Number((row as any)?._count?._all ?? 0);
+        if (status === "QUEUED") counts.queued += count;
+        if (status === "CALLING") counts.calling += count;
+        if (status === "COMPLETED") counts.completed += count;
+        if (status === "FAILED") counts.failed += count;
+        if (status === "SKIPPED") counts.skipped += count;
+      }
+
+      const recent = await prisma.portalAiOutboundCallEnrollment.findMany({
+        where: { ownerId, campaignId },
+        orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
+        take: 60,
+        select: {
+          id: true,
+          status: true,
+          nextCallAt: true,
+          callSid: true,
+          attemptCount: true,
+          lastError: true,
+          completedAt: true,
+          createdAt: true,
+          updatedAt: true,
+          contact: { select: { id: true, name: true, phone: true, email: true } },
+        },
+      });
+
+      return {
+        status: 200,
+        json: {
+          ok: true,
+          counts,
+          recent: recent.map((e) => ({
+            id: e.id,
+            status: e.status,
+            attemptCount: e.attemptCount,
+            lastError: e.lastError,
+            callSid: e.callSid,
+            nextCallAtIso: e.nextCallAt ? e.nextCallAt.toISOString() : null,
+            completedAtIso: e.completedAt ? e.completedAt.toISOString() : null,
+            createdAtIso: e.createdAt.toISOString(),
+            updatedAtIso: e.updatedAt.toISOString(),
+            contact: {
+              id: e.contact.id,
+              name: e.contact.name,
+              phone: e.contact.phone,
+              email: e.contact.email,
+            },
+          })),
+        },
+      };
+    }
+
+    case "ai_outbound_calls.campaigns.messages_activity.get": {
+      if (!(await requireOwnerOrAdmin())) return { status: 403, json: { ok: false, error: "Forbidden" } };
+
+      const campaignId = String(args?.campaignId || "").trim();
+      if (!campaignId) return { status: 400, json: { ok: false, error: "Missing campaignId" } };
+      const take = typeof args?.take === "number" && Number.isFinite(args.take) ? Math.max(1, Math.min(60, Math.floor(args.take))) : 60;
+
+      await ensurePortalAiOutboundCallsSchema();
+
+      const campaign = await prisma.portalAiOutboundCallCampaign.findFirst({
+        where: { ownerId, id: campaignId },
+        select: { id: true },
+      });
+      if (!campaign) return { status: 404, json: { ok: false, error: "Not found" } };
+
+      const [statusAgg, sourceAgg, recent] = await Promise.all([
+        prisma.portalAiOutboundMessageEnrollment.groupBy({
+          by: ["status"],
+          where: { ownerId, campaignId: campaign.id },
+          _count: { _all: true },
+        }),
+        prisma.portalAiOutboundMessageEnrollment.groupBy({
+          by: ["source"],
+          where: { ownerId, campaignId: campaign.id },
+          _count: { _all: true },
+        }),
+        prisma.portalAiOutboundMessageEnrollment.findMany({
+          where: { ownerId, campaignId: campaign.id },
+          select: {
+            id: true,
+            status: true,
+            source: true,
+            nextSendAt: true,
+            sentFirstMessageAt: true,
+            threadId: true,
+            attemptCount: true,
+            lastError: true,
+            nextReplyAt: true,
+            replyAttemptCount: true,
+            replyLastError: true,
+            updatedAt: true,
+            createdAt: true,
+            contact: { select: { id: true, name: true, email: true, phone: true } },
+          },
+          orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
+          take,
+        }),
+      ]);
+
+      const countsByStatus: Record<string, number> = {};
+      for (const row of statusAgg) {
+        countsByStatus[String((row as any).status)] = Number((row as any)?._count?._all ?? 0);
+      }
+
+      const countsBySource: Record<string, number> = {};
+      for (const row of sourceAgg) {
+        countsBySource[String((row as any).source)] = Number((row as any)?._count?._all ?? 0);
+      }
+
+      return {
+        status: 200,
+        json: {
+          ok: true,
+          countsByStatus,
+          countsBySource,
+          recent: recent.map((e) => ({
+            id: String(e.id),
+            status: String(e.status),
+            source: String((e as any).source || "TAG"),
+            nextSendAtIso: e.nextSendAt ? e.nextSendAt.toISOString() : null,
+            sentFirstMessageAtIso: e.sentFirstMessageAt ? e.sentFirstMessageAt.toISOString() : null,
+            threadId: e.threadId ? String(e.threadId) : null,
+            attemptCount: Number((e as any).attemptCount || 0),
+            lastError: (e as any).lastError ? String((e as any).lastError) : null,
+            nextReplyAtIso: e.nextReplyAt ? e.nextReplyAt.toISOString() : null,
+            replyAttemptCount: Number((e as any).replyAttemptCount || 0),
+            replyLastError: (e as any).replyLastError ? String((e as any).replyLastError) : null,
+            createdAtIso: e.createdAt.toISOString(),
+            updatedAtIso: e.updatedAt.toISOString(),
+            contact: e.contact
+              ? {
+                  id: String(e.contact.id),
+                  name: e.contact.name ? String(e.contact.name) : null,
+                  email: e.contact.email ? String(e.contact.email) : null,
+                  phone: e.contact.phone ? String(e.contact.phone) : null,
+                }
+              : null,
+          })),
+        },
+      };
+    }
+
+    case "ai_outbound_calls.contacts.search": {
+      if (!(await requireOwnerOrAdmin())) return { status: 403, json: { ok: false, error: "Forbidden" } };
+
+      const q = typeof args?.q === "string" ? String(args.q).trim().slice(0, 80) : "";
+      const take = typeof args?.take === "number" && Number.isFinite(args.take) ? Math.max(1, Math.min(20, Math.floor(args.take))) : 20;
+
+      if (!q || q.length < 2) {
+        return { status: 200, json: { ok: true, contacts: [] } };
+      }
+
+      const contacts = await prisma.portalContact.findMany({
+        where: {
+          ownerId,
+          OR: [
+            { name: { contains: q, mode: "insensitive" } },
+            { email: { contains: q, mode: "insensitive" } },
+            { phone: { contains: q } },
+          ],
+        },
+        select: { id: true, name: true, email: true, phone: true, updatedAt: true },
+        orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
+        take,
+      });
+
+      return {
+        status: 200,
+        json: {
+          ok: true,
+          contacts: contacts.map((c) => ({
+            id: String(c.id),
+            name: c.name ? String(c.name) : null,
+            email: c.email ? String(c.email) : null,
+            phone: c.phone ? String(c.phone) : null,
+          })),
+        },
+      };
+    }
+
+    case "ai_outbound_calls.manual_calls.list": {
+      if (!(await requireOwnerOrAdmin())) return { status: 403, json: { ok: false, error: "Forbidden" } };
+
+      const campaignId = typeof args?.campaignId === "string" ? String(args.campaignId).trim() : "";
+      const reconcileTwilio = Boolean(args?.reconcileTwilio);
+
+      await ensurePortalAiOutboundCallsSchema();
+
+      const rows = await prisma.portalAiOutboundCallManualCall.findMany({
+        where: {
+          ownerId,
+          ...(campaignId ? { campaignId } : {}),
+        },
+        select: {
+          id: true,
+          campaignId: true,
+          toNumberE164: true,
+          status: true,
+          callSid: true,
+          conversationId: true,
+          recordingSid: true,
+          recordingDurationSec: true,
+          transcriptText: true,
+          lastError: true,
+          createdAt: true,
+          updatedAt: true,
+        },
+        orderBy: [{ createdAt: "desc" }],
+        take: 20,
+      });
+
+      async function fetchTwilioCallStatus(callSid: string): Promise<string | null> {
+        const sid = String(callSid || "").trim();
+        if (!sid) return null;
+
+        const config = await getOwnerTwilioSmsConfig(ownerId);
+        if (!config) return null;
+
+        const url = `https://api.twilio.com/2010-04-01/Accounts/${config.accountSid}/Calls/${encodeURIComponent(sid)}.json`;
+        const basic = Buffer.from(`${config.accountSid}:${config.authToken}`).toString("base64");
+
+        const res = await fetch(url, { method: "GET", headers: { authorization: `Basic ${basic}` } }).catch(() => null as any);
+        if (!res?.ok) return null;
+        const text = await res.text().catch(() => "");
+
+        try {
+          const json = JSON.parse(text) as any;
+          const status = typeof json?.status === "string" ? json.status.trim().toLowerCase() : "";
+          return status || null;
+        } catch {
+          return null;
+        }
+      }
+
+      function mapTwilioToManualStatus(twilioStatus: string): "CALLING" | "COMPLETED" | "FAILED" {
+        const s = String(twilioStatus || "").trim().toLowerCase();
+        if (s === "completed") return "COMPLETED";
+        if (s === "failed" || s === "busy" || s === "no-answer" || s === "canceled") return "FAILED";
+        return "CALLING";
+      }
+
+      let statusMap = new Map<string, "COMPLETED" | "FAILED">();
+      if (reconcileTwilio) {
+        const now = Date.now();
+        const toCheck = rows
+          .filter((r) => r.status === "CALLING" && typeof (r as any).callSid === "string" && String((r as any).callSid).trim())
+          .filter((r) => now - r.updatedAt.getTime() > 90_000)
+          .slice(0, 3);
+
+        const resolvedStatuses = await Promise.all(
+          toCheck.map(async (r) => {
+            const twStatus = await fetchTwilioCallStatus(String((r as any).callSid || ""));
+            if (!twStatus) return null;
+            const mapped = mapTwilioToManualStatus(twStatus);
+            if (mapped === "CALLING") return null;
+
+            await prisma.portalAiOutboundCallManualCall
+              .update({
+                where: { id: r.id },
+                data: {
+                  status: mapped,
+                  ...(mapped === "FAILED" ? { lastError: `Call status: ${twStatus}`.slice(0, 500) } : {}),
+                },
+                select: { id: true },
+              })
+              .catch(() => null);
+
+            return { id: r.id, status: mapped as "COMPLETED" | "FAILED" };
+          }),
+        );
+
+        statusMap = new Map(resolvedStatuses.filter(Boolean).map((x: any) => [x.id, x.status] as const));
+      }
+
+      return {
+        status: 200,
+        json: {
+          ok: true,
+          manualCalls: rows.map((r) => ({
+            ...(r as any),
+            ...(statusMap.has(r.id) ? { status: statusMap.get(r.id) } : {}),
+            createdAtIso: r.createdAt.toISOString(),
+            updatedAtIso: r.updatedAt.toISOString(),
+          })),
+        },
+      };
+    }
+
+    case "ai_outbound_calls.manual_calls.get": {
+      if (!(await requireOwnerOrAdmin())) return { status: 403, json: { ok: false, error: "Forbidden" } };
+
+      const id = String(args?.id || "").trim();
+      if (!id) return { status: 400, json: { ok: false, error: "Missing id" } };
+      const reconcileTwilio = Boolean(args?.reconcileTwilio);
+
+      await ensurePortalAiOutboundCallsSchema();
+
+      const row = await prisma.portalAiOutboundCallManualCall.findFirst({
+        where: { ownerId, id },
+        select: {
+          id: true,
+          campaignId: true,
+          toNumberE164: true,
+          status: true,
+          callSid: true,
+          conversationId: true,
+          recordingSid: true,
+          recordingDurationSec: true,
+          transcriptText: true,
+          lastError: true,
+          webhookToken: true,
+          createdAt: true,
+          updatedAt: true,
+        },
+      });
+
+      if (!row) return { status: 404, json: { ok: false, error: "Not found" } };
+
+      async function fetchTwilioCallStatus(callSid: string): Promise<string | null> {
+        const sid = String(callSid || "").trim();
+        if (!sid) return null;
+
+        const config = await getOwnerTwilioSmsConfig(ownerId);
+        if (!config) return null;
+
+        const url = `https://api.twilio.com/2010-04-01/Accounts/${config.accountSid}/Calls/${encodeURIComponent(sid)}.json`;
+        const basic = Buffer.from(`${config.accountSid}:${config.authToken}`).toString("base64");
+
+        const res = await fetch(url, { method: "GET", headers: { authorization: `Basic ${basic}` } }).catch(() => null as any);
+        if (!res?.ok) return null;
+        const text = await res.text().catch(() => "");
+
+        try {
+          const json = JSON.parse(text) as any;
+          const status = typeof json?.status === "string" ? json.status.trim().toLowerCase() : "";
+          return status || null;
+        } catch {
+          return null;
+        }
+      }
+
+      function mapTwilioToManualStatus(twilioStatus: string): "CALLING" | "COMPLETED" | "FAILED" {
+        const s = String(twilioStatus || "").trim().toLowerCase();
+        if (s === "completed") return "COMPLETED";
+        if (s === "failed" || s === "busy" || s === "no-answer" || s === "canceled") return "FAILED";
+        return "CALLING";
+      }
+
+      if (reconcileTwilio && row.status === "CALLING" && typeof (row as any).callSid === "string" && String((row as any).callSid).trim()) {
+        const twStatus = await fetchTwilioCallStatus(String((row as any).callSid));
+        if (twStatus) {
+          const mapped = mapTwilioToManualStatus(twStatus);
+          if (mapped !== "CALLING") {
+            await prisma.portalAiOutboundCallManualCall
+              .update({
+                where: { id: row.id },
+                data: {
+                  status: mapped,
+                  ...(mapped === "FAILED" ? { lastError: `Call status: ${twStatus}`.slice(0, 500) } : {}),
+                },
+                select: { id: true },
+              })
+              .catch(() => null);
+
+            (row as any).status = mapped;
+          }
+        }
+      }
+
+      return {
+        status: 200,
+        json: {
+          ok: true,
+          manualCall: {
+            ...(row as any),
+            createdAtIso: row.createdAt.toISOString(),
+            updatedAtIso: row.updatedAt.toISOString(),
+          },
+        },
+      };
     }
 
     case "media.folder.ensure": {
