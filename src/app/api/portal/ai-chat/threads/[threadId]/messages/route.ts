@@ -69,10 +69,10 @@ function shouldAutoExecuteFromUserText(text: string) {
   // Avoid auto-executing on obvious questions.
   if (/\b(how|why|what|can you|could you|should i|help me|explain)\b/i.test(t)) return false;
 
-  const verb = /\b(create|make|build|generate|run|start|trigger|send|text|sms|email|reply|respond|reset|optimize|add|remove|move|import|upload)\b/i.test(t);
+  const verb = /\b(create|make|build|generate|run|start|trigger|send|text|sms|email|reply|respond|reset|optimize|add|remove|move|import|upload|activate|pause|enroll)\b/i.test(t);
   if (!verb) return false;
 
-  return /\b(task|funnel|newsletter|blog|automation|calendar|booking|appointment|contacts?|people|review|reviews|text|sms|email|message|media|media library|folder|dashboard|reporting)\b/i.test(t);
+  return /\b(task|funnel|newsletter|blog|automation|calendar|booking|appointment|contacts?|people|review|reviews|text|sms|email|message|media|media library|folder|dashboard|reporting|nurture|campaign)\b/i.test(t);
 }
 
 function normalizePhoneLike(raw: string): string | null {
@@ -100,6 +100,30 @@ function detectDeterministicActionsFromText(opts: {
     return m?.[1] ? String(m[1]).trim() : "";
   };
 
+  const campaignIdFromText = () => {
+    const m =
+      /\bcampaign\s*(?:id)?\s*[:#]?\s*([a-zA-Z0-9_-]{6,120})\b/i.exec(t) ||
+      /\bcampaignId\s*[:=]\s*([a-zA-Z0-9_-]{6,120})\b/i.exec(t);
+    return m?.[1] ? String(m[1]).trim() : "";
+  };
+
+  const stepIdFromText = () => {
+    const m = /\bstep\s*(?:id)?\s*[:#]?\s*([a-zA-Z0-9_-]{6,120})\b/i.exec(t) || /\bstepId\s*[:=]\s*([a-zA-Z0-9_-]{6,120})\b/i.exec(t);
+    return m?.[1] ? String(m[1]).trim() : "";
+  };
+
+  const tagIdsFromText = () => {
+    const m = /\btagIds\s*[:=]\s*([^\n]{1,600})/i.exec(t) || /\btags?\s*[:=]\s*([^\n]{1,600})/i.exec(t);
+    const raw = m?.[1] ? String(m[1]).trim() : "";
+    if (!raw) return [] as string[];
+    const ids = raw
+      .split(/[\s,;|]+/g)
+      .map((x) => x.trim())
+      .filter((x) => /^[a-zA-Z0-9_-]{6,120}$/.test(x))
+      .slice(0, 100);
+    return ids;
+  };
+
   const startAtIsoFromText = () => {
     const m = /\b(\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(?::\d{2})?(?:\.\d{1,3})?(?:Z|[+-]\d{2}:\d{2})?)\b/.exec(t) || /\b(\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(?::\d{2})?)\b/.exec(t);
     const raw = m?.[1] ? String(m[1]).trim() : "";
@@ -110,6 +134,74 @@ function detectDeterministicActionsFromText(opts: {
   // Booking: list bookings.
   if (/\b(list|show)\b[\s\S]{0,30}\b(bookings?|appointments?)\b/i.test(t)) {
     return [{ key: "booking.bookings.list", title: "List bookings", args: { take: 25 } }];
+  }
+
+  // Nurture: list campaigns.
+  if (/\b(list|show)\b[\s\S]{0,30}\b(nurture\s+campaigns?|campaigns?)\b/i.test(t) && /\bnurture\b/i.test(t)) {
+    return [{ key: "nurture.campaigns.list", title: "List nurture campaigns", args: { take: 50 } }];
+  }
+
+  // Nurture: create a campaign.
+  if (/\b(create|add|new)\b/i.test(t) && /\b(nurture\s+campaign|campaign)\b/i.test(t) && /\bnurture\b/i.test(t)) {
+    const quotedName = /\bcampaign\b\s+"([^"\n]{1,80})"/i.exec(t) || /\bcampaign\b\s+'([^'\n]{1,80})'/i.exec(t);
+    const name = quotedName?.[1] ? String(quotedName[1]).trim().slice(0, 80) : "";
+    return [{ key: "nurture.campaigns.create", title: "Create nurture campaign", args: name ? { name } : {} }];
+  }
+
+  // Nurture: activate/pause/archive campaign (requires campaignId).
+  if (/\b(nurture)\b/i.test(t) && /\bcampaign\b/i.test(t) && /\b(activate|pause|archive)\b/i.test(t)) {
+    const campaignId = campaignIdFromText();
+    if (campaignId) {
+      const status = /\bactivate\b/i.test(t) ? "ACTIVE" : /\bpause\b/i.test(t) ? "PAUSED" : "ARCHIVED";
+      return [{
+        key: "nurture.campaigns.update",
+        title: `${status === "ACTIVE" ? "Activate" : status === "PAUSED" ? "Pause" : "Archive"} nurture campaign`,
+        args: { campaignId, status },
+      }];
+    }
+  }
+
+  // Nurture: enroll contacts (requires campaignId + tagIds).
+  if (/\b(enroll)\b/i.test(t) && /\b(nurture)\b/i.test(t) && /\bcampaign\b/i.test(t)) {
+    const campaignId = campaignIdFromText();
+    const tagIds = tagIdsFromText();
+    if (campaignId && tagIds.length) {
+      const dryRun = /\bdry\s*run\b/i.test(t) || /\bpreview\b/i.test(t);
+      return [{ key: "nurture.campaigns.enroll", title: "Enroll campaign audience", args: { campaignId, tagIds, ...(dryRun ? { dryRun: true } : {}) } }];
+    }
+  }
+
+  // Nurture: add a step.
+  if (/\b(add|create|new)\b/i.test(t) && /\b(step)\b/i.test(t) && /\b(nurture)\b/i.test(t) && /\bcampaign\b/i.test(t)) {
+    const campaignId = campaignIdFromText();
+    if (campaignId) {
+      const kind = /\bemail\b/i.test(t) ? "EMAIL" : /\btag\b/i.test(t) ? "TAG" : "SMS";
+      return [{ key: "nurture.campaigns.steps.add", title: "Add nurture step", args: { campaignId, kind } }];
+    }
+  }
+
+  // Nurture: update a step (requires stepId and quoted body).
+  if (/\b(update|edit)\b/i.test(t) && /\b(step)\b/i.test(t) && /\b(nurture)\b/i.test(t)) {
+    const stepId = stepIdFromText();
+    if (stepId) {
+      const quoted = /"([\s\S]{1,8000})"/.exec(t);
+      const body = String((quoted?.[1] || "").trim()).slice(0, 8000);
+      const delayMatch = /\bdelay(?:Minutes)?\s*[:=]\s*(\d{1,6})\b/i.exec(t);
+      const delayMinutes = delayMatch?.[1] ? Math.max(0, Math.min(525600, Number(delayMatch[1]))) : null;
+      if (body) {
+        return [{
+          key: "nurture.steps.update",
+          title: "Update nurture step",
+          args: { stepId, body, ...(delayMinutes !== null && Number.isFinite(delayMinutes) ? { delayMinutes } : {}) },
+        }];
+      }
+    }
+  }
+
+  // Nurture: delete a step.
+  if (/\b(delete|remove)\b/i.test(t) && /\b(step)\b/i.test(t) && /\b(nurture)\b/i.test(t)) {
+    const stepId = stepIdFromText();
+    if (stepId) return [{ key: "nurture.steps.delete", title: "Delete nurture step", args: { stepId } }];
   }
 
   // Booking: cancel.

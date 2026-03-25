@@ -27,6 +27,18 @@ export const PortalAgentActionKeySchema = z.enum([
   "booking.cancel",
   "booking.reschedule",
   "booking.contact",
+
+  "nurture.campaigns.list",
+  "nurture.campaigns.create",
+  "nurture.campaigns.get",
+  "nurture.campaigns.update",
+  "nurture.campaigns.delete",
+  "nurture.campaigns.steps.add",
+  "nurture.steps.update",
+  "nurture.steps.delete",
+  "nurture.campaigns.enroll",
+  "nurture.billing.confirm_checkout",
+  "nurture.ai.generate_step",
 ]);
 
 export type PortalAgentActionKey = z.infer<typeof PortalAgentActionKeySchema>;
@@ -231,6 +243,90 @@ export const PortalAgentActionArgsSchemaByKey = {
       sendSms: z.boolean().optional(),
     })
     .strict(),
+
+  "nurture.campaigns.list": z
+    .object({
+      take: z.number().int().min(1).max(200).optional(),
+    })
+    .strict(),
+
+  "nurture.campaigns.create": z
+    .object({
+      name: z.string().trim().min(1).max(80).optional(),
+    })
+    .strict(),
+
+  "nurture.campaigns.get": z
+    .object({
+      campaignId: z.string().trim().min(1).max(120),
+    })
+    .strict(),
+
+  "nurture.campaigns.update": z
+    .object({
+      campaignId: z.string().trim().min(1).max(120),
+      name: z.string().trim().min(1).max(80).optional(),
+      status: z.enum(["DRAFT", "ACTIVE", "PAUSED", "ARCHIVED"]).optional(),
+      audienceTagIds: z.array(z.string().min(1)).max(100).optional(),
+      smsFooter: z.string().max(300).optional(),
+      emailFooter: z.string().max(2000).optional(),
+    })
+    .strict(),
+
+  "nurture.campaigns.delete": z
+    .object({
+      campaignId: z.string().trim().min(1).max(120),
+    })
+    .strict(),
+
+  "nurture.campaigns.steps.add": z
+    .object({
+      campaignId: z.string().trim().min(1).max(120),
+      kind: z.enum(["SMS", "EMAIL", "TAG"]).optional(),
+    })
+    .strict(),
+
+  "nurture.steps.update": z
+    .object({
+      stepId: z.string().trim().min(1).max(120),
+      ord: z.number().int().min(0).max(200).optional(),
+      kind: z.enum(["SMS", "EMAIL", "TAG"]).optional(),
+      delayMinutes: z.number().int().min(0).max(60 * 24 * 365).optional(),
+      subject: z.string().max(200).optional().nullable(),
+      body: z.string().min(1).max(8000).optional(),
+    })
+    .strict(),
+
+  "nurture.steps.delete": z
+    .object({
+      stepId: z.string().trim().min(1).max(120),
+    })
+    .strict(),
+
+  "nurture.campaigns.enroll": z
+    .object({
+      campaignId: z.string().trim().min(1).max(120),
+      tagIds: z.array(z.string().min(1)).max(100).optional(),
+      dryRun: z.boolean().optional(),
+    })
+    .strict(),
+
+  "nurture.billing.confirm_checkout": z
+    .object({
+      campaignId: z.string().trim().min(1).max(120),
+      sessionId: z.string().trim().min(1).max(200),
+    })
+    .strict(),
+
+  "nurture.ai.generate_step": z
+    .object({
+      kind: z.enum(["SMS", "EMAIL"]),
+      campaignName: z.string().trim().max(80).optional(),
+      prompt: z.string().trim().max(2000).optional(),
+      existingSubject: z.string().trim().max(200).optional(),
+      existingBody: z.string().trim().max(8000).optional(),
+    })
+    .strict(),
 } as const;
 
 export type PortalAgentActionArgs<K extends PortalAgentActionKey> = z.infer<(typeof PortalAgentActionArgsSchemaByKey)[K]>;
@@ -271,6 +367,18 @@ export function portalAgentActionsIndexText(): string {
     "- booking.cancel: Cancel a booking (fields: bookingId)",
     "- booking.reschedule: Reschedule a booking start time (fields: bookingId, startAtIso, forceAvailability?)",
     "- booking.contact: Contact a booking lead via email and/or SMS (fields: bookingId, message, subject?, sendEmail?, sendSms?)",
+
+    "- nurture.campaigns.list: List nurture campaigns (fields: take?)",
+    "- nurture.campaigns.create: Create a nurture campaign (fields: name?)",
+    "- nurture.campaigns.get: Get a nurture campaign and its steps (fields: campaignId)",
+    "- nurture.campaigns.update: Update a nurture campaign (fields: campaignId, name?, status?, audienceTagIds?, smsFooter?, emailFooter?)",
+    "- nurture.campaigns.delete: Delete a nurture campaign (fields: campaignId)",
+    "- nurture.campaigns.steps.add: Add a nurture step to a campaign (fields: campaignId, kind=SMS|EMAIL|TAG?)",
+    "- nurture.steps.update: Update a nurture step (fields: stepId, ord?, kind?, delayMinutes?, subject?, body?)",
+    "- nurture.steps.delete: Delete a nurture step (fields: stepId)",
+    "- nurture.campaigns.enroll: Enroll contacts into a campaign using audience tags (fields: campaignId, tagIds?, dryRun?)",
+    "- nurture.billing.confirm_checkout: Confirm a Stripe checkout for a campaign (fields: campaignId, sessionId)",
+    "- nurture.ai.generate_step: Draft a nurture campaign step with AI (fields: kind=SMS|EMAIL, campaignName?, prompt?, existingSubject?, existingBody?)",
   ].join("\n");
 }
 

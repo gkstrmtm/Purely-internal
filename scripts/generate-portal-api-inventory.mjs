@@ -34,6 +34,18 @@ const ACTION_COVERAGE = [
   { action: "booking.cancel", method: "POST", endpoint: "/api/portal/booking/bookings/[bookingId]/cancel" },
   { action: "booking.reschedule", method: "POST", endpoint: "/api/portal/booking/bookings/[bookingId]/reschedule" },
   { action: "booking.contact", method: "POST", endpoint: "/api/portal/booking/bookings/[bookingId]/contact" },
+
+  { action: "nurture.campaigns.list", method: "GET", endpoint: "/api/portal/nurture/campaigns" },
+  { action: "nurture.campaigns.create", method: "POST", endpoint: "/api/portal/nurture/campaigns" },
+  { action: "nurture.campaigns.get", method: "GET", endpoint: "/api/portal/nurture/campaigns/[campaignId]" },
+  { action: "nurture.campaigns.update", method: "PATCH", endpoint: "/api/portal/nurture/campaigns/[campaignId]" },
+  { action: "nurture.campaigns.delete", method: "DELETE", endpoint: "/api/portal/nurture/campaigns/[campaignId]" },
+  { action: "nurture.campaigns.steps.add", method: "POST", endpoint: "/api/portal/nurture/campaigns/[campaignId]/steps" },
+  { action: "nurture.steps.update", method: "PATCH", endpoint: "/api/portal/nurture/steps/[stepId]" },
+  { action: "nurture.steps.delete", method: "DELETE", endpoint: "/api/portal/nurture/steps/[stepId]" },
+  { action: "nurture.campaigns.enroll", method: "POST", endpoint: "/api/portal/nurture/campaigns/[campaignId]/enroll" },
+  { action: "nurture.billing.confirm_checkout", method: "POST", endpoint: "/api/portal/nurture/campaigns/[campaignId]/confirm-checkout" },
+  { action: "nurture.ai.generate_step", method: "POST", endpoint: "/api/portal/nurture/ai/generate-step" },
 ];
 
 const HTTP_METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE"];

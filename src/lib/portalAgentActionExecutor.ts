@@ -29,6 +29,10 @@ import { buildPortalTemplateVars } from "@/lib/portalTemplateVars";
 import { renderTextTemplate } from "@/lib/textTemplate";
 import { signBookingRescheduleToken } from "@/lib/bookingReschedule";
 import { sendOwnerTwilioSms } from "@/lib/portalTwilio";
+import { ensurePortalNurtureSchema } from "@/lib/portalNurtureSchema";
+import { getOrCreateStripeCustomerId, isStripeConfigured, stripeGet, stripePost } from "@/lib/stripeFetch";
+import { generateText } from "@/lib/ai";
+import { getBusinessProfileAiContext } from "@/lib/businessProfileAiContext.server";
 
 const MAX_REMOTE_MEDIA_BYTES = 15 * 1024 * 1024; // matches /api/portal/media/import-remote
 
@@ -187,6 +191,44 @@ async function runDirectAction(opts: {
   args: any;
 }): Promise<{ status: number; json: any }> {
   const { action, ownerId, actorUserId, args } = opts;
+
+  function readStringArray(json: unknown): string[] {
+    if (!Array.isArray(json)) return [];
+    const out: string[] = [];
+    for (const x of json) {
+      if (typeof x === "string" && x.trim()) out.push(x.trim());
+    }
+    return out;
+  }
+
+  function tryParseJsonDraft(s: string): null | { subject?: string; body?: string } {
+    const t = String(s || "").trim();
+    if (!t.startsWith("{") || !t.endsWith("}")) return null;
+    try {
+      const obj = JSON.parse(t);
+      if (!obj || typeof obj !== "object") return null;
+      const subject = typeof (obj as any).subject === "string" ? String((obj as any).subject) : undefined;
+      const body = typeof (obj as any).body === "string" ? String((obj as any).body) : undefined;
+      return { subject, body };
+    } catch {
+      return null;
+    }
+  }
+
+  function parseSubjectBodyFallback(s: string): { subject?: string; body: string } {
+    const raw = String(s || "").replace(/\r\n/g, "\n").trim();
+    if (!raw) return { body: "" };
+
+    const lines = raw.split("\n");
+    const first = String(lines[0] || "").trim();
+    if (/^subject\s*:/i.test(first)) {
+      const subject = first.replace(/^subject\s*:/i, "").trim();
+      const body = lines.slice(1).join("\n").trim();
+      return { subject, body };
+    }
+
+    return { body: raw };
+  }
 
   switch (action) {
     case "tasks.create": {
@@ -978,6 +1020,665 @@ async function runDirectAction(opts: {
       return { status: 200, json: { ok: true, sent } };
     }
 
+    case "nurture.campaigns.list": {
+      const take = typeof args.take === "number" && Number.isFinite(args.take) ? Math.max(1, Math.min(200, Math.floor(args.take))) : 200;
+
+      await ensurePortalNurtureSchema();
+
+      const campaigns = await prisma.portalNurtureCampaign.findMany({
+        where: { ownerId },
+        select: { id: true, name: true, status: true, updatedAt: true, createdAt: true },
+        orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
+        take,
+      });
+
+      const campaignIds = campaigns.map((c) => String(c.id));
+      const [stepsAgg, enrollAgg] = await Promise.all([
+        prisma.portalNurtureStep.groupBy({
+          by: ["campaignId"],
+          where: { ownerId, campaignId: { in: campaignIds } },
+          _count: { _all: true },
+        }),
+        prisma.portalNurtureEnrollment.groupBy({
+          by: ["campaignId", "status"],
+          where: { ownerId, campaignId: { in: campaignIds } },
+          _count: { _all: true },
+        }),
+      ]);
+
+      const stepsCountByCampaign = new Map<string, number>();
+      for (const row of stepsAgg || []) {
+        stepsCountByCampaign.set(String((row as any).campaignId), Number((row as any)?._count?._all ?? 0));
+      }
+
+      const enrollCountsByCampaign = new Map<string, { active: number; completed: number; stopped: number }>();
+      for (const row of enrollAgg || []) {
+        const id = String((row as any).campaignId);
+        const next = enrollCountsByCampaign.get(id) ?? { active: 0, completed: 0, stopped: 0 };
+        const status = String((row as any).status);
+        const count = Number((row as any)?._count?._all ?? 0);
+        if (status === "ACTIVE") next.active += count;
+        else if (status === "COMPLETED") next.completed += count;
+        else if (status === "STOPPED") next.stopped += count;
+        enrollCountsByCampaign.set(id, next);
+      }
+
+      return {
+        status: 200,
+        json: {
+          ok: true,
+          campaigns: campaigns.map((c) => {
+            const enroll = enrollCountsByCampaign.get(String(c.id)) ?? { active: 0, completed: 0, stopped: 0 };
+            return {
+              id: c.id,
+              name: c.name,
+              status: c.status,
+              createdAtIso: c.createdAt.toISOString(),
+              updatedAtIso: c.updatedAt.toISOString(),
+              stepsCount: stepsCountByCampaign.get(String(c.id)) ?? 0,
+              enrollments: enroll,
+            };
+          }),
+        },
+      };
+    }
+
+    case "nurture.campaigns.create": {
+      await ensurePortalNurtureSchema();
+
+      const now = new Date();
+      const id = crypto.randomUUID();
+      const name = typeof args.name === "string" && args.name.trim() ? String(args.name).trim().slice(0, 80) : "New campaign";
+
+      await prisma.portalNurtureCampaign.create({
+        data: {
+          id,
+          ownerId,
+          name,
+          status: "DRAFT",
+          smsFooter: "Reply STOP to opt out.",
+          emailFooter: "",
+          createdAt: now,
+          updatedAt: now,
+        },
+      });
+
+      const stepId = crypto.randomUUID();
+      await prisma.portalNurtureStep.create({
+        data: {
+          id: stepId,
+          ownerId,
+          campaignId: id,
+          ord: 0,
+          kind: "SMS",
+          delayMinutes: 0,
+          body: "Hey {contact.name}, just checking in. Any questions I can help with?",
+          createdAt: now,
+          updatedAt: now,
+        },
+      });
+
+      return { status: 200, json: { ok: true, id } };
+    }
+
+    case "nurture.campaigns.get": {
+      const campaignId = String(args.campaignId || "").trim();
+      if (!campaignId) return { status: 400, json: { ok: false, error: "Missing campaignId" } };
+
+      await ensurePortalNurtureSchema();
+
+      const campaign = await prisma.portalNurtureCampaign.findFirst({
+        where: { ownerId, id: campaignId },
+        select: {
+          id: true,
+          name: true,
+          status: true,
+          audienceTagIdsJson: true,
+          smsFooter: true,
+          emailFooter: true,
+          createdAt: true,
+          updatedAt: true,
+          steps: {
+            select: { id: true, ord: true, kind: true, delayMinutes: true, subject: true, body: true, updatedAt: true },
+            orderBy: [{ ord: "asc" }],
+          },
+        },
+      });
+
+      if (!campaign) return { status: 404, json: { ok: false, error: "Not found" } };
+
+      const audienceTagIds = readStringArray(campaign.audienceTagIdsJson);
+
+      return {
+        status: 200,
+        json: {
+          ok: true,
+          campaign: {
+            id: campaign.id,
+            name: campaign.name,
+            status: campaign.status,
+            audienceTagIds,
+            smsFooter: campaign.smsFooter,
+            emailFooter: campaign.emailFooter,
+            createdAtIso: campaign.createdAt.toISOString(),
+            updatedAtIso: campaign.updatedAt.toISOString(),
+            steps: (campaign.steps || []).map((s) => ({
+              id: s.id,
+              ord: s.ord,
+              kind: s.kind,
+              delayMinutes: s.delayMinutes,
+              subject: s.subject,
+              body: s.body,
+              updatedAtIso: s.updatedAt.toISOString(),
+            })),
+          },
+        },
+      };
+    }
+
+    case "nurture.campaigns.update": {
+      const campaignId = String(args.campaignId || "").trim();
+      if (!campaignId) return { status: 400, json: { ok: false, error: "Missing campaignId" } };
+
+      await ensurePortalNurtureSchema();
+
+      const existing = await prisma.portalNurtureCampaign.findFirst({
+        where: { ownerId, id: campaignId },
+        select: { id: true, status: true, installPaidAt: true, stripeSubscriptionId: true },
+      });
+      if (!existing) return { status: 404, json: { ok: false, error: "Not found" } };
+
+      const now = new Date();
+      const data: any = { updatedAt: now };
+
+      if (args.name !== undefined) data.name = String(args.name || "").trim().slice(0, 80);
+      if (args.status !== undefined) data.status = args.status;
+      if (args.audienceTagIds !== undefined) data.audienceTagIdsJson = Array.isArray(args.audienceTagIds) ? args.audienceTagIds : [];
+      if (args.smsFooter !== undefined) data.smsFooter = String(args.smsFooter ?? "").slice(0, 300);
+      if (args.emailFooter !== undefined) data.emailFooter = String(args.emailFooter ?? "").slice(0, 2000);
+
+      const nextStatus = args.status as any;
+      const isActivating = nextStatus === "ACTIVE" && existing.status !== "ACTIVE";
+
+      if (isActivating) {
+        const intake = await prisma.portalServiceSetup
+          .findUnique({
+            where: { ownerId_serviceSlug: { ownerId, serviceSlug: "onboarding-intake" } },
+            select: { dataJson: true },
+          })
+          .catch(() => null);
+
+        const intakeRec = intake?.dataJson && typeof intake.dataJson === "object" && !Array.isArray(intake.dataJson)
+          ? (intake.dataJson as Record<string, unknown>)
+          : {};
+
+        const selectedPlanIds = Array.isArray((intakeRec as any).selectedPlanIds)
+          ? (intakeRec as any).selectedPlanIds
+              .map((x: any) => (typeof x === "string" ? x.trim() : ""))
+              .filter(Boolean)
+              .slice(0, 50)
+          : [];
+
+        const rawQty = (intakeRec as any).selectedPlanQuantities && typeof (intakeRec as any).selectedPlanQuantities === "object"
+          ? (intakeRec as any).selectedPlanQuantities
+          : {};
+
+        const purchasedSlots = (() => {
+          if (!selectedPlanIds.includes("nurture")) return 0;
+          const n = Number((rawQty as any)?.nurture ?? 1);
+          if (!Number.isFinite(n)) return 1;
+          return Math.max(1, Math.min(10, Math.trunc(n)));
+        })();
+
+        if (purchasedSlots > 0) {
+          const activeCount = await prisma.portalNurtureCampaign.count({ where: { ownerId, status: "ACTIVE" } });
+          const willBeActiveCount = Number(activeCount) + 1;
+          if (willBeActiveCount <= purchasedSlots) {
+            data.installPaidAt = existing.installPaidAt ?? now;
+            data.stripeSubscriptionId = null;
+          }
+        }
+
+        const ownerUser = await prisma.user.findUnique({ where: { id: ownerId }, select: { email: true } }).catch(() => null);
+        const email = ownerUser?.email ? String(ownerUser.email) : "";
+
+        const stripeReady = Boolean(isStripeConfigured() && email);
+        if (process.env.NODE_ENV === "production" && !stripeReady) {
+          return { status: 503, json: { ok: false, error: "Billing is unavailable right now." } };
+        }
+
+        const origin = process.env.NEXTAUTH_URL ?? process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
+
+        if (data.installPaidAt || data.stripeSubscriptionId === null) {
+          // Onboarding already covered activation.
+        } else {
+          if (stripeReady && existing.stripeSubscriptionId) {
+            try {
+              const sub = await stripeGet<any>(`/v1/subscriptions/${encodeURIComponent(String(existing.stripeSubscriptionId))}`);
+              const status = String(sub?.status ?? "");
+              if (["active", "trialing", "past_due"].includes(status)) {
+                // ok
+              } else {
+                throw new Error("Subscription inactive");
+              }
+            } catch {
+              // fall through
+            }
+          }
+
+          if (stripeReady) {
+            const includeInstall = !existing.installPaidAt;
+            const customer = await getOrCreateStripeCustomerId(String(email));
+
+            const successUrl = new URL(
+              `/portal/app/services/nurture-campaigns?billing=success&campaignId=${encodeURIComponent(campaignId)}&session_id={CHECKOUT_SESSION_ID}`,
+              origin,
+            ).toString();
+            const cancelUrl = new URL(
+              `/portal/app/services/nurture-campaigns?billing=cancel&campaignId=${encodeURIComponent(campaignId)}`,
+              origin,
+            ).toString();
+
+            const params: Record<string, unknown> = {
+              mode: "subscription",
+              customer,
+              success_url: successUrl,
+              cancel_url: cancelUrl,
+              allow_promotion_codes: true,
+              "metadata[kind]": includeInstall ? "nurture_install_and_monthly" : "nurture_monthly",
+              "metadata[ownerId]": ownerId,
+              "metadata[campaignId]": campaignId,
+              "subscription_data[metadata][kind]": "nurture_campaign",
+              "subscription_data[metadata][ownerId]": ownerId,
+              "subscription_data[metadata][campaignId]": campaignId,
+            };
+
+            let i = 0;
+            if (includeInstall) {
+              params[`line_items[${i}][quantity]`] = 1;
+              params[`line_items[${i}][price_data][currency]`] = "usd";
+              params[`line_items[${i}][price_data][unit_amount]`] = 9900;
+              params[`line_items[${i}][price_data][product_data][name]`] = "Nurture Campaign setup";
+              params[`line_items[${i}][price_data][product_data][description]`] = "One-time install fee for this campaign.";
+              i += 1;
+            }
+
+            params[`line_items[${i}][quantity]`] = 1;
+            params[`line_items[${i}][price_data][currency]`] = "usd";
+            params[`line_items[${i}][price_data][unit_amount]`] = 2900;
+            params[`line_items[${i}][price_data][recurring][interval]`] = "month";
+            params[`line_items[${i}][price_data][product_data][name]`] = "Nurture Campaign (monthly)";
+            params[`line_items[${i}][price_data][product_data][description]`] = "Monthly subscription for this active campaign.";
+
+            const checkout = await stripePost<{ url: string }>("/v1/checkout/sessions", params);
+            return { status: 402, json: { ok: false, error: "Billing required", code: "BILLING_REQUIRED", url: checkout.url } };
+          }
+        }
+      }
+
+      const updated = await prisma.portalNurtureCampaign.updateMany({ where: { ownerId, id: campaignId }, data });
+      if (!updated.count) return { status: 404, json: { ok: false, error: "Not found" } };
+
+      return { status: 200, json: { ok: true } };
+    }
+
+    case "nurture.campaigns.delete": {
+      const campaignId = String(args.campaignId || "").trim();
+      if (!campaignId) return { status: 400, json: { ok: false, error: "Missing campaignId" } };
+      await ensurePortalNurtureSchema();
+      await prisma.portalNurtureCampaign.deleteMany({ where: { ownerId, id: campaignId } });
+      return { status: 200, json: { ok: true } };
+    }
+
+    case "nurture.campaigns.steps.add": {
+      const campaignId = String(args.campaignId || "").trim();
+      if (!campaignId) return { status: 400, json: { ok: false, error: "Missing campaignId" } };
+      const kind = (args.kind === "EMAIL" || args.kind === "TAG" || args.kind === "SMS") ? args.kind : "SMS";
+
+      await ensurePortalNurtureSchema();
+
+      const campaign = await prisma.portalNurtureCampaign.findFirst({ where: { ownerId, id: campaignId }, select: { id: true } });
+      if (!campaign) return { status: 404, json: { ok: false, error: "Not found" } };
+
+      const ord = await prisma.portalNurtureStep.count({ where: { ownerId, campaignId } });
+      const now = new Date();
+      const id = crypto.randomUUID();
+
+      if (kind === "TAG") {
+        await prisma.portalNurtureStep.create({
+          data: {
+            id,
+            ownerId,
+            campaignId,
+            ord,
+            kind,
+            delayMinutes: ord === 0 ? 0 : 60 * 24,
+            subject: null,
+            body: "TAG:",
+            createdAt: now,
+            updatedAt: now,
+          },
+        });
+
+        await prisma.portalNurtureCampaign.updateMany({ where: { ownerId, id: campaignId }, data: { updatedAt: now } });
+        return { status: 200, json: { ok: true, id } };
+      }
+
+      await prisma.portalNurtureStep.create({
+        data: {
+          id,
+          ownerId,
+          campaignId,
+          ord,
+          kind,
+          delayMinutes: ord === 0 ? 0 : 60 * 24,
+          subject: kind === "EMAIL" ? "Quick question" : null,
+          body:
+            kind === "EMAIL"
+              ? "Hi {contact.name},\n\nJust checking in. Do you want help getting this set up?\n\n- {business.name}"
+              : "Hey {contact.name}, just checking in. Want help getting this set up?",
+          createdAt: now,
+          updatedAt: now,
+        },
+      });
+
+      await prisma.portalNurtureCampaign.updateMany({ where: { ownerId, id: campaignId }, data: { updatedAt: now } });
+      return { status: 200, json: { ok: true, id } };
+    }
+
+    case "nurture.steps.update": {
+      const stepId = String(args.stepId || "").trim();
+      if (!stepId) return { status: 400, json: { ok: false, error: "Missing stepId" } };
+
+      await ensurePortalNurtureSchema();
+
+      const existing = await prisma.portalNurtureStep.findFirst({
+        where: { ownerId, id: stepId },
+        select: { id: true, campaignId: true, ord: true, kind: true, body: true },
+      });
+
+      if (!existing) return { status: 404, json: { ok: false, error: "Not found" } };
+
+      const now = new Date();
+
+      const nextKind = (args.kind ?? existing.kind) as any;
+      const nextBody = args.body ?? existing.body;
+      if (nextKind === "TAG" && typeof nextBody === "string" && !nextBody.startsWith("TAG:")) {
+        return { status: 400, json: { ok: false, error: 'TAG steps must have body like "TAG:<tagId>"' } };
+      }
+
+      if (args.ord !== undefined && args.ord !== existing.ord) {
+        const steps = await prisma.portalNurtureStep.findMany({
+          where: { ownerId, campaignId: existing.campaignId },
+          select: { id: true, ord: true },
+          orderBy: [{ ord: "asc" }],
+        });
+
+        const toMove = steps.find((s) => s.id === existing.id);
+        if (!toMove) return { status: 404, json: { ok: false, error: "Not found" } };
+
+        const without = steps.filter((s) => s.id !== existing.id);
+        const nextIndex = Math.max(0, Math.min(without.length, Number(args.ord)));
+        without.splice(nextIndex, 0, toMove);
+
+        await prisma.$transaction(
+          without.map((s, idx) =>
+            prisma.portalNurtureStep.update({
+              where: { id: s.id },
+              data: { ord: idx, updatedAt: now },
+            }),
+          ),
+        );
+      }
+
+      const data: any = { updatedAt: now };
+      if (args.kind !== undefined) data.kind = args.kind;
+      if (args.delayMinutes !== undefined) data.delayMinutes = args.delayMinutes;
+      if (args.subject !== undefined) data.subject = args.subject;
+      if (args.body !== undefined) data.body = args.body;
+
+      if (nextKind === "TAG") {
+        data.subject = null;
+        data.body = typeof nextBody === "string" ? nextBody : "TAG:";
+      }
+
+      await prisma.portalNurtureStep.updateMany({ where: { ownerId, id: stepId }, data });
+      return { status: 200, json: { ok: true } };
+    }
+
+    case "nurture.steps.delete": {
+      const stepId = String(args.stepId || "").trim();
+      if (!stepId) return { status: 400, json: { ok: false, error: "Missing stepId" } };
+
+      await ensurePortalNurtureSchema();
+
+      const step = await prisma.portalNurtureStep.findFirst({ where: { ownerId, id: stepId }, select: { id: true, campaignId: true } });
+      if (!step) return { status: 200, json: { ok: true } };
+
+      const now = new Date();
+      await prisma.portalNurtureStep.deleteMany({ where: { ownerId, id: stepId } });
+
+      const remaining = await prisma.portalNurtureStep.findMany({
+        where: { ownerId, campaignId: step.campaignId },
+        select: { id: true },
+        orderBy: [{ ord: "asc" }],
+      });
+
+      await prisma.$transaction(
+        remaining.map((s, idx) =>
+          prisma.portalNurtureStep.update({
+            where: { id: s.id },
+            data: { ord: idx, updatedAt: now },
+          }),
+        ),
+      );
+
+      return { status: 200, json: { ok: true } };
+    }
+
+    case "nurture.campaigns.enroll": {
+      const campaignId = String(args.campaignId || "").trim();
+      if (!campaignId) return { status: 400, json: { ok: false, error: "Missing campaignId" } };
+      const dryRun = Boolean(args.dryRun);
+
+      await ensurePortalNurtureSchema();
+
+      const campaign = await prisma.portalNurtureCampaign.findFirst({
+        where: { ownerId, id: campaignId },
+        select: { id: true, status: true, audienceTagIdsJson: true },
+      });
+      if (!campaign) return { status: 404, json: { ok: false, error: "Not found" } };
+      if (campaign.status !== "ACTIVE") {
+        return { status: 400, json: { ok: false, error: "Activate the campaign before enrolling contacts." } };
+      }
+
+      const tagIds = (
+        Array.isArray(args.tagIds) && args.tagIds.length
+          ? (args.tagIds as any[]).map((x) => String(x || "").trim()).filter(Boolean)
+          : readStringArray(campaign.audienceTagIdsJson)
+      ).filter(Boolean);
+
+      if (!tagIds.length) {
+        return { status: 400, json: { ok: false, error: "Select at least one audience tag before enrolling." } };
+      }
+
+      const matches = await prisma.portalContactTagAssignment.findMany({
+        where: { ownerId, tagId: { in: tagIds } },
+        select: { contactId: true },
+        take: 5000,
+      });
+      const contactIds = Array.from(new Set((matches || []).map((m) => String((m as any).contactId))));
+
+      if (dryRun) return { status: 200, json: { ok: true, wouldEnroll: contactIds.length } };
+
+      const steps = await prisma.portalNurtureStep.findMany({
+        where: { ownerId, campaignId },
+        select: { ord: true, delayMinutes: true },
+        orderBy: [{ ord: "asc" }],
+        take: 1,
+      });
+      const firstDelay = steps.length ? Math.max(0, Number((steps[0] as any).delayMinutes) || 0) : 0;
+
+      const now = new Date();
+      const firstSendAt = new Date(now.getTime() + firstDelay * 60 * 1000);
+
+      const batchSize = 200;
+      for (let i = 0; i < contactIds.length; i += batchSize) {
+        const batch = contactIds.slice(i, i + batchSize);
+        await prisma.$transaction(
+          batch.map((contactId) => {
+            const id = crypto.randomUUID();
+            return prisma.portalNurtureEnrollment.upsert({
+              where: { campaignId_contactId: { campaignId, contactId } },
+              create: {
+                id,
+                ownerId,
+                campaignId,
+                contactId,
+                status: "ACTIVE",
+                stepIndex: 0,
+                nextSendAt: firstSendAt,
+                createdAt: now,
+                updatedAt: now,
+              },
+              update: {
+                status: "ACTIVE",
+                nextSendAt: firstSendAt,
+                updatedAt: now,
+              },
+            });
+          }),
+        );
+      }
+
+      return { status: 200, json: { ok: true, enrolled: contactIds.length } };
+    }
+
+    case "nurture.billing.confirm_checkout": {
+      const campaignId = String(args.campaignId || "").trim();
+      const sessionId = String(args.sessionId || "").trim();
+      if (!campaignId) return { status: 400, json: { ok: false, error: "Missing campaignId" } };
+      if (!sessionId) return { status: 400, json: { ok: false, error: "Missing sessionId" } };
+
+      if (!isStripeConfigured()) {
+        return { status: 400, json: { ok: false, error: "Stripe is not configured" } };
+      }
+
+      await ensurePortalNurtureSchema();
+
+      const campaign = await prisma.portalNurtureCampaign.findFirst({ where: { ownerId, id: campaignId }, select: { id: true, installPaidAt: true } });
+      if (!campaign) return { status: 404, json: { ok: false, error: "Not found" } };
+
+      const session = await stripeGet<any>(`/v1/checkout/sessions/${encodeURIComponent(sessionId)}`, { "expand[]": ["subscription"] });
+
+      const metaCampaignId = String(session?.metadata?.campaignId ?? "").trim();
+      const metaOwnerId = String(session?.metadata?.ownerId ?? "").trim();
+      if (!metaCampaignId || metaCampaignId !== campaignId || !metaOwnerId || metaOwnerId !== ownerId) {
+        return { status: 400, json: { ok: false, error: "Mismatched checkout session" } };
+      }
+
+      const paymentStatus = String(session?.payment_status ?? "");
+      const status = String(session?.status ?? "");
+      if (!(paymentStatus === "paid" || status === "complete")) {
+        return { status: 409, json: { ok: false, error: "Checkout not complete" } };
+      }
+
+      const subId =
+        typeof session?.subscription === "string"
+          ? session.subscription
+          : typeof session?.subscription?.id === "string"
+            ? session.subscription.id
+            : "";
+
+      const kind = String(session?.metadata?.kind ?? "");
+      const includeInstall = kind === "nurture_install_and_monthly";
+
+      const now = new Date();
+      await prisma.portalNurtureCampaign.updateMany({
+        where: { ownerId, id: campaignId },
+        data: {
+          stripeSubscriptionId: subId || undefined,
+          installPaidAt: includeInstall ? (campaign.installPaidAt ?? now) : campaign.installPaidAt,
+          updatedAt: now,
+        },
+      });
+
+      return {
+        status: 200,
+        json: {
+          ok: true,
+          stripeSubscriptionId: subId || null,
+          installPaidAtIso: includeInstall ? now.toISOString() : null,
+        },
+      };
+    }
+
+    case "nurture.ai.generate_step": {
+      const kind = args.kind === "EMAIL" ? "EMAIL" : "SMS";
+      const campaignName = typeof args.campaignName === "string" ? args.campaignName.trim().slice(0, 80) : "";
+      const prompt = typeof args.prompt === "string" ? args.prompt.trim().slice(0, 2000) : "";
+      const existingSubject = typeof args.existingSubject === "string" ? args.existingSubject.trim().slice(0, 200) : "";
+      const existingBody = typeof args.existingBody === "string" ? args.existingBody.trim().slice(0, 8000) : "";
+
+      const businessContext = await getBusinessProfileAiContext(ownerId).catch(() => "");
+      const needCredits = PORTAL_CREDIT_COSTS.aiDraftStep;
+      const consumed = await consumeCredits(ownerId, needCredits);
+      if (!consumed.ok) {
+        return { status: 402, json: { ok: false, error: "INSUFFICIENT_CREDITS", code: "INSUFFICIENT_CREDITS", credits: consumed.state.balance } };
+      }
+
+      const system = kind === "SMS" ? "You write short, practical SMS follow-ups for a small business." : "You write friendly, concise follow-up emails for a small business.";
+
+      const user = [
+        "Draft the copy for a nurture campaign step.",
+        businessContext ? businessContext : "",
+        campaignName ? `Campaign: ${campaignName}` : "",
+        `Channel: ${kind}`,
+        "",
+        "Allowed variables (keep braces exactly): {contact.firstName}, {contact.name}, {contact.email}, {contact.phone}, {business.name}, {owner.email}, {owner.phone}.",
+        kind === "SMS" ? "Keep it under 320 characters if possible." : "",
+        kind === "EMAIL" ? "Return a subject and body." : "",
+        "",
+        existingSubject ? `Existing subject: ${existingSubject}` : "",
+        existingBody ? `Existing body: ${existingBody}` : "",
+        prompt ? `Extra instruction: ${prompt}` : "",
+        "",
+        kind === "EMAIL"
+          ? 'Prefer returning JSON: {"subject": "...", "body": "..."}. If you don\'t return JSON, start with \'Subject: ...\' on the first line.'
+          : "Return the SMS body only (no JSON needed).",
+      ]
+        .filter(Boolean)
+        .join("\n");
+
+      const content = await generateText({ system, user });
+
+      if (kind === "EMAIL") {
+        const fromJson = tryParseJsonDraft(content);
+        if (fromJson?.body || fromJson?.subject) {
+          return {
+            status: 200,
+            json: {
+              ok: true,
+              subject: String(fromJson.subject || "").slice(0, 200),
+              body: String(fromJson.body || "").slice(0, 8000),
+            },
+          };
+        }
+
+        const parsedFallback = parseSubjectBodyFallback(content);
+        return {
+          status: 200,
+          json: {
+            ok: true,
+            subject: String(parsedFallback.subject || "").slice(0, 200),
+            body: String(parsedFallback.body || "").slice(0, 8000),
+          },
+        };
+      }
+
+      return { status: 200, json: { ok: true, body: String(content || "").trim().slice(0, 8000) } };
+    }
+
     case "media.folder.ensure": {
       const name = sanitizeHumanName(args.name, 120);
       if (!name) return { status: 400, json: { ok: false, error: "Invalid folder name" } };
@@ -1339,6 +2040,97 @@ function resultMarkdown(action: PortalAgentActionKey, json: any): { markdown: st
       markdown: `Optimized your dashboard${niche ? ` for ${niche}` : ""}.\n\n[Open dashboard](/portal/app)`,
       linkUrl: "/portal/app",
     };
+  }
+
+  if (action === "nurture.campaigns.create" && json?.ok && json?.id) {
+    return {
+      markdown: `Created the nurture campaign.\n\n[Open Nurture Campaigns](/portal/app/services/nurture-campaigns)`,
+      linkUrl: "/portal/app/services/nurture-campaigns",
+    };
+  }
+
+  if ((action === "nurture.campaigns.update" || action === "nurture.campaigns.delete") && json?.ok) {
+    return {
+      markdown: `Updated nurture campaigns.\n\n[Open Nurture Campaigns](/portal/app/services/nurture-campaigns)`,
+      linkUrl: "/portal/app/services/nurture-campaigns",
+    };
+  }
+
+  if (action === "nurture.campaigns.steps.add" && json?.ok && json?.id) {
+    return {
+      markdown: `Added the campaign step.\n\n[Open Nurture Campaigns](/portal/app/services/nurture-campaigns)`,
+      linkUrl: "/portal/app/services/nurture-campaigns",
+    };
+  }
+
+  if ((action === "nurture.steps.update" || action === "nurture.steps.delete") && json?.ok) {
+    return {
+      markdown: `Updated the nurture step.\n\n[Open Nurture Campaigns](/portal/app/services/nurture-campaigns)`,
+      linkUrl: "/portal/app/services/nurture-campaigns",
+    };
+  }
+
+  if (action === "nurture.campaigns.enroll" && json?.ok) {
+    const enrolled = typeof json.enrolled === "number" ? json.enrolled : null;
+    const wouldEnroll = typeof json.wouldEnroll === "number" ? json.wouldEnroll : null;
+    const n = enrolled ?? wouldEnroll;
+    const verb = enrolled !== null ? "Enrolled" : "Would enroll";
+    return {
+      markdown: `${verb} ${n ?? ""} contact(s).\n\n[Open Nurture Campaigns](/portal/app/services/nurture-campaigns)`.replace(/\s+/g, " ").trim(),
+      linkUrl: "/portal/app/services/nurture-campaigns",
+    };
+  }
+
+  if (action === "nurture.billing.confirm_checkout" && json?.ok) {
+    return {
+      markdown: `Confirmed billing for this campaign.\n\n[Open Nurture Campaigns](/portal/app/services/nurture-campaigns)`,
+      linkUrl: "/portal/app/services/nurture-campaigns",
+    };
+  }
+
+  if (action === "nurture.ai.generate_step" && json?.ok) {
+    if (typeof json.subject === "string" || typeof json.body === "string") {
+      const subject = typeof json.subject === "string" ? json.subject.trim() : "";
+      const body = typeof json.body === "string" ? json.body.trim() : "";
+      const parts = [
+        "Drafted copy:",
+        subject ? `\nSubject: ${subject}` : "",
+        body ? `\n\n${body}` : "",
+      ]
+        .filter(Boolean)
+        .join("");
+      return { markdown: parts };
+    }
+    return { markdown: "Drafted the step copy." };
+  }
+
+  if (action === "nurture.campaigns.list" && json?.ok) {
+    const rows = Array.isArray(json.campaigns) ? (json.campaigns as any[]) : [];
+    const lines = rows.slice(0, 20).map((c) => {
+      const name = String(c?.name || "").trim() || "(No name)";
+      const status = String(c?.status || "").trim();
+      const id = String(c?.id || "").trim();
+      const stepsCount = typeof c?.stepsCount === "number" ? c.stepsCount : null;
+      const bits = [status ? `(${status})` : null, stepsCount !== null ? `${stepsCount} steps` : null, id ? `campaignId: ${id}` : null]
+        .filter(Boolean)
+        .join(" · ");
+      return `- ${name}${bits ? ` — ${bits}` : ""}`;
+    });
+    return {
+      markdown: rows.length
+        ? `Here are your nurture campaigns:\n\n${lines.join("\n")}\n\n[Open Nurture Campaigns](/portal/app/services/nurture-campaigns)`
+        : "No nurture campaigns yet.",
+      linkUrl: "/portal/app/services/nurture-campaigns",
+    };
+  }
+
+  if (action === "nurture.campaigns.update" && json?.code === "BILLING_REQUIRED" && typeof json?.url === "string") {
+    const url = String(json.url).trim();
+    if (url) {
+      return {
+        markdown: `Billing required to activate this campaign.\n\nCheckout: ${url}`,
+      };
+    }
   }
 
   const err = typeof json?.error === "string" ? json.error : typeof json?.message === "string" ? json.message : null;
