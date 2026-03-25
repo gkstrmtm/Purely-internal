@@ -6177,6 +6177,137 @@ async function runDirectAction(opts: {
       };
     }
 
+    case "bug_report.submit": {
+      const membership = await requirePortalMember();
+      if (!membership) return { status: 403, json: { ok: false, error: "Forbidden" } };
+
+      const SERVICE_SLUG = "bug-reports";
+      const MAX_REPORTS = 200;
+
+      const message = String((args as any)?.message || "").trim().slice(0, 4000);
+      const url = typeof (args as any)?.url === "string" ? String((args as any).url).trim().slice(0, 2000) : "";
+      const area = typeof (args as any)?.area === "string" ? String((args as any).area).trim().slice(0, 200) : "";
+
+      const actor = await prisma.user
+        .findUnique({ where: { id: membership.memberId }, select: { email: true } })
+        .catch(() => null);
+      const reporterEmail = typeof actor?.email === "string" && actor.email.trim() ? actor.email.trim().slice(0, 200) : undefined;
+
+      const envInfo = {
+        buildSha:
+          process.env.VERCEL_GIT_COMMIT_SHA ??
+          process.env.GIT_COMMIT_SHA ??
+          process.env.NEXT_PUBLIC_VERCEL_GIT_COMMIT_SHA ??
+          null,
+        commitRef: process.env.VERCEL_GIT_COMMIT_REF ?? null,
+        deploymentId: process.env.VERCEL_DEPLOYMENT_ID ?? null,
+      };
+
+      const now = new Date();
+      const createdAtIso = now.toISOString();
+      const meta =
+        (args as any)?.meta && typeof (args as any).meta === "object" && !Array.isArray((args as any).meta)
+          ? ((args as any).meta as Record<string, unknown>)
+          : undefined;
+
+      const report: any = {
+        id: `bug_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`,
+        createdAtIso,
+        message,
+        ...(url ? { url } : {}),
+        ...(area ? { area } : {}),
+        ...(reporterEmail ? { reporterEmail } : {}),
+        ...envInfo,
+        ...(meta ? { meta } : {}),
+      };
+
+      // Best-effort persistence: keep last N bug reports for this owner.
+      try {
+        const existing = await prisma.portalServiceSetup.findUnique({
+          where: { ownerId_serviceSlug: { ownerId, serviceSlug: SERVICE_SLUG } },
+          select: { dataJson: true },
+        });
+
+        const parsePayload = (raw: unknown): { version: 1; reports: any[] } => {
+          if (!raw || typeof raw !== "object" || Array.isArray(raw)) return { version: 1, reports: [] };
+          const rec = raw as Record<string, unknown>;
+          const reportsRaw = Array.isArray(rec.reports) ? (rec.reports as unknown[]) : [];
+          const reports = reportsRaw
+            .flatMap((r) => {
+              if (!r || typeof r !== "object" || Array.isArray(r)) return [];
+              const rr = r as Record<string, unknown>;
+              const id = typeof rr.id === "string" ? rr.id : "";
+              const createdAtIso = typeof rr.createdAtIso === "string" ? rr.createdAtIso : "";
+              const message = typeof rr.message === "string" ? rr.message : "";
+              if (!id || !createdAtIso || !message) return [];
+              return [rr];
+            })
+            .slice(0, MAX_REPORTS);
+          return { version: 1, reports };
+        };
+
+        const prev = parsePayload(existing?.dataJson ?? null);
+        const next = { version: 1 as const, reports: [report, ...(prev.reports || [])].slice(0, MAX_REPORTS) };
+
+        await prisma.portalServiceSetup.upsert({
+          where: { ownerId_serviceSlug: { ownerId, serviceSlug: SERVICE_SLUG } },
+          create: { ownerId, serviceSlug: SERVICE_SLUG, status: "COMPLETE", dataJson: next as any },
+          update: { status: "COMPLETE", dataJson: next as any },
+          select: { id: true },
+        });
+      } catch (err) {
+        console.error("bug_report.submit: persist failed", err);
+      }
+
+      const recipientsFromEnv = (): string[] => {
+        const raw = process.env.BUG_REPORT_TO_EMAIL ?? process.env.MANAGER_DASHBOARD_EMAIL ?? "purestayservice@gmail.com";
+        return raw
+          .split(",")
+          .map((s) => s.trim())
+          .filter(Boolean)
+          .slice(0, 10);
+      };
+
+      const subject = `Bug report: ${reporterEmail ?? ownerId}${area ? ` (${area})` : ""}`;
+      const emailBody = [
+        "New portal bug report",
+        "",
+        `When: ${createdAtIso}`,
+        `Reporter: ${reporterEmail ?? "(unknown)"}`,
+        `OwnerId: ${ownerId}`,
+        `URL: ${url || ""}`,
+        `Area: ${area || ""}`,
+        `Build: ${envInfo.buildSha ?? ""}`,
+        `Ref: ${envInfo.commitRef ?? ""}`,
+        `Deployment: ${envInfo.deploymentId ?? ""}`,
+        "",
+        "Message:",
+        message,
+        "",
+        "Meta:",
+        JSON.stringify(meta ?? {}, null, 2),
+      ].join("\n");
+
+      let emailed = false;
+      try {
+        const to = recipientsFromEnv();
+        if (to.length) {
+          const r = await trySendTransactionalEmail({
+            to,
+            subject,
+            text: emailBody.slice(0, 20000),
+            fromName: "Purely Automation",
+          });
+          emailed = r.ok;
+          if (!r.ok) console.error("bug_report.submit: email failed", r);
+        }
+      } catch (err) {
+        console.error("bug_report.submit: email threw", err);
+      }
+
+      return { status: 200, json: { ok: true, reportId: report.id, emailed } };
+    }
+
     case "support_chat.send": {
       if (!isPortalSupportChatConfigured()) {
         return {
@@ -10944,6 +11075,14 @@ async function runDirectAction(opts: {
 }
 
 function resultMarkdown(action: PortalAgentActionKey, json: any): { markdown: string; linkUrl?: string } {
+  if (action === "bug_report.submit" && json?.ok && json?.reportId) {
+    const id = String(json.reportId || "").trim();
+    const emailed = Boolean(json.emailed);
+    return {
+      markdown: `Submitted the bug report${id ? ` (${id})` : ""}.` + (emailed ? "" : "\n\nNote: email notification was not sent (still saved internally)."),
+    };
+  }
+
   if (action === "tasks.create" && json?.ok && json?.taskId) {
     return {
       markdown: `Created a task.\n\n[Open tasks](/portal/app/tasks)`,

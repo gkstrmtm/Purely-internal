@@ -115,6 +115,7 @@ export const PortalAgentActionKeySchema = z.enum([
   "voice_agent.voices.list",
 
   "webhooks.get",
+  "bug_report.submit",
   "support_chat.send",
 
   "services.catalog.get",
@@ -917,6 +918,15 @@ export const PortalAgentActionArgsSchemaByKey = {
     .strict(),
 
   "webhooks.get": z.object({}).strict(),
+
+  "bug_report.submit": z
+    .object({
+      message: z.string().trim().min(1).max(4000),
+      url: z.string().trim().max(2000).optional(),
+      area: z.string().trim().max(200).optional(),
+      meta: z.unknown().optional(),
+    })
+    .strict(),
 
   "support_chat.send": z
     .object({
@@ -2015,6 +2025,7 @@ export function portalAgentActionsIndexText(): string {
     "- follow_up.test_send: Send a test follow-up message (fields: channel, to, subject?, body)",
     "- notifications.recipients.list: List notification recipient contacts for the portal account",
     "- webhooks.get: Get canonical webhook URLs (Twilio inbound/status callback + legacy tokens)",
+    "- bug_report.submit: Submit a bug report to the team (fields: message, url?, area?, meta?)",
     "- support_chat.send: Ask the support chat assistant a question (fields: message, url?, meta?, context.recentMessages?)",
     "- voice_agent.tools.get: List voice agent tool IDs resolved from your ElevenLabs API key (call transfer, calendar booking, etc)",
     "- voice_agent.voices.list: List available ElevenLabs voices (requires voice agent API key)",
