@@ -11584,6 +11584,76 @@ async function runDirectAction(opts: {
       return { status: 200, json: { ok: true, folderId: created.id, shareUrl: `/media/f/${created.id}/${created.publicToken}` } };
     }
 
+    case "media.folders.update": {
+      const ok = await requireServiceCapability("media" as PortalServiceKey, "view");
+      if (!ok) return { status: 403, json: { ok: false, error: "Insufficient permissions" } };
+
+      const id = typeof args.id === "string" && args.id.trim() ? String(args.id).trim() : "";
+      if (!id) return { status: 400, json: { ok: false, error: "Missing id" } };
+
+      const sanitizeName = (raw: string) =>
+        String(raw || "")
+          .replace(/[\r\n\t\0]/g, " ")
+          .replace(/\s+/g, " ")
+          .trim()
+          .slice(0, 120);
+
+      const existing = await (prisma as any).portalMediaFolder.findFirst({ where: { id, ownerId }, select: { id: true } });
+      if (!existing) return { status: 404, json: { ok: false, error: "Not found" } };
+
+      const data: Record<string, unknown> = {};
+
+      if ((args as any).name !== undefined) {
+        const nextName = sanitizeName(String((args as any).name || ""));
+        if (!nextName) return { status: 400, json: { ok: false, error: "Invalid folder name" } };
+        data.name = nextName;
+        data.nameKey = normalizeNameKey(nextName);
+      }
+
+      if ((args as any).parentId !== undefined) {
+        const nextParentId = (args as any).parentId ? String((args as any).parentId).trim() : null;
+
+        if (nextParentId === id) {
+          return { status: 400, json: { ok: false, error: "Folder cannot be its own parent" } };
+        }
+
+        const wouldCreateCycle = async (nextParentIdValue: string) => {
+          let curId: string | null = nextParentIdValue;
+          for (let i = 0; i < 64; i++) {
+            if (!curId) return false;
+            if (curId === id) return true;
+            const row: { parentId: string | null } | null = await (prisma as any).portalMediaFolder.findFirst({
+              where: { id: curId, ownerId },
+              select: { parentId: true },
+            });
+            if (!row) return false;
+            curId = row.parentId;
+          }
+          return true;
+        };
+
+        if (nextParentId) {
+          const parent = await (prisma as any).portalMediaFolder.findFirst({ where: { id: nextParentId, ownerId }, select: { id: true } });
+          if (!parent) return { status: 404, json: { ok: false, error: "Parent folder not found" } };
+
+          const cycle = await wouldCreateCycle(nextParentId);
+          if (cycle) return { status: 400, json: { ok: false, error: "Invalid parent (cycle)" } };
+        }
+
+        data.parentId = nextParentId;
+      }
+
+      if ((args as any).color !== undefined) {
+        const c = (args as any).color ? String((args as any).color).trim().slice(0, 32) : null;
+        data.color = c;
+      }
+
+      if (!Object.keys(data).length) return { status: 200, json: { ok: true } };
+
+      await (prisma as any).portalMediaFolder.update({ where: { id }, data });
+      return { status: 200, json: { ok: true } };
+    }
+
     case "media.items.move": {
       const itemIds = Array.isArray(args.itemIds) ? (args.itemIds as unknown[]).filter((x) => typeof x === "string").map((x) => String(x).trim()).filter(Boolean).slice(0, 20) : [];
       if (!itemIds.length) return { status: 400, json: { ok: false, error: "Missing itemIds" } };

@@ -176,6 +176,7 @@ export const PortalAgentActionKeySchema = z.enum([
   "reviews.questions.list",
   "reviews.questions.answer",
   "media.folders.list",
+  "media.folders.update",
   "media.folder.ensure",
   "media.items.list",
   "media.items.move",
@@ -1255,6 +1256,15 @@ export const PortalAgentActionArgsSchemaByKey = {
 
   "media.folders.list": z.object({}).strict(),
 
+  "media.folders.update": z
+    .object({
+      id: z.string().trim().min(1).max(120),
+      name: z.string().trim().min(1).max(120).optional(),
+      parentId: z.string().trim().min(1).optional().nullable(),
+      color: z.string().trim().min(1).max(32).optional().nullable(),
+    })
+    .strict(),
+
   "media.folder.ensure": z
     .object({
       name: z.string().trim().min(1).max(120),
@@ -2194,6 +2204,7 @@ export function portalAgentActionsIndexText(): string {
     "- reviews.questions.list: List review Q&A questions",
     "- reviews.questions.answer: Answer a review question (fields: id, answer?)",
     "- media.folders.list: List all Media Library folders",
+    "- media.folders.update: Rename/move a Media Library folder (fields: id, name?, parentId?, color?)",
     "- media.folder.ensure: Ensure a Media Library folder exists (fields: name, parentId?, color?)",
     "- media.items.list: List/search Media Library items (fields: q?, folderId?, limit?)",
     "- media.items.move: Move media items into a folder (fields: itemIds, folderId? OR folderName(+parentId?))",

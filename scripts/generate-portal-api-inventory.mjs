@@ -116,6 +116,7 @@ const ACTION_COVERAGE = [
 
   { action: "media.folders.list", method: "GET", endpoint: "/api/portal/media/folders" },
   { action: "media.folder.ensure", method: "POST", endpoint: "/api/portal/media/folders" },
+  { action: "media.folders.update", method: "PATCH", endpoint: "/api/portal/media/folders/[id]" },
   { action: "media.items.list", method: "GET", endpoint: "/api/portal/media/items" },
   { action: "media.items.move", method: "POST", endpoint: "/api/portal/media/items" },
   { action: "media.items.update", method: "PATCH", endpoint: "/api/portal/media/items/[id]" },
