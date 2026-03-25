@@ -80,7 +80,7 @@ import { mirrorUploadToMediaLibrary } from "@/lib/portalMediaUploads";
 import { safeFilename, newPublicToken, newTag, normalizeMimeType, normalizeNameKey } from "@/lib/portalMedia";
 import { addPortalDashboardWidget, getPortalDashboardData, isDashboardWidgetId, removePortalDashboardWidget, resetPortalDashboard, savePortalDashboardData, type DashboardWidgetId } from "@/lib/portalDashboard";
 import { hasPublicColumn } from "@/lib/dbSchema";
-import { cancelFollowUpsForBooking, scheduleFollowUpsForBooking } from "@/lib/followUpAutomation";
+import { cancelFollowUpsForBooking, getFollowUpServiceData, getFollowUpSettings, scheduleFollowUpsForBooking } from "@/lib/followUpAutomation";
 import { trySendTransactionalEmail, sendTransactionalEmail } from "@/lib/emailSender";
 import { buildPortalTemplateVars, normalizePortalContactCustomVarKey } from "@/lib/portalTemplateVars";
 import { renderTextTemplate } from "@/lib/textTemplate";
@@ -5020,6 +5020,71 @@ async function runDirectAction(opts: {
           },
         };
       }
+    }
+
+    case "follow_up.settings.get": {
+      const ok = await requireServiceCapability("followUp", "view");
+      if (!ok) return { status: 403, json: { ok: false, error: "Forbidden" } };
+
+      const [data, calendars, site] = await Promise.all([
+        getFollowUpServiceData(ownerId),
+        getBookingCalendarsConfig(ownerId).catch(() => ({ version: 1, calendars: [] })),
+        prisma.portalBookingSite
+          .findUnique({ where: { ownerId }, select: { notificationEmails: true } })
+          .catch(() => null),
+      ]);
+
+      const siteNotificationEmails = Array.isArray((site as any)?.notificationEmails)
+        ? (((site as any).notificationEmails as unknown) as unknown[])
+            .filter((x) => typeof x === "string")
+            .map((x) => String(x).trim())
+            .filter((x) => x.includes("@"))
+            .slice(0, 20)
+        : [];
+
+      const builtinVariables = [
+        "contactName",
+        "contactEmail",
+        "contactPhone",
+        "businessName",
+        "bookingTitle",
+        "calendarTitle",
+        "when",
+        "timeZone",
+        "startAt",
+        "endAt",
+      ];
+
+      return {
+        status: 200,
+        json: {
+          ok: true,
+          settings: (data as any).settings,
+          queue: Array.isArray((data as any).queue) ? (data as any).queue.slice(0, 60) : [],
+          calendars: ((calendars as any).calendars ?? []).map((c: any) => ({
+            id: c.id,
+            title: c.title,
+            enabled: Boolean(c.enabled),
+            notificationEmails: Array.isArray(c.notificationEmails) ? c.notificationEmails : undefined,
+          })),
+          siteNotificationEmails,
+          builtinVariables,
+        },
+      };
+    }
+
+    case "follow_up.custom_variables.get": {
+      const ok = await requireAnyServiceCapability(["leadScraping", "followUp"], "view");
+      if (!ok) return { status: 403, json: { ok: false, error: "Forbidden" } };
+
+      const settings = await getFollowUpSettings(ownerId).catch(() => null);
+      return {
+        status: 200,
+        json: {
+          ok: true,
+          customVariables: (settings as any)?.customVariables ?? {},
+        },
+      };
     }
 
     case "ai_agents.list": {

@@ -53,6 +53,9 @@ const ACTION_COVERAGE = [
   { action: "integrations.stripe.get", method: "GET", endpoint: "/api/portal/integrations/stripe" },
   { action: "integrations.sales_reporting.get", method: "GET", endpoint: "/api/portal/integrations/sales-reporting" },
 
+  { action: "follow_up.settings.get", method: "GET", endpoint: "/api/portal/follow-up/settings" },
+  { action: "follow_up.custom_variables.get", method: "GET", endpoint: "/api/portal/follow-up/custom-variables" },
+
   { action: "services.catalog.get", method: "GET", endpoint: "/api/portal/services/catalog" },
   { action: "services.lifecycle.update", method: "POST", endpoint: "/api/portal/services/lifecycle" },
   { action: "services.status.get", method: "GET", endpoint: "/api/portal/services/status" },

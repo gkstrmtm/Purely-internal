@@ -89,6 +89,9 @@ export const PortalAgentActionKeySchema = z.enum([
   "integrations.stripe.get",
   "integrations.sales_reporting.get",
 
+  "follow_up.settings.get",
+  "follow_up.custom_variables.get",
+
   "notifications.recipients.list",
 
   "voice_agent.tools.get",
@@ -796,6 +799,10 @@ export const PortalAgentActionArgsSchemaByKey = {
   "integrations.stripe.get": z.object({}).strict(),
 
   "integrations.sales_reporting.get": z.object({}).strict(),
+
+  "follow_up.settings.get": z.object({}).strict(),
+
+  "follow_up.custom_variables.get": z.object({}).strict(),
 
   "webhooks.get": z.object({}).strict(),
 
@@ -1852,6 +1859,8 @@ export function portalAgentActionsIndexText(): string {
     "- integrations.twilio.get: Get Twilio SMS integration status + webhook URLs (fields: includeDiagnostics?)",
     "- integrations.stripe.get: Get Stripe integration status (secret key prefix + connected account)",
     "- integrations.sales_reporting.get: Get sales reporting integration status (active provider + configured providers)",
+    "- follow_up.settings.get: Get Follow-Up automation settings and queue preview",
+    "- follow_up.custom_variables.get: Get Follow-Up custom variables (available to lead scraping and follow-up)",
     "- notifications.recipients.list: List notification recipient contacts for the portal account",
     "- webhooks.get: Get canonical webhook URLs (Twilio inbound/status callback + legacy tokens)",
     "- support_chat.send: Ask the support chat assistant a question (fields: message, url?, meta?, context.recentMessages?)",
