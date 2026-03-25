@@ -136,6 +136,50 @@ function detectDeterministicActionsFromText(opts: {
     return [{ key: "booking.bookings.list", title: "List bookings", args: { take: 25 } }];
   }
 
+  // Booking: get calendars config.
+  if (/\b(list|show|get)\b[\s\S]{0,30}\b(calendars?)\b/i.test(t) && /\bbooking\b/i.test(t)) {
+    return [{ key: "booking.calendars.get", title: "Get booking calendars", args: {} }];
+  }
+
+  // Booking: get booking settings.
+  if (/\b(show|get)\b[\s\S]{0,30}\b(booking)\b[\s\S]{0,30}\b(settings?)\b/i.test(t)) {
+    return [{ key: "booking.settings.get", title: "Get booking settings", args: {} }];
+  }
+
+  // Booking: get booking form.
+  if (/\b(show|get)\b[\s\S]{0,30}\b(booking)\b[\s\S]{0,30}\b(form)\b/i.test(t)) {
+    return [{ key: "booking.form.get", title: "Get booking form", args: {} }];
+  }
+
+  // Booking: get hosted site settings.
+  if (/\b(show|get)\b[\s\S]{0,40}\b(booking)\b[\s\S]{0,40}\b(site|domain|hosted|public)\b/i.test(t)) {
+    return [{ key: "booking.site.get", title: "Get booking public site", args: {} }];
+  }
+
+  // Booking: get reminder settings.
+  if (/\b(show|get)\b[\s\S]{0,40}\b(reminders?|reminder)\b[\s\S]{0,40}\b(settings?)\b/i.test(t) && /\bbooking\b/i.test(t)) {
+    return [{ key: "booking.reminders.settings.get", title: "Get booking reminder settings", args: {} }];
+  }
+
+  // Booking: suggest available slots.
+  if (/\b(available|suggest|find|show)\b[\s\S]{0,40}\b(slots?|availability)\b/i.test(t) && /\b(booking|appointment)\b/i.test(t)) {
+    const startAtIso = startAtIsoFromText();
+    const durMatch = /\b(\d{2,3})\s*(?:min|mins|minutes)\b/i.exec(t);
+    const durationMinutes = durMatch?.[1] ? Math.max(10, Math.min(180, Number(durMatch[1]))) : undefined;
+    const daysMatch = /\b(\d{1,2})\s*days\b/i.exec(t);
+    const days = daysMatch?.[1] ? Math.max(1, Math.min(30, Number(daysMatch[1]))) : undefined;
+    return [{
+      key: "booking.suggestions.slots",
+      title: "Suggest available booking slots",
+      args: {
+        ...(startAtIso ? { startAtIso } : {}),
+        ...(typeof durationMinutes === "number" && Number.isFinite(durationMinutes) ? { durationMinutes } : {}),
+        ...(typeof days === "number" && Number.isFinite(days) ? { days } : {}),
+        limit: 25,
+      },
+    }];
+  }
+
   // Nurture: list campaigns.
   if (/\b(list|show)\b[\s\S]{0,30}\b(nurture\s+campaigns?|campaigns?)\b/i.test(t) && /\bnurture\b/i.test(t)) {
     return [{ key: "nurture.campaigns.list", title: "List nurture campaigns", args: { take: 50 } }];

@@ -23,10 +23,24 @@ export const PortalAgentActionKeySchema = z.enum([
   "dashboard.remove_widget",
   "dashboard.optimize",
   "booking.calendar.create",
+  "booking.calendars.get",
+  "booking.calendars.update",
   "booking.bookings.list",
   "booking.cancel",
   "booking.reschedule",
   "booking.contact",
+
+  "booking.settings.get",
+  "booking.settings.update",
+  "booking.form.get",
+  "booking.form.update",
+  "booking.site.get",
+  "booking.site.update",
+  "booking.suggestions.slots",
+
+  "booking.reminders.settings.get",
+  "booking.reminders.settings.update",
+  "booking.reminders.ai.generate_step",
 
   "nurture.campaigns.list",
   "nurture.campaigns.create",
@@ -214,6 +228,31 @@ export const PortalAgentActionArgsSchemaByKey = {
     })
     .strict(),
 
+  "booking.calendars.get": z
+    .object({})
+    .strict(),
+
+  "booking.calendars.update": z
+    .object({
+      calendars: z
+        .array(
+          z
+            .object({
+              id: z.string().trim().min(1).max(50),
+              enabled: z.boolean().optional(),
+              title: z.string().trim().min(1).max(80),
+              description: z.string().trim().max(400).optional(),
+              durationMinutes: z.number().int().min(10).max(180).optional(),
+              meetingLocation: z.string().trim().max(120).optional(),
+              meetingDetails: z.string().trim().max(600).optional(),
+              notificationEmails: z.array(z.string().trim().email()).max(20).optional(),
+            })
+            .strict(),
+        )
+        .max(25),
+    })
+    .strict(),
+
   "booking.bookings.list": z
     .object({
       take: z.number().int().min(1).max(50).optional(),
@@ -241,6 +280,106 @@ export const PortalAgentActionArgsSchemaByKey = {
       message: z.string().trim().min(1).max(2000),
       sendEmail: z.boolean().optional(),
       sendSms: z.boolean().optional(),
+    })
+    .strict(),
+
+  "booking.settings.get": z
+    .object({})
+    .strict(),
+
+  "booking.settings.update": z
+    .object({
+      enabled: z.boolean().optional(),
+      title: z.string().min(1).max(80).optional(),
+      description: z.string().max(400).optional().nullable(),
+      durationMinutes: z.number().int().min(10).max(180).optional(),
+      timeZone: z.string().min(1).max(80).optional(),
+      slug: z.string().min(3).max(80).optional(),
+
+      photoUrl: z.string().trim().max(500).optional().nullable(),
+      meetingLocation: z.string().trim().max(120).optional().nullable(),
+      meetingDetails: z.string().trim().max(600).optional().nullable(),
+      appointmentPurpose: z.string().trim().max(600).optional().nullable(),
+      toneDirection: z.string().trim().max(600).optional().nullable(),
+      notificationEmails: z.array(z.string().trim().email()).max(20).optional().nullable(),
+      meetingPlatform: z.enum(["PURELY_CONNECT", "ZOOM", "GOOGLE_MEET", "OTHER"]).optional(),
+    })
+    .strict(),
+
+  "booking.form.get": z
+    .object({})
+    .strict(),
+
+  "booking.form.update": z
+    .object({
+      thankYouMessage: z.string().max(500).optional(),
+      phone: z
+        .object({
+          enabled: z.boolean().optional(),
+          required: z.boolean().optional(),
+        })
+        .optional(),
+      notes: z
+        .object({
+          enabled: z.boolean().optional(),
+          required: z.boolean().optional(),
+        })
+        .optional(),
+      questions: z
+        .array(
+          z
+            .object({
+              id: z.string().trim().min(1).max(50),
+              label: z.string().trim().min(1).max(120),
+              required: z.boolean().optional(),
+              kind: z.enum(["short", "long", "single_choice", "multiple_choice"]).optional(),
+              options: z.array(z.string().trim().min(1).max(60)).max(12).optional(),
+            })
+            .strict(),
+        )
+        .max(20)
+        .optional(),
+    })
+    .strict(),
+
+  "booking.site.get": z
+    .object({})
+    .strict(),
+
+  "booking.site.update": z
+    .object({
+      primaryDomain: z.string().trim().max(253).optional().nullable(),
+    })
+    .strict(),
+
+  "booking.suggestions.slots": z
+    .object({
+      startAtIso: z.string().trim().max(60).optional().nullable(),
+      days: z.number().int().min(1).max(30).optional(),
+      durationMinutes: z.number().int().min(10).max(180).optional(),
+      limit: z.number().int().min(1).max(50).optional(),
+    })
+    .strict(),
+
+  "booking.reminders.settings.get": z
+    .object({
+      calendarId: z.string().trim().min(1).max(50).optional().nullable(),
+    })
+    .strict(),
+
+  "booking.reminders.settings.update": z
+    .object({
+      calendarId: z.string().trim().min(1).max(50).optional().nullable(),
+      settings: z.unknown(),
+    })
+    .strict(),
+
+  "booking.reminders.ai.generate_step": z
+    .object({
+      kind: z.enum(["SMS", "EMAIL"]),
+      prompt: z.string().trim().max(2000).optional(),
+      existingSubject: z.string().trim().max(200).optional(),
+      existingBody: z.string().trim().max(8000).optional(),
     })
     .strict(),
 
@@ -363,10 +502,24 @@ export function portalAgentActionsIndexText(): string {
     "- dashboard.remove_widget: Remove a dashboard widget (fields: scope?, widgetId)",
     "- dashboard.optimize: Optimize dashboard widgets/layout for a niche (fields: scope?, niche?)",
     "- booking.calendar.create: Create a booking calendar config entry (fields: title, id?, description?, durationMinutes?, meetingLocation?, meetingDetails?, notificationEmails?)",
+    "- booking.calendars.get: Get booking calendars config",
+    "- booking.calendars.update: Update booking calendars config (fields: calendars[])",
     "- booking.bookings.list: List upcoming/recent bookings (fields: take?)",
     "- booking.cancel: Cancel a booking (fields: bookingId)",
     "- booking.reschedule: Reschedule a booking start time (fields: bookingId, startAtIso, forceAvailability?)",
     "- booking.contact: Contact a booking lead via email and/or SMS (fields: bookingId, message, subject?, sendEmail?, sendSms?)",
+
+    "- booking.settings.get: Get booking settings",
+    "- booking.settings.update: Update booking settings (fields: enabled?, title?, description?, durationMinutes?, timeZone?, slug?, meetingPlatform?, photoUrl?, meetingLocation?, meetingDetails?, appointmentPurpose?, toneDirection?, notificationEmails?)",
+    "- booking.form.get: Get booking form config",
+    "- booking.form.update: Update booking form config (fields: thankYouMessage?, phone?, notes?, questions?)",
+    "- booking.site.get: Get booking public site config",
+    "- booking.site.update: Update booking public site primary domain (fields: primaryDomain?)",
+    "- booking.suggestions.slots: List suggested available booking slots (fields: startAtIso?, days?, durationMinutes?, limit?)",
+
+    "- booking.reminders.settings.get: Get appointment reminder settings (fields: calendarId?)",
+    "- booking.reminders.settings.update: Update appointment reminder settings (fields: calendarId?, settings)",
+    "- booking.reminders.ai.generate_step: Draft appointment reminder copy with AI (fields: kind=SMS|EMAIL, prompt?, existingSubject?, existingBody?)",
 
     "- nurture.campaigns.list: List nurture campaigns (fields: take?)",
     "- nurture.campaigns.create: Create a nurture campaign (fields: name?)",

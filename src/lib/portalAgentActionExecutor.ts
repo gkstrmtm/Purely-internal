@@ -1,5 +1,7 @@
 import crypto from "crypto";
 
+import { Prisma } from "@prisma/client";
+
 import { prisma } from "@/lib/db";
 import {
   PortalAgentActionArgsSchemaByKey,
@@ -14,6 +16,15 @@ import { generateClientNewsletterDraft } from "@/lib/clientNewsletterAutomation"
 import { uniqueNewsletterSlug } from "@/lib/portalNewsletter";
 import { slugify } from "@/lib/slugify";
 import { getBookingCalendarsConfig, setBookingCalendarsConfig } from "@/lib/bookingCalendars";
+import { getBookingFormConfig, setBookingFormConfig } from "@/lib/bookingForm";
+import { computeAvailableSlots } from "@/lib/bookingSlots";
+import { ensureStoredBlogSiteSlug, getStoredBlogSiteSlug, setStoredBlogSiteSlug } from "@/lib/blogSiteSlug";
+import {
+  getAppointmentReminderSettingsForCalendar,
+  listAppointmentReminderEvents,
+  parseAppointmentReminderSettings,
+  setAppointmentReminderSettingsForCalendar,
+} from "@/lib/appointmentReminders";
 import { ensurePortalContactsSchema } from "@/lib/portalContactsSchema";
 import { findOrCreatePortalContact, normalizePhoneKey } from "@/lib/portalContacts";
 import { addContactTagAssignment, createOwnerContactTag, ensurePortalContactTagsReady } from "@/lib/portalContactTags";
@@ -28,7 +39,7 @@ import { trySendTransactionalEmail, sendTransactionalEmail } from "@/lib/emailSe
 import { buildPortalTemplateVars } from "@/lib/portalTemplateVars";
 import { renderTextTemplate } from "@/lib/textTemplate";
 import { signBookingRescheduleToken } from "@/lib/bookingReschedule";
-import { sendOwnerTwilioSms } from "@/lib/portalTwilio";
+import { getOwnerTwilioSmsConfigMasked, sendOwnerTwilioSms } from "@/lib/portalTwilio";
 import { ensurePortalNurtureSchema } from "@/lib/portalNurtureSchema";
 import { getOrCreateStripeCustomerId, isStripeConfigured, stripeGet, stripePost } from "@/lib/stripeFetch";
 import { generateText } from "@/lib/ai";
@@ -182,6 +193,104 @@ async function uniqueBlogSlug(siteId: string, desired: string) {
     attempt = `${base}-${i + 2}`;
   }
   return `${base}-${Date.now()}`;
+}
+
+type BookingSiteColumnFlags = {
+  photoUrl: boolean;
+  meetingLocation: boolean;
+  meetingDetails: boolean;
+  appointmentPurpose: boolean;
+  toneDirection: boolean;
+  notificationEmails: boolean;
+};
+
+async function getBookingSiteColumnFlags(): Promise<BookingSiteColumnFlags> {
+  const [photoUrl, meetingLocation, meetingDetails, appointmentPurpose, toneDirection, notificationEmails] = await Promise.all([
+    hasPublicColumn("PortalBookingSite", "photoUrl"),
+    hasPublicColumn("PortalBookingSite", "meetingLocation"),
+    hasPublicColumn("PortalBookingSite", "meetingDetails"),
+    hasPublicColumn("PortalBookingSite", "appointmentPurpose"),
+    hasPublicColumn("PortalBookingSite", "toneDirection"),
+    hasPublicColumn("PortalBookingSite", "notificationEmails"),
+  ]);
+  return { photoUrl, meetingLocation, meetingDetails, appointmentPurpose, toneDirection, notificationEmails };
+}
+
+function bookingSiteSelect(flags: BookingSiteColumnFlags) {
+  const select: Record<string, boolean> = {
+    id: true,
+    ownerId: true,
+    slug: true,
+    enabled: true,
+    title: true,
+    description: true,
+    durationMinutes: true,
+    timeZone: true,
+    updatedAt: true,
+  };
+
+  if (flags.photoUrl) select.photoUrl = true;
+  if (flags.notificationEmails) select.notificationEmails = true;
+  if (flags.appointmentPurpose) select.appointmentPurpose = true;
+  if (flags.toneDirection) select.toneDirection = true;
+  if (flags.meetingLocation) select.meetingLocation = true;
+  if (flags.meetingDetails) select.meetingDetails = true;
+
+  return select as any;
+}
+
+async function ensureBookingSite(ownerId: string, flags: BookingSiteColumnFlags) {
+  const existing = await prisma.portalBookingSite.findUnique({ where: { ownerId }, select: bookingSiteSelect(flags) }).catch(() => null);
+  if (existing) return existing as any;
+
+  const [user, profile] = await Promise.all([
+    prisma.user.findUnique({ where: { id: ownerId }, select: { email: true, name: true, timeZone: true } }).catch(() => null),
+    prisma.businessProfile.findUnique({ where: { ownerId }, select: { businessName: true } }).catch(() => null),
+  ]);
+
+  const base = slugify(profile?.businessName ?? user?.name ?? user?.email?.split("@")[0] ?? "booking");
+  const desired = base.length >= 3 ? base : "booking";
+
+  let slug = desired;
+  const collision = await prisma.portalBookingSite.findUnique({ where: { slug }, select: { ownerId: true } }).catch(() => null);
+  if (collision?.ownerId && String(collision.ownerId) !== ownerId) slug = `${desired}-${ownerId.slice(0, 6)}`;
+
+  const title = profile?.businessName?.trim() ? `Book with ${profile.businessName.trim()}` : "Book a call";
+  const created = await prisma.portalBookingSite.create({
+    data: {
+      ownerId,
+      slug,
+      title,
+      timeZone: user?.timeZone ?? "America/New_York",
+      durationMinutes: 30,
+      enabled: false,
+    },
+    select: bookingSiteSelect(flags),
+  });
+  return created as any;
+}
+
+function normalizeDomain(raw: string | null | undefined) {
+  const v = String(raw || "").trim().toLowerCase();
+  if (!v) return null;
+  const withoutProtocol = v.replace(/^https?:\/\//, "");
+  const withoutPath = withoutProtocol.split("/")[0] ?? "";
+  const d = withoutPath.replace(/:\d+$/, "").replace(/\.$/, "");
+  return d.length ? d : null;
+}
+
+async function ensureUniquePublicSiteSlug(ownerId: string, desiredName: string): Promise<{ canUseSlugColumn: boolean; slug: string | null }> {
+  const canUseSlugColumn = await hasPublicColumn("ClientBlogSite", "slug");
+  const base = slugify(desiredName) || "site";
+  const desired = base.length >= 3 ? base : "site";
+
+  if (!canUseSlugColumn) return { canUseSlugColumn, slug: desired };
+
+  let slug = desired;
+  const collision = (await (prisma.clientBlogSite as any).findUnique({ where: { slug }, select: { ownerId: true } }).catch(() => null)) as any;
+  if (collision?.ownerId && String(collision.ownerId) !== ownerId) slug = `${desired}-${ownerId.slice(0, 6)}`;
+
+  return { canUseSlugColumn, slug };
 }
 
 async function runDirectAction(opts: {
@@ -677,6 +786,575 @@ async function runDirectAction(opts: {
 
       const saved = await setBookingCalendarsConfig(ownerId, { version: 1, calendars: nextCalendars });
       return { status: 200, json: { ok: true, config: saved, calendarId: id } };
+    }
+
+    case "booking.calendars.get": {
+      const config = await getBookingCalendarsConfig(ownerId);
+      return { status: 200, json: { ok: true, config } };
+    }
+
+    case "booking.calendars.update": {
+      const prev = await getBookingCalendarsConfig(ownerId).catch(() => null);
+      const prevIds = new Set(
+        Array.isArray((prev as any)?.calendars)
+          ? ((prev as any).calendars as any[])
+              .map((c) => (typeof c?.id === "string" ? c.id.trim() : ""))
+              .filter(Boolean)
+          : [],
+      );
+
+      const nextIds = (args.calendars as any[]).map((c) => String(c.id).trim());
+      const newCount = nextIds.filter((id) => id && !prevIds.has(id)).length;
+      const needCredits = newCount * PORTAL_CREDIT_COSTS.bookingCalendarCreate;
+
+      if (needCredits > 0) {
+        const charged = await consumeCredits(ownerId, needCredits);
+        if (!charged.ok) {
+          return { status: 402, json: { ok: false, error: "Insufficient credits" } };
+        }
+      }
+
+      const saved = await setBookingCalendarsConfig(ownerId, {
+        version: 1,
+        calendars: (args.calendars as any[]).map((c) => ({ ...c, enabled: c.enabled ?? true })),
+      });
+      return { status: 200, json: { ok: true, config: saved } };
+    }
+
+    case "booking.settings.get": {
+      const flags = await getBookingSiteColumnFlags();
+
+      const [siteRaw, serviceSetup] = await Promise.all([
+        ensureBookingSite(ownerId, flags),
+        prisma.portalServiceSetup.findUnique({
+          where: { ownerId_serviceSlug: { ownerId, serviceSlug: "booking" } },
+          select: { dataJson: true },
+        }),
+      ]);
+      const site = siteRaw as any;
+      const setupData = (serviceSetup?.dataJson as any) || {};
+
+      return {
+        status: 200,
+        json: {
+          ok: true,
+          site: {
+            id: site.id,
+            slug: site.slug,
+            enabled: site.enabled,
+            title: site.title,
+            description: site.description,
+            durationMinutes: site.durationMinutes,
+            timeZone: site.timeZone,
+            photoUrl: flags.photoUrl ? (site.photoUrl ?? null) : null,
+            meetingLocation: flags.meetingLocation ? (site.meetingLocation ?? null) : null,
+            meetingDetails: flags.meetingDetails ? (site.meetingDetails ?? null) : null,
+            appointmentPurpose: flags.appointmentPurpose ? (site.appointmentPurpose ?? null) : null,
+            toneDirection: flags.toneDirection ? (site.toneDirection ?? null) : null,
+            notificationEmails: flags.notificationEmails ? ((site.notificationEmails as unknown) ?? null) : null,
+            meetingPlatform: typeof setupData.meetingPlatform === "string" ? setupData.meetingPlatform : "OTHER",
+            updatedAt: site.updatedAt,
+          },
+        },
+      };
+    }
+
+    case "booking.settings.update": {
+      const flags = await getBookingSiteColumnFlags();
+      const current = (await ensureBookingSite(ownerId, flags)) as any;
+
+      let nextSlug = args.slug ? slugify(args.slug) : undefined;
+      if (nextSlug && nextSlug.length < 3) nextSlug = undefined;
+
+      if (nextSlug && nextSlug !== current.slug) {
+        for (let i = 0; i < 8; i += 1) {
+          const collision = await prisma.portalBookingSite.findUnique({ where: { slug: nextSlug! } });
+          if (!collision) break;
+          nextSlug = withRandomSuffix(nextSlug!, 80);
+        }
+      }
+
+      const data: Record<string, unknown> = {
+        enabled: args.enabled ?? undefined,
+        title: args.title ?? undefined,
+        description: args.description === null ? null : args.description ?? undefined,
+        durationMinutes: args.durationMinutes ?? undefined,
+        timeZone: args.timeZone ?? undefined,
+        slug: nextSlug ?? undefined,
+      };
+
+      if (flags.photoUrl) {
+        data.photoUrl = args.photoUrl === null ? null : args.photoUrl ?? undefined;
+      }
+      if (flags.meetingLocation) {
+        data.meetingLocation = args.meetingLocation === null ? null : args.meetingLocation ?? undefined;
+      }
+      if (flags.meetingDetails) {
+        data.meetingDetails = args.meetingDetails === null ? null : args.meetingDetails ?? undefined;
+      }
+      if (flags.appointmentPurpose) {
+        data.appointmentPurpose = args.appointmentPurpose === null ? null : args.appointmentPurpose ?? undefined;
+      }
+      if (flags.toneDirection) {
+        data.toneDirection = args.toneDirection === null ? null : args.toneDirection ?? undefined;
+      }
+      if (flags.notificationEmails) {
+        data.notificationEmails =
+          args.notificationEmails === null
+            ? Prisma.DbNull
+            : args.notificationEmails
+              ? ((args.notificationEmails as any[]).length ? args.notificationEmails : Prisma.DbNull)
+              : undefined;
+      }
+
+      if (args.meetingPlatform) {
+        const existing = await prisma.portalServiceSetup.findUnique({
+          where: { ownerId_serviceSlug: { ownerId, serviceSlug: "booking" } },
+          select: { dataJson: true },
+        });
+        const base = (existing?.dataJson as any) || {};
+        await prisma.portalServiceSetup.upsert({
+          where: { ownerId_serviceSlug: { ownerId, serviceSlug: "booking" } },
+          create: {
+            ownerId,
+            serviceSlug: "booking",
+            dataJson: { ...base, meetingPlatform: args.meetingPlatform },
+            status: "COMPLETE",
+          },
+          update: { dataJson: { ...base, meetingPlatform: args.meetingPlatform } },
+        });
+      }
+
+      const updatedRaw = await prisma.portalBookingSite.update({
+        where: { ownerId },
+        data: data as any,
+        select: bookingSiteSelect(flags),
+      });
+      const updated = updatedRaw as any;
+
+      const serviceSetup = await prisma.portalServiceSetup.findUnique({
+        where: { ownerId_serviceSlug: { ownerId, serviceSlug: "booking" } },
+        select: { dataJson: true },
+      });
+      const setupData = (serviceSetup?.dataJson as any) || {};
+
+      return {
+        status: 200,
+        json: {
+          ok: true,
+          site: {
+            id: updated.id,
+            slug: updated.slug,
+            enabled: updated.enabled,
+            title: updated.title,
+            description: updated.description,
+            durationMinutes: updated.durationMinutes,
+            timeZone: updated.timeZone,
+            photoUrl: flags.photoUrl ? (updated.photoUrl ?? null) : null,
+            meetingLocation: flags.meetingLocation ? (updated.meetingLocation ?? null) : null,
+            meetingDetails: flags.meetingDetails ? (updated.meetingDetails ?? null) : null,
+            appointmentPurpose: flags.appointmentPurpose ? (updated.appointmentPurpose ?? null) : null,
+            toneDirection: flags.toneDirection ? (updated.toneDirection ?? null) : null,
+            notificationEmails: flags.notificationEmails ? ((updated.notificationEmails as unknown) ?? null) : null,
+            meetingPlatform: typeof setupData.meetingPlatform === "string" ? setupData.meetingPlatform : "OTHER",
+            updatedAt: updated.updatedAt,
+          },
+        },
+      };
+    }
+
+    case "booking.form.get": {
+      const config = await getBookingFormConfig(ownerId);
+      return { status: 200, json: { ok: true, config } };
+    }
+
+    case "booking.form.update": {
+      const current = await getBookingFormConfig(ownerId);
+
+      const next = {
+        ...current,
+        thankYouMessage: args.thankYouMessage ?? current.thankYouMessage,
+        phone: {
+          enabled: args.phone?.enabled ?? current.phone.enabled,
+          required: args.phone?.required ?? current.phone.required,
+        },
+        notes: {
+          enabled: args.notes?.enabled ?? current.notes.enabled,
+          required: args.notes?.required ?? current.notes.required,
+        },
+        questions:
+          args.questions?.map((q: any) => ({
+            id: q.id,
+            label: q.label,
+            required: Boolean(q.required),
+            kind: (q.kind ?? "short") as any,
+            options: q.options,
+          })) ?? current.questions,
+      } as const;
+
+      const normalized = {
+        ...next,
+        phone: { ...next.phone, required: next.phone.enabled ? next.phone.required : false },
+        notes: { ...next.notes, required: next.notes.enabled ? next.notes.required : false },
+      };
+
+      const saved = await setBookingFormConfig(ownerId, normalized);
+      return { status: 200, json: { ok: true, config: saved } };
+    }
+
+    case "booking.site.get": {
+      const canUseSlugColumn = await hasPublicColumn("ClientBlogSite", "slug");
+
+      let site = (await prisma.clientBlogSite
+        .findUnique({
+          where: { ownerId },
+          select: {
+            id: true,
+            name: true,
+            primaryDomain: true,
+            verifiedAt: true,
+            verificationToken: true,
+            updatedAt: true,
+            ...(canUseSlugColumn ? { slug: true } : {}),
+          } as any,
+        })
+        .catch(() => null)) as any;
+
+      const currentSlug = (site as any)?.slug as string | null | undefined;
+      if (site && canUseSlugColumn && !currentSlug) {
+        const profile = await prisma.businessProfile.findUnique({ where: { ownerId }, select: { businessName: true } });
+        const base = slugify(profile?.businessName ?? String(site.name || "Site")) || "site";
+        const desired = base.length >= 3 ? base : "site";
+        let slug = desired;
+        const collision = (await (prisma.clientBlogSite as any).findUnique({ where: { slug } }).catch(() => null)) as any;
+        if (collision && String(collision.ownerId) !== ownerId) slug = `${desired}-${ownerId.slice(0, 6)}`;
+
+        site = (await (prisma.clientBlogSite as any).update({
+          where: { ownerId },
+          data: { slug },
+          select: {
+            id: true,
+            name: true,
+            primaryDomain: true,
+            verifiedAt: true,
+            verificationToken: true,
+            updatedAt: true,
+            ...(canUseSlugColumn ? { slug: true } : {}),
+          } as any,
+        })) as any;
+      }
+
+      let fallbackSlug: string | null = null;
+      if (site && !canUseSlugColumn) {
+        fallbackSlug = await getStoredBlogSiteSlug(ownerId);
+        if (!fallbackSlug) {
+          fallbackSlug = await ensureStoredBlogSiteSlug(ownerId, String(site.name || "Site"));
+        }
+      }
+
+      return {
+        status: 200,
+        json: {
+          ok: true,
+          site: site
+            ? {
+                ...(site as any),
+                slug: canUseSlugColumn ? ((site as any).slug ?? null) : fallbackSlug,
+              }
+            : null,
+        },
+      };
+    }
+
+    case "booking.site.update": {
+      const canUseSlugColumn = await hasPublicColumn("ClientBlogSite", "slug");
+
+      const existing = (await prisma.clientBlogSite
+        .findUnique({
+          where: { ownerId },
+          select: {
+            id: true,
+            name: true,
+            primaryDomain: true,
+            verifiedAt: true,
+            verificationToken: true,
+            updatedAt: true,
+            ...(canUseSlugColumn ? { slug: true } : {}),
+          } as any,
+        })
+        .catch(() => null)) as any;
+
+      const primaryDomain = normalizeDomain((args.primaryDomain ?? "") as any);
+
+      if (existing) {
+        const currentPrimaryDomain = normalizeDomain((existing as any)?.primaryDomain);
+        const domainChanged = primaryDomain !== currentPrimaryDomain;
+        const tokenMissing = Boolean(primaryDomain) && !String((existing as any)?.verificationToken || "").trim();
+        const nextVerificationToken =
+          domainChanged && primaryDomain
+            ? crypto.randomBytes(18).toString("hex")
+            : tokenMissing
+              ? crypto.randomBytes(18).toString("hex")
+              : (existing as any)?.verificationToken;
+
+        const updated = (await (prisma.clientBlogSite as any).update({
+          where: { ownerId },
+          data: {
+            primaryDomain,
+            ...(domainChanged
+              ? { verifiedAt: null, verificationToken: nextVerificationToken }
+              : tokenMissing
+                ? { verificationToken: nextVerificationToken }
+                : {}),
+            ...(primaryDomain ? {} : domainChanged ? { verifiedAt: null } : {}),
+          },
+          select: {
+            id: true,
+            name: true,
+            primaryDomain: true,
+            verifiedAt: true,
+            verificationToken: true,
+            updatedAt: true,
+            ...(canUseSlugColumn ? { slug: true } : {}),
+          } as any,
+        })) as any;
+
+        return {
+          status: 200,
+          json: {
+            ok: true,
+            site: {
+              ...(updated as any),
+              slug: canUseSlugColumn ? ((updated as any).slug ?? null) : (await getStoredBlogSiteSlug(ownerId)),
+            },
+          },
+        };
+      }
+
+      const token = crypto.randomBytes(18).toString("hex");
+      const profile = await prisma.businessProfile.findUnique({ where: { ownerId }, select: { businessName: true } });
+      const name = String(profile?.businessName || "Hosted site").trim() || "Hosted site";
+      const slug = await ensureUniquePublicSiteSlug(ownerId, name).then((r) => r.slug);
+
+      if (!canUseSlugColumn && slug) {
+        try {
+          await ensureStoredBlogSiteSlug(ownerId, name);
+        } catch {
+          // ignore
+        }
+      }
+
+      if (canUseSlugColumn && slug) {
+        const collision = (await (prisma.clientBlogSite as any).findUnique({ where: { slug }, select: { ownerId: true } })) as any;
+        if (collision && String(collision.ownerId) !== ownerId) {
+          return { status: 409, json: { ok: false, error: "That link is already taken." } };
+        }
+      }
+
+      const created = (await (prisma.clientBlogSite as any).create({
+        data: {
+          ownerId,
+          name,
+          primaryDomain,
+          verificationToken: token,
+          ...(canUseSlugColumn ? { slug } : {}),
+        },
+        select: {
+          id: true,
+          name: true,
+          primaryDomain: true,
+          verifiedAt: true,
+          verificationToken: true,
+          updatedAt: true,
+          ...(canUseSlugColumn ? { slug: true } : {}),
+        } as any,
+      })) as any;
+
+      if (!canUseSlugColumn) {
+        const stored = await getStoredBlogSiteSlug(ownerId);
+        if (!stored) {
+          try {
+            await setStoredBlogSiteSlug(ownerId, slugify(name) || "site");
+          } catch {
+            // ignore
+          }
+        }
+      }
+
+      return {
+        status: 200,
+        json: {
+          ok: true,
+          site: {
+            ...(created as any),
+            slug: canUseSlugColumn ? ((created as any).slug ?? null) : (await getStoredBlogSiteSlug(ownerId)),
+          },
+        },
+      };
+    }
+
+    case "booking.suggestions.slots": {
+      const site = await (prisma as any).portalBookingSite.findUnique({ where: { ownerId }, select: { id: true, ownerId: true } });
+      if (!site) {
+        return { status: 200, json: { ok: true, slots: [] } };
+      }
+
+      const now = new Date();
+      const base = args.startAtIso ? new Date(args.startAtIso) : now;
+      const rangeStart = Number.isNaN(base.getTime()) ? now : base;
+      const rangeEnd = new Date(rangeStart.getTime() + (args.days ?? 14) * 24 * 60 * 60_000);
+
+      const [blocks, bookings] = await Promise.all([
+        prisma.availabilityBlock.findMany({
+          where: { userId: site.ownerId, startAt: { lt: rangeEnd }, endAt: { gt: rangeStart } },
+          select: { startAt: true, endAt: true },
+        }),
+        (prisma as any).portalBooking.findMany({
+          where: { siteId: site.id, status: "SCHEDULED", startAt: { lt: rangeEnd }, endAt: { gt: rangeStart } },
+          select: { startAt: true, endAt: true },
+        }),
+      ]);
+
+      const slots = computeAvailableSlots({
+        startAt: args.startAtIso ?? null,
+        days: args.days ?? 14,
+        durationMinutes: args.durationMinutes ?? 30,
+        limit: args.limit ?? 25,
+        coverageBlocks: blocks,
+        existing: bookings,
+      });
+
+      return { status: 200, json: { ok: true, slots } };
+    }
+
+    case "booking.reminders.settings.get": {
+      const calendarId = args.calendarId ?? null;
+      const [selected, twilio, events] = await Promise.all([
+        getAppointmentReminderSettingsForCalendar(ownerId, calendarId),
+        getOwnerTwilioSmsConfigMasked(ownerId),
+        listAppointmentReminderEvents(ownerId, 50),
+      ]);
+
+      const builtinVariables = [
+        "contactName",
+        "contactEmail",
+        "contactPhone",
+        "businessName",
+        "bookingTitle",
+        "calendarTitle",
+        "when",
+        "timeZone",
+        "startAt",
+        "endAt",
+      ];
+
+      return {
+        status: 200,
+        json: {
+          ok: true,
+          settings: selected.settings,
+          calendarId: selected.calendarId ?? null,
+          isOverride: selected.isOverride,
+          twilio,
+          events,
+          builtinVariables,
+        },
+      };
+    }
+
+    case "booking.reminders.settings.update": {
+      const calendarId = args.calendarId ?? null;
+      const raw = args && typeof args === "object" ? (args as any).settings ?? args : null;
+      const settings = parseAppointmentReminderSettings(raw);
+
+      const next = await setAppointmentReminderSettingsForCalendar(ownerId, calendarId, settings);
+      const [twilio, events] = await Promise.all([
+        getOwnerTwilioSmsConfigMasked(ownerId),
+        listAppointmentReminderEvents(ownerId, 50),
+      ]);
+
+      const builtinVariables = [
+        "contactName",
+        "contactEmail",
+        "contactPhone",
+        "businessName",
+        "bookingTitle",
+        "calendarTitle",
+        "when",
+        "timeZone",
+        "startAt",
+        "endAt",
+      ];
+
+      return { status: 200, json: { ok: true, settings: next, calendarId: calendarId ?? null, twilio, events, builtinVariables } };
+    }
+
+    case "booking.reminders.ai.generate_step": {
+      const { kind, prompt, existingSubject, existingBody } = args as any;
+
+      const businessContext = await getBusinessProfileAiContext(ownerId).catch(() => "");
+      const needCredits = PORTAL_CREDIT_COSTS.aiDraftStep;
+      const consumed = await consumeCredits(ownerId, needCredits);
+      if (!consumed.ok) {
+        return {
+          status: 402,
+          json: { ok: false, error: "INSUFFICIENT_CREDITS", code: "INSUFFICIENT_CREDITS", credits: consumed.state.balance },
+        };
+      }
+
+      const system =
+        kind === "SMS"
+          ? "You write short, practical appointment reminder SMS messages for a small business."
+          : "You write friendly, concise appointment reminder emails for a small business.";
+
+      const user = [
+        "Draft the copy for an appointment reminder step.",
+        businessContext ? businessContext : "",
+        `Channel: ${kind}`,
+        "",
+        "Allowed variables (keep braces exactly): {name}, {when}.",
+        "You may also use dotted portal variables like {contact.firstName} and {business.name} if helpful.",
+        kind === "SMS" ? "Keep it under 320 characters if possible." : "",
+        kind === "EMAIL" ? "Return a subject and body." : "",
+        "",
+        existingSubject ? `Existing subject: ${existingSubject}` : "",
+        existingBody ? `Existing body: ${existingBody}` : "",
+        prompt ? `Extra instruction: ${prompt}` : "",
+        "",
+        kind === "EMAIL"
+          ? "Prefer returning JSON: {\"subject\": \"...\", \"body\": \"...\"}. If you don't return JSON, start with 'Subject: ...' on the first line."
+          : "Return the SMS body only (no JSON needed).",
+      ]
+        .filter(Boolean)
+        .join("\n");
+
+      const content = await generateText({ system, user });
+
+      if (kind === "EMAIL") {
+        const fromJson = tryParseJsonDraft(content);
+        if (fromJson?.body || fromJson?.subject) {
+          return {
+            status: 200,
+            json: {
+              ok: true,
+              subject: (fromJson.subject || "").slice(0, 200),
+              body: (fromJson.body || "").slice(0, 8000),
+            },
+          };
+        }
+
+        const parsedFallback = parseSubjectBodyFallback(content);
+        return {
+          status: 200,
+          json: {
+            ok: true,
+            subject: (parsedFallback.subject || "").slice(0, 200),
+            body: (parsedFallback.body || "").slice(0, 8000),
+          },
+        };
+      }
+
+      return { status: 200, json: { ok: true, body: String(content || "").trim().slice(0, 8000) } };
     }
 
     case "booking.bookings.list": {
@@ -1919,6 +2597,81 @@ function resultMarkdown(action: PortalAgentActionKey, json: any): { markdown: st
       markdown: `Created a booking calendar.\n\n[Open booking](/portal/app/services/booking)`,
       linkUrl: "/portal/app/services/booking",
     };
+  }
+
+  if (action === "booking.calendars.get" && json?.ok) {
+    return {
+      markdown: `Fetched your booking calendars settings.\n\n[Open booking](/portal/app/services/booking)`,
+      linkUrl: "/portal/app/services/booking",
+    };
+  }
+
+  if (action === "booking.calendars.update" && json?.ok) {
+    return {
+      markdown: `Updated your booking calendars.\n\n[Open booking](/portal/app/services/booking)`,
+      linkUrl: "/portal/app/services/booking",
+    };
+  }
+
+  if ((action === "booking.settings.get" || action === "booking.settings.update") && json?.ok) {
+    const slug = typeof json?.site?.slug === "string" ? json.site.slug : null;
+    return {
+      markdown: `Booking settings ready${slug ? ` (slug: ${slug})` : ""}.\n\n[Open booking](/portal/app/services/booking)`,
+      linkUrl: "/portal/app/services/booking",
+    };
+  }
+
+  if ((action === "booking.form.get" || action === "booking.form.update") && json?.ok) {
+    return {
+      markdown: `Booking form settings saved.\n\n[Open booking](/portal/app/services/booking)`,
+      linkUrl: "/portal/app/services/booking",
+    };
+  }
+
+  if ((action === "booking.site.get" || action === "booking.site.update") && json?.ok) {
+    return {
+      markdown: `Booking public site settings saved.\n\n[Open booking](/portal/app/services/booking)`,
+      linkUrl: "/portal/app/services/booking",
+    };
+  }
+
+  if (action === "booking.suggestions.slots" && json?.ok) {
+    const slots = Array.isArray(json.slots) ? (json.slots as any[]) : [];
+    const lines = slots.slice(0, 10).map((s) => {
+      const startAt = s?.startAt ? String(s.startAt) : "";
+      const endAt = s?.endAt ? String(s.endAt) : "";
+      return `- ${startAt}${endAt ? ` → ${endAt}` : ""}`;
+    });
+    return {
+      markdown: slots.length ? `Here are available slot suggestions:\n\n${lines.join("\n")}` : "No available slots found in that window.",
+    };
+  }
+
+  if ((action === "booking.reminders.settings.get" || action === "booking.reminders.settings.update") && json?.ok) {
+    return {
+      markdown: `Appointment reminder settings saved.\n\n[Open reminders](/portal/app/services/booking/reminders)`,
+      linkUrl: "/portal/app/services/booking/reminders",
+    };
+  }
+
+  if (action === "booking.reminders.ai.generate_step" && json?.ok) {
+    const subject = typeof json.subject === "string" ? json.subject.trim() : "";
+    const body = typeof json.body === "string" ? json.body.trim() : "";
+
+    if (subject || body) {
+      return {
+        markdown: [
+          subject ? "Drafted reminder email copy:" : "Drafted reminder copy:",
+          subject ? "" : null,
+          subject ? `Subject: ${subject}` : null,
+          body ? "" : null,
+          body ? body : null,
+        ]
+          .filter(Boolean)
+          .join("\n"),
+      };
+    }
+    return { markdown: "Drafted the reminder step copy." };
   }
 
   if (action === "booking.bookings.list" && json?.ok) {
