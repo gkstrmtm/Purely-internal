@@ -80,7 +80,14 @@ import { mirrorUploadToMediaLibrary } from "@/lib/portalMediaUploads";
 import { isLikelyImageMimeType, safeFilename, newPublicToken, newTag, normalizeMimeType, normalizeNameKey } from "@/lib/portalMedia";
 import { addPortalDashboardWidget, getPortalDashboardData, isDashboardWidgetId, removePortalDashboardWidget, resetPortalDashboard, savePortalDashboardData, type DashboardWidgetId } from "@/lib/portalDashboard";
 import { hasPublicColumn } from "@/lib/dbSchema";
-import { cancelFollowUpsForBooking, getFollowUpServiceData, getFollowUpSettings, scheduleFollowUpsForBooking } from "@/lib/followUpAutomation";
+import {
+  cancelFollowUpsForBooking,
+  getFollowUpServiceData,
+  getFollowUpSettings,
+  parseFollowUpSettings,
+  scheduleFollowUpsForBooking,
+  setFollowUpSettings,
+} from "@/lib/followUpAutomation";
 import { trySendTransactionalEmail, sendTransactionalEmail } from "@/lib/emailSender";
 import { buildPortalTemplateVars, normalizePortalContactCustomVarKey } from "@/lib/portalTemplateVars";
 import { renderTextTemplate } from "@/lib/textTemplate";
@@ -113,7 +120,7 @@ import { clampPortalReportingRangeKey, getPortalReportingSummaryForOwner } from 
 import { clampStripeChargesRangeKey, getStripeChargesReportForOwner } from "@/lib/portalStripeChargesReport.server";
 import { clampSalesRangeKey, getSalesReportForOwner } from "@/lib/salesReportingReport.server";
 import { isPortalSupportChatConfigured, runPortalSupportChat } from "@/lib/portalSupportChat";
-import { getOrCreatePortalReferralCode, getPortalReferralStats } from "@/lib/portalReferrals.server";
+import { getOrCreatePortalReferralCode, getPortalReferralStats, rotatePortalReferralCode } from "@/lib/portalReferrals.server";
 import { buildSuggestedSetupPreviewForOwner } from "@/lib/suggestedSetup/server";
 
 const MAX_REMOTE_MEDIA_BYTES = 15 * 1024 * 1024; // matches /api/portal/media/import-remote
@@ -4526,6 +4533,9 @@ async function runDirectAction(opts: {
     }
 
     case "automations.run": {
+      const ok = await requireServiceCapability("automations" as PortalServiceKey, "edit");
+      if (!ok) return { status: 403, json: { ok: false, error: "Insufficient permissions" } };
+
       const automationId = String(args.automationId || "").trim();
       if (!automationId) return { status: 400, json: { ok: false, error: "Invalid input" } };
       await runOwnerAutomationByIdForEvent({
@@ -4538,6 +4548,9 @@ async function runDirectAction(opts: {
     }
 
     case "automations.create": {
+      const ok = await requireServiceCapability("automations" as PortalServiceKey, "edit");
+      if (!ok) return { status: 403, json: { ok: false, error: "Insufficient permissions" } };
+
       const name = String(args.name || "").trim().slice(0, 80);
       if (!name) return { status: 400, json: { ok: false, error: "Invalid name" } };
 
@@ -4871,20 +4884,38 @@ async function runDirectAction(opts: {
       const ok = await requireOwnerOrAdmin();
       if (!ok) return { status: 403, json: { ok: false, error: "Forbidden" } };
 
-      const [{ code }, stats, me] = await Promise.all([
+      const [{ code }, stats, owner] = await Promise.all([
         getOrCreatePortalReferralCode({ ownerId, req: null }),
         getPortalReferralStats(ownerId),
-        prisma.user.findUnique({ where: { id: ownerId }, select: { portalVariant: true } }).catch(() => null),
+        prisma.user.findUnique({ where: { id: ownerId }, select: { clientPortalVariant: true } }).catch(() => null),
       ]);
 
       const base = getAppBaseUrl();
-      const variantRaw = (me as any)?.portalVariant;
-      const variant: PortalVariant = variantRaw === "credit" ? "credit" : "portal";
+      const variant: PortalVariant = owner?.clientPortalVariant === "CREDIT" ? "credit" : "portal";
       const portalBase = portalBasePath(variant);
       const url = new URL(`${portalBase}/get-started`, base);
       url.searchParams.set("ref", code);
 
       return { status: 200, json: { ok: true, code, url: url.toString(), stats } };
+    }
+
+    case "referrals.link.rotate": {
+      const ok = await requireOwnerOrAdmin();
+      if (!ok) return { status: 403, json: { ok: false, error: "Forbidden" } };
+
+      const [{ code }, stats, owner] = await Promise.all([
+        rotatePortalReferralCode({ ownerId, req: null }),
+        getPortalReferralStats(ownerId),
+        prisma.user.findUnique({ where: { id: ownerId }, select: { clientPortalVariant: true } }).catch(() => null),
+      ]);
+
+      const base = getAppBaseUrl();
+      const variant: PortalVariant = owner?.clientPortalVariant === "CREDIT" ? "credit" : "portal";
+      const portalBase = portalBasePath(variant);
+      const url = new URL(`${portalBase}/get-started`, base);
+      url.searchParams.set("ref", code);
+
+      return { status: 200, json: { ok: true, code, url: url.toString(), stats, rotated: true } };
     }
 
     case "profile.get": {
@@ -5116,6 +5147,60 @@ async function runDirectAction(opts: {
       };
     }
 
+    case "follow_up.settings.update": {
+      const ok = await requireServiceCapability("followUp", "edit");
+      if (!ok) return { status: 403, json: { ok: false, error: "Forbidden" } };
+
+      const normalized = parseFollowUpSettings((args as any).settings);
+      const next = await setFollowUpSettings(ownerId, normalized);
+      const data = await getFollowUpServiceData(ownerId);
+
+      const [calendars, site] = await Promise.all([
+        getBookingCalendarsConfig(ownerId).catch(() => ({ version: 1, calendars: [] })),
+        prisma.portalBookingSite
+          .findUnique({ where: { ownerId }, select: { notificationEmails: true } })
+          .catch(() => null),
+      ]);
+
+      const siteNotificationEmails = Array.isArray((site as any)?.notificationEmails)
+        ? (((site as any).notificationEmails as unknown) as unknown[])
+            .filter((x) => typeof x === "string")
+            .map((x) => String(x).trim())
+            .filter((x) => x.includes("@"))
+            .slice(0, 20)
+        : [];
+
+      const builtinVariables = [
+        "contactName",
+        "contactEmail",
+        "contactPhone",
+        "businessName",
+        "bookingTitle",
+        "calendarTitle",
+        "when",
+        "timeZone",
+        "startAt",
+        "endAt",
+      ];
+
+      return {
+        status: 200,
+        json: {
+          ok: true,
+          settings: next,
+          queue: Array.isArray((data as any).queue) ? (data as any).queue.slice(0, 60) : [],
+          calendars: ((calendars as any).calendars ?? []).map((c: any) => ({
+            id: c.id,
+            title: c.title,
+            enabled: Boolean(c.enabled),
+            notificationEmails: Array.isArray(c.notificationEmails) ? c.notificationEmails : undefined,
+          })),
+          siteNotificationEmails,
+          builtinVariables,
+        },
+      };
+    }
+
     case "follow_up.custom_variables.get": {
       const ok = await requireAnyServiceCapability(["leadScraping", "followUp"], "view");
       if (!ok) return { status: 403, json: { ok: false, error: "Forbidden" } };
@@ -5126,6 +5211,32 @@ async function runDirectAction(opts: {
         json: {
           ok: true,
           customVariables: (settings as any)?.customVariables ?? {},
+        },
+      };
+    }
+
+    case "follow_up.custom_variables.update": {
+      const ok = await requireAnyServiceCapability(["leadScraping", "followUp"], "edit");
+      if (!ok) return { status: 403, json: { ok: false, error: "Forbidden" } };
+
+      const key = String((args as any).key || "").trim().slice(0, 32);
+      const value = typeof (args as any).value === "string" ? String((args as any).value).slice(0, 800) : "";
+      if (!key || key.length > 32 || !/^[a-zA-Z][a-zA-Z0-9_]*$/.test(key)) {
+        return { status: 400, json: { ok: false, error: "Invalid key" } };
+      }
+
+      const current = await getFollowUpSettings(ownerId).catch(() => null);
+      const customVariables: Record<string, string> = {
+        ...(((current as any)?.customVariables ?? {}) as Record<string, string>),
+        [key]: value,
+      };
+
+      const updated = await setFollowUpSettings(ownerId, { customVariables });
+      return {
+        status: 200,
+        json: {
+          ok: true,
+          customVariables: (updated as any)?.customVariables ?? {},
         },
       };
     }
@@ -10135,6 +10246,12 @@ async function runDirectAction(opts: {
       const scope = args.scope === "embedded" ? "embedded" : "default";
       const data = await getPortalDashboardData(ownerId, scope);
       return { status: 200, json: { ok: true, data } };
+    }
+
+    case "dashboard.save": {
+      const scope = args.scope === "embedded" ? "embedded" : "default";
+      const data = await savePortalDashboardData(ownerId, scope, (args as any).data as any);
+      return { status: 200, json: { ok: true, scope, data } };
     }
 
     case "dashboard.add_widget": {

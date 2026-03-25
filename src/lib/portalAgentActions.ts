@@ -84,6 +84,7 @@ export const PortalAgentActionKeySchema = z.enum([
   "me.get",
 
   "referrals.link.get",
+  "referrals.link.rotate",
 
   "profile.get",
 
@@ -93,7 +94,9 @@ export const PortalAgentActionKeySchema = z.enum([
   "integrations.sales_reporting.get",
 
   "follow_up.settings.get",
+  "follow_up.settings.update",
   "follow_up.custom_variables.get",
+  "follow_up.custom_variables.update",
 
   "notifications.recipients.list",
 
@@ -158,6 +161,7 @@ export const PortalAgentActionKeySchema = z.enum([
   "media.stats.get",
 
   "dashboard.get",
+  "dashboard.save",
   "dashboard.reset",
   "dashboard.add_widget",
   "dashboard.remove_widget",
@@ -799,6 +803,8 @@ export const PortalAgentActionArgsSchemaByKey = {
 
   "referrals.link.get": z.object({}).strict(),
 
+  "referrals.link.rotate": z.object({}).strict(),
+
   "profile.get": z.object({}).strict(),
 
   "integrations.twilio.get": z
@@ -813,7 +819,20 @@ export const PortalAgentActionArgsSchemaByKey = {
 
   "follow_up.settings.get": z.object({}).strict(),
 
+  "follow_up.settings.update": z
+    .object({
+      settings: z.unknown(),
+    })
+    .strict(),
+
   "follow_up.custom_variables.get": z.object({}).strict(),
+
+  "follow_up.custom_variables.update": z
+    .object({
+      key: z.string().trim().min(1).max(32).regex(/^[a-zA-Z][a-zA-Z0-9_]*$/),
+      value: z.string().max(800).default(""),
+    })
+    .strict(),
 
   "webhooks.get": z.object({}).strict(),
 
@@ -1099,6 +1118,13 @@ export const PortalAgentActionArgsSchemaByKey = {
   "dashboard.get": z
     .object({
       scope: z.enum(["default", "embedded"]).optional().nullable(),
+    })
+    .strict(),
+
+  "dashboard.save": z
+    .object({
+      scope: z.enum(["default", "embedded"]).optional().nullable(),
+      data: z.unknown().optional(),
     })
     .strict(),
 
@@ -1886,12 +1912,15 @@ export function portalAgentActionsIndexText(): string {
     "- contact_tags.delete: Delete a contact tag (fields: tagId)",
     "- me.get: Get the current portal member identity (ownerId/memberId/role) and effective permissions",
     "- referrals.link.get: Get your referral link + referral stats",
+    "- referrals.link.rotate: Rotate your referral code and return the updated referral link + stats",
     "- profile.get: Get the current portal member profile (name/email/phone/city/state + voice agent status)",
     "- integrations.twilio.get: Get Twilio SMS integration status + webhook URLs (fields: includeDiagnostics?)",
     "- integrations.stripe.get: Get Stripe integration status (secret key prefix + connected account)",
     "- integrations.sales_reporting.get: Get sales reporting integration status (active provider + configured providers)",
     "- follow_up.settings.get: Get Follow-Up automation settings and queue preview",
+    "- follow_up.settings.update: Update Follow-Up automation settings (fields: settings)",
     "- follow_up.custom_variables.get: Get Follow-Up custom variables (available to lead scraping and follow-up)",
+    "- follow_up.custom_variables.update: Set a Follow-Up custom variable (fields: key, value)",
     "- notifications.recipients.list: List notification recipient contacts for the portal account",
     "- webhooks.get: Get canonical webhook URLs (Twilio inbound/status callback + legacy tokens)",
     "- support_chat.send: Ask the support chat assistant a question (fields: message, url?, meta?, context.recentMessages?)",
@@ -1942,6 +1971,7 @@ export function portalAgentActionsIndexText(): string {
     "- media.list.get: List Media Library folders/items for a folder (fields: folderId?)",
     "- media.stats.get: Get Media Library stats (items/folders counts)",
     "- dashboard.get: Get the portal dashboard data (fields: scope=default|embedded?)",
+    "- dashboard.save: Save the portal dashboard layout/data (fields: scope?, data)",
     "- dashboard.reset: Reset the portal dashboard layout (fields: scope=default|embedded?)",
     "- dashboard.add_widget: Add a dashboard widget (fields: scope?, widgetId)",
     "- dashboard.remove_widget: Remove a dashboard widget (fields: scope?, widgetId)",

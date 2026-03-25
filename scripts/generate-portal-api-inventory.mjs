@@ -54,13 +54,18 @@ const ACTION_COVERAGE = [
   { action: "integrations.sales_reporting.get", method: "GET", endpoint: "/api/portal/integrations/sales-reporting" },
 
   { action: "follow_up.settings.get", method: "GET", endpoint: "/api/portal/follow-up/settings" },
+  { action: "follow_up.settings.update", method: "PUT", endpoint: "/api/portal/follow-up/settings" },
   { action: "follow_up.custom_variables.get", method: "GET", endpoint: "/api/portal/follow-up/custom-variables" },
+  { action: "follow_up.custom_variables.update", method: "PUT", endpoint: "/api/portal/follow-up/custom-variables" },
+
+  { action: "automations.run", method: "POST", endpoint: "/api/portal/automations/run" },
 
   { action: "services.catalog.get", method: "GET", endpoint: "/api/portal/services/catalog" },
   { action: "services.lifecycle.update", method: "POST", endpoint: "/api/portal/services/lifecycle" },
   { action: "services.status.get", method: "GET", endpoint: "/api/portal/services/status" },
 
   { action: "referrals.link.get", method: "GET", endpoint: "/api/portal/referrals/link" },
+  { action: "referrals.link.rotate", method: "POST", endpoint: "/api/portal/referrals/link" },
 
   { action: "mailbox.get", method: "GET", endpoint: "/api/portal/mailbox" },
   { action: "mailbox.update", method: "PUT", endpoint: "/api/portal/mailbox" },
@@ -94,6 +99,12 @@ const ACTION_COVERAGE = [
   { action: "media.stats.get", method: "GET", endpoint: "/api/portal/media/stats" },
 
   { action: "dashboard.get", method: "GET", endpoint: "/api/portal/dashboard" },
+
+  // Route uses a single PUT endpoint with body.action controlling behavior.
+  { action: "dashboard.save", method: "PUT", endpoint: "/api/portal/dashboard" },
+  { action: "dashboard.add_widget", method: "PUT", endpoint: "/api/portal/dashboard" },
+  { action: "dashboard.remove_widget", method: "PUT", endpoint: "/api/portal/dashboard" },
+  { action: "dashboard.reset", method: "PUT", endpoint: "/api/portal/dashboard" },
 
   { action: "dashboard.reset", method: "POST", endpoint: "/api/portal/dashboard/reset" },
   { action: "dashboard.add_widget", method: "POST", endpoint: "/api/portal/dashboard/widgets" },
