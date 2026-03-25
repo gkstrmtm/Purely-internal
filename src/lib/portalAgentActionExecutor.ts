@@ -49,7 +49,7 @@ import {
   setAppointmentReminderSettingsForCalendar,
 } from "@/lib/appointmentReminders";
 import { ensurePortalContactsSchema } from "@/lib/portalContactsSchema";
-import { findOrCreatePortalContact, normalizePhoneKey } from "@/lib/portalContacts";
+import { findOrCreatePortalContact, normalizeEmailKey, normalizeNameKey as normalizeContactNameKey, normalizePhoneKey } from "@/lib/portalContacts";
 import { listDuplicatePortalContactsByPhoneKey, mergePortalContacts } from "@/lib/portalContactDedup";
 import {
   addContactTagAssignment,
@@ -7958,6 +7958,128 @@ async function runDirectAction(opts: {
       }
 
       return { status: 200, json: { ok: true, messages: withUrls, scheduledMessages } };
+    }
+
+    case "inbox.thread.contact.set": {
+      const threadId = String((args as any)?.threadId || "").trim();
+      if (!threadId) return { status: 400, json: { ok: false, error: "Missing threadId" } };
+
+      const name = String((args as any)?.name ?? "").trim().slice(0, 80);
+      if (!name) return { status: 400, json: { ok: false, error: "Invalid input" } };
+
+      const emailRaw = String((args as any)?.email ?? "").trim().slice(0, 120);
+      const email = emailRaw ? emailRaw : null;
+
+      const phoneRaw = String((args as any)?.phone ?? "").trim().slice(0, 40);
+      const phone = phoneRaw ? phoneRaw : null;
+
+      await ensurePortalInboxSchema();
+      await ensurePortalContactTagsReady().catch(() => null);
+
+      const thread = await (prisma as any).portalInboxThread.findFirst({
+        where: { id: String(threadId), ownerId },
+        select: { id: true, channel: true, peerAddress: true, peerKey: true, contactId: true },
+      });
+
+      if (!thread) return { status: 404, json: { ok: false, error: "Not found" } };
+
+      const nameKey = normalizeContactNameKey(name);
+
+      const emailKey = email ? normalizeEmailKey(email) : null;
+      const emailFinal = emailKey ? email : null;
+
+      const phoneNorm = normalizePhoneKey(phone || "");
+      if (phoneNorm.error) {
+        return { status: 400, json: { ok: false, error: phoneNorm.error } };
+      }
+
+      const phoneFinal = phoneNorm.phoneKey ? phoneNorm.phone : null;
+      const phoneKey = phoneNorm.phoneKey;
+
+      let contactId: string | null = thread.contactId ? String(thread.contactId) : null;
+
+      if (contactId) {
+        try {
+          await (prisma as any).portalContact.updateMany({
+            where: { id: contactId, ownerId },
+            data: {
+              name,
+              nameKey,
+              email: emailFinal,
+              emailKey: emailFinal ? emailKey : null,
+              phone: phoneFinal,
+              phoneKey,
+            },
+          });
+        } catch {
+          // ignore
+        }
+      } else {
+        contactId = await findOrCreatePortalContact({
+          ownerId,
+          name,
+          email: emailFinal,
+          phone: phoneFinal,
+        });
+
+        if (contactId) {
+          try {
+            await (prisma as any).portalInboxThread.updateMany({
+              where: { id: String(thread.id), ownerId },
+              data: { contactId },
+            });
+          } catch {
+            // ignore
+          }
+        }
+      }
+
+      const contact = contactId
+        ? await (async () => {
+            try {
+              const row = await (prisma as any).portalContact.findFirst({
+                where: { id: contactId, ownerId },
+                select: { id: true, name: true, email: true, phone: true },
+              });
+              if (!row) return null;
+              return {
+                id: String(row.id),
+                name: String(row.name ?? "").slice(0, 80) || "Contact",
+                email: row.email ? String(row.email).slice(0, 120) : null,
+                phone: row.phone ? String(row.phone).slice(0, 40) : null,
+              };
+            } catch {
+              return null;
+            }
+          })()
+        : null;
+
+      let tags: Array<{ id: string; name: string; color: string | null }> = [];
+      if (contactId) {
+        try {
+          const rows = await (prisma as any).portalContactTagAssignment.findMany({
+            where: { ownerId, contactId },
+            take: 2000,
+            select: { tag: { select: { id: true, name: true, color: true } } },
+          });
+
+          tags = (rows || [])
+            .map((r: any) => r.tag)
+            .filter(Boolean)
+            .map((t: any) => ({
+              id: String(t.id),
+              name: String(t.name).slice(0, 60),
+              color: t.color ? String(t.color) : null,
+            }));
+        } catch {
+          // ignore
+        }
+      }
+
+      return {
+        status: 200,
+        json: { ok: true, threadId: String(thread.id), contactId, contact, contactTags: tags },
+      };
     }
 
     case "inbox.scheduled.update": {

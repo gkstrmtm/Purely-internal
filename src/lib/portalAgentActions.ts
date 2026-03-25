@@ -152,6 +152,7 @@ export const PortalAgentActionKeySchema = z.enum([
   "people.contacts.custom_variables.patch",
   "inbox.threads.list",
   "inbox.thread.messages.list",
+  "inbox.thread.contact.set",
   "inbox.scheduled.update",
   "inbox.attachments.create_from_media",
   "inbox.attachments.delete",
@@ -1133,6 +1134,21 @@ export const PortalAgentActionArgsSchemaByKey = {
     .object({
       threadId: z.string().trim().min(1).max(120),
       take: z.number().int().min(10).max(500).optional().nullable(),
+    })
+    .strict(),
+
+  "inbox.thread.contact.set": z
+    .object({
+      threadId: z.string().trim().min(1).max(120),
+      name: z.string().trim().min(1).max(80),
+      email: z
+        .string()
+        .trim()
+        .max(120)
+        .optional()
+        .nullable()
+        .refine((v) => v === null || v === undefined || v === "" || /.+@.+\..+/.test(v), { message: "Invalid email" }),
+      phone: z.string().trim().max(40).optional().nullable(),
     })
     .strict(),
 
@@ -2181,6 +2197,7 @@ export function portalAgentActionsIndexText(): string {
     "- people.contacts.custom_variables.patch: Set/remove a contact custom variable (fields: contactId, key, value?)",
     "- inbox.threads.list: List inbox threads (fields: channel=EMAIL|SMS?, take?)",
     "- inbox.thread.messages.list: Load messages for a thread (fields: threadId, take?)",
+    "- inbox.thread.contact.set: Set/link the contact for an inbox thread (fields: threadId, name, email?, phone?)",
     "- inbox.scheduled.update: Reschedule a pending scheduled inbox message (fields: scheduledId, scheduledFor)",
     "- inbox.attachments.create_from_media: Create an inbox attachment from a Media Library item (fields: mediaItemId)",
     "- inbox.attachments.delete: Delete an unsent inbox attachment (fields: id)",
