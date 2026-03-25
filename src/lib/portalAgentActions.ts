@@ -51,6 +51,8 @@ export const PortalAgentActionKeySchema = z.enum([
   "newsletter.site.get",
   "newsletter.site.update",
   "newsletter.usage.get",
+  "newsletter.royalty_free_images.search",
+  "newsletter.royalty_free_images.suggest",
   "newsletter.newsletters.list",
   "newsletter.newsletters.create",
   "newsletter.newsletters.get",
@@ -578,6 +580,20 @@ export const PortalAgentActionArgsSchemaByKey = {
   "newsletter.usage.get": z
     .object({
       range: z.enum(["7d", "30d", "90d", "all"]).optional(),
+    })
+    .strict(),
+
+  "newsletter.royalty_free_images.search": z
+    .object({
+      q: z.string().trim().min(2).max(120),
+      take: z.number().int().min(1).max(20).optional(),
+    })
+    .strict(),
+
+  "newsletter.royalty_free_images.suggest": z
+    .object({
+      prompt: z.string().trim().min(2).max(200),
+      take: z.number().int().min(1).max(20).optional(),
     })
     .strict(),
 
@@ -1987,6 +2003,8 @@ export function portalAgentActionsIndexText(): string {
     "- newsletter.site.get: Get newsletter site settings",
     "- newsletter.site.update: Create/update newsletter site settings (fields: name, primaryDomain?, slug?)",
     "- newsletter.usage.get: Get newsletter usage stats (fields: range=7d|30d|90d|all?)",
+    "- newsletter.royalty_free_images.search: Search Wikimedia Commons royalty-free images (fields: q, take?)",
+    "- newsletter.royalty_free_images.suggest: Suggest a Commons search query and return images (fields: prompt, take?)",
     "- newsletter.newsletters.list: List newsletters (fields: kind=external|internal?, take?)",
     "- newsletter.newsletters.create: Create a newsletter (fields: kind, status?, title, excerpt, content, smsText?)",
     "- newsletter.newsletters.get: Get a newsletter (fields: newsletterId)",

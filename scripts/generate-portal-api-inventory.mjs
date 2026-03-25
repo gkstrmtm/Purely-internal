@@ -192,11 +192,13 @@ const ACTION_COVERAGE = [
   { action: "newsletter.site.get", method: "GET", endpoint: "/api/portal/newsletter/site" },
   { action: "newsletter.site.update", method: "POST", endpoint: "/api/portal/newsletter/site" },
   { action: "newsletter.usage.get", method: "GET", endpoint: "/api/portal/newsletter/usage" },
+  { action: "newsletter.royalty_free_images.search", method: "GET", endpoint: "/api/portal/newsletter/royalty-free-images" },
   { action: "newsletter.newsletters.list", method: "GET", endpoint: "/api/portal/newsletter/newsletters" },
   { action: "newsletter.newsletters.create", method: "POST", endpoint: "/api/portal/newsletter/newsletters" },
   { action: "newsletter.newsletters.get", method: "GET", endpoint: "/api/portal/newsletter/newsletters/[newsletterId]" },
   { action: "newsletter.newsletters.update", method: "PUT", endpoint: "/api/portal/newsletter/newsletters/[newsletterId]" },
   { action: "newsletter.audience.contacts.search", method: "GET", endpoint: "/api/portal/newsletter/audience/contacts" },
+  { action: "newsletter.royalty_free_images.suggest", method: "POST", endpoint: "/api/portal/newsletter/royalty-free-images/suggest" },
   { action: "newsletter.automation.settings.get", method: "GET", endpoint: "/api/portal/newsletter/automation/settings" },
   { action: "newsletter.automation.settings.update", method: "PUT", endpoint: "/api/portal/newsletter/automation/settings" },
 
