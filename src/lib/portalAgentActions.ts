@@ -158,6 +158,7 @@ export const PortalAgentActionKeySchema = z.enum([
   "inbox.attachments.delete",
   "inbox.settings.get",
   "inbox.settings.update",
+  "inbox.send",
   "inbox.send_sms",
   "inbox.send_email",
   "reviews.send_request_for_booking",
@@ -1176,6 +1177,18 @@ export const PortalAgentActionArgsSchemaByKey = {
   "inbox.settings.update": z
     .object({
       regenerateToken: z.boolean().optional(),
+    })
+    .strict(),
+
+  "inbox.send": z
+    .object({
+      channel: z.enum(["email", "sms"]),
+      to: z.string().trim().min(1).max(200),
+      subject: z.string().trim().max(140).optional().nullable(),
+      body: z.string().trim().max(20000).optional().nullable(),
+      attachmentIds: z.array(z.string().trim().min(1).max(120)).max(10).optional().nullable(),
+      threadId: z.string().trim().min(1).max(120).optional().nullable(),
+      sendAt: z.string().datetime().optional().nullable(),
     })
     .strict(),
 
@@ -2203,6 +2216,7 @@ export function portalAgentActionsIndexText(): string {
     "- inbox.attachments.delete: Delete an unsent inbox attachment (fields: id)",
     "- inbox.settings.get: Get inbox settings (mailbox + webhook URLs)",
     "- inbox.settings.update: Regenerate inbox webhook token (fields: regenerateToken=true)",
+    "- inbox.send: Send or schedule an inbox message (fields: channel=email|sms, to, subject?, body?, attachmentIds?, threadId?, sendAt?)",
     "- inbox.send_sms: Send an SMS (fields: to, body, threadId?)",
     "- inbox.send_email: Send an email (fields: to, subject, body, threadId?)",
     "- reviews.send_request_for_booking: Send a review request for a completed booking (fields: bookingId)",

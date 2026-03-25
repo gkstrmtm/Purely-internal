@@ -63,7 +63,7 @@ import {
   updateOwnerContactTag,
 } from "@/lib/portalContactTags";
 import { extractEmailAddress, getPortalInboxSettings, regeneratePortalInboxWebhookToken } from "@/lib/portalInbox";
-import { sendPortalInboxMessageNow } from "@/lib/portalInboxSend";
+import { schedulePortalInboxMessage, sendPortalInboxMessageNow } from "@/lib/portalInboxSend";
 import { ensurePortalInboxSchema } from "@/lib/portalInboxSchema";
 import { getOrCreateOwnerMailboxAddress, getOwnerMailboxAddressForUi, updateOwnerMailboxLocalPartOnce } from "@/lib/portalMailbox";
 import {
@@ -8258,6 +8258,90 @@ async function runDirectAction(opts: {
 
       if (!sent.ok) return { status: 400, json: { ok: false, error: sent.error } };
       return { status: 200, json: { ok: true, threadId: sent.threadId } };
+    }
+
+    case "inbox.send": {
+      const channel = String((args as any)?.channel || "").trim().toLowerCase();
+      if (channel !== "email" && channel !== "sms") {
+        return { status: 400, json: { ok: false, error: "Invalid channel" } };
+      }
+
+      const to = String((args as any)?.to || "").trim();
+      if (!to) return { status: 400, json: { ok: false, error: "Invalid input" } };
+
+      const subjectRaw = typeof (args as any)?.subject === "string" ? String((args as any).subject).trim() : "";
+      const subject = subjectRaw ? subjectRaw : undefined;
+
+      const bodyRaw = typeof (args as any)?.body === "string" ? String((args as any).body).trim() : "";
+      const body = bodyRaw ? bodyRaw : undefined;
+
+      const attachmentIds = Array.isArray((args as any)?.attachmentIds)
+        ? (args as any).attachmentIds.map((x: any) => String(x || "").trim()).filter(Boolean).slice(0, 10)
+        : [];
+
+      const threadId = typeof (args as any)?.threadId === "string" && String((args as any).threadId).trim()
+        ? String((args as any).threadId).trim()
+        : undefined;
+
+      const sendAtRaw = typeof (args as any)?.sendAt === "string" ? String((args as any).sendAt).trim() : "";
+
+      if (sendAtRaw) {
+        const when = new Date(sendAtRaw);
+        if (!Number.isFinite(when.getTime())) {
+          return { status: 400, json: { ok: false, error: "Invalid scheduled time" } };
+        }
+
+        if (when.getTime() > Date.now() + 10_000) {
+          const scheduled = await schedulePortalInboxMessage({
+            ownerId,
+            channel: channel as any,
+            to,
+            subject,
+            body,
+            attachmentIds,
+            threadId,
+            sendAt: when,
+          });
+
+          if (!scheduled.ok) {
+            return {
+              status: scheduled.error === "Insufficient credits" ? 402 : 400,
+              json: { ok: false, error: scheduled.error },
+            };
+          }
+
+          return {
+            status: 200,
+            json: {
+              ok: true,
+              scheduled: true,
+              scheduledId: scheduled.scheduledId,
+              threadId: threadId ?? null,
+            },
+          };
+        }
+      }
+
+      const baseUrl = (process.env.NEXTAUTH_URL || "http://localhost:3000").replace(/\/$/, "");
+      const result = await sendPortalInboxMessageNow({
+        ownerId,
+        channel: channel as any,
+        to,
+        subject,
+        body,
+        attachmentIds,
+        threadId,
+        baseUrl,
+      });
+
+      if (!result.ok) {
+        return {
+          status: result.error === "Insufficient credits" ? 402 : 400,
+          json: { ok: false, error: result.error },
+        };
+      }
+
+      return { status: 200, json: { ok: true, threadId: result.threadId } };
     }
 
     case "inbox.send_email": {

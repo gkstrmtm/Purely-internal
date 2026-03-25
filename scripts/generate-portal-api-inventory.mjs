@@ -242,6 +242,7 @@ const ACTION_COVERAGE = [
   { action: "inbox.attachments.delete", method: "DELETE", endpoint: "/api/portal/inbox/attachments/[id]" },
   { action: "inbox.settings.get", method: "GET", endpoint: "/api/portal/inbox/settings" },
   { action: "inbox.settings.update", method: "PUT", endpoint: "/api/portal/inbox/settings" },
+  { action: "inbox.send", method: "POST", endpoint: "/api/portal/inbox/send" },
 
   // AI Receptionist (safe-ish reads / playback helpers)
   { action: "ai_receptionist.settings.get", method: "GET", endpoint: "/api/portal/ai-receptionist/settings" },
