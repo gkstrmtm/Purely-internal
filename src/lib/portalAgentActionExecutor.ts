@@ -24,7 +24,7 @@ import { PORTAL_CREDIT_COSTS } from "@/lib/portalCreditCosts";
 import { creditsPerTopUpPackage } from "@/lib/creditsTopup";
 import { getUsdPerCreditForOwner } from "@/lib/creditsPricing.server";
 import { moduleByKey, usdToCents } from "@/lib/portalModulesCatalog";
-import type { PortalVariant } from "@/lib/portalVariant";
+import { portalBasePath, type PortalVariant } from "@/lib/portalVariant";
 import { ensurePortalTasksSchema } from "@/lib/portalTasksSchema";
 import { runOwnerAutomationByIdForEvent } from "@/lib/portalAutomationsRunner";
 import { generateClientBlogDraft } from "@/lib/clientBlogAutomation";
@@ -91,7 +91,7 @@ import { ensurePortalNurtureSchema } from "@/lib/portalNurtureSchema";
 import { getOrCreateStripeCustomerId, isStripeConfigured, stripeDelete, stripeGet, stripePost } from "@/lib/stripeFetch";
 import { generateText } from "@/lib/ai";
 import { getBusinessProfileAiContext, getBusinessProfileTemplateVars } from "@/lib/businessProfileAiContext.server";
-import { listPortalAccountRecipientContacts } from "@/lib/portalNotifications";
+import { getAppBaseUrl, listPortalAccountRecipientContacts } from "@/lib/portalNotifications";
 import { ensureVercelProjectDomain } from "@/lib/vercelProjectDomains";
 import { coerceBlocksJson, type CreditFunnelBlock } from "@/lib/creditFunnelBlocks";
 import { blocksToCustomHtmlDocument } from "@/lib/funnelBlocksToCustomHtmlDocument";
@@ -113,6 +113,7 @@ import { clampPortalReportingRangeKey, getPortalReportingSummaryForOwner } from 
 import { clampStripeChargesRangeKey, getStripeChargesReportForOwner } from "@/lib/portalStripeChargesReport.server";
 import { clampSalesRangeKey, getSalesReportForOwner } from "@/lib/salesReportingReport.server";
 import { isPortalSupportChatConfigured, runPortalSupportChat } from "@/lib/portalSupportChat";
+import { getOrCreatePortalReferralCode, getPortalReferralStats } from "@/lib/portalReferrals.server";
 
 const MAX_REMOTE_MEDIA_BYTES = 15 * 1024 * 1024; // matches /api/portal/media/import-remote
 
@@ -4842,6 +4843,26 @@ async function runDirectAction(opts: {
           permissions: normalizePortalPermissions(row?.permissionsJson, role),
         },
       };
+    }
+
+    case "referrals.link.get": {
+      const ok = await requireOwnerOrAdmin();
+      if (!ok) return { status: 403, json: { ok: false, error: "Forbidden" } };
+
+      const [{ code }, stats, me] = await Promise.all([
+        getOrCreatePortalReferralCode({ ownerId, req: null }),
+        getPortalReferralStats(ownerId),
+        prisma.user.findUnique({ where: { id: ownerId }, select: { portalVariant: true } }).catch(() => null),
+      ]);
+
+      const base = getAppBaseUrl();
+      const variantRaw = (me as any)?.portalVariant;
+      const variant: PortalVariant = variantRaw === "credit" ? "credit" : "portal";
+      const portalBase = portalBasePath(variant);
+      const url = new URL(`${portalBase}/get-started`, base);
+      url.searchParams.set("ref", code);
+
+      return { status: 200, json: { ok: true, code, url: url.toString(), stats } };
     }
 
     case "profile.get": {

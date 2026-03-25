@@ -82,6 +82,8 @@ export const PortalAgentActionKeySchema = z.enum([
 
   "me.get",
 
+  "referrals.link.get",
+
   "profile.get",
 
   "integrations.twilio.get",
@@ -791,6 +793,8 @@ export const PortalAgentActionArgsSchemaByKey = {
     .strict(),
 
   "me.get": z.object({}).strict(),
+
+  "referrals.link.get": z.object({}).strict(),
 
   "profile.get": z.object({}).strict(),
 
@@ -1877,6 +1881,7 @@ export function portalAgentActionsIndexText(): string {
     "- contact_tags.update: Update a contact tag (fields: tagId, name?, color?)",
     "- contact_tags.delete: Delete a contact tag (fields: tagId)",
     "- me.get: Get the current portal member identity (ownerId/memberId/role) and effective permissions",
+    "- referrals.link.get: Get your referral link + referral stats",
     "- profile.get: Get the current portal member profile (name/email/phone/city/state + voice agent status)",
     "- integrations.twilio.get: Get Twilio SMS integration status + webhook URLs (fields: includeDiagnostics?)",
     "- integrations.stripe.get: Get Stripe integration status (secret key prefix + connected account)",

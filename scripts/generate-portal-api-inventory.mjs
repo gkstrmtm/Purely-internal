@@ -60,6 +60,8 @@ const ACTION_COVERAGE = [
   { action: "services.lifecycle.update", method: "POST", endpoint: "/api/portal/services/lifecycle" },
   { action: "services.status.get", method: "GET", endpoint: "/api/portal/services/status" },
 
+  { action: "referrals.link.get", method: "GET", endpoint: "/api/portal/referrals/link" },
+
   { action: "mailbox.get", method: "GET", endpoint: "/api/portal/mailbox" },
   { action: "mailbox.update", method: "PUT", endpoint: "/api/portal/mailbox" },
 
