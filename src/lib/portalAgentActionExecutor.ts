@@ -1,5 +1,5 @@
 import crypto from "crypto";
-import { resolveTxt } from "dns/promises";
+import { Resolver, resolve4, resolve6, resolveCname, resolveNs, resolveTxt } from "dns/promises";
 
 import { Prisma } from "@prisma/client";
 
@@ -105,12 +105,12 @@ import { getOwnerTwilioSmsConfig, getOwnerTwilioSmsConfigMasked, sendOwnerTwilio
 import { normalizePhoneStrict } from "@/lib/phone";
 import { ensurePortalNurtureSchema } from "@/lib/portalNurtureSchema";
 import { getOrCreateStripeCustomerId, isStripeConfigured, stripeDelete, stripeGet, stripePost } from "@/lib/stripeFetch";
-import { generateText } from "@/lib/ai";
+import { generateText, generateTextWithImages } from "@/lib/ai";
 import { getBusinessProfileAiContext, getBusinessProfileTemplateVars } from "@/lib/businessProfileAiContext.server";
 import { getAppBaseUrl, listPortalAccountRecipientContacts, tryNotifyPortalAccountUsers, tryNotifyPortalUserIds } from "@/lib/portalNotifications";
-import { ensureVercelProjectDomain } from "@/lib/vercelProjectDomains";
+import { checkHttpsReachable, ensureVercelProjectDomain, formatVercelVerificationRecords } from "@/lib/vercelProjectDomains";
 import { coerceBlocksJson, type CreditFunnelBlock } from "@/lib/creditFunnelBlocks";
-import { blocksToCustomHtmlDocument } from "@/lib/funnelBlocksToCustomHtmlDocument";
+import { blocksToCustomHtmlDocument, escapeHtml } from "@/lib/funnelBlocksToCustomHtmlDocument";
 import { clearStripeIntegration, getStripeIntegrationStatus, getStripeSecretKeyForOwner } from "@/lib/stripeIntegration.server";
 import { disconnectSalesProvider, getSalesReportingStatus } from "@/lib/salesReportingIntegration.server";
 import { isPortalEncryptionConfigured } from "@/lib/portalEncryption.server";
@@ -1612,6 +1612,430 @@ async function runDirectAction(opts: {
       };
     }
 
+    case "funnel_builder.domains.verify": {
+      if (!(await requireOwnerOrAdmin())) return { status: 403, json: { ok: false, error: "Forbidden" } };
+
+      function normalizeDnsName(raw: string) {
+        return String(raw || "")
+          .trim()
+          .toLowerCase()
+          .replace(/\.+$/, "")
+          .replace(/^https?:\/\//, "")
+          .split("/")[0]
+          .replace(/:\d+$/, "");
+      }
+
+      function isLikelyApexDomain(domain: string): boolean {
+        const s = normalizeDnsName(domain);
+        if (!s) return true;
+        if (s.startsWith("www.")) return false;
+        const parts = s.split(".").filter(Boolean);
+        return parts.length <= 2;
+      }
+
+      function coerceExpectedTargetHost(): string | null {
+        const explicit = (process.env.CUSTOM_DOMAIN_TARGET_HOST || "").trim();
+        if (explicit) return normalizeDnsName(explicit) || null;
+        return "cname.vercel-dns.com";
+      }
+
+      async function resolveCnameChain(host: string, maxDepth = 6) {
+        const out: string[] = [];
+        let current = normalizeDnsName(host);
+
+        for (let i = 0; i < maxDepth; i++) {
+          if (!current) break;
+          const cnames = await resolveCname(current).catch(() => []);
+          const normalized = cnames.map((c) => normalizeDnsName(c)).filter(Boolean);
+          if (normalized.length === 0) break;
+
+          for (const c of normalized) out.push(c);
+          current = normalized[0] || "";
+        }
+
+        return Array.from(new Set(out));
+      }
+
+      function uniq(xs: string[]) {
+        return Array.from(new Set(xs.filter(Boolean)));
+      }
+
+      async function resolveAuthoritativeA(domain: string) {
+        const nsHosts = await resolveNs(domain).catch(() => [] as string[]);
+        const ns = nsHosts.map((h) => normalizeDnsName(h)).filter(Boolean);
+        if (!ns.length) return { ns: [] as string[], a: [] as string[] };
+
+        const allA: string[] = [];
+
+        for (const nsHost of ns.slice(0, 6)) {
+          const nsIps = await resolve4(nsHost).catch(() => [] as string[]);
+          const nsIp = nsIps[0];
+          if (!nsIp) continue;
+
+          const r = new Resolver();
+          try {
+            r.setServers([nsIp]);
+            const a = await r.resolve4(domain).catch(() => [] as string[]);
+            for (const ip of a) allA.push(String(ip || "").trim());
+          } catch {
+            // ignore
+          }
+        }
+
+        return { ns, a: uniq(allA) };
+      }
+
+      function intersects(a: string[], b: string[]) {
+        const s = new Set(a);
+        return b.some((x) => s.has(x));
+      }
+
+      function isVercelApexARecord(ip: string, platformARecords: string[]): boolean {
+        const s = String(ip || "").trim();
+        if (!s) return false;
+        if (s === "76.76.21.21") return true;
+        if (s.startsWith("76.76.21.")) return true;
+        return platformARecords.includes(s);
+      }
+
+      const id = String(args?.domainId || "").trim();
+      if (!id) return { status: 400, json: { ok: false, error: "Missing domain id" } };
+
+      const domainRow = await prisma.creditCustomDomain.findFirst({
+        where: { id, ownerId },
+        select: { id: true, domain: true, status: true, verifiedAt: true },
+      });
+      if (!domainRow) return { status: 404, json: { ok: false, error: "Domain not found" } };
+
+      const domain = normalizeDnsName(domainRow.domain);
+      if (!domain) {
+        return {
+          status: 400,
+          json: {
+            ok: false,
+            error: "Please enter a valid domain like example.com (no https://, no paths).",
+          },
+        };
+      }
+
+      const expectedTargetHost = normalizeDnsName(coerceExpectedTargetHost() || "");
+      if (!expectedTargetHost) {
+        return {
+          status: 500,
+          json: { ok: false, error: "Missing NEXT_PUBLIC_APP_URL; can’t determine DNS target" },
+        };
+      }
+
+      const isApex = isLikelyApexDomain(domain);
+      const debug: any = {
+        domain,
+        expectedTargetHost,
+        vercel: { configured: false },
+        checks: {
+          cnameChain: [] as string[],
+          domainA: [] as string[],
+          targetA: [] as string[],
+          domainAAAA: [] as string[],
+          targetAAAA: [] as string[],
+          authoritativeNS: [] as string[],
+          authoritativeA: [] as string[],
+        },
+      };
+
+      try {
+        const markUnverifiedIfNeeded = async () => {
+          if (domainRow.status === "VERIFIED") {
+            await prisma.creditCustomDomain.update({ where: { id: domainRow.id }, data: { status: "PENDING", verifiedAt: null } });
+          }
+        };
+
+        const readCurrent = async () => {
+          return prisma.creditCustomDomain.findUnique({
+            where: { id: domainRow.id },
+            select: { id: true, domain: true, status: true, verifiedAt: true, createdAt: true, updatedAt: true },
+          });
+        };
+
+        const cnameChain = await resolveCnameChain(domain);
+        debug.checks.cnameChain = cnameChain;
+
+        if (cnameChain.includes(expectedTargetHost)) {
+          const vercel = await ensureVercelProjectDomain(domain);
+          debug.vercel = vercel;
+
+          if (!vercel.configured) {
+            await markUnverifiedIfNeeded();
+            const current = await readCurrent();
+            return {
+              status: 200,
+              json: {
+                ok: true,
+                verified: false,
+                error:
+                  "DNS is pointing correctly, but the platform is missing domain provisioning configuration (SSL can’t be activated automatically). Please contact support.",
+                domain: current,
+                debug,
+              },
+            };
+          }
+
+          if (vercel.ok && vercel.verified === false) {
+            await markUnverifiedIfNeeded();
+            const current = await readCurrent();
+
+            if (vercel.verification?.length) {
+              const recordsHint = formatVercelVerificationRecords(vercel.verification);
+              return {
+                status: 200,
+                json: {
+                  ok: true,
+                  verified: false,
+                  error:
+                    `DNS is pointing correctly, but the domain still needs a hosting verification record before SSL can be issued.${recordsHint} After adding it, wait a minute and click Verify DNS again.`,
+                  domain: current,
+                  debug,
+                },
+              };
+            }
+
+            return {
+              status: 200,
+              json: {
+                ok: true,
+                verified: false,
+                error:
+                  `DNS is pointing correctly, but the hosting provider still hasn’t verified the domain yet. Make sure your DNS record points to ${expectedTargetHost} (or A=76.76.21.21 for root domains), then wait a minute and click Verify DNS again.`,
+                domain: current,
+                debug,
+              },
+            };
+          }
+
+          if (!vercel.ok) {
+            await markUnverifiedIfNeeded();
+            const current = await readCurrent();
+            return {
+              status: 200,
+              json: {
+                ok: true,
+                verified: false,
+                error: `DNS is pointing correctly, but we couldn’t finish hosting setup for this domain yet. ${vercel.error}`,
+                domain: current,
+                debug,
+              },
+            };
+          }
+
+          const https = await checkHttpsReachable(domain);
+          debug.https = https;
+
+          const ready = vercel.ok && vercel.verified && https.ok;
+          if (ready) {
+            const updated = await prisma.creditCustomDomain.update({
+              where: { id: domainRow.id },
+              data: { status: "VERIFIED", verifiedAt: new Date() },
+              select: { id: true, domain: true, status: true, verifiedAt: true, createdAt: true, updatedAt: true },
+            });
+            return { status: 200, json: { ok: true, verified: true, domain: updated, debug } };
+          }
+
+          await markUnverifiedIfNeeded();
+          const current = await readCurrent();
+
+          return {
+            status: 200,
+            json: {
+              ok: true,
+              verified: false,
+              error:
+                https.ok
+                  ? "DNS is pointing correctly, but the domain isn’t reachable over HTTPS yet (SSL/certificate still provisioning). Please wait a few minutes and click Verify DNS again."
+                  : `DNS is pointing correctly, but HTTPS isn’t ready yet (SSL/certificate still provisioning). Last check error: ${https.error}. Please wait a few minutes and click Verify DNS again.`,
+              domain: current,
+              debug,
+            },
+          };
+        }
+
+        const [domainA, domainAAAA, targetA, targetAAAA, authoritative] = await Promise.all([
+          resolve4(domain).catch(() => [] as string[]),
+          resolve6(domain).catch(() => [] as string[]),
+          resolve4(expectedTargetHost).catch(() => [] as string[]),
+          resolve6(expectedTargetHost).catch(() => [] as string[]),
+          resolveAuthoritativeA(domain).catch(() => ({ ns: [] as string[], a: [] as string[] })),
+        ]);
+
+        debug.checks.domainA = domainA;
+        debug.checks.domainAAAA = domainAAAA;
+        debug.checks.targetA = targetA;
+        debug.checks.targetAAAA = targetAAAA;
+        debug.checks.authoritativeNS = authoritative.ns;
+        debug.checks.authoritativeA = authoritative.a;
+
+        const domainAuniq = uniq(authoritative.a.length ? authoritative.a : domainA);
+        const domainAAAAuniq = uniq(domainAAAA);
+        const targetAuniq = uniq(targetA);
+        const targetAAAAuniq = uniq(targetAAAA);
+
+        const domainAvercel = domainAuniq.filter((ip) => isVercelApexARecord(ip, targetAuniq));
+        const extraA = domainAuniq.filter((ip) => !isVercelApexARecord(ip, targetAuniq));
+
+        const aHasMatch = domainAvercel.length > 0;
+        const aaaaHasMatch = targetAAAAuniq.length ? intersects(domainAAAAuniq, targetAAAAuniq) : false;
+        const extraAAAA = targetAAAAuniq.length ? domainAAAAuniq.filter((ip) => !targetAAAAuniq.includes(ip)) : [];
+
+        const dnsOk = aHasMatch || aaaaHasMatch;
+
+        if (dnsOk) {
+          if (extraA.length || extraAAAA.length) {
+            await markUnverifiedIfNeeded();
+            const current = await readCurrent();
+            return {
+              status: 200,
+              json: {
+                ok: true,
+                verified: false,
+                error: extraA.length
+                  ? `Not verified yet: your root domain resolves to multiple A records. Vercel is present (${domainAvercel.join(", ") || "(none)"}), but you also have non-platform IP(s) (${extraA.join(", ")}). This usually means there’s still an A record on host “@” pointing to a parking/old host. Delete the A record(s) for “@” that point to ${extraA.join(", ")}, leaving only ALIAS/ANAME -> ${expectedTargetHost} (or A -> 76.76.21.21).`
+                  : `Your domain has AAAA records that don’t point to the platform (${extraAAAA.join(", ")}). Remove the conflicting record(s) so it only points to Purely Automation.`,
+                domain: current,
+                debug: { ...debug, isApex, extraA, extraAAAA, domainAvercel },
+              },
+            };
+          }
+
+          const vercel = await ensureVercelProjectDomain(domain);
+          debug.vercel = vercel;
+
+          if (!vercel.configured) {
+            await markUnverifiedIfNeeded();
+            const current = await readCurrent();
+            return {
+              status: 200,
+              json: {
+                ok: true,
+                verified: false,
+                error:
+                  "DNS is pointing correctly, but the platform is missing domain provisioning configuration (SSL can’t be activated automatically). Please contact support.",
+                domain: current,
+                debug: { ...debug, isApex },
+              },
+            };
+          }
+
+          if (vercel.ok && vercel.verified === false) {
+            await markUnverifiedIfNeeded();
+            const current = await readCurrent();
+
+            if (vercel.verification?.length) {
+              const recordsHint = formatVercelVerificationRecords(vercel.verification);
+              return {
+                status: 200,
+                json: {
+                  ok: true,
+                  verified: false,
+                  error:
+                    `DNS is pointing correctly, but the domain still needs a hosting verification record before SSL can be issued.${recordsHint} After adding it, wait a minute and click Verify DNS again.`,
+                  domain: current,
+                  debug: { ...debug, isApex },
+                },
+              };
+            }
+
+            return {
+              status: 200,
+              json: {
+                ok: true,
+                verified: false,
+                error:
+                  "DNS is pointing correctly, but the hosting provider still hasn’t verified the domain yet. For root domains, use ALIAS/ANAME -> cname.vercel-dns.com or A -> 76.76.21.21, then wait a minute and click Verify DNS again.",
+                domain: current,
+                debug: { ...debug, isApex },
+              },
+            };
+          }
+
+          if (!vercel.ok) {
+            await markUnverifiedIfNeeded();
+            const current = await readCurrent();
+            return {
+              status: 200,
+              json: {
+                ok: true,
+                verified: false,
+                error: `DNS is pointing correctly, but we couldn’t finish hosting setup for this domain yet. ${vercel.error}`,
+                domain: current,
+                debug: { ...debug, isApex },
+              },
+            };
+          }
+
+          const https = await checkHttpsReachable(domain);
+          debug.https = https;
+
+          const ready = vercel.ok && vercel.verified && https.ok;
+          if (ready) {
+            const updated = await prisma.creditCustomDomain.update({
+              where: { id: domainRow.id },
+              data: { status: "VERIFIED", verifiedAt: new Date() },
+              select: { id: true, domain: true, status: true, verifiedAt: true, createdAt: true, updatedAt: true },
+            });
+            return { status: 200, json: { ok: true, verified: true, domain: updated, debug: { ...debug, isApex } } };
+          }
+
+          await markUnverifiedIfNeeded();
+          const current = await readCurrent();
+          return {
+            status: 200,
+            json: {
+              ok: true,
+              verified: false,
+              error:
+                https.ok
+                  ? "DNS is pointing correctly, but the domain isn’t reachable over HTTPS yet (SSL/certificate still provisioning). Please wait a few minutes and click Verify DNS again."
+                  : `DNS is pointing correctly, but HTTPS isn’t ready yet (SSL/certificate still provisioning). Last check error: ${https.error}. Please wait a few minutes and click Verify DNS again.`,
+              domain: current,
+              debug: { ...debug, isApex },
+            },
+          };
+        }
+
+        await markUnverifiedIfNeeded();
+        const current = await readCurrent();
+        return {
+          status: 200,
+          json: {
+            ok: true,
+            verified: false,
+            error: isApex ? "DNS doesn’t resolve to the platform yet" : "CNAME doesn’t point to the platform yet",
+            domain: current,
+            debug: { ...debug, isApex },
+          },
+        };
+      } catch (e) {
+        if (domainRow.status === "VERIFIED") {
+          await prisma.creditCustomDomain.update({ where: { id: domainRow.id }, data: { status: "PENDING", verifiedAt: null } });
+        }
+
+        const current = await prisma.creditCustomDomain.findUnique({
+          where: { id: domainRow.id },
+          select: { id: true, domain: true, status: true, verifiedAt: true, createdAt: true, updatedAt: true },
+        });
+
+        return {
+          status: 200,
+          json: {
+            ok: true,
+            verified: false,
+            error: "DNS lookup failed",
+            details: e instanceof Error ? e.message : "Unknown error",
+            domain: current,
+            debug: { ...debug, isApex },
+          },
+        };
+      }
+    }
+
     case "funnel_builder.forms.list": {
       if (!(await requireOwnerOrAdmin())) return { status: 403, json: { ok: false, error: "Forbidden" } };
 
@@ -2307,6 +2731,1579 @@ async function runDirectAction(opts: {
       });
 
       return { status: 200, json: { ok: true, html: updated.customHtml, page: updated } };
+    }
+
+    case "funnel_builder.pages.generate_html": {
+      if (!(await requireOwnerOrAdmin())) return { status: 403, json: { ok: false, error: "Forbidden" } };
+
+      function clampText(s: string, maxLen: number) {
+        if (s.length <= maxLen) return s;
+        return s.slice(0, maxLen) + "\n<!-- truncated -->";
+      }
+
+      function extractHtml(raw: string): string {
+        const text = String(raw ?? "").trim();
+        if (!text) return "";
+
+        const fenced = text.match(/```html\s*([\s\S]*?)\s*```/i);
+        if (fenced?.[1]) return fenced[1].trim();
+
+        const anyFence = text.match(/```\s*([\s\S]*?)\s*```/);
+        if (anyFence?.[1]) return anyFence[1].trim();
+
+        return text;
+      }
+
+      function extractJson(raw: string): unknown {
+        const text = String(raw ?? "").trim();
+        if (!text) return null;
+        const fenced = text.match(/```json\s*([\s\S]*?)\s*```/i);
+        const candidate = fenced?.[1] ? fenced[1].trim() : "";
+        if (!candidate) return null;
+        try {
+          return JSON.parse(candidate) as unknown;
+        } catch {
+          return null;
+        }
+      }
+
+      function extractAiQuestion(raw: string): string | null {
+        const parsed = extractJson(raw);
+        if (!parsed || typeof parsed !== "object") return null;
+        const q = typeof (parsed as any).question === "string" ? String((parsed as any).question).trim() : "";
+        if (!q) return null;
+        return q.slice(0, 800);
+      }
+
+      function pickRandom<T>(items: T[]): T {
+        if (!Array.isArray(items) || items.length === 0) throw new Error("pickRandom called with empty array");
+        return items[Math.floor(Math.random() * items.length)]!;
+      }
+
+      function normalizePortalHostedPaths(html: string): string {
+        let out = String(html || "");
+        if (!out) return out;
+
+        out = out
+          .replace(/\b\/portal\/forms\//gi, "/forms/")
+          .replace(/\b\/portal\/f\//gi, "/f/")
+          .replace(/\b\/portal\/book\//gi, "/book/")
+          .replace(/\b\/api\/public\/portal\//gi, "/api/public/");
+
+        return out;
+      }
+
+      function newBlockId(prefix = "b"): string {
+        const g: any = globalThis as any;
+        const uuid = typeof g.crypto?.randomUUID === "function" ? String(g.crypto.randomUUID()) : "";
+        if (uuid) return `${prefix}_${uuid}`;
+        return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
+      }
+
+      function detectInteractiveIntent(text: string): {
+        wantsShop: boolean;
+        wantsCart: boolean;
+        wantsCheckout: boolean;
+        wantsCalendar: boolean;
+        wantsChatbot: boolean;
+        any: boolean;
+      } {
+        const s = String(text || "").toLowerCase();
+        const wantsShop = /\b(shop|store|product|products|pricing|buy now|buy\b)/.test(s);
+        const wantsCart = /\b(cart|add to cart)\b/.test(s);
+        const wantsCheckout = /\b(checkout|purchase|pay now)\b/.test(s);
+        const wantsCalendar = /\b(calendar|schedule|booking|book a call|book a meeting|appointment)\b/.test(s);
+        const wantsChatbot = /\b(chatbot|chat bot|live chat|website chat)\b/.test(s);
+        const any = wantsShop || wantsCart || wantsCheckout || wantsCalendar || wantsChatbot;
+        return { wantsShop, wantsCart, wantsCheckout, wantsCalendar, wantsChatbot, any };
+      }
+
+      function normalizeAgentId(raw: unknown): string {
+        const s = typeof raw === "string" ? raw.trim() : "";
+        if (!s) return "";
+        const cleaned = s.slice(0, 120);
+        if (!cleaned.startsWith("agent_")) return "";
+        return cleaned;
+      }
+
+      async function getOwnerChatAgentIds(ownerId: string): Promise<string[]> {
+        const out: string[] = [];
+        const seen = new Set<string>();
+        const push = (id: string) => {
+          const clean = normalizeAgentId(id);
+          if (!clean) return;
+          if (seen.has(clean)) return;
+          seen.add(clean);
+          out.push(clean);
+        };
+
+        const receptionist = await getAiReceptionistServiceData(ownerId).catch(() => null);
+        if (receptionist) {
+          push(receptionist.settings.chatAgentId);
+        }
+
+        const campaigns = await prisma.portalAiOutboundCallCampaign
+          .findMany({
+            where: { ownerId },
+            select: { chatAgentId: true },
+            orderBy: { updatedAt: "desc" },
+            take: 60,
+          })
+          .catch(() => [] as Array<{ chatAgentId: string | null }>);
+
+        for (const c of campaigns) {
+          if (c?.chatAgentId) push(c.chatAgentId);
+        }
+
+        return out.slice(0, 50);
+      }
+
+      function buildInteractiveBlocks(opts: {
+        funnelName: string;
+        pageTitle: string;
+        ownerId: string;
+        stripeProducts: Array<{
+          id: string;
+          name: string;
+          description: string | null;
+          images: string[];
+          defaultPriceId: string;
+          unitAmount: number | null;
+          currency: string;
+        }>;
+        calendarId?: string;
+        chatAgentId?: string;
+        intent: ReturnType<typeof detectInteractiveIntent>;
+      }): CreditFunnelBlock[] {
+        const blocks: CreditFunnelBlock[] = [];
+
+        blocks.push({ id: newBlockId("page"), type: "page", props: {} });
+
+        blocks.push({
+          id: newBlockId("header"),
+          type: "headerNav",
+          props: {
+            sticky: true,
+            transparent: false,
+            items: [],
+          },
+        });
+
+        blocks.push({
+          id: newBlockId("hero"),
+          type: "section",
+          props: {
+            children: [
+              {
+                id: newBlockId("h1"),
+                type: "heading",
+                props: { text: opts.pageTitle || opts.funnelName || "Welcome", level: 1 },
+              },
+              {
+                id: newBlockId("p"),
+                type: "paragraph",
+                props: {
+                  text:
+                    "Explore what we offer below. Add items to your cart, checkout securely, or book a time to talk. You can do it all on this page.",
+                },
+              },
+              {
+                id: newBlockId("cart"),
+                type: "cartButton",
+                props: { text: "Cart" },
+              },
+            ],
+          },
+        });
+
+        if (opts.intent.wantsShop || opts.intent.wantsCart || opts.intent.wantsCheckout) {
+          const purchasable = opts.stripeProducts.filter((p) => p && p.defaultPriceId).slice(0, 6);
+
+          if (purchasable.length) {
+            blocks.push({
+              id: newBlockId("shopSection"),
+              type: "section",
+              props: {
+                children: [
+                  {
+                    id: newBlockId("shopH"),
+                    type: "heading",
+                    props: { text: "Shop", level: 2 },
+                  },
+                  {
+                    id: newBlockId("shopCols"),
+                    type: "columns",
+                    props: {
+                      gapPx: 18,
+                      stackOnMobile: true,
+                      columns: purchasable.slice(0, 3).map((p) => {
+                        const children: CreditFunnelBlock[] = [];
+                        const img = p.images?.[0] ? String(p.images[0]).trim() : "";
+                        if (img) {
+                          children.push({
+                            id: newBlockId("img"),
+                            type: "image",
+                            props: { src: img, alt: p.name || "Product" },
+                          });
+                        }
+
+                        children.push({
+                          id: newBlockId("name"),
+                          type: "heading",
+                          props: { text: p.name, level: 3 },
+                        });
+
+                        if (p.description) {
+                          children.push({
+                            id: newBlockId("desc"),
+                            type: "paragraph",
+                            props: { text: String(p.description).slice(0, 320) },
+                          });
+                        }
+
+                        children.push({
+                          id: newBlockId("add"),
+                          type: "addToCartButton",
+                          props: {
+                            priceId: p.defaultPriceId,
+                            quantity: 1,
+                            productName: p.name,
+                            ...(p.description ? { productDescription: String(p.description).slice(0, 320) } : {}),
+                            text: "Add to cart",
+                          },
+                        });
+
+                        children.push({
+                          id: newBlockId("buy"),
+                          type: "salesCheckoutButton",
+                          props: {
+                            priceId: p.defaultPriceId,
+                            quantity: 1,
+                            productName: p.name,
+                            ...(p.description ? { productDescription: String(p.description).slice(0, 320) } : {}),
+                            text: "Buy now",
+                          },
+                        });
+
+                        return { markdown: "", children };
+                      }),
+                    },
+                  },
+                ],
+              },
+            });
+          }
+        }
+
+        if (opts.intent.wantsCalendar && opts.calendarId) {
+          blocks.push({
+            id: newBlockId("calSection"),
+            type: "section",
+            props: {
+              children: [
+                { id: newBlockId("calH"), type: "heading", props: { text: "Book a time", level: 2 } },
+                {
+                  id: newBlockId("calEmbed"),
+                  type: "calendarEmbed",
+                  props: { calendarId: opts.calendarId, height: 760 },
+                },
+              ],
+            },
+          });
+        }
+
+        if (opts.intent.wantsChatbot && opts.chatAgentId) {
+          blocks.push({
+            id: newBlockId("chatbot"),
+            type: "chatbot",
+            props: {
+              agentId: opts.chatAgentId,
+              launcherStyle: "bubble",
+              placementX: "right",
+              placementY: "bottom",
+            },
+          });
+        }
+
+        return blocks;
+      }
+
+      const PAGE_UPDATED_VARIANTS = [
+        "OK. I updated your page. Check the preview and tell me what you want changed.",
+        "Done. Page updated. Take a look in preview and tell me what to tweak.",
+        "Updated. Open the preview and tell me what you want different.",
+        "All set. Changes applied. Preview it and tell me what you want adjusted.",
+        "Page updated. If anything feels off, tell me what to change next.",
+        "Update complete. Check the preview and call out what to refine.",
+        "Applied the changes. Preview it and tell me what you want changed next.",
+        "Done. I made the update. Tell me what you want improved after you preview.",
+        "Updated the page. Preview it and tell me what to adjust (copy, layout, colors, etc.).",
+        "Change applied. Check preview and tell me what you want changed.",
+      ];
+
+      type AiAttachment = { url: string; fileName?: string; mimeType?: string };
+      type ContextMedia = { url: string; fileName?: string; mimeType?: string };
+
+      function coerceAttachments(raw: unknown): AiAttachment[] {
+        if (!Array.isArray(raw)) return [];
+        const out: AiAttachment[] = [];
+        for (const it of raw) {
+          if (!it || typeof it !== "object") continue;
+          const url = typeof (it as any).url === "string" ? (it as any).url.trim() : "";
+          if (!url) continue;
+          const fileName = typeof (it as any).fileName === "string" ? (it as any).fileName.trim() : undefined;
+          const mimeType = typeof (it as any).mimeType === "string" ? (it as any).mimeType.trim() : undefined;
+          out.push({ url, fileName, mimeType });
+          if (out.length >= 12) break;
+        }
+        return out;
+      }
+
+      function coerceContextMedia(raw: unknown): ContextMedia[] {
+        if (!Array.isArray(raw)) return [];
+        const out: ContextMedia[] = [];
+        for (const it of raw) {
+          if (!it || typeof it !== "object") continue;
+          const url = typeof (it as any).url === "string" ? (it as any).url.trim() : "";
+          if (!url) continue;
+          const fileName = typeof (it as any).fileName === "string" ? (it as any).fileName.trim() : undefined;
+          const mimeType = typeof (it as any).mimeType === "string" ? (it as any).mimeType.trim() : undefined;
+          out.push({ url, fileName, mimeType });
+          if (out.length >= 24) break;
+        }
+        return out;
+      }
+
+      async function getStripeProductsForOwner(ownerId: string) {
+        type StripePrice = {
+          id: string;
+          unit_amount: number | null;
+          currency: string;
+        };
+
+        type StripeProduct = {
+          id: string;
+          name: string;
+          description: string | null;
+          images: string[];
+          active: boolean;
+          default_price?: StripePrice | string | null;
+        };
+
+        type StripeList<T> = { data: T[] };
+
+        const secretKey = await getStripeSecretKeyForOwner(ownerId).catch(() => null);
+        if (!secretKey) {
+          return {
+            ok: false as const,
+            products: [] as Array<{
+              id: string;
+              name: string;
+              description: string | null;
+              images: string[];
+              defaultPriceId: string;
+              unitAmount: number | null;
+              currency: string;
+            }>,
+          };
+        }
+
+        const list = await stripeGetWithKey<StripeList<StripeProduct>>(secretKey, "/v1/products", {
+          limit: 100,
+          active: true,
+          "expand[]": ["data.default_price"],
+        }).catch(() => null);
+
+        const products = Array.isArray(list?.data)
+          ? list!.data
+              .filter((p) => p && typeof p === "object" && (p as any).active)
+              .map((p) => {
+                const dp = p.default_price && typeof p.default_price === "object" ? (p.default_price as StripePrice) : null;
+                return {
+                  id: String(p.id || "").trim(),
+                  name: String(p.name || "").trim(),
+                  description: p.description ? String(p.description) : null,
+                  images: Array.isArray(p.images) ? p.images.map((s) => String(s)).filter(Boolean).slice(0, 4) : [],
+                  defaultPriceId: dp?.id ? String(dp.id).trim() : "",
+                  unitAmount: typeof dp?.unit_amount === "number" ? dp.unit_amount : null,
+                  currency: String(dp?.currency || "usd").toLowerCase() || "usd",
+                };
+              })
+              .filter((p) => p.id && p.name)
+          : [];
+
+        return { ok: true as const, products };
+      }
+
+      function toAbsoluteUrl(url: string): string {
+        const u = String(url || "").trim();
+        if (!u) return "";
+        if (/^https?:\/\//i.test(u)) return u;
+        const origin = process.env.NEXT_PUBLIC_APP_URL || getAppBaseUrl() || "http://localhost:3000";
+        return new URL(u, origin).toString();
+      }
+
+      function coerceContextKeys(raw: unknown): string[] {
+        if (!Array.isArray(raw)) return [];
+        const out: string[] = [];
+        for (const v of raw) {
+          if (typeof v !== "string") continue;
+          const s = v.trim();
+          if (!s) continue;
+          out.push(s.slice(0, 80));
+          if (out.length >= 30) break;
+        }
+        return out;
+      }
+
+      const funnelId = String(args?.funnelId || "").trim();
+      const pageId = String(args?.pageId || "").trim();
+      if (!funnelId || !pageId) return { status: 400, json: { ok: false, error: "Invalid id" } };
+
+      const prompt = typeof args?.prompt === "string" ? args.prompt.trim() : "";
+      if (!prompt) return { status: 400, json: { ok: false, error: "Prompt is required" } };
+
+      const owner = await prisma.user.findUnique({ where: { id: ownerId }, select: { clientPortalVariant: true } }).catch(() => null);
+      const basePath = owner?.clientPortalVariant === "CREDIT" ? "/credit" : "";
+
+      const currentHtmlFromClient = typeof args?.currentHtml === "string" ? args.currentHtml : null;
+      const attachments = coerceAttachments(args?.attachments);
+      const contextKeys = coerceContextKeys(args?.contextKeys);
+      const contextMedia = coerceContextMedia(args?.contextMedia);
+
+      const page = await prisma.creditFunnelPage.findFirst({
+        where: { id: pageId, funnelId, funnel: { ownerId } },
+        select: {
+          id: true,
+          slug: true,
+          title: true,
+          editorMode: true,
+          blocksJson: true,
+          customChatJson: true,
+          customHtml: true,
+          funnel: { select: { id: true, slug: true, name: true } },
+        },
+      });
+      if (!page) return { status: 404, json: { ok: false, error: "Not found" } };
+
+      const businessContext = await getBusinessProfileAiContext(ownerId).catch(() => "");
+      const stripeProducts = await getStripeProductsForOwner(ownerId).catch(() => ({ ok: false as const, products: [] as any[] }));
+
+      const intent = detectInteractiveIntent(prompt);
+      if (intent.any) {
+        const bookingCalendars = await getBookingCalendarsConfig(ownerId).catch(() => ({ version: 1 as const, calendars: [] as any[] }));
+        const enabledCalendars = Array.isArray((bookingCalendars as any).calendars)
+          ? (bookingCalendars as any).calendars.filter((c: any) => c && typeof c === "object" && (c as any).enabled !== false)
+          : [];
+        const calendarId = enabledCalendars[0]?.id ? String(enabledCalendars[0].id).trim().slice(0, 50) : "";
+
+        const agentIds = await getOwnerChatAgentIds(ownerId).catch(() => [] as string[]);
+        const chatAgentId = agentIds[0] ? String(agentIds[0]).trim() : "";
+
+        const purchasable = stripeProducts.ok
+          ? (stripeProducts.products as any[]).filter((p) => p && typeof p === "object" && String((p as any).defaultPriceId || "").trim())
+          : [];
+
+        const missingShop = (intent.wantsShop || intent.wantsCart || intent.wantsCheckout) && purchasable.length === 0;
+        const missingCalendar = intent.wantsCalendar && !calendarId;
+        const missingChatbot = intent.wantsChatbot && !chatAgentId;
+
+        if (missingShop || missingCalendar || missingChatbot) {
+          const parts: string[] = [];
+          if (missingShop)
+            parts.push(
+              "I can add a working Shop/Cart/Checkout, but I don't see any Stripe products with default prices yet. Do you want to connect Stripe and add products first?",
+            );
+          if (missingCalendar)
+            parts.push(
+              "I can embed a working booking calendar, but you don't have any booking calendars configured yet. Which calendar should I use (or should I create one in Booking settings first)?",
+            );
+          if (missingChatbot)
+            parts.push(
+              "I can add a working chatbot widget, but I don't see an ElevenLabs chat agent ID for this account yet. What agent ID should I use?",
+            );
+          const question = parts[0] ? parts[0].slice(0, 800) : "Which interactive block should I add (shop, calendar, or chatbot)?";
+
+          const prevChat = Array.isArray(page.customChatJson) ? (page.customChatJson as any[]) : [];
+          const userMsg = { role: "user", content: `${prompt}`, at: new Date().toISOString() };
+          const assistantMsg = { role: "assistant", content: question, at: new Date().toISOString() };
+          const nextChat = [...prevChat, userMsg, assistantMsg].slice(-40);
+
+          const updated = await prisma.creditFunnelPage.update({
+            where: { id: page.id },
+            data: { customChatJson: nextChat },
+            select: {
+              id: true,
+              slug: true,
+              title: true,
+              editorMode: true,
+              blocksJson: true,
+              customHtml: true,
+              customChatJson: true,
+              updatedAt: true,
+            },
+          });
+
+          return { status: 200, json: { ok: true, question, page: updated } };
+        }
+
+        const blocks = buildInteractiveBlocks({
+          funnelName: page.funnel.name,
+          pageTitle: page.title,
+          ownerId,
+          stripeProducts: stripeProducts.ok ? (stripeProducts.products as any) : [],
+          ...(calendarId ? { calendarId } : {}),
+          ...(chatAgentId ? { chatAgentId } : {}),
+          intent,
+        });
+
+        const prevChat = Array.isArray(page.customChatJson) ? (page.customChatJson as any[]) : [];
+        const userMsg = { role: "user", content: `${prompt}`, at: new Date().toISOString() };
+        const assistantMsg = {
+          role: "assistant",
+          content:
+            "Done. I inserted real Funnel Builder blocks for the interactive parts (shop/cart/checkout/calendar/chatbot) so everything works in preview and on the hosted page. I also generated a full Custom code HTML snapshot of the page so you can switch to Custom code and keep the preview.",
+          at: new Date().toISOString(),
+        };
+        const nextChat = [...prevChat, userMsg, assistantMsg].slice(-40);
+
+        const htmlSnapshot = blocksToCustomHtmlDocument({
+          blocks,
+          pageId: page.id,
+          ownerId,
+          basePath,
+          title: page.title || page.funnel.name || "Funnel page",
+        });
+
+        const updated = await prisma.creditFunnelPage.update({
+          where: { id: page.id },
+          data: {
+            editorMode: "BLOCKS",
+            blocksJson: blocks as any,
+            customHtml: htmlSnapshot,
+            customChatJson: nextChat,
+          },
+          select: {
+            id: true,
+            slug: true,
+            title: true,
+            editorMode: true,
+            blocksJson: true,
+            customHtml: true,
+            customChatJson: true,
+            updatedAt: true,
+          },
+        });
+
+        return { status: 200, json: { ok: true, page: updated } };
+      }
+
+      const forms = await prisma.creditForm.findMany({
+        where: { ownerId },
+        orderBy: [{ updatedAt: "desc" }],
+        take: 50,
+        select: { slug: true, name: true, status: true },
+      });
+
+      const baseSystem = [
+        "You generate a single self-contained HTML document for a marketing funnel page for the user's business.",
+        "If the request is ambiguous or missing key details, ask ONE concise follow-up question instead of guessing.",
+        "Return EITHER:",
+        "- A single ```html fenced block containing the full HTML document, OR",
+        "- A single ```json fenced block: { \"question\": \"...\" }",
+        "Do NOT output anything else.",
+        "Constraints:",
+        "- Use plain HTML + inline <style>. No external JS/CSS, no frameworks.",
+        "- Mobile-first, modern, clean styling.",
+        "- Use relative links (no /portal/* links).",
+        "Integration:",
+        `- This page will be hosted at: ${basePath}/f/${page.funnel.slug}`,
+        `- Hosted forms are at: ${basePath}/forms/{formSlug}`,
+        `- Form submissions happen via POST /api/public${basePath}/forms/{formSlug}/submit (handled by our hosted form pages)`,
+        `- If you need a form, link to ${basePath}/forms/{formSlug} with a clear CTA button.`,
+        "Rules:",
+        "- Do not invent form slugs. Only reference a form if the user explicitly asks to embed/link a form, or if they clearly asked for a lead-capture form.",
+        "- If the user asks for a shop/store, use STRIPE_PRODUCTS if available.",
+        "- If STRIPE_PRODUCTS is present, do NOT ask what products they sell.",
+        "- If STRIPE_PRODUCTS is empty and the user asks for a shop/store, ask ONE question: whether they want to connect Stripe or describe their products.",
+        "Available forms (slug: name [status]):",
+        ...forms.map((f) => `- ${f.slug}: ${f.name} [${f.status}]`),
+        "Output rules:",
+        "- Include <meta name=\"viewport\"> and a <title>.",
+        "- Avoid placeholder braces like {{var}} unless asked.",
+      ];
+
+      const effectiveCurrentHtml = (
+        (currentHtmlFromClient && currentHtmlFromClient.trim() ? currentHtmlFromClient : page.customHtml || "")
+      ).trim();
+      const hasCurrentHtml = Boolean(effectiveCurrentHtml);
+
+      const system = [
+        ...baseSystem,
+        hasCurrentHtml
+          ? "Editing mode: You will be given CURRENT_HTML. Apply the user's instruction as a minimal change to CURRENT_HTML. Return the FULL updated HTML document."
+          : "Generation mode: Create a new HTML document from the user's instruction.",
+      ].join("\n");
+
+      const prevChat = Array.isArray(page.customChatJson) ? (page.customChatJson as any[]) : [];
+      const attachmentsBlock = attachments.length
+        ? [
+            "",
+            "ATTACHMENTS:",
+            ...attachments.map((a) => {
+              const name = a.fileName ? ` ${a.fileName}` : "";
+              const mime = a.mimeType ? ` (${a.mimeType})` : "";
+              const url = toAbsoluteUrl(a.url);
+              return `- ${name}${mime}: ${url}`.trim();
+            }),
+            "",
+          ].join("\n")
+        : "";
+
+      const contextBlock = contextKeys.length
+        ? ["", "SELECTED_CONTEXT (use these elements if relevant):", ...contextKeys.map((k) => `- ${k}`), ""].join("\n")
+        : "";
+
+      const contextMediaBlock = contextMedia.length
+        ? [
+            "",
+            "SELECTED_MEDIA (use these assets if relevant):",
+            ...contextMedia.map((m) => {
+              const name = m.fileName ? ` ${m.fileName}` : "";
+              const mime = m.mimeType ? ` (${m.mimeType})` : "";
+              const url = toAbsoluteUrl(m.url);
+              return `- ${name}${mime}: ${url}`.trim();
+            }),
+            "",
+          ].join("\n")
+        : "";
+
+      const stripeProductsBlock = stripeProducts.ok && stripeProducts.products.length
+        ? [
+            "",
+            "STRIPE_PRODUCTS (already connected; do not ask what they sell):",
+            ...stripeProducts.products.slice(0, 60).map((p: any) => {
+              const price = p.defaultPriceId ? ` default_price=${p.defaultPriceId}` : "";
+              const amt = typeof p.unitAmount === "number" ? ` ${p.unitAmount} ${p.currency}` : "";
+              return `- ${p.name} (product=${p.id}${price}${amt})`;
+            }),
+            "",
+          ].join("\n")
+        : "\n\nSTRIPE_PRODUCTS: (none found or Stripe not connected)\n";
+
+      const userMsg = { role: "user", content: `${prompt}`, at: new Date().toISOString() };
+
+      let html = "";
+      let question: string | null = null;
+      try {
+        const currentHtmlBlock = hasCurrentHtml
+          ? ["CURRENT_HTML:", "```html", clampText(effectiveCurrentHtml, 24000), "```", ""].join("\n")
+          : "";
+
+        const imageUrls = [
+          ...attachments.filter((a) => String(a.mimeType || "").toLowerCase().startsWith("image/")).map((a) => toAbsoluteUrl(a.url)),
+          ...contextMedia.filter((m) => String(m.mimeType || "").toLowerCase().startsWith("image/")).map((m) => toAbsoluteUrl(m.url)),
+        ]
+          .filter(Boolean)
+          .slice(0, 8);
+
+        const userText = [
+          businessContext ? businessContext : "",
+          stripeProductsBlock,
+          `Funnel: ${page.funnel.name} (slug: ${page.funnel.slug})`,
+          `Page: ${page.title} (slug: ${page.slug})`,
+          "",
+          currentHtmlBlock,
+          prompt,
+          contextBlock,
+          contextMediaBlock,
+          attachmentsBlock,
+        ].join("\n");
+
+        const aiRaw = imageUrls.length
+          ? await generateTextWithImages({ system, user: userText, imageUrls })
+          : await generateText({ system, user: userText });
+
+        question = extractAiQuestion(aiRaw);
+        if (!question) {
+          html = extractHtml(aiRaw);
+        }
+      } catch (e) {
+        return {
+          status: 500,
+          json: { ok: false, error: (e as any)?.message ? String((e as any).message) : "AI generation failed" },
+        };
+      }
+
+      if (question) {
+        const assistantMsg = { role: "assistant", content: question, at: new Date().toISOString() };
+        const nextChat = [...prevChat, userMsg, assistantMsg].slice(-40);
+
+        const updated = await prisma.creditFunnelPage.update({
+          where: { id: page.id },
+          data: { editorMode: "CUSTOM_HTML", customChatJson: nextChat },
+          select: {
+            id: true,
+            slug: true,
+            title: true,
+            editorMode: true,
+            customHtml: true,
+            customChatJson: true,
+            updatedAt: true,
+          },
+        });
+
+        return { status: 200, json: { ok: true, question, page: updated } };
+      }
+
+      if (!html) return { status: 502, json: { ok: false, error: "AI returned empty HTML" } };
+
+      html = normalizePortalHostedPaths(html);
+
+      if (!/<!doctype\s+html|<html\b/i.test(html)) {
+        html = [
+          "<!doctype html>",
+          "<html>",
+          "<head>",
+          "  <meta charset=\"utf-8\" />",
+          "  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />",
+          "  <title>AI Output</title>",
+          "  <style>body{font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial; padding:24px} pre{white-space:pre-wrap; word-break:break-word}</style>",
+          "</head>",
+          "<body>",
+          `  <pre>${escapeHtml(html)}</pre>`,
+          "</body>",
+          "</html>",
+        ].join("\n");
+      }
+
+      const assistantMsg = { role: "assistant", content: pickRandom(PAGE_UPDATED_VARIANTS), at: new Date().toISOString() };
+      const nextChat = [...prevChat, userMsg, assistantMsg].slice(-40);
+
+      const updated = await prisma.creditFunnelPage.update({
+        where: { id: page.id },
+        data: { editorMode: "CUSTOM_HTML", customHtml: normalizePortalHostedPaths(html), customChatJson: nextChat },
+        select: {
+          id: true,
+          slug: true,
+          title: true,
+          editorMode: true,
+          customHtml: true,
+          customChatJson: true,
+          updatedAt: true,
+        },
+      });
+
+      return { status: 200, json: { ok: true, html: updated.customHtml, page: updated } };
+    }
+
+    case "funnel_builder.custom_code_block.generate": {
+      if (!(await requireOwnerOrAdmin())) return { status: 403, json: { ok: false, error: "Forbidden" } };
+
+      const funnelId = String(args?.funnelId || "").trim();
+      const pageId = String(args?.pageId || "").trim();
+      const prompt = typeof args?.prompt === "string" ? args.prompt.trim() : "";
+      if (!funnelId || !pageId) return { status: 400, json: { ok: false, error: "Invalid request" } };
+      if (!prompt) return { status: 400, json: { ok: false, error: "Invalid request" } };
+
+      const owner = await prisma.user.findUnique({ where: { id: ownerId }, select: { clientPortalVariant: true } }).catch(() => null);
+      const hostedBasePath = owner?.clientPortalVariant === "CREDIT" ? "/credit" : "";
+
+      const page = await prisma.creditFunnelPage.findFirst({
+        where: { id: pageId, funnelId, funnel: { ownerId } },
+        select: { id: true, slug: true, title: true, funnel: { select: { id: true, slug: true, name: true } } },
+      });
+      if (!page) return { status: 404, json: { ok: false, error: "Not found" } };
+
+      const businessContext = await getBusinessProfileAiContext(ownerId).catch(() => "");
+
+      const forms = await prisma.creditForm.findMany({
+        where: { ownerId },
+        orderBy: [{ updatedAt: "desc" }],
+        take: 50,
+        select: { slug: true, name: true, status: true },
+      });
+
+      const calendarsConfig = await getBookingCalendarsConfig(ownerId).catch(() => ({ version: 1 as const, calendars: [] }));
+      const calendars =
+        (calendarsConfig as any)?.calendars && Array.isArray((calendarsConfig as any).calendars)
+          ? ((calendarsConfig as any).calendars as Array<{ id: string; enabled: boolean; title: string }>)
+          : ([] as Array<{ id: string; enabled: boolean; title: string }>);
+
+      type StripePrice = {
+        id: string;
+        unit_amount: number | null;
+        currency: string;
+        type?: string;
+        recurring?: unknown;
+      };
+
+      type StripeProduct = {
+        id: string;
+        name: string;
+        description: string | null;
+        images: string[];
+        active: boolean;
+        default_price?: StripePrice | string | null;
+      };
+
+      type StripeList<T> = { data: T[] };
+
+      async function getStripeProductsForOwner(ownerId: string) {
+        const secretKey = await getStripeSecretKeyForOwner(ownerId).catch(() => null);
+        if (!secretKey) {
+          return {
+            ok: false as const,
+            products: [] as Array<{
+              id: string;
+              name: string;
+              description: string | null;
+              images: string[];
+              defaultPriceId: string;
+              unitAmount: number | null;
+              currency: string;
+            }>,
+          };
+        }
+
+        const list = await stripeGetWithKey<StripeList<StripeProduct>>(secretKey, "/v1/products", {
+          limit: 100,
+          active: true,
+          "expand[]": ["data.default_price"],
+        }).catch(() => null);
+
+        const products = Array.isArray(list?.data)
+          ? list!.data
+              .filter((p) => p && typeof p === "object" && (p as any).active)
+              .map((p) => {
+                const dp = p.default_price && typeof p.default_price === "object" ? (p.default_price as StripePrice) : null;
+                return {
+                  id: String(p.id || "").trim(),
+                  name: String(p.name || "").trim(),
+                  description: p.description ? String(p.description) : null,
+                  images: Array.isArray(p.images) ? p.images.map((s) => String(s)).filter(Boolean).slice(0, 4) : [],
+                  defaultPriceId: dp?.id ? String(dp.id).trim() : "",
+                  unitAmount: typeof dp?.unit_amount === "number" ? dp.unit_amount : null,
+                  currency: String(dp?.currency || "usd").toLowerCase() || "usd",
+                };
+              })
+              .filter((p) => p.id && p.name)
+          : [];
+
+        return { ok: true as const, products };
+      }
+
+      const stripeProducts = await getStripeProductsForOwner(ownerId).catch(() => ({ ok: false as const, products: [] as any[] }));
+
+      const currentHtml = typeof args?.currentHtml === "string" ? String(args.currentHtml) : "";
+      const currentCss = typeof args?.currentCss === "string" ? String(args.currentCss) : "";
+
+      const contextKeys = Array.isArray(args?.contextKeys)
+        ? (args.contextKeys as unknown[])
+            .map((v) => (typeof v === "string" ? v.trim().slice(0, 80) : ""))
+            .filter(Boolean)
+            .slice(0, 30)
+        : [];
+
+      type ContextMediaItem = { url: string; fileName?: string; mimeType?: string };
+      const contextMedia: ContextMediaItem[] = (() => {
+        if (!Array.isArray(args?.contextMedia)) return [];
+        const out: ContextMediaItem[] = [];
+        for (const it of args.contextMedia as unknown[]) {
+          if (!it || typeof it !== "object") continue;
+          const url = typeof (it as any).url === "string" ? String((it as any).url).trim().slice(0, 800) : "";
+          if (!url) continue;
+          const fileName =
+            typeof (it as any).fileName === "string" ? String((it as any).fileName).trim().slice(0, 200) : undefined;
+          const mimeType =
+            typeof (it as any).mimeType === "string" ? String((it as any).mimeType).trim().slice(0, 120) : undefined;
+          out.push({ url, fileName, mimeType });
+          if (out.length >= 24) break;
+        }
+        return out;
+      })();
+
+      function clampText(s: string, maxLen: number) {
+        const text = String(s || "");
+        if (text.length <= maxLen) return text;
+        return text.slice(0, maxLen) + "\n/* truncated */";
+      }
+
+      function extractFence(text: string, lang: string): string {
+        const re = new RegExp("```" + lang + "\\s*([\\s\\S]*?)\\s*```", "i");
+        const m = String(text || "").match(re);
+        return m?.[1] ? m[1].trim() : "";
+      }
+
+      function extractInlineStyleTags(html: string): { html: string; css: string } {
+        const h = String(html || "");
+        if (!h.trim()) return { html: "", css: "" };
+
+        const cssParts: string[] = [];
+        const nextHtml = h.replace(/<style[^>]*>([\s\S]*?)<\/style>/gi, (_, css: string) => {
+          const c = String(css || "").trim();
+          if (c) cssParts.push(c);
+          return "";
+        });
+
+        return { html: nextHtml.trim(), css: cssParts.join("\n\n").trim() };
+      }
+
+      function coerceHtmlFragment(html: string): { html: string; cssFromHtml: string } {
+        const raw = String(html || "").trim();
+        if (!raw) return { html: "", cssFromHtml: "" };
+
+        const { html: withoutStyles, css } = extractInlineStyleTags(raw);
+        const h = withoutStyles.trim();
+
+        if (!/(<!doctype\b|<html\b|<head\b|<body\b)/i.test(h)) {
+          return { html: h, cssFromHtml: css };
+        }
+
+        const bodyMatch = h.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
+        const inner = (bodyMatch?.[1] ?? h)
+          .replace(/^\s*<!doctype[^>]*>\s*/i, "")
+          .replace(/<head[\s\S]*?<\/head>/i, "")
+          .replace(/<\/?html[^>]*>/gi, "")
+          .replace(/<\/?body[^>]*>/gi, "")
+          .trim();
+
+        return { html: inner, cssFromHtml: css };
+      }
+
+      function hasPlaceholderOrPortalLinks(html: string, css: string) {
+        const blob = `${String(html || "")}\n${String(css || "")}`;
+        const lower = blob.toLowerCase();
+        if (!lower.trim()) return false;
+
+        if (/\byour_[a-z0-9_\-]+_here\b/i.test(blob)) return true;
+        if (/\byour_[a-z0-9_\-]+_link_here\b/i.test(blob)) return true;
+        if (lower.includes("your_calendar_embed_link_here")) return true;
+        if (lower.includes("your_chatbot_link_here")) return true;
+        if (lower.includes("/portal/")) return true;
+
+        return false;
+      }
+
+      function pickDefaultFormSlug(forms: Array<{ slug: string; name: string; status: string }>): string {
+        const active = forms.find((f) => String(f.status).toUpperCase() === "ACTIVE");
+        return (active ?? forms[0])?.slug ?? "";
+      }
+
+      function pickDefaultCalendarId(calendars: Array<{ id: string; enabled: boolean; title: string }>): string {
+        const enabled = calendars.find((c) => c.enabled);
+        return (enabled ?? calendars[0])?.id ?? "";
+      }
+
+      function inferForcedActionsFromIntent(opts: {
+        prompt: string;
+        html: string;
+        forms: Array<{ slug: string; name: string; status: string }>;
+        calendars: Array<{ id: string; enabled: boolean; title: string }>;
+        hasStripeProducts: boolean;
+      }) {
+        const prompt = String(opts.prompt || "");
+        const html = String(opts.html || "");
+        const haystack = `${prompt}\n${html}`.toLowerCase();
+
+        const wantsCalendar =
+          /\b(calendar|booking|book\b|schedule|appointment|appoint)\b/i.test(haystack) ||
+          haystack.includes("your_calendar_embed_link_here");
+        const wantsForm =
+          /\b(form|application|apply\b|intake|questionnaire|survey)\b/i.test(haystack) ||
+          haystack.includes("/forms/") ||
+          haystack.includes("/portal/forms/");
+        const wantsChatbot =
+          /\b(chatbot|chat widget|live chat|ai chat)\b/i.test(haystack) || haystack.includes("your_chatbot_link_here");
+
+        const wantsShop =
+          /\b(add to cart|cart\b|checkout\b|buy now|purchase\b|stripe\b|shop\b|store\b)\b/i.test(haystack) &&
+          (opts.hasStripeProducts || /\b(stripe|checkout|add to cart|cart)\b/i.test(haystack));
+
+        const actions: Array<any> = [];
+
+        if (wantsShop) {
+          actions.push({ type: "insertPresetAfter", preset: "shop" });
+        }
+
+        if (wantsForm) {
+          const formSlug = pickDefaultFormSlug(opts.forms);
+          if (formSlug) actions.push({ type: "insertAfter", block: { type: "formEmbed", props: { formSlug, height: 720 } } });
+        }
+
+        if (wantsCalendar) {
+          const calendarId = pickDefaultCalendarId(opts.calendars);
+          if (calendarId) actions.push({ type: "insertAfter", block: { type: "calendarEmbed", props: { calendarId, height: 780 } } });
+        }
+
+        if (wantsChatbot) {
+          actions.push({ type: "insertAfter", block: { type: "chatbot", props: {} } });
+        }
+
+        return actions.length ? actions.slice(0, 6) : null;
+      }
+
+      function resolveFormSlug(pick: { pick: "default" | "bySlug" | "byName"; value?: string }, forms: Array<{ slug: string; name: string; status: string }>): string {
+        const fallback = pickDefaultFormSlug(forms);
+        if (!forms.length) return "";
+        if (pick.pick === "default") return fallback;
+        const value = (pick.value ?? "").trim();
+        if (!value) return fallback;
+        if (pick.pick === "bySlug") {
+          const found = forms.find((f) => f.slug.toLowerCase() === value.toLowerCase());
+          return found?.slug ?? fallback;
+        }
+        const needle = value.toLowerCase();
+        const found = forms.find((f) => (f.name ?? "").toLowerCase() === needle);
+        if (found) return found.slug;
+        const fuzzy = forms.find((f) => (f.name ?? "").toLowerCase().includes(needle));
+        return fuzzy?.slug ?? fallback;
+      }
+
+      function resolveCalendarId(
+        pick: { pick: "default" | "byId" | "byTitle"; value?: string },
+        calendars: Array<{ id: string; enabled: boolean; title: string }>,
+      ): string {
+        const fallback = pickDefaultCalendarId(calendars);
+        if (!calendars.length) return "";
+        if (pick.pick === "default") return fallback;
+        const value = (pick.value ?? "").trim();
+        if (!value) return fallback;
+        if (pick.pick === "byId") {
+          const found = calendars.find((c) => c.id.toLowerCase() === value.toLowerCase());
+          return found?.id ?? fallback;
+        }
+        const needle = value.toLowerCase();
+        const found = calendars.find((c) => (c.title ?? "").toLowerCase() === needle);
+        if (found) return found.id;
+        const fuzzy = calendars.find((c) => (c.title ?? "").toLowerCase().includes(needle));
+        return fuzzy?.id ?? fallback;
+      }
+
+      const blockStyleSchema = z
+        .object({
+          textColor: z.string().trim().max(40).optional(),
+          backgroundColor: z.string().trim().max(40).optional(),
+          backgroundImageUrl: z.string().trim().max(500).optional(),
+          fontSizePx: z.number().finite().min(8).max(96).optional(),
+          fontFamily: z.string().trim().max(120).optional(),
+          fontGoogleFamily: z.string().trim().max(120).optional(),
+          align: z.enum(["left", "center", "right"]).optional(),
+          marginTopPx: z.number().finite().min(0).max(240).optional(),
+          marginBottomPx: z.number().finite().min(0).max(240).optional(),
+          paddingPx: z.number().finite().min(0).max(240).optional(),
+          borderRadiusPx: z.number().finite().min(0).max(160).optional(),
+          borderColor: z.string().trim().max(40).optional(),
+          borderWidthPx: z.number().finite().min(0).max(24).optional(),
+          maxWidthPx: z.number().finite().min(120).max(1400).optional(),
+        })
+        .strip();
+
+      const chatbotBlockSchema = z
+        .object({
+          type: z.literal("chatbot"),
+          props: z
+            .object({
+              agentId: z.string().trim().max(120).optional(),
+              primaryColor: z.string().trim().max(40).optional(),
+              launcherStyle: z.enum(["bubble", "dots", "spark"]).optional(),
+              launcherImageUrl: z.string().trim().max(500).optional(),
+              placementX: z.enum(["left", "center", "right"]).optional(),
+              placementY: z.enum(["top", "middle", "bottom"]).optional(),
+              style: blockStyleSchema.optional(),
+            })
+            .strip(),
+        })
+        .strip();
+
+      const imageBlockSchema = z
+        .object({
+          type: z.literal("image"),
+          props: z
+            .object({
+              src: z.string().trim().max(800),
+              alt: z.string().trim().max(200).optional(),
+              style: blockStyleSchema.optional(),
+            })
+            .strip(),
+        })
+        .strip();
+
+      const headingBlockSchema = z
+        .object({
+          type: z.literal("heading"),
+          props: z
+            .object({
+              text: z.string().trim().min(1).max(240),
+              level: z.union([z.literal(1), z.literal(2), z.literal(3)]).optional(),
+              style: blockStyleSchema.optional(),
+            })
+            .strip(),
+        })
+        .strip();
+
+      const paragraphBlockSchema = z
+        .object({
+          type: z.literal("paragraph"),
+          props: z
+            .object({
+              text: z.string().trim().min(1).max(2000),
+              style: blockStyleSchema.optional(),
+            })
+            .strip(),
+        })
+        .strip();
+
+      const buttonBlockSchema = z
+        .object({
+          type: z.literal("button"),
+          props: z
+            .object({
+              text: z.string().trim().min(1).max(120),
+              href: z.string().trim().min(1).max(600),
+              variant: z.enum(["primary", "secondary"]).optional(),
+              style: blockStyleSchema.optional(),
+            })
+            .strip(),
+        })
+        .strip();
+
+      const spacerBlockSchema = z
+        .object({
+          type: z.literal("spacer"),
+          props: z
+            .object({
+              height: z.number().finite().min(0).max(240).optional(),
+              style: blockStyleSchema.optional(),
+            })
+            .strip(),
+        })
+        .strip();
+
+      const formLinkBlockSchema = z
+        .object({
+          type: z.literal("formLink"),
+          props: z
+            .object({
+              formSlug: z.string().trim().min(1).max(120),
+              text: z.string().trim().max(120).optional(),
+              style: blockStyleSchema.optional(),
+            })
+            .strip(),
+        })
+        .strip();
+
+      const formEmbedBlockSchema = z
+        .object({
+          type: z.literal("formEmbed"),
+          props: z
+            .object({
+              formSlug: z.string().trim().min(1).max(120),
+              height: z.number().finite().min(120).max(1600).optional(),
+              style: blockStyleSchema.optional(),
+            })
+            .strip(),
+        })
+        .strip();
+
+      const calendarEmbedBlockSchema = z
+        .object({
+          type: z.literal("calendarEmbed"),
+          props: z
+            .object({
+              calendarId: z.string().trim().min(1).max(120),
+              height: z.number().finite().min(120).max(1600).optional(),
+              style: blockStyleSchema.optional(),
+            })
+            .strip(),
+        })
+        .strip();
+
+      const salesCheckoutButtonBlockSchema = z
+        .object({
+          type: z.literal("salesCheckoutButton"),
+          props: z
+            .object({
+              priceId: z.string().trim().max(140).optional().default(""),
+              quantity: z.number().finite().min(1).max(20).optional(),
+              text: z.string().trim().max(120).optional(),
+              style: blockStyleSchema.optional(),
+            })
+            .strip(),
+        })
+        .strip();
+
+      const aiInsertableBlockSchema = z.discriminatedUnion("type", [
+        chatbotBlockSchema,
+        imageBlockSchema,
+        headingBlockSchema,
+        paragraphBlockSchema,
+        buttonBlockSchema,
+        spacerBlockSchema,
+        formLinkBlockSchema,
+        formEmbedBlockSchema,
+        calendarEmbedBlockSchema,
+        salesCheckoutButtonBlockSchema,
+      ]);
+
+      const presetKeySchema = z.enum(["hero", "body", "form", "shop"]);
+
+      const aiInsertAfterActionSchema = z.object({ type: z.literal("insertAfter"), block: aiInsertableBlockSchema }).strip();
+      const aiInsertPresetAfterActionSchema = z.object({ type: z.literal("insertPresetAfter"), preset: presetKeySchema }).strip();
+      const aiActionSchema = z.union([aiInsertAfterActionSchema, aiInsertPresetAfterActionSchema]);
+      const aiActionsPayloadSchema = z.object({ actions: z.array(aiActionSchema).min(1).max(6) }).strip();
+
+      const aiFormPickSchema = z
+        .object({
+          pick: z.enum(["default", "bySlug", "byName"]),
+          value: z.string().trim().max(120).optional(),
+        })
+        .strip();
+
+      const aiCalendarPickSchema = z
+        .object({
+          pick: z.enum(["default", "byId", "byTitle"]),
+          value: z.string().trim().max(120).optional(),
+        })
+        .strip();
+
+      const aiAnalysisFormLinkBlockSchema = z
+        .object({
+          type: z.literal("formLink"),
+          props: z
+            .object({
+              form: aiFormPickSchema,
+              text: z.string().trim().max(120).optional(),
+              style: blockStyleSchema.optional(),
+            })
+            .strip(),
+        })
+        .strip();
+
+      const aiAnalysisFormEmbedBlockSchema = z
+        .object({
+          type: z.literal("formEmbed"),
+          props: z
+            .object({
+              form: aiFormPickSchema,
+              height: z.number().finite().min(120).max(1600).optional(),
+              style: blockStyleSchema.optional(),
+            })
+            .strip(),
+        })
+        .strip();
+
+      const aiAnalysisCalendarEmbedBlockSchema = z
+        .object({
+          type: z.literal("calendarEmbed"),
+          props: z
+            .object({
+              calendar: aiCalendarPickSchema,
+              height: z.number().finite().min(120).max(1600).optional(),
+              style: blockStyleSchema.optional(),
+            })
+            .strip(),
+        })
+        .strip();
+
+      const aiAnalysisInsertableBlockSchema = z.discriminatedUnion("type", [
+        chatbotBlockSchema,
+        imageBlockSchema,
+        headingBlockSchema,
+        paragraphBlockSchema,
+        buttonBlockSchema,
+        spacerBlockSchema,
+        aiAnalysisFormLinkBlockSchema,
+        aiAnalysisFormEmbedBlockSchema,
+        aiAnalysisCalendarEmbedBlockSchema,
+        salesCheckoutButtonBlockSchema,
+      ]);
+
+      const aiAnalysisInsertAfterActionSchema = z.object({ type: z.literal("insertAfter"), block: aiAnalysisInsertableBlockSchema }).strip();
+      const aiAnalysisInsertPresetAfterActionSchema = z
+        .object({ type: z.literal("insertPresetAfter"), preset: presetKeySchema })
+        .strip();
+      const aiAnalysisActionSchema = z.union([aiAnalysisInsertAfterActionSchema, aiAnalysisInsertPresetAfterActionSchema]);
+      const aiAnalysisPayloadSchema = z
+        .object({
+          output: z.enum(["actions", "html", "question"]),
+          actions: z.array(aiAnalysisActionSchema).min(1).max(6).optional(),
+          buildPrompt: z.string().trim().min(1).max(4000).optional(),
+          question: z.string().trim().min(1).max(800).optional(),
+        })
+        .strip();
+
+      const contextBlock = contextKeys.length
+        ? [
+            "",
+            "SELECTED_CONTEXT (prefer these building blocks/presets when relevant):",
+            ...contextKeys.map((k) => `- ${k}`),
+            "",
+          ].join("\n")
+        : "";
+
+      const contextMediaBlock = contextMedia.length
+        ? [
+            "",
+            "SELECTED_MEDIA (use these assets if relevant):",
+            ...contextMedia.map((m) => {
+              const name = m.fileName ? ` ${m.fileName}` : "";
+              const mime = m.mimeType ? ` (${m.mimeType})` : "";
+              return `- ${name}${mime}: ${String(m.url || "").trim()}`.trim();
+            }),
+            "",
+          ].join("\n")
+        : "";
+
+      const stripeProductsBlock = stripeProducts.ok && stripeProducts.products.length
+        ? [
+            "",
+            "STRIPE_PRODUCTS (already connected; do not ask what they sell):",
+            ...stripeProducts.products.slice(0, 60).map((p: any) => {
+              const price = p.defaultPriceId ? ` default_price=${p.defaultPriceId}` : "";
+              const amt = typeof p.unitAmount === "number" ? ` ${p.unitAmount} ${p.currency}` : "";
+              return `- ${p.name} (product=${p.id}${price}${amt})`;
+            }),
+            "",
+          ].join("\n")
+        : "\n\nSTRIPE_PRODUCTS: (none found or Stripe not connected)\n";
+
+      const hasCurrent = Boolean(currentHtml.trim() || currentCss.trim());
+
+      const buildSystem = [
+        "You generate HTML + CSS for a *custom code block* inside a funnel page.",
+        "If the request is ambiguous or missing key details, ask ONE concise follow-up question instead of guessing.",
+        "Return ONLY code fences, no explanation.",
+        "Output options (choose ONE):",
+        "A) HTML/CSS (default):",
+        "- A single ```html fenced block containing an HTML fragment (no <html>, no <head>).",
+        "- Optionally a ```css fenced block for styles used by that fragment.",
+        "OR",
+        "C) Clarifying question:",
+        "- A single ```json fenced block: { \"question\": \"...\" }",
+        "B) Funnel blocks (when the request is better represented as built-in blocks like chatbot or images):",
+        "- A single ```json fenced block with shape: { actions: [...] }",
+        "- Action types:",
+        "  - { type: 'insertAfter', block: { type, props } }",
+        "  - { type: 'insertPresetAfter', preset: 'hero'|'body'|'form'|'shop' }",
+        "- Allowed block types for insertAfter: chatbot, image, heading, paragraph, button, spacer, formLink, formEmbed, calendarEmbed, salesCheckoutButton.",
+        "- Do NOT include HTML/CSS fences when you return JSON actions.",
+        "Constraints:",
+        "- No external JS/CSS, no frameworks.",
+        "- Prefer semantic HTML and classes; keep it minimal.",
+        "- Make it safe to embed inside an existing page.",
+        "- Do NOT output placeholder URLs (e.g. 'your_calendar_embed_link_here'). If you don't have a real URL, ask a question or return JSON actions.",
+        "- Do NOT link to /portal/* routes. Those do not exist on hosted funnels.",
+        "- Links should be relative and keep the user on the hosted funnel site.",
+        "Integration:",
+        `- This page is hosted at: ${hostedBasePath}/f/${page.funnel.slug}`,
+        `- Hosted forms are at: ${hostedBasePath}/forms/{formSlug}`,
+        "- For booking/scheduling: prefer returning a calendarEmbed block rather than hardcoding a booking URL.",
+        "- If the user asks for a shop/store/product list, prefer insertPresetAfter with preset='shop'.",
+        "- If STRIPE_PRODUCTS are provided, assume Stripe is connected and avoid asking 'what do you sell?'.",
+        "Available forms (slug: name [status]):",
+        ...forms.map((f) => `- ${f.slug}: ${f.name} [${f.status}]`),
+        "Available calendars (id: title [enabled]):",
+        ...calendars.map((c) => `- ${c.id}: ${c.title} [${c.enabled ? "enabled" : "disabled"}]`),
+        hasCurrent
+          ? "Editing mode: you will receive CURRENT_HTML and CURRENT_CSS. Apply the user's instruction as a minimal change and return the full updated fragment + CSS."
+          : "Generation mode: create a new fragment + CSS from the user's instruction.",
+      ].join("\n");
+
+      const analysisSystem = [
+        "You are an intent + asset selector for a funnel builder custom code assistant.",
+        "Return ONLY a single ```json fenced block, no other text.",
+        "Your job: decide whether to return structured funnel block actions or request an HTML/CSS build.",
+        "Output schema:",
+        "{",
+        "  output: 'actions' | 'html' | 'question',",
+        "  actions?: [",
+        "    { type: 'insertAfter', block: { type, props } },",
+        "    { type: 'insertPresetAfter', preset: 'hero'|'body'|'form'|'shop' }",
+        "  ],",
+        "  buildPrompt?: string,",
+        "  question?: string",
+        "}",
+        "Rules:",
+        "- If user says 'embed my calendar' or anything about booking/scheduling, prefer output='actions' with a calendarEmbed block.",
+        "- If user says 'embed my form' or anything about forms, prefer output='actions' with a formEmbed (or formLink if they want a link).",
+        "- If user asks for a chatbot/chat widget, prefer output='actions' with a chatbot block.",
+        "- If user asks for a shop/store/product list, prefer output='actions' with an insertPresetAfter preset='shop'.",
+        "- If user mentions cart/checkout/add-to-cart/Stripe, prefer output='actions' with preset='shop' (do NOT generate a fake shop in HTML).",
+        "- For calendarEmbed, props must include { calendar: { pick: 'default'|'byId'|'byTitle', value? }, height?, style? }.",
+        "- For formEmbed/formLink, props must include { form: { pick: 'default'|'bySlug'|'byName', value? }, ... }.",
+        "- Use pick='default' for 'my calendar'/'my form' when no specific name/slug is provided.",
+        "- For other block types, follow the normal props shapes.",
+        "- If output='html', set buildPrompt to a concise instruction for the HTML/CSS generator.",
+        "- If key info is missing, output='question' and ask ONE question.",
+        "- IMPORTANT: If STRIPE_PRODUCTS are present, do NOT ask what they sell. At most ask which products to feature (if needed).",
+        "Context:",
+        `- Funnel page host path: ${hostedBasePath}/f/${page.funnel.slug}`,
+        "Available forms (slug: name [status]):",
+        ...forms.map((f) => `- ${f.slug}: ${f.name} [${f.status}]`),
+        "Available calendars (id: title [enabled]):",
+        ...calendars.map((c) => `- ${c.id}: ${c.title} [${c.enabled ? "enabled" : "disabled"}]`),
+      ].join("\n");
+
+      const baseUser = [
+        businessContext ? businessContext : "",
+        stripeProductsBlock,
+        `Funnel: ${page.funnel.name} (slug: ${page.funnel.slug})`,
+        `Page: ${page.title} (slug: ${page.slug})`,
+        "",
+        contextBlock,
+        contextMediaBlock,
+        hasCurrent
+          ? [
+              "CURRENT_HTML:",
+              "```html",
+              clampText(currentHtml, 20000),
+              "```",
+              "",
+              "CURRENT_CSS:",
+              "```css",
+              clampText(currentCss, 20000),
+              "```",
+              "",
+            ].join("\n")
+          : "",
+        prompt,
+      ]
+        .filter(Boolean)
+        .join("\n");
+
+      let analysisRaw = "";
+      try {
+        analysisRaw = await generateText({ system: analysisSystem, user: baseUser });
+      } catch {
+        analysisRaw = "";
+      }
+
+      const analysisJsonFence = extractFence(analysisRaw, "json");
+      const analysisParsed = analysisJsonFence.trim()
+        ? aiAnalysisPayloadSchema.safeParse((() => {
+            try {
+              return JSON.parse(analysisJsonFence) as unknown;
+            } catch {
+              return null;
+            }
+          })())
+        : { success: false as const };
+
+      if (analysisParsed.success && analysisParsed.data.output === "question") {
+        const q = (analysisParsed.data.question || "").trim();
+        if (q) return { status: 200, json: { ok: true, question: q.slice(0, 800) } };
+      }
+
+      if (analysisParsed.success && analysisParsed.data.output === "actions" && analysisParsed.data.actions?.length) {
+        const resolvedActions = analysisParsed.data.actions
+          .map((a) => {
+            if (a.type === "insertPresetAfter") return a;
+            const block = a.block as any;
+            if (block.type === "formLink" || block.type === "formEmbed") {
+              const formSlug = resolveFormSlug(block.props.form, forms);
+              const nextProps = { ...block.props };
+              delete (nextProps as any).form;
+              (nextProps as any).formSlug = formSlug;
+              return { type: "insertAfter" as const, block: { type: block.type, props: nextProps } };
+            }
+            if (block.type === "calendarEmbed") {
+              const calendarId = resolveCalendarId(block.props.calendar, calendars);
+              const nextProps = { ...block.props };
+              delete (nextProps as any).calendar;
+              (nextProps as any).calendarId = calendarId;
+              return { type: "insertAfter" as const, block: { type: block.type, props: nextProps } };
+            }
+            return a as any;
+          })
+          .filter(Boolean);
+
+        const validated = aiActionsPayloadSchema.safeParse({ actions: resolvedActions });
+        if (validated.success) {
+          return { status: 200, json: { ok: true, actions: validated.data.actions } };
+        }
+      }
+
+      const buildPrompt =
+        analysisParsed.success && analysisParsed.data.output === "html" && analysisParsed.data.buildPrompt ? analysisParsed.data.buildPrompt : prompt;
+
+      const buildUser = [baseUser, "", "BUILD_INSTRUCTION:", buildPrompt].filter(Boolean).join("\n");
+
+      const imageUrls = Array.from(new Set(contextMedia.map((m) => String(m?.url || "").trim()).filter(Boolean).slice(0, 8))).slice(0, 6);
+
+      let buildRaw = "";
+      try {
+        buildRaw = imageUrls.length
+          ? await generateTextWithImages({ system: buildSystem, user: buildUser, imageUrls })
+          : await generateText({ system: buildSystem, user: buildUser });
+      } catch (e) {
+        return {
+          status: 500,
+          json: { ok: false, error: (e as any)?.message ? String((e as any).message) : "AI generation failed" },
+        };
+      }
+
+      const buildQuestion = (() => {
+        const qFence = extractFence(buildRaw, "json");
+        if (!qFence.trim()) return "";
+        try {
+          const parsed = JSON.parse(qFence) as any;
+          return typeof parsed?.question === "string" ? String(parsed.question).trim().slice(0, 800) : "";
+        } catch {
+          return "";
+        }
+      })();
+
+      if (buildQuestion) return { status: 200, json: { ok: true, question: buildQuestion } };
+
+      const buildJsonFence = extractFence(buildRaw, "json");
+      if (buildJsonFence.trim()) {
+        try {
+          const payload = JSON.parse(buildJsonFence) as unknown;
+          const parsedActions = aiActionsPayloadSchema.safeParse(payload);
+          if (parsedActions.success) return { status: 200, json: { ok: true, actions: parsedActions.data.actions } };
+        } catch {
+          // ignore
+        }
+      }
+
+      const rawHtmlFence = extractFence(buildRaw, "html");
+      const rawCssFence = extractFence(buildRaw, "css");
+      const coerced = coerceHtmlFragment(rawHtmlFence);
+      const html = coerced.html;
+      const css = [rawCssFence, coerced.cssFromHtml].filter(Boolean).join("\n\n").trim();
+
+      if (!html.trim()) return { status: 502, json: { ok: false, error: "AI returned empty HTML" } };
+
+      const intentHaystack = `${prompt}\n${html}\n${css}`;
+      const shouldForceActions =
+        hasPlaceholderOrPortalLinks(html, css) ||
+        /\b(chatbot|calendar|booking|schedule|form|cart|checkout|add to cart|stripe|shop|store)\b/i.test(intentHaystack);
+
+      if (shouldForceActions) {
+        const forced = inferForcedActionsFromIntent({
+          prompt,
+          html,
+          forms,
+          calendars,
+          hasStripeProducts: Boolean(stripeProducts.ok && stripeProducts.products.length),
+        });
+
+        if (forced?.length) {
+          const validated = aiActionsPayloadSchema.safeParse({ actions: forced });
+          if (validated.success) return { status: 200, json: { ok: true, actions: validated.data.actions } };
+        }
+
+        return {
+          status: 200,
+          json: {
+            ok: true,
+            question: "I can insert a proper Form/Calendar/Chatbot/Shop block (recommended) instead of custom HTML. Which one do you want here?",
+          },
+        };
+      }
+
+      return { status: 200, json: { ok: true, html, css } };
     }
 
     case "funnel_builder.pages.global_header": {

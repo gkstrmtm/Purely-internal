@@ -280,6 +280,7 @@ const ACTION_COVERAGE = [
   { action: "funnel_builder.domains.list", method: "GET", endpoint: "/api/portal/funnel-builder/domains" },
   { action: "funnel_builder.domains.create", method: "POST", endpoint: "/api/portal/funnel-builder/domains" },
   { action: "funnel_builder.domains.update", method: "PATCH", endpoint: "/api/portal/funnel-builder/domains" },
+  { action: "funnel_builder.domains.verify", method: "POST", endpoint: "/api/portal/funnel-builder/domains/[domainId]/verify" },
 
   { action: "funnel_builder.forms.list", method: "GET", endpoint: "/api/portal/funnel-builder/forms" },
   { action: "funnel_builder.forms.create", method: "POST", endpoint: "/api/portal/funnel-builder/forms" },
@@ -290,9 +291,12 @@ const ACTION_COVERAGE = [
   { action: "funnel_builder.form_field_keys.get", method: "GET", endpoint: "/api/portal/funnel-builder/form-field-keys" },
 
   { action: "funnel_builder.funnels.list", method: "GET", endpoint: "/api/portal/funnel-builder/funnels" },
+  { action: "funnel.create", method: "POST", endpoint: "/api/portal/funnel-builder/funnels" },
   { action: "funnel_builder.funnels.get", method: "GET", endpoint: "/api/portal/funnel-builder/funnels/[funnelId]" },
   { action: "funnel_builder.funnels.update", method: "PATCH", endpoint: "/api/portal/funnel-builder/funnels/[funnelId]" },
   { action: "funnel_builder.funnels.delete", method: "DELETE", endpoint: "/api/portal/funnel-builder/funnels/[funnelId]" },
+
+  { action: "funnel_builder.custom_code_block.generate", method: "POST", endpoint: "/api/portal/funnel-builder/custom-code-block/generate" },
 
   { action: "funnel_builder.pages.list", method: "GET", endpoint: "/api/portal/funnel-builder/funnels/[funnelId]/pages" },
   { action: "funnel_builder.pages.create", method: "POST", endpoint: "/api/portal/funnel-builder/funnels/[funnelId]/pages" },
@@ -302,6 +306,11 @@ const ACTION_COVERAGE = [
     action: "funnel_builder.pages.export_custom_html",
     method: "POST",
     endpoint: "/api/portal/funnel-builder/funnels/[funnelId]/pages/[pageId]/export-custom-html",
+  },
+  {
+    action: "funnel_builder.pages.generate_html",
+    method: "POST",
+    endpoint: "/api/portal/funnel-builder/funnels/[funnelId]/pages/[pageId]/generate-html",
   },
   { action: "funnel_builder.pages.global_header", method: "POST", endpoint: "/api/portal/funnel-builder/funnels/[funnelId]/pages/global-header" },
 

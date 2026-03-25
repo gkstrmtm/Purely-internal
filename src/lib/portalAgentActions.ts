@@ -13,6 +13,7 @@ export const PortalAgentActionKeySchema = z.enum([
   "funnel_builder.domains.list",
   "funnel_builder.domains.create",
   "funnel_builder.domains.update",
+  "funnel_builder.domains.verify",
   "funnel_builder.forms.list",
   "funnel_builder.forms.create",
   "funnel_builder.forms.get",
@@ -28,8 +29,10 @@ export const PortalAgentActionKeySchema = z.enum([
   "funnel_builder.pages.create",
   "funnel_builder.pages.update",
   "funnel_builder.pages.delete",
+  "funnel_builder.pages.generate_html",
   "funnel_builder.pages.export_custom_html",
   "funnel_builder.pages.global_header",
+  "funnel_builder.custom_code_block.generate",
   "funnel_builder.sales.products.list",
   "funnel_builder.sales.products.create",
 
@@ -345,6 +348,12 @@ export const PortalAgentActionArgsSchemaByKey = {
     })
     .strict(),
 
+  "funnel_builder.domains.verify": z
+    .object({
+      domainId: z.string().trim().min(1).max(120),
+    })
+    .strict(),
+
   "funnel_builder.forms.list": z.object({}).strict(),
 
   "funnel_builder.forms.create": z
@@ -450,6 +459,42 @@ export const PortalAgentActionArgsSchemaByKey = {
     })
     .strict(),
 
+  "funnel_builder.pages.generate_html": z
+    .object({
+      funnelId: z.string().trim().min(1).max(120),
+      pageId: z.string().trim().min(1).max(120),
+      prompt: z.string().trim().min(1).max(4000),
+      currentHtml: z.string().optional().nullable(),
+      attachments: z
+        .array(
+          z
+            .object({
+              url: z.string().trim().min(1).max(800),
+              fileName: z.string().trim().max(200).optional(),
+              mimeType: z.string().trim().max(120).optional(),
+            })
+            .strip(),
+        )
+        .max(12)
+        .optional()
+        .nullable(),
+      contextKeys: z.array(z.string().trim().min(1).max(80)).max(30).optional().nullable(),
+      contextMedia: z
+        .array(
+          z
+            .object({
+              url: z.string().trim().min(1).max(800),
+              fileName: z.string().trim().max(200).optional(),
+              mimeType: z.string().trim().max(120).optional(),
+            })
+            .strip(),
+        )
+        .max(24)
+        .optional()
+        .nullable(),
+    })
+    .strict(),
+
   "funnel_builder.pages.export_custom_html": z
     .object({
       funnelId: z.string().trim().min(1).max(120),
@@ -457,6 +502,30 @@ export const PortalAgentActionArgsSchemaByKey = {
       blocksJson: z.unknown().optional(),
       title: z.string().trim().max(200).optional(),
       setEditorMode: z.enum(["BLOCKS", "CUSTOM_HTML"]).optional(),
+    })
+    .strict(),
+
+  "funnel_builder.custom_code_block.generate": z
+    .object({
+      funnelId: z.string().trim().min(1).max(120),
+      pageId: z.string().trim().min(1).max(120),
+      prompt: z.string().trim().min(1).max(4000),
+      currentHtml: z.string().optional().nullable(),
+      currentCss: z.string().optional().nullable(),
+      contextKeys: z.array(z.string().trim().min(1).max(80)).max(30).optional().nullable(),
+      contextMedia: z
+        .array(
+          z
+            .object({
+              url: z.string().trim().min(1).max(800),
+              fileName: z.string().trim().max(200).optional(),
+              mimeType: z.string().trim().max(120).optional(),
+            })
+            .strip(),
+        )
+        .max(24)
+        .optional()
+        .nullable(),
     })
     .strict(),
 
@@ -2109,6 +2178,7 @@ export function portalAgentActionsIndexText(): string {
     "- funnel_builder.domains.list: List Funnel Builder custom domains",
     "- funnel_builder.domains.create: Add a Funnel Builder custom domain (fields: domain)",
     "- funnel_builder.domains.update: Update domain root behavior (fields: domain, rootMode?, rootFunnelSlug?)",
+    "- funnel_builder.domains.verify: Verify a custom domain’s DNS + hosting status (fields: domainId)",
     "- funnel_builder.forms.list: List Funnel Builder forms",
     "- funnel_builder.forms.create: Create a Funnel Builder form (fields: slug, name?)",
     "- funnel_builder.forms.get: Get a Funnel Builder form (fields: formId)",
@@ -2124,8 +2194,10 @@ export function portalAgentActionsIndexText(): string {
     "- funnel_builder.pages.create: Create a page (fields: funnelId, slug, title?, contentMarkdown?, sortOrder?)",
     "- funnel_builder.pages.update: Update a page (fields: funnelId, pageId, title?, contentMarkdown?, sortOrder?, editorMode?, customHtml?, blocksJson?, customChatJson?, slug?, seo?)",
     "- funnel_builder.pages.delete: Delete a page (fields: funnelId, pageId)",
+    "- funnel_builder.pages.generate_html: Generate/update a page’s custom HTML with AI (fields: funnelId, pageId, prompt, currentHtml?, attachments?, contextKeys?, contextMedia?)",
     "- funnel_builder.pages.export_custom_html: Generate and store custom HTML from blocks (fields: funnelId, pageId, blocksJson?, title?, setEditorMode?)",
     "- funnel_builder.pages.global_header: Apply/unset a global header block (fields: mode, funnelId, headerBlock OR keepOnPageId+localHeaderBlock)",
+    "- funnel_builder.custom_code_block.generate: Generate custom code block HTML/CSS or block actions (fields: funnelId, pageId, prompt, currentHtml?, currentCss?, contextKeys?, contextMedia?)",
     "- funnel_builder.sales.products.list: List Stripe products (Funnel Builder sales)",
     "- funnel_builder.sales.products.create: Create a Stripe product (fields: name, description?, imageUrls?, priceCents, currency?)",
     "- blogs.appearance.get: Get blog appearance (fonts)",
