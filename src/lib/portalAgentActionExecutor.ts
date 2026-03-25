@@ -7960,6 +7960,41 @@ async function runDirectAction(opts: {
       return { status: 200, json: { ok: true, messages: withUrls, scheduledMessages } };
     }
 
+    case "inbox.scheduled.update": {
+      const scheduledId = String((args as any)?.scheduledId || "").trim();
+      if (!scheduledId) return { status: 400, json: { ok: false, error: "Missing scheduled id" } };
+
+      const scheduledFor = (args as any)?.scheduledFor;
+      const when = new Date(scheduledFor);
+      if (!Number.isFinite(when.getTime())) {
+        return { status: 400, json: { ok: false, error: "Invalid scheduled time" } };
+      }
+
+      await ensurePortalInboxSchema();
+
+      const existing = await (prisma as any).portalInboxScheduledMessage
+        .findFirst({ where: { id: scheduledId, ownerId }, select: { id: true, status: true } })
+        .catch(() => null);
+
+      if (!existing) return { status: 404, json: { ok: false, error: "Scheduled message not found" } };
+
+      const status = String(existing.status || "").toUpperCase();
+      if (status !== "PENDING") {
+        return { status: 409, json: { ok: false, error: "Only pending scheduled messages can be rescheduled." } };
+      }
+
+      if (when.getTime() < Date.now() + 10_000) {
+        return { status: 400, json: { ok: false, error: "Pick a time at least 10 seconds from now." } };
+      }
+
+      await (prisma as any).portalInboxScheduledMessage.update({
+        where: { id: scheduledId },
+        data: { scheduledFor: when, updatedAt: new Date() },
+      });
+
+      return { status: 200, json: { ok: true } };
+    }
+
     case "inbox.settings.get": {
       const [settings, twilio, mailbox] = await Promise.all([
         getPortalInboxSettings(ownerId),

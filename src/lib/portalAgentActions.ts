@@ -152,6 +152,7 @@ export const PortalAgentActionKeySchema = z.enum([
   "people.contacts.custom_variables.patch",
   "inbox.threads.list",
   "inbox.thread.messages.list",
+  "inbox.scheduled.update",
   "inbox.settings.get",
   "inbox.settings.update",
   "inbox.send_sms",
@@ -1129,6 +1130,13 @@ export const PortalAgentActionArgsSchemaByKey = {
     .object({
       threadId: z.string().trim().min(1).max(120),
       take: z.number().int().min(10).max(500).optional().nullable(),
+    })
+    .strict(),
+
+  "inbox.scheduled.update": z
+    .object({
+      scheduledId: z.string().trim().min(1).max(120),
+      scheduledFor: z.string().datetime(),
     })
     .strict(),
 
@@ -2149,6 +2157,7 @@ export function portalAgentActionsIndexText(): string {
     "- people.contacts.custom_variables.patch: Set/remove a contact custom variable (fields: contactId, key, value?)",
     "- inbox.threads.list: List inbox threads (fields: channel=EMAIL|SMS?, take?)",
     "- inbox.thread.messages.list: Load messages for a thread (fields: threadId, take?)",
+    "- inbox.scheduled.update: Reschedule a pending scheduled inbox message (fields: scheduledId, scheduledFor)",
     "- inbox.settings.get: Get inbox settings (mailbox + webhook URLs)",
     "- inbox.settings.update: Regenerate inbox webhook token (fields: regenerateToken=true)",
     "- inbox.send_sms: Send an SMS (fields: to, body, threadId?)",
