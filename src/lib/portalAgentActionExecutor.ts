@@ -7,7 +7,7 @@ import {
   PortalAgentActionArgsSchemaByKey,
   type PortalAgentActionKey,
 } from "@/lib/portalAgentActions";
-import { consumeCredits } from "@/lib/credits";
+import { consumeCredits, consumeCreditsOnce } from "@/lib/credits";
 import { PORTAL_CREDIT_COSTS } from "@/lib/portalCreditCosts";
 import { ensurePortalTasksSchema } from "@/lib/portalTasksSchema";
 import { runOwnerAutomationByIdForEvent } from "@/lib/portalAutomationsRunner";
@@ -29,7 +29,14 @@ import { ensurePortalContactsSchema } from "@/lib/portalContactsSchema";
 import { findOrCreatePortalContact, normalizePhoneKey } from "@/lib/portalContacts";
 import { addContactTagAssignment, createOwnerContactTag, ensurePortalContactTagsReady } from "@/lib/portalContactTags";
 import { sendPortalInboxMessageNow } from "@/lib/portalInboxSend";
-import { sendReviewRequestForBooking, sendReviewRequestForContact } from "@/lib/reviewRequests";
+import {
+  getReviewRequestsServiceData,
+  listReviewRequestEvents,
+  parseReviewRequestsSettings,
+  sendReviewRequestForBooking,
+  sendReviewRequestForContact,
+  setReviewRequestsSettings,
+} from "@/lib/reviewRequests";
 import { mirrorUploadToMediaLibrary } from "@/lib/portalMediaUploads";
 import { safeFilename, newPublicToken, newTag, normalizeMimeType, normalizeNameKey } from "@/lib/portalMedia";
 import { addPortalDashboardWidget, isDashboardWidgetId, removePortalDashboardWidget, resetPortalDashboard, savePortalDashboardData, type DashboardWidgetId } from "@/lib/portalDashboard";
@@ -753,6 +760,403 @@ async function runDirectAction(opts: {
           businessReply: reply ? reply : null,
           ...(hasReplyAt ? { businessReplyAt: reply ? new Date() : null } : {}),
         },
+      });
+
+      if (!updated?.count) return { status: 404, json: { ok: false, error: "Not found" } };
+      return { status: 200, json: { ok: true } };
+    }
+
+    case "reviews.settings.get": {
+      const data = await getReviewRequestsServiceData(ownerId);
+      return { status: 200, json: { ok: true, settings: data.settings } };
+    }
+
+    case "reviews.settings.update": {
+      const settings = parseReviewRequestsSettings((args as any)?.settings);
+      const saved = await setReviewRequestsSettings(ownerId, settings);
+      return { status: 200, json: { ok: true, settings: saved } };
+    }
+
+    case "reviews.site.get": {
+      const canUseSlugColumn = await hasPublicColumn("ClientBlogSite", "slug");
+
+      async function ensurePublicSlug(desiredName: string) {
+        const profile = await prisma.businessProfile.findUnique({ where: { ownerId }, select: { businessName: true } });
+        const base = slugify(profile?.businessName ?? desiredName) || "site";
+        const desired = base.length >= 3 ? base : "site";
+
+        let slug = desired;
+        if (canUseSlugColumn) {
+          const collision = (await (prisma.clientBlogSite as any).findUnique({ where: { slug } }).catch(() => null)) as any;
+          if (collision && collision.ownerId !== ownerId) slug = `${desired}-${ownerId.slice(0, 6)}`;
+        }
+        return slug;
+      }
+
+      const select: any = {
+        id: true,
+        name: true,
+        primaryDomain: true,
+        verifiedAt: true,
+        verificationToken: true,
+        updatedAt: true,
+        ...(canUseSlugColumn ? { slug: true } : {}),
+      };
+
+      let site = (await prisma.clientBlogSite
+        .findUnique({ where: { ownerId }, select } as any)
+        .catch(() => null)) as any;
+
+      const currentSlug = (site as any)?.slug as string | null | undefined;
+      if (site && canUseSlugColumn && !currentSlug) {
+        const slug = await ensurePublicSlug(String(site.name || "Site"));
+        site = (await (prisma.clientBlogSite as any).update({ where: { ownerId }, data: { slug }, select } as any)) as any;
+      }
+
+      let fallbackSlug: string | null = null;
+      if (site && !canUseSlugColumn) {
+        fallbackSlug = await getStoredBlogSiteSlug(ownerId);
+        if (!fallbackSlug) fallbackSlug = await ensureStoredBlogSiteSlug(ownerId, String(site.name || "Site"));
+      }
+
+      return {
+        status: 200,
+        json: {
+          ok: true,
+          site: site
+            ? {
+                ...(site as any),
+                slug: canUseSlugColumn ? ((site as any).slug ?? null) : fallbackSlug,
+              }
+            : null,
+        },
+      };
+    }
+
+    case "reviews.site.update": {
+      function normalizeDomain(raw: string | null | undefined) {
+        const v = String(raw || "").trim().toLowerCase();
+        if (!v) return null;
+        const withoutProtocol = v.replace(/^https?:\/\//, "");
+        const withoutPath = withoutProtocol.split("/")[0] ?? "";
+        const d = withoutPath.replace(/:\d+$/, "").replace(/\.$/, "");
+        return d.length ? d : null;
+      }
+
+      const canUseSlugColumn = await hasPublicColumn("ClientBlogSite", "slug");
+
+      async function ensurePublicSlug(desiredName: string) {
+        const profile = await prisma.businessProfile.findUnique({ where: { ownerId }, select: { businessName: true } });
+        const base = slugify(profile?.businessName ?? desiredName) || "site";
+        const desired = base.length >= 3 ? base : "site";
+
+        let slug = desired;
+        if (canUseSlugColumn) {
+          const collision = (await (prisma.clientBlogSite as any).findUnique({ where: { slug } }).catch(() => null)) as any;
+          if (collision && collision.ownerId !== ownerId) slug = `${desired}-${ownerId.slice(0, 6)}`;
+        }
+        return slug;
+      }
+
+      const select: any = {
+        id: true,
+        name: true,
+        primaryDomain: true,
+        verifiedAt: true,
+        verificationToken: true,
+        updatedAt: true,
+        ...(canUseSlugColumn ? { slug: true } : {}),
+      };
+
+      const existing = (await prisma.clientBlogSite
+        .findUnique({ where: { ownerId }, select } as any)
+        .catch(() => null)) as any;
+
+      const primaryDomain = normalizeDomain((args as any)?.primaryDomain);
+
+      if (existing) {
+        const currentPrimaryDomain = normalizeDomain((existing as any)?.primaryDomain);
+        const domainChanged = primaryDomain !== currentPrimaryDomain;
+        const tokenMissing = Boolean(primaryDomain) && !String((existing as any)?.verificationToken || "").trim();
+        const nextVerificationToken =
+          domainChanged && primaryDomain
+            ? crypto.randomBytes(18).toString("hex")
+            : tokenMissing
+              ? crypto.randomBytes(18).toString("hex")
+              : (existing as any)?.verificationToken;
+
+        const updated = (await (prisma.clientBlogSite as any).update({
+          where: { ownerId },
+          data: {
+            primaryDomain,
+            ...(domainChanged
+              ? { verifiedAt: null, verificationToken: nextVerificationToken }
+              : tokenMissing
+                ? { verificationToken: nextVerificationToken }
+                : {}),
+            ...(primaryDomain ? {} : domainChanged ? { verifiedAt: null } : {}),
+          },
+          select,
+        })) as any;
+
+        return {
+          status: 200,
+          json: {
+            ok: true,
+            site: {
+              ...(updated as any),
+              slug: canUseSlugColumn ? ((updated as any).slug ?? null) : (await getStoredBlogSiteSlug(ownerId)),
+            },
+          },
+        };
+      }
+
+      const token = crypto.randomBytes(18).toString("hex");
+
+      const profile = await prisma.businessProfile.findUnique({ where: { ownerId }, select: { businessName: true } });
+      const name = String(profile?.businessName || "Hosted site").trim() || "Hosted site";
+
+      const slug = await ensurePublicSlug(name);
+
+      if (!canUseSlugColumn) {
+        try {
+          await ensureStoredBlogSiteSlug(ownerId, name);
+        } catch {
+          // ignore
+        }
+      }
+
+      if (canUseSlugColumn && slug) {
+        const collision = (await (prisma.clientBlogSite as any)
+          .findUnique({ where: { slug }, select: { ownerId: true } })
+          .catch(() => null)) as any;
+        if (collision && collision.ownerId !== ownerId) {
+          return { status: 409, json: { ok: false, error: "That link is already taken." } };
+        }
+      }
+
+      const charged = await consumeCreditsOnce(ownerId, PORTAL_CREDIT_COSTS.reviewPageEnableOnce, "reviews_page_enable_v1");
+      if (!charged.ok) return { status: 402, json: { ok: false, error: "Insufficient credits" } };
+
+      const created = (await (prisma.clientBlogSite as any).create({
+        data: {
+          ownerId,
+          name,
+          primaryDomain,
+          verificationToken: token,
+          ...(canUseSlugColumn ? { slug } : {}),
+        },
+        select,
+      })) as any;
+
+      if (!canUseSlugColumn) {
+        const stored = await getStoredBlogSiteSlug(ownerId);
+        if (!stored) {
+          try {
+            await setStoredBlogSiteSlug(ownerId, slugify(name) || "site");
+          } catch {
+            // ignore
+          }
+        }
+      }
+
+      return {
+        status: 200,
+        json: {
+          ok: true,
+          site: {
+            ...(created as any),
+            slug: canUseSlugColumn ? ((created as any).slug ?? null) : (await getStoredBlogSiteSlug(ownerId)),
+          },
+        },
+      };
+    }
+
+    case "reviews.inbox.list": {
+      const includeArchived = Boolean((args as any)?.includeArchived);
+
+      const [hasBusinessReply, hasBusinessReplyAt] = await Promise.all([
+        hasPublicColumn("PortalReview", "businessReply"),
+        hasPublicColumn("PortalReview", "businessReplyAt"),
+      ]);
+
+      const select: any = {
+        id: true,
+        rating: true,
+        name: true,
+        body: true,
+        email: true,
+        phone: true,
+        photoUrls: true,
+        archivedAt: true,
+        createdAt: true,
+      };
+      if (hasBusinessReply) select.businessReply = true;
+      if (hasBusinessReplyAt) select.businessReplyAt = true;
+
+      const reviews = await (prisma as any).portalReview.findMany({
+        where: {
+          ownerId,
+          ...(includeArchived ? {} : { archivedAt: null }),
+        },
+        orderBy: { createdAt: "desc" },
+        take: 200,
+        select,
+      });
+
+      return { status: 200, json: { ok: true, reviews } };
+    }
+
+    case "reviews.archive": {
+      const reviewId = String((args as any)?.reviewId || "").trim();
+      const archived = Boolean((args as any)?.archived);
+      if (!reviewId) return { status: 400, json: { ok: false, error: "Missing reviewId" } };
+
+      const review = await prisma.portalReview.findUnique({ where: { id: reviewId }, select: { id: true, ownerId: true } });
+      if (!review || review.ownerId !== ownerId) return { status: 404, json: { ok: false, error: "Not found" } };
+
+      await prisma.portalReview.update({ where: { id: review.id }, data: { archivedAt: archived ? new Date() : null }, select: { id: true } });
+      return { status: 200, json: { ok: true } };
+    }
+
+    case "reviews.bookings.list": {
+      const site = await prisma.portalBookingSite.findUnique({ where: { ownerId }, select: { id: true } });
+      if (!site) return { status: 200, json: { ok: true, upcoming: [], recent: [] } };
+
+      const now = new Date();
+      const hasCalendarId = await hasPublicColumn("PortalBooking", "calendarId").catch(() => false);
+
+      const select: Record<string, boolean> = {
+        id: true,
+        startAt: true,
+        endAt: true,
+        status: true,
+        contactName: true,
+        contactEmail: true,
+        contactPhone: true,
+        canceledAt: true,
+      };
+      if (hasCalendarId) (select as any).calendarId = true;
+
+      const [upcoming, recent] = await Promise.all([
+        prisma.portalBooking.findMany({
+          where: { siteId: site.id, status: "SCHEDULED", startAt: { gte: now } },
+          orderBy: { startAt: "asc" },
+          take: 25,
+          select: select as any,
+        }),
+        prisma.portalBooking.findMany({
+          where: { siteId: site.id, OR: [{ status: "CANCELED" }, { startAt: { lt: now } }] },
+          orderBy: { startAt: "desc" },
+          take: 25,
+          select: select as any,
+        }),
+      ]);
+
+      return { status: 200, json: { ok: true, upcoming: upcoming || [], recent: recent || [] } };
+    }
+
+    case "reviews.contacts.search": {
+      const q = typeof (args as any)?.q === "string" ? String((args as any).q).trim() : "";
+      const takeRaw = typeof (args as any)?.take === "number" ? (args as any).take : 20;
+      const take = Math.max(1, Math.min(50, Number(takeRaw) || 20));
+
+      try {
+        const where: any = { ownerId };
+        if (q) {
+          where.OR = [
+            { name: { contains: q, mode: "insensitive" } },
+            { email: { contains: q, mode: "insensitive" } },
+            { phone: { contains: q, mode: "insensitive" } },
+          ];
+        }
+
+        const rows = await (prisma as any).portalContact.findMany({
+          where,
+          orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
+          take,
+          select: { id: true, name: true, email: true, phone: true, updatedAt: true },
+        });
+
+        const contacts = (rows || []).map((c: any) => ({
+          id: String(c.id),
+          name: String(c.name || "").trim(),
+          email: c.email ? String(c.email) : null,
+          phone: c.phone ? String(c.phone) : null,
+          updatedAtIso: c.updatedAt ? new Date(c.updatedAt).toISOString() : null,
+        }));
+
+        return { status: 200, json: { ok: true, contacts } };
+      } catch {
+        return { status: 200, json: { ok: true, contacts: [] } };
+      }
+    }
+
+    case "reviews.events.list": {
+      const limitRaw = typeof (args as any)?.limit === "number" ? (args as any).limit : 50;
+      const limit = Number.isFinite(limitRaw) ? limitRaw : 50;
+      const events = await listReviewRequestEvents(ownerId, limit);
+      return { status: 200, json: { ok: true, events } };
+    }
+
+    case "reviews.handle.get": {
+      const canUse = await hasPublicColumn("ClientBlogSite", "slug");
+      const site = (await prisma.clientBlogSite.findUnique({
+        where: { ownerId },
+        select: { id: true, name: true, ...(canUse ? { slug: true } : {}) },
+      } as any)) as any;
+
+      if (site) {
+        if (canUse) {
+          const handle = (site.slug as string | null | undefined) || (site.id as string);
+          return { status: 200, json: { ok: true, handle } };
+        }
+
+        let fallback = await getStoredBlogSiteSlug(ownerId);
+        if (!fallback) fallback = await ensureStoredBlogSiteSlug(ownerId, String(site.name || ""));
+        return { status: 200, json: { ok: true, handle: fallback || String(site.id) } };
+      }
+
+      const bookingSite = await prisma.portalBookingSite.findUnique({ where: { ownerId }, select: { slug: true } });
+      if ((bookingSite as any)?.slug) return { status: 200, json: { ok: true, handle: String((bookingSite as any).slug) } };
+      return { status: 200, json: { ok: true, handle: null } };
+    }
+
+    case "reviews.questions.list": {
+      const hasTable = await hasPublicColumn("PortalReviewQuestion", "id");
+      if (!hasTable) return { status: 200, json: { ok: true, questions: [] } };
+
+      const rows = await (prisma as any).portalReviewQuestion.findMany({
+        where: { ownerId },
+        orderBy: { createdAt: "desc" },
+        take: 200,
+        select: { id: true, name: true, question: true, answer: true, answeredAt: true, createdAt: true },
+      });
+
+      const questions = (Array.isArray(rows) ? rows : []).map((q: any) => ({
+        id: String(q.id),
+        name: String(q.name || ""),
+        question: String(q.question || ""),
+        answer: q.answer ? String(q.answer) : null,
+        answeredAt: q.answeredAt ? new Date(q.answeredAt).toISOString() : null,
+        createdAt: q.createdAt ? new Date(q.createdAt).toISOString() : new Date().toISOString(),
+      }));
+
+      return { status: 200, json: { ok: true, questions } };
+    }
+
+    case "reviews.questions.answer": {
+      const id = String((args as any)?.id || "").trim();
+      const answerRaw = typeof (args as any)?.answer === "string" ? (args as any).answer : "";
+      const answer = String(answerRaw).trim().slice(0, 2000);
+      if (!id) return { status: 400, json: { ok: false, error: "Missing id" } };
+
+      const hasTable = await hasPublicColumn("PortalReviewQuestion", "id");
+      if (!hasTable) return { status: 409, json: { ok: false, error: "Q&A is not enabled in this environment yet." } };
+
+      const updated = await (prisma as any).portalReviewQuestion.updateMany({
+        where: { id, ownerId },
+        data: { answer: answer ? answer : null, answeredAt: answer ? new Date() : null },
       });
 
       if (!updated?.count) return { status: 404, json: { ok: false, error: "Not found" } };
@@ -2580,6 +2984,50 @@ function resultMarkdown(action: PortalAgentActionKey, json: any): { markdown: st
   if (action === "reviews.reply" && json?.ok) {
     return {
       markdown: `Saved your review reply.\n\n[Open reviews](/portal/app/services/reviews)`,
+      linkUrl: "/portal/app/services/reviews",
+    };
+  }
+
+  if ((action === "reviews.settings.get" || action === "reviews.settings.update") && json?.ok) {
+    return {
+      markdown: `Review request settings ready.\n\n[Open reviews](/portal/app/services/reviews)`,
+      linkUrl: "/portal/app/services/reviews",
+    };
+  }
+
+  if ((action === "reviews.site.get" || action === "reviews.site.update") && json?.ok) {
+    const slug = typeof json?.site?.slug === "string" ? json.site.slug : null;
+    return {
+      markdown: `Hosted reviews site ready${slug ? ` (slug: ${slug})` : ""}.\n\n[Open reviews](/portal/app/services/reviews)`,
+      linkUrl: "/portal/app/services/reviews",
+    };
+  }
+
+  if (action === "reviews.inbox.list" && json?.ok) {
+    const rows = Array.isArray(json.reviews) ? (json.reviews as any[]) : [];
+    return {
+      markdown: `Fetched ${rows.length} review${rows.length === 1 ? "" : "s"}.\n\n[Open reviews](/portal/app/services/reviews)`,
+      linkUrl: "/portal/app/services/reviews",
+    };
+  }
+
+  if ((action === "reviews.archive" || action === "reviews.questions.answer") && json?.ok) {
+    return {
+      markdown: `Saved.\n\n[Open reviews](/portal/app/services/reviews)`,
+      linkUrl: "/portal/app/services/reviews",
+    };
+  }
+
+  if (
+    (action === "reviews.bookings.list" ||
+      action === "reviews.contacts.search" ||
+      action === "reviews.events.list" ||
+      action === "reviews.handle.get" ||
+      action === "reviews.questions.list") &&
+    json?.ok
+  ) {
+    return {
+      markdown: `Done.\n\n[Open reviews](/portal/app/services/reviews)`,
       linkUrl: "/portal/app/services/reviews",
     };
   }

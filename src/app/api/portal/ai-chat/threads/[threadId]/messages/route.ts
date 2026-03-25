@@ -180,6 +180,42 @@ function detectDeterministicActionsFromText(opts: {
     }];
   }
 
+  // Reviews: get review request settings.
+  if (/\b(show|get)\b[\s\S]{0,30}\b(reviews?|review requests?)\b[\s\S]{0,30}\b(settings?)\b/i.test(t)) {
+    return [{ key: "reviews.settings.get", title: "Get review request settings", args: {} }];
+  }
+
+  // Reviews: get hosted reviews site config.
+  if (/\b(show|get)\b[\s\S]{0,40}\b(reviews?)\b[\s\S]{0,40}\b(site|domain|hosted|public)\b/i.test(t)) {
+    return [{ key: "reviews.site.get", title: "Get hosted reviews site", args: {} }];
+  }
+
+  // Reviews: list collected reviews.
+  if (/\b(list|show|get)\b[\s\S]{0,30}\b(reviews?)\b/i.test(t) && /\b(inbox|collected|received)\b/i.test(t)) {
+    const includeArchived = /\barchived\b/i.test(t);
+    return [{ key: "reviews.inbox.list", title: "List reviews", args: { includeArchived } }];
+  }
+
+  // Reviews: list review request events.
+  if (/\b(list|show|get)\b[\s\S]{0,30}\b(reviews?)\b[\s\S]{0,30}\b(events?)\b/i.test(t)) {
+    return [{ key: "reviews.events.list", title: "List review request events", args: { limit: 50 } }];
+  }
+
+  // Reviews: get public handle.
+  if (/\b(show|get)\b[\s\S]{0,30}\b(reviews?)\b[\s\S]{0,30}\b(handle|link)\b/i.test(t)) {
+    return [{ key: "reviews.handle.get", title: "Get reviews page handle", args: {} }];
+  }
+
+  // Reviews: list Q&A questions.
+  if (/\b(list|show|get)\b[\s\S]{0,30}\b(reviews?)\b[\s\S]{0,30}\b(questions?|q&a)\b/i.test(t)) {
+    return [{ key: "reviews.questions.list", title: "List review questions", args: {} }];
+  }
+
+  // Reviews: list bookings (for sending review requests).
+  if (/\b(list|show|get)\b[\s\S]{0,30}\b(reviews?)\b[\s\S]{0,30}\b(bookings?|appointments?)\b/i.test(t)) {
+    return [{ key: "reviews.bookings.list", title: "List bookings for review requests", args: {} }];
+  }
+
   // Nurture: list campaigns.
   if (/\b(list|show)\b[\s\S]{0,30}\b(nurture\s+campaigns?|campaigns?)\b/i.test(t) && /\bnurture\b/i.test(t)) {
     return [{ key: "nurture.campaigns.list", title: "List nurture campaigns", args: { take: 50 } }];

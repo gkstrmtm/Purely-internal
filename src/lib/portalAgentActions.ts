@@ -15,6 +15,19 @@ export const PortalAgentActionKeySchema = z.enum([
   "reviews.send_request_for_booking",
   "reviews.send_request_for_contact",
   "reviews.reply",
+
+  "reviews.settings.get",
+  "reviews.settings.update",
+  "reviews.site.get",
+  "reviews.site.update",
+  "reviews.inbox.list",
+  "reviews.archive",
+  "reviews.bookings.list",
+  "reviews.contacts.search",
+  "reviews.events.list",
+  "reviews.handle.get",
+  "reviews.questions.list",
+  "reviews.questions.answer",
   "media.folder.ensure",
   "media.items.move",
   "media.import_remote_image",
@@ -159,6 +172,61 @@ export const PortalAgentActionArgsSchemaByKey = {
     .object({
       reviewId: z.string().trim().min(1).max(120),
       reply: z.string().max(2000).optional().nullable(),
+    })
+    .strict(),
+
+  "reviews.settings.get": z.object({}).strict(),
+
+  "reviews.settings.update": z
+    .object({
+      settings: z.unknown(),
+    })
+    .strict(),
+
+  "reviews.site.get": z.object({}).strict(),
+
+  "reviews.site.update": z
+    .object({
+      primaryDomain: z.string().trim().max(253).optional().nullable(),
+    })
+    .strict(),
+
+  "reviews.inbox.list": z
+    .object({
+      includeArchived: z.boolean().optional().nullable(),
+    })
+    .strict(),
+
+  "reviews.archive": z
+    .object({
+      reviewId: z.string().trim().min(1).max(120),
+      archived: z.boolean(),
+    })
+    .strict(),
+
+  "reviews.bookings.list": z.object({}).strict(),
+
+  "reviews.contacts.search": z
+    .object({
+      q: z.string().trim().max(200).optional().nullable(),
+      take: z.number().int().min(1).max(50).optional().nullable(),
+    })
+    .strict(),
+
+  "reviews.events.list": z
+    .object({
+      limit: z.number().int().min(1).max(200).optional().nullable(),
+    })
+    .strict(),
+
+  "reviews.handle.get": z.object({}).strict(),
+
+  "reviews.questions.list": z.object({}).strict(),
+
+  "reviews.questions.answer": z
+    .object({
+      id: z.string().trim().min(1).max(120),
+      answer: z.string().max(2000).optional().nullable(),
     })
     .strict(),
 
@@ -494,6 +562,18 @@ export function portalAgentActionsIndexText(): string {
     "- reviews.send_request_for_booking: Send a review request for a completed booking (fields: bookingId)",
     "- reviews.send_request_for_contact: Send a review request to a contact (fields: contactId)",
     "- reviews.reply: Reply to a review (fields: reviewId, reply?)",
+    "- reviews.settings.get: Get review request settings",
+    "- reviews.settings.update: Update review request settings (fields: settings)",
+    "- reviews.site.get: Get hosted reviews site config",
+    "- reviews.site.update: Update hosted reviews site primary domain (fields: primaryDomain?)",
+    "- reviews.inbox.list: List collected reviews (fields: includeArchived?)",
+    "- reviews.archive: Archive/unarchive a collected review (fields: reviewId, archived)",
+    "- reviews.bookings.list: List upcoming and recent bookings (for sending review requests)",
+    "- reviews.contacts.search: Search contacts (fields: q?, take?)",
+    "- reviews.events.list: List review request events (fields: limit?)",
+    "- reviews.handle.get: Get the public reviews page handle",
+    "- reviews.questions.list: List review Q&A questions",
+    "- reviews.questions.answer: Answer a review question (fields: id, answer?)",
     "- media.folder.ensure: Ensure a Media Library folder exists (fields: name, parentId?, color?)",
     "- media.items.move: Move media items into a folder (fields: itemIds, folderId? OR folderName(+parentId?))",
     "- media.import_remote_image: Import an image from a URL into Media Library (fields: url, fileName?, folderId? OR folderName(+parentId?))",
