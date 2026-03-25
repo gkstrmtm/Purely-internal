@@ -34,6 +34,9 @@ const ACTION_COVERAGE = [
 
   { action: "me.get", method: "GET", endpoint: "/api/portal/me" },
 
+  { action: "webhooks.get", method: "GET", endpoint: "/api/portal/webhooks" },
+  { action: "support_chat.send", method: "POST", endpoint: "/api/portal/support-chat" },
+
   { action: "services.catalog.get", method: "GET", endpoint: "/api/portal/services/catalog" },
   { action: "services.lifecycle.update", method: "POST", endpoint: "/api/portal/services/lifecycle" },
   { action: "services.status.get", method: "GET", endpoint: "/api/portal/services/status" },

@@ -67,7 +67,7 @@ import {
   regenerateMissedCallWebhookToken,
   setMissedCallTextBackSettings,
 } from "@/lib/missedCallTextBack";
-import { getPublicWebhookBaseUrl, twilioSmsWebhookUrl } from "@/lib/twilioProvisioning";
+import { getPublicWebhookBaseUrl, twilioSmsStatusCallbackUrl, twilioSmsWebhookUrl } from "@/lib/twilioProvisioning";
 import {
   getReviewRequestsServiceData,
   listReviewRequestEvents,
@@ -107,6 +107,7 @@ import { getElevenLabsConvaiConversationSignedUrl, getElevenLabsConvaiConversati
 import { clampPortalReportingRangeKey, getPortalReportingSummaryForOwner } from "@/lib/portalReportingSummary.server";
 import { clampStripeChargesRangeKey, getStripeChargesReportForOwner } from "@/lib/portalStripeChargesReport.server";
 import { clampSalesRangeKey, getSalesReportForOwner } from "@/lib/salesReportingReport.server";
+import { isPortalSupportChatConfigured, runPortalSupportChat } from "@/lib/portalSupportChat";
 
 const MAX_REMOTE_MEDIA_BYTES = 15 * 1024 * 1024; // matches /api/portal/media/import-remote
 
@@ -4702,6 +4703,82 @@ async function runDirectAction(opts: {
           permissions: normalizePortalPermissions(row?.permissionsJson, role),
         },
       };
+    }
+
+    case "webhooks.get": {
+      const ok = await requireServiceCapability("webhooks", "view");
+      if (!ok) return { status: 403, json: { ok: false, error: "Forbidden" } };
+
+      const [inbox, ai, missed] = await Promise.all([
+        getPortalInboxSettings(ownerId).catch(() => null),
+        getAiReceptionistServiceData(ownerId).catch(() => null),
+        getMissedCallTextBackServiceData(ownerId).catch(() => null),
+      ]);
+
+      const inboxToken = (inbox as any)?.webhookToken || null;
+      const aiToken = (ai as any)?.settings?.webhookToken || null;
+      const missedToken = (missed as any)?.settings?.webhookToken || null;
+
+      const publicBaseUrl = getPublicWebhookBaseUrl();
+      const requestBaseUrl = (process.env.NEXTAUTH_URL || "").trim().replace(/\/$/, "") || publicBaseUrl;
+
+      const inboxTwilioSmsUrlLegacy = inboxToken
+        ? `${publicBaseUrl}/api/public/inbox/${encodeURIComponent(String(inboxToken))}/twilio/sms`
+        : null;
+
+      const aiReceptionistVoiceUrlLegacy = aiToken
+        ? `${publicBaseUrl}/api/public/twilio/ai-receptionist/${encodeURIComponent(String(aiToken))}/voice`
+        : null;
+
+      const missedCallVoiceUrlLegacy = missedToken
+        ? `${publicBaseUrl}/api/public/twilio/missed-call-textback/${encodeURIComponent(String(missedToken))}/voice`
+        : null;
+
+      return {
+        status: 200,
+        json: {
+          ok: true,
+          baseUrl: publicBaseUrl,
+          requestBaseUrl,
+          twilio: {
+            smsInboundUrl: twilioSmsWebhookUrl(publicBaseUrl),
+            smsStatusCallbackUrl: twilioSmsStatusCallbackUrl(publicBaseUrl),
+          },
+          legacy: {
+            inboxTwilioSmsUrl: inboxTwilioSmsUrlLegacy,
+            aiReceptionistVoiceUrl: aiReceptionistVoiceUrlLegacy,
+            missedCallVoiceUrl: missedCallVoiceUrlLegacy,
+          },
+        },
+      };
+    }
+
+    case "support_chat.send": {
+      if (!isPortalSupportChatConfigured()) {
+        return {
+          status: 503,
+          json: { ok: false, error: "Support chat is not configured for this environment." },
+        };
+      }
+
+      try {
+        const message = String((args as any)?.message || "").trim();
+        const url = (args as any)?.url === null ? undefined : typeof (args as any)?.url === "string" ? String((args as any).url).trim() : undefined;
+        const meta = (args as any)?.meta && typeof (args as any).meta === "object" ? (args as any).meta : undefined;
+        const recentMessages = (args as any)?.context?.recentMessages;
+
+        const reply = await runPortalSupportChat({
+          message,
+          url,
+          meta,
+          recentMessages: Array.isArray(recentMessages) ? recentMessages : undefined,
+        });
+
+        return { status: 200, json: { ok: true, reply } };
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        return { status: 500, json: { ok: false, error: `Support chat failed. ${msg}` } };
+      }
     }
 
     case "services.catalog.get": {

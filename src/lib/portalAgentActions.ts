@@ -78,6 +78,9 @@ export const PortalAgentActionKeySchema = z.enum([
 
   "me.get",
 
+  "webhooks.get",
+  "support_chat.send",
+
   "services.catalog.get",
   "services.status.get",
   "services.lifecycle.update",
@@ -746,6 +749,40 @@ export const PortalAgentActionArgsSchemaByKey = {
     .strict(),
 
   "me.get": z.object({}).strict(),
+
+  "webhooks.get": z.object({}).strict(),
+
+  "support_chat.send": z
+    .object({
+      message: z.string().trim().min(1).max(4000),
+      url: z.string().trim().max(800).optional().nullable(),
+      meta: z
+        .object({
+          buildSha: z.string().nullable().optional(),
+          commitRef: z.string().nullable().optional(),
+          deploymentId: z.string().nullable().optional(),
+          nodeEnv: z.string().nullable().optional(),
+          clientTime: z.string().optional(),
+        })
+        .optional()
+        .nullable(),
+      context: z
+        .object({
+          recentMessages: z
+            .array(
+              z.object({
+                role: z.enum(["user", "assistant"]),
+                text: z.string().trim().min(1).max(2000),
+              }),
+            )
+            .max(20)
+            .optional()
+            .nullable(),
+        })
+        .optional()
+        .nullable(),
+    })
+    .strict(),
 
   "services.catalog.get": z.object({}).strict(),
 
@@ -1755,6 +1792,8 @@ export function portalAgentActionsIndexText(): string {
     "- contact_tags.update: Update a contact tag (fields: tagId, name?, color?)",
     "- contact_tags.delete: Delete a contact tag (fields: tagId)",
     "- me.get: Get the current portal member identity (ownerId/memberId/role) and effective permissions",
+    "- webhooks.get: Get canonical webhook URLs (Twilio inbound/status callback + legacy tokens)",
+    "- support_chat.send: Ask the support chat assistant a question (fields: message, url?, meta?, context.recentMessages?)",
     "- services.catalog.get: List the portal services catalog (grouped by category)",
     "- services.status.get: Get portal service status for each service (active/needs_setup/locked/etc)",
     "- services.lifecycle.update: Pause/cancel/resume a service (fields: serviceSlug, action=pause|cancel|resume)",
