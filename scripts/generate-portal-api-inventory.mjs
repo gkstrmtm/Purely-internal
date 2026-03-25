@@ -67,7 +67,9 @@ const ACTION_COVERAGE = [
 
   { action: "integrations.twilio.get", method: "GET", endpoint: "/api/portal/integrations/twilio" },
   { action: "integrations.stripe.get", method: "GET", endpoint: "/api/portal/integrations/stripe" },
+  { action: "integrations.stripe.delete", method: "DELETE", endpoint: "/api/portal/integrations/stripe" },
   { action: "integrations.sales_reporting.get", method: "GET", endpoint: "/api/portal/integrations/sales-reporting" },
+  { action: "integrations.sales_reporting.disconnect", method: "DELETE", endpoint: "/api/portal/integrations/sales-reporting" },
 
   { action: "follow_up.settings.get", method: "GET", endpoint: "/api/portal/follow-up/settings" },
   { action: "follow_up.settings.update", method: "PUT", endpoint: "/api/portal/follow-up/settings" },

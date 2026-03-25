@@ -109,8 +109,8 @@ import { getAppBaseUrl, listPortalAccountRecipientContacts, tryNotifyPortalAccou
 import { ensureVercelProjectDomain } from "@/lib/vercelProjectDomains";
 import { coerceBlocksJson, type CreditFunnelBlock } from "@/lib/creditFunnelBlocks";
 import { blocksToCustomHtmlDocument } from "@/lib/funnelBlocksToCustomHtmlDocument";
-import { getStripeIntegrationStatus, getStripeSecretKeyForOwner } from "@/lib/stripeIntegration.server";
-import { getSalesReportingStatus } from "@/lib/salesReportingIntegration.server";
+import { clearStripeIntegration, getStripeIntegrationStatus, getStripeSecretKeyForOwner } from "@/lib/stripeIntegration.server";
+import { disconnectSalesProvider, getSalesReportingStatus } from "@/lib/salesReportingIntegration.server";
 import { isPortalEncryptionConfigured } from "@/lib/portalEncryption.server";
 import { stripeGetWithKey, stripePostWithKey } from "@/lib/stripeFetchWithKey.server";
 import { ensurePortalAiOutboundCallsSchema } from "@/lib/portalAiOutboundCallsSchema";
@@ -6287,6 +6287,45 @@ async function runDirectAction(opts: {
       }
     }
 
+    case "integrations.stripe.delete": {
+      const ok = await requireServiceCapability("profile", "edit");
+      if (!ok) return { status: 403, json: { ok: false, error: "Forbidden" } };
+
+      const errorMessage = (e: unknown): string => {
+        if (e instanceof Error) return e.message;
+        if (e && typeof e === "object" && "message" in e) return String((e as any).message);
+        return "Unknown error";
+      };
+
+      const looksLikeMissingStripeColumns = (e: unknown): boolean => {
+        const msg = errorMessage(e).toLowerCase();
+        return (
+          msg.includes("does not exist") &&
+          (msg.includes("stripesecretkey") || msg.includes("stripeaccountid") || msg.includes("stripeconnectedat"))
+        );
+      };
+
+      try {
+        await clearStripeIntegration(ownerId);
+        return { status: 200, json: { ok: true } };
+      } catch (e) {
+        if (looksLikeMissingStripeColumns(e)) {
+          return {
+            status: 500,
+            json: {
+              ok: false,
+              error: "Stripe disconnection is temporarily unavailable. Please contact support.",
+            },
+          };
+        }
+
+        return {
+          status: 400,
+          json: { ok: false, error: errorMessage(e) || "Unable to disconnect Stripe" },
+        };
+      }
+    }
+
     case "integrations.sales_reporting.get": {
       const ok = await requireServiceCapability("profile", "view");
       if (!ok) return { status: 403, json: { ok: false, error: "Forbidden" } };
@@ -6314,6 +6353,22 @@ async function runDirectAction(opts: {
             stripe: { configured: false, prefix: null, accountId: null, connectedAtIso: null },
           },
         };
+      }
+    }
+
+    case "integrations.sales_reporting.disconnect": {
+      const ok = await requireServiceCapability("profile", "edit");
+      if (!ok) return { status: 403, json: { ok: false, error: "Forbidden" } };
+
+      const provider = (args as any)?.provider;
+
+      try {
+        await disconnectSalesProvider(ownerId, provider);
+        const status = await getSalesReportingStatus(ownerId);
+        return { status: 200, json: { ok: true, note: "Disconnected.", ...(status as any) } };
+      } catch (e) {
+        const msg = e && typeof e === "object" && "message" in e ? String((e as any).message) : "Unable to disconnect";
+        return { status: 400, json: { ok: false, error: msg } };
       }
     }
 

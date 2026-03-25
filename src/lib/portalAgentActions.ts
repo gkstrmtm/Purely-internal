@@ -106,7 +106,9 @@ export const PortalAgentActionKeySchema = z.enum([
   "integrations.twilio.get",
 
   "integrations.stripe.get",
+  "integrations.stripe.delete",
   "integrations.sales_reporting.get",
+  "integrations.sales_reporting.disconnect",
 
   "follow_up.settings.get",
   "follow_up.settings.update",
@@ -926,7 +928,24 @@ export const PortalAgentActionArgsSchemaByKey = {
 
   "integrations.stripe.get": z.object({}).strict(),
 
+  "integrations.stripe.delete": z.object({}).strict(),
+
   "integrations.sales_reporting.get": z.object({}).strict(),
+
+  "integrations.sales_reporting.disconnect": z
+    .object({
+      provider: z.enum([
+        "stripe",
+        "authorizenet",
+        "braintree",
+        "razorpay",
+        "paystack",
+        "flutterwave",
+        "mollie",
+        "mercadopago",
+      ]),
+    })
+    .strict(),
 
   "follow_up.settings.get": z.object({}).strict(),
 
@@ -2069,7 +2088,9 @@ export function portalAgentActionsIndexText(): string {
     "- profile.get: Get the current portal member profile (name/email/phone/city/state + voice agent status)",
     "- integrations.twilio.get: Get Twilio SMS integration status + webhook URLs (fields: includeDiagnostics?)",
     "- integrations.stripe.get: Get Stripe integration status (secret key prefix + connected account)",
+    "- integrations.stripe.delete: Disconnect Stripe integration (clears stored keys and connection metadata)",
     "- integrations.sales_reporting.get: Get sales reporting integration status (active provider + configured providers)",
+    "- integrations.sales_reporting.disconnect: Disconnect a sales reporting provider (fields: provider)",
     "- follow_up.settings.get: Get Follow-Up automation settings and queue preview",
     "- follow_up.settings.update: Update Follow-Up automation settings (fields: settings)",
     "- follow_up.custom_variables.get: Get Follow-Up custom variables (available to lead scraping and follow-up)",
