@@ -11,6 +11,7 @@ import { findOrCreatePortalContact } from "@/lib/portalContacts";
 import { normalizeHostedFontKey } from "@/lib/portalHostedFonts";
 import { consumeCredits } from "@/lib/credits";
 import { PORTAL_CREDIT_COSTS } from "@/lib/portalCreditCosts";
+import { getAppBaseUrl, tryNotifyPortalAccountUsers } from "@/lib/portalNotifications";
 import type { Prisma } from "@prisma/client";
 
 const SERVICE_SLUG = "reviews";
@@ -783,6 +784,27 @@ export async function sendReviewRequestForBooking(opts: { ownerId: string; booki
         contactName: booking.contactName,
         contactPhone: parsed.e164,
       }).catch(() => null);
+
+      try {
+        const baseUrl = getAppBaseUrl();
+        void tryNotifyPortalAccountUsers({
+          ownerId,
+          kind: "review_request_sent",
+          subject: `Review request sent: ${booking.contactName}`,
+          text: [
+            "A review request was sent.",
+            "",
+            `Client: ${booking.contactName}`,
+            parsed.e164 ? `Phone: ${parsed.e164}` : null,
+            "",
+            `Open reviews: ${baseUrl}/portal/app/services/reviews`,
+          ]
+            .filter(Boolean)
+            .join("\n"),
+        }).catch(() => null);
+      } catch {
+        // ignore
+      }
     }
 
     if (!result.ok) return { ok: false, error: result.error };
@@ -961,6 +983,9 @@ export async function processDueReviewRequests(opts?: { ownersLimit?: number; pe
       let sentSet = new Set<string>(sentKeys);
       let events = serviceData.events.slice();
 
+      let sentThisOwner = 0;
+      let lastSentContact: { name: string; phone: string | null } | null = null;
+
       const upsert = async () => {
         if (!mutated) return;
         const payload: ReviewsServiceData = {
@@ -1129,6 +1154,8 @@ export async function processDueReviewRequests(opts?: { ownersLimit?: number; pe
           }
 
           sent += 1;
+          sentThisOwner += 1;
+          lastSentContact = { name: booking.contactName, phone: parsed.e164 ?? null };
           const evt: ReviewRequestEvent = {
             id: `evt_${booking.id}_${resolved.destinationId}`,
             bookingId: booking.id,
@@ -1198,6 +1225,37 @@ export async function processDueReviewRequests(opts?: { ownersLimit?: number; pe
       }
 
       await upsert();
+
+      if (sentThisOwner > 0) {
+        try {
+          const baseUrl = getAppBaseUrl();
+          const example = lastSentContact
+            ? [
+                `Example client: ${lastSentContact.name}`,
+                lastSentContact.phone ? `Example phone: ${lastSentContact.phone}` : null,
+              ]
+                .filter(Boolean)
+                .join("\n")
+            : null;
+
+          void tryNotifyPortalAccountUsers({
+            ownerId,
+            kind: "review_request_sent",
+            subject: `Auto-sent ${sentThisOwner} review request${sentThisOwner === 1 ? "" : "s"}`,
+            text: [
+              `Automated review requests were sent.`,
+              `Sent: ${sentThisOwner}`,
+              example,
+              "",
+              `Open reviews: ${baseUrl}/portal/app/services/reviews`,
+            ]
+              .filter(Boolean)
+              .join("\n"),
+          }).catch(() => null);
+        } catch {
+          // ignore
+        }
+      }
     }
   }
 

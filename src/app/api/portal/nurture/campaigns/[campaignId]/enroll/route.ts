@@ -4,6 +4,7 @@ import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { requireClientSessionForService } from "@/lib/portalAccess";
 import { ensurePortalNurtureSchema } from "@/lib/portalNurtureSchema";
+import { getAppBaseUrl, tryNotifyPortalAccountUsers } from "@/lib/portalNotifications";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -116,6 +117,26 @@ export async function POST(req: Request, ctx: { params: Promise<{ campaignId: st
         });
       }),
     );
+  }
+
+  // Best-effort: notify portal users.
+  try {
+    const baseUrl = getAppBaseUrl();
+    void tryNotifyPortalAccountUsers({
+      ownerId,
+      kind: "nurture_enrollment_created",
+      subject: "Nurture enrollments created",
+      text: [
+        "Contacts were enrolled in a nurture campaign.",
+        "",
+        `Campaign: ${campaignId}`,
+        `Enrolled: ${contactIds.length}`,
+        "",
+        `Open nurture campaigns: ${baseUrl}/portal/app/services/nurture-campaigns`,
+      ].join("\n"),
+    }).catch(() => null);
+  } catch {
+    // ignore
   }
 
   return NextResponse.json({ ok: true, enrolled: contactIds.length });

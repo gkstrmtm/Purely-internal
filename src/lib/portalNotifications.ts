@@ -41,12 +41,14 @@ export type PortalNotificationKind =
   | "password_changed"
   | "inbound_email"
   | "inbound_sms"
+  | "review_request_sent"
   | "blog_published"
   | "booking_created"
   | "form_submitted"
   | "task_created"
   | "newsletter_ready"
   | "newsletter_sent"
+  | "nurture_enrollment_created"
   | "ai_receptionist_call_completed"
   | "ai_outbound_call_completed"
   | "ai_outbound_call_failed"
@@ -74,12 +76,18 @@ function serviceForNotificationKind(kind: PortalNotificationKind): PortalService
     case "booking_created":
       return "booking";
 
+    case "review_request_sent":
+      return "reviews";
+
     case "blog_published":
       return "blogs";
 
     case "newsletter_ready":
     case "newsletter_sent":
       return "newsletter";
+
+    case "nurture_enrollment_created":
+      return "nurtureCampaigns";
 
     case "ai_receptionist_call_completed":
       return "aiReceptionist";
@@ -120,6 +128,12 @@ function portalPathForNotificationKind(kind: PortalNotificationKind): string {
 
     case "task_created":
       return "/portal/app/services/tasks";
+
+    case "review_request_sent":
+      return "/portal/app/services/reviews";
+
+    case "nurture_enrollment_created":
+      return "/portal/app/services/nurture-campaigns";
 
     default:
       return "/portal/app";
