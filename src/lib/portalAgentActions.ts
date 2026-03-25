@@ -176,6 +176,9 @@ export const PortalAgentActionKeySchema = z.enum([
   "media.folder.ensure",
   "media.items.list",
   "media.items.move",
+  "media.items.update",
+  "media.items.delete",
+  "media.items.create_from_blob",
   "media.import_remote_image",
   "media.list.get",
   "media.stats.get",
@@ -1255,6 +1258,31 @@ export const PortalAgentActionArgsSchemaByKey = {
     })
     .strict(),
 
+  "media.items.update": z
+    .object({
+      id: z.string().trim().min(1).max(120),
+      fileName: z.string().trim().min(1).max(200).optional(),
+      folderId: z.string().trim().min(1).optional().nullable(),
+    })
+    .strict()
+    .refine((v) => v.fileName !== undefined || v.folderId !== undefined, { message: "No changes" }),
+
+  "media.items.delete": z
+    .object({
+      id: z.string().trim().min(1).max(120),
+    })
+    .strict(),
+
+  "media.items.create_from_blob": z
+    .object({
+      url: z.string().trim().url().max(500),
+      fileName: z.string().trim().min(1).max(200),
+      mimeType: z.string().trim().min(1).max(120),
+      fileSize: z.number().int().nonnegative(),
+      folderId: z.string().trim().min(1).optional().nullable(),
+    })
+    .strict(),
+
   "media.import_remote_image": z
     .object({
       url: z.string().trim().url().max(500),
@@ -2144,6 +2172,9 @@ export function portalAgentActionsIndexText(): string {
     "- media.folder.ensure: Ensure a Media Library folder exists (fields: name, parentId?, color?)",
     "- media.items.list: List/search Media Library items (fields: q?, folderId?, limit?)",
     "- media.items.move: Move media items into a folder (fields: itemIds, folderId? OR folderName(+parentId?))",
+    "- media.items.update: Rename or move a single Media Library item (fields: id, fileName?, folderId?)",
+    "- media.items.delete: Delete a Media Library item (fields: id)",
+    "- media.items.create_from_blob: Save a Vercel Blob upload into Media Library (fields: url, fileName, mimeType, fileSize, folderId?)",
     "- media.import_remote_image: Import an image from a URL into Media Library (fields: url, fileName?, folderId? OR folderName(+parentId?))",
     "- media.list.get: List Media Library folders/items for a folder (fields: folderId?)",
     "- media.stats.get: Get Media Library stats (items/folders counts)",

@@ -23,6 +23,7 @@ import {
   type PortalAgentActionKey,
 } from "@/lib/portalAgentActions";
 import { consumeCredits, consumeCreditsOnce, getCreditsLifecycleForOwner, getCreditsState, setAutoTopUp } from "@/lib/credits";
+import { recordThresholdMeterUsage } from "@/lib/creditsMetering";
 import { PORTAL_CREDIT_COSTS } from "@/lib/portalCreditCosts";
 import { upsertHoursSavedEvent } from "@/lib/hoursSaved";
 import { creditsPerTopUpPackage } from "@/lib/creditsTopup";
@@ -11497,6 +11498,162 @@ async function runDirectAction(opts: {
       });
 
       return { status: 200, json: { ok: true, moved: updated?.count ?? itemIds.length, folderId } };
+    }
+
+    case "media.items.update": {
+      const ok = await requireServiceCapability("media" as PortalServiceKey, "view");
+      if (!ok) return { status: 403, json: { ok: false, error: "Insufficient permissions" } };
+
+      const id = typeof args.id === "string" && args.id.trim() ? String(args.id).trim() : "";
+      if (!id) return { status: 400, json: { ok: false, error: "Missing id" } };
+
+      const sanitizeName = (raw: string) =>
+        String(raw || "")
+          .replace(/[\r\n\t\0]/g, " ")
+          .replace(/\s+/g, " ")
+          .trim()
+          .slice(0, 200);
+
+      const existing = await (prisma as any).portalMediaItem.findFirst({ where: { id, ownerId }, select: { id: true } });
+      if (!existing) return { status: 404, json: { ok: false, error: "Not found" } };
+
+      const nextFolderId = args.folderId === undefined ? undefined : args.folderId ? String(args.folderId).trim() : null;
+      if (nextFolderId) {
+        const folder = await (prisma as any).portalMediaFolder.findFirst({ where: { id: nextFolderId, ownerId }, select: { id: true } });
+        if (!folder) return { status: 404, json: { ok: false, error: "Folder not found" } };
+      }
+
+      const nextFileName = args.fileName === undefined ? undefined : sanitizeName(String(args.fileName));
+      if (args.fileName !== undefined && !nextFileName) {
+        return { status: 400, json: { ok: false, error: "Invalid file name" } };
+      }
+
+      const data: Record<string, unknown> = {};
+      if (nextFileName !== undefined) data.fileName = nextFileName;
+      if (nextFolderId !== undefined) data.folderId = nextFolderId;
+      if (!Object.keys(data).length) return { status: 200, json: { ok: true } };
+
+      await (prisma as any).portalMediaItem.update({ where: { id }, data });
+      return { status: 200, json: { ok: true } };
+    }
+
+    case "media.items.delete": {
+      const ok = await requireServiceCapability("media" as PortalServiceKey, "view");
+      if (!ok) return { status: 403, json: { ok: false, error: "Insufficient permissions" } };
+
+      const id = typeof args.id === "string" && args.id.trim() ? String(args.id).trim() : "";
+      if (!id) return { status: 400, json: { ok: false, error: "Missing id" } };
+
+      const existing = await (prisma as any).portalMediaItem.findFirst({ where: { id, ownerId }, select: { id: true } });
+      if (!existing) return { status: 404, json: { ok: false, error: "Not found" } };
+
+      await (prisma as any).portalMediaItem.delete({ where: { id } });
+      return { status: 200, json: { ok: true } };
+    }
+
+    case "media.items.create_from_blob": {
+      const ok = await requireServiceCapability("media" as PortalServiceKey, "view");
+      if (!ok) return { status: 403, json: { ok: false, error: "Insufficient permissions" } };
+
+      const url = typeof args.url === "string" ? String(args.url).trim() : "";
+      if (!url) return { status: 400, json: { ok: false, error: "Invalid request" } };
+
+      const isAllowedBlobUrl = (raw: string): boolean => {
+        try {
+          const u = new URL(raw);
+          const host = u.hostname.toLowerCase();
+          return host === "blob.vercel-storage.com" || host.endsWith(".blob.vercel-storage.com");
+        } catch {
+          return false;
+        }
+      };
+
+      if (!isAllowedBlobUrl(url)) {
+        return { status: 400, json: { ok: false, error: "Invalid blob URL" } };
+      }
+
+      const fileName = safeFilename(typeof args.fileName === "string" ? args.fileName : "upload.bin");
+      const mimeType = normalizeMimeType(typeof args.mimeType === "string" ? args.mimeType : "application/octet-stream", fileName);
+      const fileSize = typeof args.fileSize === "number" && Number.isFinite(args.fileSize) ? Math.floor(args.fileSize) : 0;
+
+      const MAX_BYTES = 250 * 1024 * 1024;
+      if (fileSize > MAX_BYTES) {
+        return {
+          status: 400,
+          json: { ok: false, error: `File too large (max ${Math.floor(MAX_BYTES / (1024 * 1024))}MB)` },
+        };
+      }
+
+      const folderIdRaw = args.folderId;
+      const folderId = typeof folderIdRaw === "string" && folderIdRaw.trim() ? folderIdRaw.trim() : null;
+      if (folderId) {
+        const folder = await (prisma as any).portalMediaFolder.findFirst({ where: { id: folderId, ownerId }, select: { id: true } });
+        if (!folder) return { status: 404, json: { ok: false, error: "Folder not found" } };
+      }
+
+      const metered = await recordThresholdMeterUsage({
+        ownerId,
+        spec: {
+          meterKey: "media_items_v1",
+          unitSize: PORTAL_CREDIT_COSTS.mediaItemsPerUnit,
+          creditsPerUnit: PORTAL_CREDIT_COSTS.mediaCreditsPerUnit,
+        },
+        increment: 1,
+        note: "media_from_blob",
+      });
+      if (!metered.ok) {
+        return {
+          status: metered.error === "Insufficient credits" ? 402 : 400,
+          json: { ok: false, error: metered.error },
+        };
+      }
+
+      let tag = newTag();
+      for (let i = 0; i < 5; i++) {
+        const exists = await (prisma as any).portalMediaItem.findFirst({ where: { ownerId, tag }, select: { id: true } });
+        if (!exists) break;
+        tag = newTag();
+      }
+
+      const row = await (prisma as any).portalMediaItem.create({
+        data: {
+          ownerId,
+          folderId,
+          fileName,
+          mimeType,
+          fileSize,
+          storageUrl: url,
+          bytes: null,
+          tag,
+          publicToken: newPublicToken(),
+        },
+        select: { id: true, folderId: true, fileName: true, mimeType: true, fileSize: true, tag: true, publicToken: true, createdAt: true },
+      });
+
+      const mediaItemUrls = (r: { id: string; publicToken: string; mimeType: string; fileName: string }) => {
+        const openUrl = `/api/public/media/item/${r.id}/${r.publicToken}`;
+        const downloadUrl = `${openUrl}?download=1`;
+        const shareUrl = openUrl;
+        const previewUrl = isLikelyImageMimeType(r.mimeType, r.fileName) ? openUrl : undefined;
+        return { openUrl, downloadUrl, shareUrl, previewUrl };
+      };
+
+      return {
+        status: 200,
+        json: {
+          ok: true,
+          item: {
+            id: row.id,
+            folderId: row.folderId,
+            fileName: row.fileName,
+            mimeType: row.mimeType,
+            fileSize: row.fileSize,
+            tag: row.tag,
+            createdAt: row.createdAt.toISOString(),
+            ...mediaItemUrls(row),
+          },
+        },
+      };
     }
 
     case "media.import_remote_image": {
