@@ -131,6 +131,11 @@ function detectDeterministicActionsFromText(opts: {
     return m?.[1] ? String(m[1]).trim() : "";
   };
 
+  const postIdFromText = () => {
+    const m = /\bpost\s*(?:id)?\s*[:#]?\s*([a-zA-Z0-9_-]{6,120})\b/i.exec(t) || /\bpostId\s*[:=]\s*([a-zA-Z0-9_-]{6,120})\b/i.exec(t);
+    return m?.[1] ? String(m[1]).trim() : "";
+  };
+
   const queryFromText = () => {
     const m = /\bq\s*[:=]\s*([^\n]{2,120})/i.exec(t) || /\bquery\s*[:=]\s*([^\n]{2,120})/i.exec(t);
     const raw = m?.[1] ? String(m[1]).trim() : "";
@@ -215,6 +220,8 @@ function detectDeterministicActionsFromText(opts: {
     /\b(ai[\s-]*outbound|outbound\s*calls?|ai\s*outbound\s*calls?)\b/i.test(t) ||
     /\b(ai-outbound-calls)\b/i.test(lower);
 
+  const isBlogsContext = /\bblogs?\b/i.test(t) || (/\bposts?\b/i.test(t) && /\bblog\b/i.test(t));
+
   // Funnel Builder: get settings.
   if (isFunnelBuilderContext && /\b(show|get)\b[\s\S]{0,30}\b(settings?)\b/i.test(t)) {
     return [{ key: "funnel_builder.settings.get", title: "Get Funnel Builder settings", args: {} }];
@@ -281,6 +288,49 @@ function detectDeterministicActionsFromText(opts: {
     const q = queryFromText();
     if (q && q.length >= 2) {
       return [{ key: "ai_outbound_calls.contacts.search", title: "Search contacts", args: { q, take: 20 } }];
+    }
+  }
+
+  // Blogs: get appearance/theme.
+  if (isBlogsContext && /\b(show|get)\b[\s\S]{0,30}\b(appearance|theme|branding|style)\b/i.test(t)) {
+    return [{ key: "blogs.appearance.get", title: "Get blog appearance", args: {} }];
+  }
+
+  // Blogs: get site/workspace.
+  if (isBlogsContext && /\b(show|get)\b[\s\S]{0,40}\b(site|workspace|domain|link|slug)\b/i.test(t)) {
+    return [{ key: "blogs.site.get", title: "Get blog site", args: {} }];
+  }
+
+  // Blogs: get usage.
+  if (isBlogsContext && /\b(show|get)\b[\s\S]{0,40}\b(usage|credits|spend)\b/i.test(t)) {
+    const range = /\b(all|7d|30d|90d)\b/i.exec(lower)?.[1];
+    return [{ key: "blogs.usage.get", title: "Get blog usage", args: { ...(range ? { range } : {}) } }];
+  }
+
+  // Blogs: get automation settings.
+  if (isBlogsContext && /\b(show|get)\b[\s\S]{0,40}\b(automation|schedule|scheduler)\b/i.test(t) && /\b(settings?)\b/i.test(t)) {
+    return [{ key: "blogs.automation.settings.get", title: "Get blog automation settings", args: {} }];
+  }
+
+  // Blogs: list posts.
+  if (isBlogsContext && /\b(list|show|get)\b[\s\S]{0,30}\b(posts?)\b/i.test(t)) {
+    const includeArchived = /\barchived\b/i.test(lower);
+    return [{ key: "blogs.posts.list", title: "List blog posts", args: { take: 25, includeArchived } }];
+  }
+
+  // Blogs: get a specific post.
+  if (isBlogsContext && /\b(show|get)\b[\s\S]{0,30}\b(post)\b/i.test(t)) {
+    const postId = postIdFromText();
+    if (postId) {
+      return [{ key: "blogs.posts.get", title: "Get blog post", args: { postId } }];
+    }
+  }
+
+  // Blogs: export a post as markdown.
+  if (isBlogsContext && /\b(export|download)\b/i.test(t) && /\b(markdown|md)\b/i.test(t)) {
+    const postId = postIdFromText();
+    if (postId) {
+      return [{ key: "blogs.posts.export_markdown", title: "Export blog post markdown", args: { postId } }];
     }
   }
 

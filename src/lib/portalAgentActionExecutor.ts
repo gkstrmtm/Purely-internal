@@ -26,6 +26,7 @@ import { slugify } from "@/lib/slugify";
 import { getBookingCalendarsConfig, setBookingCalendarsConfig } from "@/lib/bookingCalendars";
 import { getBookingFormConfig, setBookingFormConfig } from "@/lib/bookingForm";
 import { computeAvailableSlots } from "@/lib/bookingSlots";
+import { getBlogAppearance, setBlogAppearance } from "@/lib/blogAppearance";
 import { ensureStoredBlogSiteSlug, getStoredBlogSiteSlug, setStoredBlogSiteSlug } from "@/lib/blogSiteSlug";
 import {
   getAppointmentReminderSettingsForCalendar,
@@ -1897,6 +1898,743 @@ async function runDirectAction(opts: {
       };
 
       return { status: 200, json: { ok: true, product } };
+    }
+
+    case "blogs.appearance.get": {
+      const appearance = await getBlogAppearance(ownerId);
+      return { status: 200, json: { ok: true, appearance } };
+    }
+
+    case "blogs.appearance.update": {
+      const appearance = await setBlogAppearance(ownerId, args as any);
+      return { status: 200, json: { ok: true, appearance } };
+    }
+
+    case "blogs.site.get": {
+      const canUseSlugColumn = await hasPublicColumn("ClientBlogSite", "slug");
+
+      async function ensurePublicSlug(desiredName: string) {
+        const profile = await prisma.businessProfile.findUnique({ where: { ownerId }, select: { businessName: true } });
+        const base = slugify(profile?.businessName ?? desiredName) || "blog";
+        const desired = base.length >= 3 ? base : "blog";
+
+        let slug = desired;
+        if (canUseSlugColumn) {
+          const collision = (await (prisma.clientBlogSite as any).findUnique({ where: { slug } })) as any;
+          if (collision && collision.ownerId !== ownerId) {
+            slug = `${desired}-${ownerId.slice(0, 6)}`;
+          }
+        }
+
+        return slug;
+      }
+
+      const select: any = {
+        id: true,
+        name: true,
+        primaryDomain: true,
+        verifiedAt: true,
+        verificationToken: true,
+        updatedAt: true,
+        ...(canUseSlugColumn ? { slug: true } : {}),
+      };
+
+      let site = (await prisma.clientBlogSite.findUnique({ where: { ownerId }, select } as any)) as any;
+
+      const currentSlug = (site as any)?.slug as string | null | undefined;
+      if (site && canUseSlugColumn && !currentSlug) {
+        const slug = await ensurePublicSlug(String(site.name || "Blog"));
+        site = (await (prisma.clientBlogSite as any).update({ where: { ownerId }, data: { slug }, select } as any)) as any;
+      }
+
+      let fallbackSlug: string | null = null;
+      if (site && !canUseSlugColumn) {
+        fallbackSlug = await getStoredBlogSiteSlug(ownerId);
+        if (!fallbackSlug) {
+          fallbackSlug = await ensureStoredBlogSiteSlug(ownerId, String(site.name || "Blog"));
+        }
+      }
+
+      return {
+        status: 200,
+        json: {
+          ok: true,
+          site: site
+            ? {
+                ...(site as any),
+                slug: canUseSlugColumn ? ((site as any).slug ?? null) : fallbackSlug,
+              }
+            : null,
+        },
+      };
+    }
+
+    case "blogs.site.create": {
+      function normalizeDomain(raw: string | null | undefined) {
+        const v = String(raw || "").trim().toLowerCase();
+        if (!v) return null;
+
+        const withoutProtocol = v.replace(/^https?:\/\//, "");
+        const withoutPath = withoutProtocol.split("/")[0] ?? "";
+        const d = withoutPath.replace(/:\d+$/, "");
+        return d.length ? d : null;
+      }
+
+      const canUseSlugColumn = await hasPublicColumn("ClientBlogSite", "slug");
+
+      async function ensurePublicSlug(desiredName: string) {
+        const profile = await prisma.businessProfile.findUnique({ where: { ownerId }, select: { businessName: true } });
+        const base = slugify(profile?.businessName ?? desiredName) || "blog";
+        const desired = base.length >= 3 ? base : "blog";
+
+        let slug = desired;
+        if (canUseSlugColumn) {
+          const collision = (await (prisma.clientBlogSite as any).findUnique({ where: { slug } })) as any;
+          if (collision && collision.ownerId !== ownerId) {
+            slug = `${desired}-${ownerId.slice(0, 6)}`;
+          }
+        }
+
+        return slug;
+      }
+
+      const slugFieldProvided = Object.prototype.hasOwnProperty.call(args as any, "slug");
+      const rawSlug = typeof (args as any).slug === "string" ? String((args as any).slug).trim() : "";
+      const requestedSlug = rawSlug.length ? slugify(rawSlug) : null;
+
+      if (slugFieldProvided && !canUseSlugColumn) {
+        try {
+          if (requestedSlug) {
+            await setStoredBlogSiteSlug(ownerId, requestedSlug);
+          } else {
+            await ensureStoredBlogSiteSlug(ownerId, String((args as any).name || "").trim());
+          }
+        } catch (e) {
+          return { status: 409, json: { ok: false, error: e instanceof Error ? e.message : "That blog link is already taken." } };
+        }
+      }
+
+      const select: any = {
+        id: true,
+        name: true,
+        primaryDomain: true,
+        verifiedAt: true,
+        verificationToken: true,
+        updatedAt: true,
+        ...(canUseSlugColumn ? { slug: true } : {}),
+      };
+
+      const existing = (await prisma.clientBlogSite.findUnique({ where: { ownerId }, select } as any)) as any;
+
+      const name = String((args as any).name || "").trim();
+      const primaryDomain = normalizeDomain((args as any).primaryDomain);
+
+      if (existing) {
+        const currentPrimaryDomain = normalizeDomain((existing as any)?.primaryDomain);
+        const domainChanged = primaryDomain !== currentPrimaryDomain;
+        const tokenMissing = Boolean(primaryDomain) && !String((existing as any)?.verificationToken || "").trim();
+        const nextVerificationToken =
+          domainChanged && primaryDomain
+            ? crypto.randomBytes(18).toString("hex")
+            : tokenMissing
+              ? crypto.randomBytes(18).toString("hex")
+              : (existing as any)?.verificationToken;
+
+        let nextSlug: string | undefined = undefined;
+        if (canUseSlugColumn && slugFieldProvided) {
+          nextSlug = requestedSlug ? requestedSlug : await ensurePublicSlug(name);
+
+          const currentSlug = (existing as any)?.slug as string | null | undefined;
+          if (nextSlug && nextSlug !== currentSlug) {
+            const collision = (await (prisma.clientBlogSite as any).findUnique({
+              where: { slug: nextSlug },
+              select: { ownerId: true },
+            })) as any;
+            if (collision && collision.ownerId !== ownerId) {
+              return { status: 409, json: { ok: false, error: "That blog link is already taken." } };
+            }
+          }
+        }
+
+        const updated = (await (prisma.clientBlogSite as any).update({
+          where: { ownerId },
+          data: {
+            name,
+            primaryDomain,
+            ...(domainChanged
+              ? { verifiedAt: null, verificationToken: nextVerificationToken }
+              : tokenMissing
+                ? { verificationToken: nextVerificationToken }
+                : {}),
+            ...(primaryDomain ? {} : domainChanged ? { verifiedAt: null } : {}),
+            ...(canUseSlugColumn && nextSlug !== undefined ? { slug: nextSlug } : {}),
+          },
+          select,
+        })) as any;
+
+        return {
+          status: 200,
+          json: {
+            ok: true,
+            site: {
+              ...(updated as any),
+              slug: canUseSlugColumn ? ((updated as any).slug ?? null) : (await getStoredBlogSiteSlug(ownerId)),
+            },
+          },
+        };
+      }
+
+      const token = crypto.randomBytes(18).toString("hex");
+
+      const slug = requestedSlug ? requestedSlug : await ensurePublicSlug(name);
+
+      if (!canUseSlugColumn) {
+        try {
+          if (requestedSlug) {
+            await setStoredBlogSiteSlug(ownerId, requestedSlug);
+          } else {
+            await ensureStoredBlogSiteSlug(ownerId, name);
+          }
+        } catch {
+          // If requested is taken, fall back to generated slug.
+          await ensureStoredBlogSiteSlug(ownerId, name);
+        }
+      }
+
+      if (canUseSlugColumn && slug) {
+        const collision = (await (prisma.clientBlogSite as any).findUnique({ where: { slug }, select: { ownerId: true } })) as any;
+        if (collision && collision.ownerId !== ownerId) {
+          return { status: 409, json: { ok: false, error: "That blog link is already taken." } };
+        }
+      }
+
+      const created = (await (prisma.clientBlogSite as any).create({
+        data: {
+          ownerId,
+          name,
+          ...(canUseSlugColumn ? { slug } : {}),
+          primaryDomain,
+          verificationToken: token,
+        },
+        select,
+      })) as any;
+
+      return {
+        status: 200,
+        json: {
+          ok: true,
+          site: {
+            ...(created as any),
+            slug: canUseSlugColumn ? ((created as any).slug ?? null) : (await getStoredBlogSiteSlug(ownerId)),
+          },
+        },
+      };
+    }
+
+    case "blogs.site.update": {
+      function normalizeDomain(raw: string | null | undefined) {
+        const v = String(raw || "").trim().toLowerCase();
+        if (!v) return null;
+
+        const withoutProtocol = v.replace(/^https?:\/\//, "");
+        const withoutPath = withoutProtocol.split("/")[0] ?? "";
+        const d = withoutPath.replace(/:\d+$/, "");
+        return d.length ? d : null;
+      }
+
+      const canUseSlugColumn = await hasPublicColumn("ClientBlogSite", "slug");
+
+      async function ensurePublicSlug(desiredName: string) {
+        const profile = await prisma.businessProfile.findUnique({ where: { ownerId }, select: { businessName: true } });
+        const base = slugify(profile?.businessName ?? desiredName) || "blog";
+        const desired = base.length >= 3 ? base : "blog";
+
+        let slug = desired;
+        if (canUseSlugColumn) {
+          const collision = (await (prisma.clientBlogSite as any).findUnique({ where: { slug } })) as any;
+          if (collision && collision.ownerId !== ownerId) {
+            slug = `${desired}-${ownerId.slice(0, 6)}`;
+          }
+        }
+
+        return slug;
+      }
+
+      const slugFieldProvided = Object.prototype.hasOwnProperty.call(args as any, "slug");
+      const rawSlug = typeof (args as any).slug === "string" ? String((args as any).slug).trim() : "";
+      const requestedSlug = rawSlug.length ? slugify(rawSlug) : null;
+
+      if (slugFieldProvided && !canUseSlugColumn) {
+        try {
+          if (requestedSlug) {
+            await setStoredBlogSiteSlug(ownerId, requestedSlug);
+          } else {
+            await ensureStoredBlogSiteSlug(ownerId, String((args as any).name || "").trim());
+          }
+        } catch (e) {
+          return { status: 409, json: { ok: false, error: e instanceof Error ? e.message : "That blog link is already taken." } };
+        }
+      }
+
+      const select: any = {
+        id: true,
+        name: true,
+        primaryDomain: true,
+        verifiedAt: true,
+        verificationToken: true,
+        updatedAt: true,
+        ...(canUseSlugColumn ? { slug: true } : {}),
+      };
+
+      const primaryDomain = normalizeDomain((args as any).primaryDomain);
+      const name = String((args as any).name || "").trim();
+
+      const existing = await prisma.clientBlogSite.findUnique({ where: { ownerId }, select: { primaryDomain: true } });
+      const domainChanged = (existing?.primaryDomain ?? null) !== primaryDomain;
+
+      let nextSlug: string | null | undefined = undefined;
+      if (canUseSlugColumn && slugFieldProvided) {
+        if (requestedSlug) {
+          nextSlug = requestedSlug;
+        } else {
+          nextSlug = await ensurePublicSlug(name);
+        }
+
+        const current = (await (prisma.clientBlogSite as any).findUnique({ where: { ownerId }, select: { slug: true } })) as any;
+        const currentSlug = (current as any)?.slug as string | null | undefined;
+        if (nextSlug && nextSlug !== currentSlug) {
+          const collision = (await (prisma.clientBlogSite as any).findUnique({ where: { slug: nextSlug }, select: { ownerId: true } })) as any;
+          if (collision && collision.ownerId !== ownerId) {
+            return { status: 409, json: { ok: false, error: "That blog link is already taken." } };
+          }
+        }
+      }
+
+      const updated = (await (prisma.clientBlogSite as any).upsert({
+        where: { ownerId },
+        create: {
+          ownerId,
+          name,
+          ...(canUseSlugColumn ? { slug: nextSlug ?? requestedSlug ?? (await ensurePublicSlug(name)) } : {}),
+          primaryDomain,
+          verificationToken: crypto.randomBytes(18).toString("hex"),
+          verifiedAt: null,
+        },
+        update: {
+          name,
+          ...(canUseSlugColumn
+            ? {
+                ...(nextSlug !== undefined ? { slug: nextSlug } : {}),
+                ...(nextSlug === undefined
+                  ? await (async () => {
+                      const existing = (await (prisma.clientBlogSite as any).findUnique({ where: { ownerId }, select: { slug: true } })) as any;
+                      if ((existing as any)?.slug) return {};
+                      return { slug: await ensurePublicSlug(name) };
+                    })()
+                  : {}),
+              }
+            : {}),
+          primaryDomain,
+          ...(domainChanged
+            ? {
+                verifiedAt: null,
+                verificationToken: crypto.randomBytes(18).toString("hex"),
+              }
+            : {}),
+        },
+        select,
+      })) as any;
+
+      return {
+        status: 200,
+        json: {
+          ok: true,
+          site: {
+            ...(updated as any),
+            slug: canUseSlugColumn ? ((updated as any).slug ?? null) : (await getStoredBlogSiteSlug(ownerId)),
+          },
+        },
+      };
+    }
+
+    case "blogs.usage.get": {
+      type RangeKey = "7d" | "30d" | "90d" | "all";
+      const raw = typeof (args as any)?.range === "string" ? String((args as any).range).trim() : "30d";
+      const range = ((): RangeKey => {
+        switch (raw.toLowerCase()) {
+          case "7d":
+          case "7":
+            return "7d";
+          case "90d":
+          case "90":
+            return "90d";
+          case "all":
+            return "all";
+          case "30d":
+          case "30":
+          default:
+            return "30d";
+        }
+      })();
+
+      const now = new Date();
+      const start = range === "all" ? new Date(0) : new Date(now.getTime() - (range === "7d" ? 7 : range === "30d" ? 30 : 90) * 24 * 60 * 60 * 1000);
+
+      const [site, aggRange, aggAll] = await Promise.all([
+        prisma.clientBlogSite.findUnique({ where: { ownerId }, select: { id: true } }),
+        prisma.portalBlogGenerationEvent.aggregate({
+          where: { ownerId, createdAt: { gte: start } },
+          _count: { id: true },
+          _sum: { chargedCredits: true },
+        }),
+        prisma.portalBlogGenerationEvent.aggregate({
+          where: { ownerId },
+          _count: { id: true },
+          _sum: { chargedCredits: true },
+        }),
+      ]);
+
+      return {
+        status: 200,
+        json: {
+          ok: true,
+          range,
+          siteId: site?.id ?? null,
+          creditsUsed: {
+            range: typeof aggRange._sum.chargedCredits === "number" ? aggRange._sum.chargedCredits : 0,
+            all: typeof aggAll._sum.chargedCredits === "number" ? aggAll._sum.chargedCredits : 0,
+          },
+          generations: {
+            range: typeof aggRange._count.id === "number" ? aggRange._count.id : 0,
+            all: typeof aggAll._count.id === "number" ? aggAll._count.id : 0,
+          },
+        },
+      };
+    }
+
+    case "blogs.posts.list": {
+      const take = typeof (args as any)?.take === "number" && Number.isFinite((args as any).take) ? Math.min(200, Math.max(1, Math.floor((args as any).take))) : 50;
+      const includeArchived = Boolean((args as any)?.includeArchived);
+
+      const site = await prisma.clientBlogSite.findUnique({ where: { ownerId }, select: { id: true } });
+      const siteId = site?.id ?? null;
+      if (!siteId) return { status: 200, json: { ok: true, posts: [] } };
+
+      const posts = await prisma.clientBlogPost.findMany({
+        where: {
+          siteId,
+          ...(includeArchived ? {} : { archivedAt: null }),
+        },
+        orderBy: [{ updatedAt: "desc" }],
+        take,
+        select: {
+          id: true,
+          status: true,
+          slug: true,
+          title: true,
+          excerpt: true,
+          publishedAt: true,
+          archivedAt: true,
+          updatedAt: true,
+        },
+      });
+
+      return { status: 200, json: { ok: true, posts } };
+    }
+
+    case "blogs.posts.create": {
+      const site = await prisma.clientBlogSite.findUnique({ where: { ownerId }, select: { id: true } });
+      const siteId = site?.id ?? null;
+      if (!siteId) return { status: 400, json: { ok: false, error: "Create your blog site first" } };
+
+      const title = typeof (args as any)?.title === "string" ? String((args as any).title).trim().slice(0, 180) : "";
+      const finalTitle = title || "Untitled post";
+      const slug = await uniqueBlogSlug(siteId, finalTitle);
+
+      const created = await prisma.clientBlogPost.create({
+        data: {
+          siteId,
+          status: "DRAFT",
+          slug,
+          title: finalTitle,
+          excerpt: "",
+          content: "",
+        },
+        select: {
+          id: true,
+          status: true,
+          slug: true,
+          title: true,
+          excerpt: true,
+          content: true,
+          publishedAt: true,
+          archivedAt: true,
+          updatedAt: true,
+        },
+      });
+
+      return { status: 200, json: { ok: true, post: created } };
+    }
+
+    case "blogs.posts.get": {
+      const postId = String((args as any)?.postId || "").trim();
+      const post = await prisma.clientBlogPost.findFirst({
+        where: { id: postId, site: { ownerId } },
+        select: {
+          id: true,
+          status: true,
+          slug: true,
+          title: true,
+          excerpt: true,
+          content: true,
+          seoKeywords: true,
+          publishedAt: true,
+          archivedAt: true,
+          updatedAt: true,
+        },
+      });
+      if (!post) return { status: 404, json: { ok: false, error: "Not found" } };
+      return { status: 200, json: { ok: true, post } };
+    }
+
+    case "blogs.posts.update": {
+      const postId = String((args as any)?.postId || "").trim();
+
+      const existing = await prisma.clientBlogPost.findFirst({
+        where: { id: postId, site: { ownerId } },
+        select: { id: true, siteId: true },
+      });
+      if (!existing) return { status: 404, json: { ok: false, error: "Not found" } };
+
+      async function uniqueSlugForUpdate(siteId: string, desired: string, currentId: string) {
+        const base = slugify(desired) || "post";
+        let attempt = base;
+        for (let i = 0; i < 50; i += 1) {
+          const exists = await prisma.clientBlogPost.findUnique({
+            where: { siteId_slug: { siteId, slug: attempt } },
+            select: { id: true },
+          });
+          if (!exists || exists.id === currentId) return attempt;
+          attempt = `${base}-${i + 2}`;
+        }
+        return `${base}-${Date.now()}`;
+      }
+
+      const desiredSlug = String((args as any).slug || "").trim();
+      const slug = await uniqueSlugForUpdate(existing.siteId, desiredSlug, existing.id);
+
+      const updated = await prisma.clientBlogPost.update({
+        where: { id: existing.id },
+        data: {
+          title: String((args as any).title || "").trim(),
+          slug,
+          excerpt: String((args as any).excerpt ?? ""),
+          content: String((args as any).content ?? ""),
+          seoKeywords: Array.isArray((args as any).seoKeywords) && (args as any).seoKeywords.length ? (args as any).seoKeywords : Prisma.DbNull,
+          archivedAt: (args as any).archived ? new Date() : null,
+          ...(typeof (args as any).publishedAt !== "undefined"
+            ? { publishedAt: (args as any).publishedAt ? new Date(String((args as any).publishedAt)) : null }
+            : {}),
+        },
+        select: {
+          id: true,
+          status: true,
+          slug: true,
+          title: true,
+          excerpt: true,
+          content: true,
+          seoKeywords: true,
+          publishedAt: true,
+          archivedAt: true,
+          updatedAt: true,
+        },
+      });
+
+      return { status: 200, json: { ok: true, post: updated } };
+    }
+
+    case "blogs.posts.delete": {
+      const postId = String((args as any)?.postId || "").trim();
+      const existing = await prisma.clientBlogPost.findFirst({ where: { id: postId, site: { ownerId } }, select: { id: true } });
+      if (!existing) return { status: 404, json: { ok: false, error: "Not found" } };
+      await prisma.clientBlogPost.delete({ where: { id: existing.id } });
+      return { status: 200, json: { ok: true } };
+    }
+
+    case "blogs.posts.archive": {
+      const postId = String((args as any)?.postId || "").trim();
+      const archived = Boolean((args as any)?.archived);
+
+      const existing = await prisma.clientBlogPost.findFirst({
+        where: { id: postId, site: { ownerId } },
+        select: { id: true },
+      });
+      if (!existing) return { status: 404, json: { ok: false, error: "Not found" } };
+
+      const updated = await prisma.clientBlogPost.update({
+        where: { id: existing.id },
+        data: { archivedAt: archived ? new Date() : null },
+        select: { id: true, archivedAt: true, updatedAt: true },
+      });
+
+      return { status: 200, json: { ok: true, post: updated } };
+    }
+
+    case "blogs.posts.export_markdown": {
+      const postId = String((args as any)?.postId || "").trim();
+      const post = await prisma.clientBlogPost.findFirst({
+        where: { id: postId, site: { ownerId } },
+        select: { title: true, slug: true, excerpt: true, content: true },
+      });
+      if (!post) return { status: 404, json: { ok: false, error: "Not found" } };
+
+      const md = `# ${post.title}\n\n${post.excerpt ? post.excerpt + "\n\n" : ""}${post.content || ""}\n`;
+      const fileName = `${String(post.slug || "post")}.md`;
+      return { status: 200, json: { ok: true, markdown: md, fileName } };
+    }
+
+    case "blogs.automation.settings.get": {
+      type StoredSettings = {
+        enabled?: boolean;
+        frequencyDays?: number;
+        topics?: string[];
+        cursor?: number;
+        autoPublish?: boolean;
+        lastRunAt?: string;
+      };
+
+      function normalizeTopics(items: unknown): string[] {
+        if (!Array.isArray(items)) return [];
+        const out: string[] = [];
+        const seen = new Set<string>();
+        for (const item of items) {
+          if (typeof item !== "string") continue;
+          const t = item.trim();
+          if (!t) continue;
+          const key = t.toLowerCase();
+          if (seen.has(key)) continue;
+          seen.add(key);
+          out.push(t);
+          if (out.length >= 50) break;
+        }
+        return out;
+      }
+
+      function parseStored(value: unknown): Required<Pick<StoredSettings, "enabled" | "frequencyDays" | "topics" | "cursor" | "autoPublish">> & Pick<StoredSettings, "lastRunAt"> {
+        const rec = value && typeof value === "object" ? (value as Record<string, unknown>) : null;
+        return {
+          enabled: Boolean(rec?.enabled),
+          frequencyDays:
+            typeof rec?.frequencyDays === "number" && Number.isFinite(rec.frequencyDays)
+              ? Math.min(30, Math.max(1, Math.floor(rec.frequencyDays)))
+              : 7,
+          topics: normalizeTopics(rec?.topics),
+          cursor: typeof rec?.cursor === "number" && Number.isFinite(rec.cursor) ? Math.max(0, Math.floor(rec.cursor)) : 0,
+          autoPublish: Boolean(rec?.autoPublish),
+          lastRunAt: typeof rec?.lastRunAt === "string" ? rec.lastRunAt : undefined,
+        };
+      }
+
+      const setup = await prisma.portalServiceSetup.findUnique({
+        where: { ownerId_serviceSlug: { ownerId, serviceSlug: "blogs" } },
+        select: { id: true, dataJson: true, updatedAt: true },
+      });
+
+      const parsed = parseStored(setup?.dataJson);
+
+      const site = await prisma.clientBlogSite.findUnique({ where: { ownerId }, select: { id: true } });
+      let lastGeneratedAt: Date | null = null;
+      if (site?.id) {
+        const last = await prisma.clientBlogPost.findFirst({
+          where: { siteId: site.id },
+          orderBy: { createdAt: "desc" },
+          select: { createdAt: true },
+        });
+        lastGeneratedAt = last?.createdAt ?? null;
+      }
+
+      const nextDueAt = lastGeneratedAt
+        ? new Date(lastGeneratedAt.getTime() + parsed.frequencyDays * 24 * 60 * 60 * 1000)
+        : new Date();
+
+      return {
+        status: 200,
+        json: {
+          ok: true,
+          settings: {
+            ...parsed,
+            lastGeneratedAt: lastGeneratedAt ? lastGeneratedAt.toISOString() : null,
+            nextDueAt: nextDueAt.toISOString(),
+          },
+        },
+      };
+    }
+
+    case "blogs.automation.settings.update": {
+      type StoredSettings = {
+        enabled?: boolean;
+        frequencyDays?: number;
+        topics?: string[];
+        cursor?: number;
+        autoPublish?: boolean;
+        lastRunAt?: string;
+      };
+
+      function normalizeTopics(items: unknown): string[] {
+        if (!Array.isArray(items)) return [];
+        const out: string[] = [];
+        const seen = new Set<string>();
+        for (const item of items) {
+          if (typeof item !== "string") continue;
+          const t = item.trim();
+          if (!t) continue;
+          const key = t.toLowerCase();
+          if (seen.has(key)) continue;
+          seen.add(key);
+          out.push(t);
+          if (out.length >= 50) break;
+        }
+        return out;
+      }
+
+      function parseStored(value: unknown): Required<Pick<StoredSettings, "enabled" | "frequencyDays" | "topics" | "cursor" | "autoPublish">> & Pick<StoredSettings, "lastRunAt"> {
+        const rec = value && typeof value === "object" ? (value as Record<string, unknown>) : null;
+        return {
+          enabled: Boolean(rec?.enabled),
+          frequencyDays:
+            typeof rec?.frequencyDays === "number" && Number.isFinite(rec.frequencyDays)
+              ? Math.min(30, Math.max(1, Math.floor(rec.frequencyDays)))
+              : 7,
+          topics: normalizeTopics(rec?.topics),
+          cursor: typeof rec?.cursor === "number" && Number.isFinite(rec.cursor) ? Math.max(0, Math.floor(rec.cursor)) : 0,
+          autoPublish: Boolean(rec?.autoPublish),
+          lastRunAt: typeof rec?.lastRunAt === "string" ? rec.lastRunAt : undefined,
+        };
+      }
+
+      const existing = await prisma.portalServiceSetup.findUnique({
+        where: { ownerId_serviceSlug: { ownerId, serviceSlug: "blogs" } },
+        select: { dataJson: true },
+      });
+      const prev = parseStored(existing?.dataJson);
+
+      const next: StoredSettings = {
+        enabled: Boolean((args as any).enabled),
+        frequencyDays: Number((args as any).frequencyDays),
+        topics: normalizeTopics((args as any).topics),
+        cursor: prev.cursor,
+        autoPublish: Boolean((args as any).autoPublish),
+        lastRunAt: prev.lastRunAt,
+      };
+
+      const row = await prisma.portalServiceSetup.upsert({
+        where: { ownerId_serviceSlug: { ownerId, serviceSlug: "blogs" } },
+        create: { ownerId, serviceSlug: "blogs", status: "IN_PROGRESS", dataJson: next },
+        update: { dataJson: next },
+        select: { id: true, dataJson: true, updatedAt: true },
+      });
+
+      return { status: 200, json: { ok: true, settings: parseStored(row.dataJson), updatedAt: row.updatedAt.toISOString() } };
     }
 
     case "blogs.generate_now": {

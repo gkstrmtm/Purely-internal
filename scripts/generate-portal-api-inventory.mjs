@@ -93,6 +93,23 @@ const ACTION_COVERAGE = [
   { action: "ai_outbound_calls.manual_calls.list", method: "GET", endpoint: "/api/portal/ai-outbound-calls/manual-calls" },
   { action: "ai_outbound_calls.manual_calls.get", method: "GET", endpoint: "/api/portal/ai-outbound-calls/manual-calls/[id]" },
 
+  // Blogs (safe settings + CRUD)
+  { action: "blogs.appearance.get", method: "GET", endpoint: "/api/portal/blogs/appearance" },
+  { action: "blogs.appearance.update", method: "PUT", endpoint: "/api/portal/blogs/appearance" },
+  { action: "blogs.site.get", method: "GET", endpoint: "/api/portal/blogs/site" },
+  { action: "blogs.site.create", method: "POST", endpoint: "/api/portal/blogs/site" },
+  { action: "blogs.site.update", method: "PUT", endpoint: "/api/portal/blogs/site" },
+  { action: "blogs.usage.get", method: "GET", endpoint: "/api/portal/blogs/usage" },
+  { action: "blogs.posts.list", method: "GET", endpoint: "/api/portal/blogs/posts" },
+  { action: "blogs.posts.create", method: "POST", endpoint: "/api/portal/blogs/posts" },
+  { action: "blogs.posts.get", method: "GET", endpoint: "/api/portal/blogs/posts/[postId]" },
+  { action: "blogs.posts.update", method: "PUT", endpoint: "/api/portal/blogs/posts/[postId]" },
+  { action: "blogs.posts.delete", method: "DELETE", endpoint: "/api/portal/blogs/posts/[postId]" },
+  { action: "blogs.posts.archive", method: "POST", endpoint: "/api/portal/blogs/posts/[postId]/archive" },
+  { action: "blogs.posts.export_markdown", method: "GET", endpoint: "/api/portal/blogs/posts/[postId]/export" },
+  { action: "blogs.automation.settings.get", method: "GET", endpoint: "/api/portal/blogs/automation/settings" },
+  { action: "blogs.automation.settings.update", method: "PUT", endpoint: "/api/portal/blogs/automation/settings" },
+
   // Funnel Builder (non-AI CRUD parity)
   { action: "funnel_builder.settings.get", method: "GET", endpoint: "/api/portal/funnel-builder/settings" },
   { action: "funnel_builder.settings.update", method: "POST", endpoint: "/api/portal/funnel-builder/settings" },

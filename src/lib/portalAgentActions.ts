@@ -30,6 +30,21 @@ export const PortalAgentActionKeySchema = z.enum([
   "funnel_builder.sales.products.list",
   "funnel_builder.sales.products.create",
 
+  "blogs.appearance.get",
+  "blogs.appearance.update",
+  "blogs.site.get",
+  "blogs.site.create",
+  "blogs.site.update",
+  "blogs.usage.get",
+  "blogs.posts.list",
+  "blogs.posts.create",
+  "blogs.posts.get",
+  "blogs.posts.update",
+  "blogs.posts.delete",
+  "blogs.posts.archive",
+  "blogs.posts.export_markdown",
+  "blogs.automation.settings.get",
+  "blogs.automation.settings.update",
   "blogs.generate_now",
   "newsletter.generate_now",
   "automations.run",
@@ -309,6 +324,106 @@ export const PortalAgentActionArgsSchemaByKey = {
       imageUrls: z.array(z.string().trim().url().max(500)).max(8).optional().nullable(),
       priceCents: z.number().int().min(50).max(100_000_00),
       currency: z.string().trim().min(3).max(10).optional().nullable(),
+    })
+    .strict(),
+
+  "blogs.appearance.get": z.object({}).strict(),
+
+  "blogs.appearance.update": z
+    .object({
+      useBrandFont: z.boolean().optional(),
+      titleFontKey: z.string().trim().max(40).optional(),
+      bodyFontKey: z.string().trim().max(40).optional(),
+    })
+    .strict(),
+
+  "blogs.site.get": z.object({}).strict(),
+
+  "blogs.site.create": z
+    .object({
+      name: z.string().trim().min(2).max(120),
+      primaryDomain: z.string().trim().max(253).optional().or(z.literal("")),
+      slug: z.string().trim().min(3).max(80).optional().or(z.literal("")),
+    })
+    .strict(),
+
+  "blogs.site.update": z
+    .object({
+      name: z.string().trim().min(2).max(120),
+      primaryDomain: z.string().trim().max(253).optional().or(z.literal("")),
+      slug: z.string().trim().min(3).max(80).optional().or(z.literal("")),
+    })
+    .strict(),
+
+  "blogs.usage.get": z
+    .object({
+      range: z.enum(["7d", "30d", "90d", "all"]).optional(),
+    })
+    .strict(),
+
+  "blogs.posts.list": z
+    .object({
+      take: z.number().int().min(1).max(200).optional(),
+      includeArchived: z.boolean().optional(),
+    })
+    .strict(),
+
+  "blogs.posts.create": z
+    .object({
+      title: z.string().trim().max(180).optional(),
+    })
+    .strict(),
+
+  "blogs.posts.get": z
+    .object({
+      postId: z.string().trim().min(1).max(120),
+    })
+    .strict(),
+
+  "blogs.posts.update": z
+    .object({
+      postId: z.string().trim().min(1).max(120),
+      title: z.string().trim().min(1).max(180),
+      slug: z.string().trim().min(1).max(120),
+      excerpt: z.string().max(6000),
+      content: z.string().max(200000),
+      seoKeywords: z.array(z.string().trim().min(1).max(120)).max(50).optional(),
+      publishedAt: z
+        .string()
+        .datetime({ offset: true })
+        .nullable()
+        .optional(),
+      archived: z.boolean().optional(),
+    })
+    .strict(),
+
+  "blogs.posts.delete": z
+    .object({
+      postId: z.string().trim().min(1).max(120),
+    })
+    .strict(),
+
+  "blogs.posts.archive": z
+    .object({
+      postId: z.string().trim().min(1).max(120),
+      archived: z.boolean(),
+    })
+    .strict(),
+
+  "blogs.posts.export_markdown": z
+    .object({
+      postId: z.string().trim().min(1).max(120),
+    })
+    .strict(),
+
+  "blogs.automation.settings.get": z.object({}).strict(),
+
+  "blogs.automation.settings.update": z
+    .object({
+      enabled: z.boolean(),
+      frequencyDays: z.number().int().min(1).max(30),
+      topics: z.array(z.string().trim().min(1).max(200)).max(50),
+      autoPublish: z.boolean().optional(),
     })
     .strict(),
 
@@ -1002,6 +1117,21 @@ export function portalAgentActionsIndexText(): string {
     "- funnel_builder.pages.global_header: Apply/unset a global header block (fields: mode, funnelId, headerBlock OR keepOnPageId+localHeaderBlock)",
     "- funnel_builder.sales.products.list: List Stripe products (Funnel Builder sales)",
     "- funnel_builder.sales.products.create: Create a Stripe product (fields: name, description?, imageUrls?, priceCents, currency?)",
+    "- blogs.appearance.get: Get blog appearance (fonts)",
+    "- blogs.appearance.update: Update blog appearance (fields: useBrandFont?, titleFontKey?, bodyFontKey?)",
+    "- blogs.site.get: Get blog site settings",
+    "- blogs.site.create: Create/update blog site settings (fields: name, primaryDomain?, slug?)",
+    "- blogs.site.update: Upsert blog site settings (fields: name, primaryDomain?, slug?)",
+    "- blogs.usage.get: Get blog usage stats (fields: range=7d|30d|90d|all?)",
+    "- blogs.posts.list: List blog posts (fields: take?, includeArchived?)",
+    "- blogs.posts.create: Create a draft blog post (fields: title?)",
+    "- blogs.posts.get: Get a blog post (fields: postId)",
+    "- blogs.posts.update: Update a blog post (fields: postId, title, slug, excerpt, content, seoKeywords?, publishedAt?, archived?)",
+    "- blogs.posts.delete: Delete a blog post (fields: postId)",
+    "- blogs.posts.archive: Archive/unarchive a blog post (fields: postId, archived)",
+    "- blogs.posts.export_markdown: Export a blog post as Markdown (fields: postId)",
+    "- blogs.automation.settings.get: Get blog automation settings",
+    "- blogs.automation.settings.update: Update blog automation settings (fields: enabled, frequencyDays, topics, autoPublish?)",
     "- blogs.generate_now: Generate a blog draft now",
     "- newsletter.generate_now: Generate a newsletter draft now (fields: kind=external|internal)",
     "- automations.run: Run an automation by id (fields: automationId, contact?)",
