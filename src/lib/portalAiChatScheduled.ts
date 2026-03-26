@@ -8,7 +8,7 @@ export async function processDuePortalAiChatScheduledMessages(opts?: { limit?: n
   await ensurePortalAiChatSchema();
 
   if (!isPortalSupportChatConfigured()) {
-    return { ok: false as const, error: "AI chat is not configured for this environment." };
+    return { ok: false as const, error: "Pura is not configured for this environment." };
   }
 
   const now = new Date();

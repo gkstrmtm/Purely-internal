@@ -942,7 +942,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ threadId: stri
 
   if (!isPortalSupportChatConfigured()) {
     return NextResponse.json(
-      { ok: false, error: "AI chat is not configured for this environment." },
+      { ok: false, error: "Pura is not configured for this environment." },
       { status: 503 },
     );
   }

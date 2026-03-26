@@ -14072,7 +14072,7 @@ async function runDirectAction(opts: {
       const membership = await requirePortalMember();
       if (!membership) return { status: 403, json: { ok: false, error: "Forbidden" } };
       void args;
-      return { status: 200, json: { ok: true, processed: 0, note: "AI Chat scheduling is disabled" } };
+      return { status: 200, json: { ok: true, processed: 0, note: "Pura scheduling is disabled" } };
     }
 
     case "ai_chat.messages.list": {
@@ -14175,7 +14175,7 @@ async function runDirectAction(opts: {
       if (!isPortalSupportChatConfigured()) {
         return {
           status: 503,
-          json: { ok: false, error: "AI chat is not configured for this environment." },
+          json: { ok: false, error: "Pura is not configured for this environment." },
         };
       }
 
@@ -14444,7 +14444,7 @@ async function runDirectAction(opts: {
       const membership = await requirePortalMember();
       if (!membership) return { status: 403, json: { ok: false, error: "Forbidden" } };
       void args;
-      return { status: 200, json: { ok: true, processed: 0, note: "AI Chat scheduling is disabled" } };
+      return { status: 200, json: { ok: true, processed: 0, note: "Pura scheduling is disabled" } };
     }
 
     case "voice_agent.tools.get": {

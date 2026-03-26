@@ -123,7 +123,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
     if (pathname === appRoot) {
       sectionTitle = "Dashboard";
     } else if (pathname.startsWith(`${appRoot}/ai-chat`)) {
-      sectionTitle = "AI Chat";
+      sectionTitle = "Pura";
     } else if (pathname.startsWith(`${appRoot}/people`)) {
       sectionTitle = "People";
     } else if (pathname.startsWith(`${appRoot}/billing`)) {
@@ -828,7 +828,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
     const base = [
       { href: `${basePath}/app`, label: "Dashboard", iconGlyph: <IconDashboardGlyph /> },
       { href: `${basePath}/app/services`, label: "Services", iconGlyph: <IconServicesGlyph /> },
-      { href: `${basePath}/app/ai-chat`, label: "AI Chat", iconGlyph: <IconAiChatGlyph /> },
+      { href: `${basePath}/app/ai-chat`, label: "Pura", iconGlyph: <IconAiChatGlyph /> },
       ...(can("people") ? [{ href: `${basePath}/app/people`, label: "People", iconGlyph: <IconPeopleGlyph /> }] : []),
       ...(canSeeSettings ? [{ href: `${basePath}/app/settings`, label: "Settings", iconGlyph: <IconSettingsGlyph /> }] : []),
     ];
