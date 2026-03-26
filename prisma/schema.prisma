@@ -258,6 +258,8 @@ model PortalAiChatThread {
   createdByUserId String?
   lastMessageAt   DateTime?
 
+  contextJson Json?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 

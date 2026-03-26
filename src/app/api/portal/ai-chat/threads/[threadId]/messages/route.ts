@@ -11,8 +11,10 @@ import {
   portalAgentActionsIndexText,
   type PortalAgentActionKey,
 } from "@/lib/portalAgentActions";
-import { executePortalAgentActionForThread } from "@/lib/portalAgentActionExecutor";
+import { executePortalAgentAction, executePortalAgentActionForThread } from "@/lib/portalAgentActionExecutor";
 import { isPortalSupportChatConfigured, runPortalSupportChat } from "@/lib/portalSupportChat";
+import { planPuraActions } from "@/lib/puraPlanner";
+import { resolvePlanArgs } from "@/lib/puraResolver";
 
 import {
   addContactTagAssignment,
@@ -1293,7 +1295,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ threadId: stri
 
   const thread = await (prisma as any).portalAiChatThread.findFirst({
     where: { id: threadId, ownerId },
-    select: { id: true, title: true },
+    select: { id: true, title: true, contextJson: true },
   });
   if (!thread) return NextResponse.json({ ok: false, error: "Not found" }, { status: 404 });
 
@@ -1375,14 +1377,188 @@ export async function POST(req: Request, ctx: { params: Promise<{ threadId: stri
       assistantMessage: tagWorkflow.assistantMessage,
       assistantActions: [],
       autoActionMessage: null,
+      canvasUrl: null,
     });
   }
 
-  if (!isPortalSupportChatConfigured()) {
-    return NextResponse.json(
-      { ok: false, error: "Pura is not configured for this environment." },
-      { status: 503 },
-    );
+  // 0.5) Agentic planning + deterministic resolution (multi-step, no IDs required).
+  // This runs before the legacy action-proposal flow, and it executes immediately for imperative requests.
+  if (isPortalSupportChatConfigured()) {
+    try {
+      const plan = await planPuraActions({
+        text: cleanText,
+        url: parsed.data.url,
+        recentMessages,
+        threadContext: (thread as any).contextJson ?? null,
+      });
+
+      if (plan?.mode === "clarify" && plan.clarifyingQuestion) {
+        const assistantMsg = await (prisma as any).portalAiChatMessage.create({
+          data: {
+            ownerId,
+            threadId,
+            role: "assistant",
+            text: plan.clarifyingQuestion,
+            attachmentsJson: null,
+            createdByUserId: null,
+            sendAt: null,
+            sentAt: now,
+          },
+          select: {
+            id: true,
+            role: true,
+            text: true,
+            attachmentsJson: true,
+            createdAt: true,
+            sendAt: true,
+            sentAt: true,
+          },
+        });
+
+        const prevCtx = (thread as any).contextJson;
+        const nextCtx = prevCtx && typeof prevCtx === "object" && !Array.isArray(prevCtx)
+          ? { ...(prevCtx as any), pendingPlan: plan }
+          : { pendingPlan: plan };
+
+        await (prisma as any).portalAiChatThread.update({ where: { id: threadId }, data: { lastMessageAt: now, contextJson: nextCtx } });
+        return NextResponse.json({ ok: true, userMessage: userMsg, assistantMessage: assistantMsg, assistantActions: [], autoActionMessage: null, canvasUrl: null });
+      }
+
+      if (plan?.mode === "explain" && plan.explanation) {
+        const assistantMsg = await (prisma as any).portalAiChatMessage.create({
+          data: {
+            ownerId,
+            threadId,
+            role: "assistant",
+            text: plan.explanation,
+            attachmentsJson: null,
+            createdByUserId: null,
+            sendAt: null,
+            sentAt: now,
+          },
+          select: {
+            id: true,
+            role: true,
+            text: true,
+            attachmentsJson: true,
+            createdAt: true,
+            sendAt: true,
+            sentAt: true,
+          },
+        });
+
+        await (prisma as any).portalAiChatThread.update({ where: { id: threadId }, data: { lastMessageAt: now } });
+        return NextResponse.json({ ok: true, userMessage: userMsg, assistantMessage: assistantMsg, assistantActions: [], autoActionMessage: null, canvasUrl: null });
+      }
+
+      if (plan?.mode === "execute" && Array.isArray(plan.steps) && plan.steps.length) {
+        const resolvedSteps: Array<{ key: PortalAgentActionKey; title: string; args: Record<string, unknown>; openUrl?: string }> = [];
+        const contextPatches: Array<Record<string, unknown> | undefined> = [];
+
+        for (const step of plan.steps.slice(0, 6)) {
+          const argsRaw = step.args && typeof step.args === "object" && !Array.isArray(step.args) ? (step.args as Record<string, unknown>) : {};
+          const resolved = await resolvePlanArgs({ ownerId, stepKey: step.key, args: argsRaw });
+          if (!resolved.ok) {
+            const assistantMsg = await (prisma as any).portalAiChatMessage.create({
+              data: {
+                ownerId,
+                threadId,
+                role: "assistant",
+                text: resolved.clarifyQuestion,
+                attachmentsJson: null,
+                createdByUserId: null,
+                sendAt: null,
+                sentAt: now,
+              },
+              select: {
+                id: true,
+                role: true,
+                text: true,
+                attachmentsJson: true,
+                createdAt: true,
+                sendAt: true,
+                sentAt: true,
+              },
+            });
+
+            const prevCtx = (thread as any).contextJson;
+            const nextCtx = prevCtx && typeof prevCtx === "object" && !Array.isArray(prevCtx)
+              ? { ...(prevCtx as any), pendingPlan: plan }
+              : { pendingPlan: plan };
+            await (prisma as any).portalAiChatThread.update({ where: { id: threadId }, data: { lastMessageAt: now, contextJson: nextCtx } });
+            return NextResponse.json({ ok: true, userMessage: userMsg, assistantMessage: assistantMsg, assistantActions: [], autoActionMessage: null, canvasUrl: null });
+          }
+
+          const resolvedArgs = resolved.args && typeof resolved.args === "object" && !Array.isArray(resolved.args)
+            ? (resolved.args as Record<string, unknown>)
+            : {};
+
+          resolvedSteps.push({ key: step.key, title: step.title, args: resolvedArgs, ...(step.openUrl ? { openUrl: step.openUrl } : {}) });
+          contextPatches.push(resolved.contextPatch);
+        }
+
+        const results: Array<{ ok: boolean; markdown?: string; linkUrl?: string | null }> = [];
+        for (const step of resolvedSteps) {
+          const exec = await executePortalAgentAction({
+            ownerId,
+            actorUserId: createdByUserId,
+            action: step.key,
+            args: step.args,
+          });
+          results.push({ ok: Boolean(exec.ok), markdown: exec.markdown, linkUrl: exec.linkUrl ?? null });
+        }
+
+        const canvasUrl =
+          (results.map((r) => r.linkUrl).filter(Boolean).slice(-1)[0] as string | undefined) ||
+          resolvedSteps.map((s) => s.openUrl).filter(Boolean).slice(-1)[0] ||
+          null;
+
+        const assistantText = (() => {
+          if (resolvedSteps.length === 1) {
+            return String(results[0]?.markdown || "Done.").trim() || "Done.";
+          }
+          const blocks = resolvedSteps.map((s, idx) => {
+            const md = String(results[idx]?.markdown || (results[idx]?.ok ? "Done." : "Action failed.")).trim();
+            return `#### ${s.title}\n${md}`;
+          });
+          return `Done.\n\n${blocks.join("\n\n")}`;
+        })();
+
+        const assistantMsg = await (prisma as any).portalAiChatMessage.create({
+          data: {
+            ownerId,
+            threadId,
+            role: "assistant",
+            text: assistantText,
+            attachmentsJson: null,
+            createdByUserId: null,
+            sendAt: null,
+            sentAt: now,
+          },
+          select: {
+            id: true,
+            role: true,
+            text: true,
+            attachmentsJson: true,
+            createdAt: true,
+            sendAt: true,
+            sentAt: true,
+          },
+        });
+
+        const prevCtx = (thread as any).contextJson;
+        const mergedPatch = Object.assign({}, ...contextPatches.filter(Boolean));
+        const nextCtx = prevCtx && typeof prevCtx === "object" && !Array.isArray(prevCtx)
+          ? { ...(prevCtx as any), ...mergedPatch, lastWorkTitle: plan.workTitle ?? null, lastCanvasUrl: canvasUrl, pendingPlan: null }
+          : { ...mergedPatch, lastWorkTitle: plan.workTitle ?? null, lastCanvasUrl: canvasUrl, pendingPlan: null };
+
+        await (prisma as any).portalAiChatThread.update({ where: { id: threadId }, data: { lastMessageAt: now, contextJson: nextCtx } });
+
+        return NextResponse.json({ ok: true, userMessage: userMsg, assistantMessage: assistantMsg, assistantActions: [], autoActionMessage: null, canvasUrl });
+      }
+    } catch {
+      // If planning fails, fall through to existing behavior.
+    }
   }
 
   // 1) Prefer deterministic action execution for common commands.
@@ -1403,6 +1579,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ threadId: stri
       assistantMessage: exec.assistantMessage,
       assistantActions: [],
       autoActionMessage: null,
+      canvasUrl: exec.linkUrl || null,
     });
   }
 
@@ -1483,6 +1660,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ threadId: stri
       assistantMessage: autoActionMessage,
       assistantActions,
       autoActionMessage: null,
+      canvasUrl: null,
     });
   }
 
@@ -1532,11 +1710,18 @@ export async function POST(req: Request, ctx: { params: Promise<{ threadId: stri
         });
 
         await (prisma as any).portalAiChatThread.update({ where: { id: threadId }, data: { lastMessageAt: new Date() } });
-        return NextResponse.json({ ok: true, userMessage: userMsg, assistantMessage: assistantMsg, assistantActions: [], autoActionMessage: null });
+        return NextResponse.json({ ok: true, userMessage: userMsg, assistantMessage: assistantMsg, assistantActions: [], autoActionMessage: null, canvasUrl: null });
       }
     } catch {
       // ignore
     }
+  }
+
+  if (!isPortalSupportChatConfigured()) {
+    return NextResponse.json(
+      { ok: false, error: "Pura is not configured for this environment." },
+      { status: 503 },
+    );
   }
 
   const reply = await runPortalSupportChat({
@@ -1602,5 +1787,5 @@ export async function POST(req: Request, ctx: { params: Promise<{ threadId: stri
     // best-effort
   }
 
-  return NextResponse.json({ ok: true, userMessage: userMsg, assistantMessage: assistantMsg, assistantActions, autoActionMessage: null });
+  return NextResponse.json({ ok: true, userMessage: userMsg, assistantMessage: assistantMsg, assistantActions, autoActionMessage: null, canvasUrl: null });
 }

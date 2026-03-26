@@ -23591,3 +23591,34 @@ export async function executePortalAgentActionForThread(opts: {
     linkUrl,
   };
 }
+
+export async function executePortalAgentAction(opts: {
+  ownerId: string;
+  actorUserId?: string;
+  action: PortalAgentActionKey;
+  args: Record<string, unknown>;
+}) {
+  const argsSchema = PortalAgentActionArgsSchemaByKey[opts.action];
+  const argsParsed = argsSchema.safeParse(opts.args);
+  if (!argsParsed.success) {
+    return { ok: false as const, status: 400, error: "Invalid action args" };
+  }
+
+  const actorUserId = opts.actorUserId || opts.ownerId;
+  const { json, status } = await runDirectAction({
+    action: opts.action,
+    ownerId: opts.ownerId,
+    actorUserId,
+    args: argsParsed.data as any,
+  });
+  const { markdown, linkUrl } = resultMarkdown(opts.action, json);
+
+  return {
+    ok: status >= 200 && status < 300,
+    status,
+    action: opts.action,
+    result: json,
+    markdown,
+    linkUrl,
+  };
+}

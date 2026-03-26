@@ -40,6 +40,7 @@ CREATE TABLE IF NOT EXISTS "PortalAiChatThread" (
   "title" TEXT NOT NULL DEFAULT 'New chat',
   "createdByUserId" TEXT,
   "lastMessageAt" TIMESTAMP(3),
+  "contextJson" JSONB,
   "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
   "updatedAt" TIMESTAMP(3) NOT NULL,
   CONSTRAINT "PortalAiChatThread_pkey" PRIMARY KEY ("id")
@@ -48,6 +49,9 @@ CREATE TABLE IF NOT EXISTS "PortalAiChatThread" (
 
     // Align with Prisma (older runtime installs may have added a default).
     `ALTER TABLE "PortalAiChatThread" ALTER COLUMN "updatedAt" DROP DEFAULT;`,
+
+    // Older installs may have the table without newer context fields.
+    `ALTER TABLE "PortalAiChatThread" ADD COLUMN IF NOT EXISTS "contextJson" JSONB;`,
 
     `
 CREATE TABLE IF NOT EXISTS "PortalAiChatMessage" (

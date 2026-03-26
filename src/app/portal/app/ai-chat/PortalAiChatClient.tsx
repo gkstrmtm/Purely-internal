@@ -259,6 +259,52 @@ function MessageBubble({
 export function PortalAiChatClient() {
   const toast = useToast();
 
+  const [canvasUrl, setCanvasUrl] = useState<string | null>(null);
+  const [canvasWidth, setCanvasWidth] = useState<number>(520);
+  const [canvasModalOpen, setCanvasModalOpen] = useState(false);
+  const canvasContainerRef = useRef<HTMLDivElement | null>(null);
+  const dragRef = useRef<{ startX: number; startWidth: number } | null>(null);
+
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem("puraCanvasWidthPx");
+      const n = raw ? Number(raw) : NaN;
+      if (Number.isFinite(n)) setCanvasWidth(Math.max(320, Math.min(980, Math.floor(n))));
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem("puraCanvasWidthPx", String(canvasWidth));
+    } catch {
+      // ignore
+    }
+  }, [canvasWidth]);
+
+  useEffect(() => {
+    const onMove = (e: MouseEvent) => {
+      const drag = dragRef.current;
+      if (!drag) return;
+      const container = canvasContainerRef.current;
+      const containerW = container?.getBoundingClientRect().width ?? 0;
+      const dx = drag.startX - e.clientX;
+      const next = drag.startWidth + dx;
+      const max = containerW ? Math.max(360, Math.min(980, containerW - 360)) : 980;
+      setCanvasWidth(Math.max(320, Math.min(max, Math.floor(next))));
+    };
+    const onUp = () => {
+      dragRef.current = null;
+    };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+    return () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    };
+  }, []);
+
   const [threads, setThreads] = useState<Thread[]>([]);
   const [threadsLoading, setThreadsLoading] = useState(true);
   const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
@@ -423,6 +469,8 @@ export function PortalAiChatClient() {
     (threadId: string) => {
       forceScrollToBottomRef.current = true;
       setActiveThreadId(threadId);
+      setCanvasUrl(null);
+      setCanvasModalOpen(false);
       setMobileThreadsOpen(false);
     },
     [setActiveThreadId],
@@ -456,6 +504,8 @@ export function PortalAiChatClient() {
       const t = json.thread as Thread;
       setThreads((prev) => [t, ...prev]);
       setActiveThreadId(t.id);
+      setCanvasUrl(null);
+      setCanvasModalOpen(false);
       setMobileThreadsOpen(false);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : String(e));
@@ -548,6 +598,12 @@ export function PortalAiChatClient() {
         const json = await res.json().catch(() => null);
         if (!json?.ok) throw new Error(json?.error || "Send failed");
 
+        const nextCanvasUrl = typeof json?.canvasUrl === "string" && json.canvasUrl.trim() ? String(json.canvasUrl).trim() : null;
+        if (nextCanvasUrl) {
+          setCanvasUrl(nextCanvasUrl);
+          setCanvasModalOpen(true);
+        }
+
         const assistantActions: AssistantAction[] = Array.isArray(json.assistantActions)
           ? (json.assistantActions as AssistantAction[])
           : [];
@@ -588,7 +644,7 @@ export function PortalAiChatClient() {
       });
       const json = await res.json().catch(() => null);
       if (!json?.ok) throw new Error(json?.error || "Action failed");
-      return json as { assistantMessage?: Message };
+      return json as { assistantMessage?: Message; linkUrl?: string | null };
     },
     [activeThreadId],
   );
@@ -612,6 +668,11 @@ export function PortalAiChatClient() {
       try {
         const json = await executeAgentAction(a.key, a.args || {});
         if (json.assistantMessage) setMessages((prev) => [...prev, json.assistantMessage as Message]);
+        const nextCanvasUrl = typeof json?.linkUrl === "string" && json.linkUrl.trim() ? String(json.linkUrl).trim() : null;
+        if (nextCanvasUrl) {
+          setCanvasUrl(nextCanvasUrl);
+          setCanvasModalOpen(true);
+        }
         void loadThreads();
       } catch (e) {
         toast.error(e instanceof Error ? e.message : String(e));
@@ -862,7 +923,8 @@ export function PortalAiChatClient() {
 
       <div className="hidden h-full w-[320px] shrink-0 border-r border-zinc-200 bg-white shadow-[2px_0_12px_rgba(0,0,0,0.06)] lg:flex">{left}</div>
 
-      <div className="flex min-w-0 flex-1 flex-col bg-white shadow-[inset_12px_0_16px_-16px_rgba(0,0,0,0.22)]">
+      <div ref={canvasContainerRef} className="flex min-w-0 flex-1 bg-white shadow-[inset_12px_0_16px_-16px_rgba(0,0,0,0.22)]">
+        <div className="flex min-w-0 flex-1 flex-col">
         <div className="shrink-0 border-b border-zinc-200 bg-white lg:hidden">
           <div className="flex items-center justify-between gap-3 px-4 py-3">
             <button
@@ -896,6 +958,18 @@ export function PortalAiChatClient() {
             >
               <IconSchedule size={18} />
             </button>
+
+            {canvasUrl ? (
+              <button
+                type="button"
+                className="inline-flex h-10 items-center justify-center rounded-2xl border border-zinc-200 bg-white px-3 text-sm font-semibold text-zinc-800 hover:bg-zinc-50 lg:hidden"
+                onClick={() => setCanvasModalOpen(true)}
+                aria-label="Open work"
+                title="Open work"
+              >
+                Work
+              </button>
+            ) : null}
           </div>
         </div>
 
@@ -929,6 +1003,21 @@ export function PortalAiChatClient() {
         </div>
 
         <div className="shrink-0 border-t border-zinc-200 bg-white px-3 py-3 shadow-[0_-1px_10px_rgba(0,0,0,0.05)]">
+          {canvasUrl ? (
+            <div className="mb-2 flex items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs text-zinc-700 lg:hidden">
+              <div className="min-w-0 truncate">
+                Working on <span className="font-semibold">{canvasUrl}</span>
+              </div>
+              <button
+                type="button"
+                className="shrink-0 rounded-xl bg-white px-2 py-1 font-semibold text-zinc-800 hover:bg-zinc-100"
+                onClick={() => setCanvasModalOpen(true)}
+              >
+                Open
+              </button>
+            </div>
+          ) : null}
+
           {pendingAttachments.length ? (
             <div className="mb-2 flex flex-wrap gap-2">
               {pendingAttachments.map((a, idx) => (
@@ -1022,6 +1111,57 @@ export function PortalAiChatClient() {
 
           </div>
         </div>
+        </div>
+
+        {canvasUrl ? (
+          <>
+            <div
+              className="hidden w-2 shrink-0 cursor-col-resize bg-transparent hover:bg-zinc-100 lg:block"
+              role="separator"
+              aria-orientation="vertical"
+              onMouseDown={(e) => {
+                dragRef.current = { startX: e.clientX, startWidth: canvasWidth };
+              }}
+              title="Drag to resize"
+            />
+
+            <div className="hidden shrink-0 border-l border-zinc-200 bg-white lg:block" style={{ width: canvasWidth }}>
+              <div className="flex h-full flex-col">
+                <div className="flex items-center justify-between gap-2 border-b border-zinc-200 bg-white px-3 py-2">
+                  <div className="min-w-0 truncate text-xs font-semibold text-zinc-900">Work</div>
+                  <div className="flex items-center gap-2">
+                    <a
+                      href={canvasUrl}
+                      className="rounded-xl border border-zinc-200 bg-white px-2 py-1 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+                      target="_blank"
+                      rel="noreferrer noopener"
+                    >
+                      Open
+                    </a>
+                    <button
+                      type="button"
+                      className="rounded-xl border border-zinc-200 bg-white px-2 py-1 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+                      onClick={() => {
+                        setCanvasUrl(null);
+                        setCanvasModalOpen(false);
+                      }}
+                      aria-label="Close canvas"
+                      title="Close"
+                    >
+                      ×
+                    </button>
+                  </div>
+                </div>
+
+                <iframe
+                  title="Work canvas"
+                  src={canvasUrl}
+                  className="min-h-0 flex-1 bg-white"
+                />
+              </div>
+            </div>
+          </>
+        ) : null}
       </div>
 
       <PortalMediaPickerModal
@@ -1161,6 +1301,22 @@ export function PortalAiChatClient() {
         onConfirm={() => closeConfirm(true)}
         onClose={() => closeConfirm(false)}
       />
+
+      <AppModal
+        open={canvasModalOpen && Boolean(canvasUrl)}
+        title="Work"
+        description={canvasUrl ? "Pura is working here." : ""}
+        onClose={() => setCanvasModalOpen(false)}
+        widthClassName="w-[min(1200px,calc(100vw-32px))]"
+        closeVariant="x"
+        hideHeaderDivider
+      >
+        {canvasUrl ? (
+          <div className="h-[min(78vh,820px)] overflow-hidden rounded-2xl border border-zinc-200 bg-white">
+            <iframe title="Work canvas" src={canvasUrl} className="h-full w-full bg-white" />
+          </div>
+        ) : null}
+      </AppModal>
     </div>
   );
 }
