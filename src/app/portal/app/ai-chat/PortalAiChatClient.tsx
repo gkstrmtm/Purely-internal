@@ -124,10 +124,12 @@ function ThinkingDots() {
 
 function MessageBubble({
   msg,
+  assistantVariant,
   onRunAction,
   runningActionKey,
 }: {
   msg: Message;
+  assistantVariant?: "light" | "dark";
   onRunAction?: (action: AssistantAction) => void;
   runningActionKey?: string | null;
 }) {
@@ -135,11 +137,14 @@ function MessageBubble({
   const isThinking = msg.id.startsWith("optimistic-assistant-") && msg.role === "assistant";
   const actions = !isUser && !isThinking && Array.isArray(msg.assistantActions) ? msg.assistantActions : [];
 
+  const assistantBg =
+    assistantVariant === "dark" ? "bg-zinc-100" : assistantVariant === "light" ? "bg-zinc-50" : "bg-zinc-50";
+
   const bubble = (
     <div
       className={classNames(
         "rounded-3xl px-4 py-3 text-sm leading-relaxed",
-        isUser ? "bg-brand-blue text-white" : "bg-white text-zinc-900 border border-zinc-200",
+        isUser ? "bg-brand-blue text-white" : classNames(assistantBg, "text-zinc-900 border border-zinc-200"),
       )}
     >
       {isUser ? (
@@ -292,6 +297,7 @@ export function PortalAiChatClient() {
   const scrollerRef = useRef<HTMLDivElement | null>(null);
   const endRef = useRef<HTMLDivElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const forceScrollToBottomRef = useRef(false);
 
   const activeThread = useMemo(() => threads.find((t) => t.id === activeThreadId) || null, [threads, activeThreadId]);
 
@@ -358,7 +364,9 @@ export function PortalAiChatClient() {
         const json = await res.json().catch(() => null);
         if (!json?.ok) throw new Error(json?.error || "Failed to load messages");
         setMessages(Array.isArray(json.messages) ? (json.messages as Message[]) : []);
-        scrollToBottom(true);
+        // Ensure we scroll after the new messages have actually rendered.
+        requestAnimationFrame(() => scrollToBottom(true));
+        setTimeout(() => scrollToBottom(true), 0);
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
         toast.error(msg);
@@ -368,6 +376,22 @@ export function PortalAiChatClient() {
     },
     [toast, scrollToBottom],
   );
+
+  const selectThread = useCallback(
+    (threadId: string) => {
+      forceScrollToBottomRef.current = true;
+      setActiveThreadId(threadId);
+      setMobileThreadsOpen(false);
+    },
+    [setActiveThreadId],
+  );
+
+  useEffect(() => {
+    if (!forceScrollToBottomRef.current) return;
+    if (messagesLoading) return;
+    forceScrollToBottomRef.current = false;
+    requestAnimationFrame(() => scrollToBottom(true));
+  }, [activeThreadId, messagesLoading, messages.length, scrollToBottom]);
 
   useEffect(() => {
     void loadThreads();
@@ -594,8 +618,7 @@ export function PortalAiChatClient() {
                   key={t.id}
                   type="button"
                   onClick={() => {
-                    setActiveThreadId(t.id);
-                    setMobileThreadsOpen(false);
+                    selectThread(t.id);
                   }}
                   className={classNames(
                     "w-full rounded-2xl px-3 py-2 text-left",
@@ -783,9 +806,9 @@ export function PortalAiChatClient() {
         </div>
       ) : null}
 
-      <div className="hidden h-full w-[320px] shrink-0 border-r border-zinc-200 bg-white lg:flex">{left}</div>
+      <div className="hidden h-full w-[320px] shrink-0 border-r border-zinc-200 bg-white shadow-[2px_0_12px_rgba(0,0,0,0.06)] lg:flex">{left}</div>
 
-      <div className="flex min-w-0 flex-1 flex-col">
+      <div className="flex min-w-0 flex-1 flex-col bg-white shadow-[inset_12px_0_16px_-16px_rgba(0,0,0,0.22)]">
         <div className="shrink-0 border-b border-zinc-200 bg-white lg:hidden">
           <div className="flex items-center justify-between gap-3 px-4 py-3">
             <button
@@ -822,29 +845,36 @@ export function PortalAiChatClient() {
           </div>
         </div>
 
-        <div ref={scrollerRef} className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain bg-[#0b1220]">
+        <div ref={scrollerRef} className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain bg-white">
           <div className="mx-auto w-full max-w-5xl space-y-3 px-4 py-6">
             {messagesLoading ? (
-              <div className="text-sm text-white/70">Loading messages…</div>
+              <div className="text-sm text-zinc-500">Loading messages…</div>
             ) : messages.length ? (
               <>
-                {messages.map((m) => (
+                {(() => {
+                  let assistantIdx = 0;
+                  return messages.map((m) => {
+                    const variant = m.role === "assistant" ? (assistantIdx++ % 2 === 0 ? "dark" : "light") : undefined;
+                    return (
                   <MessageBubble
                     key={m.id}
                     msg={m}
+                    assistantVariant={variant}
                     onRunAction={(a) => void runAssistantAction(a)}
                     runningActionKey={runningActionKey}
                   />
-                ))}
+                    );
+                  });
+                })()}
                 <div ref={endRef} />
               </>
             ) : (
-              <div className="text-sm text-white/60">&nbsp;</div>
+              <div className="text-sm text-zinc-400">&nbsp;</div>
             )}
           </div>
         </div>
 
-        <div className="shrink-0 border-t border-zinc-200 bg-white px-3 py-3">
+        <div className="shrink-0 border-t border-zinc-200 bg-white px-3 py-3 shadow-[0_-1px_10px_rgba(0,0,0,0.05)]">
           {pendingAttachments.length ? (
             <div className="mb-2 flex flex-wrap gap-2">
               {pendingAttachments.map((a, idx) => (
