@@ -2893,8 +2893,9 @@ export type PortalAgentActionProposal = {
   args: Record<string, unknown>;
 };
 
-export function portalAgentActionsIndexText(): string {
-  return [
+export function portalAgentActionsIndexText(opts?: { includeAiChat?: boolean }): string {
+  const includeAiChat = opts?.includeAiChat ?? true;
+  const lines = [
     "Available actions (choose at most 2):",
     "- tasks.create: Create a portal task (fields: title, description?, assignedToUserId?, dueAtIso?)",
     "- tasks.create_for_all: Create the same task for every team member (fields: title, description?, dueAtIso?)",
@@ -3206,7 +3207,10 @@ export function portalAgentActionsIndexText(): string {
     "- business_profile.update: Create/update the Business Profile (fields: businessName, websiteUrl?, industry?, businessModel?, primaryGoals?, targetCustomer?, brandVoice?, logoUrl?, brandPrimaryHex?, brandSecondaryHex?, brandAccentHex?, brandTextHex?, brandFontFamily?, brandFontGoogleFamily?, hostedTheme?)",
     "- elevenlabs.convai.token.get: Get an ElevenLabs ConvAI conversation token for an agent (fields: agentId) (returns sensitive token)",
     "- elevenlabs.convai.signed_url.get: Get an ElevenLabs ConvAI signed URL for an agent (fields: agentId) (returns sensitive URL)",
-  ].join("\n");
+  ];
+
+  const filtered = includeAiChat ? lines : lines.filter((l) => !/^\-\s*ai_chat\./i.test(String(l)));
+  return filtered.join("\n");
 }
 
 export function extractJsonObject(text: string): unknown {

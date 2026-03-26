@@ -163,6 +163,14 @@ const AiTagCommandSchema = z
   })
   .strict();
 
+const AiTagPlanSchema = z
+  .object({
+    contactHint: z.string().trim().max(160).optional(),
+    addTagNames: z.array(z.string().trim().max(80)).max(5).optional(),
+    removeTagNames: z.array(z.string().trim().max(80)).max(5).optional(),
+  })
+  .strict();
+
 function isBadTagName(raw: string): boolean {
   const t = cleanShortLabel(raw, 60).toLowerCase();
   if (!t) return true;
@@ -210,23 +218,129 @@ async function extractContactTagCommandAi(textRaw: string): Promise<
   }
 }
 
+function uniqTagNames(raw: Array<string>): Array<string> {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const n of raw) {
+    const cleaned = cleanShortLabel(n, 60);
+    if (!cleaned || isBadTagName(cleaned)) continue;
+    const k = cleaned.toLowerCase();
+    if (seen.has(k)) continue;
+    seen.add(k);
+    out.push(cleaned);
+  }
+  return out.slice(0, 5);
+}
+
+function shouldAttemptTagPlanAi(opts: { text: string; recentMessages: Array<{ role: "user" | "assistant"; text: string }> }) {
+  const t = String(opts.text || "").trim();
+  if (!t) return false;
+
+  if (/\b(tag|tags|untag|label)\b/i.test(t)) return true;
+  if (/\b(remove|delete|use|swap|replace|then|make one|make it)\b/i.test(t)) {
+    const recent = opts.recentMessages || [];
+    const recentText = recent.map((m) => String(m.text || "")).join("\n");
+    if (/\btag\b|\buntag\b|\bcontact tag\b|\bAdded tag\b|\bRemoved tag\b|\bNo tag named\b/i.test(recentText)) return true;
+  }
+
+  return false;
+}
+
+async function extractContactTagPlanAi(opts: {
+  text: string;
+  recentMessages: Array<{ role: "user" | "assistant"; text: string }>;
+}): Promise<
+  | { contactHint: string; addTagNames: string[]; removeTagNames: string[] }
+  | null
+> {
+  const text = String(opts.text || "").trim();
+  if (!text) return null;
+  if (!shouldAttemptTagPlanAi({ text, recentMessages: opts.recentMessages })) return null;
+
+  const convo = (opts.recentMessages || [])
+    .slice(-10)
+    .map((m) => `${m.role === "assistant" ? "Assistant" : "User"}: ${String(m.text || "").slice(0, 500)}`)
+    .join("\n");
+
+  const system = [
+    "You extract structured tag operations for a CRM portal.",
+    "Output JSON only.",
+    "If the user is asking to add/remove/replace tags on a contact, output JSON with:",
+    "{ \"contactHint\": string, \"addTagNames\": string[], \"removeTagNames\": string[] }",
+    "contactHint should identify the contact (name/email/phone) using the conversation context.",
+    "addTagNames/removeTagNames must be the actual tag names (not words like 'as', 'with', 'to').",
+    "If the user is NOT asking about contact tags, output {}.",
+    "Examples:",
+    "User: tag Chester as VIP -> {\"contactHint\":\"Chester\",\"addTagNames\":[\"VIP\"],\"removeTagNames\":[]}",
+    "User: remove tag as from Chester and add VIP -> {\"contactHint\":\"Chester\",\"addTagNames\":[\"VIP\"],\"removeTagNames\":[\"as\"]}",
+    "User: then make one -> (infer what to do from context; if context is about adding VIP to Chester, output that)",
+  ].join("\n");
+
+  const user = [
+    "Conversation (most recent last):",
+    convo || "(no prior messages)",
+    "\nLatest user message:",
+    text,
+    "\nJSON:",
+  ].join("\n");
+
+  try {
+    const raw = await generateText({ system, user });
+    const obj = extractJsonObject(raw);
+    const parsed = AiTagPlanSchema.safeParse(obj);
+    if (!parsed.success) return null;
+    const contactHint = typeof parsed.data.contactHint === "string" ? cleanShortLabel(parsed.data.contactHint, 120) : "";
+    const addTagNames = uniqTagNames(Array.isArray(parsed.data.addTagNames) ? parsed.data.addTagNames : []);
+    const removeTagNames = uniqTagNames(Array.isArray(parsed.data.removeTagNames) ? parsed.data.removeTagNames : []);
+    if (!contactHint) return null;
+    if (!addTagNames.length && !removeTagNames.length) return null;
+    return { contactHint, addTagNames, removeTagNames };
+  } catch {
+    return null;
+  }
+}
+
 async function tryExecuteContactTagCommand(opts: {
   ownerId: string;
   threadId: string;
   now: Date;
   text: string;
+  recentMessages: Array<{ role: "user" | "assistant"; text: string }>;
 }): Promise<
   | { ok: true; assistantMessage: any; autoActionMessage: any }
   | { ok: false; assistantMessage: any }
   | null
 > {
-  let cmd = extractContactTagCommand(opts.text);
-  // If regex parsing fails (or yields junk), ask the model to extract the structured command.
-  if (!cmd || isBadTagName(cmd.tagName)) {
-    const aiCmd = await extractContactTagCommandAi(opts.text);
-    if (aiCmd) cmd = aiCmd;
+  let plan: { contactHint: string; addTagNames: string[]; removeTagNames: string[] } | null = null;
+
+  const cmd = extractContactTagCommand(opts.text);
+  if (cmd?.tagName && cmd?.contactHint && !isBadTagName(cmd.tagName)) {
+    plan = {
+      contactHint: cmd.contactHint,
+      addTagNames: cmd.mode === "add" ? [cmd.tagName] : [],
+      removeTagNames: cmd.mode === "remove" ? [cmd.tagName] : [],
+    };
   }
-  if (!cmd?.tagName || !cmd?.contactHint) return null;
+
+  // If regex parsing fails (or yields junk), ask the model to extract a structured tag plan.
+  if (!plan) {
+    const aiPlan = await extractContactTagPlanAi({ text: opts.text, recentMessages: opts.recentMessages });
+    if (aiPlan) plan = aiPlan;
+  }
+
+  // Legacy single-command extraction (kept as a fallback; returns only one operation).
+  if (!plan) {
+    const aiCmd = await extractContactTagCommandAi(opts.text);
+    if (aiCmd?.tagName && aiCmd?.contactHint && !isBadTagName(aiCmd.tagName)) {
+      plan = {
+        contactHint: aiCmd.contactHint,
+        addTagNames: aiCmd.mode === "add" ? [aiCmd.tagName] : [],
+        removeTagNames: aiCmd.mode === "remove" ? [aiCmd.tagName] : [],
+      };
+    }
+  }
+
+  if (!plan?.contactHint || (!plan.addTagNames.length && !plan.removeTagNames.length)) return null;
 
   const ownerId = String(opts.ownerId);
   const threadId = String(opts.threadId);
@@ -257,11 +371,11 @@ async function tryExecuteContactTagCommand(opts: {
     return assistantMsg;
   };
 
-  const emailLike = extractFirstEmailLike(cmd.contactHint);
+  const emailLike = extractFirstEmailLike(plan.contactHint);
   const emailKey = emailLike ? normalizeEmailKey(emailLike) : null;
-  const phoneLike = normalizePhoneLike(cmd.contactHint);
+  const phoneLike = normalizePhoneLike(plan.contactHint);
   const phoneKey = phoneLike ? normalizePhoneKey(phoneLike).phoneKey : null;
-  const nameLike = cleanShortLabel(cmd.contactHint, 80);
+  const nameLike = cleanShortLabel(plan.contactHint, 80);
 
   let contact: { id: string; name: string } | null = null;
   let ambiguous: Array<{ name: string; email?: string | null; phone?: string | null }> = [];
@@ -311,48 +425,68 @@ async function tryExecuteContactTagCommand(opts: {
       })
       .join("\n");
     const msg = await createAssistantMessage(
-      `I found multiple matches for “${cmd.contactHint}”. Reply with the contact’s email or phone number so I can apply the tag.\n\n${lines}`,
+      `I found multiple matches for “${plan.contactHint}”. Reply with the contact’s email or phone number so I can update tags.\n\n${lines}`,
     );
     return { ok: false, assistantMessage: msg };
   }
 
   if (!contact) {
     const msg = await createAssistantMessage(
-      `I couldn’t find a contact for “${cmd.contactHint}”. Reply with their email or phone number and I’ll ${cmd.mode === "add" ? "add" : "remove"} the “${cmd.tagName}” tag.`,
+      `I couldn’t find a contact for “${plan.contactHint}”. Reply with their email or phone number and I’ll update their tags.`,
     );
     return { ok: false, assistantMessage: msg };
   }
 
-  const tagNameKey = normalizeNameKey(cmd.tagName);
-  if (cmd.mode === "remove") {
+  const results: string[] = [];
+  let anyOk = false;
+
+  for (const rawName of plan.removeTagNames) {
+    const name = cleanShortLabel(rawName, 60);
+    if (!name || isBadTagName(name)) continue;
     const tagRow = await (prisma as any).portalContactTag
-      .findFirst({ where: { ownerId, nameKey: tagNameKey }, select: { id: true, name: true } })
+      .findFirst({ where: { ownerId, nameKey: normalizeNameKey(name) }, select: { id: true, name: true } })
       .catch(() => null);
-    if (!tagRow) {
-      const msg = await createAssistantMessage(`No tag named “${cmd.tagName}” exists yet, so there’s nothing to remove.`);
-      return { ok: false, assistantMessage: msg };
+    if (!tagRow?.id) {
+      results.push(`No tag named “${name}” exists.`);
+      continue;
     }
 
     const ok = await removeContactTagAssignment({ ownerId, contactId: contact.id, tagId: String(tagRow.id) });
-    const msg = await createAssistantMessage(
-      ok
-        ? `Removed tag “${String(tagRow.name)}” from ${contact.name}.`
-        : `I couldn’t remove tag “${String(tagRow.name)}” from ${contact.name}.`,
-    );
-    return { ok: ok, assistantMessage: msg, autoActionMessage: msg };
+    if (ok) {
+      anyOk = true;
+      results.push(`Removed tag “${String(tagRow.name)}” from ${contact.name}.`);
+    } else {
+      results.push(`${contact.name} didn’t have tag “${String(tagRow.name)}”.`);
+    }
   }
 
-  const tag = await createOwnerContactTag({ ownerId, name: cmd.tagName }).catch(() => null);
-  if (!tag?.id) {
-    const msg = await createAssistantMessage(`I couldn’t create or find the “${cmd.tagName}” tag.`);
-    return { ok: false, assistantMessage: msg };
+  for (const rawName of plan.addTagNames) {
+    const name = cleanShortLabel(rawName, 60);
+    if (!name || isBadTagName(name)) continue;
+    const existing = await (prisma as any).portalContactTag
+      .findFirst({ where: { ownerId, nameKey: normalizeNameKey(name) }, select: { id: true } })
+      .catch(() => null);
+
+    const tag = await createOwnerContactTag({ ownerId, name }).catch(() => null);
+    if (!tag?.id) {
+      results.push(`I couldn’t create or find the “${name}” tag.`);
+      continue;
+    }
+
+    if (!existing?.id) results.push(`Created tag “${tag.name}”.`);
+
+    const ok = await addContactTagAssignment({ ownerId, contactId: contact.id, tagId: tag.id });
+    if (ok) {
+      anyOk = true;
+      results.push(`Added tag “${tag.name}” to ${contact.name}.`);
+    } else {
+      results.push(`I couldn’t add tag “${tag.name}” to ${contact.name}.`);
+    }
   }
 
-  const ok = await addContactTagAssignment({ ownerId, contactId: contact.id, tagId: tag.id });
-  const msg = await createAssistantMessage(
-    ok ? `Added tag “${tag.name}” to ${contact.name}.` : `I couldn’t add tag “${tag.name}” to ${contact.name}.`,
-  );
-  return { ok: ok, assistantMessage: msg, autoActionMessage: msg };
+  if (!results.length) return null;
+  const msg = await createAssistantMessage(results.join("\n"));
+  return { ok: anyOk, assistantMessage: msg, autoActionMessage: msg };
 }
 
 function detectDeterministicActionsFromText(opts: {
@@ -1211,11 +1345,28 @@ export async function POST(req: Request, ctx: { params: Promise<{ threadId: stri
 
   // 0) Deterministic workflows that can resolve IDs for the user.
   // (Example: add/remove a contact tag by name + email/phone/contact name.)
+  const recentRows = await (prisma as any).portalAiChatMessage.findMany({
+    where: { ownerId, threadId },
+    orderBy: { createdAt: "desc" },
+    take: 13,
+    select: { id: true, role: true, text: true },
+  });
+
+  const recentMessages: Array<{ role: "user" | "assistant"; text: string }> = recentRows
+    .filter((m: any) => m.id !== userMsg.id)
+    .reverse()
+    .slice(-12)
+    .map((m: any) => ({
+      role: m.role === "assistant" ? "assistant" : "user",
+      text: String(m.text || "").slice(0, 2000),
+    }));
+
   const tagWorkflow = await tryExecuteContactTagCommand({
     ownerId,
     threadId,
     now,
     text: cleanText,
+    recentMessages,
   });
   if (tagWorkflow?.assistantMessage) {
     return NextResponse.json({
@@ -1255,22 +1406,6 @@ export async function POST(req: Request, ctx: { params: Promise<{ threadId: stri
     });
   }
 
-  const recentRows = await (prisma as any).portalAiChatMessage.findMany({
-    where: { ownerId, threadId },
-    orderBy: { createdAt: "desc" },
-    take: 13,
-    select: { id: true, role: true, text: true },
-  });
-
-  const recentMessages = recentRows
-    .filter((m: any) => m.id !== userMsg.id)
-    .reverse()
-    .slice(-12)
-    .map((m: any) => ({
-      role: m.role === "assistant" ? "assistant" : "user",
-      text: String(m.text || "").slice(0, 2000),
-    }));
-
   // 2) Best-effort: propose actions the agent can execute.
   let assistantActions: Array<{ key: string; title: string; confirmLabel?: string; args: Record<string, unknown> }> = [];
   try {
@@ -1280,10 +1415,11 @@ export async function POST(req: Request, ctx: { params: Promise<{ threadId: stri
       "Assume the system CAN execute whitelisted actions. Never refuse with statements like 'I can't do that'.",
       "Only propose actions when you have enough information from the conversation to fill required fields.",
       "Never invent IDs (automationId, userId, etc). If missing, propose no actions.",
+      "Never propose ai_chat.* actions (those are internal plumbing; the user should never see them).",
       "If an action needs a slug (like funnel.create), derive it deterministically from the provided name.",
       "Output JSON only, in this exact shape: {\"actions\":[{\"key\":...,\"title\":...,\"confirmLabel\":...,\"args\":{...}}]}",
       "Do not include markdown fences unless needed.",
-      "\n" + portalAgentActionsIndexText(),
+      "\n" + portalAgentActionsIndexText({ includeAiChat: false }),
     ].join("\n");
 
     const user = [
@@ -1308,6 +1444,9 @@ export async function POST(req: Request, ctx: { params: Promise<{ threadId: stri
   } catch {
     // ignore
   }
+
+  // Defense-in-depth: never show internal chat plumbing actions.
+  assistantActions = assistantActions.filter((a) => !String(a.key || "").startsWith("ai_chat."));
 
   // If the user is trying to apply/remove a tag, avoid suggesting "list tags" as a dead-end.
   // (But keep it available for actual "list tags" requests.)
@@ -1342,6 +1481,58 @@ export async function POST(req: Request, ctx: { params: Promise<{ threadId: stri
   }
 
   // 5) Fall back to support-style chat when no action was executed.
+  // If the user is issuing an imperative command but we couldn't safely execute anything,
+  // ask for the missing info instead of giving step-by-step portal instructions.
+  if (shouldAutoExecuteFromUserText(cleanText) && !assistantActions.length) {
+    try {
+      const system = [
+        "You are an automation agent inside a business portal.",
+        "The user gave an imperative instruction, but the system is missing required specifics (like IDs).",
+        "Ask ONE short clarifying question to get the missing info so you can execute the action.",
+        "Do NOT give step-by-step instructions for how to do it manually in the UI.",
+        "Be specific and action-oriented.",
+      ].join("\n");
+
+      const user = [
+        "Conversation (most recent last):",
+        recentMessages.map((m) => `${m.role === "assistant" ? "Assistant" : "User"}: ${m.text}`).join("\n") || "(none)",
+        "\nLatest user message:",
+        promptMessage,
+        "\nQuestion:",
+      ].join("\n");
+
+      const q = String(await generateText({ system, user })).trim().slice(0, 600);
+      if (q) {
+        const assistantMsg = await (prisma as any).portalAiChatMessage.create({
+          data: {
+            ownerId,
+            threadId,
+            role: "assistant",
+            text: q,
+            attachmentsJson: null,
+            createdByUserId: null,
+            sendAt: null,
+            sentAt: now,
+          },
+          select: {
+            id: true,
+            role: true,
+            text: true,
+            attachmentsJson: true,
+            createdAt: true,
+            sendAt: true,
+            sentAt: true,
+          },
+        });
+
+        await (prisma as any).portalAiChatThread.update({ where: { id: threadId }, data: { lastMessageAt: new Date() } });
+        return NextResponse.json({ ok: true, userMessage: userMsg, assistantMessage: assistantMsg, assistantActions: [], autoActionMessage: null });
+      }
+    } catch {
+      // ignore
+    }
+  }
+
   const reply = await runPortalSupportChat({
     message: promptMessage,
     url: parsed.data.url,
