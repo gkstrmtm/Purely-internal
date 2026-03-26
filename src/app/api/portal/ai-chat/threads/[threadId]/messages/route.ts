@@ -139,8 +139,9 @@ function extractContactTagCommand(textRaw: string):
   const m3 = /\btag\s+(?:contact\s+)?["']?([^"'\n]{1,120})["']?\s+\b(as|with)\b\s+(?:tag\s+)?["']?([^"'\n]{1,80})["']?\s*$/i.exec(
     t,
   );
-  if (m3?.[1] && m3?.[2]) {
-    return { mode: "add", tagName: cleanShortLabel(m3[2], 60), contactHint: cleanShortLabel(m3[1], 120) };
+  // groups: 1=contact, 2=as|with, 3=tag name
+  if (m3?.[1] && m3?.[3]) {
+    return { mode: "add", tagName: cleanShortLabel(m3[3], 60), contactHint: cleanShortLabel(m3[1], 120) };
   }
 
   // untag John Smith (VIP)
@@ -154,6 +155,61 @@ function extractContactTagCommand(textRaw: string):
   return null;
 }
 
+const AiTagCommandSchema = z
+  .object({
+    mode: z.enum(["add", "remove"]).optional(),
+    tagName: z.string().trim().max(80).optional(),
+    contactHint: z.string().trim().max(160).optional(),
+  })
+  .strict();
+
+function isBadTagName(raw: string): boolean {
+  const t = cleanShortLabel(raw, 60).toLowerCase();
+  if (!t) return true;
+  if (t.length <= 1) return true;
+  if (["as", "with", "to", "for", "from", "tag", "tags", "untag", "add", "remove", "apply"].includes(t)) return true;
+  return false;
+}
+
+async function extractContactTagCommandAi(textRaw: string): Promise<
+  | { mode: "add" | "remove"; tagName: string; contactHint: string }
+  | null
+> {
+  const text = String(textRaw || "").trim();
+  if (!text) return null;
+  if (!/\b(tag|tags|untag|label)\b/i.test(text)) return null;
+
+  // Keep this lightweight: just structured extraction.
+  const system = [
+    "You extract structured commands for a CRM portal.",
+    "If the user is asking to add/remove a tag on a contact, output JSON with:",
+    "{ \"mode\": \"add\"|\"remove\", \"tagName\": string, \"contactHint\": string }",
+    "tagName must be the actual tag (not words like 'as', 'with', 'to').",
+    "contactHint should be whatever identifies the contact (name, email, or phone) from the user text.",
+    "If the request is NOT about tagging a contact, output {}.",
+    "Output JSON only.",
+    "Examples:",
+    "User: tag Chester as VIP -> {\"mode\":\"add\",\"tagName\":\"VIP\",\"contactHint\":\"Chester\"}",
+    "User: add tag \"Hot lead\" to chester@example.com -> {\"mode\":\"add\",\"tagName\":\"Hot lead\",\"contactHint\":\"chester@example.com\"}",
+    "User: remove tag VIP from +15551234567 -> {\"mode\":\"remove\",\"tagName\":\"VIP\",\"contactHint\":\"+15551234567\"}",
+  ].join("\n");
+
+  try {
+    const raw = await generateText({ system, user: text });
+    const obj = extractJsonObject(raw);
+    const parsed = AiTagCommandSchema.safeParse(obj);
+    if (!parsed.success) return null;
+    const mode = parsed.data.mode;
+    const tagName = typeof parsed.data.tagName === "string" ? cleanShortLabel(parsed.data.tagName, 60) : "";
+    const contactHint = typeof parsed.data.contactHint === "string" ? cleanShortLabel(parsed.data.contactHint, 120) : "";
+    if (!mode || !tagName || !contactHint) return null;
+    if (isBadTagName(tagName)) return null;
+    return { mode, tagName, contactHint };
+  } catch {
+    return null;
+  }
+}
+
 async function tryExecuteContactTagCommand(opts: {
   ownerId: string;
   threadId: string;
@@ -164,7 +220,12 @@ async function tryExecuteContactTagCommand(opts: {
   | { ok: false; assistantMessage: any }
   | null
 > {
-  const cmd = extractContactTagCommand(opts.text);
+  let cmd = extractContactTagCommand(opts.text);
+  // If regex parsing fails (or yields junk), ask the model to extract the structured command.
+  if (!cmd || isBadTagName(cmd.tagName)) {
+    const aiCmd = await extractContactTagCommandAi(opts.text);
+    if (aiCmd) cmd = aiCmd;
+  }
   if (!cmd?.tagName || !cmd?.contactHint) return null;
 
   const ownerId = String(opts.ownerId);
@@ -1162,7 +1223,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ threadId: stri
       userMessage: userMsg,
       assistantMessage: tagWorkflow.assistantMessage,
       assistantActions: [],
-      autoActionMessage: tagWorkflow.ok ? tagWorkflow.autoActionMessage : null,
+      autoActionMessage: null,
     });
   }
 
