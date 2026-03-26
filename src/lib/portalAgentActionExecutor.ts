@@ -179,7 +179,7 @@ import { buildSuggestedSetupPreviewForOwner } from "@/lib/suggestedSetup/server"
 import { applySuggestedSetupActions } from "@/lib/suggestedSetup/executor";
 import { renderTextToPdfBytes } from "@/lib/simplePdf";
 import { provisionTwilioSmsWebhooksForFromNumber } from "@/lib/twilioProvisioning";
-import { portalContactUiUrl, portalInboxUiUrl } from "@/lib/portalAgentActionMeta";
+import { portalBookingUiUrl, portalContactUiUrl, portalInboxUiUrl } from "@/lib/portalAgentActionMeta";
 
 const MAX_REMOTE_MEDIA_BYTES = 15 * 1024 * 1024; // matches /api/portal/media/import-remote
 
@@ -18043,7 +18043,7 @@ async function runDirectAction(opts: {
         sent.sms = true;
       }
 
-      return { status: 200, json: { ok: true, sent } };
+      return { status: 200, json: { ok: true, bookingId, sent } };
     }
 
     case "nurture.campaigns.list": {
@@ -23429,35 +23429,41 @@ function resultMarkdown(action: PortalAgentActionKey, json: any): { markdown: st
   }
 
   if (action === "booking.cancel" && json?.ok) {
+    const bookingId = String(json?.booking?.id || "").trim();
+    const url = portalBookingUiUrl({ tab: "appointments", bookingId: bookingId || null, modal: null });
     return {
-      markdown: `Canceled the booking.\n\n[Open booking](/portal/app/services/booking)`,
-      linkUrl: "/portal/app/services/booking",
+      markdown: `Canceled the booking.\n\n[Open booking](${url})`,
+      linkUrl: url,
     };
   }
 
   if (action === "booking.reschedule" && json?.ok) {
+    const bookingId = String(json?.booking?.id || "").trim();
+    const bookingUrl = portalBookingUiUrl({ tab: "appointments", bookingId: bookingId || null, modal: null });
     const url = typeof json.rescheduleUrl === "string" && json.rescheduleUrl.trim() ? json.rescheduleUrl.trim() : null;
     return {
       markdown: [
         "Rescheduled the booking.",
         url ? "" : null,
         url ? `Customer reschedule link: ${url}` : null,
-        "\n[Open booking](/portal/app/services/booking)",
+        `\n[Open booking](${bookingUrl})`,
       ]
         .filter(Boolean)
         .join("\n"),
-      linkUrl: "/portal/app/services/booking",
+      linkUrl: bookingUrl,
     };
   }
 
   if (action === "booking.contact" && json?.ok) {
+    const bookingId = String(json?.bookingId || "").trim();
+    const bookingUrl = portalBookingUiUrl({ tab: "appointments", bookingId: bookingId || null, modal: "contact" });
     const sent = json?.sent && typeof json.sent === "object" ? json.sent : null;
     const email = Boolean((sent as any)?.email);
     const sms = Boolean((sent as any)?.sms);
     const channels = [email ? "email" : null, sms ? "text" : null].filter(Boolean).join(" + ") || "message";
     return {
-      markdown: `Sent the booking follow-up via ${channels}.\n\n[Open booking](/portal/app/services/booking)`,
-      linkUrl: "/portal/app/services/booking",
+      markdown: `Sent the booking follow-up via ${channels}.\n\n[Open booking](${bookingUrl})`,
+      linkUrl: bookingUrl,
     };
   }
 

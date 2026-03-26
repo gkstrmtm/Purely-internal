@@ -313,6 +313,8 @@ export function PortalBookingClient() {
   const toast = useToast();
   const [knownContactCustomVarKeys, setKnownContactCustomVarKeys] = useState<string[]>([]);
 
+  type BookingDeepLinkModal = "contact" | "reschedule";
+
   const isMobileApp = useMemo(() => {
     if (typeof window === "undefined") return false;
     const sp = new URLSearchParams(window.location.search);
@@ -482,6 +484,45 @@ export function PortalBookingClient() {
     }
   }, []);
 
+  const bookingModalReturnHrefRef = useRef<string | null>(null);
+
+  const clearBookingModalUrl = useCallback(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const target = (() => {
+        if (bookingModalReturnHrefRef.current) return bookingModalReturnHrefRef.current;
+        const url = new URL(window.location.href);
+        url.searchParams.delete("bookingId");
+        url.searchParams.delete("modal");
+        return url.toString();
+      })();
+      bookingModalReturnHrefRef.current = null;
+      window.history.replaceState({}, "", target);
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  const setBookingModalUrl = useCallback(
+    (next: { bookingId: string; modal: BookingDeepLinkModal }, mode: "push" | "replace") => {
+      if (typeof window === "undefined") return;
+      try {
+        if (mode === "push" && !bookingModalReturnHrefRef.current) {
+          bookingModalReturnHrefRef.current = window.location.href;
+        }
+        const url = new URL(window.location.href);
+        url.searchParams.set("bookingId", next.bookingId);
+        url.searchParams.set("modal", next.modal);
+        const nextHref = url.toString();
+        if (mode === "push") window.history.pushState({ modal: `booking_${next.modal}`, bookingId: next.bookingId }, "", nextHref);
+        else window.history.replaceState({ modal: `booking_${next.modal}`, bookingId: next.bookingId }, "", nextHref);
+      } catch {
+        // ignore
+      }
+    },
+    [],
+  );
+
   const [contactOpen, setContactOpen] = useState(false);
   const [contactBooking, setContactBooking] = useState<Booking | null>(null);
   const [contactSubject, setContactSubject] = useState("");
@@ -497,6 +538,75 @@ export function PortalBookingClient() {
   const [reschedBusy, setReschedBusy] = useState(false);
   const [reschedSlots, setReschedSlots] = useState<Slot[]>([]);
   const [reschedSlotsLoading, setReschedSlotsLoading] = useState(false);
+
+  const pendingBookingDeepLinkRef = useRef<null | { bookingId: string; modal: BookingDeepLinkModal | null }>(null);
+  const appliedBookingDeepLinkSigRef = useRef<string | null>(null);
+
+  const tryApplyBookingDeepLink = useCallback(() => {
+    const pending = pendingBookingDeepLinkRef.current;
+    if (!pending) return;
+
+    if (!pending.bookingId) {
+      pendingBookingDeepLinkRef.current = null;
+      return;
+    }
+
+    const booking = [...upcoming, ...recent].find((b) => b.id === pending.bookingId) ?? null;
+    if (!booking) return;
+    if (!pending.modal) {
+      pendingBookingDeepLinkRef.current = null;
+      return;
+    }
+
+    if (pending.modal === "contact") {
+      setReschedOpen(false);
+      setReschedBooking(null);
+      setContactBooking(booking);
+      setContactSubject(`Follow-up: ${site?.title ?? "Booking"}`);
+      setContactMessage("");
+      setContactSendEmail(true);
+      setContactSendSms(Boolean(booking.contactPhone));
+      setContactOpen(true);
+    } else {
+      setContactOpen(false);
+      setContactBooking(null);
+      setReschedBooking(booking);
+      setReschedWhen(toLocalDateTimeInputValue(new Date(booking.startAt)));
+      setReschedForce(false);
+      setReschedOpen(true);
+      void loadReschedSlots(booking.startAt);
+    }
+
+    pendingBookingDeepLinkRef.current = null;
+  }, [recent, site?.title, upcoming]);
+
+  const syncBookingDeepLinkFromUrl = useCallback(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const sp = new URLSearchParams(window.location.search);
+      const bookingId = String(sp.get("bookingId") || "").trim();
+      const modalRaw = String(sp.get("modal") || "").trim();
+      const modal = modalRaw === "contact" || modalRaw === "reschedule" ? (modalRaw as BookingDeepLinkModal) : null;
+      const sig = bookingId ? `${bookingId}:${modal ?? ""}` : "";
+      if (appliedBookingDeepLinkSigRef.current === sig) return;
+      appliedBookingDeepLinkSigRef.current = sig;
+
+      if (!bookingId) {
+        pendingBookingDeepLinkRef.current = null;
+        setContactOpen(false);
+        setContactBooking(null);
+        setReschedOpen(false);
+        setReschedBooking(null);
+        bookingModalReturnHrefRef.current = null;
+        return;
+      }
+
+      pendingBookingDeepLinkRef.current = { bookingId, modal };
+      tryApplyBookingDeepLink();
+    } catch {
+      // ignore
+    }
+  }, [tryApplyBookingDeepLink]);
 
   const [reminderSettings, setReminderSettings] = useState<AppointmentReminderSettings | null>(null);
   const [reminderDraft, setReminderDraft] = useState<AppointmentReminderSettings | null>(null);
@@ -679,6 +789,17 @@ export function PortalBookingClient() {
     window.addEventListener("popstate", syncAvailabilityFromUrl);
     return () => window.removeEventListener("popstate", syncAvailabilityFromUrl);
   }, [syncAvailabilityFromUrl]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    syncBookingDeepLinkFromUrl();
+    window.addEventListener("popstate", syncBookingDeepLinkFromUrl);
+    return () => window.removeEventListener("popstate", syncBookingDeepLinkFromUrl);
+  }, [syncBookingDeepLinkFromUrl]);
+
+  useEffect(() => {
+    tryApplyBookingDeepLink();
+  }, [tryApplyBookingDeepLink]);
 
   function maxValueForUnit(unit: AppointmentReminderSettings["steps"][number]["leadTime"]["unit"]) {
     if (unit === "weeks") return 2;
@@ -1265,6 +1386,7 @@ export function PortalBookingClient() {
 
     setContactOpen(false);
     setContactBooking(null);
+    clearBookingModalUrl();
     setContactSubject("");
     setContactMessage("");
     setContactSendEmail(true);
@@ -1329,6 +1451,7 @@ export function PortalBookingClient() {
 
     setReschedOpen(false);
     setReschedBooking(null);
+    clearBookingModalUrl();
     setReschedWhen("");
     setReschedForce(false);
     await refreshAll();
@@ -1940,6 +2063,7 @@ export function PortalBookingClient() {
                             setReschedWhen(toLocalDateTimeInputValue(new Date(b.startAt)));
                             setReschedForce(false);
                             setReschedOpen(true);
+                            setBookingModalUrl({ bookingId: b.id, modal: "reschedule" }, "push");
                             void loadReschedSlots(b.startAt);
                           }}
                         >
@@ -1955,6 +2079,7 @@ export function PortalBookingClient() {
                             setContactSendEmail(true);
                             setContactSendSms(Boolean(b.contactPhone));
                             setContactOpen(true);
+                            setBookingModalUrl({ bookingId: b.id, modal: "contact" }, "push");
                           }}
                         >
                           Send follow-up
@@ -3791,6 +3916,7 @@ export function PortalBookingClient() {
                 onClick={() => {
                   setContactOpen(false);
                   setContactBooking(null);
+                  clearBookingModalUrl();
                 }}
               >
                 Close
@@ -3867,6 +3993,7 @@ export function PortalBookingClient() {
                 onClick={() => {
                   setReschedOpen(false);
                   setReschedBooking(null);
+                  clearBookingModalUrl();
                 }}
               >
                 Close

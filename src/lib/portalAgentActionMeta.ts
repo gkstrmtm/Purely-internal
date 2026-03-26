@@ -83,3 +83,30 @@ export function portalInboxUiUrl(opts?: {
 
   return `/portal/app/services/inbox/${channel}${qs ? `?${qs}` : ""}`;
 }
+
+export type PortalBookingUiTab = "appointments" | "bookings" | "reminders" | "follow-up" | "settings";
+export type PortalBookingUiModal = "contact" | "reschedule";
+
+export function portalBookingUiUrl(opts?: {
+  tab?: PortalBookingUiTab | null;
+  bookingId?: string | null;
+  modal?: PortalBookingUiModal | null;
+}): string {
+  const bookingId = String(opts?.bookingId || "").trim();
+  const tab = ((): PortalBookingUiTab => {
+    const t = String(opts?.tab || "").trim();
+    if (t === "appointments" || t === "bookings" || t === "reminders" || t === "follow-up" || t === "settings") return t;
+    if (bookingId) return "bookings";
+    return "appointments";
+  })();
+  const modalRaw = String(opts?.modal || "").trim();
+  const modal = modalRaw === "contact" || modalRaw === "reschedule" ? (modalRaw as PortalBookingUiModal) : null;
+
+  const sp = new URLSearchParams();
+  if (tab !== "appointments") sp.set("tab", tab);
+  if (bookingId) sp.set("bookingId", bookingId);
+  if (modal) sp.set("modal", modal);
+
+  const qs = sp.toString();
+  return `/portal/app/services/booking${qs ? `?${qs}` : ""}`;
+}
