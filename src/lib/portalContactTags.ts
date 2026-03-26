@@ -288,10 +288,19 @@ export async function removeContactTagAssignment(opts: {
   const tagId = String(opts.tagId);
 
   try {
-    await (prisma as any).portalContactTagAssignment.deleteMany({
-      where: { ownerId, contactId, tagId },
+    // Ensure the contact belongs to this owner before mutating.
+    const contact = await (prisma as any).portalContact.findFirst({
+      where: { ownerId, id: contactId },
+      select: { id: true },
     });
-    return true;
+    if (!contact?.id) return false;
+
+    // Delete by (contactId, tagId) to clean up legacy rows that may not have ownerId set.
+    const res = await (prisma as any).portalContactTagAssignment.deleteMany({
+      where: { contactId, tagId },
+    });
+    const count = typeof res?.count === "number" ? res.count : 0;
+    return count > 0;
   } catch {
     return false;
   }

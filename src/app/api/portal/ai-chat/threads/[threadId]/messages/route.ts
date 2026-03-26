@@ -1402,7 +1402,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ threadId: stri
       userMessage: userMsg,
       assistantMessage: exec.assistantMessage,
       assistantActions: [],
-      autoActionMessage: exec.assistantMessage,
+      autoActionMessage: null,
     });
   }
 
@@ -1477,7 +1477,13 @@ export async function POST(req: Request, ctx: { params: Promise<{ threadId: stri
 
   // 4) If we auto-executed, return the action result as the assistant message.
   if (autoActionMessage) {
-    return NextResponse.json({ ok: true, userMessage: userMsg, assistantMessage: autoActionMessage, assistantActions, autoActionMessage });
+    return NextResponse.json({
+      ok: true,
+      userMessage: userMsg,
+      assistantMessage: autoActionMessage,
+      assistantActions,
+      autoActionMessage: null,
+    });
   }
 
   // 5) Fall back to support-style chat when no action was executed.

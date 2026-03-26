@@ -560,7 +560,8 @@ export function PortalAiChatClient() {
             const am: Message = json.assistantMessage as Message;
             next.push({ ...am, assistantActions: assistantActions.length ? assistantActions : undefined });
           }
-          if (json.autoActionMessage) next.push(json.autoActionMessage as Message);
+          // autoActionMessage is legacy and can duplicate assistantMessage.
+          // Only render the primary assistantMessage for a clean, stable transcript.
           return next;
         });
 
