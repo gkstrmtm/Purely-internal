@@ -179,6 +179,7 @@ import { buildSuggestedSetupPreviewForOwner } from "@/lib/suggestedSetup/server"
 import { applySuggestedSetupActions } from "@/lib/suggestedSetup/executor";
 import { renderTextToPdfBytes } from "@/lib/simplePdf";
 import { provisionTwilioSmsWebhooksForFromNumber } from "@/lib/twilioProvisioning";
+import { portalContactUiUrl } from "@/lib/portalAgentActionMeta";
 
 const MAX_REMOTE_MEDIA_BYTES = 15 * 1024 * 1024; // matches /api/portal/media/import-remote
 
@@ -10823,7 +10824,7 @@ async function runDirectAction(opts: {
       });
 
       if (!updated.count) return { status: 404, json: { ok: false, error: "Contact not found." } };
-      return { status: 200, json: { ok: true } };
+      return { status: 200, json: { ok: true, contactId } };
     }
 
     case "contacts.tags.list": {
@@ -10834,7 +10835,7 @@ async function runDirectAction(opts: {
       if (!contactId) return { status: 400, json: { ok: false, error: "Invalid contact id" } };
 
       const tags = await listContactTagsForContact(ownerId, contactId);
-      return { status: 200, json: { ok: true, tags } };
+      return { status: 200, json: { ok: true, contactId, tags } };
     }
 
     case "contacts.tags.add": {
@@ -10868,7 +10869,7 @@ async function runDirectAction(opts: {
       }
 
       const tags = await listContactTagsForContact(ownerId, contactId);
-      return { status: 200, json: { ok: true, tags } };
+      return { status: 200, json: { ok: true, contactId, tags } };
     }
 
     case "contacts.tags.remove": {
@@ -10884,7 +10885,7 @@ async function runDirectAction(opts: {
       if (!ok) return { status: 500, json: { ok: false, error: "Failed to remove tag" } };
 
       const tags = await listContactTagsForContact(ownerId, contactId);
-      return { status: 200, json: { ok: true, tags } };
+      return { status: 200, json: { ok: true, contactId, tags } };
     }
 
     case "onboarding.status.get": {
@@ -23133,9 +23134,26 @@ function resultMarkdown(action: PortalAgentActionKey, json: any): { markdown: st
   }
 
   if (action === "contacts.create" && json?.ok && json?.contactId) {
+    const url = portalContactUiUrl(String(json.contactId || "").trim());
     return {
-      markdown: `Created the contact.\n\n[Open people](/portal/app/people)`,
-      linkUrl: "/portal/app/people",
+      markdown: `Created the contact.\n\n[Open contact](${url})`,
+      linkUrl: url,
+    };
+  }
+
+  if (action === "contacts.update" && json?.ok && json?.contactId) {
+    const url = portalContactUiUrl(String(json.contactId || "").trim());
+    return {
+      markdown: `Saved the contact.\n\n[Open contact](${url})`,
+      linkUrl: url,
+    };
+  }
+
+  if ((action === "contacts.tags.add" || action === "contacts.tags.remove") && json?.ok && json?.contactId) {
+    const url = portalContactUiUrl(String(json.contactId || "").trim());
+    return {
+      markdown: `Updated contact tags.\n\n[Open contact](${url})`,
+      linkUrl: url,
     };
   }
 

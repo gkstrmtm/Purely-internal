@@ -1,6 +1,6 @@
 "use client";
 
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { PortalPeopleTabs } from "@/app/portal/app/people/PortalPeopleTabs";
@@ -287,6 +287,7 @@ async function readJsonBody(res: Response): Promise<any | null> {
 export function PortalPeopleContactsClient() {
   const toast = useToast();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const lastLoadedAtRef = useRef<number>(0);
   const createdCustomVarRef = useRef<{ key: string; value: string } | null>(null);
   const [loading, setLoading] = useState(true);
@@ -663,7 +664,35 @@ export function PortalPeopleContactsClient() {
     })();
   }, [load, loadOwnerTags, loadDuplicatesSummary, loadKnownCustomVarKeys]);
 
+  const contactIdFromUrl = useMemo(() => {
+    try {
+      const v = searchParams?.get("contactId");
+      const id = String(v || "").trim();
+      return id ? id.slice(0, 200) : null;
+    } catch {
+      return null;
+    }
+  }, [searchParams]);
+
+  function clearContactIdFromUrl() {
+    try {
+      const url = new URL(window.location.href);
+      url.searchParams.delete("contactId");
+      window.history.replaceState({}, "", url.toString());
+    } catch {
+      // ignore
+    }
+  }
+
   async function openContact(contactId: string) {
+    try {
+      const url = new URL(window.location.href);
+      url.searchParams.set("contactId", String(contactId || "").trim().slice(0, 200));
+      window.history.replaceState({}, "", url.toString());
+    } catch {
+      // ignore
+    }
+
     setSelectedContactId(contactId);
     setDetailOpen(true);
     setDetailLoading(true);
@@ -720,6 +749,13 @@ export function PortalPeopleContactsClient() {
       // ignore
     }
   }
+
+  useEffect(() => {
+    if (!contactIdFromUrl) return;
+    if (contactIdFromUrl === selectedContactId && detailOpen) return;
+    void openContact(contactIdFromUrl);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [contactIdFromUrl]);
 
   useEffect(() => {
     if (!detailOpen) return;
@@ -2331,6 +2367,7 @@ export function PortalPeopleContactsClient() {
                   setSelectedContactId(null);
                   setDetail(null);
                   setDetailTags([]);
+                  clearContactIdFromUrl();
                 }}
               >
                 Close
@@ -2344,6 +2381,7 @@ export function PortalPeopleContactsClient() {
                 setSelectedContactId(null);
                 setDetail(null);
                 setDetailTags([]);
+                clearContactIdFromUrl();
               }}
               style={{ display: "none" }}
             />

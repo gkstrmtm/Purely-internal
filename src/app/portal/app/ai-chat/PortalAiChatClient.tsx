@@ -608,6 +608,64 @@ export function PortalAiChatClient() {
         const json = await res.json().catch(() => null);
         if (!json?.ok) throw new Error(json?.error || "Send failed");
 
+        if (json?.needsConfirm?.token) {
+          const token = String(json.needsConfirm.token || "").trim();
+          const title = String(json.needsConfirm.title || "Confirm").trim() || "Confirm";
+          const message = String(json.needsConfirm.message || "").trim() || "Continue?";
+
+          setMessages((prev) => {
+            const cleaned = prev.filter((m) => m.id !== optimisticUser.id && m.id !== optimisticAssistant.id);
+            const next: Message[] = [...cleaned];
+            if (json.userMessage) next.push(json.userMessage);
+            return next;
+          });
+
+          const ok = await askConfirm({
+            title,
+            message,
+            confirmLabel: "Confirm",
+            cancelLabel: "Cancel",
+          });
+
+          if (!ok) {
+            void loadThreads();
+            return;
+          }
+
+          const res2 = await fetch(`/api/portal/ai-chat/threads/${encodeURIComponent(activeThreadId)}/messages`, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+              confirmToken: token,
+              url: window.location.href,
+            }),
+          });
+          const json2 = await res2.json().catch(() => null);
+          if (!json2?.ok) throw new Error(json2?.error || "Action failed");
+
+          const nextCanvasUrl2 = typeof json2?.canvasUrl === "string" && json2.canvasUrl.trim() ? String(json2.canvasUrl).trim() : null;
+          if (nextCanvasUrl2) {
+            setCanvasUrl(nextCanvasUrl2);
+            setCanvasModalOpen(true);
+          }
+
+          const assistantActions2: AssistantAction[] = Array.isArray(json2.assistantActions)
+            ? (json2.assistantActions as AssistantAction[])
+            : [];
+
+          setMessages((prev) => {
+            const next = [...prev];
+            if (json2.assistantMessage) {
+              const am: Message = json2.assistantMessage as Message;
+              next.push({ ...am, assistantActions: assistantActions2.length ? assistantActions2 : undefined });
+            }
+            return next;
+          });
+
+          void loadThreads();
+          return;
+        }
+
         const nextCanvasUrl = typeof json?.canvasUrl === "string" && json.canvasUrl.trim() ? String(json.canvasUrl).trim() : null;
         if (nextCanvasUrl) {
           setCanvasUrl(nextCanvasUrl);

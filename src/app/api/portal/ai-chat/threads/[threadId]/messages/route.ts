@@ -1,3 +1,4 @@
+import crypto from "crypto";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
@@ -12,6 +13,7 @@ import {
   type PortalAgentActionKey,
 } from "@/lib/portalAgentActions";
 import { executePortalAgentAction, executePortalAgentActionForThread } from "@/lib/portalAgentActionExecutor";
+import { getConfirmSpecForPortalAgentAction, portalContactUiUrl } from "@/lib/portalAgentActionMeta";
 import { isPortalSupportChatConfigured, runPortalSupportChat } from "@/lib/portalSupportChat";
 import { planPuraActions } from "@/lib/puraPlanner";
 import { resolvePlanArgs } from "@/lib/puraResolver";
@@ -39,9 +41,13 @@ const SendMessageSchema = z
     text: z.string().trim().max(4000).optional(),
     url: z.string().trim().optional(),
     attachments: z.array(AttachmentSchema).max(10).optional(),
+    confirmToken: z.string().trim().min(1).max(200).optional(),
   })
   .refine(
-    (d) => Boolean((d.text || "").trim()) || (Array.isArray(d.attachments) && d.attachments.length > 0),
+    (d) =>
+      Boolean(String((d as any).confirmToken || "").trim()) ||
+      Boolean((d.text || "").trim()) ||
+      (Array.isArray(d.attachments) && d.attachments.length > 0),
     { message: "Text or attachments required" },
   );
 
@@ -309,8 +315,8 @@ async function tryExecuteContactTagCommand(opts: {
   text: string;
   recentMessages: Array<{ role: "user" | "assistant"; text: string }>;
 }): Promise<
-  | { ok: true; assistantMessage: any; autoActionMessage: any }
-  | { ok: false; assistantMessage: any }
+  | { ok: true; assistantMessage: any; autoActionMessage: any; canvasUrl: string | null }
+  | { ok: false; assistantMessage: any; canvasUrl: string | null }
   | null
 > {
   let plan: { contactHint: string; addTagNames: string[]; removeTagNames: string[] } | null = null;
@@ -429,14 +435,14 @@ async function tryExecuteContactTagCommand(opts: {
     const msg = await createAssistantMessage(
       `I found multiple matches for “${plan.contactHint}”. Reply with the contact’s email or phone number so I can update tags.\n\n${lines}`,
     );
-    return { ok: false, assistantMessage: msg };
+    return { ok: false, assistantMessage: msg, canvasUrl: null };
   }
 
   if (!contact) {
     const msg = await createAssistantMessage(
       `I couldn’t find a contact for “${plan.contactHint}”. Reply with their email or phone number and I’ll update their tags.`,
     );
-    return { ok: false, assistantMessage: msg };
+    return { ok: false, assistantMessage: msg, canvasUrl: null };
   }
 
   const results: string[] = [];
@@ -488,7 +494,7 @@ async function tryExecuteContactTagCommand(opts: {
 
   if (!results.length) return null;
   const msg = await createAssistantMessage(results.join("\n"));
-  return { ok: anyOk, assistantMessage: msg, autoActionMessage: msg };
+  return { ok: anyOk, assistantMessage: msg, autoActionMessage: msg, canvasUrl: portalContactUiUrl(contact.id) };
 }
 
 function detectDeterministicActionsFromText(opts: {
@@ -1301,8 +1307,104 @@ export async function POST(req: Request, ctx: { params: Promise<{ threadId: stri
 
   const now = new Date();
 
+  const confirmToken = typeof (parsed.data as any).confirmToken === "string" ? String((parsed.data as any).confirmToken).trim().slice(0, 200) : "";
   const cleanText = (parsed.data.text || "").trim();
   const attachments = Array.isArray(parsed.data.attachments) ? parsed.data.attachments : [];
+  const isConfirmOnly = Boolean(confirmToken) && !cleanText && !attachments.length;
+
+  if (isConfirmOnly) {
+    const threadContext = (thread as any).contextJson ?? null;
+    const pendingConfirm =
+      threadContext && typeof threadContext === "object" && !Array.isArray(threadContext)
+        ? (threadContext as any).pendingConfirm
+        : null;
+
+    if (!pendingConfirm || String(pendingConfirm.token || "") !== confirmToken) {
+      return NextResponse.json({ ok: false, error: "Confirmation expired" }, { status: 400 });
+    }
+
+    const confirmedSteps: Array<{ key: PortalAgentActionKey; title: string; args: Record<string, unknown>; openUrl?: string }> =
+      Array.isArray(pendingConfirm.steps) ? (pendingConfirm.steps as any) : [];
+    if (!confirmedSteps.length) {
+      return NextResponse.json({ ok: false, error: "Nothing to confirm" }, { status: 400 });
+    }
+
+    const results: Array<{ ok: boolean; markdown?: string; linkUrl?: string | null }> = [];
+    for (const step of confirmedSteps) {
+      const exec = await executePortalAgentAction({
+        ownerId,
+        actorUserId: createdByUserId,
+        action: step.key,
+        args: step.args,
+      });
+      results.push({ ok: Boolean(exec.ok), markdown: exec.markdown, linkUrl: exec.linkUrl ?? null });
+    }
+
+    const canvasUrl =
+      (results.map((r) => r.linkUrl).filter(Boolean).slice(-1)[0] as string | undefined) ||
+      confirmedSteps.map((s) => s.openUrl).filter(Boolean).slice(-1)[0] ||
+      null;
+
+    const assistantText = (() => {
+      if (confirmedSteps.length === 1) {
+        return String(results[0]?.markdown || "Done.").trim() || "Done.";
+      }
+      const blocks = confirmedSteps.map((s, idx) => {
+        const md = String(results[idx]?.markdown || (results[idx]?.ok ? "Done." : "Action failed.")).trim();
+        return `#### ${s.title}\n${md}`;
+      });
+      return `Done.\n\n${blocks.join("\n\n")}`;
+    })();
+
+    const assistantMsg = await (prisma as any).portalAiChatMessage.create({
+      data: {
+        ownerId,
+        threadId,
+        role: "assistant",
+        text: assistantText,
+        attachmentsJson: null,
+        createdByUserId: null,
+        sendAt: null,
+        sentAt: now,
+      },
+      select: {
+        id: true,
+        role: true,
+        text: true,
+        attachmentsJson: true,
+        createdAt: true,
+        sendAt: true,
+        sentAt: true,
+      },
+    });
+
+    const prevCtx = threadContext;
+    const prevRuns =
+      prevCtx && typeof prevCtx === "object" && !Array.isArray(prevCtx) && Array.isArray((prevCtx as any).runs)
+        ? ((prevCtx as any).runs as unknown[])
+        : [];
+    const runTrace = {
+      at: now.toISOString(),
+      workTitle: pendingConfirm.workTitle ?? null,
+      steps: confirmedSteps.map((s, idx) => ({
+        key: s.key,
+        title: s.title,
+        ok: Boolean(results[idx]?.ok),
+        linkUrl: results[idx]?.linkUrl ?? null,
+      })),
+      canvasUrl,
+    };
+    const runs = [...prevRuns.slice(-19), runTrace];
+
+    const nextCtx = prevCtx && typeof prevCtx === "object" && !Array.isArray(prevCtx)
+      ? { ...(prevCtx as any), pendingConfirm: null, pendingPlan: null, lastWorkTitle: pendingConfirm.workTitle ?? null, lastCanvasUrl: canvasUrl, runs }
+      : { pendingConfirm: null, pendingPlan: null, lastWorkTitle: pendingConfirm.workTitle ?? null, lastCanvasUrl: canvasUrl, runs };
+
+    await (prisma as any).portalAiChatThread.update({ where: { id: threadId }, data: { lastMessageAt: now, contextJson: nextCtx } });
+
+    return NextResponse.json({ ok: true, userMessage: null, assistantMessage: assistantMsg, assistantActions: [], autoActionMessage: null, canvasUrl });
+  }
+
   const attachmentLines = attachments
     .map((a) => {
       const name = String(a.fileName || "Attachment").slice(0, 200);
@@ -1318,32 +1420,36 @@ export async function POST(req: Request, ctx: { params: Promise<{ threadId: stri
     .filter(Boolean)
     .join("\n");
 
-  const userMsg = await (prisma as any).portalAiChatMessage.create({
-    data: {
-      ownerId,
-      threadId,
-      role: "user",
-      text: cleanText,
-      attachmentsJson: attachments.length ? attachments : null,
-      createdByUserId,
-      sendAt: null,
-      sentAt: now,
-    },
-    select: {
-      id: true,
-      role: true,
-      text: true,
-      attachmentsJson: true,
-      createdAt: true,
-      sendAt: true,
-      sentAt: true,
-    },
-  });
+  const userMsg = isConfirmOnly
+    ? null
+    : await (prisma as any).portalAiChatMessage.create({
+        data: {
+          ownerId,
+          threadId,
+          role: "user",
+          text: cleanText,
+          attachmentsJson: attachments.length ? attachments : null,
+          createdByUserId,
+          sendAt: null,
+          sentAt: now,
+        },
+        select: {
+          id: true,
+          role: true,
+          text: true,
+          attachmentsJson: true,
+          createdAt: true,
+          sendAt: true,
+          sentAt: true,
+        },
+      });
 
-  await (prisma as any).portalAiChatThread.update({
-    where: { id: threadId },
-    data: { lastMessageAt: now },
-  });
+  if (userMsg) {
+    await (prisma as any).portalAiChatThread.update({
+      where: { id: threadId },
+      data: { lastMessageAt: now },
+    });
+  }
 
   // 0) Deterministic workflows that can resolve IDs for the user.
   // (Example: add/remove a contact tag by name + email/phone/contact name.)
@@ -1355,7 +1461,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ threadId: stri
   });
 
   const recentMessages: Array<{ role: "user" | "assistant"; text: string }> = recentRows
-    .filter((m: any) => m.id !== userMsg.id)
+    .filter((m: any) => (userMsg ? m.id !== (userMsg as any).id : true))
     .reverse()
     .slice(-12)
     .map((m: any) => ({
@@ -1377,7 +1483,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ threadId: stri
       assistantMessage: tagWorkflow.assistantMessage,
       assistantActions: [],
       autoActionMessage: null,
-      canvasUrl: null,
+      canvasUrl: tagWorkflow.canvasUrl || null,
     });
   }
 
@@ -1386,10 +1492,25 @@ export async function POST(req: Request, ctx: { params: Promise<{ threadId: stri
   if (isPortalSupportChatConfigured()) {
     try {
       const threadContext = (thread as any).contextJson ?? null;
+
+      const pendingConfirm =
+        threadContext && typeof threadContext === "object" && !Array.isArray(threadContext)
+          ? (threadContext as any).pendingConfirm
+          : null;
+
       const pendingPlan =
         threadContext && typeof threadContext === "object" && !Array.isArray(threadContext)
           ? (threadContext as any).pendingPlan
           : null;
+
+      // Any new user message clears stale confirmations.
+      if (pendingConfirm && !isConfirmOnly) {
+        const prevCtx = threadContext;
+        const nextCtx = prevCtx && typeof prevCtx === "object" && !Array.isArray(prevCtx)
+          ? { ...(prevCtx as any), pendingConfirm: null }
+          : { pendingConfirm: null };
+        await (prisma as any).portalAiChatThread.update({ where: { id: threadId }, data: { contextJson: nextCtx } });
+      }
 
       // If we previously asked a clarifying question, treat the user's reply as completing that plan.
       const isLikelyFollowUpAnswer = Boolean(pendingPlan) && !shouldAutoExecuteFromUserText(cleanText);
@@ -1506,6 +1627,26 @@ export async function POST(req: Request, ctx: { params: Promise<{ threadId: stri
 
           resolvedSteps.push({ key: step.key, title: step.title, args: resolvedArgs, ...(step.openUrl ? { openUrl: step.openUrl } : {}) });
           contextPatches.push(resolved.contextPatch);
+        }
+
+        const confirmSpec = resolvedSteps.map((s) => getConfirmSpecForPortalAgentAction(s.key)).find(Boolean) || null;
+        if (confirmSpec) {
+          const token = crypto.randomUUID();
+          const prevCtx = threadContext;
+          const nextCtx = prevCtx && typeof prevCtx === "object" && !Array.isArray(prevCtx)
+            ? { ...(prevCtx as any), pendingConfirm: { token, createdAt: now.toISOString(), workTitle: plan.workTitle ?? null, steps: resolvedSteps, confirm: confirmSpec } }
+            : { pendingConfirm: { token, createdAt: now.toISOString(), workTitle: plan.workTitle ?? null, steps: resolvedSteps, confirm: confirmSpec } };
+          await (prisma as any).portalAiChatThread.update({ where: { id: threadId }, data: { contextJson: nextCtx } });
+
+          return NextResponse.json({
+            ok: true,
+            userMessage: userMsg,
+            assistantMessage: null,
+            assistantActions: [],
+            autoActionMessage: null,
+            canvasUrl: null,
+            needsConfirm: { ...confirmSpec, token },
+          });
         }
 
         const results: Array<{ ok: boolean; markdown?: string; linkUrl?: string | null }> = [];
