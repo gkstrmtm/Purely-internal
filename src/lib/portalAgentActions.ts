@@ -258,6 +258,20 @@ export const PortalAgentActionKeySchema = z.enum([
   "ai_outbound_calls.manual_calls.list",
   "ai_outbound_calls.manual_calls.get",
 
+  "ai_outbound_calls.campaigns.enroll_message",
+  "ai_outbound_calls.campaigns.generate_agent_config",
+  "ai_outbound_calls.campaigns.knowledge_base.sync",
+  "ai_outbound_calls.campaigns.knowledge_base.upload",
+  "ai_outbound_calls.campaigns.manual_call",
+  "ai_outbound_calls.campaigns.messages_knowledge_base.sync",
+  "ai_outbound_calls.campaigns.messages_knowledge_base.upload",
+  "ai_outbound_calls.campaigns.preview_message_reply",
+  "ai_outbound_calls.campaigns.sync_agent",
+  "ai_outbound_calls.campaigns.sync_chat_agent",
+  "ai_outbound_calls.cron.run",
+  "ai_outbound_calls.manual_calls.refresh",
+  "ai_outbound_calls.recordings.get",
+
   "ai_receptionist.settings.get",
   "ai_receptionist.recordings.get",
   "ai_receptionist.recordings.demo.get",
@@ -2014,6 +2028,109 @@ export const PortalAgentActionArgsSchemaByKey = {
     })
     .strict(),
 
+  "ai_outbound_calls.campaigns.enroll_message": z
+    .object({
+      campaignId: z.string().trim().min(1).max(120),
+      contactId: z.string().trim().min(1).max(120).optional(),
+      target: z.string().trim().min(1).max(200).optional(),
+      channelPolicy: z.enum(["SMS", "EMAIL", "BOTH"]).optional(),
+    })
+    .refine((v) => Boolean(v.contactId || v.target), { message: "contactId or target required" })
+    .strict(),
+
+  "ai_outbound_calls.campaigns.generate_agent_config": z
+    .object({
+      campaignId: z.string().trim().min(1).max(120),
+      kind: z.enum(["calls", "messages"]),
+      context: z.string().trim().min(3).max(4000),
+    })
+    .strict(),
+
+  "ai_outbound_calls.campaigns.knowledge_base.sync": z
+    .object({
+      campaignId: z.string().trim().min(1).max(120),
+    })
+    .strict(),
+
+  "ai_outbound_calls.campaigns.knowledge_base.upload": z
+    .object({
+      campaignId: z.string().trim().min(1).max(120),
+      fileName: z.string().trim().min(1).max(200),
+      mimeType: z.string().trim().max(120).optional().nullable(),
+      contentBase64: z.string().trim().min(1).max(16_000_000),
+      name: z.string().trim().max(200).optional().nullable(),
+    })
+    .strict(),
+
+  "ai_outbound_calls.campaigns.manual_call": z
+    .object({
+      campaignId: z.string().trim().min(1).max(120),
+      toNumber: z.string().trim().min(1).max(40),
+    })
+    .strict(),
+
+  "ai_outbound_calls.campaigns.messages_knowledge_base.sync": z
+    .object({
+      campaignId: z.string().trim().min(1).max(120),
+    })
+    .strict(),
+
+  "ai_outbound_calls.campaigns.messages_knowledge_base.upload": z
+    .object({
+      campaignId: z.string().trim().min(1).max(120),
+      fileName: z.string().trim().min(1).max(200),
+      mimeType: z.string().trim().max(120).optional().nullable(),
+      contentBase64: z.string().trim().min(1).max(16_000_000),
+    })
+    .strict(),
+
+  "ai_outbound_calls.campaigns.preview_message_reply": z
+    .object({
+      campaignId: z.string().trim().min(1).max(120),
+      channel: z.enum(["sms", "email"]),
+      inbound: z.string().trim().min(1).max(4000),
+      history: z
+        .array(
+          z
+            .object({
+              role: z.enum(["user", "assistant"]),
+              content: z.string().trim().min(1).max(2000),
+            })
+            .strict(),
+        )
+        .max(20)
+        .optional(),
+    })
+    .strict(),
+
+  "ai_outbound_calls.campaigns.sync_agent": z
+    .object({
+      campaignId: z.string().trim().min(1).max(120),
+    })
+    .strict(),
+
+  "ai_outbound_calls.campaigns.sync_chat_agent": z
+    .object({
+      campaignId: z.string().trim().min(1).max(120),
+    })
+    .strict(),
+
+  "ai_outbound_calls.cron.run": z.object({}).strict(),
+
+  "ai_outbound_calls.manual_calls.refresh": z
+    .object({
+      id: z.string().trim().min(1).max(120),
+    })
+    .strict(),
+
+  "ai_outbound_calls.recordings.get": z
+    .object({
+      recordingSid: z.string().trim().min(1).max(64),
+      asBase64: z.boolean().optional().nullable(),
+      maxBytes: z.number().int().min(1).max(12 * 1024 * 1024).optional().nullable(),
+    })
+    .strict(),
+
   "ai_receptionist.settings.get": z.object({}).strict(),
 
   "ai_receptionist.recordings.get": z
@@ -2522,6 +2639,19 @@ export function portalAgentActionsIndexText(): string {
     "- ai_outbound_calls.contacts.search: Search contacts (AI outbound calls) (fields: q?, take?)",
     "- ai_outbound_calls.manual_calls.list: List manual calls (fields: campaignId?, reconcileTwilio?)",
     "- ai_outbound_calls.manual_calls.get: Get a manual call (fields: id, reconcileTwilio?)",
+    "- ai_outbound_calls.campaigns.enroll_message: Manually enroll a contact into a campaign message sequence (fields: campaignId, contactId?, target?, channelPolicy?)",
+    "- ai_outbound_calls.campaigns.generate_agent_config: AI-generate a starter agent config JSON for a campaign (fields: campaignId, kind=calls|messages, context)",
+    "- ai_outbound_calls.campaigns.knowledge_base.sync: Sync campaign Calls knowledge base (fields: campaignId)",
+    "- ai_outbound_calls.campaigns.knowledge_base.upload: Upload a file to the campaign Calls knowledge base (fields: campaignId, fileName, mimeType?, contentBase64, name?)",
+    "- ai_outbound_calls.campaigns.manual_call: Start a manual outbound call from a campaign (fields: campaignId, toNumber)",
+    "- ai_outbound_calls.campaigns.messages_knowledge_base.sync: Sync campaign Messages knowledge base (fields: campaignId)",
+    "- ai_outbound_calls.campaigns.messages_knowledge_base.upload: Upload a file to the campaign Messages knowledge base (fields: campaignId, fileName, mimeType?, contentBase64)",
+    "- ai_outbound_calls.campaigns.preview_message_reply: Preview an AI reply for a customer message (fields: campaignId, channel=sms|email, inbound, history?)",
+    "- ai_outbound_calls.campaigns.sync_agent: Sync campaign Calls agent with ElevenLabs (fields: campaignId)",
+    "- ai_outbound_calls.campaigns.sync_chat_agent: Sync campaign Messages agent with ElevenLabs (fields: campaignId)",
+    "- ai_outbound_calls.cron.run: No-op (cron endpoint is protected; use the platform scheduler)",
+    "- ai_outbound_calls.manual_calls.refresh: Refresh a manual call record (fetch transcript/recording if available) (fields: id)",
+    "- ai_outbound_calls.recordings.get: Fetch a manual-call recording audio (base64; size-limited) (fields: recordingSid, asBase64?, maxBytes?)",
     "- ai_receptionist.settings.get: Get AI receptionist settings and recent call events",
     "- ai_receptionist.recordings.get: Get a link to an AI receptionist call recording audio stream (fields: recordingSid)",
     "- ai_receptionist.recordings.demo.get: Get a demo AI receptionist recording audio link (fields: id)",

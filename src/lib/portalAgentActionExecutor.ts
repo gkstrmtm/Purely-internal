@@ -54,6 +54,7 @@ import {
 import { ensurePortalContactsSchema } from "@/lib/portalContactsSchema";
 import { findOrCreatePortalContact, normalizeEmailKey, normalizeNameKey as normalizeContactNameKey, normalizePhoneKey } from "@/lib/portalContacts";
 import { listDuplicatePortalContactsByPhoneKey, mergePortalContacts } from "@/lib/portalContactDedup";
+import { recordPortalContactServiceTrigger } from "@/lib/portalContactServiceTriggers";
 import {
   addContactTagAssignment,
   createOwnerContactTag,
@@ -122,11 +123,26 @@ import { ensurePortalAiChatSchema } from "@/lib/portalAiChatSchema";
 import { enqueueOutboundCallForTaggedContact, normalizeTagIdList } from "@/lib/portalAiOutboundCalls";
 import { enqueueOutboundMessageForTaggedContact } from "@/lib/portalAiOutboundMessages";
 import { normalizeToolIdList, normalizeToolKeyList, parseVoiceAgentConfig } from "@/lib/voiceAgentConfig.shared";
-import { resolveElevenLabsConvaiToolIdsByKeys, listElevenLabsVoices, synthesizeElevenLabsVoicePreview } from "@/lib/elevenLabsConvai";
-import { VOICE_TOOL_DEFS } from "@/lib/voiceAgentTools";
+import {
+  buildElevenLabsAgentPrompt,
+  createElevenLabsAgent,
+  createElevenLabsKnowledgeBaseFile,
+  createElevenLabsKnowledgeBaseText,
+  createElevenLabsKnowledgeBaseUrl,
+  fetchElevenLabsConversationTranscript,
+  getElevenLabsAgent,
+  listElevenLabsVoices,
+  parseElevenLabsAgentPromptToVoiceAgentConfig,
+  patchElevenLabsAgent,
+  resolveElevenLabsConvaiToolIdsByKeys,
+  synthesizeElevenLabsVoicePreview,
+  type KnowledgeBaseLocator,
+} from "@/lib/elevenLabsConvai";
+import { resolveToolIdsForKeys, VOICE_TOOL_DEFS } from "@/lib/voiceAgentTools";
 import { getAiReceptionistServiceData, listAiReceptionistEvents, toPublicSettings } from "@/lib/aiReceptionist";
 import { syncAiReceptionistKnowledgeBase } from "@/lib/portalAiReceptionistKnowledgeBaseSync.server";
 import { uploadAiReceptionistKnowledgeBaseFile } from "@/lib/portalAiReceptionistKnowledgeBaseSync.server";
+import { webhookUrlFromRequest } from "@/lib/webhookBase";
 import { getPortalBusinessProfile, upsertPortalBusinessProfile } from "@/lib/portalBusinessProfile.server";
 import { getElevenLabsConvaiConversationSignedUrl, getElevenLabsConvaiConversationToken } from "@/lib/portalElevenLabsConvaiAuth.server";
 import { clampPortalReportingRangeKey, getPortalReportingSummaryForOwner } from "@/lib/portalReportingSummary.server";
@@ -14483,6 +14499,1763 @@ async function runDirectAction(opts: {
           },
         },
       };
+    }
+
+    case "ai_outbound_calls.campaigns.enroll_message": {
+      if (!(await requireServiceCapability("aiOutboundCalls", "edit"))) {
+        return { status: 403, json: { ok: false, error: "Forbidden" } };
+      }
+
+      const campaignId = String((args as any)?.campaignId || "").trim();
+      if (!campaignId) return { status: 400, json: { ok: false, error: "Missing campaignId" } };
+
+      await ensurePortalAiOutboundCallsSchema();
+
+      const campaign = await prisma.portalAiOutboundCallCampaign.findFirst({
+        where: { ownerId, id: campaignId },
+        select: { id: true, status: true, messageChannelPolicy: true },
+      });
+      if (!campaign) return { status: 404, json: { ok: false, error: "Not found" } };
+
+      if (campaign.status === "ARCHIVED") {
+        return { status: 400, json: { ok: false, error: "Campaign is archived." } };
+      }
+
+      const now = new Date();
+      const activatedCampaign = campaign.status !== "ACTIVE";
+      if (activatedCampaign) {
+        await prisma.portalAiOutboundCallCampaign
+          .update({ where: { id: campaign.id }, data: { status: "ACTIVE", updatedAt: now }, select: { id: true } })
+          .catch(() => null);
+      }
+
+      const contactIdRaw = typeof (args as any)?.contactId === "string" ? String((args as any).contactId).trim() : "";
+      const targetRaw = typeof (args as any)?.target === "string" ? String((args as any).target).trim() : "";
+
+      async function resolveContactId(target: string): Promise<string | null> {
+        const t = String(target || "").trim();
+        if (!t) return null;
+
+        const byId = await (prisma as any).portalContact
+          .findFirst({ where: { ownerId, id: t }, select: { id: true } })
+          .catch(() => null);
+        if (byId?.id) return String(byId.id);
+
+        if (t.includes("@")) {
+          const emailKey = normalizeEmailKey(t);
+          if (!emailKey) return null;
+          const byEmail = await (prisma as any).portalContact
+            .findFirst({ where: { ownerId, emailKey }, select: { id: true }, orderBy: { updatedAt: "desc" } })
+            .catch(() => null);
+          return byEmail?.id ? String(byEmail.id) : null;
+        }
+
+        const phoneNorm = normalizePhoneKey(t);
+        if (!phoneNorm.phoneKey) return null;
+        const byPhone = await (prisma as any).portalContact
+          .findFirst({ where: { ownerId, phoneKey: phoneNorm.phoneKey }, select: { id: true }, orderBy: { updatedAt: "desc" } })
+          .catch(() => null);
+        return byPhone?.id ? String(byPhone.id) : null;
+      }
+
+      const contactId = contactIdRaw || (await resolveContactId(targetRaw));
+      if (!contactId) {
+        return {
+          status: 404,
+          json: { ok: false, error: "Contact not found. Use a Contact ID, phone number, or email." },
+        };
+      }
+
+      const channelPolicy = ((args as any)?.channelPolicy || (campaign as any).messageChannelPolicy || "BOTH") as
+        | "SMS"
+        | "EMAIL"
+        | "BOTH";
+
+      const existing = await prisma.portalAiOutboundMessageEnrollment
+        .findUnique({
+          where: { campaignId_contactId: { campaignId: campaign.id, contactId } },
+          select: { id: true, sentFirstMessageAt: true },
+        })
+        .catch(() => null);
+
+      if (existing?.id && existing.sentFirstMessageAt) {
+        await prisma.portalAiOutboundMessageEnrollment
+          .update({
+            where: { id: existing.id },
+            data: { status: "ACTIVE", source: "MANUAL", channelPolicy, lastError: null },
+            select: { id: true },
+          })
+          .catch(() => null);
+
+        await recordPortalContactServiceTrigger({ ownerId, contactId, serviceSlug: "ai-outbound-calls" }).catch(() => null);
+
+        return {
+          status: 200,
+          json: { ok: true, enrolled: true, alreadySentFirstMessage: true, activatedCampaign },
+        };
+      }
+
+      await prisma.portalAiOutboundMessageEnrollment
+        .upsert({
+          where: { campaignId_contactId: { campaignId: campaign.id, contactId } },
+          create: {
+            id: crypto.randomUUID(),
+            ownerId,
+            campaignId: campaign.id,
+            contactId,
+            status: "QUEUED",
+            source: "MANUAL",
+            channelPolicy,
+            nextSendAt: now,
+            sentFirstMessageAt: null,
+            threadId: null,
+            attemptCount: 0,
+            lastError: null,
+            pendingReplyToMessageId: null,
+            nextReplyAt: null,
+            replyAttemptCount: 0,
+            replyLastError: null,
+            lastAutoRepliedMessageId: null,
+            lastAutoReplyAt: null,
+            createdAt: now,
+            updatedAt: now,
+          },
+          update: {
+            status: "QUEUED",
+            source: "MANUAL",
+            channelPolicy,
+            nextSendAt: now,
+            attemptCount: 0,
+            lastError: null,
+          },
+          select: { id: true },
+        })
+        .catch((e) => {
+          throw e;
+        });
+
+      await recordPortalContactServiceTrigger({ ownerId, contactId, serviceSlug: "ai-outbound-calls" }).catch(() => null);
+
+      return {
+        status: 200,
+        json: { ok: true, enrolled: true, alreadySentFirstMessage: false, activatedCampaign },
+      };
+    }
+
+    case "ai_outbound_calls.campaigns.generate_agent_config": {
+      if (!(await requireServiceCapability("aiOutboundCalls", "edit"))) {
+        return { status: 403, json: { ok: false, error: "Forbidden" } };
+      }
+
+      const campaignId = String((args as any)?.campaignId || "").trim();
+      if (!campaignId) return { status: 400, json: { ok: false, error: "Missing campaignId" } };
+
+      const kind = (args as any)?.kind === "calls" ? "calls" : "messages";
+      const context = typeof (args as any)?.context === "string" ? String((args as any).context).trim().slice(0, 4000) : "";
+      if (!context || context.length < 3) return { status: 400, json: { ok: false, error: "Missing context" } };
+
+      await ensurePortalAiOutboundCallsSchema();
+
+      const campaign = await prisma.portalAiOutboundCallCampaign.findFirst({
+        where: { ownerId, id: campaignId },
+        select: { id: true, name: true },
+      });
+      if (!campaign) return { status: 404, json: { ok: false, error: "Not found" } };
+
+      const businessContext = await getBusinessProfileAiContext(ownerId).catch(() => "");
+
+      const system = [
+        "You generate compact agent configuration JSON for an outbound automation product.",
+        "Return ONLY valid JSON. No markdown, no commentary.",
+        "JSON keys: firstMessage, goal, personality, tone, environment, guardRails.",
+        "Keep it practical and safe. Avoid spammy language.",
+        "Use plain text; do not include code fences.",
+      ].join("\n");
+
+      const user = [
+        `Campaign: ${campaign.name}`,
+        businessContext ? businessContext : "",
+        `Agent kind: ${kind === "calls" ? "phone calls" : "SMS/email messaging"}`,
+        "Context:",
+        context,
+        "",
+        "Write an agent config JSON that will work well immediately.",
+        "- firstMessage: one short opener message.",
+        "- goal: what the agent is trying to accomplish.",
+        "- personality/tone: how it should sound.",
+        "- environment: assumptions about business + workflow.",
+        "- guardRails: hard rules (opt-out handling, compliance, no hallucinations, be concise).",
+      ].join("\n");
+
+      function extractFirstJsonObject(text: string): any | null {
+        const s = String(text || "");
+        for (let start = 0; start < s.length; start++) {
+          if (s[start] !== "{") continue;
+          let depth = 0;
+          for (let end = start; end < s.length; end++) {
+            const ch = s[end];
+            if (ch === "{") depth += 1;
+            else if (ch === "}") {
+              depth -= 1;
+              if (depth === 0) {
+                const candidate = s.slice(start, end + 1);
+                try {
+                  return JSON.parse(candidate);
+                } catch {
+                  break;
+                }
+              }
+            }
+          }
+        }
+        return null;
+      }
+
+      function normalizeConfig(extracted: unknown): any | null {
+        if (!extracted || typeof extracted !== "object") return null;
+        let obj: any = extracted as any;
+        if (obj && typeof obj.config === "object" && obj.config) obj = obj.config;
+
+        const lower = new Map<string, unknown>();
+        for (const [k, v] of Object.entries(obj)) lower.set(String(k).toLowerCase(), v);
+
+        const clamp = (v: unknown, maxLen: number) => {
+          if (typeof v !== "string") return undefined;
+          const t = v.trim();
+          if (!t) return undefined;
+          return t.length > maxLen ? t.slice(0, maxLen) : t;
+        };
+
+        const get = (keys: string[], maxLen: number) => {
+          for (const key of keys) {
+            const direct = (obj as any)?.[key];
+            const lowered = lower.get(key.toLowerCase());
+            const picked = clamp(direct, maxLen) ?? clamp(lowered, maxLen);
+            if (picked) return picked;
+          }
+          return undefined;
+        };
+
+        const candidate: any = {
+          firstMessage: get(["firstMessage", "first_message", "firstmessage", "opener", "opening"], 800),
+          goal: get(["goal", "objective"], 6000),
+          personality: get(["personality", "persona"], 6000),
+          tone: get(["tone", "style", "voice"], 6000),
+          environment: get(["environment", "context", "setting"], 6000),
+          guardRails: get(["guardRails", "guardrails", "guard_rails", "guardRail", "guardrail"], 6000),
+        };
+
+        for (const k of Object.keys(candidate)) {
+          if (!candidate[k]) delete candidate[k];
+        }
+
+        if (!Object.keys(candidate).length) return null;
+        return candidate;
+      }
+
+      let raw = "";
+      try {
+        const charged = await consumeCredits(ownerId, PORTAL_CREDIT_COSTS.aiCallStepGenerate);
+        if (!charged.ok) return { status: 402, json: { ok: false, error: "Insufficient credits" } };
+        raw = await generateText({ system, user, model: process.env.AI_MODEL ?? "gpt-4o-mini" });
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : "AI request failed";
+        return { status: 502, json: { ok: false, error: msg } };
+      }
+
+      const extracted = extractFirstJsonObject(raw);
+      const normalized = normalizeConfig(extracted);
+      if (normalized) return { status: 200, json: { ok: true, config: normalized } };
+
+      const fallbackGoal = String(raw || "").trim().slice(0, 6000);
+      return {
+        status: 200,
+        json: {
+          ok: true,
+          config: {
+            goal: fallbackGoal || `${kind === "calls" ? "Call" : "Message"} contacts and move them toward a booked appointment.`,
+          },
+          warning: "AI response was not valid JSON; returned a fallback goal.",
+        },
+      };
+    }
+
+    case "ai_outbound_calls.campaigns.preview_message_reply": {
+      if (!(await requireServiceCapability("aiOutboundCalls", "view"))) {
+        return { status: 403, json: { ok: false, error: "Forbidden" } };
+      }
+
+      const campaignId = String((args as any)?.campaignId || "").trim();
+      if (!campaignId) return { status: 400, json: { ok: false, error: "Missing campaignId" } };
+
+      const channel = (args as any)?.channel === "email" ? "email" : "sms";
+      const inbound = typeof (args as any)?.inbound === "string" ? String((args as any).inbound).trim().slice(0, 4000) : "";
+      if (!inbound) return { status: 400, json: { ok: false, error: "Invalid input" } };
+
+      await ensurePortalAiOutboundCallsSchema();
+
+      const campaign = await prisma.portalAiOutboundCallCampaign.findFirst({
+        where: { ownerId, id: campaignId },
+        select: { id: true, name: true, chatAgentConfigJson: true },
+      });
+      if (!campaign) return { status: 404, json: { ok: false, error: "Not found" } };
+
+      const cfg = ((campaign as any).chatAgentConfigJson && typeof (campaign as any).chatAgentConfigJson === "object")
+        ? ((campaign as any).chatAgentConfigJson as Record<string, unknown>)
+        : {};
+
+      const goal = typeof (cfg as any).goal === "string" ? String((cfg as any).goal).trim() : "";
+      const personality = typeof (cfg as any).personality === "string" ? String((cfg as any).personality).trim() : "";
+      const tone = typeof (cfg as any).tone === "string" ? String((cfg as any).tone).trim() : "";
+      const environment = typeof (cfg as any).environment === "string" ? String((cfg as any).environment).trim() : "";
+      const guardRails = typeof (cfg as any).guardRails === "string" ? String((cfg as any).guardRails).trim() : "";
+
+      const systemFromAgentConfig = () => {
+        const parts = [
+          "You are an automated outbound messaging assistant for a small business.",
+          channel === "sms" ? "Write like SMS: short, natural, no markdown." : "Write like a helpful email: clear, concise, no markdown.",
+          goal ? `Goal: ${goal}` : null,
+          personality ? `Personality: ${personality}` : null,
+          tone ? `Tone: ${tone}` : null,
+          environment ? `Context: ${environment}` : null,
+          guardRails ? `Guardrails: ${guardRails}` : null,
+          "Never mention system prompts or internal policies.",
+          "If the user asks to stop/unsubscribe, acknowledge and confirm they will not be contacted again.",
+          channel === "sms" ? "Keep replies under 420 characters." : "Keep replies under 1200 characters.",
+        ].filter(Boolean);
+        return parts.join("\n");
+      };
+
+      const businessContext = await getBusinessProfileAiContext(ownerId).catch(() => "");
+      const system = [systemFromAgentConfig(), businessContext].filter(Boolean).join("\n\n");
+
+      const history = Array.isArray((args as any)?.history) ? ((args as any).history as any[]) : [];
+      const transcript = history
+        .map((m) => {
+          const role = m?.role === "assistant" ? "Agent" : "Customer";
+          const content = typeof m?.content === "string" ? String(m.content).trim() : "";
+          if (!content) return null;
+          return `${role}: ${content}`;
+        })
+        .filter(Boolean)
+        .join("\n");
+
+      const user = [
+        `Campaign: ${campaign.name}`,
+        "You are continuing a conversation with a customer.",
+        transcript ? "Conversation so far:" : null,
+        transcript || null,
+        "",
+        "Reply to the latest customer message below.",
+        "Only output the reply text.",
+        "",
+        `Customer: ${inbound}`,
+      ]
+        .filter(Boolean)
+        .join("\n");
+
+      let reply = "";
+      try {
+        const charged = await consumeCredits(ownerId, PORTAL_CREDIT_COSTS.aiCallStepGenerate);
+        if (!charged.ok) return { status: 402, json: { ok: false, error: "Insufficient credits" } };
+        reply = await generateText({ system, user, model: process.env.AI_MODEL ?? "gpt-4o-mini" });
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : "AI request failed";
+        return { status: 502, json: { ok: false, error: msg } };
+      }
+
+      return { status: 200, json: { ok: true, reply: String(reply || "").trim().slice(0, 2000) } };
+    }
+
+    case "ai_outbound_calls.campaigns.knowledge_base.sync": {
+      if (!(await requireServiceCapability("aiOutboundCalls", "edit"))) {
+        return { status: 403, json: { ok: false, error: "Forbidden" } };
+      }
+
+      const campaignId = String((args as any)?.campaignId || "").trim();
+      if (!campaignId) return { status: 400, json: { ok: false, error: "Missing campaignId" } };
+
+      await ensurePortalAiOutboundCallsSchema();
+
+      const campaign = await prisma.portalAiOutboundCallCampaign.findFirst({
+        where: { ownerId, id: campaignId },
+        select: { id: true, name: true, voiceAgentId: true, manualVoiceAgentId: true, knowledgeBaseJson: true },
+      });
+      if (!campaign) return { status: 404, json: { ok: false, error: "Not found" } };
+
+      const receptionist = await getAiReceptionistServiceData(ownerId).catch(() => null);
+      const apiKeyLegacy = receptionist?.settings?.voiceAgentApiKey?.trim() || "";
+      const apiKeyFromProfile = await (async () => {
+        const row = await prisma.portalServiceSetup.findUnique({
+          where: { ownerId_serviceSlug: { ownerId, serviceSlug: "profile" } },
+          select: { dataJson: true },
+        });
+        const rec = row?.dataJson && typeof row.dataJson === "object" && !Array.isArray(row.dataJson) ? (row.dataJson as any) : null;
+        const raw = typeof rec?.voiceAgentApiKey === "string" ? rec.voiceAgentApiKey.trim().slice(0, 400) : "";
+        const env = String(process.env.VOICE_AGENT_API_KEY || process.env.ELEVENLABS_API_KEY || process.env.ELEVEN_LABS_API_KEY || "").trim().slice(0, 400);
+        return raw || env || "";
+      })().catch(() => "");
+
+      const apiKey = (String(apiKeyFromProfile || "").trim() || String(apiKeyLegacy || "").trim()).trim();
+      if (!apiKey) return { status: 400, json: { ok: false, error: "Missing voice agent API key. Set it in Profile first." } };
+
+      function safeRecord(raw: unknown): Record<string, any> {
+        return raw && typeof raw === "object" && !Array.isArray(raw) ? (raw as Record<string, any>) : {};
+      }
+
+      function normalizeUrl(raw: string): string {
+        try {
+          const u = new URL(raw);
+          if (u.protocol !== "http:" && u.protocol !== "https:") return "";
+          u.hash = "";
+          return u.toString();
+        } catch {
+          return "";
+        }
+      }
+
+      function parseKnowledgeBase(raw: unknown): { version: 1; seedUrl: string; crawlDepth: number; maxUrls: number; text: string; locators: KnowledgeBaseLocator[] } {
+        const rec = safeRecord(raw);
+        const seedUrl = typeof rec.seedUrl === "string" ? normalizeUrl(rec.seedUrl.trim().slice(0, 500)) : "";
+        const crawlDepth = typeof rec.crawlDepth === "number" && Number.isFinite(rec.crawlDepth) ? Math.max(0, Math.min(5, Math.floor(rec.crawlDepth))) : 0;
+        const maxUrls = typeof rec.maxUrls === "number" && Number.isFinite(rec.maxUrls) ? Math.max(0, Math.min(1000, Math.floor(rec.maxUrls))) : 0;
+        const text = typeof rec.text === "string" ? rec.text.trim().slice(0, 20000) : "";
+        const locatorsRaw = Array.isArray(rec.locators) ? rec.locators : [];
+        const locators: KnowledgeBaseLocator[] = [];
+        for (const x of locatorsRaw) {
+          const xr = safeRecord(x);
+          const id = typeof xr.id === "string" ? xr.id.trim().slice(0, 200) : "";
+          const name = typeof xr.name === "string" ? xr.name.trim().slice(0, 200) : "";
+          const typeRaw = typeof xr.type === "string" ? xr.type.trim().toLowerCase() : "";
+          const type = typeRaw === "file" || typeRaw === "url" || typeRaw === "text" || typeRaw === "folder" ? (typeRaw as any) : null;
+          const usageRaw = typeof xr.usage_mode === "string" ? xr.usage_mode.trim().toLowerCase() : "";
+          const usage_mode = usageRaw === "prompt" ? "prompt" : usageRaw === "auto" ? "auto" : undefined;
+          if (!id || !name || !type) continue;
+          locators.push({ id, name, type, ...(usage_mode ? { usage_mode } : {}) });
+          if (locators.length >= 120) break;
+        }
+        return { version: 1, seedUrl, crawlDepth, maxUrls, text, locators };
+      }
+
+      function extractLinksFromHtml(html: string, baseUrl: string): string[] {
+        const out: string[] = [];
+        const re = /href\s*=\s*("([^"]+)"|'([^']+)'|([^\s>]+))/gi;
+        let m: RegExpExecArray | null;
+        while ((m = re.exec(html))) {
+          const raw = (m[2] || m[3] || m[4] || "").trim();
+          if (!raw) continue;
+          if (raw.startsWith("mailto:") || raw.startsWith("tel:")) continue;
+          try {
+            const u = new URL(raw, baseUrl);
+            if (u.protocol !== "http:" && u.protocol !== "https:") continue;
+            u.hash = "";
+            out.push(u.toString());
+            if (out.length >= 400) break;
+          } catch {
+            // ignore
+          }
+        }
+        return out;
+      }
+
+      async function fetchHtml(url: string): Promise<string> {
+        const ctrl = new AbortController();
+        const t = setTimeout(() => ctrl.abort(), 12000);
+        try {
+          const res = await fetch(url, {
+            method: "GET",
+            redirect: "follow",
+            headers: { accept: "text/html,application/xhtml+xml", "user-agent": "PurelyAutomationKnowledgeBaseCrawler/1.0" },
+            signal: ctrl.signal,
+          });
+          const contentType = String(res.headers.get("content-type") || "").toLowerCase();
+          if (!res.ok) return "";
+          if (contentType && !contentType.includes("text/html")) return "";
+          const text = await res.text().catch(() => "");
+          return text.slice(0, 900_000);
+        } catch {
+          return "";
+        } finally {
+          clearTimeout(t);
+        }
+      }
+
+      async function crawlSite(seedUrl: string, depth: number, maxUrls: number): Promise<string[]> {
+        const seed = normalizeUrl(seedUrl);
+        if (!seed) return [];
+        const seedParsed = new URL(seed);
+        const allowedHost = seedParsed.host;
+
+        const q: Array<{ url: string; d: number }> = [{ url: seed, d: 0 }];
+        const seen = new Set<string>();
+        const result: string[] = [];
+
+        while (q.length && result.length < maxUrls) {
+          const item = q.shift()!;
+          const u = normalizeUrl(item.url);
+          if (!u) continue;
+          if (seen.has(u)) continue;
+          seen.add(u);
+          let parsed: URL;
+          try {
+            parsed = new URL(u);
+          } catch {
+            continue;
+          }
+          if (parsed.host !== allowedHost) continue;
+          result.push(u);
+          if (item.d >= depth) continue;
+          const html = await fetchHtml(u);
+          if (!html) continue;
+          const links = extractLinksFromHtml(html, u)
+            .map((x) => normalizeUrl(x))
+            .filter(Boolean);
+          for (const link of links) {
+            if (result.length + q.length >= maxUrls * 3) break;
+            if (seen.has(link)) continue;
+            try {
+              const p = new URL(link);
+              if (p.host !== allowedHost) continue;
+              q.push({ url: link, d: item.d + 1 });
+            } catch {
+              // ignore
+            }
+          }
+        }
+        return result.slice(0, maxUrls);
+      }
+
+      function dedupeLocators(locators: KnowledgeBaseLocator[]): KnowledgeBaseLocator[] {
+        const out: KnowledgeBaseLocator[] = [];
+        const seen = new Set<string>();
+        for (const l of locators) {
+          const id = String(l.id || "").trim();
+          if (!id || seen.has(id)) continue;
+          seen.add(id);
+          out.push(l);
+          if (out.length >= 120) break;
+        }
+        return out;
+      }
+
+      const kb = parseKnowledgeBase((campaign as any).knowledgeBaseJson);
+      const keep = kb.locators.filter((l) => l.type === "file");
+      const nextDocs: KnowledgeBaseLocator[] = [];
+      const errors: string[] = [];
+
+      if (kb.text.trim()) {
+        const create = await createElevenLabsKnowledgeBaseText({
+          apiKey,
+          text: kb.text,
+          name: `Campaign: ${campaign.name} - Notes`.slice(0, 200),
+        }).catch((e) => ({ ok: false as const, error: String(e || "Text document create failed") }));
+
+        if ((create as any).ok === true) nextDocs.push((create as any).doc);
+        else errors.push(String((create as any).error || "Failed to create notes document").slice(0, 200));
+      }
+
+      const maxUrls = Math.max(0, Math.min(1000, Math.floor(kb.maxUrls || 0)));
+      if (kb.seedUrl && maxUrls > 0) {
+        const discovered = await crawlSite(kb.seedUrl, kb.crawlDepth, maxUrls).catch(() => []);
+        for (const u of discovered) {
+          const name = (() => {
+            try {
+              const parsed = new URL(u);
+              const path = parsed.pathname && parsed.pathname !== "/" ? parsed.pathname : "";
+              return `${parsed.host}${path}`.slice(0, 200);
+            } catch {
+              return u.slice(0, 200);
+            }
+          })();
+
+          const created = await createElevenLabsKnowledgeBaseUrl({ apiKey, url: u, name, enableAutoSync: true }).catch((e) => ({
+            ok: false as const,
+            error: String(e || "URL document create failed"),
+          }));
+
+          if ((created as any).ok === true) nextDocs.push((created as any).doc);
+          else errors.push(String((created as any).error || "Failed to create URL document").slice(0, 200));
+          if (nextDocs.length >= 120) break;
+        }
+      }
+
+      const nextLocators = dedupeLocators([...keep, ...nextDocs]);
+
+      const nextKb = {
+        ...kb,
+        locators: nextLocators,
+        lastSyncedAtIso: new Date().toISOString(),
+        ...(errors.length ? { lastSyncError: errors.slice(0, 5).join(" | ").slice(0, 800) } : { lastSyncError: "" }),
+      };
+
+      await prisma.portalAiOutboundCallCampaign.updateMany({
+        where: { ownerId, id: campaign.id },
+        data: { knowledgeBaseJson: nextKb as any, updatedAt: new Date() },
+      });
+
+      const applied: { voice?: boolean } = {};
+      const manualVoice = String((campaign as any).manualVoiceAgentId || "").trim();
+      const voiceAgentId = String((campaign as any).voiceAgentId || "").trim();
+      const agentIdToPatch = manualVoice || voiceAgentId;
+      if (agentIdToPatch) {
+        const r = await patchElevenLabsAgent({ apiKey, agentId: agentIdToPatch, knowledgeBase: nextLocators }).catch(() => null);
+        applied.voice = Boolean(r && (r as any).ok === true);
+      }
+
+      return { status: 200, json: { ok: true, locators: nextLocators, applied, errors: errors.slice(0, 10) } };
+    }
+
+    case "ai_outbound_calls.campaigns.messages_knowledge_base.sync": {
+      if (!(await requireServiceCapability("aiOutboundCalls", "edit"))) {
+        return { status: 403, json: { ok: false, error: "Forbidden" } };
+      }
+
+      const campaignId = String((args as any)?.campaignId || "").trim();
+      if (!campaignId) return { status: 400, json: { ok: false, error: "Missing campaignId" } };
+
+      await ensurePortalAiOutboundCallsSchema();
+
+      const campaign = await prisma.portalAiOutboundCallCampaign.findFirst({
+        where: { ownerId, id: campaignId },
+        select: { id: true, name: true, chatAgentId: true, manualChatAgentId: true, chatKnowledgeBaseJson: true },
+      });
+      if (!campaign) return { status: 404, json: { ok: false, error: "Not found" } };
+
+      const receptionist = await getAiReceptionistServiceData(ownerId).catch(() => null);
+      const apiKeyLegacy = receptionist?.settings?.voiceAgentApiKey?.trim() || "";
+      const apiKeyFromProfile = await (async () => {
+        const row = await prisma.portalServiceSetup.findUnique({
+          where: { ownerId_serviceSlug: { ownerId, serviceSlug: "profile" } },
+          select: { dataJson: true },
+        });
+        const rec = row?.dataJson && typeof row.dataJson === "object" && !Array.isArray(row.dataJson) ? (row.dataJson as any) : null;
+        const raw = typeof rec?.voiceAgentApiKey === "string" ? rec.voiceAgentApiKey.trim().slice(0, 400) : "";
+        const env = String(process.env.VOICE_AGENT_API_KEY || process.env.ELEVENLABS_API_KEY || process.env.ELEVEN_LABS_API_KEY || "").trim().slice(0, 400);
+        return raw || env || "";
+      })().catch(() => "");
+
+      const apiKey = (String(apiKeyFromProfile || "").trim() || String(apiKeyLegacy || "").trim()).trim();
+      if (!apiKey) return { status: 400, json: { ok: false, error: "Missing voice agent API key. Set it in Profile first." } };
+
+      function safeRecord(raw: unknown): Record<string, any> {
+        return raw && typeof raw === "object" && !Array.isArray(raw) ? (raw as Record<string, any>) : {};
+      }
+
+      function normalizeUrl(raw: string): string {
+        try {
+          const u = new URL(raw);
+          if (u.protocol !== "http:" && u.protocol !== "https:") return "";
+          u.hash = "";
+          return u.toString();
+        } catch {
+          return "";
+        }
+      }
+
+      function parseKnowledgeBase(raw: unknown): { version: 1; seedUrl: string; crawlDepth: number; maxUrls: number; text: string; locators: KnowledgeBaseLocator[] } {
+        const rec = safeRecord(raw);
+        const seedUrl = typeof rec.seedUrl === "string" ? normalizeUrl(rec.seedUrl.trim().slice(0, 500)) : "";
+        const crawlDepth = typeof rec.crawlDepth === "number" && Number.isFinite(rec.crawlDepth) ? Math.max(0, Math.min(5, Math.floor(rec.crawlDepth))) : 0;
+        const maxUrls = typeof rec.maxUrls === "number" && Number.isFinite(rec.maxUrls) ? Math.max(0, Math.min(1000, Math.floor(rec.maxUrls))) : 0;
+        const text = typeof rec.text === "string" ? rec.text.trim().slice(0, 20000) : "";
+        const locatorsRaw = Array.isArray(rec.locators) ? rec.locators : [];
+        const locators: KnowledgeBaseLocator[] = [];
+        for (const x of locatorsRaw) {
+          const xr = safeRecord(x);
+          const id = typeof xr.id === "string" ? xr.id.trim().slice(0, 200) : "";
+          const name = typeof xr.name === "string" ? xr.name.trim().slice(0, 200) : "";
+          const typeRaw = typeof xr.type === "string" ? xr.type.trim().toLowerCase() : "";
+          const type = typeRaw === "file" || typeRaw === "url" || typeRaw === "text" || typeRaw === "folder" ? (typeRaw as any) : null;
+          const usageRaw = typeof xr.usage_mode === "string" ? xr.usage_mode.trim().toLowerCase() : "";
+          const usage_mode = usageRaw === "prompt" ? "prompt" : usageRaw === "auto" ? "auto" : undefined;
+          if (!id || !name || !type) continue;
+          locators.push({ id, name, type, ...(usage_mode ? { usage_mode } : {}) });
+          if (locators.length >= 120) break;
+        }
+        return { version: 1, seedUrl, crawlDepth, maxUrls, text, locators };
+      }
+
+      async function fetchHtml(url: string): Promise<string> {
+        const ctrl = new AbortController();
+        const t = setTimeout(() => ctrl.abort(), 12000);
+        try {
+          const res = await fetch(url, {
+            method: "GET",
+            redirect: "follow",
+            headers: { accept: "text/html,application/xhtml+xml", "user-agent": "PurelyAutomationKnowledgeBaseCrawler/1.0" },
+            signal: ctrl.signal,
+          });
+          const contentType = String(res.headers.get("content-type") || "").toLowerCase();
+          if (!res.ok) return "";
+          if (contentType && !contentType.includes("text/html")) return "";
+          const text = await res.text().catch(() => "");
+          return text.slice(0, 900_000);
+        } catch {
+          return "";
+        } finally {
+          clearTimeout(t);
+        }
+      }
+
+      function extractLinksFromHtml(html: string, baseUrl: string): string[] {
+        const out: string[] = [];
+        const re = /href\s*=\s*("([^"]+)"|'([^']+)'|([^\s>]+))/gi;
+        let m: RegExpExecArray | null;
+        while ((m = re.exec(html))) {
+          const raw = (m[2] || m[3] || m[4] || "").trim();
+          if (!raw) continue;
+          if (raw.startsWith("mailto:") || raw.startsWith("tel:")) continue;
+          try {
+            const u = new URL(raw, baseUrl);
+            if (u.protocol !== "http:" && u.protocol !== "https:") continue;
+            u.hash = "";
+            out.push(u.toString());
+            if (out.length >= 400) break;
+          } catch {
+            // ignore
+          }
+        }
+        return out;
+      }
+
+      async function crawlSite(seedUrl: string, depth: number, maxUrls: number): Promise<string[]> {
+        const seed = normalizeUrl(seedUrl);
+        if (!seed) return [];
+        const seedParsed = new URL(seed);
+        const allowedHost = seedParsed.host;
+
+        const q: Array<{ url: string; d: number }> = [{ url: seed, d: 0 }];
+        const seen = new Set<string>();
+        const result: string[] = [];
+
+        while (q.length && result.length < maxUrls) {
+          const item = q.shift()!;
+          const u = normalizeUrl(item.url);
+          if (!u) continue;
+          if (seen.has(u)) continue;
+          seen.add(u);
+          let parsed: URL;
+          try {
+            parsed = new URL(u);
+          } catch {
+            continue;
+          }
+          if (parsed.host !== allowedHost) continue;
+          result.push(u);
+          if (item.d >= depth) continue;
+          const html = await fetchHtml(u);
+          if (!html) continue;
+          const links = extractLinksFromHtml(html, u)
+            .map((x) => normalizeUrl(x))
+            .filter(Boolean);
+          for (const link of links) {
+            if (result.length + q.length >= maxUrls * 3) break;
+            if (seen.has(link)) continue;
+            try {
+              const p = new URL(link);
+              if (p.host !== allowedHost) continue;
+              q.push({ url: link, d: item.d + 1 });
+            } catch {
+              // ignore
+            }
+          }
+        }
+        return result.slice(0, maxUrls);
+      }
+
+      function dedupeLocators(locators: KnowledgeBaseLocator[]): KnowledgeBaseLocator[] {
+        const out: KnowledgeBaseLocator[] = [];
+        const seen = new Set<string>();
+        for (const l of locators) {
+          const id = String(l.id || "").trim();
+          if (!id || seen.has(id)) continue;
+          seen.add(id);
+          out.push(l);
+          if (out.length >= 120) break;
+        }
+        return out;
+      }
+
+      const kb = parseKnowledgeBase((campaign as any).chatKnowledgeBaseJson);
+      const keep = kb.locators.filter((l) => l.type === "file");
+      const nextDocs: KnowledgeBaseLocator[] = [];
+      const errors: string[] = [];
+
+      if (kb.text.trim()) {
+        const create = await createElevenLabsKnowledgeBaseText({
+          apiKey,
+          text: kb.text,
+          name: `Campaign: ${campaign.name} - Messages notes`.slice(0, 200),
+        }).catch((e) => ({ ok: false as const, error: String(e || "Text document create failed") }));
+
+        if ((create as any).ok === true) nextDocs.push((create as any).doc);
+        else errors.push(String((create as any).error || "Failed to create notes document").slice(0, 200));
+      }
+
+      const maxUrls = Math.max(0, Math.min(1000, Math.floor(kb.maxUrls || 0)));
+      if (kb.seedUrl && maxUrls > 0) {
+        const discovered = await crawlSite(kb.seedUrl, kb.crawlDepth, maxUrls).catch(() => []);
+        for (const u of discovered) {
+          const name = (() => {
+            try {
+              const parsed = new URL(u);
+              const path = parsed.pathname && parsed.pathname !== "/" ? parsed.pathname : "";
+              return `${parsed.host}${path}`.slice(0, 200);
+            } catch {
+              return u.slice(0, 200);
+            }
+          })();
+
+          const created = await createElevenLabsKnowledgeBaseUrl({ apiKey, url: u, name, enableAutoSync: true }).catch((e) => ({
+            ok: false as const,
+            error: String(e || "URL document create failed"),
+          }));
+
+          if ((created as any).ok === true) nextDocs.push((created as any).doc);
+          else errors.push(String((created as any).error || "Failed to create URL document").slice(0, 200));
+          if (nextDocs.length >= 120) break;
+        }
+      }
+
+      const nextLocators = dedupeLocators([...keep, ...nextDocs]);
+
+      const nextKb = {
+        ...kb,
+        locators: nextLocators,
+        lastSyncedAtIso: new Date().toISOString(),
+        ...(errors.length ? { lastSyncError: errors.slice(0, 5).join(" | ").slice(0, 800) } : { lastSyncError: "" }),
+      };
+
+      await prisma.portalAiOutboundCallCampaign.updateMany({
+        where: { ownerId, id: campaign.id },
+        data: { chatKnowledgeBaseJson: nextKb as any, updatedAt: new Date() },
+      });
+
+      const applied: { messages?: boolean } = {};
+      const manualMessages = String((campaign as any).manualChatAgentId || "").trim();
+      const chatAgentId = String((campaign as any).chatAgentId || "").trim();
+      const agentIdToPatch = manualMessages || chatAgentId;
+      if (agentIdToPatch) {
+        const r = await patchElevenLabsAgent({ apiKey, agentId: agentIdToPatch, knowledgeBase: nextLocators }).catch(() => null);
+        applied.messages = Boolean(r && (r as any).ok === true);
+      }
+
+      return { status: 200, json: { ok: true, locators: nextLocators, applied, errors: errors.slice(0, 10) } };
+    }
+
+    case "ai_outbound_calls.campaigns.knowledge_base.upload": {
+      if (!(await requireServiceCapability("aiOutboundCalls", "edit"))) {
+        return { status: 403, json: { ok: false, error: "Forbidden" } };
+      }
+
+      const campaignId = String((args as any)?.campaignId || "").trim();
+      if (!campaignId) return { status: 400, json: { ok: false, error: "Missing campaignId" } };
+
+      await ensurePortalAiOutboundCallsSchema();
+
+      const campaign = await prisma.portalAiOutboundCallCampaign.findFirst({
+        where: { ownerId, id: campaignId },
+        select: { id: true, name: true, voiceAgentId: true, manualVoiceAgentId: true, knowledgeBaseJson: true },
+      });
+      if (!campaign) return { status: 404, json: { ok: false, error: "Not found" } };
+
+      const receptionist = await getAiReceptionistServiceData(ownerId).catch(() => null);
+      const apiKeyLegacy = receptionist?.settings?.voiceAgentApiKey?.trim() || "";
+      const apiKeyFromProfile = await (async () => {
+        const row = await prisma.portalServiceSetup.findUnique({
+          where: { ownerId_serviceSlug: { ownerId, serviceSlug: "profile" } },
+          select: { dataJson: true },
+        });
+        const rec = row?.dataJson && typeof row.dataJson === "object" && !Array.isArray(row.dataJson) ? (row.dataJson as any) : null;
+        const raw = typeof rec?.voiceAgentApiKey === "string" ? rec.voiceAgentApiKey.trim().slice(0, 400) : "";
+        const env = String(process.env.VOICE_AGENT_API_KEY || process.env.ELEVENLABS_API_KEY || process.env.ELEVEN_LABS_API_KEY || "").trim().slice(0, 400);
+        return raw || env || "";
+      })().catch(() => "");
+
+      const apiKey = (String(apiKeyFromProfile || "").trim() || String(apiKeyLegacy || "").trim()).trim();
+      if (!apiKey) return { status: 400, json: { ok: false, error: "Missing voice agent API key. Set it in Profile first." } };
+
+      const fileName = String((args as any)?.fileName || "document").trim().slice(0, 200) || "document";
+      const mimeType = typeof (args as any)?.mimeType === "string" ? String((args as any).mimeType).trim().slice(0, 120) : "";
+      const decoded = decodeBase64ToBytes(String((args as any)?.contentBase64 || ""), 11 * 1024 * 1024);
+      if (!decoded.ok) return { status: 400, json: { ok: false, error: decoded.error } };
+
+      const file = new File([decoded.bytes], fileName, { type: mimeType || "application/octet-stream" });
+      const name = typeof (args as any)?.name === "string" ? String((args as any).name).trim().slice(0, 200) : "";
+
+      const created = await createElevenLabsKnowledgeBaseFile({ apiKey, file, name: name || undefined });
+      if (!created.ok) return { status: created.status || 502, json: { ok: false, error: created.error } };
+
+      function safeRecord(raw: unknown): Record<string, any> {
+        return raw && typeof raw === "object" && !Array.isArray(raw) ? (raw as Record<string, any>) : {};
+      }
+
+      function dedupeLocators(locators: KnowledgeBaseLocator[]): KnowledgeBaseLocator[] {
+        const out: KnowledgeBaseLocator[] = [];
+        const seen = new Set<string>();
+        for (const l of locators) {
+          const id = String(l.id || "").trim();
+          if (!id || seen.has(id)) continue;
+          seen.add(id);
+          out.push(l);
+          if (out.length >= 120) break;
+        }
+        return out;
+      }
+
+      const kbRec = safeRecord((campaign as any).knowledgeBaseJson);
+      const existingLocators = Array.isArray(kbRec.locators) ? (kbRec.locators as any[]) : [];
+      const locators: KnowledgeBaseLocator[] = [];
+      for (const x of existingLocators) {
+        const xr = safeRecord(x);
+        const id = typeof xr.id === "string" ? xr.id.trim().slice(0, 200) : "";
+        const nm = typeof xr.name === "string" ? xr.name.trim().slice(0, 200) : "";
+        const typeRaw = typeof xr.type === "string" ? xr.type.trim().toLowerCase() : "";
+        const type = typeRaw === "file" || typeRaw === "url" || typeRaw === "text" || typeRaw === "folder" ? (typeRaw as any) : null;
+        const usageRaw = typeof xr.usage_mode === "string" ? xr.usage_mode.trim().toLowerCase() : "";
+        const usage_mode = usageRaw === "prompt" ? "prompt" : usageRaw === "auto" ? "auto" : undefined;
+        if (!id || !nm || !type) continue;
+        locators.push({ id, name: nm, type, ...(usage_mode ? { usage_mode } : {}) });
+        if (locators.length >= 120) break;
+      }
+
+      const nextLocators = dedupeLocators([...locators, created.doc]);
+
+      const nextKb = {
+        version: 1,
+        seedUrl: typeof kbRec.seedUrl === "string" ? String(kbRec.seedUrl).trim().slice(0, 500) : "",
+        crawlDepth: typeof kbRec.crawlDepth === "number" && Number.isFinite(kbRec.crawlDepth) ? Math.max(0, Math.min(5, Math.floor(kbRec.crawlDepth))) : 0,
+        maxUrls: typeof kbRec.maxUrls === "number" && Number.isFinite(kbRec.maxUrls) ? Math.max(0, Math.min(1000, Math.floor(kbRec.maxUrls))) : 0,
+        text: typeof kbRec.text === "string" ? String(kbRec.text).trim().slice(0, 20000) : "",
+        locators: nextLocators,
+        updatedAtIso: new Date().toISOString(),
+      };
+
+      await prisma.portalAiOutboundCallCampaign.updateMany({
+        where: { ownerId, id: campaign.id },
+        data: { knowledgeBaseJson: nextKb as any, updatedAt: new Date() },
+      });
+
+      const applied: { voice?: boolean } = {};
+      const manualVoice = String((campaign as any).manualVoiceAgentId || "").trim();
+      const voiceAgentId = String((campaign as any).voiceAgentId || "").trim();
+      const agentIdToPatch = manualVoice || voiceAgentId;
+      if (agentIdToPatch) {
+        const r = await patchElevenLabsAgent({ apiKey, agentId: agentIdToPatch, knowledgeBase: nextLocators }).catch(() => null);
+        applied.voice = Boolean(r && (r as any).ok === true);
+      }
+
+      return { status: 200, json: { ok: true, locator: created.doc, locators: nextLocators, applied } };
+    }
+
+    case "ai_outbound_calls.campaigns.messages_knowledge_base.upload": {
+      if (!(await requireServiceCapability("aiOutboundCalls", "edit"))) {
+        return { status: 403, json: { ok: false, error: "Forbidden" } };
+      }
+
+      const campaignId = String((args as any)?.campaignId || "").trim();
+      if (!campaignId) return { status: 400, json: { ok: false, error: "Missing campaignId" } };
+
+      await ensurePortalAiOutboundCallsSchema();
+
+      const campaign = await prisma.portalAiOutboundCallCampaign.findFirst({
+        where: { ownerId, id: campaignId },
+        select: { id: true, name: true, chatAgentId: true, manualChatAgentId: true, chatKnowledgeBaseJson: true },
+      });
+      if (!campaign) return { status: 404, json: { ok: false, error: "Not found" } };
+
+      const receptionist = await getAiReceptionistServiceData(ownerId).catch(() => null);
+      const apiKeyLegacy = receptionist?.settings?.voiceAgentApiKey?.trim() || "";
+      const apiKeyFromProfile = await (async () => {
+        const row = await prisma.portalServiceSetup.findUnique({
+          where: { ownerId_serviceSlug: { ownerId, serviceSlug: "profile" } },
+          select: { dataJson: true },
+        });
+        const rec = row?.dataJson && typeof row.dataJson === "object" && !Array.isArray(row.dataJson) ? (row.dataJson as any) : null;
+        const raw = typeof rec?.voiceAgentApiKey === "string" ? rec.voiceAgentApiKey.trim().slice(0, 400) : "";
+        const env = String(process.env.VOICE_AGENT_API_KEY || process.env.ELEVENLABS_API_KEY || process.env.ELEVEN_LABS_API_KEY || "").trim().slice(0, 400);
+        return raw || env || "";
+      })().catch(() => "");
+
+      const apiKey = (String(apiKeyFromProfile || "").trim() || String(apiKeyLegacy || "").trim()).trim();
+      if (!apiKey) return { status: 400, json: { ok: false, error: "Missing voice agent API key. Set it in Profile first." } };
+
+      const fileName = String((args as any)?.fileName || "document").trim().slice(0, 200) || "document";
+      const mimeType = typeof (args as any)?.mimeType === "string" ? String((args as any).mimeType).trim().slice(0, 120) : "";
+      const decoded = decodeBase64ToBytes(String((args as any)?.contentBase64 || ""), 11 * 1024 * 1024);
+      if (!decoded.ok) return { status: 400, json: { ok: false, error: decoded.error } };
+
+      const file = new File([decoded.bytes], fileName, { type: mimeType || "application/octet-stream" });
+
+      function safeRecord(raw: unknown): Record<string, any> {
+        return raw && typeof raw === "object" && !Array.isArray(raw) ? (raw as Record<string, any>) : {};
+      }
+
+      function dedupeLocators(locators: KnowledgeBaseLocator[]): KnowledgeBaseLocator[] {
+        const out: KnowledgeBaseLocator[] = [];
+        const seen = new Set<string>();
+        for (const l of locators) {
+          const id = String(l.id || "").trim();
+          if (!id || seen.has(id)) continue;
+          seen.add(id);
+          out.push(l);
+          if (out.length >= 120) break;
+        }
+        return out;
+      }
+
+      const kbRec = safeRecord((campaign as any).chatKnowledgeBaseJson);
+      const prevLocators = Array.isArray(kbRec.locators) ? (kbRec.locators as KnowledgeBaseLocator[]) : [];
+
+      const created = await createElevenLabsKnowledgeBaseFile({
+        apiKey,
+        file,
+        name: `Campaign: ${campaign.name} - ${fileName}`.slice(0, 200),
+      }).catch((e) => ({ ok: false as const, error: String(e || "File upload failed") }));
+
+      if ((created as any).ok !== true) {
+        return { status: 500, json: { ok: false, error: String((created as any).error || "Upload failed") } };
+      }
+
+      const nextLocators = dedupeLocators([...prevLocators, (created as any).doc]);
+      const nextKb = { ...kbRec, version: 1, locators: nextLocators, updatedAtIso: new Date().toISOString() };
+
+      await prisma.portalAiOutboundCallCampaign.updateMany({
+        where: { ownerId, id: campaign.id },
+        data: { chatKnowledgeBaseJson: nextKb as any, updatedAt: new Date() },
+      });
+
+      const applied: { messages?: boolean } = {};
+      const manualMessages = String((campaign as any).manualChatAgentId || "").trim();
+      const chatAgentId = String((campaign as any).chatAgentId || "").trim();
+      const agentIdToPatch = manualMessages || chatAgentId;
+      if (agentIdToPatch) {
+        const r = await patchElevenLabsAgent({ apiKey, agentId: agentIdToPatch, knowledgeBase: nextLocators }).catch(() => null);
+        applied.messages = Boolean(r && (r as any).ok === true);
+      }
+
+      return { status: 200, json: { ok: true, locator: (created as any).doc, locators: nextLocators, applied } };
+    }
+
+    case "ai_outbound_calls.campaigns.sync_agent": {
+      if (!(await requireServiceCapability("aiOutboundCalls", "edit"))) {
+        return { status: 403, json: { ok: false, error: "Forbidden" } };
+      }
+
+      const campaignId = String((args as any)?.campaignId || "").trim();
+      if (!campaignId) return { status: 400, json: { ok: false, error: "Missing campaignId" } };
+
+      await ensurePortalAiOutboundCallsSchema();
+
+      const campaign = await prisma.portalAiOutboundCallCampaign.findFirst({
+        where: { ownerId, id: campaignId },
+        select: { id: true, name: true, voiceAgentId: true, manualVoiceAgentId: true, voiceAgentConfigJson: true, voiceId: true, knowledgeBaseJson: true },
+      });
+      if (!campaign) return { status: 404, json: { ok: false, error: "Not found" } };
+
+      const receptionist = await getAiReceptionistServiceData(ownerId).catch(() => null);
+      const apiKeyLegacy = receptionist?.settings?.voiceAgentApiKey?.trim() || "";
+      const apiKeyFromProfile = await (async () => {
+        const row = await prisma.portalServiceSetup.findUnique({
+          where: { ownerId_serviceSlug: { ownerId, serviceSlug: "profile" } },
+          select: { dataJson: true },
+        });
+        const rec = row?.dataJson && typeof row.dataJson === "object" && !Array.isArray(row.dataJson) ? (row.dataJson as any) : null;
+        const raw = typeof rec?.voiceAgentApiKey === "string" ? rec.voiceAgentApiKey.trim().slice(0, 400) : "";
+        const env = String(process.env.VOICE_AGENT_API_KEY || process.env.ELEVENLABS_API_KEY || process.env.ELEVEN_LABS_API_KEY || "").trim().slice(0, 400);
+        return raw || env || "";
+      })().catch(() => "");
+
+      const apiKey = (String(apiKeyFromProfile || "").trim() || String(apiKeyLegacy || "").trim()).trim();
+      if (!apiKey) return { status: 400, json: { ok: false, error: "Missing voice agent API key. Set it in Profile first." } };
+
+      const config = parseVoiceAgentConfig((campaign as any).voiceAgentConfigJson);
+      const voiceId = typeof (campaign as any).voiceId === "string" ? String((campaign as any).voiceId).trim().slice(0, 200) : "";
+
+      function safeRecord(raw: unknown): Record<string, any> {
+        return raw && typeof raw === "object" && !Array.isArray(raw) ? (raw as Record<string, any>) : {};
+      }
+
+      function normalizeToolKey(raw: unknown): string {
+        const s = typeof raw === "string" ? raw.trim() : "";
+        if (!s) return "";
+        return s
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, "_")
+          .replace(/^_+|_+$/g, "");
+      }
+
+      function parseKnowledgeBaseLocators(raw: unknown): KnowledgeBaseLocator[] {
+        const rec = safeRecord(raw);
+        const xs = Array.isArray((rec as any).locators) ? ((rec as any).locators as any[]) : [];
+        const out: KnowledgeBaseLocator[] = [];
+        for (const x of xs) {
+          const xr = safeRecord(x);
+          const id = typeof xr.id === "string" ? xr.id.trim().slice(0, 200) : "";
+          const name = typeof xr.name === "string" ? xr.name.trim().slice(0, 200) : "";
+          const typeRaw = typeof xr.type === "string" ? xr.type.trim().toLowerCase() : "";
+          const type = typeRaw === "file" || typeRaw === "url" || typeRaw === "text" || typeRaw === "folder" ? (typeRaw as any) : null;
+          const usageRaw = typeof (xr as any).usage_mode === "string" ? String((xr as any).usage_mode).trim().toLowerCase() : "";
+          const usage_mode = usageRaw === "prompt" ? "prompt" : usageRaw === "auto" ? "auto" : undefined;
+          if (!id || !name || !type) continue;
+          out.push({ id, name, type, ...(usage_mode ? { usage_mode } : {}) });
+          if (out.length >= 120) break;
+        }
+        return out;
+      }
+
+      const knowledgeBase = parseKnowledgeBaseLocators((campaign as any).knowledgeBaseJson);
+
+      const [profile, ownerUser] = await Promise.all([
+        prisma.businessProfile.findUnique({ where: { ownerId }, select: { businessName: true } }).catch(() => null),
+        prisma.user.findUnique({ where: { id: ownerId }, select: { name: true } }).catch(() => null),
+      ]);
+
+      const prompt = buildElevenLabsAgentPrompt(config, { businessName: profile?.businessName || null, ownerName: ownerUser?.name || null });
+      const firstMessage = config.firstMessage.trim();
+
+      const localConfigIsEmpty =
+        !firstMessage &&
+        !config.goal.trim() &&
+        !config.personality.trim() &&
+        !config.tone.trim() &&
+        !config.environment.trim() &&
+        !config.guardRails.trim() &&
+        !(Array.isArray(config.toolIds) && config.toolIds.length) &&
+        !(Array.isArray(config.toolKeys) && config.toolKeys.length);
+
+      let resolvedToolIds: string[] = [];
+      if (Array.isArray(config.toolIds) && config.toolIds.length) {
+        resolvedToolIds = config.toolIds;
+      } else if (Array.isArray(config.toolKeys) && config.toolKeys.length) {
+        const resolved = await resolveElevenLabsConvaiToolIdsByKeys({ apiKey, toolKeys: config.toolKeys }).catch(() => null);
+        if (resolved && (resolved as any).ok === true) {
+          const map = (resolved as any).toolIds as Record<string, string[]>;
+          const flat = config.toolKeys
+            .map((k) => normalizeToolKey(k))
+            .filter(Boolean)
+            .flatMap((k) => (Array.isArray((map as any)[k]) ? (map as any)[k] : []));
+          resolvedToolIds = flat;
+        }
+      }
+
+      if (!resolvedToolIds.length && Array.isArray(config.toolKeys) && config.toolKeys.length) {
+        resolvedToolIds = resolveToolIdsForKeys(config.toolKeys);
+      }
+
+      resolvedToolIds = resolvedToolIds
+        .map((x) => (typeof x === "string" ? x.trim() : ""))
+        .filter(Boolean)
+        .filter((v, i, a) => a.indexOf(v) === i)
+        .slice(0, 50);
+
+      const manualAgentId = String((campaign as any).manualVoiceAgentId || "").trim();
+      const hasManualOverride = Boolean(manualAgentId);
+
+      const profileAgentId = await (async () => {
+        const row = await prisma.portalServiceSetup.findUnique({
+          where: { ownerId_serviceSlug: { ownerId, serviceSlug: "profile" } },
+          select: { dataJson: true },
+        });
+        const rec = row?.dataJson && typeof row.dataJson === "object" && !Array.isArray(row.dataJson) ? (row.dataJson as any) : null;
+        const raw = typeof rec?.voiceAgentId === "string" ? rec.voiceAgentId.trim().slice(0, 120) : "";
+        const env = String(process.env.VOICE_AGENT_ID || process.env.ELEVENLABS_AGENT_ID || process.env.ELEVEN_LABS_AGENT_ID || "").trim().slice(0, 120);
+        return raw || env || "";
+      })().catch(() => "");
+
+      let agentId = manualAgentId || String((campaign as any).voiceAgentId || "").trim() || String(profileAgentId || "").trim();
+      let createdAgentId: string | null = null;
+
+      if (!hasManualOverride && !(campaign as any).voiceAgentId && profileAgentId) {
+        await prisma.portalAiOutboundCallCampaign.updateMany({ where: { id: campaign.id, ownerId }, data: { voiceAgentId: profileAgentId } }).catch(() => null);
+      }
+
+      if (!agentId && !hasManualOverride) {
+        const create = await createElevenLabsAgent({
+          apiKey,
+          name: `Purely AI outbound - ${campaign.name}`.slice(0, 160),
+          firstMessage: firstMessage || undefined,
+          prompt: prompt || undefined,
+          toolIds: resolvedToolIds,
+          voiceId: voiceId || undefined,
+          knowledgeBase: knowledgeBase.length ? knowledgeBase : undefined,
+        });
+        if (!create.ok) return { status: create.status || 502, json: { ok: false, error: create.error } };
+        createdAgentId = create.agentId;
+        agentId = create.agentId;
+        await prisma.portalAiOutboundCallCampaign.updateMany({ where: { id: campaign.id, ownerId }, data: { voiceAgentId: agentId } });
+      }
+
+      if (localConfigIsEmpty && agentId && !createdAgentId) {
+        const remote = await getElevenLabsAgent({ apiKey, agentId });
+        if (remote.ok) {
+          const parsedPrompt = parseElevenLabsAgentPromptToVoiceAgentConfig(remote.prompt);
+          const nextConfig = {
+            ...config,
+            ...(remote.firstMessage ? { firstMessage: remote.firstMessage } : {}),
+            ...parsedPrompt,
+            ...(remote.toolIds.length ? { toolIds: remote.toolIds } : {}),
+          };
+
+          await prisma.portalAiOutboundCallCampaign.updateMany({ where: { id: campaign.id, ownerId }, data: { voiceAgentConfigJson: nextConfig as any } });
+
+          return { status: 200, json: { ok: true, agentId, createdAgentId: createdAgentId || undefined, pulled: true } };
+        }
+
+        return {
+          status: remote.status || 400,
+          json: {
+            ok: false,
+            error:
+              "Calls agent config is empty, so there is nothing to sync. Add a First message/Goal/etc, or try again after fixing voice agent connectivity.",
+            details: remote.error,
+          },
+        };
+      }
+
+      const result = await patchElevenLabsAgent({
+        apiKey,
+        agentId,
+        firstMessage: firstMessage || undefined,
+        prompt: prompt || undefined,
+        toolIds: resolvedToolIds,
+        voiceId: voiceId || undefined,
+        knowledgeBase: knowledgeBase.length ? knowledgeBase : undefined,
+      });
+
+      if (!result.ok) return { status: result.status || 502, json: { ok: false, error: result.error } };
+
+      return {
+        status: 200,
+        json: { ok: true, agentId, createdAgentId: createdAgentId || undefined, noop: result.noop || undefined, agent: result.agent },
+      };
+    }
+
+    case "ai_outbound_calls.campaigns.sync_chat_agent": {
+      if (!(await requireServiceCapability("aiOutboundCalls", "edit"))) {
+        return { status: 403, json: { ok: false, error: "Forbidden" } };
+      }
+
+      const campaignId = String((args as any)?.campaignId || "").trim();
+      if (!campaignId) return { status: 400, json: { ok: false, error: "Missing campaignId" } };
+
+      await ensurePortalAiOutboundCallsSchema();
+
+      const campaign = await prisma.portalAiOutboundCallCampaign.findFirst({
+        where: { ownerId, id: campaignId },
+        select: { id: true, name: true, chatAgentId: true, manualChatAgentId: true, chatAgentConfigJson: true, chatKnowledgeBaseJson: true },
+      });
+      if (!campaign) return { status: 404, json: { ok: false, error: "Not found" } };
+
+      const receptionist = await getAiReceptionistServiceData(ownerId).catch(() => null);
+      const apiKeyLegacy = receptionist?.settings?.voiceAgentApiKey?.trim() || "";
+      const apiKeyFromProfile = await (async () => {
+        const row = await prisma.portalServiceSetup.findUnique({
+          where: { ownerId_serviceSlug: { ownerId, serviceSlug: "profile" } },
+          select: { dataJson: true },
+        });
+        const rec = row?.dataJson && typeof row.dataJson === "object" && !Array.isArray(row.dataJson) ? (row.dataJson as any) : null;
+        const raw = typeof rec?.voiceAgentApiKey === "string" ? rec.voiceAgentApiKey.trim().slice(0, 400) : "";
+        const env = String(process.env.VOICE_AGENT_API_KEY || process.env.ELEVENLABS_API_KEY || process.env.ELEVEN_LABS_API_KEY || "").trim().slice(0, 400);
+        return raw || env || "";
+      })().catch(() => "");
+
+      const apiKey = (String(apiKeyFromProfile || "").trim() || String(apiKeyLegacy || "").trim()).trim();
+      if (!apiKey) return { status: 400, json: { ok: false, error: "Missing voice agent API key. Set it in Profile first." } };
+
+      const config = parseVoiceAgentConfig((campaign as any).chatAgentConfigJson);
+
+      function safeRecord(raw: unknown): Record<string, any> {
+        return raw && typeof raw === "object" && !Array.isArray(raw) ? (raw as Record<string, any>) : {};
+      }
+
+      function normalizeToolKey(raw: unknown): string {
+        const s = typeof raw === "string" ? raw.trim() : "";
+        if (!s) return "";
+        return s
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, "_")
+          .replace(/^_+|_+$/g, "");
+      }
+
+      function parseKnowledgeBaseLocators(raw: unknown): KnowledgeBaseLocator[] {
+        const rec = safeRecord(raw);
+        const xs = Array.isArray((rec as any).locators) ? ((rec as any).locators as any[]) : [];
+        const out: KnowledgeBaseLocator[] = [];
+        for (const x of xs) {
+          const xr = safeRecord(x);
+          const id = typeof xr.id === "string" ? xr.id.trim().slice(0, 200) : "";
+          const name = typeof xr.name === "string" ? xr.name.trim().slice(0, 200) : "";
+          const typeRaw = typeof xr.type === "string" ? xr.type.trim().toLowerCase() : "";
+          const type = typeRaw === "file" || typeRaw === "url" || typeRaw === "text" || typeRaw === "folder" ? (typeRaw as any) : null;
+          const usageRaw = typeof (xr as any).usage_mode === "string" ? String((xr as any).usage_mode).trim().toLowerCase() : "";
+          const usage_mode = usageRaw === "prompt" ? "prompt" : usageRaw === "auto" ? "auto" : undefined;
+          if (!id || !name || !type) continue;
+          out.push({ id, name, type, ...(usage_mode ? { usage_mode } : {}) });
+          if (out.length >= 120) break;
+        }
+        return out;
+      }
+
+      const knowledgeBase = parseKnowledgeBaseLocators((campaign as any).chatKnowledgeBaseJson);
+
+      const localConfigIsEmpty =
+        !config.firstMessage.trim() &&
+        !config.goal.trim() &&
+        !config.personality.trim() &&
+        !config.tone.trim() &&
+        !config.environment.trim() &&
+        !config.guardRails.trim() &&
+        !(Array.isArray(config.toolIds) && config.toolIds.length) &&
+        !(Array.isArray(config.toolKeys) && config.toolKeys.length);
+
+      let resolvedToolIds: string[] = [];
+      if (Array.isArray(config.toolIds) && config.toolIds.length) {
+        resolvedToolIds = config.toolIds;
+      } else if (Array.isArray(config.toolKeys) && config.toolKeys.length) {
+        const resolved = await resolveElevenLabsConvaiToolIdsByKeys({ apiKey, toolKeys: config.toolKeys }).catch(() => null);
+        if (resolved && (resolved as any).ok === true) {
+          const map = (resolved as any).toolIds as Record<string, string[]>;
+          const flat = config.toolKeys
+            .map((k) => normalizeToolKey(k))
+            .filter(Boolean)
+            .flatMap((k) => (Array.isArray((map as any)[k]) ? (map as any)[k] : []));
+          resolvedToolIds = flat;
+        }
+      }
+
+      if (!resolvedToolIds.length && Array.isArray(config.toolKeys) && config.toolKeys.length) {
+        resolvedToolIds = resolveToolIdsForKeys(config.toolKeys);
+      }
+
+      resolvedToolIds = resolvedToolIds
+        .map((x) => (typeof x === "string" ? x.trim() : ""))
+        .filter(Boolean)
+        .filter((v, i, a) => a.indexOf(v) === i)
+        .slice(0, 50);
+
+      const prompt = buildElevenLabsAgentPrompt(config, { businessName: null, ownerName: null });
+      const firstMessage = config.firstMessage.trim();
+
+      const manualAgentId = String((campaign as any).manualChatAgentId || "").trim();
+      const hasManualOverride = Boolean(manualAgentId);
+      let agentId = manualAgentId || String((campaign as any).chatAgentId || "").trim();
+      let createdAgentId: string | null = null;
+
+      if (!agentId && !hasManualOverride) {
+        const create = await createElevenLabsAgent({
+          apiKey,
+          name: `Purely AI outbound (messages) - ${campaign.name}`.slice(0, 160),
+          firstMessage: firstMessage || undefined,
+          prompt: prompt || undefined,
+          toolIds: resolvedToolIds,
+          knowledgeBase: knowledgeBase.length ? knowledgeBase : undefined,
+        });
+        if (!create.ok) return { status: create.status || 502, json: { ok: false, error: create.error } };
+        createdAgentId = create.agentId;
+        agentId = create.agentId;
+        await prisma.portalAiOutboundCallCampaign.updateMany({ where: { id: campaign.id, ownerId }, data: { chatAgentId: agentId } }).catch(() => null);
+      }
+
+      if (localConfigIsEmpty && agentId && !createdAgentId) {
+        const remote = await getElevenLabsAgent({ apiKey, agentId });
+        if (remote.ok) {
+          const parsedPrompt = parseElevenLabsAgentPromptToVoiceAgentConfig(remote.prompt);
+          const nextConfig = {
+            ...config,
+            ...(remote.firstMessage ? { firstMessage: remote.firstMessage } : {}),
+            ...parsedPrompt,
+            ...(remote.toolIds.length ? { toolIds: remote.toolIds } : {}),
+          };
+
+          await prisma.portalAiOutboundCallCampaign
+            .updateMany({ where: { id: campaign.id, ownerId }, data: { chatAgentConfigJson: nextConfig as any } })
+            .catch(() => null);
+
+          return { status: 200, json: { ok: true, agentId, createdAgentId: createdAgentId || undefined, pulled: true } };
+        }
+
+        return {
+          status: remote.status || 400,
+          json: {
+            ok: false,
+            error:
+              "Messages agent config is empty, so there is nothing to sync. Add a First message/Goal/etc, or try again after fixing voice agent connectivity.",
+            details: remote.error,
+          },
+        };
+      }
+
+      const result = await patchElevenLabsAgent({
+        apiKey,
+        agentId,
+        firstMessage: firstMessage || undefined,
+        prompt: prompt || undefined,
+        toolIds: resolvedToolIds,
+        knowledgeBase: knowledgeBase.length ? knowledgeBase : undefined,
+      });
+
+      if (!result.ok) return { status: result.status || 502, json: { ok: false, error: result.error } };
+
+      return {
+        status: 200,
+        json: { ok: true, agentId, createdAgentId: createdAgentId || undefined, noop: result.noop || undefined, agent: result.agent },
+      };
+    }
+
+    case "ai_outbound_calls.campaigns.manual_call": {
+      if (!(await requireServiceCapability("aiOutboundCalls", "edit"))) {
+        return { status: 403, json: { ok: false, error: "Forbidden" } };
+      }
+
+      const campaignId = String((args as any)?.campaignId || "").trim();
+      if (!campaignId) return { status: 400, json: { ok: false, error: "Missing campaignId" } };
+
+      const toNumber = typeof (args as any)?.toNumber === "string" ? String((args as any).toNumber).trim().slice(0, 40) : "";
+      const toParsed = normalizePhoneStrict(toNumber);
+      if (!toParsed.ok || !toParsed.e164) return { status: 400, json: { ok: false, error: "Invalid phone number" } };
+
+      await ensurePortalAiOutboundCallsSchema();
+
+      const campaign = await prisma.portalAiOutboundCallCampaign.findFirst({
+        where: { ownerId, id: campaignId },
+        select: { id: true, voiceAgentId: true, manualVoiceAgentId: true },
+      });
+      if (!campaign) return { status: 404, json: { ok: false, error: "Not found" } };
+
+      const twilio = await getOwnerTwilioSmsConfig(ownerId);
+      if (!twilio) return { status: 400, json: { ok: false, error: "Twilio is not configured for this account" } };
+
+      const apiKeyFromProfile = await (async () => {
+        const row = await prisma.portalServiceSetup.findUnique({
+          where: { ownerId_serviceSlug: { ownerId, serviceSlug: "profile" } },
+          select: { dataJson: true },
+        });
+        const rec = row?.dataJson && typeof row.dataJson === "object" && !Array.isArray(row.dataJson) ? (row.dataJson as any) : null;
+        const raw = typeof rec?.voiceAgentApiKey === "string" ? rec.voiceAgentApiKey.trim().slice(0, 400) : "";
+        const env = String(process.env.VOICE_AGENT_API_KEY || process.env.ELEVENLABS_API_KEY || process.env.ELEVEN_LABS_API_KEY || "").trim().slice(0, 400);
+        return raw || env || "";
+      })().catch(() => "");
+
+      const apiKey = String(apiKeyFromProfile || "").trim();
+      if (!apiKey) return { status: 400, json: { ok: false, error: "Missing voice API key. Set it in Profile first." } };
+
+      const profileAgentId = await (async () => {
+        const row = await prisma.portalServiceSetup.findUnique({
+          where: { ownerId_serviceSlug: { ownerId, serviceSlug: "profile" } },
+          select: { dataJson: true },
+        });
+        const rec = row?.dataJson && typeof row.dataJson === "object" && !Array.isArray(row.dataJson) ? (row.dataJson as any) : null;
+        const raw = typeof rec?.voiceAgentId === "string" ? rec.voiceAgentId.trim().slice(0, 120) : "";
+        const env = String(process.env.VOICE_AGENT_ID || process.env.ELEVENLABS_AGENT_ID || process.env.ELEVEN_LABS_AGENT_ID || "").trim().slice(0, 120);
+        return raw || env || "";
+      })().catch(() => "");
+
+      const agentId =
+        String((campaign as any).manualVoiceAgentId || "").trim() ||
+        String((campaign as any).voiceAgentId || "").trim() ||
+        String(profileAgentId || "").trim();
+      if (!agentId) return { status: 400, json: { ok: false, error: "Missing agent id. Set one on this campaign or in Profile." } };
+
+      const manualCallId = crypto.randomUUID();
+      const token = crypto.randomUUID();
+      const now = new Date();
+
+      await prisma.portalAiOutboundCallManualCall.create({
+        data: {
+          id: manualCallId,
+          ownerId,
+          campaignId: campaign.id,
+          webhookToken: token,
+          toNumberE164: toParsed.e164,
+          status: "CALLING",
+          callSid: null,
+          conversationId: null,
+        },
+        select: { id: true },
+      });
+
+      const voiceUrl = `${getPublicWebhookBaseUrl()}/hooks/api/public/twilio/ai-outbound-calls/manual-call/${encodeURIComponent(token)}/voice`;
+      const statusCallbackUrl = `${getPublicWebhookBaseUrl()}/hooks/api/public/twilio/ai-outbound-calls/manual-call/${encodeURIComponent(token)}/call-status`;
+      const recordingCallback = `${getPublicWebhookBaseUrl()}/hooks/api/public/twilio/ai-outbound-calls/manual-call/${encodeURIComponent(token)}/call-recording`;
+
+      const url = `https://api.twilio.com/2010-04-01/Accounts/${encodeURIComponent(twilio.accountSid)}/Calls.json`;
+      const basic = Buffer.from(`${twilio.accountSid}:${twilio.authToken}`).toString("base64");
+
+      const form = new URLSearchParams();
+      form.set("To", toParsed.e164);
+      form.set("From", twilio.fromNumberE164);
+      form.set("Url", voiceUrl);
+      form.set("Method", "POST");
+      form.set("Record", "true");
+      form.set("RecordingChannels", "dual");
+      form.set("RecordingStatusCallback", recordingCallback);
+      form.set("RecordingStatusCallbackMethod", "POST");
+      form.set("RecordingStatusCallbackEvent", "completed");
+
+      form.set("StatusCallback", statusCallbackUrl);
+      form.set("StatusCallbackMethod", "POST");
+      form.append("StatusCallbackEvent", "initiated");
+      form.append("StatusCallbackEvent", "ringing");
+      form.append("StatusCallbackEvent", "answered");
+      form.append("StatusCallbackEvent", "completed");
+
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { authorization: `Basic ${basic}`, "content-type": "application/x-www-form-urlencoded" },
+        body: form.toString(),
+      }).catch(() => null);
+
+      const text = res ? await res.text().catch(() => "") : "";
+      if (!res || !res.ok) {
+        const msg = !res ? "Twilio request failed" : `Twilio failed (${res.status}): ${String(text || "").slice(0, 400)}`;
+        await prisma.portalAiOutboundCallManualCall
+          .update({ where: { id: manualCallId }, data: { status: "FAILED", lastError: String(msg).slice(0, 500), updatedAt: now }, select: { id: true } })
+          .catch(() => null);
+        return { status: res?.status || 502, json: { ok: false, error: msg } };
+      }
+
+      let callSid = "";
+      try {
+        const json = JSON.parse(text) as any;
+        callSid = typeof json?.sid === "string" ? json.sid.trim() : "";
+      } catch {
+        callSid = "";
+      }
+
+      if (!callSid) {
+        await prisma.portalAiOutboundCallManualCall
+          .update({ where: { id: manualCallId }, data: { status: "FAILED", lastError: "Twilio returned an unexpected response.".slice(0, 500), updatedAt: now }, select: { id: true } })
+          .catch(() => null);
+        return { status: 502, json: { ok: false, error: "Twilio returned an unexpected response." } };
+      }
+
+      await prisma.portalAiOutboundCallManualCall.update({ where: { id: manualCallId }, data: { callSid, updatedAt: now }, select: { id: true } }).catch(() => null);
+      return { status: 200, json: { ok: true, id: manualCallId, callSid, conversationId: null } };
+    }
+
+    case "ai_outbound_calls.manual_calls.refresh": {
+      if (!(await requireServiceCapability("aiOutboundCalls", "view"))) {
+        return { status: 403, json: { ok: false, error: "Forbidden" } };
+      }
+
+      const id = String((args as any)?.id || "").trim();
+      if (!id) return { status: 400, json: { ok: false, error: "Missing id" } };
+
+      await ensurePortalAiOutboundCallsSchema();
+
+      const row = await prisma.portalAiOutboundCallManualCall.findFirst({
+        where: { ownerId, id },
+        select: {
+          id: true,
+          campaignId: true,
+          toNumberE164: true,
+          status: true,
+          callSid: true,
+          conversationId: true,
+          recordingSid: true,
+          recordingDurationSec: true,
+          transcriptText: true,
+          lastError: true,
+          webhookToken: true,
+          createdAt: true,
+          updatedAt: true,
+        },
+      });
+
+      if (!row) return { status: 404, json: { ok: false, error: "Not found" } };
+
+      const twilio = await getOwnerTwilioSmsConfig(ownerId);
+      if (!twilio) return { status: 400, json: { ok: false, error: "Twilio is not configured for this account." } };
+
+      const twilioConfig = twilio;
+
+      const updates: Record<string, any> = {};
+      let requestedTranscription = false;
+      let usedVoiceTranscript = false;
+
+      const conversationId = String((row as any).conversationId || "").trim();
+      const voiceApiKey = await (async () => {
+        const s = await prisma.portalServiceSetup.findUnique({ where: { ownerId_serviceSlug: { ownerId, serviceSlug: "profile" } }, select: { dataJson: true } }).catch(() => null);
+        const rec = s?.dataJson && typeof s.dataJson === "object" && !Array.isArray(s.dataJson) ? (s.dataJson as any) : null;
+        const raw = typeof rec?.voiceAgentApiKey === "string" ? rec.voiceAgentApiKey.trim().slice(0, 400) : "";
+        const env = String(process.env.VOICE_AGENT_API_KEY || process.env.ELEVENLABS_API_KEY || process.env.ELEVEN_LABS_API_KEY || "").trim().slice(0, 400);
+        return raw || env || "";
+      })();
+
+      if (conversationId && /twilio\s+transcription/i.test(String((row as any).lastError || ""))) {
+        updates.lastError = null;
+      }
+
+      if (!String((row as any).transcriptText || "").trim() && conversationId && voiceApiKey.trim()) {
+        const conv = await fetchElevenLabsConversationTranscript({ apiKey: voiceApiKey, conversationId });
+        if (conv.ok && conv.transcript.trim()) {
+          updates.transcriptText = conv.transcript.trim();
+          usedVoiceTranscript = true;
+          updates.lastError = null;
+        } else if (!conv.ok) {
+          const msg = String(conv.error || "").trim();
+          if (msg && msg.toLowerCase().includes("missing") === false) {
+            updates.lastError = `Transcript pending. ${msg}`.slice(0, 500);
+          }
+        }
+      }
+
+      async function fetchLatestRecordingSidForCall(callSid: string): Promise<string | null> {
+        const sid = String(callSid || "").trim();
+        if (!sid) return null;
+
+        const listUrl = `https://api.twilio.com/2010-04-01/Accounts/${encodeURIComponent(twilioConfig.accountSid)}/Calls/${encodeURIComponent(sid)}/Recordings.json`;
+        const basic = Buffer.from(`${twilioConfig.accountSid}:${twilioConfig.authToken}`).toString("base64");
+        const res = await fetch(listUrl, { method: "GET", headers: { authorization: `Basic ${basic}` } }).catch(() => null);
+        if (!res?.ok) return null;
+        const text = await res.text().catch(() => "");
+        if (!text.trim()) return null;
+        try {
+          const json = JSON.parse(text) as any;
+          const recordings = Array.isArray(json?.recordings) ? json.recordings : [];
+          for (const r of recordings) {
+            const rid = typeof r?.sid === "string" ? r.sid.trim() : "";
+            if (rid) return rid;
+          }
+          return null;
+        } catch {
+          return null;
+        }
+      }
+
+      async function requestTranscription(recordingSid: string): Promise<boolean> {
+        const rid = String(recordingSid || "").trim();
+        const token = String((row as any).webhookToken || "").trim();
+        if (!rid || !token) return false;
+
+        const callbackUrl = webhookUrlFromRequest(undefined, `/api/public/twilio/ai-outbound-calls/manual-call/${encodeURIComponent(token)}/transcription`);
+        const url = `https://api.twilio.com/2010-04-01/Accounts/${encodeURIComponent(twilioConfig.accountSid)}/Recordings/${encodeURIComponent(rid)}/Transcriptions.json`;
+        const basic = Buffer.from(`${twilioConfig.accountSid}:${twilioConfig.authToken}`).toString("base64");
+        const form = new URLSearchParams();
+        form.set("TranscriptionCallback", callbackUrl);
+        form.set("TranscriptionCallbackMethod", "POST");
+        const res = await fetch(url, {
+          method: "POST",
+          headers: { authorization: `Basic ${basic}`, "content-type": "application/x-www-form-urlencoded" },
+          body: form.toString(),
+        }).catch(() => null);
+        return Boolean(res?.ok);
+      }
+
+      if (!String((row as any).recordingSid || "").trim() && String((row as any).callSid || "").trim()) {
+        const rid = await fetchLatestRecordingSidForCall(String((row as any).callSid || ""));
+        if (rid) updates.recordingSid = rid;
+      }
+
+      const effectiveRecordingSid = String(updates.recordingSid ?? (row as any).recordingSid ?? "").trim();
+      const hasTranscriptAlready = Boolean(String(updates.transcriptText ?? (row as any).transcriptText ?? "").trim());
+      if (effectiveRecordingSid && !hasTranscriptAlready) {
+        // Best-effort: request Twilio transcription if possible.
+        requestedTranscription = await requestTranscription(effectiveRecordingSid);
+        if (!requestedTranscription) {
+          if (!conversationId || !voiceApiKey.trim()) {
+            updates.lastError = "Transcript request failed. Transcription may be disabled for this account.";
+          }
+        }
+      }
+
+      if (Object.keys(updates).length) {
+        await prisma.portalAiOutboundCallManualCall.update({ where: { id: (row as any).id }, data: updates, select: { id: true } }).catch(() => null);
+      }
+
+      const latest = await prisma.portalAiOutboundCallManualCall.findFirst({
+        where: { ownerId, id },
+        select: {
+          id: true,
+          campaignId: true,
+          toNumberE164: true,
+          status: true,
+          callSid: true,
+          conversationId: true,
+          recordingSid: true,
+          recordingDurationSec: true,
+          transcriptText: true,
+          lastError: true,
+          webhookToken: true,
+          createdAt: true,
+          updatedAt: true,
+        },
+      });
+      if (!latest) return { status: 404, json: { ok: false, error: "Not found" } };
+
+      return {
+        status: 200,
+        json: {
+          ok: true,
+          requestedTranscription,
+          usedVoiceTranscript,
+          manualCall: {
+            ...(latest as any),
+            createdAtIso: latest.createdAt.toISOString(),
+            updatedAtIso: latest.updatedAt.toISOString(),
+          },
+        },
+      };
+    }
+
+    case "ai_outbound_calls.recordings.get": {
+      if (!(await requireServiceCapability("aiOutboundCalls", "view"))) {
+        return { status: 403, json: { ok: false, error: "Forbidden" } };
+      }
+
+      const sid = String((args as any)?.recordingSid || "").trim();
+      if (!sid) return { status: 400, json: { ok: false, error: "Missing recordingSid" } };
+      if (sid.length > 64) return { status: 400, json: { ok: false, error: "Invalid recordingSid" } };
+
+      const asBase64 = (args as any)?.asBase64 !== false;
+      const maxBytes =
+        typeof (args as any)?.maxBytes === "number" && Number.isFinite((args as any).maxBytes)
+          ? Math.max(1, Math.min(12 * 1024 * 1024, Math.floor((args as any).maxBytes)))
+          : 5 * 1024 * 1024;
+
+      await ensurePortalAiOutboundCallsSchema();
+
+      const allowed = await prisma.portalAiOutboundCallManualCall.findFirst({ where: { ownerId, recordingSid: sid }, select: { id: true } });
+      if (!allowed) return { status: 404, json: { ok: false, error: "Not found" } };
+
+      const twilio = await getOwnerTwilioSmsConfig(ownerId);
+      if (!twilio) return { status: 400, json: { ok: false, error: "Twilio is not configured for this account" } };
+
+      const url = `https://api.twilio.com/2010-04-01/Accounts/${encodeURIComponent(twilio.accountSid)}/Recordings/${encodeURIComponent(sid)}.mp3`;
+      const basic = Buffer.from(`${twilio.accountSid}:${twilio.authToken}`).toString("base64");
+
+      const res = await fetch(url, { method: "GET", headers: { authorization: `Basic ${basic}` }, cache: "no-store" }).catch(() => null);
+      if (!res) return { status: 502, json: { ok: false, error: "Failed to fetch recording" } };
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        return { status: 502, json: { ok: false, error: `Twilio recording fetch failed (${res.status}): ${text.slice(0, 200)}` } };
+      }
+
+      const bytes = new Uint8Array(await res.arrayBuffer());
+      const clipped = bytes.byteLength > maxBytes ? bytes.slice(0, maxBytes) : bytes;
+      const contentType = res.headers.get("content-type") || "audio/mpeg";
+
+      if (!asBase64) {
+        return { status: 200, json: { ok: true, recordingSid: sid, contentType, byteLength: clipped.byteLength, truncated: bytes.byteLength > maxBytes } };
+      }
+
+      const base64 = Buffer.from(clipped).toString("base64");
+      return {
+        status: 200,
+        json: {
+          ok: true,
+          recordingSid: sid,
+          contentType,
+          dataBase64: base64,
+          byteLength: clipped.byteLength,
+          truncated: bytes.byteLength > maxBytes,
+        },
+      };
+    }
+
+    case "ai_outbound_calls.cron.run": {
+      return { status: 200, json: { ok: true, noop: true } };
     }
 
     case "ai_receptionist.settings.get": {
