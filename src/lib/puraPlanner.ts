@@ -12,10 +12,11 @@ export type PuraPlannerMode = "execute" | "clarify" | "explain" | "noop";
 
 const RefSchema = z
   .object({
-    $ref: z.enum(["contact", "contact_tag"]),
+    $ref: z.enum(["contact", "contact_tag", "inbox_thread"]),
     hint: z.string().trim().max(200).optional(),
     name: z.string().trim().max(120).optional(),
     createIfMissing: z.boolean().optional(),
+    channel: z.enum(["email", "sms"]).optional(),
   })
   .strict();
 
@@ -143,6 +144,7 @@ export async function planPuraActions(opts: {
     "References you may use in args:",
     "- {\"$ref\":\"contact\",\"hint\":\"Chester\"}",
     "- {\"$ref\":\"contact_tag\",\"name\":\"VIP\",\"createIfMissing\":true}",
+    "- {\"$ref\":\"inbox_thread\",\"hint\":\"+15551231234\",\"channel\":\"sms\"}",
     "",
     portalAgentActionsIndexText({ includeAiChat: false }),
   ].join("\n");

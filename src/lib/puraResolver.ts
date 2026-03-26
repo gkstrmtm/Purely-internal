@@ -1,6 +1,8 @@
 import { prisma } from "@/lib/db";
 import { normalizeEmailKey, normalizeNameKey, normalizePhoneKey } from "@/lib/portalContacts";
 import { createOwnerContactTag } from "@/lib/portalContactTags";
+import { normalizeSmsPeerKey } from "@/lib/portalInbox";
+import { ensurePortalInboxSchema } from "@/lib/portalInboxSchema";
 import { isPuraRef, type PuraRef } from "@/lib/puraPlanner";
 
 function normalizePhoneLike(raw: string): string | null {
@@ -17,6 +19,11 @@ function extractFirstEmailLike(textRaw: string): string | null {
   const t = String(textRaw || "");
   const m = /\b([A-Z0-9._%+-]{1,80}@[A-Z0-9.-]{1,120}\.[A-Z]{2,24})\b/i.exec(t);
   return m?.[1] ? String(m[1]).trim().slice(0, 140) : null;
+}
+
+function firstLinePreview(textRaw: string): string {
+  const s = String(textRaw ?? "").replace(/\s+/g, " ").trim();
+  return s.slice(0, 90);
 }
 
 async function resolveContactId(opts: {
@@ -117,6 +124,106 @@ async function resolveContactTagId(opts: {
   return { kind: "missing", message: `No tag named “${name}” exists.` };
 }
 
+async function resolveInboxThreadId(opts: {
+  ownerId: string;
+  hint: string;
+  channel?: "email" | "sms";
+}): Promise<
+  | { kind: "ok"; threadId: string; channel: "email" | "sms" }
+  | { kind: "clarify"; question: string }
+  | { kind: "not_found"; question: string }
+> {
+  const ownerId = String(opts.ownerId);
+  const hint = String(opts.hint || "").trim();
+  if (!hint) {
+    return { kind: "clarify", question: "Which conversation should I use? Reply with the customer’s email or phone number." };
+  }
+
+  const emailLike = extractFirstEmailLike(hint);
+  const smsLike = normalizeSmsPeerKey(hint);
+
+  const channel =
+    opts.channel === "sms" || opts.channel === "email"
+      ? opts.channel
+      : emailLike
+        ? "email"
+        : smsLike?.peerKey
+          ? "sms"
+          : null;
+
+  if (!channel) {
+    return {
+      kind: "clarify",
+      question: "Is this an email or SMS conversation? Reply with the email address or phone number.",
+    };
+  }
+
+  await ensurePortalInboxSchema();
+
+  if (channel === "sms") {
+    if (smsLike?.error) {
+      return {
+        kind: "clarify",
+        question: `That phone number looks invalid (${smsLike.error}). Reply with a valid number (including country code if needed).`,
+      };
+    }
+
+    const peerKey = String(smsLike?.peerKey || "").trim();
+    if (!peerKey) {
+      return { kind: "clarify", question: "Which SMS conversation? Reply with the phone number (e.g. +15551231234)." };
+    }
+
+    const row = await (prisma as any).portalInboxThread
+      .findFirst({
+        where: { ownerId, channel: "SMS", peerKey },
+        orderBy: { lastMessageAt: "desc" },
+        select: { id: true },
+      })
+      .catch(() => null);
+
+    if (row?.id) return { kind: "ok", threadId: String(row.id), channel: "sms" };
+    return { kind: "not_found", question: `I couldn’t find an SMS conversation for “${hint}”. Reply with the phone number used in the thread.` };
+  }
+
+  // email
+  if (!emailLike) {
+    return { kind: "clarify", question: "Which email conversation? Reply with the customer’s email address." };
+  }
+
+  const peerKey = normalizeEmailKey(emailLike);
+  if (!peerKey) {
+    return { kind: "clarify", question: "That email address looks invalid. Reply with a valid email." };
+  }
+
+  const rows = (await (prisma as any).portalInboxThread
+    .findMany({
+      where: { ownerId, channel: "EMAIL", peerKey },
+      orderBy: { lastMessageAt: "desc" },
+      take: 5,
+      select: { id: true, subject: true, lastMessagePreview: true, lastMessageAt: true },
+    })
+    .catch(() => [])) as any[];
+
+  if (rows.length === 1) return { kind: "ok", threadId: String(rows[0].id), channel: "email" };
+  if (rows.length > 1) {
+    const list = rows
+      .slice(0, 5)
+      .map((r) => {
+        const subject = String(r?.subject || "(no subject)").slice(0, 120);
+        const preview = firstLinePreview(String(r?.lastMessagePreview || ""));
+        const when = r?.lastMessageAt instanceof Date ? r.lastMessageAt.toLocaleString() : "";
+        return `- ${subject}${when ? ` (${when})` : ""}${preview ? ` — ${preview}` : ""}`;
+      })
+      .join("\n");
+    return {
+      kind: "clarify",
+      question: `I found multiple email threads with ${emailLike}. Reply with the subject line you mean:\n\n${list}`,
+    };
+  }
+
+  return { kind: "not_found", question: `I couldn’t find an email conversation for ${emailLike}.` };
+}
+
 export type ResolveResult =
   | { ok: true; args: unknown; contextPatch?: Record<string, unknown> }
   | { ok: false; clarifyQuestion: string };
@@ -142,11 +249,14 @@ export async function resolvePlanArgs(opts: {
 }): Promise<ResolveResult> {
   const ownerId = String(opts.ownerId);
   let resolvedContact: { id: string; name: string } | null = null;
+  let resolvedInboxThread: { id: string; channel: "email" | "sms" } | null = null;
 
   // First pass: resolve contact refs so tag refs can use contact context if needed later.
   const contactRefs: PuraRef[] = [];
+  const inboxThreadRefs: PuraRef[] = [];
   deepMapRefs(opts.args, (ref) => {
     if (ref.$ref === "contact") contactRefs.push(ref);
+    if (ref.$ref === "inbox_thread") inboxThreadRefs.push(ref);
     return ref;
   });
 
@@ -159,8 +269,19 @@ export async function resolvePlanArgs(opts: {
     else return { ok: false, clarifyQuestion: rc.question };
   }
 
+  if (inboxThreadRefs.length) {
+    const baseHint = String(inboxThreadRefs[0].hint || "").trim();
+    const extra = String(opts.userHint || "").trim();
+    const hint = extra && baseHint ? `${baseHint}\n${extra}` : extra || baseHint;
+    const channel = inboxThreadRefs[0].channel === "sms" ? "sms" : inboxThreadRefs[0].channel === "email" ? "email" : undefined;
+    const rt = await resolveInboxThreadId({ ownerId, hint, channel });
+    if (rt.kind === "ok") resolvedInboxThread = { id: rt.threadId, channel: rt.channel };
+    else return { ok: false, clarifyQuestion: rt.question };
+  }
+
   const resolved = deepMapRefs(opts.args, (ref) => {
     if (ref.$ref === "contact") return resolvedContact?.id || null;
+    if (ref.$ref === "inbox_thread") return resolvedInboxThread?.id || null;
     if (ref.$ref === "contact_tag") {
       // Tag resolution depends on action intent.
       const createIfMissing = Boolean(ref.createIfMissing);
@@ -196,6 +317,12 @@ export async function resolvePlanArgs(opts: {
   return {
     ok: true,
     args: withTags,
-    contextPatch: resolvedContact ? { lastContact: resolvedContact } : undefined,
+    contextPatch:
+      resolvedContact || resolvedInboxThread
+        ? {
+            ...(resolvedContact ? { lastContact: resolvedContact } : {}),
+            ...(resolvedInboxThread ? { lastInboxThread: resolvedInboxThread } : {}),
+          }
+        : undefined,
   };
 }

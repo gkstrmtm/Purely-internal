@@ -55,3 +55,31 @@ export function portalContactUiUrl(contactId?: string | null): string {
   if (!id) return "/portal/app/people/contacts";
   return `/portal/app/people/contacts?contactId=${encodeURIComponent(id)}`;
 }
+
+export type PortalInboxUiChannel = "email" | "sms";
+
+function normalizeInboxChannelUi(chRaw?: string | null): PortalInboxUiChannel {
+  const s = String(chRaw || "").trim().toLowerCase();
+  if (s === "sms") return "sms";
+  return "email";
+}
+
+export function portalInboxUiUrl(opts?: {
+  channel?: PortalInboxUiChannel | "EMAIL" | "SMS" | null;
+  threadId?: string | null;
+  to?: string | null;
+  compose?: boolean | null;
+}): string {
+  const channel = normalizeInboxChannelUi(opts?.channel ? String(opts.channel) : null);
+  const threadId = String(opts?.threadId || "").trim();
+  const to = String(opts?.to || "").trim();
+  const compose = Boolean(opts?.compose);
+
+  const sp = new URLSearchParams();
+  if (threadId) sp.set("threadId", threadId);
+  if (to) sp.set("to", to);
+  if (compose) sp.set("compose", "1");
+  const qs = sp.toString();
+
+  return `/portal/app/services/inbox/${channel}${qs ? `?${qs}` : ""}`;
+}

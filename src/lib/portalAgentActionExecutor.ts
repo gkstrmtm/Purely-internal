@@ -179,7 +179,7 @@ import { buildSuggestedSetupPreviewForOwner } from "@/lib/suggestedSetup/server"
 import { applySuggestedSetupActions } from "@/lib/suggestedSetup/executor";
 import { renderTextToPdfBytes } from "@/lib/simplePdf";
 import { provisionTwilioSmsWebhooksForFromNumber } from "@/lib/twilioProvisioning";
-import { portalContactUiUrl } from "@/lib/portalAgentActionMeta";
+import { portalContactUiUrl, portalInboxUiUrl } from "@/lib/portalAgentActionMeta";
 
 const MAX_REMOTE_MEDIA_BYTES = 15 * 1024 * 1024; // matches /api/portal/media/import-remote
 
@@ -15982,7 +15982,10 @@ async function runDirectAction(opts: {
       // Best-effort background schema installer (safe if already installed).
       void ensurePortalInboxSchema().catch(() => undefined);
 
-      const thread = await (prisma as any).portalInboxThread.findFirst({ where: { id: threadId, ownerId }, select: { id: true } });
+      const thread = await (prisma as any).portalInboxThread.findFirst({
+        where: { id: threadId, ownerId },
+        select: { id: true, channel: true },
+      });
       if (!thread) return { status: 404, json: { ok: false, error: "Conversation not found." } };
 
       const takeRaw = typeof (args as any)?.take === "number" && Number.isFinite((args as any).take) ? Math.floor((args as any).take) : 120;
@@ -16157,7 +16160,16 @@ async function runDirectAction(opts: {
         scheduledMessages = [];
       }
 
-      return { status: 200, json: { ok: true, messages: withUrls, scheduledMessages } };
+      return {
+        status: 200,
+        json: {
+          ok: true,
+          threadId,
+          channel: String(thread.channel || "").toLowerCase(),
+          messages: withUrls,
+          scheduledMessages,
+        },
+      };
     }
 
     case "inbox.thread.contact.set": {
@@ -16278,7 +16290,14 @@ async function runDirectAction(opts: {
 
       return {
         status: 200,
-        json: { ok: true, threadId: String(thread.id), contactId, contact, contactTags: tags },
+        json: {
+          ok: true,
+          threadId: String(thread.id),
+          channel: String(thread.channel || "").toLowerCase(),
+          contactId,
+          contact,
+          contactTags: tags,
+        },
       };
     }
 
@@ -16539,7 +16558,7 @@ async function runDirectAction(opts: {
       });
 
       if (!sent.ok) return { status: 400, json: { ok: false, error: sent.error } };
-      return { status: 200, json: { ok: true, threadId: sent.threadId } };
+      return { status: 200, json: { ok: true, channel: "sms", threadId: sent.threadId } };
     }
 
     case "inbox.send": {
@@ -16596,6 +16615,7 @@ async function runDirectAction(opts: {
             status: 200,
             json: {
               ok: true,
+              channel,
               scheduled: true,
               scheduledId: scheduled.scheduledId,
               threadId: threadId ?? null,
@@ -16623,7 +16643,7 @@ async function runDirectAction(opts: {
         };
       }
 
-      return { status: 200, json: { ok: true, threadId: result.threadId } };
+      return { status: 200, json: { ok: true, channel, threadId: result.threadId } };
     }
 
     case "inbox.send_email": {
@@ -16642,7 +16662,7 @@ async function runDirectAction(opts: {
       });
 
       if (!sent.ok) return { status: 400, json: { ok: false, error: sent.error } };
-      return { status: 200, json: { ok: true, threadId: sent.threadId } };
+      return { status: 200, json: { ok: true, channel: "email", threadId: sent.threadId } };
     }
 
     case "reviews.send_request_for_booking": {
@@ -23181,16 +23201,38 @@ function resultMarkdown(action: PortalAgentActionKey, json: any): { markdown: st
   }
 
   if (action === "inbox.send_sms" && json?.ok) {
+    const url = json?.threadId ? portalInboxUiUrl({ channel: "sms", threadId: String(json.threadId) }) : "/portal/app/services/inbox/sms";
     return {
-      markdown: `Sent the text.\n\n[Open Inbox](/portal/app/services/inbox/sms)`,
-      linkUrl: "/portal/app/services/inbox/sms",
+      markdown: `Sent the text.\n\n[Open Inbox](${url})`,
+      linkUrl: url,
     };
   }
 
   if (action === "inbox.send_email" && json?.ok) {
+    const url = json?.threadId ? portalInboxUiUrl({ channel: "email", threadId: String(json.threadId) }) : "/portal/app/services/inbox/email";
     return {
-      markdown: `Sent the email.\n\n[Open Inbox](/portal/app/services/inbox/email)`,
-      linkUrl: "/portal/app/services/inbox/email",
+      markdown: `Sent the email.\n\n[Open Inbox](${url})`,
+      linkUrl: url,
+    };
+  }
+
+  if (action === "inbox.send" && json?.ok) {
+    const channel = typeof json?.channel === "string" ? String(json.channel).toLowerCase() : "email";
+    const url = json?.threadId
+      ? portalInboxUiUrl({ channel: channel === "sms" ? "sms" : "email", threadId: String(json.threadId) })
+      : `/portal/app/services/inbox/${channel === "sms" ? "sms" : "email"}`;
+    return {
+      markdown: json?.scheduled ? `Scheduled the message.\n\n[Open Inbox](${url})` : `Sent the message.\n\n[Open Inbox](${url})`,
+      linkUrl: url,
+    };
+  }
+
+  if ((action === "inbox.thread.messages.list" || action === "inbox.thread.contact.set") && json?.ok && json?.threadId) {
+    const ch = typeof json?.channel === "string" ? String(json.channel).toLowerCase() : "email";
+    const url = portalInboxUiUrl({ channel: ch === "sms" ? "sms" : "email", threadId: String(json.threadId) });
+    return {
+      markdown: `Done.\n\n[Open Inbox thread](${url})`,
+      linkUrl: url,
     };
   }
 
