@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
-import { AppModal } from "@/components/AppModal";
+import { AppConfirmModal, AppModal } from "@/components/AppModal";
 import { useToast } from "@/components/ToastProvider";
 import { PortalMediaPickerModal, type PortalMediaPickItem } from "@/components/PortalMediaPickerModal";
 import { IconSchedule, IconSend, IconSendHover } from "@/app/portal/PortalIcons";
@@ -277,6 +277,48 @@ export function PortalAiChatClient() {
   const attachMenuRef = useRef<HTMLDivElement | null>(null);
   const [mediaPickerOpen, setMediaPickerOpen] = useState(false);
   const [runningActionKey, setRunningActionKey] = useState<string | null>(null);
+
+  const confirmResolveRef = useRef<((ok: boolean) => void) | null>(null);
+  const [confirmModal, setConfirmModal] = useState<
+    | null
+    | {
+        title: string;
+        message: string;
+        confirmLabel?: string;
+        cancelLabel?: string;
+        destructive?: boolean;
+      }
+  >(null);
+
+  const closeConfirm = useCallback((ok: boolean) => {
+    const resolve = confirmResolveRef.current;
+    confirmResolveRef.current = null;
+    setConfirmModal(null);
+    resolve?.(ok);
+  }, []);
+
+  const askConfirm = useCallback(
+    async (opts: {
+      title: string;
+      message: string;
+      confirmLabel?: string;
+      cancelLabel?: string;
+      destructive?: boolean;
+    }) => {
+      if (confirmResolveRef.current) return false;
+      return await new Promise<boolean>((resolve) => {
+        confirmResolveRef.current = resolve;
+        setConfirmModal({
+          title: opts.title,
+          message: opts.message,
+          confirmLabel: opts.confirmLabel,
+          cancelLabel: opts.cancelLabel,
+          destructive: opts.destructive,
+        });
+      });
+    },
+    [],
+  );
 
   const [mobileThreadsOpen, setMobileThreadsOpen] = useState(false);
 
@@ -556,7 +598,12 @@ export function PortalAiChatClient() {
       if (runningActionKey) return;
 
       if (a.confirmLabel) {
-        const ok = window.confirm(`${a.title}\n\n${a.confirmLabel}`);
+        const ok = await askConfirm({
+          title: a.title,
+          message: a.confirmLabel,
+          confirmLabel: "Confirm",
+          cancelLabel: "Cancel",
+        });
         if (!ok) return;
       }
 
@@ -571,7 +618,7 @@ export function PortalAiChatClient() {
         setRunningActionKey(null);
       }
     },
-    [executeAgentAction, loadThreads, runningActionKey, toast],
+    [askConfirm, executeAgentAction, loadThreads, runningActionKey, toast],
   );
 
   const left = (
@@ -745,7 +792,13 @@ export function PortalAiChatClient() {
 
   const cancelScheduledRow = useCallback(
     async (id: string) => {
-      const ok = window.confirm("Stop this scheduled task?");
+      const ok = await askConfirm({
+        title: "Stop scheduled task?",
+        message: "This will prevent it from running again.",
+        confirmLabel: "Stop",
+        cancelLabel: "Cancel",
+        destructive: true,
+      });
       if (!ok) return;
       const res = await fetch(`/api/portal/ai-chat/scheduled/${encodeURIComponent(id)}`,
         {
@@ -757,7 +810,7 @@ export function PortalAiChatClient() {
       toast.success("Stopped");
       void loadScheduled();
     },
-    [loadScheduled, toast],
+    [askConfirm, loadScheduled, toast],
   );
 
   return (
@@ -1096,6 +1149,17 @@ export function PortalAiChatClient() {
       >
         {left}
       </AppModal>
+
+      <AppConfirmModal
+        open={Boolean(confirmModal)}
+        title={confirmModal?.title || "Confirm"}
+        message={confirmModal?.message || ""}
+        confirmLabel={confirmModal?.confirmLabel}
+        cancelLabel={confirmModal?.cancelLabel}
+        destructive={confirmModal?.destructive}
+        onConfirm={() => closeConfirm(true)}
+        onClose={() => closeConfirm(false)}
+      />
     </div>
   );
 }

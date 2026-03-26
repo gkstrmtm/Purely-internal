@@ -23537,7 +23537,7 @@ function resultMarkdown(action: PortalAgentActionKey, json: any): { markdown: st
   }
 
   const err = typeof json?.error === "string" ? json.error : typeof json?.message === "string" ? json.message : null;
-  return { markdown: err ? `Action failed: ${err}` : "Action finished." };
+  return { markdown: err ? `Action failed: ${err}` : "Done." };
 }
 
 export async function executePortalAgentActionForThread(opts: {

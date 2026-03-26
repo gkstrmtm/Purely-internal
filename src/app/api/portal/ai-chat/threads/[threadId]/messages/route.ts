@@ -14,6 +14,13 @@ import {
 import { executePortalAgentActionForThread } from "@/lib/portalAgentActionExecutor";
 import { isPortalSupportChatConfigured, runPortalSupportChat } from "@/lib/portalSupportChat";
 
+import {
+  addContactTagAssignment,
+  createOwnerContactTag,
+  removeContactTagAssignment,
+} from "@/lib/portalContactTags";
+import { normalizeEmailKey, normalizeNameKey, normalizePhoneKey } from "@/lib/portalContacts";
+
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
@@ -69,10 +76,14 @@ function shouldAutoExecuteFromUserText(text: string) {
   // Avoid auto-executing on obvious questions.
   if (/\b(how|why|what|can you|could you|should i|help me|explain)\b/i.test(t)) return false;
 
-  const verb = /\b(create|make|build|generate|run|start|trigger|send|text|sms|email|reply|respond|reset|optimize|add|remove|move|import|upload|activate|pause|enroll)\b/i.test(t);
+  const verb = /\b(create|make|build|generate|run|start|trigger|send|text|sms|email|reply|respond|reset|optimize|add|remove|move|import|upload|activate|pause|enroll|apply|tag|untag|label)\b/i.test(
+    t,
+  );
   if (!verb) return false;
 
-  return /\b(task|funnel|newsletter|blog|automation|calendar|booking|appointment|contacts?|people|review|reviews|text|sms|email|message|media|media library|folder|dashboard|reporting|nurture|campaign)\b/i.test(t);
+  return /\b(task|funnel|newsletter|blog|automation|calendar|booking|appointment|contacts?|people|review|reviews|text|sms|email|message|media|media library|folder|dashboard|reporting|nurture|campaign|tag|tags|label)\b/i.test(
+    t,
+  );
 }
 
 function normalizePhoneLike(raw: string): string | null {
@@ -84,6 +95,203 @@ function normalizePhoneLike(raw: string): string | null {
   const cleaned = digits.startsWith("+") ? `+${digits.slice(1).replace(/\D+/g, "")}` : digits.replace(/\D+/g, "");
   if (cleaned.replace(/\D+/g, "").length < 8) return null;
   return cleaned.slice(0, 20);
+}
+
+function extractFirstEmailLike(textRaw: string): string | null {
+  const t = String(textRaw || "");
+  const m = /\b([A-Z0-9._%+-]{1,80}@[A-Z0-9.-]{1,120}\.[A-Z]{2,24})\b/i.exec(t);
+  return m?.[1] ? String(m[1]).trim().slice(0, 140) : null;
+}
+
+function cleanShortLabel(v: string, max = 80) {
+  return String(v || "")
+    .trim()
+    .replace(/[\r\n\t]+/g, " ")
+    .replace(/\s+/g, " ")
+    .replace(/[.?!,;:]+$/g, "")
+    .slice(0, max)
+    .trim();
+}
+
+function extractContactTagCommand(textRaw: string):
+  | { mode: "add" | "remove"; tagName: string; contactHint: string }
+  | null {
+  const t = String(textRaw || "").trim();
+  if (!t) return null;
+
+  // add tag VIP to John Smith
+  // remove tag VIP from john@x.com
+  const m1 = /\b(add|apply)\s+tag\s+["']?([^"'\n]{1,80})["']?\s+\b(to|for)\b\s+(?:contact\s+)?["']?([^"'\n]{1,120})["']?\s*$/i.exec(
+    t,
+  );
+  if (m1?.[1] && m1?.[2] && m1?.[4]) {
+    return { mode: "add", tagName: cleanShortLabel(m1[2], 60), contactHint: cleanShortLabel(m1[4], 120) };
+  }
+
+  const m2 = /\b(remove|delete)\s+tag\s+["']?([^"'\n]{1,80})["']?\s+\b(from)\b\s+(?:contact\s+)?["']?([^"'\n]{1,120})["']?\s*$/i.exec(
+    t,
+  );
+  if (m2?.[1] && m2?.[2] && m2?.[3]) {
+    return { mode: "remove", tagName: cleanShortLabel(m2[2], 60), contactHint: cleanShortLabel(m2[3], 120) };
+  }
+
+  // tag John Smith as VIP
+  const m3 = /\btag\s+(?:contact\s+)?["']?([^"'\n]{1,120})["']?\s+\b(as|with)\b\s+(?:tag\s+)?["']?([^"'\n]{1,80})["']?\s*$/i.exec(
+    t,
+  );
+  if (m3?.[1] && m3?.[2]) {
+    return { mode: "add", tagName: cleanShortLabel(m3[2], 60), contactHint: cleanShortLabel(m3[1], 120) };
+  }
+
+  // untag John Smith (VIP)
+  const m4 = /\b(untag|remove\s+tag)\s+(?:contact\s+)?["']?([^"'\n]{1,120})["']?\s*\(?\s*["']?([^"'\n]{1,80})["']?\s*\)?\s*$/i.exec(
+    t,
+  );
+  if (m4?.[1] && m4?.[2] && m4?.[3]) {
+    return { mode: "remove", tagName: cleanShortLabel(m4[3], 60), contactHint: cleanShortLabel(m4[2], 120) };
+  }
+
+  return null;
+}
+
+async function tryExecuteContactTagCommand(opts: {
+  ownerId: string;
+  threadId: string;
+  now: Date;
+  text: string;
+}): Promise<
+  | { ok: true; assistantMessage: any; autoActionMessage: any }
+  | { ok: false; assistantMessage: any }
+  | null
+> {
+  const cmd = extractContactTagCommand(opts.text);
+  if (!cmd?.tagName || !cmd?.contactHint) return null;
+
+  const ownerId = String(opts.ownerId);
+  const threadId = String(opts.threadId);
+
+  const createAssistantMessage = async (text: string) => {
+    const assistantMsg = await (prisma as any).portalAiChatMessage.create({
+      data: {
+        ownerId,
+        threadId,
+        role: "assistant",
+        text: String(text || "").slice(0, 12000),
+        attachmentsJson: null,
+        createdByUserId: null,
+        sendAt: null,
+        sentAt: opts.now,
+      },
+      select: {
+        id: true,
+        role: true,
+        text: true,
+        attachmentsJson: true,
+        createdAt: true,
+        sendAt: true,
+        sentAt: true,
+      },
+    });
+    await (prisma as any).portalAiChatThread.update({ where: { id: threadId }, data: { lastMessageAt: opts.now } });
+    return assistantMsg;
+  };
+
+  const emailLike = extractFirstEmailLike(cmd.contactHint);
+  const emailKey = emailLike ? normalizeEmailKey(emailLike) : null;
+  const phoneLike = normalizePhoneLike(cmd.contactHint);
+  const phoneKey = phoneLike ? normalizePhoneKey(phoneLike).phoneKey : null;
+  const nameLike = cleanShortLabel(cmd.contactHint, 80);
+
+  let contact: { id: string; name: string } | null = null;
+  let ambiguous: Array<{ name: string; email?: string | null; phone?: string | null }> = [];
+
+  try {
+    if (emailKey) {
+      const rows = await (prisma as any).portalContact.findMany({
+        where: { ownerId, emailKey },
+        orderBy: { updatedAt: "desc" },
+        take: 5,
+        select: { id: true, name: true, email: true, phone: true },
+      });
+      if (rows?.length === 1) contact = { id: String(rows[0].id), name: String(rows[0].name || "").trim() || emailLike || "Contact" };
+      else if (rows?.length > 1) {
+        ambiguous = rows.map((r: any) => ({ name: String(r.name || "").trim() || "(No name)", email: r.email ? String(r.email) : null, phone: r.phone ? String(r.phone) : null }));
+      }
+    } else if (phoneKey) {
+      const row = await (prisma as any).portalContact.findFirst({
+        where: { ownerId, phoneKey },
+        orderBy: { updatedAt: "desc" },
+        select: { id: true, name: true, email: true, phone: true },
+      });
+      if (row) contact = { id: String(row.id), name: String(row.name || "").trim() || phoneLike || "Contact" };
+    } else if (nameLike) {
+      const nameKey = normalizeNameKey(nameLike);
+      const rows = await (prisma as any).portalContact.findMany({
+        where: { ownerId, nameKey },
+        orderBy: { updatedAt: "desc" },
+        take: 5,
+        select: { id: true, name: true, email: true, phone: true },
+      });
+      if (rows?.length === 1) contact = { id: String(rows[0].id), name: String(rows[0].name || "").trim() || nameLike };
+      else if (rows?.length > 1) {
+        ambiguous = rows.map((r: any) => ({ name: String(r.name || "").trim() || "(No name)", email: r.email ? String(r.email) : null, phone: r.phone ? String(r.phone) : null }));
+      }
+    }
+  } catch {
+    // ignore
+  }
+
+  if (!contact && ambiguous.length) {
+    const lines = ambiguous
+      .slice(0, 5)
+      .map((c) => {
+        const bits = [c.email ? `email: ${c.email}` : null, c.phone ? `phone: ${c.phone}` : null].filter(Boolean).join(" · ");
+        return `- ${c.name}${bits ? ` (${bits})` : ""}`;
+      })
+      .join("\n");
+    const msg = await createAssistantMessage(
+      `I found multiple matches for “${cmd.contactHint}”. Reply with the contact’s email or phone number so I can apply the tag.\n\n${lines}`,
+    );
+    return { ok: false, assistantMessage: msg };
+  }
+
+  if (!contact) {
+    const msg = await createAssistantMessage(
+      `I couldn’t find a contact for “${cmd.contactHint}”. Reply with their email or phone number and I’ll ${cmd.mode === "add" ? "add" : "remove"} the “${cmd.tagName}” tag.`,
+    );
+    return { ok: false, assistantMessage: msg };
+  }
+
+  const tagNameKey = normalizeNameKey(cmd.tagName);
+  if (cmd.mode === "remove") {
+    const tagRow = await (prisma as any).portalContactTag
+      .findFirst({ where: { ownerId, nameKey: tagNameKey }, select: { id: true, name: true } })
+      .catch(() => null);
+    if (!tagRow) {
+      const msg = await createAssistantMessage(`No tag named “${cmd.tagName}” exists yet, so there’s nothing to remove.`);
+      return { ok: false, assistantMessage: msg };
+    }
+
+    const ok = await removeContactTagAssignment({ ownerId, contactId: contact.id, tagId: String(tagRow.id) });
+    const msg = await createAssistantMessage(
+      ok
+        ? `Removed tag “${String(tagRow.name)}” from ${contact.name}.`
+        : `I couldn’t remove tag “${String(tagRow.name)}” from ${contact.name}.`,
+    );
+    return { ok: ok, assistantMessage: msg, autoActionMessage: msg };
+  }
+
+  const tag = await createOwnerContactTag({ ownerId, name: cmd.tagName }).catch(() => null);
+  if (!tag?.id) {
+    const msg = await createAssistantMessage(`I couldn’t create or find the “${cmd.tagName}” tag.`);
+    return { ok: false, assistantMessage: msg };
+  }
+
+  const ok = await addContactTagAssignment({ ownerId, contactId: contact.id, tagId: tag.id });
+  const msg = await createAssistantMessage(
+    ok ? `Added tag “${tag.name}” to ${contact.name}.` : `I couldn’t add tag “${tag.name}” to ${contact.name}.`,
+  );
+  return { ok: ok, assistantMessage: msg, autoActionMessage: msg };
 }
 
 function detectDeterministicActionsFromText(opts: {
@@ -940,6 +1148,24 @@ export async function POST(req: Request, ctx: { params: Promise<{ threadId: stri
     data: { lastMessageAt: now },
   });
 
+  // 0) Deterministic workflows that can resolve IDs for the user.
+  // (Example: add/remove a contact tag by name + email/phone/contact name.)
+  const tagWorkflow = await tryExecuteContactTagCommand({
+    ownerId,
+    threadId,
+    now,
+    text: cleanText,
+  });
+  if (tagWorkflow?.assistantMessage) {
+    return NextResponse.json({
+      ok: true,
+      userMessage: userMsg,
+      assistantMessage: tagWorkflow.assistantMessage,
+      assistantActions: [],
+      autoActionMessage: tagWorkflow.ok ? tagWorkflow.autoActionMessage : null,
+    });
+  }
+
   if (!isPortalSupportChatConfigured()) {
     return NextResponse.json(
       { ok: false, error: "Pura is not configured for this environment." },
@@ -1020,6 +1246,12 @@ export async function POST(req: Request, ctx: { params: Promise<{ threadId: stri
     }
   } catch {
     // ignore
+  }
+
+  // If the user is trying to apply/remove a tag, avoid suggesting "list tags" as a dead-end.
+  // (But keep it available for actual "list tags" requests.)
+  if (/(\badd\s+tag\b|\bapply\s+tag\b|\bremove\s+tag\b|\bdelete\s+tag\b|\buntag\b|\btag\s+[\s\S]{0,120}\b(as|with)\b)/i.test(cleanText || "")) {
+    assistantActions = assistantActions.filter((a) => a.key !== "contact_tags.list");
   }
 
   // 3) Auto-execute when the user is clearly asking to do something.
