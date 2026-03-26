@@ -93,6 +93,17 @@ const ACTION_COVERAGE = [
   { action: "follow_up.ai.generate_step", method: "POST", endpoint: "/api/portal/follow-up/ai/generate-step" },
   { action: "follow_up.test_send", method: "POST", endpoint: "/api/portal/follow-up/test-send" },
 
+  { action: "lead_scraping.settings.get", method: "GET", endpoint: "/api/portal/lead-scraping/settings" },
+  { action: "lead_scraping.settings.update", method: "PUT", endpoint: "/api/portal/lead-scraping/settings" },
+  { action: "lead_scraping.run", method: "POST", endpoint: "/api/portal/lead-scraping/run" },
+  { action: "lead_scraping.leads.list", method: "GET", endpoint: "/api/portal/lead-scraping/leads" },
+  { action: "lead_scraping.leads.update", method: "PATCH", endpoint: "/api/portal/lead-scraping/leads/[leadId]" },
+  { action: "lead_scraping.leads.delete", method: "DELETE", endpoint: "/api/portal/lead-scraping/leads/[leadId]" },
+  { action: "lead_scraping.contact.send", method: "POST", endpoint: "/api/portal/lead-scraping/contact" },
+  { action: "lead_scraping.outbound.approve", method: "POST", endpoint: "/api/portal/lead-scraping/outbound/approve" },
+  { action: "lead_scraping.outbound.send", method: "POST", endpoint: "/api/portal/lead-scraping/outbound/send" },
+  { action: "lead_scraping.outbound.ai.draft_template", method: "POST", endpoint: "/api/portal/lead-scraping/outbound/ai/draft-template" },
+
   { action: "automations.run", method: "POST", endpoint: "/api/portal/automations/run" },
 
   { action: "automations.settings.get", method: "GET", endpoint: "/api/portal/automations/settings" },
@@ -247,6 +258,18 @@ const ACTION_COVERAGE = [
   { action: "billing.summary.get", method: "GET", endpoint: "/api/portal/billing/summary" },
   { action: "billing.subscriptions.list", method: "GET", endpoint: "/api/portal/billing/subscriptions" },
   { action: "billing.info.get", method: "GET", endpoint: "/api/portal/billing/billing-info" },
+  { action: "billing.info.update", method: "POST", endpoint: "/api/portal/billing/billing-info" },
+  { action: "billing.subscriptions.cancel", method: "POST", endpoint: "/api/portal/billing/cancel" },
+  { action: "billing.subscriptions.cancel_by_id", method: "POST", endpoint: "/api/portal/billing/cancel-subscription" },
+  { action: "billing.checkout_module", method: "POST", endpoint: "/api/portal/billing/checkout-module" },
+  { action: "billing.portal_session.create", method: "POST", endpoint: "/api/portal/billing/create-portal-session" },
+  { action: "billing.credits_only.cancel", method: "POST", endpoint: "/api/portal/billing/credits-only-cancel" },
+  { action: "billing.monthly_credits.cron.run", method: "GET", endpoint: "/api/portal/billing/monthly-credits/cron" },
+  { action: "billing.onboarding.checkout", method: "POST", endpoint: "/api/portal/billing/onboarding-checkout" },
+  { action: "billing.onboarding.confirm", method: "POST", endpoint: "/api/portal/billing/onboarding-confirm" },
+  { action: "billing.setup_intent.create", method: "POST", endpoint: "/api/portal/billing/setup-intent" },
+  { action: "billing.setup_intent.finalize", method: "POST", endpoint: "/api/portal/billing/setup-intent/finalize" },
+  { action: "billing.upgrade.checkout", method: "POST", endpoint: "/api/portal/billing/upgrade-checkout" },
   { action: "pricing.get", method: "GET", endpoint: "/api/portal/pricing" },
 
   // Credits (billing-gated)
@@ -261,10 +284,18 @@ const ACTION_COVERAGE = [
   // Credit Reports (safe reads)
   { action: "credit.contacts.list", method: "GET", endpoint: "/api/portal/credit/contacts" },
   { action: "credit.pulls.list", method: "GET", endpoint: "/api/portal/credit/credit-pulls" },
+  { action: "credit.pulls.create", method: "POST", endpoint: "/api/portal/credit/credit-pulls" },
   { action: "credit.disputes.letters.list", method: "GET", endpoint: "/api/portal/credit/disputes" },
+  { action: "credit.disputes.letter.create", method: "POST", endpoint: "/api/portal/credit/disputes" },
   { action: "credit.disputes.letter.get", method: "GET", endpoint: "/api/portal/credit/disputes/[letterId]" },
+  { action: "credit.disputes.letter.update", method: "PATCH", endpoint: "/api/portal/credit/disputes/[letterId]" },
+  { action: "credit.disputes.letter.pdf.generate", method: "POST", endpoint: "/api/portal/credit/disputes/[letterId]/pdf" },
+  { action: "credit.disputes.letter.send", method: "POST", endpoint: "/api/portal/credit/disputes/[letterId]/send" },
   { action: "credit.reports.list", method: "GET", endpoint: "/api/portal/credit/reports" },
+  { action: "credit.reports.import", method: "POST", endpoint: "/api/portal/credit/reports" },
+  { action: "credit.reports.pull", method: "POST", endpoint: "/api/portal/credit/reports/pull" },
   { action: "credit.reports.get", method: "GET", endpoint: "/api/portal/credit/reports/[reportId]" },
+  { action: "credit.reports.items.update", method: "PATCH", endpoint: "/api/portal/credit/reports/[reportId]/items/[itemId]" },
 
   // Inbox (safe reads)
   { action: "inbox.threads.list", method: "GET", endpoint: "/api/portal/inbox/threads" },
@@ -458,6 +489,36 @@ async function main() {
   for (const r of rows) {
     const actions = r.covered.length ? r.covered.join(", ") : "";
     md.push(`| ${mdEscape(r.endpoint)} | ${mdEscape(r.method)} | ${mdEscape(actions)} | ${mdEscape(r.file)} |`);
+  }
+
+  const unmapped = rows.filter((r) => r.method !== "(unknown)" && (!r.covered || r.covered.length === 0));
+  const byService = new Map();
+  for (const r of unmapped) {
+    const parts = String(r.endpoint || "").split("/");
+    const service = parts.length >= 4 ? parts[3] : "(unknown)";
+    const list = byService.get(service) || [];
+    list.push(r);
+    byService.set(service, list);
+  }
+
+  md.push("");
+  md.push("## Unmapped Operations");
+  md.push("");
+  md.push(`- Unmapped operations (no agent action mapping): ${unmapped.length}`);
+
+  const services = Array.from(byService.keys()).sort((a, b) => a.localeCompare(b));
+  for (const service of services) {
+    const list = byService.get(service) || [];
+    list.sort((a, b) => (a.endpoint + a.method).localeCompare(b.endpoint + b.method));
+
+    md.push("");
+    md.push(`### ${mdEscape(service)} (${list.length})`);
+    md.push("");
+    md.push("| Endpoint | Method | Route File |");
+    md.push("|---|---:|---|");
+    for (const r of list) {
+      md.push(`| ${mdEscape(r.endpoint)} | ${mdEscape(r.method)} | ${mdEscape(r.file)} |`);
+    }
   }
 
   md.push("");

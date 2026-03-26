@@ -110,3 +110,6 @@ next-env.d.ts
 
 # local-only Copilot transcript scratch files (do not commit)
 /src/**/chatchatchat.md
+
+# local-only action coverage scratch outputs (do not commit)
+tmp_uncovered_actions*.json

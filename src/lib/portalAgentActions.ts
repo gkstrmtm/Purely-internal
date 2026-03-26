@@ -64,6 +64,7 @@ export const PortalAgentActionKeySchema = z.enum([
   "newsletter.newsletters.create",
   "newsletter.newsletters.get",
   "newsletter.newsletters.update",
+  "newsletter.newsletters.send",
   "newsletter.audience.contacts.search",
   "newsletter.automation.settings.get",
   "newsletter.automation.settings.update",
@@ -72,15 +73,37 @@ export const PortalAgentActionKeySchema = z.enum([
   "billing.summary.get",
   "billing.subscriptions.list",
   "billing.info.get",
+  "billing.info.update",
+  "billing.subscriptions.cancel",
+  "billing.subscriptions.cancel_by_id",
+  "billing.checkout_module",
+  "billing.portal_session.create",
+  "billing.credits_only.cancel",
+  "billing.monthly_credits.cron.run",
+  "billing.onboarding.checkout",
+  "billing.onboarding.confirm",
+  "billing.setup_intent.create",
+  "billing.setup_intent.finalize",
+  "billing.upgrade.checkout",
   "pricing.get",
   "credits.get",
   "credits.auto_topup.set",
+  "credits.topup.start",
+  "credits.topup.confirm_checkout",
   "credit.contacts.list",
   "credit.pulls.list",
+  "credit.pulls.create",
   "credit.disputes.letters.list",
   "credit.disputes.letter.get",
+  "credit.disputes.letter.create",
+  "credit.disputes.letter.update",
+  "credit.disputes.letter.pdf.generate",
+  "credit.disputes.letter.send",
   "credit.reports.list",
   "credit.reports.get",
+  "credit.reports.import",
+  "credit.reports.pull",
+  "credit.reports.items.update",
   "automations.run",
   "automations.create",
   "automations.settings.get",
@@ -114,6 +137,7 @@ export const PortalAgentActionKeySchema = z.enum([
   "me.get",
 
   "auth.resend_verification",
+  "auth.verify_email",
   "engagement.ping",
   "engagement.active_time",
 
@@ -123,13 +147,18 @@ export const PortalAgentActionKeySchema = z.enum([
   "referrals.link.rotate",
 
   "profile.get",
+  "profile.update",
+  "profile.password.update",
 
   "integrations.twilio.get",
+  "integrations.twilio.update",
 
   "integrations.stripe.get",
   "integrations.stripe.delete",
+  "integrations.stripe.update",
   "integrations.sales_reporting.get",
   "integrations.sales_reporting.disconnect",
+  "integrations.sales_reporting.update",
 
   "follow_up.settings.get",
   "follow_up.settings.update",
@@ -137,6 +166,17 @@ export const PortalAgentActionKeySchema = z.enum([
   "follow_up.custom_variables.update",
   "follow_up.ai.generate_step",
   "follow_up.test_send",
+
+  "lead_scraping.settings.get",
+  "lead_scraping.settings.update",
+  "lead_scraping.run",
+  "lead_scraping.leads.list",
+  "lead_scraping.leads.update",
+  "lead_scraping.leads.delete",
+  "lead_scraping.contact.send",
+  "lead_scraping.outbound.approve",
+  "lead_scraping.outbound.send",
+  "lead_scraping.outbound.ai.draft_template",
 
   "notifications.recipients.list",
 
@@ -172,10 +212,12 @@ export const PortalAgentActionKeySchema = z.enum([
   "people.contacts.duplicates.get",
   "people.contacts.merge",
   "people.contacts.custom_variables.patch",
+  "people.contacts.import",
   "inbox.threads.list",
   "inbox.thread.messages.list",
   "inbox.thread.contact.set",
   "inbox.scheduled.update",
+  "inbox.attachments.upload",
   "inbox.attachments.create_from_media",
   "inbox.attachments.delete",
   "inbox.settings.get",
@@ -276,6 +318,10 @@ export const PortalAgentActionKeySchema = z.enum([
   "ai_receptionist.recordings.get",
   "ai_receptionist.recordings.demo.get",
   "ai_receptionist.demo_audio.get",
+
+  "ai_receptionist.settings.update",
+  "ai_receptionist.events.refresh",
+  "ai_receptionist.events.delete",
 
   "ai_receptionist.settings.generate",
   "ai_receptionist.sms_system_prompt.generate",
@@ -889,6 +935,12 @@ export const PortalAgentActionArgsSchemaByKey = {
     })
     .strict(),
 
+  "newsletter.newsletters.send": z
+    .object({
+      newsletterId: z.string().trim().min(1).max(120),
+    })
+    .strict(),
+
   "newsletter.audience.contacts.search": z
     .object({
       q: z.string().trim().max(120).optional(),
@@ -942,6 +994,101 @@ export const PortalAgentActionArgsSchemaByKey = {
 
   "billing.info.get": z.object({}).strict(),
 
+  "billing.info.update": z
+    .object({
+      billingEmail: z.string().email().optional(),
+      billingName: z.string().trim().min(1).max(120).optional(),
+      billingPhone: z.string().trim().min(1).max(40).optional(),
+      billingAddress: z.string().trim().min(1).max(220).optional(),
+      billingCity: z.string().trim().max(120).optional(),
+      billingState: z.string().trim().max(120).optional(),
+      billingPostalCode: z.string().trim().max(40).optional(),
+    })
+    .strict(),
+
+  "billing.subscriptions.cancel": z
+    .object({
+      immediate: z.boolean().optional(),
+    })
+    .strict(),
+
+  "billing.subscriptions.cancel_by_id": z
+    .object({
+      subscriptionId: z.string().trim().min(1).max(120),
+      immediate: z.boolean().optional(),
+    })
+    .strict(),
+
+  "billing.checkout_module": z
+    .object({
+      module: z.enum([
+        "blog",
+        "booking",
+        "automations",
+        "reviews",
+        "newsletter",
+        "nurture",
+        "aiReceptionist",
+        "leadScraping",
+        "crm",
+        "leadOutbound",
+      ]),
+      successPath: z.string().trim().min(1).max(2000).optional(),
+      cancelPath: z.string().trim().min(1).max(2000).optional(),
+      promoCode: z.string().trim().min(1).max(64).optional(),
+      campaignId: z.string().trim().min(1).max(64).optional(),
+      serviceSlug: z.string().trim().min(1).max(64).optional(),
+    })
+    .strict(),
+
+  "billing.portal_session.create": z
+    .object({
+      returnPath: z.string().trim().min(1).max(2000).optional(),
+    })
+    .strict(),
+
+  "billing.credits_only.cancel": z
+    .object({
+      action: z.enum(["cancel", "resume"]),
+    })
+    .strict(),
+
+  "billing.monthly_credits.cron.run": z
+    .object({
+      limit: z.number().int().min(1).max(5000).optional(),
+      maxCatchUpGiftsPerOwner: z.number().int().min(0).max(50).optional(),
+    })
+    .strict(),
+
+  "billing.onboarding.checkout": z
+    .object({
+      planIds: z.array(z.string().trim().min(1).max(80)).max(20),
+      planQuantities: z.record(z.string().trim().min(1).max(80), z.number().int().min(0).max(50)).optional(),
+      couponCode: z.string().trim().max(80).optional(),
+    })
+    .strict(),
+
+  "billing.onboarding.confirm": z
+    .object({
+      sessionId: z.string().trim().min(10).max(200).optional(),
+      bypass: z.boolean().optional(),
+    })
+    .strict(),
+
+  "billing.setup_intent.create": z.object({}).strict(),
+
+  "billing.setup_intent.finalize": z
+    .object({
+      setupIntentId: z.string().trim().min(1).max(120),
+    })
+    .strict(),
+
+  "billing.upgrade.checkout": z
+    .object({
+      bundleId: z.enum(["launch-kit", "sales-loop", "brand-builder"]),
+    })
+    .strict(),
+
   "pricing.get": z.object({}).strict(),
 
   "credits.get": z.object({}).strict(),
@@ -949,6 +1096,23 @@ export const PortalAgentActionArgsSchemaByKey = {
   "credits.auto_topup.set": z
     .object({
       autoTopUp: z.boolean(),
+    })
+    .strict(),
+
+  "credits.topup.start": z
+    .object({
+      credits: z.number().int().min(1).max(500_000).optional(),
+      // Backwards compatibility (legacy UI).
+      packages: z.number().int().min(1).max(200).optional(),
+    })
+    .strict()
+    .refine((v) => typeof v.credits === "number" || typeof v.packages === "number", {
+      message: "credits is required",
+    }),
+
+  "credits.topup.confirm_checkout": z
+    .object({
+      sessionId: z.string().trim().min(1).max(200),
     })
     .strict(),
 
@@ -964,6 +1128,12 @@ export const PortalAgentActionArgsSchemaByKey = {
     })
     .strict(),
 
+  "credit.pulls.create": z
+    .object({
+      contactId: z.string().trim().min(1).max(120),
+    })
+    .strict(),
+
   "credit.disputes.letters.list": z
     .object({
       contactId: z.string().trim().min(1).max(120).optional().nullable(),
@@ -976,11 +1146,66 @@ export const PortalAgentActionArgsSchemaByKey = {
     })
     .strict(),
 
+  "credit.disputes.letter.create": z
+    .object({
+      contactId: z.string().trim().min(1).max(120),
+      recipientName: z.string().trim().max(120).optional().nullable(),
+      recipientAddress: z.string().trim().max(600).optional().nullable(),
+      disputesText: z.string().trim().min(3).max(5000),
+      creditPullId: z.string().trim().max(120).optional().nullable(),
+    })
+    .strict(),
+
+  "credit.disputes.letter.update": z
+    .object({
+      letterId: z.string().trim().min(1).max(120),
+      subject: z.string().trim().max(200).optional(),
+      bodyText: z.string().trim().max(20000).optional(),
+    })
+    .strict(),
+
+  "credit.disputes.letter.pdf.generate": z
+    .object({
+      letterId: z.string().trim().min(1).max(120),
+    })
+    .strict(),
+
+  "credit.disputes.letter.send": z
+    .object({
+      letterId: z.string().trim().min(1).max(120),
+      to: z.string().trim().email().optional().nullable(),
+    })
+    .strict(),
+
   "credit.reports.list": z.object({}).strict(),
 
   "credit.reports.get": z
     .object({
       reportId: z.string().trim().min(1).max(120),
+    })
+    .strict(),
+
+  "credit.reports.import": z
+    .object({
+      contactId: z.string().trim().min(1).max(120).optional().nullable(),
+      provider: z.string().trim().max(40).optional().nullable(),
+      rawJson: z.unknown(),
+    })
+    .strict(),
+
+  "credit.reports.pull": z
+    .object({
+      contactId: z.string().trim().min(1).max(120),
+      provider: z.string().trim().max(40).optional().nullable(),
+    })
+    .strict(),
+
+  "credit.reports.items.update": z
+    .object({
+      reportId: z.string().trim().min(1).max(120),
+      itemId: z.string().trim().min(1).max(120),
+      auditTag: z.enum(["PENDING", "NEGATIVE", "POSITIVE"]).optional(),
+      disputeStatus: z.string().trim().max(60).optional().nullable(),
     })
     .strict(),
 
@@ -1126,6 +1351,12 @@ export const PortalAgentActionArgsSchemaByKey = {
 
   "auth.resend_verification": z.object({}).strict(),
 
+  "auth.verify_email": z
+    .object({
+      token: z.string().trim().min(1).max(500),
+    })
+    .strict(),
+
   "engagement.ping": z
     .object({
       path: z.string().trim().max(512).optional().nullable(),
@@ -1154,15 +1385,83 @@ export const PortalAgentActionArgsSchemaByKey = {
 
   "profile.get": z.object({}).strict(),
 
+  "profile.update": z
+    .object({
+      // Name/email updates require currentPassword (mirrors portal UI).
+      currentPassword: z.string().min(1).max(200).optional(),
+
+      firstName: z.string().trim().max(80).optional(),
+      lastName: z.string().trim().max(80).optional(),
+      email: z.string().trim().email().max(200).optional(),
+
+      phone: z.string().trim().max(40).optional().nullable(),
+      city: z.string().trim().max(120).optional().nullable(),
+      state: z.string().trim().max(80).optional().nullable(),
+
+      voiceAgentId: z.string().trim().max(120).optional().nullable(),
+      voiceAgentApiKey: z.string().trim().max(200).optional().nullable(),
+
+      enableDefaultSmsNotifications: z.boolean().optional().nullable(),
+    })
+    .strict()
+    .refine(
+      (v) =>
+        v.firstName !== undefined ||
+        v.lastName !== undefined ||
+        v.email !== undefined ||
+        v.phone !== undefined ||
+        v.city !== undefined ||
+        v.state !== undefined ||
+        v.voiceAgentId !== undefined ||
+        v.voiceAgentApiKey !== undefined ||
+        v.enableDefaultSmsNotifications !== undefined,
+      { message: "No changes" },
+    )
+    .refine((v) => {
+      const requiresPassword = v.firstName !== undefined || v.lastName !== undefined || v.email !== undefined;
+      if (!requiresPassword) return true;
+      return typeof v.currentPassword === "string" && v.currentPassword.trim().length > 0;
+    }, { message: "currentPassword is required for name/email changes" }),
+
+  "profile.password.update": z
+    .object({
+      currentPassword: z.string().min(1).max(200),
+      newPassword: z.string().min(8).max(200),
+    })
+    .strict(),
+
   "integrations.twilio.get": z
     .object({
       includeDiagnostics: z.boolean().optional().nullable(),
     })
     .strict(),
 
+  "integrations.twilio.update": z
+    .object({
+      clear: z.boolean().optional().nullable(),
+      accountSid: z.string().trim().min(1).max(80).optional().nullable(),
+      authToken: z.string().trim().min(1).max(120).optional().nullable(),
+      messagingServiceSid: z.string().trim().min(1).max(80).optional().nullable(),
+      phoneNumberE164: z.string().trim().min(1).max(40).optional().nullable(),
+    })
+    .strict()
+    .refine(
+      (v) =>
+        v.clear === true ||
+        (typeof v.accountSid === "string" && v.accountSid.trim()) ||
+        (typeof v.authToken === "string" && v.authToken.trim()),
+      { message: "Provide clear=true or Twilio credentials" },
+    ),
+
   "integrations.stripe.get": z.object({}).strict(),
 
   "integrations.stripe.delete": z.object({}).strict(),
+
+  "integrations.stripe.update": z
+    .object({
+      secretKey: z.string().trim().min(8).max(200),
+    })
+    .strict(),
 
   "integrations.sales_reporting.get": z.object({}).strict(),
 
@@ -1178,6 +1477,23 @@ export const PortalAgentActionArgsSchemaByKey = {
         "mollie",
         "mercadopago",
       ]),
+    })
+    .strict(),
+
+  "integrations.sales_reporting.update": z
+    .object({
+      provider: z.enum([
+        "stripe",
+        "authorizenet",
+        "braintree",
+        "razorpay",
+        "paystack",
+        "flutterwave",
+        "mollie",
+        "mercadopago",
+      ]),
+      credentials: z.record(z.string().trim().min(1).max(80), z.string().trim().max(2000)).optional().nullable(),
+      setActive: z.boolean().optional().nullable(),
     })
     .strict(),
 
@@ -1214,6 +1530,135 @@ export const PortalAgentActionArgsSchemaByKey = {
       to: z.string().trim().min(3).max(200),
       subject: z.string().trim().max(120).optional(),
       body: z.string().trim().min(1).max(2000),
+    })
+    .strict(),
+
+  "lead_scraping.settings.get": z.object({}).strict(),
+
+  "lead_scraping.settings.update": z
+    .object({
+      settings: z.unknown(),
+    })
+    .strict(),
+
+  "lead_scraping.run": z
+    .object({
+      kind: z.enum(["B2B", "B2C"]).optional(),
+      count: z.number().int().min(1).max(500).optional(),
+      niche: z.string().trim().max(200).optional(),
+      location: z.string().trim().max(200).optional(),
+      requireEmail: z.boolean().optional(),
+      requirePhone: z.boolean().optional(),
+      requireWebsite: z.boolean().optional(),
+      aiOutbound: z
+        .object({
+          calls: z
+            .object({
+              enabled: z.boolean().optional(),
+              campaignId: z.string().trim().max(120).optional(),
+            })
+            .strict()
+            .optional(),
+          messages: z
+            .object({
+              enabled: z.boolean().optional(),
+              campaignId: z.string().trim().max(120).optional(),
+              channelPolicy: z.enum(["SMS", "EMAIL", "BOTH"]).optional(),
+            })
+            .strict()
+            .optional(),
+        })
+        .strict()
+        .optional(),
+    })
+    .strict(),
+
+  "lead_scraping.leads.list": z
+    .object({
+      take: z.number().int().min(1).max(500).optional(),
+      q: z.string().trim().max(200).optional(),
+      kind: z.enum(["B2B", "B2C"]).optional(),
+    })
+    .strict(),
+
+  "lead_scraping.leads.update": z
+    .object({
+      leadId: z.string().trim().min(1).max(64),
+      starred: z.boolean().optional(),
+      email: z
+        .string()
+        .trim()
+        .max(200)
+        .optional()
+        .transform((v) => (v === "" ? null : v)),
+      tag: z
+        .string()
+        .trim()
+        .max(60)
+        .optional()
+        .transform((v) => (v === "" ? null : v)),
+      tagColor: z
+        .string()
+        .trim()
+        .max(16)
+        .optional()
+        .transform((v) => (v === "" ? null : v)),
+    })
+    .strict()
+    .refine((v) => v.starred !== undefined || v.email !== undefined || v.tag !== undefined || v.tagColor !== undefined, {
+      message: "No changes provided",
+    })
+    .refine(
+      (v) => {
+        if (v.email === undefined || v.email === null) return true;
+        return /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v.email);
+      },
+      { message: "Invalid email" },
+    )
+    .refine(
+      (v) => {
+        if (v.tagColor === undefined || v.tagColor === null) return true;
+        return /^#[0-9a-fA-F]{6}$/.test(v.tagColor);
+      },
+      { message: "Invalid tag color" },
+    ),
+
+  "lead_scraping.leads.delete": z
+    .object({
+      leadId: z.string().trim().min(1).max(64),
+    })
+    .strict(),
+
+  "lead_scraping.outbound.ai.draft_template": z
+    .object({
+      kind: z.enum(["SMS", "EMAIL"]),
+      prompt: z.string().trim().max(2000).optional(),
+      existingSubject: z.string().trim().max(200).optional(),
+      existingBody: z.string().trim().max(8000).optional(),
+    })
+    .strict(),
+
+  "lead_scraping.contact.send": z
+    .object({
+      leadId: z.string().trim().min(1).max(64),
+      subject: z.string().trim().max(120).optional(),
+      message: z.string().trim().min(1).max(2000),
+      sendEmail: z.boolean().optional(),
+      sendSms: z.boolean().optional(),
+    })
+    .strict()
+    .refine((v) => Boolean(v.sendEmail) || Boolean(v.sendSms), { message: "Choose Email and/or Text" }),
+
+  "lead_scraping.outbound.approve": z
+    .object({
+      leadId: z.string().trim().min(1).max(64),
+      approved: z.boolean(),
+    })
+    .strict(),
+
+  "lead_scraping.outbound.send": z
+    .object({
+      leadId: z.string().trim().min(1).max(64),
     })
     .strict(),
 
@@ -1324,6 +1769,16 @@ export const PortalAgentActionArgsSchemaByKey = {
     })
     .strict(),
 
+  "people.contacts.import": z
+    .object({
+      csvText: z.string().trim().min(1).max(5_000_000),
+      allowDuplicates: z.boolean().optional().nullable(),
+      tags: z.array(z.string().trim().min(1).max(60)).max(10).optional().nullable(),
+      // Optional mapping of standard keys (e.g. email/phone/firstName/lastName) -> CSV header names.
+      mapping: z.record(z.string().trim().min(1).max(40), z.string().trim().min(1).max(120)).optional().nullable(),
+    })
+    .strict(),
+
   "people.contacts.custom_variable_keys.get": z.object({}).strict(),
 
   "people.contacts.duplicates.get": z
@@ -1382,6 +1837,23 @@ export const PortalAgentActionArgsSchemaByKey = {
     .object({
       scheduledId: z.string().trim().min(1).max(120),
       scheduledFor: z.string().datetime(),
+    })
+    .strict(),
+
+  "inbox.attachments.upload": z
+    .object({
+      files: z
+        .array(
+          z
+            .object({
+              fileName: z.string().trim().min(1).max(200),
+              mimeType: z.string().trim().min(1).max(120).optional(),
+              contentBase64: z.string().trim().min(1).max(30_000_000),
+            })
+            .strict(),
+        )
+        .min(1)
+        .max(10),
     })
     .strict(),
 
@@ -2133,6 +2605,27 @@ export const PortalAgentActionArgsSchemaByKey = {
 
   "ai_receptionist.settings.get": z.object({}).strict(),
 
+  "ai_receptionist.settings.update": z
+    .object({
+      settings: z.unknown().optional(),
+      regenerateToken: z.boolean().optional(),
+      syncChatAgent: z.boolean().optional().nullable(),
+    })
+    .strict()
+    .refine((v) => v.regenerateToken === true || v.settings !== undefined, { message: "Missing settings" }),
+
+  "ai_receptionist.events.refresh": z
+    .object({
+      callSid: z.string().trim().min(1).max(80),
+    })
+    .strict(),
+
+  "ai_receptionist.events.delete": z
+    .object({
+      callSid: z.string().trim().min(1).max(80),
+    })
+    .strict(),
+
   "ai_receptionist.recordings.get": z
     .object({
       recordingSid: z.string().trim().min(1).max(64),
@@ -2464,6 +2957,7 @@ export function portalAgentActionsIndexText(): string {
     "- newsletter.newsletters.create: Create a newsletter (fields: kind, status?, title, excerpt, content, smsText?)",
     "- newsletter.newsletters.get: Get a newsletter (fields: newsletterId)",
     "- newsletter.newsletters.update: Update a newsletter (fields: newsletterId, title, excerpt, content, smsText?, hostedOnly?)",
+    "- newsletter.newsletters.send: Send a newsletter now (fields: newsletterId)",
     "- newsletter.audience.contacts.search: Search contacts for newsletter audience (fields: q? OR ids?, take?)",
     "- newsletter.automation.settings.get: Get newsletter automation settings (fields: kind=external|internal?)",
     "- newsletter.automation.settings.update: Update newsletter automation settings (fields: kind, enabled, frequencyDays, requireApproval?, channels?, topics?, promptAnswers?, deliveryEmailHint?, deliverySmsHint?, includeImages?, royaltyFreeImages?, includeImagesWhereNeeded?, fontKey?, audience?)",
@@ -2471,18 +2965,40 @@ export function portalAgentActionsIndexText(): string {
     "- billing.summary.get: Get billing summary",
     "- billing.subscriptions.list: List active subscriptions",
     "- billing.info.get: Get billing profile info (customer + default payment method)",
+    "- billing.info.update: Update billing profile info (fields: billingEmail?, billingName?, billingPhone?, billingAddress?, billingCity?, billingState?, billingPostalCode?)",
+    "- billing.subscriptions.cancel: Cancel your active subscription (fields: immediate?)",
+    "- billing.subscriptions.cancel_by_id: Cancel a specific subscription (fields: subscriptionId, immediate?)",
+    "- billing.checkout_module: Start module checkout (fields: module, promoCode?, campaignId?, serviceSlug?, successPath?, cancelPath?)",
+    "- billing.portal_session.create: Create a Stripe billing portal session (fields: returnPath?)",
+    "- billing.credits_only.cancel: Cancel/resume credits-only billing access (fields: action=cancel|resume)",
+    "- billing.monthly_credits.cron.run: Process due monthly credits gifts (fields: limit?, maxCatchUpGiftsPerOwner?)",
+    "- billing.onboarding.checkout: Start onboarding checkout (fields: planIds, planQuantities?, couponCode?)",
+    "- billing.onboarding.confirm: Confirm onboarding after checkout (fields: sessionId? OR bypass?)",
+    "- billing.setup_intent.create: Create a Stripe SetupIntent to add a card",
+    "- billing.setup_intent.finalize: Finalize SetupIntent and set default payment method (fields: setupIntentId)",
+    "- billing.upgrade.checkout: Start upgrade bundle checkout (fields: bundleId)",
     "- pricing.get: Get module and credits pricing (includes credit USD value)",
     "- credits.get: Get credits balance + auto-top-up state",
     "- credits.auto_topup.set: Enable/disable auto-top-up (fields: autoTopUp)",
+    "- credits.topup.start: Start a credits top-up (fields: credits OR packages (legacy))",
+    "- credits.topup.confirm_checkout: Confirm a Stripe Checkout top-up (fields: sessionId)",
     "- reporting.summary.get: Get reporting dashboard KPIs (fields: range=today|7d|30d|90d|all?)",
     "- reporting.sales.get: Get sales report (fields: range=7d|30d?)",
     "- reporting.stripe.get: Get Stripe charges report (fields: range=7d|30d?)",
     "- credit.contacts.list: List/search credit contacts (fields: q?)",
     "- credit.pulls.list: List credit pulls (fields: contactId?)",
+    "- credit.pulls.create: Create a credit pull stub record (fields: contactId)",
     "- credit.disputes.letters.list: List credit dispute letters (fields: contactId?)",
     "- credit.disputes.letter.get: Get a credit dispute letter (fields: letterId)",
+    "- credit.disputes.letter.create: Generate a credit dispute letter draft using AI (fields: contactId, disputesText, recipientName?, recipientAddress?, creditPullId?)",
+    "- credit.disputes.letter.update: Update a credit dispute letter (fields: letterId, subject?, bodyText?)",
+    "- credit.disputes.letter.pdf.generate: Generate/export dispute letter PDF to media library (fields: letterId)",
+    "- credit.disputes.letter.send: Email a dispute letter (fields: letterId, to?)",
     "- credit.reports.list: List credit reports",
     "- credit.reports.get: Get a credit report (fields: reportId)",
+    "- credit.reports.import: Import a credit report JSON and extract items (fields: rawJson, contactId?, provider?)",
+    "- credit.reports.pull: Create a placeholder provider-pulled report (fields: contactId, provider?)",
+    "- credit.reports.items.update: Update a credit report item status (fields: reportId, itemId, auditTag?, disputeStatus?)",
     "- automations.run: Run an automation by id (fields: automationId, contact?)",
     "- automations.create: Create a new automation shell (fields: name)",
     "- automations.settings.get: Get automations settings (returns webhookToken, viewer, automations)",
@@ -2516,23 +3032,40 @@ export function portalAgentActionsIndexText(): string {
     "- contact_tags.delete: Delete a contact tag (fields: tagId)",
     "- me.get: Get the current portal member identity (ownerId/memberId/role) and effective permissions",
     "- auth.resend_verification: Resend your email verification message (returns alreadyVerified=true if applicable)",
+    "- auth.verify_email: Verify an email token (fields: token) (no session required)",
     "- engagement.ping: Record a lightweight portal engagement ping (fields: path?, source?)",
     "- engagement.active_time: Record portal active time telemetry and hours-saved rollups (fields: dtSec, path?)",
     "- push.register: Register your device for push notifications (fields: expoPushToken, platform?, deviceName?)",
     "- referrals.link.get: Get your referral link + referral stats",
     "- referrals.link.rotate: Rotate your referral code and return the updated referral link + stats",
     "- profile.get: Get the current portal member profile (name/email/phone/city/state + voice agent status)",
+    "- profile.update: Update profile and extras (fields: firstName?, lastName?, email?, phone?, city?, state?, voiceAgentId?, voiceAgentApiKey?, enableDefaultSmsNotifications?, currentPassword? (required for name/email changes))",
+    "- profile.password.update: Change your password (fields: currentPassword, newPassword)",
     "- integrations.twilio.get: Get Twilio SMS integration status + webhook URLs (fields: includeDiagnostics?)",
+    "- integrations.twilio.update: Connect or clear Twilio SMS (fields: clear? OR accountSid/authToken/messagingServiceSid?/phoneNumberE164?)",
     "- integrations.stripe.get: Get Stripe integration status (secret key prefix + connected account)",
     "- integrations.stripe.delete: Disconnect Stripe integration (clears stored keys and connection metadata)",
+    "- integrations.stripe.update: Set Stripe secret key (fields: secretKey) (encryption required)",
     "- integrations.sales_reporting.get: Get sales reporting integration status (active provider + configured providers)",
     "- integrations.sales_reporting.disconnect: Disconnect a sales reporting provider (fields: provider)",
+    "- integrations.sales_reporting.update: Connect/update a sales reporting provider (fields: provider, credentials?, setActive?) (encryption required for most providers)",
     "- follow_up.settings.get: Get Follow-Up automation settings and queue preview",
     "- follow_up.settings.update: Update Follow-Up automation settings (fields: settings)",
     "- follow_up.custom_variables.get: Get Follow-Up custom variables (available to lead scraping and follow-up)",
     "- follow_up.custom_variables.update: Set a Follow-Up custom variable (fields: key, value)",
     "- follow_up.ai.generate_step: Draft Follow-Up message copy (fields: kind, stepName?, prompt?, existingSubject?, existingBody?)",
     "- follow_up.test_send: Send a test follow-up message (fields: channel, to, subject?, body)",
+
+    "- lead_scraping.settings.get: Get Lead Scraping settings",
+    "- lead_scraping.settings.update: Update Lead Scraping settings (fields: settings)",
+    "- lead_scraping.run: Run Lead Scraping now (fields: kind=B2B|B2C?, count?, niche?, location?, requireEmail?, requirePhone?, requireWebsite?, aiOutbound?)",
+    "- lead_scraping.leads.list: List/search scraped leads (fields: take?, q?, kind?)",
+    "- lead_scraping.leads.update: Update a scraped lead (fields: leadId, starred?, email?, tag?, tagColor?)",
+    "- lead_scraping.leads.delete: Delete a scraped lead (fields: leadId)",
+    "- lead_scraping.contact.send: Manually send an email and/or text to a scraped lead (fields: leadId, message, subject? (email), sendEmail?, sendSms?)",
+    "- lead_scraping.outbound.approve: Mark a lead as approved/unapproved for outbound (fields: leadId, approved). May send outbound if triggers are ON_APPROVE.",
+    "- lead_scraping.outbound.send: Send outbound to a lead using current Lead Scraping outbound settings (fields: leadId)",
+    "- lead_scraping.outbound.ai.draft_template: Draft Lead Scraping outbound template copy with AI (fields: kind=SMS|EMAIL, prompt?, existingSubject?, existingBody?)",
     "- notifications.recipients.list: List notification recipient contacts for the portal account",
     "- webhooks.get: Get canonical webhook URLs (Twilio inbound/status callback + legacy tokens)",
     "- bug_report.submit: Submit a bug report to the team (fields: message, url?, area?, meta?)",
@@ -2552,6 +3085,7 @@ export function portalAgentActionsIndexText(): string {
     "- people.users.update: Update a team member role/permissions (fields: userId, role?, permissions?)",
     "- people.users.delete: Remove a team member (fields: userId)",
     "- people.leads.update: Update a lead (fields: leadId, businessName?, email?, phone?, website?, contactId?)",
+    "- people.contacts.import: Import contacts from CSV text (fields: csvText, allowDuplicates?, tags?, mapping?)",
     "- people.contacts.custom_variable_keys.get: List existing contact custom variable keys",
     "- people.contacts.duplicates.get: List duplicate contact groups (fields: limitGroups?, summaryOnly?)",
     "- people.contacts.merge: Merge duplicate contacts (fields: primaryContactId, mergeContactIds, primaryEmail?)",
@@ -2560,6 +3094,7 @@ export function portalAgentActionsIndexText(): string {
     "- inbox.thread.messages.list: Load messages for a thread (fields: threadId, take?)",
     "- inbox.thread.contact.set: Set/link the contact for an inbox thread (fields: threadId, name, email?, phone?)",
     "- inbox.scheduled.update: Reschedule a pending scheduled inbox message (fields: scheduledId, scheduledFor)",
+    "- inbox.attachments.upload: Upload one or more inbox attachments (fields: files[{fileName,mimeType?,contentBase64}])",
     "- inbox.attachments.create_from_media: Create an inbox attachment from a Media Library item (fields: mediaItemId)",
     "- inbox.attachments.delete: Delete an unsent inbox attachment (fields: id)",
     "- inbox.settings.get: Get inbox settings (mailbox + webhook URLs)",
@@ -2653,6 +3188,9 @@ export function portalAgentActionsIndexText(): string {
     "- ai_outbound_calls.manual_calls.refresh: Refresh a manual call record (fetch transcript/recording if available) (fields: id)",
     "- ai_outbound_calls.recordings.get: Fetch a manual-call recording audio (base64; size-limited) (fields: recordingSid, asBase64?, maxBytes?)",
     "- ai_receptionist.settings.get: Get AI receptionist settings and recent call events",
+    "- ai_receptionist.settings.update: Update AI receptionist settings or regenerate webhook token (fields: settings? OR regenerateToken=true, syncChatAgent?)",
+    "- ai_receptionist.events.refresh: Refresh/reconcile a call event (fields: callSid)",
+    "- ai_receptionist.events.delete: Delete a call event (fields: callSid)",
     "- ai_receptionist.recordings.get: Get a link to an AI receptionist call recording audio stream (fields: recordingSid)",
     "- ai_receptionist.recordings.demo.get: Get a demo AI receptionist recording audio link (fields: id)",
     "- ai_receptionist.demo_audio.get: Get a demo AI receptionist audio link (fields: id)",
