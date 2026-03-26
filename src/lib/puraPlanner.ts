@@ -53,9 +53,16 @@ export const PlannerOutputSchema = z
 export type PuraPlanStep = z.infer<typeof StepSchema>;
 export type PuraPlan = z.infer<typeof PlannerOutputSchema>;
 
-function shouldPlan(textRaw: string): boolean {
+function shouldPlan(textRaw: string, threadContext?: unknown): boolean {
   const t = String(textRaw || "").trim();
   if (!t) return false;
+
+  // If we're in a follow-up to a clarifying question, treat the reply as actionable.
+  const pendingPlan =
+    threadContext && typeof threadContext === "object" && !Array.isArray(threadContext)
+      ? (threadContext as any).pendingPlan
+      : null;
+  if (pendingPlan && /@|\+?\d[\d\s().-]{7,}|\b(id|email|phone)\b/i.test(t)) return true;
 
   // If it looks like a direct request, plan.
   if (/(^|\b)(create|make|build|generate|run|start|trigger|send|add|remove|update|edit|fix|tag|untag|label|replace|swap|use)\b/i.test(t)) {
@@ -68,6 +75,36 @@ function shouldPlan(textRaw: string): boolean {
   return false;
 }
 
+async function tryRepairPlannerJson(raw: string): Promise<unknown | null> {
+  const text = String(raw || "").trim();
+  if (!text) return null;
+
+  const system = [
+    "You repair JSON output for a strict schema.",
+    "Return JSON only (no markdown).",
+    "Do not add commentary.",
+    "Ensure the output matches this schema exactly:",
+    "{",
+    "  \"mode\": \"execute\"|\"clarify\"|\"explain\"|\"noop\",",
+    "  \"workTitle\"?: string,",
+    "  \"steps\": [{ \"key\": actionKey, \"title\": string, \"args\": object, \"openUrl\"?: string }],",
+    "  \"clarifyingQuestion\"?: string,",
+    "  \"explanation\"?: string",
+    "}",
+    "If the input contains extra text, extract and fix the JSON object.",
+    "If the input cannot be repaired, output {\"mode\":\"noop\",\"steps\":[] }",
+  ].join("\n");
+
+  const user = ["Input:", text, "\nRepaired JSON:"].join("\n");
+
+  try {
+    const repairedRaw = await generateText({ system, user });
+    return extractJsonObject(repairedRaw);
+  } catch {
+    return null;
+  }
+}
+
 export async function planPuraActions(opts: {
   text: string;
   url?: string;
@@ -75,7 +112,7 @@ export async function planPuraActions(opts: {
   threadContext?: unknown;
 }): Promise<PuraPlan | null> {
   const text = String(opts.text || "").trim();
-  if (!shouldPlan(text)) return null;
+  if (!shouldPlan(text, opts.threadContext)) return null;
 
   const convo = (opts.recentMessages || [])
     .slice(-10)
@@ -124,9 +161,19 @@ export async function planPuraActions(opts: {
 
   try {
     const raw = await generateText({ system, user });
-    const obj = extractJsonObject(raw);
-    const parsed = PlannerOutputSchema.safeParse(obj);
-    if (!parsed.success) return null;
+    let obj: unknown = null;
+    try {
+      obj = extractJsonObject(raw);
+    } catch {
+      obj = null;
+    }
+
+    let parsed = PlannerOutputSchema.safeParse(obj);
+    if (!parsed.success) {
+      const repaired = await tryRepairPlannerJson(raw);
+      parsed = PlannerOutputSchema.safeParse(repaired);
+      if (!parsed.success) return null;
+    }
 
     // Defense-in-depth.
     const steps = (parsed.data.steps || []).filter((s) => !String(s.key).startsWith("ai_chat."));

@@ -138,6 +138,7 @@ export async function resolvePlanArgs(opts: {
   ownerId: string;
   stepKey: string;
   args: Record<string, unknown>;
+  userHint?: string;
 }): Promise<ResolveResult> {
   const ownerId = String(opts.ownerId);
   let resolvedContact: { id: string; name: string } | null = null;
@@ -150,7 +151,9 @@ export async function resolvePlanArgs(opts: {
   });
 
   if (contactRefs.length) {
-    const hint = String(contactRefs[0].hint || "").trim();
+    const baseHint = String(contactRefs[0].hint || "").trim();
+    const extra = String(opts.userHint || "").trim();
+    const hint = extra && baseHint ? `${baseHint}\n${extra}` : extra || baseHint;
     const rc = await resolveContactId({ ownerId, hint });
     if (rc.kind === "ok") resolvedContact = { id: rc.contactId, name: rc.contactName };
     else return { ok: false, clarifyQuestion: rc.question };

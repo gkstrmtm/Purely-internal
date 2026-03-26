@@ -127,11 +127,13 @@ function MessageBubble({
   assistantVariant,
   onRunAction,
   runningActionKey,
+  onOpenLink,
 }: {
   msg: Message;
   assistantVariant?: "light" | "dark";
   onRunAction?: (action: AssistantAction) => void;
   runningActionKey?: string | null;
+  onOpenLink?: (href: string) => void;
 }) {
   const isUser = msg.role === "user";
   const isThinking = msg.id.startsWith("optimistic-assistant-") && msg.role === "assistant";
@@ -166,6 +168,14 @@ function MessageBubble({
                     target={external ? "_blank" : undefined}
                     rel={external ? "noreferrer noopener" : undefined}
                     className="font-semibold underline underline-offset-2 text-brand-blue"
+                    onClick={(e) => {
+                      if (external) return;
+                      if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+                      if (!safe.startsWith("/")) return;
+                      if (!onOpenLink) return;
+                      e.preventDefault();
+                      onOpenLink(safe);
+                    }}
                   >
                     {children}
                   </a>
@@ -683,6 +693,16 @@ export function PortalAiChatClient() {
     [askConfirm, executeAgentAction, loadThreads, runningActionKey, toast],
   );
 
+  const openInCanvas = useCallback(
+    (href: string) => {
+      const safe = safeHref(href);
+      if (!safe || !safe.startsWith("/")) return;
+      setCanvasUrl(safe);
+      setCanvasModalOpen(true);
+    },
+    [],
+  );
+
   const left = (
     <div className="flex h-full flex-col overflow-hidden">
       <div className="shrink-0 px-3 pb-2 pt-3">
@@ -990,6 +1010,7 @@ export function PortalAiChatClient() {
                     assistantVariant={variant}
                     onRunAction={(a) => void runAssistantAction(a)}
                     runningActionKey={runningActionKey}
+                      onOpenLink={openInCanvas}
                   />
                     );
                   });

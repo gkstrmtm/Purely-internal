@@ -1385,12 +1385,23 @@ export async function POST(req: Request, ctx: { params: Promise<{ threadId: stri
   // This runs before the legacy action-proposal flow, and it executes immediately for imperative requests.
   if (isPortalSupportChatConfigured()) {
     try {
-      const plan = await planPuraActions({
-        text: cleanText,
-        url: parsed.data.url,
-        recentMessages,
-        threadContext: (thread as any).contextJson ?? null,
-      });
+      const threadContext = (thread as any).contextJson ?? null;
+      const pendingPlan =
+        threadContext && typeof threadContext === "object" && !Array.isArray(threadContext)
+          ? (threadContext as any).pendingPlan
+          : null;
+
+      // If we previously asked a clarifying question, treat the user's reply as completing that plan.
+      const isLikelyFollowUpAnswer = Boolean(pendingPlan) && !shouldAutoExecuteFromUserText(cleanText);
+
+      const plan = isLikelyFollowUpAnswer
+        ? (pendingPlan as any)
+        : await planPuraActions({
+            text: cleanText,
+            url: parsed.data.url,
+            recentMessages,
+            threadContext,
+          });
 
       if (plan?.mode === "clarify" && plan.clarifyingQuestion) {
         const assistantMsg = await (prisma as any).portalAiChatMessage.create({
@@ -1457,7 +1468,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ threadId: stri
 
         for (const step of plan.steps.slice(0, 6)) {
           const argsRaw = step.args && typeof step.args === "object" && !Array.isArray(step.args) ? (step.args as Record<string, unknown>) : {};
-          const resolved = await resolvePlanArgs({ ownerId, stepKey: step.key, args: argsRaw });
+          const resolved = await resolvePlanArgs({ ownerId, stepKey: step.key, args: argsRaw, userHint: cleanText });
           if (!resolved.ok) {
             const assistantMsg = await (prisma as any).portalAiChatMessage.create({
               data: {
@@ -1481,7 +1492,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ threadId: stri
               },
             });
 
-            const prevCtx = (thread as any).contextJson;
+            const prevCtx = threadContext;
             const nextCtx = prevCtx && typeof prevCtx === "object" && !Array.isArray(prevCtx)
               ? { ...(prevCtx as any), pendingPlan: plan }
               : { pendingPlan: plan };
@@ -1546,11 +1557,30 @@ export async function POST(req: Request, ctx: { params: Promise<{ threadId: stri
           },
         });
 
-        const prevCtx = (thread as any).contextJson;
+        const prevCtx = threadContext;
         const mergedPatch = Object.assign({}, ...contextPatches.filter(Boolean));
+
+        const runTrace = {
+          at: now.toISOString(),
+          workTitle: plan.workTitle ?? null,
+          steps: resolvedSteps.map((s, idx) => ({
+            key: s.key,
+            title: s.title,
+            ok: Boolean(results[idx]?.ok),
+            linkUrl: results[idx]?.linkUrl ?? null,
+          })),
+          canvasUrl,
+        };
+
+        const prevRuns =
+          prevCtx && typeof prevCtx === "object" && !Array.isArray(prevCtx) && Array.isArray((prevCtx as any).runs)
+            ? ((prevCtx as any).runs as unknown[])
+            : [];
+        const runs = [...prevRuns.slice(-19), runTrace];
+
         const nextCtx = prevCtx && typeof prevCtx === "object" && !Array.isArray(prevCtx)
-          ? { ...(prevCtx as any), ...mergedPatch, lastWorkTitle: plan.workTitle ?? null, lastCanvasUrl: canvasUrl, pendingPlan: null }
-          : { ...mergedPatch, lastWorkTitle: plan.workTitle ?? null, lastCanvasUrl: canvasUrl, pendingPlan: null };
+          ? { ...(prevCtx as any), ...mergedPatch, lastWorkTitle: plan.workTitle ?? null, lastCanvasUrl: canvasUrl, pendingPlan: null, runs }
+          : { ...mergedPatch, lastWorkTitle: plan.workTitle ?? null, lastCanvasUrl: canvasUrl, pendingPlan: null, runs };
 
         await (prisma as any).portalAiChatThread.update({ where: { id: threadId }, data: { lastMessageAt: now, contextJson: nextCtx } });
 
