@@ -1969,13 +1969,21 @@ async function resolveFunnelPageId(opts: {
   const lastPageId = lastObj ? String((lastObj as any).id || "").trim() : "";
   const lastFunnelId = lastObj ? String((lastObj as any).funnelId || "").trim() : "";
   const funnelIdHint = opts.funnelIdHint ? String(opts.funnelIdHint).trim() : "";
+
+  const refersToJustMadeOrSameOne =
+    /\b(same\s+one|same\s+page|the\s+same\s+one|the\s+same\s+page|the\s+one\s+we\s+just\s+(made|created|built)|the\s+page\s+we\s+just\s+(made|created|built)|we\s+just\s+(made|created|built)|just\s+(made|created|built))\b/i.test(
+      hint,
+    );
   if ((!hint || /\b(last|latest|recent)\b/i.test(hint)) && lastPageId && (!funnelIdHint || funnelIdHint === lastFunnelId)) {
     return { kind: "ok", pageId: lastPageId.slice(0, 120), label: "Last page", funnelId: funnelIdHint || lastFunnelId };
   }
 
   // If the user says things like "add it to that page" or "the new one", prefer the last page in context.
   // This avoids repeatedly asking which page to use after we just created/edited one.
-  const refersToCurrentOrNew = /\b(it|that|this|the\s+page|this\s+page|that\s+page|new\s+one|the\s+new\s+one|new\s+page)\b/i.test(hint);
+  const refersToCurrentOrNew =
+    /\b(it|that|this|the\s+page|this\s+page|that\s+page|new\s+one|the\s+new\s+one|new\s+page|same\s+one|same\s+page)\b/i.test(
+      hint,
+    ) || refersToJustMadeOrSameOne;
   if (refersToCurrentOrNew && lastPageId && (!funnelIdHint || funnelIdHint === lastFunnelId)) {
     return { kind: "ok", pageId: lastPageId.slice(0, 120), label: "Current page", funnelId: funnelIdHint || lastFunnelId };
   }
@@ -1983,6 +1991,27 @@ async function resolveFunnelPageId(opts: {
   const funnelId = funnelIdHint || lastFunnelId || getLastEntityId(opts.threadContext, "lastFunnel") || "";
   if (!funnelId) {
     return { kind: "clarify", question: "Which funnel should I pull the page from? Open the funnel first (or tell me the funnel name)." };
+  }
+
+  // If we don't have a last page in context but the user refers to "the same one we just made",
+  // prefer the most recently updated page in that funnel.
+  if (refersToJustMadeOrSameOne && !lastPageId) {
+    const recent = await prisma.creditFunnelPage
+      .findFirst({
+        where: { funnelId },
+        orderBy: [{ updatedAt: "desc" }, { createdAt: "desc" }, { id: "desc" }],
+        select: { id: true, slug: true, title: true },
+      })
+      .catch(() => null as any);
+
+    if (recent?.id) {
+      return {
+        kind: "ok",
+        pageId: String(recent.id).slice(0, 120),
+        label: String(recent.title || recent.slug || "Recent page"),
+        funnelId,
+      };
+    }
   }
 
   // If the user explicitly wants a new page, don't loop on selecting an existing page.

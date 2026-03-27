@@ -239,7 +239,10 @@ type LeadScrapingOutboundSettingsV3 = {
       trigger: "MANUAL" | "ON_SCRAPE" | "ON_APPROVE";
       script?: string;
     };
-    resources: Array<{ label: string; url: string }>;
+    resources: Array<{
+      label: string;
+      url: string;
+    }>;
   };
   outboundState: {
     approvedAtByLeadId: Record<string, string>;
@@ -23881,6 +23884,43 @@ export async function executePortalAgentActionForThread(opts: {
     linkUrl,
     assistantChoices: null,
   };
+}
+
+function deriveThreadContextPatchFromAction(action: PortalAgentActionKey, args: Record<string, unknown>, json: any): Record<string, unknown> | null {
+  try {
+    if (!json || typeof json !== "object") return null;
+    if ((json as any).ok !== true) return null;
+
+    // Persist the “current page” after create/update/generate so follow-up commands like
+    // “add my calendar to the same one we just made” don’t require another page selection.
+    if (action === "funnel_builder.pages.create" && (json as any).page?.id) {
+      const page = (json as any).page;
+      const funnelId = String(page?.funnelId || (args as any)?.funnelId || "").trim();
+      const pageId = String(page?.id || "").trim();
+      if (funnelId && pageId) {
+        const label = String(page?.title || page?.slug || "Page").trim().slice(0, 120) || "Page";
+        return { lastFunnelPage: { id: pageId, label, funnelId } };
+      }
+    }
+
+    if (
+      (action === "funnel_builder.pages.update" ||
+        action === "funnel_builder.pages.generate_html" ||
+        action === "funnel_builder.pages.export_custom_html") &&
+      ((json as any).page?.id || (args as any)?.pageId)
+    ) {
+      const funnelId = String((args as any)?.funnelId || "").trim();
+      const pageId = String((json as any).page?.id || (args as any)?.pageId || "").trim();
+      if (funnelId && pageId) {
+        const label = String((json as any).page?.title || (json as any).page?.slug || "Page").trim().slice(0, 120) || "Page";
+        return { lastFunnelPage: { id: pageId, label, funnelId } };
+      }
+    }
+  } catch {
+    // best-effort only
+  }
+
+  return null;
 }
 
 export async function executePortalAgentAction(opts: {

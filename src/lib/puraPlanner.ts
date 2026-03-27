@@ -130,6 +130,11 @@ export async function planPuraActions(opts: {
   const text = String(opts.text || "").trim();
   if (!shouldPlan(text, opts.threadContext)) return null;
 
+  const threadSummary =
+    opts.threadContext && typeof opts.threadContext === "object" && !Array.isArray(opts.threadContext) && typeof (opts.threadContext as any).threadSummary === "string"
+      ? String((opts.threadContext as any).threadSummary || "").trim().slice(0, 1200)
+      : "";
+
   const convo = (opts.recentMessages || [])
     .slice(-10)
     .map((m) => `${m.role === "assistant" ? "Assistant" : "User"}: ${String(m.text || "").slice(0, 800)}`)
@@ -193,6 +198,8 @@ export async function planPuraActions(opts: {
   const user = [
     "Conversation (most recent last):",
     convo || "(none)",
+    "\nThread summary (rolling, may include older context):",
+    threadSummary || "(none)",
     "\nThread context JSON (may help with follow-ups):",
     JSON.stringify(opts.threadContext ?? null).slice(0, 4000),
     "\nCurrent page URL:",

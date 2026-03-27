@@ -162,6 +162,77 @@ function extractFirstEmailLike(textRaw: string): string | null {
   return m?.[1] ? String(m[1]).trim().slice(0, 140) : null;
 }
 
+async function maybeUpdateThreadSummary(opts: {
+  ownerId: string;
+  threadId: string;
+  threadContext: unknown;
+  recentMessages: Array<{ role: "user" | "assistant"; text: string }>;
+  latestUserText: string;
+}): Promise<unknown> {
+  const latest = String(opts.latestUserText || "").trim();
+  if (!latest) return opts.threadContext;
+
+  const prevCtx = opts.threadContext && typeof opts.threadContext === "object" && !Array.isArray(opts.threadContext)
+    ? (opts.threadContext as any)
+    : {};
+
+  const prevSummary = typeof prevCtx.threadSummary === "string" ? String(prevCtx.threadSummary).trim() : "";
+  const prevUpdatedAtRaw = typeof prevCtx.threadSummaryUpdatedAt === "string" ? String(prevCtx.threadSummaryUpdatedAt).trim() : "";
+  const prevUpdatedAtMs = prevUpdatedAtRaw ? Date.parse(prevUpdatedAtRaw) : 0;
+
+  // Avoid multiple summary writes inside the same fast interaction.
+  if (prevUpdatedAtMs && Number.isFinite(prevUpdatedAtMs)) {
+    const ageMs = Date.now() - prevUpdatedAtMs;
+    if (ageMs >= 0 && ageMs < 10_000) return prevCtx;
+  }
+
+  const transcript = [...(opts.recentMessages || []).slice(-20), { role: "user" as const, text: latest }]
+    .map((m) => `${m.role === "assistant" ? "Assistant" : "User"}: ${String(m.text || "").replace(/[\r\n\t]+/g, " ").slice(0, 800)}`)
+    .join("\n");
+
+  const system = [
+    "You write a compact running summary for a support/agent chat thread.",
+    "Goal: preserve full conversation context for future tool execution.",
+    "Constraints:",
+    "- Output plain text only.",
+    "- Keep it under 1,200 characters.",
+    "- Include: user intent, latest decisions, current targets (e.g. funnel/page), and any created entities.",
+    "- If the user refers to 'the same one we just made', capture which entity that is.",
+    "- Do not include IDs unless they were explicitly provided.",
+  ].join("\n");
+
+  const user = [
+    "Previous summary:",
+    prevSummary || "(none)",
+    "\nRecent conversation:",
+    transcript || "(none)",
+    "\nUpdated summary:",
+  ].join("\n");
+
+  try {
+    const raw = await generateText({ system, user });
+    const nextSummary = String(raw || "")
+      .trim()
+      .replace(/[\r\n\t]+/g, " ")
+      .replace(/\s+/g, " ")
+      .slice(0, 1200)
+      .trim();
+
+    if (!nextSummary) return prevCtx;
+
+    const nextCtx = {
+      ...prevCtx,
+      threadSummary: nextSummary,
+      threadSummaryUpdatedAt: new Date().toISOString(),
+    };
+
+    await (prisma as any).portalAiChatThread.update({ where: { id: opts.threadId }, data: { contextJson: nextCtx } });
+    return nextCtx;
+  } catch {
+    return prevCtx;
+  }
+}
+
 function cleanShortLabel(v: string, max = 80) {
   return String(v || "")
     .trim()
@@ -1574,6 +1645,15 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
     try {
       let threadContext = (thread as any).contextJson ?? null;
 
+      // Maintain a rolling summary in contextJson so the model effectively has “full thread context” every turn.
+      threadContext = await maybeUpdateThreadSummary({
+        ownerId,
+        threadId,
+        threadContext,
+        recentMessages,
+        latestUserText: effectiveText,
+      });
+
       // Apply structured choice selections to thread context for the next resolution pass.
       if (choice && typeof choice === "object") {
         try {
@@ -1688,7 +1768,7 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
           },
         });
 
-        const prevCtx = (thread as any).contextJson;
+        const prevCtx = threadContext;
         const nextCtx = prevCtx && typeof prevCtx === "object" && !Array.isArray(prevCtx)
           ? { ...(prevCtx as any), pendingPlan: plan }
           : { pendingPlan: plan };
