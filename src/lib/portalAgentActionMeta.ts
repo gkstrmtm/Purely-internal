@@ -166,7 +166,13 @@ export function portalCanvasUrlForAction(action: PortalAgentActionKey, args?: Re
     if (formId) return `/portal/app/services/funnel-builder/forms/${encodeURIComponent(formId)}/edit`;
 
     const funnelId = pickStringArg(safeArgs, "funnelId");
-    if (funnelId) return `/portal/app/services/funnel-builder/funnels/${encodeURIComponent(funnelId)}/edit`;
+    const pageId = pickStringArg(safeArgs, "pageId");
+    if (funnelId) {
+      const sp = new URLSearchParams();
+      if (pageId) sp.set("pageId", pageId);
+      const qs = sp.toString();
+      return `/portal/app/services/funnel-builder/funnels/${encodeURIComponent(funnelId)}/edit${qs ? `?${qs}` : ""}`;
+    }
 
     return "/portal/app/services/funnel-builder";
   }

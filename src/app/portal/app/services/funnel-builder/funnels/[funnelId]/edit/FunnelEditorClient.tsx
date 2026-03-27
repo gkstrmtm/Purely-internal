@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import type { PutBlobResult } from "@vercel/blob";
@@ -2481,7 +2481,15 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
 
 export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; funnelId: string }) {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const toast = useToast();
+
+  const initialPageIdFromUrlRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (initialPageIdFromUrlRef.current !== null) return;
+    const pid = String(searchParams?.get("pageId") || "").trim();
+    initialPageIdFromUrlRef.current = pid ? pid.slice(0, 120) : null;
+  }, [searchParams]);
 
   type StripeProductLite = {
     id: string;
@@ -3459,7 +3467,12 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
     const nextPages = Array.isArray(pJson.pages) ? (pJson.pages as Page[]) : [];
     setPages(nextPages);
     setDirtyPageIds({});
-    setSelectedPageId((prev) => prev || nextPages[0]?.id || null);
+    const preferredFromUrl = (() => {
+      const pid = initialPageIdFromUrlRef.current;
+      if (!pid) return null;
+      return nextPages.some((p) => String((p as any)?.id || "").trim() === pid) ? pid : null;
+    })();
+    setSelectedPageId((prev) => prev || preferredFromUrl || nextPages[0]?.id || null);
 
     if (formsRes && formsRes.ok && formsJson?.ok === true) {
       setForms(Array.isArray(formsJson.forms) ? (formsJson.forms as CreditForm[]) : []);

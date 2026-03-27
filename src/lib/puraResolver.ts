@@ -1973,6 +1973,13 @@ async function resolveFunnelPageId(opts: {
     return { kind: "ok", pageId: lastPageId.slice(0, 120), label: "Last page", funnelId: funnelIdHint || lastFunnelId };
   }
 
+  // If the user says things like "add it to that page" or "the new one", prefer the last page in context.
+  // This avoids repeatedly asking which page to use after we just created/edited one.
+  const refersToCurrentOrNew = /\b(it|that|this|the\s+page|this\s+page|that\s+page|new\s+one|the\s+new\s+one|new\s+page)\b/i.test(hint);
+  if (refersToCurrentOrNew && lastPageId && (!funnelIdHint || funnelIdHint === lastFunnelId)) {
+    return { kind: "ok", pageId: lastPageId.slice(0, 120), label: "Current page", funnelId: funnelIdHint || lastFunnelId };
+  }
+
   const funnelId = funnelIdHint || lastFunnelId || getLastEntityId(opts.threadContext, "lastFunnel") || "";
   if (!funnelId) {
     return { kind: "clarify", question: "Which funnel should I pull the page from? Open the funnel first (or tell me the funnel name)." };
@@ -2007,10 +2014,15 @@ async function resolveFunnelPageId(opts: {
     return { kind: "ok", pageId: String(r.id), label: String(r.title || r.slug || "Page"), funnelId };
   }
 
-  // If the user says "any" / "doesn't matter", auto-pick the first match.
-  if (hintMeansAny(hint) && filtered.length) {
-    const r = filtered[0];
-    return { kind: "ok", pageId: String(r.id), label: String(r.title || r.slug || "Page"), funnelId };
+  // If the user says "any" / "doesn't matter", prefer the current page in context when possible.
+  if (hintMeansAny(hint)) {
+    if (lastPageId && (!funnelIdHint || funnelIdHint === lastFunnelId)) {
+      return { kind: "ok", pageId: lastPageId.slice(0, 120), label: "Current page", funnelId: funnelIdHint || lastFunnelId || funnelId };
+    }
+    if (filtered.length) {
+      const r = filtered[0];
+      return { kind: "ok", pageId: String(r.id), label: String(r.title || r.slug || "Page"), funnelId };
+    }
   }
 
   const choices: AssistantChoice[] = filtered
@@ -2383,10 +2395,11 @@ export async function resolvePlanArgs(opts: {
 
       const rc = await resolveBookingCalendarId({ ownerId, hint: hinted });
       if (rc.kind === "clarify") return { ok: false, clarifyQuestion: rc.question, choices: rc.choices };
-      if (rc.kind === "not_found") return { ok: false, clarifyQuestion: rc.question, choices: rc.choices };
-
-      args = { ...args, calendarId: rc.calendarId };
-      if (overrideCalendarId) clearBookingCalendarChoiceOverride();
+      // If no calendars exist, let the action executor handle it (it can prompt or create defaults with credits).
+      if (rc.kind === "ok") {
+        args = { ...args, calendarId: rc.calendarId };
+        if (overrideCalendarId) clearBookingCalendarChoiceOverride();
+      }
     }
   }
 

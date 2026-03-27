@@ -3032,8 +3032,44 @@ async function runDirectAction(opts: {
       const pagesForHeader = await prisma.creditFunnelPage.findMany({ where: { funnelId }, select: { blocksJson: true } });
       const globalHeaderBlock = getGlobalHeaderBlockFromPages(pagesForHeader);
 
-      const slugRaw = typeof args?.slug === "string" ? args.slug.trim().toLowerCase() : "";
-      const title = typeof args?.title === "string" ? args.title.trim() : "";
+      const isNoPrefText = (raw: string) => {
+        const s = String(raw || "")
+          .trim()
+          .toLowerCase();
+        if (!s) return true;
+        if (
+          s === "anything" ||
+          s === "any" ||
+          s === "whatever" ||
+          s === "either" ||
+          s === "doesn't matter" ||
+          s === "doesnt matter" ||
+          s === "does not matter" ||
+          s === "no preference" ||
+          s === "no pref" ||
+          s === "you pick" ||
+          s === "pick one" ||
+          s === "choose for me"
+        ) {
+          return true;
+        }
+        return (
+          s.includes("doesn't matter") ||
+          s.includes("doesnt matter") ||
+          s.includes("does not matter") ||
+          s.includes("no preference") ||
+          s.includes("you pick") ||
+          s.includes("choose for me")
+        );
+      };
+
+      const slugRawInput = typeof args?.slug === "string" ? args.slug.trim().toLowerCase() : "";
+      const titleRawInput = typeof args?.title === "string" ? args.title.trim() : "";
+
+      const titleClean = isNoPrefText(titleRawInput) ? "" : titleRawInput;
+      const autoSlugSeed = `page-${Date.now().toString(36).slice(-6)}-${Math.random().toString(36).slice(2, 5)}`;
+      const slugSeed = isNoPrefText(slugRawInput) ? "" : slugRawInput;
+      const slugRaw = (slugSeed || titleClean || autoSlugSeed).trim().toLowerCase();
       const contentMarkdown = typeof args?.contentMarkdown === "string" ? args.contentMarkdown : "";
       const sortOrder = Number.isFinite(Number(args?.sortOrder)) ? Number(args.sortOrder) : 0;
 
@@ -3044,11 +3080,13 @@ async function runDirectAction(opts: {
         .slice(0, 64);
       if (!normalizedSlug) return { status: 400, json: { ok: false, error: "Slug is required" } };
 
+      const finalTitle = titleClean || "New Page";
+
       const page = await prisma.creditFunnelPage.create({
         data: {
           funnelId,
           slug: normalizedSlug,
-          title: title || normalizedSlug,
+          title: finalTitle,
           contentMarkdown,
           sortOrder,
           ...(globalHeaderBlock ? { blocksJson: [globalHeaderBlock] as any } : {}),
@@ -3726,16 +3764,53 @@ async function runDirectAction(opts: {
       const intent = detectInteractiveIntent(prompt);
       if (intent.any) {
         const bookingCalendars = await getBookingCalendarsConfig(ownerId).catch(() => ({ version: 1 as const, calendars: [] as any[] }));
-        const enabledCalendars = Array.isArray((bookingCalendars as any).calendars)
-          ? (bookingCalendars as any).calendars.filter((c: any) => c && typeof c === "object" && (c as any).enabled !== false)
+        const allCalendars = Array.isArray((bookingCalendars as any).calendars)
+          ? (bookingCalendars as any).calendars.filter((c: any) => c && typeof c === "object")
           : [];
+        let enabledCalendars = allCalendars.filter((c: any) => (c as any).enabled !== false);
         const requestedCalendarId = typeof args?.calendarId === "string" ? String(args.calendarId).trim().slice(0, 80) : "";
-        const calendarId =
+        let calendarId =
           requestedCalendarId && enabledCalendars.some((c: any) => String(c?.id || "").trim() === requestedCalendarId)
             ? requestedCalendarId
             : enabledCalendars[0]?.id
               ? String(enabledCalendars[0].id).trim().slice(0, 50)
               : "";
+
+        // If the user asked for a calendar block but none are configured/enabled, do the sensible thing:
+        // enable the first existing calendar, or create a default one (charging the normal booking calendar credit).
+        if (intent.wantsCalendar && !calendarId) {
+          try {
+            if (allCalendars.length > 0) {
+              const next = {
+                version: 1 as const,
+                calendars: allCalendars.map((c: any, idx: number) => ({ ...c, enabled: idx === 0 ? true : (c as any).enabled !== false })),
+              };
+              const saved = await setBookingCalendarsConfig(ownerId, next as any).catch(() => null);
+              if (saved && Array.isArray((saved as any).calendars)) {
+                enabledCalendars = (saved as any).calendars.filter((c: any) => c && typeof c === "object" && (c as any).enabled !== false);
+                calendarId = enabledCalendars[0]?.id ? String(enabledCalendars[0].id).trim().slice(0, 50) : "";
+              }
+            } else {
+              const needCredits = PORTAL_CREDIT_COSTS.bookingCalendarCreate;
+              const charged = await consumeCredits(ownerId, needCredits);
+              if (charged.ok) {
+                const existingIds = new Set(allCalendars.map((c: any) => String(c?.id || "").trim()).filter(Boolean));
+                let id = "appointments";
+                if (existingIds.has(id)) id = `appointments-${Date.now().toString(36).slice(-4)}`;
+                const created = await setBookingCalendarsConfig(ownerId, {
+                  version: 1,
+                  calendars: [{ id, enabled: true, title: "Appointments", description: "Default booking calendar" }],
+                } as any).catch(() => null);
+                if (created && Array.isArray((created as any).calendars)) {
+                  enabledCalendars = (created as any).calendars.filter((c: any) => c && typeof c === "object" && (c as any).enabled !== false);
+                  calendarId = enabledCalendars[0]?.id ? String(enabledCalendars[0].id).trim().slice(0, 50) : "";
+                }
+              }
+            }
+          } catch {
+            // ignore and fall back to the missing-calendar question below
+          }
+        }
 
         const agentIds = await getOwnerChatAgentIds(ownerId).catch(() => [] as string[]);
         const chatAgentId = agentIds[0] ? String(agentIds[0]).trim() : "";
@@ -23125,11 +23200,12 @@ function resultMarkdown(
 
   if (action === "funnel_builder.pages.create" && json?.ok && json?.page?.id) {
     const funnelId = String(json?.page?.funnelId || "").trim();
+    const pageId = String(json?.page?.id || "").trim();
     const slug = String(json?.page?.slug || "").trim();
     const title = String(json?.page?.title || "").trim();
 
     const url = funnelId
-      ? `/portal/app/services/funnel-builder/funnels/${encodeURIComponent(funnelId)}/edit`
+      ? `/portal/app/services/funnel-builder/funnels/${encodeURIComponent(funnelId)}/edit${pageId ? `?pageId=${encodeURIComponent(pageId)}` : ""}`
       : "/portal/app/services/funnel-builder";
 
     return {

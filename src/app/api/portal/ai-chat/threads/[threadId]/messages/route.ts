@@ -1618,6 +1618,11 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
           ? (threadContext as any).pendingPlan
           : null;
 
+      const pendingPlanClarify =
+        threadContext && typeof threadContext === "object" && !Array.isArray(threadContext)
+          ? (threadContext as any).pendingPlanClarify
+          : null;
+
       // Any new user message clears stale confirmations.
       if (pendingConfirm && !isConfirmOnly) {
         const prevCtx = threadContext;
@@ -1628,20 +1633,25 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
       }
 
       // Pending plans are only safe to "replay" when the user clicked a structured choice (no new text).
-      // If the user typed a reply (e.g. "make a new page"), ALWAYS re-plan so the model can adjust the steps
-      // and we avoid loops where we keep asking for the same ID.
+      // If the user typed a reply, we usually re-plan so the model can adjust the steps.
+      // BUT: if we previously asked a clarifying question for a pending execute plan, treat the typed reply as an
+      // answer and continue the pending plan; this prevents the agent from switching into "instructions" mode.
       const pendingPlanMode = pendingPlan && typeof pendingPlan === "object" ? String((pendingPlan as any).mode || "") : "";
       const hasNewUserText = Boolean(String(effectiveText || "").trim());
       const didClickChoice = Boolean(choice && typeof choice === "object");
-      const shouldReplayPendingExecutePlan = Boolean(pendingPlan) && pendingPlanMode === "execute" && !hasNewUserText && didClickChoice;
+      const shouldReplayPendingExecutePlan =
+        Boolean(pendingPlan) &&
+        pendingPlanMode === "execute" &&
+        !isConfirmOnly &&
+        (didClickChoice || (hasNewUserText && Boolean(pendingPlanClarify)));
 
       // Clear stale clarify-mode pendingPlan so follow-up replies can progress.
       if (pendingPlan && pendingPlanMode === "clarify" && !isConfirmOnly) {
         const prevCtx = threadContext;
         const nextCtx =
           prevCtx && typeof prevCtx === "object" && !Array.isArray(prevCtx)
-            ? { ...(prevCtx as any), pendingPlan: null }
-            : { pendingPlan: null };
+            ? { ...(prevCtx as any), pendingPlan: null, pendingPlanClarify: null }
+            : { pendingPlan: null, pendingPlanClarify: null };
         await (prisma as any).portalAiChatThread.update({ where: { id: threadId }, data: { contextJson: nextCtx } });
         threadContext = nextCtx;
       }
@@ -1785,8 +1795,8 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
 
             const prevCtx = threadContext;
             const nextCtx = prevCtx && typeof prevCtx === "object" && !Array.isArray(prevCtx)
-              ? { ...(prevCtx as any), pendingPlan: plan }
-              : { pendingPlan: plan };
+              ? { ...(prevCtx as any), pendingPlan: plan, pendingPlanClarify: { at: now.toISOString(), stepKey: step.key, question: clarifyText } }
+              : { pendingPlan: plan, pendingPlanClarify: { at: now.toISOString(), stepKey: step.key, question: clarifyText } };
             await (prisma as any).portalAiChatThread.update({ where: { id: threadId }, data: { lastMessageAt: now, contextJson: nextCtx } });
             return NextResponse.json({
               ok: true,
@@ -1949,8 +1959,8 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
         const runs = [...prevRuns.slice(-19), runTrace];
 
         const nextCtx = prevCtx && typeof prevCtx === "object" && !Array.isArray(prevCtx)
-          ? { ...(prevCtx as any), ...mergedPatch, lastWorkTitle: plan.workTitle ?? null, lastCanvasUrl: canvasUrl, pendingPlan: null, runs }
-          : { ...mergedPatch, lastWorkTitle: plan.workTitle ?? null, lastCanvasUrl: canvasUrl, pendingPlan: null, runs };
+          ? { ...(prevCtx as any), ...mergedPatch, lastWorkTitle: plan.workTitle ?? null, lastCanvasUrl: canvasUrl, pendingPlan: null, pendingPlanClarify: null, runs }
+          : { ...mergedPatch, lastWorkTitle: plan.workTitle ?? null, lastCanvasUrl: canvasUrl, pendingPlan: null, pendingPlanClarify: null, runs };
 
         await (prisma as any).portalAiChatThread.update({ where: { id: threadId }, data: { lastMessageAt: now, contextJson: nextCtx } });
 
