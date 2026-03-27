@@ -2338,6 +2338,20 @@ export async function resolvePlanArgs(opts: {
       return { ok: true, value: rt.threadId };
     }
 
+    if (argKeyLower === "calendarid" || argKeyLower === "bookingcalendarid") {
+      const overrideCalendarId =
+        threadChoiceOverrides && typeof threadChoiceOverrides === "object" && typeof (threadChoiceOverrides as any).bookingCalendarId === "string"
+          ? String((threadChoiceOverrides as any).bookingCalendarId).trim()
+          : "";
+
+      const rc = await resolveBookingCalendarId({ ownerId, hint: overrideCalendarId || hint });
+      if (rc.kind === "clarify") return { ok: false, clarifyQuestion: rc.question, choices: rc.choices };
+      if (rc.kind === "not_found") return { ok: false, clarifyQuestion: rc.question, choices: rc.choices };
+
+      if (overrideCalendarId) clearBookingCalendarChoiceOverride();
+      return { ok: true, value: rc.calendarId };
+    }
+
     if (argKeyLower === "funnelid") {
       if (resolvedFunnel?.id) return { ok: true, value: resolvedFunnel.id };
       const rf = await resolveFunnelId({ ownerId, hint: mergeResolverHint(rawHint), url: opts.url, threadContext: opts.threadContext });

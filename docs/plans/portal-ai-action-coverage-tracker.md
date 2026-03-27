@@ -10,11 +10,14 @@ Conventions:
 ---
 
 ## Calendars
-- Status: Not Started
+- Status: In Progress
 - Expected behavior:
   - List calendars, pick a calendar automatically when the user says “any / doesn’t matter”.
   - Create/update calendar settings.
   - Create appointments and reschedule/cancel.
+
+Updates:
+- 2026-03-27: Calendar selection should never require IDs; “any/doesn’t matter” should auto-pick, otherwise show clickable choices.
 
 ## Booking Automation
 - Status: In Progress
