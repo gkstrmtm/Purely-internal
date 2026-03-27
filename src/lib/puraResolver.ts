@@ -478,7 +478,7 @@ async function resolveInboxThreadId(opts: {
         const subject = String(r?.subject || "(no subject)").slice(0, 120);
         const preview = firstLinePreview(String(r?.lastMessagePreview || ""));
         const when = r?.lastMessageAt instanceof Date ? r.lastMessageAt.toLocaleString() : "";
-        return `- ${subject}${when ? ` (${when})` : ""}${preview ? ` — ${preview}` : ""}`;
+        return `- ${subject}${when ? ` (${when})` : ""}${preview ? ` - ${preview}` : ""}`;
       })
       .join("\n");
     return {
@@ -653,7 +653,7 @@ async function resolveBookingId(opts: {
       .catch(() => null);
     if (row?.id) {
       const when = row.startAt instanceof Date ? row.startAt.toLocaleString() : "";
-      const label = `${String(row.contactName || "Booking").trim() || "Booking"}${when ? ` — ${when}` : ""}`;
+      const label = `${String(row.contactName || "Booking").trim() || "Booking"}${when ? ` - ${when}` : ""}`;
       return { kind: "ok", bookingId: String(row.id), label };
     }
   }
@@ -668,7 +668,7 @@ async function resolveBookingId(opts: {
       .catch(() => null);
     if (row?.id) {
       const when = row.startAt instanceof Date ? row.startAt.toLocaleString() : "";
-      const label = `${String(row.contactName || "Booking").trim() || "Booking"}${when ? ` — ${when}` : ""}`;
+      const label = `${String(row.contactName || "Booking").trim() || "Booking"}${when ? ` - ${when}` : ""}`;
       return { kind: "ok", bookingId: String(row.id), label };
     }
   }
@@ -685,7 +685,7 @@ async function resolveBookingId(opts: {
       .catch(() => null);
     if (row?.id) {
       const when = row.startAt instanceof Date ? row.startAt.toLocaleString() : "";
-      const label = `${String(row.contactName || "Booking").trim() || "Booking"}${when ? ` — ${when}` : ""}`;
+      const label = `${String(row.contactName || "Booking").trim() || "Booking"}${when ? ` - ${when}` : ""}`;
       return { kind: "ok", bookingId: String(row.id), label };
     }
   }
@@ -703,7 +703,7 @@ async function resolveBookingId(opts: {
     if (rows.length === 1) {
       const r = rows[0]!;
       const when = r.startAt instanceof Date ? r.startAt.toLocaleString() : "";
-      const label = `${String(r.contactName || "Booking").trim() || "Booking"}${when ? ` — ${when}` : ""}`;
+      const label = `${String(r.contactName || "Booking").trim() || "Booking"}${when ? ` - ${when}` : ""}`;
       return { kind: "ok", bookingId: String(r.id), label };
     }
     if (rows.length > 1) {
@@ -711,7 +711,7 @@ async function resolveBookingId(opts: {
         .slice(0, 5)
         .map((r) => {
           const when = r.startAt instanceof Date ? r.startAt.toLocaleString() : "";
-          return `- ${String(r.contactName || "Booking").trim() || "Booking"}${when ? ` — ${when}` : ""}`;
+          return `- ${String(r.contactName || "Booking").trim() || "Booking"}${when ? ` - ${when}` : ""}`;
         })
         .join("\n");
       return { kind: "clarify", question: `I found multiple bookings for ${emailLike}. Reply with the date/time you mean, or paste the booking id:\n\n${list}` };
@@ -737,7 +737,7 @@ async function resolveBookingId(opts: {
   if (rows.length === 1) {
     const r = rows[0]!;
     const when = r.startAt instanceof Date ? r.startAt.toLocaleString() : "";
-    const label = `${String(r.contactName || "Booking").trim() || "Booking"}${when ? ` — ${when}` : ""}`;
+    const label = `${String(r.contactName || "Booking").trim() || "Booking"}${when ? ` - ${when}` : ""}`;
     return { kind: "ok", bookingId: String(r.id), label };
   }
   if (rows.length > 1) {
@@ -746,7 +746,7 @@ async function resolveBookingId(opts: {
       .map((r) => {
         const when = r.startAt instanceof Date ? r.startAt.toLocaleString() : "";
         const email = String(r.contactEmail || "").trim();
-        return `- ${String(r.contactName || "Booking").trim() || "Booking"}${when ? ` — ${when}` : ""}${email ? ` (${email})` : ""}`;
+        return `- ${String(r.contactName || "Booking").trim() || "Booking"}${when ? ` - ${when}` : ""}${email ? ` (${email})` : ""}`;
       })
       .join("\n");
     return { kind: "clarify", question: `I found multiple bookings matching “${hint}”. Reply with the customer’s email or the date/time:\n\n${list}` };
@@ -1092,7 +1092,7 @@ async function resolveTaskId(opts: {
       .slice(0, 5)
       .map((r) => {
         const when = r.updatedAt instanceof Date ? r.updatedAt.toLocaleString() : "";
-        return `- [${String(r.status)}] ${String(r.title || "(no title)").trim()}${when ? ` — updated ${when}` : ""}`;
+        return `- [${String(r.status)}] ${String(r.title || "(no title)").trim()}${when ? ` - updated ${when}` : ""}`;
       })
       .join("\n");
     return { kind: "clarify", question: `I found multiple tasks matching “${hint}”. Reply with the exact title you mean, or paste the task id:\n\n${list}` };
@@ -1189,7 +1189,7 @@ async function resolveReviewId(opts: {
       .map((r) => {
         const who = String(r.name || "(no name)").trim();
         const stars = `${Number(r.rating) || 0}★`;
-        const preview = r.body ? ` — “${firstLinePreview(r.body)}”` : "";
+        const preview = r.body ? ` - "${firstLinePreview(r.body)}"` : "";
         return `- ${who} (${stars})${preview} (id: ${String(r.id)})`;
       })
       .join("\n");
@@ -1344,7 +1344,7 @@ async function resolveNurtureCampaignId(opts: {
       .slice(0, 5)
       .map((r) => {
         const when = r.updatedAt instanceof Date ? r.updatedAt.toLocaleString() : "";
-        return `- [${String(r.status)}] ${String(r.name || "(no name)").trim()}${when ? ` — updated ${when}` : ""} (id: ${String(r.id)})`;
+        return `- [${String(r.status)}] ${String(r.name || "(no name)").trim()}${when ? ` - updated ${when}` : ""} (id: ${String(r.id)})`;
       })
       .join("\n");
     return { kind: "clarify", question: `I found multiple nurture campaigns matching “${hint}”. Reply with the campaign id you mean:\n\n${list}` };
@@ -1880,7 +1880,7 @@ async function resolvePortalUserId(opts: {
       const email = String(m?.user?.email || "").trim();
       const name = String(m?.user?.name || "").trim();
       const role = String(m?.role || "").trim();
-      return `- ${name || email || "(unknown)"}${role ? ` (${role})` : ""} — ${String(m.userId).slice(0, 8)}…`;
+      return `- ${name || email || "(unknown)"}${role ? ` (${role})` : ""} - ${String(m.userId).slice(0, 8)}...`;
     })
     .join("\n");
 
@@ -1931,7 +1931,7 @@ async function resolveFunnelFormId(opts: {
 
   const list = filtered
     .slice(0, 6)
-    .map((r: any) => `- ${String(r.name || r.slug || "(unnamed)")} (${String(r.status)}) — ${String(r.id).slice(0, 8)}…`)
+    .map((r: any) => `- ${String(r.name || r.slug || "(unnamed)")} (${String(r.status)}) - ${String(r.id).slice(0, 8)}...`)
     .join("\n");
   return { kind: "clarify", question: `Which form do you mean? Reply with the form id:\n\n${list}` };
 }
@@ -1989,7 +1989,7 @@ async function resolveFunnelPageId(opts: {
 
   const list = filtered
     .slice(0, 8)
-    .map((r: any) => `- ${String(r.title || r.slug || "(untitled)")} [/${String(r.slug)}] — ${String(r.id).slice(0, 8)}…`)
+    .map((r: any) => `- ${String(r.title || r.slug || "(untitled)")} [/${String(r.slug)}] - ${String(r.id).slice(0, 8)}...`)
     .join("\n");
   return { kind: "clarify", question: `Which page do you mean? Reply with the page id:\n\n${list}` };
 }
@@ -2033,7 +2033,7 @@ async function resolveCustomDomainId(opts: {
 
   const list = filtered
     .slice(0, 8)
-    .map((r: any) => `- ${String(r.domain)} (${String(r.status)}) — ${String(r.id).slice(0, 8)}…`)
+    .map((r: any) => `- ${String(r.domain)} (${String(r.status)}) - ${String(r.id).slice(0, 8)}...`)
     .join("\n");
   return { kind: "clarify", question: `Which custom domain do you mean? Reply with the domain id:\n\n${list}` };
 }
@@ -2075,7 +2075,7 @@ async function resolveAiOutboundCallsCampaignId(opts: {
 
   const list = filtered
     .slice(0, 8)
-    .map((r: any) => `- ${String(r.name || "(unnamed)")} (${String(r.status)}) — ${String(r.id).slice(0, 8)}…`)
+    .map((r: any) => `- ${String(r.name || "(unnamed)")} (${String(r.status)}) - ${String(r.id).slice(0, 8)}...`)
     .join("\n");
   return { kind: "clarify", question: `Which AI outbound campaign do you mean? Reply with the campaign id:\n\n${list}` };
 }
@@ -2142,7 +2142,7 @@ export async function resolvePlanArgs(opts: {
     const fallbackHint = String(opts.userHint || "").trim();
     const hint = rawHint || fallbackHint;
 
-    const useResolverHint = (baseHint?: string) => {
+    const mergeResolverHint = (baseHint?: string) => {
       const b = String(baseHint || "").trim();
       if (hint && b) return `${b}\n${hint}`;
       return hint || b;
@@ -2154,7 +2154,7 @@ export async function resolvePlanArgs(opts: {
 
     if (argKeyLower === "contactid" || argKeyLower === "targetcontactid" || argKeyLower === "leadcontactid") {
       if (resolvedContact?.id) return { ok: true, value: resolvedContact.id };
-      const rc = await resolveContactId({ ownerId, hint: useResolverHint(rawHint) });
+      const rc = await resolveContactId({ ownerId, hint: mergeResolverHint(rawHint) });
       if (rc.kind !== "ok") return { ok: false, clarifyQuestion: rc.question };
       resolvedContact = { id: rc.contactId, name: rc.contactName };
       return { ok: true, value: rc.contactId };
@@ -2171,7 +2171,7 @@ export async function resolvePlanArgs(opts: {
 
     if (argKeyLower === "threadid") {
       if (resolvedInboxThread?.id) return { ok: true, value: resolvedInboxThread.id };
-      const rt = await resolveInboxThreadId({ ownerId, hint: useResolverHint(rawHint) });
+      const rt = await resolveInboxThreadId({ ownerId, hint: mergeResolverHint(rawHint) });
       if (rt.kind !== "ok") return { ok: false, clarifyQuestion: rt.question };
       resolvedInboxThread = { id: rt.threadId, channel: rt.channel };
       return { ok: true, value: rt.threadId };
@@ -2179,7 +2179,7 @@ export async function resolvePlanArgs(opts: {
 
     if (argKeyLower === "funnelid") {
       if (resolvedFunnel?.id) return { ok: true, value: resolvedFunnel.id };
-      const rf = await resolveFunnelId({ ownerId, hint: useResolverHint(rawHint), url: opts.url, threadContext: opts.threadContext });
+      const rf = await resolveFunnelId({ ownerId, hint: mergeResolverHint(rawHint), url: opts.url, threadContext: opts.threadContext });
       if (rf.kind !== "ok") return { ok: false, clarifyQuestion: rf.question };
       resolvedFunnel = { id: rf.funnelId, name: rf.funnelName };
       return { ok: true, value: rf.funnelId };
@@ -2187,7 +2187,7 @@ export async function resolvePlanArgs(opts: {
 
     if (argKeyLower === "automationid") {
       if (resolvedAutomation?.id) return { ok: true, value: resolvedAutomation.id };
-      const ra = await resolveAutomationId({ ownerId, hint: useResolverHint(rawHint), url: opts.url, threadContext: opts.threadContext });
+      const ra = await resolveAutomationId({ ownerId, hint: mergeResolverHint(rawHint), url: opts.url, threadContext: opts.threadContext });
       if (ra.kind !== "ok") return { ok: false, clarifyQuestion: ra.question };
       resolvedAutomation = { id: ra.automationId, name: ra.automationName };
       return { ok: true, value: ra.automationId };
@@ -2195,7 +2195,7 @@ export async function resolvePlanArgs(opts: {
 
     if (argKeyLower === "bookingid") {
       if (resolvedBooking?.id) return { ok: true, value: resolvedBooking.id };
-      const rb = await resolveBookingId({ ownerId, hint: useResolverHint(rawHint), url: opts.url, threadContext: opts.threadContext });
+      const rb = await resolveBookingId({ ownerId, hint: mergeResolverHint(rawHint), url: opts.url, threadContext: opts.threadContext });
       if (rb.kind !== "ok") return { ok: false, clarifyQuestion: rb.question };
       resolvedBooking = { id: rb.bookingId, label: rb.label };
       return { ok: true, value: rb.bookingId };
@@ -2203,7 +2203,7 @@ export async function resolvePlanArgs(opts: {
 
     if (argKeyLower === "postid" || argKeyLower === "blogpostid") {
       if (resolvedBlogPost?.id) return { ok: true, value: resolvedBlogPost.id };
-      const rp = await resolveBlogPostId({ ownerId, hint: useResolverHint(rawHint), url: opts.url, threadContext: opts.threadContext });
+      const rp = await resolveBlogPostId({ ownerId, hint: mergeResolverHint(rawHint), url: opts.url, threadContext: opts.threadContext });
       if (rp.kind !== "ok") return { ok: false, clarifyQuestion: rp.question };
       resolvedBlogPost = { id: rp.postId, title: rp.postTitle };
       return { ok: true, value: rp.postId };
@@ -2211,7 +2211,7 @@ export async function resolvePlanArgs(opts: {
 
     if (argKeyLower === "newsletterid" || argKeyLower === "draftid") {
       if (resolvedNewsletter?.id) return { ok: true, value: resolvedNewsletter.id };
-      const rn = await resolveNewsletterId({ ownerId, hint: useResolverHint(rawHint), url: opts.url, threadContext: opts.threadContext });
+      const rn = await resolveNewsletterId({ ownerId, hint: mergeResolverHint(rawHint), url: opts.url, threadContext: opts.threadContext });
       if (rn.kind !== "ok") return { ok: false, clarifyQuestion: rn.question };
       resolvedNewsletter = { id: rn.newsletterId, title: rn.newsletterTitle };
       return { ok: true, value: rn.newsletterId };
@@ -2219,7 +2219,7 @@ export async function resolvePlanArgs(opts: {
 
     if (argKeyLower === "folderid") {
       if (resolvedMediaFolder?.id) return { ok: true, value: resolvedMediaFolder.id };
-      const rf = await resolveMediaFolderId({ ownerId, hint: useResolverHint(rawHint), url: opts.url, threadContext: opts.threadContext });
+      const rf = await resolveMediaFolderId({ ownerId, hint: mergeResolverHint(rawHint), url: opts.url, threadContext: opts.threadContext });
       if (rf.kind !== "ok") return { ok: false, clarifyQuestion: rf.question };
       resolvedMediaFolder = { id: rf.folderId, name: rf.folderName, tag: rf.folderTag };
       return { ok: true, value: rf.folderId };
@@ -2227,7 +2227,7 @@ export async function resolvePlanArgs(opts: {
 
     if (argKeyLower === "mediaitemid" || (argKeyLower === "itemid" && stepKeyLower.startsWith("media."))) {
       if (resolvedMediaItem?.id) return { ok: true, value: resolvedMediaItem.id };
-      const ri = await resolveMediaItemId({ ownerId, hint: useResolverHint(rawHint), url: opts.url, threadContext: opts.threadContext });
+      const ri = await resolveMediaItemId({ ownerId, hint: mergeResolverHint(rawHint), url: opts.url, threadContext: opts.threadContext });
       if (ri.kind !== "ok") return { ok: false, clarifyQuestion: ri.question };
       resolvedMediaItem = { id: ri.itemId, fileName: ri.fileName, tag: ri.tag };
       return { ok: true, value: ri.itemId };
@@ -2235,7 +2235,7 @@ export async function resolvePlanArgs(opts: {
 
     if (argKeyLower === "taskid") {
       if (resolvedTask?.id) return { ok: true, value: resolvedTask.id };
-      const rt = await resolveTaskId({ ownerId, hint: useResolverHint(rawHint), url: opts.url, threadContext: opts.threadContext });
+      const rt = await resolveTaskId({ ownerId, hint: mergeResolverHint(rawHint), url: opts.url, threadContext: opts.threadContext });
       if (rt.kind !== "ok") return { ok: false, clarifyQuestion: rt.question };
       resolvedTask = { id: rt.taskId, title: rt.taskTitle };
       return { ok: true, value: rt.taskId };
@@ -2243,7 +2243,7 @@ export async function resolvePlanArgs(opts: {
 
     if (argKeyLower === "reviewid") {
       if (resolvedReview?.id) return { ok: true, value: resolvedReview.id };
-      const rr = await resolveReviewId({ ownerId, hint: useResolverHint(rawHint), url: opts.url, threadContext: opts.threadContext });
+      const rr = await resolveReviewId({ ownerId, hint: mergeResolverHint(rawHint), url: opts.url, threadContext: opts.threadContext });
       if (rr.kind !== "ok") return { ok: false, clarifyQuestion: rr.question };
       resolvedReview = { id: rr.reviewId, label: rr.label };
       return { ok: true, value: rr.reviewId };
@@ -2251,7 +2251,7 @@ export async function resolvePlanArgs(opts: {
 
     if (argKeyLower === "questionid" || argKeyLower === "reviewquestionid") {
       if (resolvedReviewQuestion?.id) return { ok: true, value: resolvedReviewQuestion.id };
-      const rq = await resolveReviewQuestionId({ ownerId, hint: useResolverHint(rawHint), url: opts.url, threadContext: opts.threadContext });
+      const rq = await resolveReviewQuestionId({ ownerId, hint: mergeResolverHint(rawHint), url: opts.url, threadContext: opts.threadContext });
       if (rq.kind !== "ok") return { ok: false, clarifyQuestion: rq.question };
       resolvedReviewQuestion = { id: rq.questionId, label: rq.label };
       return { ok: true, value: rq.questionId };
@@ -2260,13 +2260,13 @@ export async function resolvePlanArgs(opts: {
     if (argKeyLower === "campaignid") {
       if (stepKeyLower.startsWith("ai_outbound_calls.")) {
         if (resolvedAiOutboundCallsCampaign?.id) return { ok: true, value: resolvedAiOutboundCallsCampaign.id };
-        const rc = await resolveAiOutboundCallsCampaignId({ ownerId, hint: useResolverHint(rawHint), url: opts.url, threadContext: opts.threadContext });
+        const rc = await resolveAiOutboundCallsCampaignId({ ownerId, hint: mergeResolverHint(rawHint), url: opts.url, threadContext: opts.threadContext });
         if (rc.kind !== "ok") return { ok: false, clarifyQuestion: rc.question };
         resolvedAiOutboundCallsCampaign = { id: rc.campaignId, label: rc.label };
         return { ok: true, value: rc.campaignId };
       }
       if (resolvedNurtureCampaign?.id) return { ok: true, value: resolvedNurtureCampaign.id };
-      const rc = await resolveNurtureCampaignId({ ownerId, hint: useResolverHint(rawHint), url: opts.url, threadContext: opts.threadContext });
+      const rc = await resolveNurtureCampaignId({ ownerId, hint: mergeResolverHint(rawHint), url: opts.url, threadContext: opts.threadContext });
       if (rc.kind !== "ok") return { ok: false, clarifyQuestion: rc.question };
       resolvedNurtureCampaign = { id: rc.campaignId, name: rc.campaignName };
       return { ok: true, value: rc.campaignId };
@@ -2274,7 +2274,7 @@ export async function resolvePlanArgs(opts: {
 
     if (argKeyLower === "stepid") {
       if (resolvedNurtureStep?.id) return { ok: true, value: resolvedNurtureStep.id };
-      const rs = await resolveNurtureStepId({ ownerId, hint: useResolverHint(rawHint), url: opts.url, threadContext: opts.threadContext, campaignIdHint: resolvedNurtureCampaign?.id || null });
+      const rs = await resolveNurtureStepId({ ownerId, hint: mergeResolverHint(rawHint), url: opts.url, threadContext: opts.threadContext, campaignIdHint: resolvedNurtureCampaign?.id || null });
       if (rs.kind !== "ok") return { ok: false, clarifyQuestion: rs.question };
       resolvedNurtureStep = { id: rs.stepId, label: rs.label, campaignId: rs.campaignId };
       return { ok: true, value: rs.stepId };
@@ -2282,7 +2282,7 @@ export async function resolvePlanArgs(opts: {
 
     if (argKeyLower === "leadid" || argKeyLower === "scrapedleadid") {
       if (resolvedScrapedLead?.id) return { ok: true, value: resolvedScrapedLead.id };
-      const rl = await resolveScrapedLeadId({ ownerId, hint: useResolverHint(rawHint), url: opts.url, threadContext: opts.threadContext });
+      const rl = await resolveScrapedLeadId({ ownerId, hint: mergeResolverHint(rawHint), url: opts.url, threadContext: opts.threadContext });
       if (rl.kind !== "ok") return { ok: false, clarifyQuestion: rl.question };
       resolvedScrapedLead = { id: rl.leadId, label: rl.label };
       return { ok: true, value: rl.leadId };
@@ -2290,7 +2290,7 @@ export async function resolvePlanArgs(opts: {
 
     if (argKeyLower === "creditpullid" || (argKeyLower === "pullid" && stepKeyLower.startsWith("credit."))) {
       if (resolvedCreditPull?.id) return { ok: true, value: resolvedCreditPull.id };
-      const rp = await resolveCreditPullId({ ownerId, hint: useResolverHint(rawHint), url: opts.url, threadContext: opts.threadContext, contactIdHint: resolvedContact?.id || null });
+      const rp = await resolveCreditPullId({ ownerId, hint: mergeResolverHint(rawHint), url: opts.url, threadContext: opts.threadContext, contactIdHint: resolvedContact?.id || null });
       if (rp.kind !== "ok") return { ok: false, clarifyQuestion: rp.question };
       resolvedCreditPull = { id: rp.pullId, label: rp.label };
       return { ok: true, value: rp.pullId };
@@ -2298,7 +2298,7 @@ export async function resolvePlanArgs(opts: {
 
     if (argKeyLower === "disputeletterid" || (argKeyLower === "letterid" && stepKeyLower.startsWith("credit."))) {
       if (resolvedCreditDisputeLetter?.id) return { ok: true, value: resolvedCreditDisputeLetter.id };
-      const rl = await resolveCreditDisputeLetterId({ ownerId, hint: useResolverHint(rawHint), url: opts.url, threadContext: opts.threadContext, contactIdHint: resolvedContact?.id || null });
+      const rl = await resolveCreditDisputeLetterId({ ownerId, hint: mergeResolverHint(rawHint), url: opts.url, threadContext: opts.threadContext, contactIdHint: resolvedContact?.id || null });
       if (rl.kind !== "ok") return { ok: false, clarifyQuestion: rl.question };
       resolvedCreditDisputeLetter = { id: rl.letterId, label: rl.label };
       return { ok: true, value: rl.letterId };
@@ -2306,7 +2306,7 @@ export async function resolvePlanArgs(opts: {
 
     if (argKeyLower === "creditreportid" || (argKeyLower === "reportid" && stepKeyLower.startsWith("credit."))) {
       if (resolvedCreditReport?.id) return { ok: true, value: resolvedCreditReport.id };
-      const rr = await resolveCreditReportId({ ownerId, hint: useResolverHint(rawHint), url: opts.url, threadContext: opts.threadContext, contactIdHint: resolvedContact?.id || null });
+      const rr = await resolveCreditReportId({ ownerId, hint: mergeResolverHint(rawHint), url: opts.url, threadContext: opts.threadContext, contactIdHint: resolvedContact?.id || null });
       if (rr.kind !== "ok") return { ok: false, clarifyQuestion: rr.question };
       resolvedCreditReport = { id: rr.reportId, label: rr.label };
       return { ok: true, value: rr.reportId };
@@ -2314,7 +2314,7 @@ export async function resolvePlanArgs(opts: {
 
     if (argKeyLower === "reportitemid" || (argKeyLower === "itemid" && stepKeyLower.startsWith("credit."))) {
       if (resolvedCreditReportItem?.id) return { ok: true, value: resolvedCreditReportItem.id };
-      const ri = await resolveCreditReportItemId({ ownerId, hint: useResolverHint(rawHint), url: opts.url, threadContext: opts.threadContext, reportIdHint: resolvedCreditReport?.id || null });
+      const ri = await resolveCreditReportItemId({ ownerId, hint: mergeResolverHint(rawHint), url: opts.url, threadContext: opts.threadContext, reportIdHint: resolvedCreditReport?.id || null });
       if (ri.kind !== "ok") return { ok: false, clarifyQuestion: ri.question };
       resolvedCreditReportItem = { id: ri.itemId, label: ri.label, reportId: ri.reportId };
       return { ok: true, value: ri.itemId };
@@ -2322,7 +2322,7 @@ export async function resolvePlanArgs(opts: {
 
     if (argKeyLower === "userid" || argKeyLower === "memberid" || argKeyLower === "assignedtouserid") {
       if (resolvedUser?.id) return { ok: true, value: resolvedUser.id };
-      const ru = await resolvePortalUserId({ ownerId, hint: useResolverHint(rawHint), url: opts.url, threadContext: opts.threadContext });
+      const ru = await resolvePortalUserId({ ownerId, hint: mergeResolverHint(rawHint), url: opts.url, threadContext: opts.threadContext });
       if (ru.kind !== "ok") return { ok: false, clarifyQuestion: ru.question };
       resolvedUser = { id: ru.userId, label: ru.label };
       return { ok: true, value: ru.userId };
@@ -2330,7 +2330,7 @@ export async function resolvePlanArgs(opts: {
 
     if (argKeyLower === "formid") {
       if (resolvedFunnelForm?.id) return { ok: true, value: resolvedFunnelForm.id };
-      const rf = await resolveFunnelFormId({ ownerId, hint: useResolverHint(rawHint), url: opts.url, threadContext: opts.threadContext });
+      const rf = await resolveFunnelFormId({ ownerId, hint: mergeResolverHint(rawHint), url: opts.url, threadContext: opts.threadContext });
       if (rf.kind !== "ok") return { ok: false, clarifyQuestion: rf.question };
       resolvedFunnelForm = { id: rf.formId, label: rf.label };
       return { ok: true, value: rf.formId };
@@ -2338,7 +2338,7 @@ export async function resolvePlanArgs(opts: {
 
     if (argKeyLower === "pageid") {
       if (resolvedFunnelPage?.id) return { ok: true, value: resolvedFunnelPage.id };
-      const rp = await resolveFunnelPageId({ ownerId, hint: useResolverHint(rawHint), url: opts.url, threadContext: opts.threadContext, funnelIdHint: resolvedFunnel?.id || null });
+      const rp = await resolveFunnelPageId({ ownerId, hint: mergeResolverHint(rawHint), url: opts.url, threadContext: opts.threadContext, funnelIdHint: resolvedFunnel?.id || null });
       if (rp.kind !== "ok") return { ok: false, clarifyQuestion: rp.question };
       resolvedFunnelPage = { id: rp.pageId, label: rp.label, funnelId: rp.funnelId };
       return { ok: true, value: rp.pageId };
@@ -2346,7 +2346,7 @@ export async function resolvePlanArgs(opts: {
 
     if (argKeyLower === "domainid") {
       if (resolvedCustomDomain?.id) return { ok: true, value: resolvedCustomDomain.id };
-      const rd = await resolveCustomDomainId({ ownerId, hint: useResolverHint(rawHint), url: opts.url, threadContext: opts.threadContext });
+      const rd = await resolveCustomDomainId({ ownerId, hint: mergeResolverHint(rawHint), url: opts.url, threadContext: opts.threadContext });
       if (rd.kind !== "ok") return { ok: false, clarifyQuestion: rd.question };
       resolvedCustomDomain = { id: rd.domainId, label: rd.label };
       return { ok: true, value: rd.domainId };
@@ -2354,7 +2354,7 @@ export async function resolvePlanArgs(opts: {
 
     if (argKeyLower === "aioutboundcallscampaignid") {
       if (resolvedAiOutboundCallsCampaign?.id) return { ok: true, value: resolvedAiOutboundCallsCampaign.id };
-      const rc = await resolveAiOutboundCallsCampaignId({ ownerId, hint: useResolverHint(rawHint), url: opts.url, threadContext: opts.threadContext });
+      const rc = await resolveAiOutboundCallsCampaignId({ ownerId, hint: mergeResolverHint(rawHint), url: opts.url, threadContext: opts.threadContext });
       if (rc.kind !== "ok") return { ok: false, clarifyQuestion: rc.question };
       resolvedAiOutboundCallsCampaign = { id: rc.campaignId, label: rc.label };
       return { ok: true, value: rc.campaignId };

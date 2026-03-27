@@ -345,7 +345,12 @@ async function tryExecuteContactTagCommand(opts: {
   recentMessages: Array<{ role: "user" | "assistant"; text: string }>;
 }): Promise<
   | { ok: true; assistantMessage: any; autoActionMessage: any; canvasUrl: string | null }
-  | { ok: false; assistantMessage: any; canvasUrl: string | null }
+  | {
+      ok: false;
+      assistantMessage: any;
+      canvasUrl: string | null;
+      ambiguousContacts?: Array<{ name: string; email?: string | null; phone?: string | null }>;
+    }
   | null
 > {
   let plan: { contactHint: string; addTagNames: string[]; removeTagNames: string[] } | null = null;
@@ -454,17 +459,15 @@ async function tryExecuteContactTagCommand(opts: {
   }
 
   if (!contact && ambiguous.length) {
-    const lines = ambiguous
-      .slice(0, 5)
-      .map((c) => {
-        const bits = [c.email ? `email: ${c.email}` : null, c.phone ? `phone: ${c.phone}` : null].filter(Boolean).join(" · ");
-        return `- ${c.name}${bits ? ` (${bits})` : ""}`;
-      })
-      .join("\n");
-    const msg = await createAssistantMessage(
-      `I found multiple matches for “${plan.contactHint}”. Reply with the contact’s email or phone number so I can update tags.\n\n${lines}`,
-    );
-    return { ok: false, assistantMessage: msg, canvasUrl: null };
+    // Return a structured ambiguity payload for the frontend to render clickable choices
+    return {
+      ok: false,
+      assistantMessage: await createAssistantMessage(
+        `I found multiple matches for “${plan.contactHint}”. Please select the correct contact below.`
+      ),
+      ambiguousContacts: ambiguous.slice(0, 5),
+      canvasUrl: null,
+    };
   }
 
   if (!contact) {
@@ -1521,6 +1524,7 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
       assistantActions: [],
       autoActionMessage: null,
       canvasUrl: tagWorkflow.canvasUrl || null,
+      ambiguousContacts: (tagWorkflow as any).ambiguousContacts || null,
     });
   }
 

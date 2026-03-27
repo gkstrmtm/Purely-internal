@@ -9,6 +9,8 @@ import { useToast } from "@/components/ToastProvider";
 import { PortalMediaPickerModal, type PortalMediaPickItem } from "@/components/PortalMediaPickerModal";
 import { IconSchedule, IconSend, IconSendHover } from "@/app/portal/PortalIcons";
 
+type AmbiguousContact = { name: string; email?: string | null; phone?: string | null };
+
 type Thread = {
   id: string;
   title: string;
@@ -269,6 +271,33 @@ function MessageBubble({
 }
 
 export function PortalAiChatClient() {
+  // Persistent open/close state for sidebar and canvas
+  const [sidebarOpen, setSidebarOpen] = useState(() => {
+    if (typeof window !== 'undefined') {
+      const raw = window.localStorage.getItem('puraSidebarOpen');
+      return raw === null ? true : raw === 'true';
+    }
+    return true;
+  });
+  const [canvasOpen, setCanvasOpen] = useState(() => {
+    if (typeof window !== 'undefined') {
+      const raw = window.localStorage.getItem('puraCanvasOpen');
+      return raw === null ? true : raw === 'true';
+    }
+    return true;
+  });
+  const [sidebarWidth, setSidebarWidth] = useState<number>(320);
+
+  useEffect(() => {
+    window.localStorage.setItem('puraSidebarOpen', String(sidebarOpen));
+  }, [sidebarOpen]);
+  useEffect(() => {
+    window.localStorage.setItem('puraCanvasOpen', String(canvasOpen));
+  }, [canvasOpen]);
+
+  const [ambiguousContacts, setAmbiguousContacts] = useState<AmbiguousContact[] | null>(null);
+
+
   const toast = useToast();
 
   const [canvasUrl, setCanvasUrl] = useState<string | null>(null);
@@ -276,12 +305,23 @@ export function PortalAiChatClient() {
   const [canvasModalOpen, setCanvasModalOpen] = useState(false);
   const canvasContainerRef = useRef<HTMLDivElement | null>(null);
   const dragRef = useRef<{ startX: number; startWidth: number } | null>(null);
+  const sidebarDragRef = useRef<{ startX: number; startWidth: number } | null>(null);
 
   useEffect(() => {
     try {
       const raw = window.localStorage.getItem("puraCanvasWidthPx");
       const n = raw ? Number(raw) : NaN;
       if (Number.isFinite(n)) setCanvasWidth(Math.max(320, Math.min(980, Math.floor(n))));
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem("puraSidebarWidthPx");
+      const n = raw ? Number(raw) : NaN;
+      if (Number.isFinite(n)) setSidebarWidth(Math.max(240, Math.min(520, Math.floor(n))));
     } catch {
       // ignore
     }
@@ -296,18 +336,35 @@ export function PortalAiChatClient() {
   }, [canvasWidth]);
 
   useEffect(() => {
+    try {
+      window.localStorage.setItem("puraSidebarWidthPx", String(sidebarWidth));
+    } catch {
+      // ignore
+    }
+  }, [sidebarWidth]);
+
+  useEffect(() => {
     const onMove = (e: MouseEvent) => {
       const drag = dragRef.current;
-      if (!drag) return;
-      const container = canvasContainerRef.current;
-      const containerW = container?.getBoundingClientRect().width ?? 0;
-      const dx = drag.startX - e.clientX;
-      const next = drag.startWidth + dx;
-      const max = containerW ? Math.max(360, Math.min(980, containerW - 360)) : 980;
-      setCanvasWidth(Math.max(320, Math.min(max, Math.floor(next))));
+      if (drag) {
+        const container = canvasContainerRef.current;
+        const containerW = container?.getBoundingClientRect().width ?? 0;
+        const dx = drag.startX - e.clientX;
+        const next = drag.startWidth + dx;
+        const max = containerW ? Math.max(360, Math.min(980, containerW - 360)) : 980;
+        setCanvasWidth(Math.max(320, Math.min(max, Math.floor(next))));
+      }
+
+      const sideDrag = sidebarDragRef.current;
+      if (sideDrag) {
+        const dx = e.clientX - sideDrag.startX;
+        const next = sideDrag.startWidth + dx;
+        setSidebarWidth(Math.max(240, Math.min(520, Math.floor(next))));
+      }
     };
     const onUp = () => {
       dragRef.current = null;
+      sidebarDragRef.current = null;
     };
     window.addEventListener("mousemove", onMove);
     window.addEventListener("mouseup", onUp);
@@ -316,6 +373,78 @@ export function PortalAiChatClient() {
       window.removeEventListener("mouseup", onUp);
     };
   }, []);
+
+  const addLocalAssistantMessage = useCallback((text: string) => {
+    const nowIso = new Date().toISOString();
+    const localAssistant: Message = {
+      id: `local-assistant-${newClientId()}`,
+      role: "assistant",
+      text,
+      attachmentsJson: [],
+      createdAt: nowIso,
+      sendAt: null,
+      sentAt: nowIso,
+    };
+    setMessages((prev) => [...prev, localAssistant]);
+  }, []);
+
+  const handleUiPanelCommand = useCallback(
+    (rawText: string) => {
+      const text = String(rawText || "").trim().toLowerCase();
+      if (!text) return false;
+
+      const mentionsCanvas = /\b(canvas|workspace|work panel|right panel)\b/.test(text);
+      const mentionsSidebar = /\b(sidebar|chat list|thread list|threads panel|left panel|chats)\b/.test(text);
+
+      const isClose = /\b(close|hide|collapse|minimize)\b/.test(text);
+      const isOpen = /\b(open|show|expand|restore)\b/.test(text);
+      const isResize = /\b(resize|wider|narrower|bigger|smaller|increase|decrease)\b/.test(text);
+
+      if (isClose && (mentionsCanvas || /\bclose it\b/.test(text))) {
+        setCanvasOpen(false);
+        setCanvasModalOpen(false);
+        addLocalAssistantMessage("Closed the workspace panel.");
+        return true;
+      }
+
+      if (isOpen && (mentionsCanvas || /\bopen it\b/.test(text))) {
+        setCanvasOpen(true);
+        addLocalAssistantMessage("Opened the workspace panel.");
+        return true;
+      }
+
+      if (isClose && mentionsSidebar) {
+        setSidebarOpen(false);
+        addLocalAssistantMessage("Closed the chat sidebar.");
+        return true;
+      }
+
+      if (isOpen && mentionsSidebar) {
+        setSidebarOpen(true);
+        addLocalAssistantMessage("Opened the chat sidebar.");
+        return true;
+      }
+
+      if (isResize && (mentionsCanvas || /\bresize it\b/.test(text))) {
+        const delta = /\b(smaller|narrower|decrease)\b/.test(text) ? -120 : 120;
+        setCanvasOpen(true);
+        setCanvasWidth((prev) => Math.max(320, Math.min(980, prev + delta)));
+        addLocalAssistantMessage(`Resized the workspace panel ${delta > 0 ? "wider" : "narrower"}.`);
+        return true;
+      }
+
+      if (isResize && mentionsSidebar) {
+        const delta = /\b(smaller|narrower|decrease)\b/.test(text) ? -80 : 80;
+        setSidebarOpen(true);
+        setSidebarWidth((prev) => Math.max(240, Math.min(520, prev + delta)));
+        addLocalAssistantMessage(`Resized the chat sidebar ${delta > 0 ? "wider" : "narrower"}.`);
+        return true;
+      }
+
+      return false;
+    },
+    [addLocalAssistantMessage],
+  );
 
   const [threads, setThreads] = useState<Thread[]>([]);
   const [threadsLoading, setThreadsLoading] = useState(true);
@@ -495,6 +624,7 @@ export function PortalAiChatClient() {
       setActiveThreadId(threadId);
       setCanvasUrl(null);
       setCanvasModalOpen(false);
+      setCanvasOpen(false);
       setMobileThreadsOpen(false);
     },
     [setActiveThreadId],
@@ -530,6 +660,7 @@ export function PortalAiChatClient() {
       setActiveThreadId(t.id);
       setCanvasUrl(null);
       setCanvasModalOpen(false);
+      setCanvasOpen(false);
       setMobileThreadsOpen(false);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : String(e));
@@ -659,11 +790,17 @@ export function PortalAiChatClient() {
   );
 
   const send = useCallback(
-    async () => {
-      if (!activeThreadId) return;
-      const text = input.trim();
+    async (overrideText?: string) => {
+      const text = typeof overrideText === "string" ? overrideText : input.trim();
       const attachments = pendingAttachments;
       if (!text && !attachments.length) return;
+
+      if (!attachments.length && handleUiPanelCommand(text)) {
+        if (!overrideText) setInput("");
+        return;
+      }
+
+      if (!activeThreadId) return;
 
       const optimisticId = newClientId();
       const nowIso = new Date().toISOString();
@@ -689,8 +826,9 @@ export function PortalAiChatClient() {
       };
 
       setMessages((prev) => [...prev, optimisticUser, optimisticAssistant]);
-      setInput("");
+      if (!overrideText) setInput("");
       setPendingAttachments([]);
+      setAmbiguousContacts(null);
 
       setSending(true);
       try {
@@ -705,6 +843,11 @@ export function PortalAiChatClient() {
         });
         const json = await res.json().catch(() => null);
         if (!json?.ok) throw new Error(json?.error || "Send failed");
+        if (json.ambiguousContacts && Array.isArray(json.ambiguousContacts) && json.ambiguousContacts.length) {
+          setAmbiguousContacts(json.ambiguousContacts);
+        } else {
+          setAmbiguousContacts(null);
+        }
 
         if (json?.needsConfirm?.token) {
           const token = String(json.needsConfirm.token || "").trim();
@@ -744,7 +887,8 @@ export function PortalAiChatClient() {
           const nextCanvasUrl2 = typeof json2?.canvasUrl === "string" && json2.canvasUrl.trim() ? String(json2.canvasUrl).trim() : null;
           if (nextCanvasUrl2) {
             setCanvasUrl(nextCanvasUrl2);
-            setCanvasModalOpen(true);
+            setCanvasOpen(true);
+            setCanvasModalOpen(false);
           }
 
           const assistantActions2: AssistantAction[] = Array.isArray(json2.assistantActions)
@@ -767,12 +911,14 @@ export function PortalAiChatClient() {
         const nextCanvasUrl = typeof json?.canvasUrl === "string" && json.canvasUrl.trim() ? String(json.canvasUrl).trim() : null;
         if (nextCanvasUrl) {
           setCanvasUrl(nextCanvasUrl);
-          setCanvasModalOpen(true);
+          setCanvasOpen(true);
+          setCanvasModalOpen(false);
         }
 
         const assistantActions: AssistantAction[] = Array.isArray(json.assistantActions)
           ? (json.assistantActions as AssistantAction[])
           : [];
+
 
         setMessages((prev) => {
           const cleaned = prev.filter((m) => m.id !== optimisticUser.id && m.id !== optimisticAssistant.id);
@@ -782,8 +928,6 @@ export function PortalAiChatClient() {
             const am: Message = json.assistantMessage as Message;
             next.push({ ...am, assistantActions: assistantActions.length ? assistantActions : undefined });
           }
-          // autoActionMessage is legacy and can duplicate assistantMessage.
-          // Only render the primary assistantMessage for a clean, stable transcript.
           return next;
         });
 
@@ -797,8 +941,17 @@ export function PortalAiChatClient() {
         setSending(false);
       }
     },
-    [activeThreadId, input, pendingAttachments, toast, loadThreads],
+    [activeThreadId, askConfirm, input, pendingAttachments, toast, loadThreads, handleUiPanelCommand],
   );
+
+  // Handler for ambiguous contact selection (must be after send is defined)
+  const handleAmbiguousContactSelect = useCallback((contact: AmbiguousContact) => {
+    // Prefer email, then phone, then name
+    const value = contact.email || contact.phone || contact.name;
+    if (value) {
+      void send(value);
+    }
+  }, [send]);
 
   const executeAgentAction = useCallback(
     async (action: string, args: Record<string, unknown>) => {
@@ -837,7 +990,8 @@ export function PortalAiChatClient() {
         const nextCanvasUrl = typeof json?.linkUrl === "string" && json.linkUrl.trim() ? String(json.linkUrl).trim() : null;
         if (nextCanvasUrl) {
           setCanvasUrl(nextCanvasUrl);
-          setCanvasModalOpen(true);
+          setCanvasOpen(true);
+          setCanvasModalOpen(false);
         }
         void loadThreads();
       } catch (e) {
@@ -854,7 +1008,8 @@ export function PortalAiChatClient() {
       const safe = safeHref(href);
       if (!safe || !safe.startsWith("/")) return;
       setCanvasUrl(safe);
-      setCanvasModalOpen(true);
+      setCanvasOpen(true);
+      setCanvasModalOpen(false);
     },
     [],
   );
@@ -1199,9 +1354,40 @@ export function PortalAiChatClient() {
         </div>
       ) : null}
 
-      <div className="hidden h-full w-[320px] shrink-0 border-r border-zinc-200 bg-white shadow-[2px_0_12px_rgba(0,0,0,0.06)] lg:flex">{left}</div>
+      {sidebarOpen && (
+        <div className="hidden h-full shrink-0 border-r border-zinc-200 bg-white shadow-[2px_0_12px_rgba(0,0,0,0.06)] lg:flex relative" style={{ width: sidebarWidth }}>
+          <button
+            className="absolute top-2 right-2 z-10 rounded-full bg-zinc-100 hover:bg-zinc-200 p-1 text-xs font-bold"
+            title="Close sidebar"
+            onClick={() => setSidebarOpen(false)}
+          >
+            ×
+          </button>
+          {left}
 
-      <div ref={canvasContainerRef} className="flex min-w-0 flex-1 bg-white shadow-[inset_12px_0_16px_-16px_rgba(0,0,0,0.22)]">
+          <div
+            className="absolute right-0 top-0 hidden h-full w-2 translate-x-1/2 cursor-col-resize bg-transparent hover:bg-zinc-100 lg:block"
+            role="separator"
+            aria-orientation="vertical"
+            onMouseDown={(e) => {
+              sidebarDragRef.current = { startX: e.clientX, startWidth: sidebarWidth };
+            }}
+            title="Drag to resize sidebar"
+          />
+        </div>
+      )}
+      {!sidebarOpen && (
+        <button
+          className="absolute left-0 top-2 z-20 rounded-r-2xl bg-zinc-100 hover:bg-zinc-200 px-2 py-1 text-xs font-bold border border-zinc-200"
+          style={{ height: 40 }}
+          title="Open sidebar"
+          onClick={() => setSidebarOpen(true)}
+        >
+          &gt;
+        </button>
+      )}
+
+      <div ref={canvasContainerRef} className="flex min-w-0 flex-1 bg-white shadow-[inset_12px_0_16px_-16px_rgba(0,0,0,0.22)] relative">
         <div className="flex min-w-0 flex-1 flex-col">
         <div className="shrink-0 border-b border-zinc-200 bg-white lg:hidden">
           <div className="flex items-center justify-between gap-3 px-4 py-3">
@@ -1237,7 +1423,7 @@ export function PortalAiChatClient() {
               <IconSchedule size={18} />
             </button>
 
-            {canvasUrl ? (
+            {canvasOpen && canvasUrl ? (
               <button
                 type="button"
                 className="inline-flex h-10 items-center justify-center rounded-2xl border border-zinc-200 bg-white px-3 text-sm font-semibold text-zinc-800 hover:bg-zinc-50 lg:hidden"
@@ -1259,17 +1445,38 @@ export function PortalAiChatClient() {
               <>
                 {(() => {
                   let assistantIdx = 0;
-                  return messages.map((m) => {
+                  return messages.map((m, i) => {
                     const variant = m.role === "assistant" ? (assistantIdx++ % 2 === 0 ? "dark" : "light") : undefined;
+                    // If this is the last assistant message and ambiguousContacts is set, render the ambiguity UI
+                    const isLastAssistant =
+                      ambiguousContacts &&
+                      m.role === "assistant" &&
+                      i === messages.length - 1;
                     return (
-                  <MessageBubble
-                    key={m.id}
-                    msg={m}
-                    assistantVariant={variant}
-                    onRunAction={(a) => void runAssistantAction(a)}
-                    runningActionKey={runningActionKey}
-                      onOpenLink={openInCanvas}
-                  />
+                      <div key={m.id}>
+                        <MessageBubble
+                          msg={m}
+                          assistantVariant={variant}
+                          onRunAction={(a) => void runAssistantAction(a)}
+                          runningActionKey={runningActionKey}
+                          onOpenLink={openInCanvas}
+                        />
+                        {isLastAssistant && (
+                          <div className="mt-2 flex flex-wrap gap-2">
+                            {ambiguousContacts.map((c, idx) => (
+                              <button
+                                key={c.email || c.phone || c.name || idx}
+                                type="button"
+                                className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-900 hover:bg-zinc-50"
+                                onClick={() => handleAmbiguousContactSelect(c)}
+                              >
+                                {c.name}
+                                {c.email ? ` (${c.email})` : c.phone ? ` (${c.phone})` : ""}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
                     );
                   });
                 })()}
@@ -1282,20 +1489,42 @@ export function PortalAiChatClient() {
         </div>
 
         <div className="shrink-0 border-t border-zinc-200 bg-white px-3 py-3 shadow-[0_-1px_10px_rgba(0,0,0,0.05)]">
-          {canvasUrl ? (
-            <div className="mb-2 flex items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs text-zinc-700 lg:hidden">
-              <div className="min-w-0 truncate">
-                Working on <span className="font-semibold">{canvasUrl}</span>
+          {canvasOpen && canvasUrl ? (
+              <div className="mb-2 flex items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs text-zinc-700 lg:hidden relative">
+                <div className="min-w-0 truncate">
+                  Working on <span className="font-semibold">{canvasUrl}</span>
+                </div>
+                <button
+                  type="button"
+                  className="shrink-0 rounded-xl bg-white px-2 py-1 font-semibold text-zinc-800 hover:bg-zinc-100"
+                  onClick={() => setCanvasModalOpen(true)}
+                >
+                  Open
+                </button>
+                <button
+                  type="button"
+                  className="absolute top-1 right-1 rounded-full bg-zinc-100 hover:bg-zinc-200 p-1 text-xs font-bold"
+                  title="Close canvas"
+                  onClick={() => {
+                    setCanvasOpen(false);
+                    setCanvasUrl(null);
+                    setCanvasModalOpen(false);
+                  }}
+                >
+                  ×
+                </button>
               </div>
-              <button
-                type="button"
-                className="shrink-0 rounded-xl bg-white px-2 py-1 font-semibold text-zinc-800 hover:bg-zinc-100"
-                onClick={() => setCanvasModalOpen(true)}
-              >
-                Open
-              </button>
-            </div>
-          ) : null}
+            ) : null}
+          {!canvasOpen && (
+            <button
+              className="absolute right-0 top-2 z-20 rounded-l-2xl bg-zinc-100 hover:bg-zinc-200 px-2 py-1 text-xs font-bold border border-zinc-200"
+              style={{ height: 40 }}
+              title="Open canvas"
+              onClick={() => setCanvasOpen(true)}
+            >
+              &lt;
+            </button>
+          )}
 
           {pendingAttachments.length ? (
             <div className="mb-2 flex flex-wrap gap-2">
@@ -1392,7 +1621,7 @@ export function PortalAiChatClient() {
         </div>
         </div>
 
-        {canvasUrl ? (
+        {canvasOpen && canvasUrl ? (
           <>
             <div
               className="hidden w-2 shrink-0 cursor-col-resize bg-transparent hover:bg-zinc-100 lg:block"
@@ -1423,6 +1652,7 @@ export function PortalAiChatClient() {
                       onClick={() => {
                         setCanvasUrl(null);
                         setCanvasModalOpen(false);
+                        setCanvasOpen(false);
                       }}
                       aria-label="Close canvas"
                       title="Close"
