@@ -1604,7 +1604,7 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
       }
 
       // If we previously asked a clarifying question, treat the user's reply as completing that plan.
-      const isLikelyFollowUpAnswer = Boolean(pendingPlan) && !shouldAutoExecuteFromUserText(effectiveText);
+      const isLikelyFollowUpAnswer = Boolean(pendingPlan);
 
       const plan = isLikelyFollowUpAnswer
         ? (pendingPlan as any)
@@ -1776,7 +1776,7 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
           null;
 
         const canvasUrl =
-          (results.map((r) => r.linkUrl).filter(Boolean).slice(-1)[0] as string | undefined) ||
+          (results.filter((r) => r.ok).map((r) => r.linkUrl).filter(Boolean).slice(-1)[0] as string | undefined) ||
           resolvedSteps.map((s) => s.openUrl).filter(Boolean).slice(-1)[0] ||
           mappedCanvasUrl ||
           null;
@@ -1785,11 +1785,14 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
           if (resolvedSteps.length === 1) {
             return String(results[0]?.markdown || "Done.").trim() || "Done.";
           }
+          const allOk = results.every((r) => r.ok);
+          const anyOk = results.some((r) => r.ok);
           const blocks = resolvedSteps.map((s, idx) => {
             const md = String(results[idx]?.markdown || (results[idx]?.ok ? "Done." : "Action failed.")).trim();
             return `#### ${s.title}\n${md}`;
           });
-          return `Done.\n\n${blocks.join("\n\n")}`;
+          const summary = allOk ? "Done." : anyOk ? "Some actions failed." : "Action failed.";
+          return `${summary}\n\n${blocks.join("\n\n")}`;
         })();
 
         const assistantMsg = await (prisma as any).portalAiChatMessage.create({
@@ -1866,7 +1869,8 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
       assistantMessage: exec.assistantMessage,
       assistantActions: [],
       autoActionMessage: null,
-      canvasUrl: exec.linkUrl || null,
+      canvasUrl: exec.ok ? exec.linkUrl || null : null,
+      assistantChoices: Array.isArray((exec as any).assistantChoices) ? (exec as any).assistantChoices : null,
     });
   }
 
@@ -1933,6 +1937,17 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
       if (exec.assistantMessage) {
         autoActionMessage = exec.assistantMessage;
         assistantActions = [];
+      }
+      if (Array.isArray((exec as any).assistantChoices) && (exec as any).assistantChoices.length) {
+        return NextResponse.json({
+          ok: true,
+          userMessage: userMsg,
+          assistantMessage: exec.assistantMessage,
+          assistantActions: [],
+          autoActionMessage: null,
+          canvasUrl: null,
+          assistantChoices: (exec as any).assistantChoices,
+        });
       }
     } catch {
       // ignore

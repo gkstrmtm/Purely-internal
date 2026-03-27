@@ -2097,7 +2097,9 @@ function hintMeansAny(raw: string): boolean {
     .trim()
     .toLowerCase();
   if (!s) return false;
-  return (
+
+  // Exact matches (common short replies)
+  if (
     s === "doesn't matter" ||
     s === "doesnt matter" ||
     s === "does not matter" ||
@@ -2109,6 +2111,20 @@ function hintMeansAny(raw: string): boolean {
     s === "pick one" ||
     s === "you pick" ||
     s === "choose for me"
+  ) {
+    return true;
+  }
+
+  // Embedded phrases (hints often include extra context/newlines)
+  return (
+    s.includes("doesn't matter") ||
+    s.includes("doesnt matter") ||
+    s.includes("does not matter") ||
+    s.includes("no preference") ||
+    s.includes("no pref") ||
+    s.includes("you pick") ||
+    s.includes("choose for me") ||
+    /\b(any|either|whatever)\b/.test(s)
   );
 }
 

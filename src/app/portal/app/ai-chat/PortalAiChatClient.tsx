@@ -303,7 +303,10 @@ export function PortalAiChatClient() {
   const [canvasUrl, setCanvasUrl] = useState<string | null>(null);
   const [canvasWidth, setCanvasWidth] = useState<number>(520);
   const [canvasModalOpen, setCanvasModalOpen] = useState(false);
+  const [canvasDragging, setCanvasDragging] = useState(false);
+  const [sidebarDragging, setSidebarDragging] = useState(false);
   const canvasContainerRef = useRef<HTMLDivElement | null>(null);
+  const canvasIframeRef = useRef<HTMLIFrameElement | null>(null);
   const dragRef = useRef<{ startX: number; startWidth: number } | null>(null);
   const sidebarDragRef = useRef<{ startX: number; startWidth: number } | null>(null);
 
@@ -365,6 +368,13 @@ export function PortalAiChatClient() {
     const onUp = () => {
       dragRef.current = null;
       sidebarDragRef.current = null;
+      setCanvasDragging(false);
+      setSidebarDragging(false);
+      try {
+        canvasIframeRef.current?.style.removeProperty("pointer-events");
+      } catch {
+        // ignore
+      }
     };
     window.addEventListener("mousemove", onMove);
     window.addEventListener("mouseup", onUp);
@@ -1469,7 +1479,9 @@ export function PortalAiChatClient() {
           role="separator"
           aria-orientation="vertical"
           onMouseDown={(e) => {
+            e.preventDefault();
             sidebarDragRef.current = { startX: e.clientX, startWidth: sidebarWidth };
+            setSidebarDragging(true);
           }}
           title="Drag to resize sidebar"
         />
@@ -1514,7 +1526,7 @@ export function PortalAiChatClient() {
             {canvasOpen && canvasUrl ? (
               <button
                 type="button"
-                className="inline-flex h-10 items-center justify-center rounded-2xl border border-zinc-200 bg-white px-3 text-sm font-semibold text-zinc-800 hover:bg-zinc-50 lg:hidden"
+                className="inline-flex h-10 items-center justify-center rounded-2xl border border-brand-blue/20 bg-brand-blue px-3 text-sm font-semibold text-white hover:opacity-95 lg:hidden"
                 onClick={() => setCanvasModalOpen(true)}
                 aria-label="Open work"
                 title="Open work"
@@ -1605,7 +1617,7 @@ export function PortalAiChatClient() {
                 </div>
                 <button
                   type="button"
-                  className="shrink-0 rounded-xl bg-white px-2 py-1 font-semibold text-zinc-800 hover:bg-zinc-100"
+                  className="shrink-0 rounded-xl border border-brand-blue/20 bg-brand-blue px-2 py-1 font-semibold text-white hover:opacity-95"
                   onClick={() => setCanvasModalOpen(true)}
                 >
                   Open
@@ -1626,12 +1638,13 @@ export function PortalAiChatClient() {
             ) : null}
           {!canvasOpen && (
             <button
-              className="absolute right-0 top-2 z-20 rounded-l-2xl bg-zinc-100 hover:bg-zinc-200 px-2 py-1 text-xs font-bold border border-zinc-200"
+              className="absolute right-0 top-2 z-20 inline-flex items-center gap-1 rounded-l-2xl border border-brand-blue/20 bg-brand-blue px-3 py-2 text-xs font-bold text-white hover:opacity-95"
               style={{ height: 40 }}
               title="Open canvas"
               onClick={() => setCanvasOpen(true)}
             >
-              &lt;
+              <span className="leading-none">Open</span>
+              <span className="text-base leading-none">‹</span>
             </button>
           )}
 
@@ -1737,7 +1750,14 @@ export function PortalAiChatClient() {
               role="separator"
               aria-orientation="vertical"
               onMouseDown={(e) => {
+                e.preventDefault();
                 dragRef.current = { startX: e.clientX, startWidth: canvasWidth };
+                try {
+                  canvasIframeRef.current?.style.setProperty("pointer-events", "none");
+                } catch {
+                  // ignore
+                }
+                setCanvasDragging(true);
               }}
               title="Drag to resize"
             />
@@ -1749,7 +1769,7 @@ export function PortalAiChatClient() {
                   <div className="flex items-center gap-2">
                     <a
                       href={canvasUrl}
-                      className="rounded-xl border border-zinc-200 bg-white px-2 py-1 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+                      className="rounded-xl border border-brand-blue/20 bg-brand-blue px-2 py-1 text-xs font-semibold text-white hover:opacity-95"
                       target="_blank"
                       rel="noreferrer noopener"
                     >
@@ -1772,13 +1792,18 @@ export function PortalAiChatClient() {
                 </div>
 
                 <iframe
+                  ref={canvasIframeRef}
                   title="Work canvas"
                   src={canvasUrl}
-                  className="min-h-0 flex-1 bg-white"
+                  className={classNames("min-h-0 flex-1 bg-white", canvasDragging ? "pointer-events-none" : "")}
                 />
               </div>
             </div>
           </>
+        ) : null}
+
+        {(canvasDragging || sidebarDragging) ? (
+          <div className="fixed inset-0 z-13000 hidden cursor-col-resize lg:block" aria-hidden />
         ) : null}
       </div>
 
@@ -1840,6 +1865,17 @@ export function PortalAiChatClient() {
 
                   <div className="mt-3 grid gap-3 sm:grid-cols-3">
                     <div>
+
+                    {(canvasDragging || sidebarDragging) && (
+                      <div
+                        className="fixed inset-0 z-9999 cursor-col-resize"
+                        style={{ background: "transparent" }}
+                        onMouseDown={(e) => {
+                          // Prevent iframe/text selection from interrupting the drag.
+                          e.preventDefault();
+                        }}
+                      />
+                    )}
                       <div className="text-xs font-semibold text-zinc-500">Schedule</div>
                       <input
                         type="datetime-local"

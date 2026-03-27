@@ -27,6 +27,7 @@ import {
   PortalAgentActionArgsSchemaByKey,
   type PortalAgentActionKey,
 } from "@/lib/portalAgentActions";
+import { resolvePlanArgs } from "@/lib/puraResolver";
 import { addCredits, addCreditsTx, consumeCredits, consumeCreditsOnce, getCreditsLifecycleForOwner, getCreditsState, setAutoTopUp } from "@/lib/credits";
 import { recordThresholdMeterUsage } from "@/lib/creditsMetering";
 import { PORTAL_CREDIT_COSTS } from "@/lib/portalCreditCosts";
@@ -3054,6 +3055,7 @@ async function runDirectAction(opts: {
         },
         select: {
           id: true,
+          funnelId: true,
           slug: true,
           title: true,
           sortOrder: true,
@@ -23092,7 +23094,11 @@ async function runDirectAction(opts: {
   }
 }
 
-function resultMarkdown(action: PortalAgentActionKey, json: any): { markdown: string; linkUrl?: string } {
+function resultMarkdown(
+  action: PortalAgentActionKey,
+  json: any,
+  meta?: { ok: boolean; status: number },
+): { markdown: string; linkUrl?: string } {
   if (action === "bug_report.submit" && json?.ok && json?.reportId) {
     const id = String(json.reportId || "").trim();
     const emailed = Boolean(json.emailed);
@@ -23113,6 +23119,21 @@ function resultMarkdown(action: PortalAgentActionKey, json: any): { markdown: st
     const url = `/portal/app/services/funnel-builder/funnels/${encodeURIComponent(id)}/edit`;
     return {
       markdown: `Created a funnel.\n\n[Open funnel editor](${url})`,
+      linkUrl: url,
+    };
+  }
+
+  if (action === "funnel_builder.pages.create" && json?.ok && json?.page?.id) {
+    const funnelId = String(json?.page?.funnelId || "").trim();
+    const slug = String(json?.page?.slug || "").trim();
+    const title = String(json?.page?.title || "").trim();
+
+    const url = funnelId
+      ? `/portal/app/services/funnel-builder/funnels/${encodeURIComponent(funnelId)}/edit`
+      : "/portal/app/services/funnel-builder";
+
+    return {
+      markdown: `Created a funnel page${title ? `: ${title}` : ""}${slug ? ` (/${slug})` : ""}.\n\n[Open funnel editor](${url})`,
       linkUrl: url,
     };
   }
@@ -23609,6 +23630,13 @@ function resultMarkdown(action: PortalAgentActionKey, json: any): { markdown: st
   }
 
   const err = typeof json?.error === "string" ? json.error : typeof json?.message === "string" ? json.message : null;
+
+  // Never claim success on a failed action.
+  if (meta && !meta.ok) {
+    const statusHint = meta.status && meta.status >= 400 ? ` (HTTP ${meta.status})` : "";
+    return { markdown: err ? `Action failed${statusHint}: ${err}` : `Action failed${statusHint}.` };
+  }
+
   return { markdown: err ? `Action failed: ${err}` : "Done." };
 }
 
@@ -23625,9 +23653,75 @@ export async function executePortalAgentActionForThread(opts: {
     return { ok: false as const, status: 400, error: "Invalid action args" };
   }
 
+  const thread = await (prisma as any).portalAiChatThread.findFirst({
+    where: { id: opts.threadId, ownerId: opts.ownerId },
+    select: { id: true, contextJson: true },
+  });
+
+  const resolved = await resolvePlanArgs({
+    ownerId: opts.ownerId,
+    stepKey: opts.action,
+    args: (argsParsed.data as any) ?? {},
+    threadContext: thread?.contextJson ?? null,
+  });
+
+  if (!resolved.ok) {
+    const now = new Date();
+    const assistantMsg = await (prisma as any).portalAiChatMessage.create({
+      data: {
+        ownerId: opts.ownerId,
+        threadId: opts.threadId,
+        role: "assistant",
+        text: resolved.clarifyQuestion,
+        attachmentsJson: null,
+        createdByUserId: null,
+        sendAt: null,
+        sentAt: now,
+      },
+      select: {
+        id: true,
+        role: true,
+        text: true,
+        attachmentsJson: true,
+        createdAt: true,
+        sendAt: true,
+        sentAt: true,
+      },
+    });
+
+    const prevCtx = thread?.contextJson;
+    const pendingPlan = {
+      mode: "execute",
+      workTitle: opts.action,
+      steps: [{ key: opts.action, title: opts.action, args: (argsParsed.data as any) ?? {} }],
+    };
+    const nextCtx = prevCtx && typeof prevCtx === "object" && !Array.isArray(prevCtx)
+      ? { ...(prevCtx as any), pendingPlan }
+      : { pendingPlan };
+
+    await (prisma as any).portalAiChatThread.update({
+      where: { id: opts.threadId },
+      data: { lastMessageAt: now, contextJson: nextCtx },
+    });
+
+    return {
+      ok: false as const,
+      status: 409,
+      action: opts.action,
+      error: resolved.clarifyQuestion,
+      assistantMessage: assistantMsg,
+      assistantChoices: Array.isArray((resolved as any).choices) ? (resolved as any).choices : null,
+      linkUrl: null,
+    };
+  }
+
+  const resolvedArgs = resolved.args && typeof resolved.args === "object" && !Array.isArray(resolved.args)
+    ? (resolved.args as Record<string, unknown>)
+    : ((argsParsed.data as any) ?? {});
+
   // Validate bookingCalendarId if present
   try {
-    const maybeCal = (argsParsed.data as any).bookingCalendarId;
+    const maybeCal = (resolvedArgs as any).bookingCalendarId;
     if (typeof maybeCal === "string" && String(maybeCal).trim()) {
       const { getBookingCalendarsConfig } = await import("@/lib/bookingCalendars");
       const cfg = await getBookingCalendarsConfig(opts.ownerId).catch(() => ({ version: 1 as const, calendars: [] as any[] }));
@@ -23656,8 +23750,13 @@ export async function executePortalAgentActionForThread(opts: {
   }
 
   const actorUserId = opts.actorUserId || opts.ownerId;
-  const { json, status } = await runDirectAction({ action: opts.action, ownerId: opts.ownerId, actorUserId, args: argsParsed.data as any });
-  const { markdown, linkUrl } = resultMarkdown(opts.action, json);
+  const { json, status } = await runDirectAction({ action: opts.action, ownerId: opts.ownerId, actorUserId, args: resolvedArgs as any });
+  const ok =
+    status >= 200 &&
+    status < 300 &&
+    !(json && typeof json === "object" && typeof (json as any).ok === "boolean" && (json as any).ok === false);
+
+  const { markdown, linkUrl } = resultMarkdown(opts.action, json, { ok, status });
 
   const now = new Date();
   const assistantMsg = await (prisma as any).portalAiChatMessage.create({
@@ -23682,15 +23781,29 @@ export async function executePortalAgentActionForThread(opts: {
     },
   });
 
-  await (prisma as any).portalAiChatThread.update({ where: { id: opts.threadId }, data: { lastMessageAt: now } });
+  const prevCtx = thread?.contextJson;
+  const mergedPatch = resolved.contextPatch && typeof resolved.contextPatch === "object" ? resolved.contextPatch : null;
+  const nextCtx = mergedPatch
+    ? (prevCtx && typeof prevCtx === "object" && !Array.isArray(prevCtx)
+        ? { ...(prevCtx as any), ...mergedPatch, pendingPlan: null }
+        : { ...mergedPatch, pendingPlan: null })
+    : prevCtx && typeof prevCtx === "object" && !Array.isArray(prevCtx)
+      ? { ...(prevCtx as any), pendingPlan: null }
+      : undefined;
+
+  await (prisma as any).portalAiChatThread.update({
+    where: { id: opts.threadId },
+    data: nextCtx ? { lastMessageAt: now, contextJson: nextCtx } : { lastMessageAt: now },
+  });
 
   return {
-    ok: status >= 200 && status < 300,
+    ok,
     status,
     action: opts.action,
     result: json,
     assistantMessage: assistantMsg,
     linkUrl,
+    assistantChoices: null,
   };
 }
 
@@ -23713,10 +23826,15 @@ export async function executePortalAgentAction(opts: {
     actorUserId,
     args: argsParsed.data as any,
   });
-  const { markdown, linkUrl } = resultMarkdown(opts.action, json);
+  const ok =
+    status >= 200 &&
+    status < 300 &&
+    !(json && typeof json === "object" && typeof (json as any).ok === "boolean" && (json as any).ok === false);
+
+  const { markdown, linkUrl } = resultMarkdown(opts.action, json, { ok, status });
 
   return {
-    ok: status >= 200 && status < 300,
+    ok,
     status,
     action: opts.action,
     result: json,
