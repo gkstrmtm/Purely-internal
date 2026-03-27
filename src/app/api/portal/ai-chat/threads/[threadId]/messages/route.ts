@@ -210,7 +210,9 @@ function isBadTagName(raw: string): boolean {
   const t = cleanShortLabel(raw, 60).toLowerCase();
   if (!t) return true;
   if (t.length <= 1) return true;
-  if (["as", "with", "to", "for", "from", "tag", "tags", "untag", "add", "remove", "apply"].includes(t)) return true;
+  // Only block stopwords if the tag does NOT exist for the contact; allow if it exists.
+  // This check will be handled in the tag lookup logic below, so do not block here.
+  if (["tag", "tags", "untag", "add", "remove", "apply"].includes(t)) return true;
   return false;
 }
 
