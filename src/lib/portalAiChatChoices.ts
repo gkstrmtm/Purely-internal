@@ -6,7 +6,16 @@ type ChoiceOverrides = Record<string, unknown>;
 function mapKindToKey(kind: string) {
   const k = String(kind || "").trim();
   if (!k) return null as string | null;
-  if (k === "booking_calendar" || k === "booking_calendar_id") return "bookingCalendarId";
+  const kn = k.toLowerCase();
+
+  // Known kinds map to stable keys used by the resolver.
+  if (kn === "booking_calendar" || kn === "booking_calendar_id") return "bookingCalendarId";
+  if (kn === "funnel" || kn === "funnel_id") return "funnelId";
+  if (kn === "funnel_page" || kn === "page" || kn === "page_id" || kn === "funnel_page_id") return "funnelPageId";
+  if (kn === "funnel_form" || kn === "form" || kn === "form_id" || kn === "funnel_form_id") return "funnelFormId";
+  if (kn === "custom_domain" || kn === "domain" || kn === "domain_id" || kn === "custom_domain_id") return "customDomainId";
+
+  // Fallback: store under a sanitized key.
   return k.replace(/[^a-z0-9]+/gi, "_");
 }
 

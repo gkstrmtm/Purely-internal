@@ -1895,8 +1895,8 @@ async function resolveFunnelFormId(opts: {
   threadContext?: unknown;
 }): Promise<
   | { kind: "ok"; formId: string; label: string }
-  | { kind: "clarify"; question: string }
-  | { kind: "not_found"; question: string }
+  | { kind: "clarify"; question: string; choices?: AssistantChoice[] }
+  | { kind: "not_found"; question: string; choices?: AssistantChoice[] }
 > {
   const ownerId = String(opts.ownerId);
   const hint = String(opts.hint || "").trim();
@@ -1930,11 +1930,22 @@ async function resolveFunnelFormId(opts: {
     return { kind: "ok", formId: String(r.id), label: String(r.name || r.slug || "Form") };
   }
 
-  const list = filtered
+  if (hintMeansAny(hint) && filtered.length) {
+    const r = filtered[0];
+    return { kind: "ok", formId: String(r.id), label: String(r.name || r.slug || "Form") };
+  }
+
+  const choices: AssistantChoice[] = filtered
     .slice(0, 6)
-    .map((r: any) => `- ${String(r.name || r.slug || "(unnamed)")} (${String(r.status)}) - ${String(r.id).slice(0, 8)}...`)
-    .join("\n");
-  return { kind: "clarify", question: `Which form do you mean? Reply with the form id:\n\n${list}` };
+    .map((r: any) => ({
+      type: "entity",
+      kind: "funnel_form",
+      value: String(r.id),
+      label: String(r.name || r.slug || "Form"),
+      description: r.status ? String(r.status) : undefined,
+    }));
+
+  return { kind: "clarify", question: "Which form should I use?", choices };
 }
 
 async function resolveFunnelPageId(opts: {
@@ -1945,8 +1956,8 @@ async function resolveFunnelPageId(opts: {
   funnelIdHint?: string | null;
 }): Promise<
   | { kind: "ok"; pageId: string; label: string; funnelId: string }
-  | { kind: "clarify"; question: string }
-  | { kind: "not_found"; question: string }
+  | { kind: "clarify"; question: string; choices?: AssistantChoice[] }
+  | { kind: "not_found"; question: string; choices?: AssistantChoice[] }
 > {
   const hint = String(opts.hint || "").trim();
 
@@ -1964,7 +1975,7 @@ async function resolveFunnelPageId(opts: {
 
   const funnelId = funnelIdHint || lastFunnelId || getLastEntityId(opts.threadContext, "lastFunnel") || "";
   if (!funnelId) {
-    return { kind: "clarify", question: "Which funnel page do you mean? Reply with the funnel name (or open the funnel) first." };
+    return { kind: "clarify", question: "Which funnel should I pull the page from? Open the funnel first (or tell me the funnel name)." };
   }
 
   if (looksLikeId(hint)) return { kind: "ok", pageId: hint.slice(0, 120), label: hint.slice(0, 40), funnelId };
@@ -1988,11 +1999,23 @@ async function resolveFunnelPageId(opts: {
     return { kind: "ok", pageId: String(r.id), label: String(r.title || r.slug || "Page"), funnelId };
   }
 
-  const list = filtered
+  // If the user says "any" / "doesn't matter", auto-pick the first match.
+  if (hintMeansAny(hint) && filtered.length) {
+    const r = filtered[0];
+    return { kind: "ok", pageId: String(r.id), label: String(r.title || r.slug || "Page"), funnelId };
+  }
+
+  const choices: AssistantChoice[] = filtered
     .slice(0, 8)
-    .map((r: any) => `- ${String(r.title || r.slug || "(untitled)")} [/${String(r.slug)}] - ${String(r.id).slice(0, 8)}...`)
-    .join("\n");
-  return { kind: "clarify", question: `Which page do you mean? Reply with the page id:\n\n${list}` };
+    .map((r: any) => ({
+      type: "entity",
+      kind: "funnel_page",
+      value: String(r.id),
+      label: String(r.title || r.slug || "Page"),
+      description: r.slug ? `/${String(r.slug)}` : undefined,
+    }));
+
+  return { kind: "clarify", question: "Which page should I use?", choices };
 }
 
 async function resolveCustomDomainId(opts: {
@@ -2002,8 +2025,8 @@ async function resolveCustomDomainId(opts: {
   threadContext?: unknown;
 }): Promise<
   | { kind: "ok"; domainId: string; label: string }
-  | { kind: "clarify"; question: string }
-  | { kind: "not_found"; question: string }
+  | { kind: "clarify"; question: string; choices?: AssistantChoice[] }
+  | { kind: "not_found"; question: string; choices?: AssistantChoice[] }
 > {
   const ownerId = String(opts.ownerId);
   const hint = String(opts.hint || "").trim();
@@ -2032,11 +2055,22 @@ async function resolveCustomDomainId(opts: {
     return { kind: "ok", domainId: String(r.id), label: String(r.domain || "Domain") };
   }
 
-  const list = filtered
+  if (hintMeansAny(hint) && filtered.length) {
+    const r = filtered[0];
+    return { kind: "ok", domainId: String(r.id), label: String(r.domain || "Domain") };
+  }
+
+  const choices: AssistantChoice[] = filtered
     .slice(0, 8)
-    .map((r: any) => `- ${String(r.domain)} (${String(r.status)}) - ${String(r.id).slice(0, 8)}...`)
-    .join("\n");
-  return { kind: "clarify", question: `Which custom domain do you mean? Reply with the domain id:\n\n${list}` };
+    .map((r: any) => ({
+      type: "entity",
+      kind: "custom_domain",
+      value: String(r.id),
+      label: String(r.domain || "Domain"),
+      description: r.status ? String(r.status) : undefined,
+    }));
+
+  return { kind: "clarify", question: "Which custom domain should I use?", choices };
 }
 
 async function resolveAiOutboundCallsCampaignId(opts: {
@@ -2085,12 +2119,20 @@ export type ResolveResult =
   | { ok: true; args: unknown; contextPatch?: Record<string, unknown> }
   | { ok: false; clarifyQuestion: string; choices?: AssistantChoice[] };
 
-export type AssistantChoice = {
-  type: "booking_calendar";
-  calendarId: string;
-  label: string;
-  description?: string;
-};
+export type AssistantChoice =
+  | {
+      type: "booking_calendar";
+      calendarId: string;
+      label: string;
+      description?: string;
+    }
+  | {
+      type: "entity";
+      kind: string;
+      value: string;
+      label: string;
+      description?: string;
+    };
 
 function hintMeansAny(raw: string): boolean {
   const s = String(raw || "")
@@ -2266,6 +2308,39 @@ export async function resolvePlanArgs(opts: {
         : {};
     if (Object.prototype.hasOwnProperty.call(prevOverrides, "bookingCalendarId")) {
       delete (prevOverrides as any).bookingCalendarId;
+      extraContextPatch = { ...(extraContextPatch || {}), choiceOverrides: prevOverrides };
+    }
+  };
+
+  const clearFunnelPageChoiceOverride = () => {
+    const prevOverrides =
+      threadChoiceOverrides && typeof threadChoiceOverrides === "object" && !Array.isArray(threadChoiceOverrides)
+        ? { ...(threadChoiceOverrides as Record<string, unknown>) }
+        : {};
+    if (Object.prototype.hasOwnProperty.call(prevOverrides, "funnelPageId")) {
+      delete (prevOverrides as any).funnelPageId;
+      extraContextPatch = { ...(extraContextPatch || {}), choiceOverrides: prevOverrides };
+    }
+  };
+
+  const clearFunnelFormChoiceOverride = () => {
+    const prevOverrides =
+      threadChoiceOverrides && typeof threadChoiceOverrides === "object" && !Array.isArray(threadChoiceOverrides)
+        ? { ...(threadChoiceOverrides as Record<string, unknown>) }
+        : {};
+    if (Object.prototype.hasOwnProperty.call(prevOverrides, "funnelFormId")) {
+      delete (prevOverrides as any).funnelFormId;
+      extraContextPatch = { ...(extraContextPatch || {}), choiceOverrides: prevOverrides };
+    }
+  };
+
+  const clearCustomDomainChoiceOverride = () => {
+    const prevOverrides =
+      threadChoiceOverrides && typeof threadChoiceOverrides === "object" && !Array.isArray(threadChoiceOverrides)
+        ? { ...(threadChoiceOverrides as Record<string, unknown>) }
+        : {};
+    if (Object.prototype.hasOwnProperty.call(prevOverrides, "customDomainId")) {
+      delete (prevOverrides as any).customDomainId;
       extraContextPatch = { ...(extraContextPatch || {}), choiceOverrides: prevOverrides };
     }
   };
@@ -2520,25 +2595,49 @@ export async function resolvePlanArgs(opts: {
 
     if (argKeyLower === "formid") {
       if (resolvedFunnelForm?.id) return { ok: true, value: resolvedFunnelForm.id };
-      const rf = await resolveFunnelFormId({ ownerId, hint: mergeResolverHint(rawHint), url: opts.url, threadContext: opts.threadContext });
-      if (rf.kind !== "ok") return { ok: false, clarifyQuestion: rf.question };
+      const overrideFormId =
+        threadChoiceOverrides && typeof threadChoiceOverrides === "object" && typeof (threadChoiceOverrides as any).funnelFormId === "string"
+          ? String((threadChoiceOverrides as any).funnelFormId).trim()
+          : "";
+
+      const rf = await resolveFunnelFormId({ ownerId, hint: overrideFormId || mergeResolverHint(rawHint), url: opts.url, threadContext: opts.threadContext });
+      if (rf.kind !== "ok") return { ok: false, clarifyQuestion: rf.question, ...(rf.choices ? { choices: rf.choices } : {}) };
       resolvedFunnelForm = { id: rf.formId, label: rf.label };
+      if (overrideFormId) clearFunnelFormChoiceOverride();
       return { ok: true, value: rf.formId };
     }
 
     if (argKeyLower === "pageid") {
       if (resolvedFunnelPage?.id) return { ok: true, value: resolvedFunnelPage.id };
-      const rp = await resolveFunnelPageId({ ownerId, hint: mergeResolverHint(rawHint), url: opts.url, threadContext: opts.threadContext, funnelIdHint: resolvedFunnel?.id || null });
-      if (rp.kind !== "ok") return { ok: false, clarifyQuestion: rp.question };
+      const overridePageId =
+        threadChoiceOverrides && typeof threadChoiceOverrides === "object" && typeof (threadChoiceOverrides as any).funnelPageId === "string"
+          ? String((threadChoiceOverrides as any).funnelPageId).trim()
+          : "";
+
+      const rp = await resolveFunnelPageId({
+        ownerId,
+        hint: overridePageId || mergeResolverHint(rawHint),
+        url: opts.url,
+        threadContext: opts.threadContext,
+        funnelIdHint: resolvedFunnel?.id || null,
+      });
+      if (rp.kind !== "ok") return { ok: false, clarifyQuestion: rp.question, ...(rp.choices ? { choices: rp.choices } : {}) };
       resolvedFunnelPage = { id: rp.pageId, label: rp.label, funnelId: rp.funnelId };
+      if (overridePageId) clearFunnelPageChoiceOverride();
       return { ok: true, value: rp.pageId };
     }
 
     if (argKeyLower === "domainid") {
       if (resolvedCustomDomain?.id) return { ok: true, value: resolvedCustomDomain.id };
-      const rd = await resolveCustomDomainId({ ownerId, hint: mergeResolverHint(rawHint), url: opts.url, threadContext: opts.threadContext });
-      if (rd.kind !== "ok") return { ok: false, clarifyQuestion: rd.question };
+      const overrideDomainId =
+        threadChoiceOverrides && typeof threadChoiceOverrides === "object" && typeof (threadChoiceOverrides as any).customDomainId === "string"
+          ? String((threadChoiceOverrides as any).customDomainId).trim()
+          : "";
+
+      const rd = await resolveCustomDomainId({ ownerId, hint: overrideDomainId || mergeResolverHint(rawHint), url: opts.url, threadContext: opts.threadContext });
+      if (rd.kind !== "ok") return { ok: false, clarifyQuestion: rd.question, ...(rd.choices ? { choices: rd.choices } : {}) };
       resolvedCustomDomain = { id: rd.domainId, label: rd.label };
+      if (overrideDomainId) clearCustomDomainChoiceOverride();
       return { ok: true, value: rd.domainId };
     }
 

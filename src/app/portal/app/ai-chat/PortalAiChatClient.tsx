@@ -11,12 +11,20 @@ import { IconSchedule, IconSend, IconSendHover } from "@/app/portal/PortalIcons"
 
 type AmbiguousContact = { name: string; email?: string | null; phone?: string | null };
 
-type AssistantChoice = {
-  type: "booking_calendar";
-  calendarId: string;
-  label: string;
-  description?: string;
-};
+type AssistantChoice =
+  | {
+      type: "booking_calendar";
+      calendarId: string;
+      label: string;
+      description?: string;
+    }
+  | {
+      type: "entity";
+      kind: string;
+      value: string;
+      label: string;
+      description?: string;
+    };
 
 type Thread = {
   id: string;
@@ -876,7 +884,12 @@ export function PortalAiChatClient() {
   );
 
   const send = useCallback(
-    async (overrideText?: string, choice?: { type: "booking_calendar"; calendarId: string; label?: string }) => {
+    async (
+      overrideText?: string,
+      choice?:
+        | { type: "booking_calendar"; calendarId: string; label?: string }
+        | { type: "entity"; kind: string; value: string; label?: string },
+    ) => {
       const text = typeof overrideText === "string" ? overrideText : input.trim();
       const attachments = pendingAttachments;
       if (!text && !attachments.length && !choice) return;
@@ -1051,6 +1064,11 @@ export function PortalAiChatClient() {
     (c: AssistantChoice) => {
       if (c.type === "booking_calendar" && c.calendarId) {
         void send(c.label || "Selected calendar", { type: "booking_calendar", calendarId: c.calendarId, label: c.label });
+        return;
+      }
+
+      if (c.type === "entity" && c.kind && c.value) {
+        void send(c.label || "Selected", { type: "entity", kind: c.kind, value: c.value, label: c.label });
       }
     },
     [send],
@@ -1578,7 +1596,7 @@ export function PortalAiChatClient() {
                           <div className="mt-2 flex flex-wrap gap-2">
                             {assistantChoices?.map((c, idx) => (
                               <button
-                                key={`${c.type}:${c.calendarId || idx}`}
+                                key={`${c.type}:${c.type === "booking_calendar" ? c.calendarId : c.type === "entity" ? `${c.kind}:${c.value}` : idx}`}
                                 type="button"
                                 className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-900 hover:bg-zinc-50"
                                 onClick={() => handleAssistantChoiceSelect(c)}

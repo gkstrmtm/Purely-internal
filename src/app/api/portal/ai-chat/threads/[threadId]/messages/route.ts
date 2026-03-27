@@ -46,6 +46,15 @@ const ChoiceSchema = z
         label: z.string().trim().min(1).max(160).optional(),
       })
       .strict(),
+    z
+      .object({
+        type: z.literal("entity"),
+        kind: z.string().trim().min(1).max(80),
+        value: z.string().trim().min(1).max(200),
+        label: z.string().trim().min(1).max(160).optional(),
+        description: z.string().trim().min(1).max(240).optional(),
+      })
+      .strict(),
   ])
   .optional();
 
@@ -1368,6 +1377,8 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
       ? String((choice as any).label).trim().slice(0, 160)
       : choice && typeof choice === "object" && String((choice as any).type || "") === "booking_calendar" && String((choice as any).calendarId || "").trim()
         ? `Use calendar ${String((choice as any).calendarId).trim().slice(0, 24)}`
+        : choice && typeof choice === "object" && String((choice as any).type || "") === "entity" && String((choice as any).kind || "").trim()
+          ? `Use selected ${String((choice as any).kind).trim().slice(0, 32)}`
         : "";
   const effectiveText = cleanText || choiceLabel;
   const attachments = Array.isArray(parsed.data.attachments) ? parsed.data.attachments : [];
@@ -1566,17 +1577,30 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
       // Apply structured choice selections to thread context for the next resolution pass.
       if (choice && typeof choice === "object") {
         try {
-          const kind = String((choice as any).type || "").trim();
-          if (kind) {
-            const value = kind === "booking_calendar" ? String((choice as any).calendarId || "").trim().slice(0, 80) : String((choice as any).value || "").trim().slice(0, 200);
-            if (value) {
-              // Persist via helper so validation is shared.
-              const setRes = await (await import("@/lib/portalAiChatChoices")).setThreadChoiceOverride({ ownerId, threadId, kind, value });
-              if (setRes && (setRes as any).ok) {
-                const prevCtx = threadContext && typeof threadContext === "object" && !Array.isArray(threadContext) ? (threadContext as any) : {};
-                const prevOverrides = prevCtx.choiceOverrides && typeof prevCtx.choiceOverrides === "object" && !Array.isArray(prevCtx.choiceOverrides) ? (prevCtx.choiceOverrides as any) : {};
-                threadContext = { ...prevCtx, choiceOverrides: { ...prevOverrides, ...((setRes as any).choiceOverrides || {}) } };
-              }
+          const t = String((choice as any).type || "").trim();
+          const kind =
+            t === "booking_calendar"
+              ? "booking_calendar"
+              : t === "entity"
+                ? String((choice as any).kind || "").trim()
+                : "";
+          const value =
+            t === "booking_calendar"
+              ? String((choice as any).calendarId || "").trim().slice(0, 80)
+              : t === "entity"
+                ? String((choice as any).value || "").trim().slice(0, 200)
+                : "";
+
+          if (kind && value) {
+            // Persist via helper so validation is shared.
+            const setRes = await (await import("@/lib/portalAiChatChoices")).setThreadChoiceOverride({ ownerId, threadId, kind, value });
+            if (setRes && (setRes as any).ok) {
+              const prevCtx = threadContext && typeof threadContext === "object" && !Array.isArray(threadContext) ? (threadContext as any) : {};
+              const prevOverrides =
+                prevCtx.choiceOverrides && typeof prevCtx.choiceOverrides === "object" && !Array.isArray(prevCtx.choiceOverrides)
+                  ? (prevCtx.choiceOverrides as any)
+                  : {};
+              threadContext = { ...prevCtx, choiceOverrides: { ...prevOverrides, ...((setRes as any).choiceOverrides || {}) } };
             }
           }
         } catch {
