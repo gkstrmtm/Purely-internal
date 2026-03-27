@@ -1603,10 +1603,24 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
         await (prisma as any).portalAiChatThread.update({ where: { id: threadId }, data: { contextJson: nextCtx } });
       }
 
-      // If we previously asked a clarifying question, treat the user's reply as completing that plan.
-      const isLikelyFollowUpAnswer = Boolean(pendingPlan);
+      // Pending plans are only safe to "replay" when they are execute-mode.
+      // If we previously asked a clarifying question (clarify-mode), we must re-plan using the user's reply
+      // or we'll loop and repeat the same question.
+      const pendingPlanMode = pendingPlan && typeof pendingPlan === "object" ? String((pendingPlan as any).mode || "") : "";
+      const shouldReplayPendingExecutePlan = Boolean(pendingPlan) && pendingPlanMode === "execute";
 
-      const plan = isLikelyFollowUpAnswer
+      // Clear stale clarify-mode pendingPlan so follow-up replies can progress.
+      if (pendingPlan && pendingPlanMode === "clarify" && !isConfirmOnly) {
+        const prevCtx = threadContext;
+        const nextCtx =
+          prevCtx && typeof prevCtx === "object" && !Array.isArray(prevCtx)
+            ? { ...(prevCtx as any), pendingPlan: null }
+            : { pendingPlan: null };
+        await (prisma as any).portalAiChatThread.update({ where: { id: threadId }, data: { contextJson: nextCtx } });
+        threadContext = nextCtx;
+      }
+
+      const plan = shouldReplayPendingExecutePlan
         ? (pendingPlan as any)
         : await planPuraActions({
             text: effectiveText,
