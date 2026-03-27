@@ -1,3 +1,55 @@
+// Recursively resolve all *id fields in args (plain or $ref)
+export async function resolveAllPortalAgentIds(args: Record<string, any>) {
+  const resolved: Record<string, any> = { ...args };
+  for (const key of Object.keys(args)) {
+    if (key.endsWith("Id") || key.endsWith("id")) {
+      resolved[key] = await resolvePortalAgentId(args, key);
+    }
+    // Optionally, recurse into nested objects/arrays if needed
+  }
+  return resolved;
+}
+// --- Universal ID/entity mapping and resolver ---
+// Maps argument keys to entity types and resolution strategies
+export const PortalAgentIdEntityMap: Record<string, string> = {
+  threadId: "ai_chat_thread",
+  messageId: "ai_chat_message",
+  voiceId: "voice_agent_voice",
+  domainId: "funnel_domain",
+  formId: "funnel_form",
+  funnelId: "funnel",
+  pageId: "funnel_page",
+  postId: "blog_post",
+  newsletterId: "newsletter",
+  subscriptionId: "billing_subscription",
+  campaignId: "campaign",
+  contactId: "contact",
+  leadId: "lead",
+  userId: "user",
+  bookingId: "booking",
+  tagId: "contact_tag",
+  mediaItemId: "media_item",
+  widgetId: "dashboard_widget",
+  calendarId: "booking_calendar",
+};
+
+// Universal ID resolver: resolves plain IDs or $ref objects to entity objects
+// Usage: await resolvePortalAgentId({ threadId: ..., ... }, "threadId")
+export async function resolvePortalAgentId(args: Record<string, any>, key: string) {
+  const val = args[key];
+  if (!val) return null;
+  // $ref support: { $ref: "some-contextual-key" }
+  if (typeof val === "object" && val.$ref) {
+    // TODO: Implement $ref resolution from context/session
+    // For now, just return the $ref string for debugging
+    return { $ref: val.$ref };
+  }
+  // Otherwise, treat as plain ID
+  const entityType = PortalAgentIdEntityMap[key] || "unknown";
+  // TODO: Implement actual entity lookup by type and ID
+  // For now, just return a stub object
+  return { id: val, entityType };
+}
 import { z } from "zod";
 
 export const PortalAgentActionKeySchema = z.enum([

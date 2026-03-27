@@ -2002,6 +2002,18 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
           where: { id: threadId },
           data: { title: proposed },
         });
+      } else if (isDefaultTitle) {
+        // Fallback: use first message text as title if nothing else
+        const firstMsg = await prisma.portalAiChatMessage.findFirst({
+          where: { threadId },
+          orderBy: { createdAt: "asc" },
+        });
+        if (firstMsg && firstMsg.text && firstMsg.text.length > 3) {
+          await prisma.portalAiChatThread.update({
+            where: { id: threadId },
+            data: { title: firstMsg.text.slice(0, 120) },
+          });
+        }
       }
     }
   } catch {
@@ -2018,7 +2030,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ threadId: stri
     const message = err instanceof Error ? err.message : "Internal server error";
     console.error("[AI Chat POST Error]", { message, stack: err instanceof Error ? err.stack : undefined });
     return NextResponse.json(
-      { ok: false, error: String(message || "Send failed").slice(0, 500) },
+      { ok: false, error: String(message && typeof message === "string" ? message : "Send failed").slice(0, 500) },
       { status: 500 },
     );
   }
