@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db";
+import { generateText } from "@/lib/ai";
 import { getBookingCalendarsConfig } from "@/lib/bookingCalendars";
 import { normalizeEmailKey, normalizeNameKey, normalizePhoneKey } from "@/lib/portalContacts";
 import { createOwnerContactTag } from "@/lib/portalContactTags";
@@ -6,6 +7,80 @@ import { normalizeSmsPeerKey } from "@/lib/portalInbox";
 import { ensurePortalInboxSchema } from "@/lib/portalInboxSchema";
 import { listPortalAccountMembers } from "@/lib/portalAccounts";
 import { isPuraRef, type PuraRef } from "@/lib/puraPlanner";
+
+async function pickFunnelPageIdWithAi(opts: {
+  hint: string;
+  funnelId: string;
+  pages: Array<{ id: string; slug?: string | null; title?: string | null }>;
+  threadContext?: unknown;
+}): Promise<{ pageId: string; confidence: number } | null> {
+  const hint = String(opts.hint || "").trim().slice(0, 220);
+  if (!hint) return null;
+
+  const summary =
+    opts.threadContext && typeof opts.threadContext === "object" && !Array.isArray(opts.threadContext) && typeof (opts.threadContext as any).threadSummary === "string"
+      ? String((opts.threadContext as any).threadSummary || "").trim().slice(0, 1200)
+      : "";
+
+  const lastPage =
+    opts.threadContext && typeof opts.threadContext === "object" && !Array.isArray(opts.threadContext)
+      ? ((opts.threadContext as any).lastFunnelPage as any)
+      : null;
+
+  const candidates = (opts.pages || [])
+    .filter((p) => p && typeof p === "object")
+    .slice(0, 24)
+    .map((p) => ({
+      id: String(p.id || "").trim().slice(0, 120),
+      title: String(p.title || "").trim().slice(0, 120),
+      slug: String(p.slug || "").trim().slice(0, 120),
+    }))
+    .filter((p) => Boolean(p.id));
+
+  if (candidates.length < 2) return null;
+
+  const system = [
+    "You pick which funnel page an agent should use.",
+    "Return JSON only.",
+    "Schema: { \"pageId\": string, \"confidence\": number }",
+    "Rules:",
+    "- pageId MUST be one of the provided candidates.",
+    "- confidence is 0 to 1.",
+    "- If unsure, set confidence <= 0.5 and pick the best guess.",
+    "- Prefer the most recently created/mentioned page when the hint says 'same one we just made'.",
+  ].join("\n");
+
+  const user = [
+    `FunnelId: ${String(opts.funnelId || "").slice(0, 120)}`,
+    "Thread summary:",
+    summary || "(none)",
+    "\nLast funnel page in context:",
+    lastPage && typeof lastPage === "object" ? JSON.stringify({ id: lastPage.id, label: lastPage.label, funnelId: lastPage.funnelId }).slice(0, 600) : "(none)",
+    "\nUser hint:",
+    hint,
+    "\nCandidates:",
+    JSON.stringify(candidates).slice(0, 5000),
+    "\nJSON:",
+  ].join("\n");
+
+  try {
+    const raw = await generateText({ system, user });
+    const text = String(raw || "").trim();
+    const start = text.indexOf("{");
+    const end = text.lastIndexOf("}");
+    const jsonText = start >= 0 && end > start ? text.slice(start, end + 1) : "";
+    if (!jsonText) return null;
+    const parsed = JSON.parse(jsonText) as any;
+    const pageId = typeof parsed?.pageId === "string" ? parsed.pageId.trim().slice(0, 120) : "";
+    const confidenceNum = typeof parsed?.confidence === "number" && Number.isFinite(parsed.confidence) ? parsed.confidence : 0;
+    if (!pageId) return null;
+    const exists = candidates.some((c) => c.id === pageId);
+    if (!exists) return null;
+    return { pageId, confidence: Math.max(0, Math.min(1, confidenceNum)) };
+  } catch {
+    return null;
+  }
+}
 
 function safeParseUrl(raw: string | undefined | null): URL | null {
   const s = String(raw || "").trim();
@@ -230,6 +305,7 @@ function getLastEntityId(
     | "lastFunnel"
     | "lastAutomation"
     | "lastBooking"
+    | "lastBookingCalendar"
     | "lastBlogPost"
     | "lastNewsletter"
     | "lastMediaFolder"
@@ -2054,6 +2130,18 @@ async function resolveFunnelPageId(opts: {
     }
   }
 
+  // LLM-backed disambiguation: if the user gave *some* hint and we still have multiple matches,
+  // ask the model to pick the most likely page using the rolling thread summary.
+  if (hint && filtered.length > 1) {
+    const picked = await pickFunnelPageIdWithAi({ hint, funnelId, pages: filtered, threadContext: opts.threadContext });
+    if (picked && picked.confidence >= 0.65) {
+      const match = filtered.find((r: any) => String(r.id) === String(picked.pageId));
+      if (match) {
+        return { kind: "ok", pageId: String(match.id), label: String(match.title || match.slug || "Page"), funnelId };
+      }
+    }
+  }
+
   const choices: AssistantChoice[] = filtered
     .slice(0, 8)
     .map((r: any) => ({
@@ -2241,6 +2329,7 @@ function looksLikeCalendarIntent(raw: string): boolean {
 async function resolveBookingCalendarId(opts: {
   ownerId: string;
   hint: string;
+  threadContext?: unknown;
 }): Promise<
   | { kind: "ok"; calendarId: string; label: string }
   | { kind: "clarify"; question: string; choices: AssistantChoice[] }
@@ -2268,7 +2357,9 @@ async function resolveBookingCalendarId(opts: {
     };
   }
 
-  const defaultCal = enabled[0]!;
+  const lastCalId = getLastEntityId(opts.threadContext, "lastBookingCalendar");
+  const lastCal = lastCalId ? enabled.find((c) => c.id === lastCalId) : null;
+  const defaultCal = lastCal || enabled[0]!;
 
   const mkChoices = (items: typeof enabled): AssistantChoice[] =>
     items.slice(0, 8).map((c) => ({
@@ -2285,6 +2376,11 @@ async function resolveBookingCalendarId(opts: {
       question: "Which booking calendar should I use? Click one:",
       choices: mkChoices(enabled),
     };
+  }
+
+  // If the user refers to the "same" calendar and we have one in context, reuse it.
+  if (/\b(same\s+one|same\s+calendar|the\s+same|that\s+one|the\s+one\s+we\s+just\s+used)\b/i.test(hintRaw) && lastCal) {
+    return { kind: "ok", calendarId: lastCal.id, label: lastCal.title };
   }
 
   if (hintMeansAny(hintRaw)) {
@@ -2358,6 +2454,7 @@ export async function resolvePlanArgs(opts: {
   let resolvedFunnelPage: { id: string; label: string; funnelId: string } | null = null;
   let resolvedCustomDomain: { id: string; label: string } | null = null;
   let resolvedAiOutboundCallsCampaign: { id: string; label: string } | null = null;
+  let resolvedBookingCalendar: { id: string; label: string } | null = null;
 
   const threadChoiceOverrides =
     opts.threadContext && typeof opts.threadContext === "object" && !Array.isArray(opts.threadContext)
@@ -2422,11 +2519,12 @@ export async function resolvePlanArgs(opts: {
         (typeof (args as any).calendarId === "string" ? String((args as any).calendarId).trim() : "") ||
         String(opts.userHint || "");
 
-      const rc = await resolveBookingCalendarId({ ownerId, hint: hinted });
+      const rc = await resolveBookingCalendarId({ ownerId, hint: hinted, threadContext: opts.threadContext });
       if (rc.kind === "clarify") return { ok: false, clarifyQuestion: rc.question, choices: rc.choices };
       // If no calendars exist, let the action executor handle it (it can prompt or create defaults with credits).
       if (rc.kind === "ok") {
         args = { ...args, calendarId: rc.calendarId };
+        resolvedBookingCalendar = { id: rc.calendarId, label: rc.label };
         if (overrideCalendarId) clearBookingCalendarChoiceOverride();
       }
     }
@@ -2483,11 +2581,12 @@ export async function resolvePlanArgs(opts: {
           ? String((threadChoiceOverrides as any).bookingCalendarId).trim()
           : "";
 
-      const rc = await resolveBookingCalendarId({ ownerId, hint: overrideCalendarId || hint });
+      const rc = await resolveBookingCalendarId({ ownerId, hint: overrideCalendarId || hint, threadContext: opts.threadContext });
       if (rc.kind === "clarify") return { ok: false, clarifyQuestion: rc.question, choices: rc.choices };
       if (rc.kind === "not_found") return { ok: false, clarifyQuestion: rc.question, choices: rc.choices };
 
       if (overrideCalendarId) clearBookingCalendarChoiceOverride();
+      resolvedBookingCalendar = { id: rc.calendarId, label: rc.label };
       return { ok: true, value: rc.calendarId };
     }
 
@@ -2522,9 +2621,10 @@ export async function resolvePlanArgs(opts: {
           : "";
 
       const hinted = overrideCalendarId || mergeResolverHint(rawHint);
-      const rc = await resolveBookingCalendarId({ ownerId, hint: hinted });
+      const rc = await resolveBookingCalendarId({ ownerId, hint: hinted, threadContext: opts.threadContext });
       if (rc.kind === "ok") {
         if (overrideCalendarId) clearBookingCalendarChoiceOverride();
+        resolvedBookingCalendar = { id: rc.calendarId, label: rc.label };
         return { ok: true, value: rc.calendarId };
       }
       return { ok: false, clarifyQuestion: rc.question, ...(rc.kind === "clarify" ? { choices: rc.choices } : rc.choices ? { choices: rc.choices } : {}) };
@@ -3200,6 +3300,7 @@ export async function resolvePlanArgs(opts: {
     resolvedUser ||
     resolvedFunnelForm ||
     resolvedFunnelPage ||
+    resolvedBookingCalendar ||
     resolvedCustomDomain ||
     resolvedAiOutboundCallsCampaign
       ? {
@@ -3235,6 +3336,7 @@ export async function resolvePlanArgs(opts: {
           ...(resolvedFunnelPage
             ? { lastFunnelPage: { id: resolvedFunnelPage.id, label: resolvedFunnelPage.label, funnelId: resolvedFunnelPage.funnelId } }
             : {}),
+          ...(resolvedBookingCalendar ? { lastBookingCalendar: resolvedBookingCalendar } : {}),
           ...(resolvedCustomDomain ? { lastCustomDomain: resolvedCustomDomain } : {}),
           ...(resolvedAiOutboundCallsCampaign ? { lastAiOutboundCallsCampaign: resolvedAiOutboundCallsCampaign } : {}),
         }
