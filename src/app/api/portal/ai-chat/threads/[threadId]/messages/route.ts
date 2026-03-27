@@ -1809,12 +1809,52 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
           return `${summary}\n\n${blocks.join("\n\n")}`;
         })();
 
+        // AI-first: let the model decide what to say after tools run.
+        // This keeps the chat feeling like ChatGPT while still using portal actions as tools.
+        let assistantTextFinal = assistantText;
+        try {
+          const system = [
+            "You are Pura, an AI assistant inside a business portal.",
+            "You just ran portal tools/actions for the user.",
+            "Write the assistant reply the user should see.",
+            "Rules:",
+            "- Be conversational and concise.",
+            "- If something failed, say it plainly and ask ONE targeted question if needed.",
+            "- If something succeeded, confirm what changed and what to do next.",
+            "- Do not mention internal code, schemas, or JSON.",
+            "- If there are multiple steps, summarize in 2-6 short lines.",
+          ].join("\n");
+
+          const user = [
+            "Latest user message:",
+            String(effectiveText || "").slice(0, 1200),
+            "\nExecuted steps:",
+            JSON.stringify(
+              resolvedSteps.map((s, idx) => ({
+                title: s.title,
+                key: s.key,
+                ok: Boolean(results[idx]?.ok),
+                markdown: results[idx]?.markdown || null,
+                linkUrl: results[idx]?.linkUrl || null,
+              })),
+            ).slice(0, 6000),
+            "\nDraft summary (fallback):",
+            assistantText,
+            "\nReply:",
+          ].join("\n");
+
+          const aiReply = String(await generateText({ system, user })).trim();
+          if (aiReply) assistantTextFinal = aiReply.slice(0, 4000);
+        } catch {
+          // ignore and keep deterministic fallback
+        }
+
         const assistantMsg = await (prisma as any).portalAiChatMessage.create({
           data: {
             ownerId,
             threadId,
             role: "assistant",
-            text: assistantText,
+            text: assistantTextFinal,
             attachmentsJson: null,
             createdByUserId: null,
             sendAt: null,
@@ -1863,6 +1903,38 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
     } catch {
       // If planning fails, fall through to existing behavior.
     }
+
+    // AI-first: if we didn't execute/clarify/explain above, fall back to a normal conversation.
+    const reply = await runPortalSupportChat({
+      message: promptMessage,
+      url: parsed.data.url,
+      recentMessages,
+    });
+
+    const assistantMsg = await (prisma as any).portalAiChatMessage.create({
+      data: {
+        ownerId,
+        threadId,
+        role: "assistant",
+        text: reply,
+        attachmentsJson: null,
+        createdByUserId: null,
+        sendAt: null,
+        sentAt: now,
+      },
+      select: {
+        id: true,
+        role: true,
+        text: true,
+        attachmentsJson: true,
+        createdAt: true,
+        sendAt: true,
+        sentAt: true,
+      },
+    });
+
+    await (prisma as any).portalAiChatThread.update({ where: { id: threadId }, data: { lastMessageAt: now } });
+    return NextResponse.json({ ok: true, userMessage: userMsg, assistantMessage: assistantMsg, assistantActions: [], autoActionMessage: null, canvasUrl: null });
   }
 
   // 1) Prefer deterministic action execution for common commands.

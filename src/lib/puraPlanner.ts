@@ -86,22 +86,9 @@ function shouldPlan(textRaw: string, threadContext?: unknown): boolean {
   const t = String(textRaw || "").trim();
   if (!t) return false;
 
-  // If we're in a follow-up to a clarifying question, treat the reply as actionable.
-  const pendingPlan =
-    threadContext && typeof threadContext === "object" && !Array.isArray(threadContext)
-      ? (threadContext as any).pendingPlan
-      : null;
-  if (pendingPlan && /@|\+?\d[\d\s().-]{7,}|\b(id|email|phone)\b/i.test(t)) return true;
-
-  // If it looks like a direct request, plan.
-  if (/(^|\b)(create|make|build|generate|run|start|trigger|send|add|remove|update|edit|fix|tag|untag|label|replace|swap|use)\b/i.test(t)) {
-    return true;
-  }
-
-  // Corrections / follow-ups.
-  if (/\b(no,|actually|instead|undo|nevermind|then|do that|make one)\b/i.test(t)) return true;
-
-  return false;
+  // AI-first: always let the model decide whether to execute/clarify/explain/noop.
+  // This makes the chat behave more like a normal conversation router.
+  return true;
 }
 
 async function tryRepairPlannerJson(raw: string): Promise<unknown | null> {
