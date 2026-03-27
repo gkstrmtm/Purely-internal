@@ -1978,6 +1978,14 @@ async function resolveFunnelPageId(opts: {
     return { kind: "clarify", question: "Which funnel should I pull the page from? Open the funnel first (or tell me the funnel name)." };
   }
 
+  // If the user explicitly wants a new page, don't loop on selecting an existing page.
+  if (hintMeansCreateNew(hint)) {
+    return {
+      kind: "not_found",
+      question: "Got it — you want a new page. What should the page title be? (Optional: include a slug like /thank-you)",
+    };
+  }
+
   if (looksLikeId(hint)) return { kind: "ok", pageId: hint.slice(0, 120), label: hint.slice(0, 40), funnelId };
 
   const rows = await prisma.creditFunnelPage
@@ -2168,6 +2176,20 @@ function hintMeansAny(raw: string): boolean {
     s.includes("choose for me") ||
     /\b(any|either|whatever)\b/.test(s)
   );
+}
+
+function hintMeansCreateNew(raw: string): boolean {
+  const s = String(raw || "")
+    .trim()
+    .toLowerCase();
+  if (!s) return false;
+
+  // Common short replies after we ask which existing entity to use.
+  if (s === "new" || s === "new one" || s === "make a new one" || s === "create a new one") return true;
+
+  // Embedded phrases.
+  if (s.includes("make a new") || s.includes("create a new") || s.includes("new page")) return true;
+  return /\b(new|create|make)\b/.test(s) && /\b(page|form|domain)\b/.test(s);
 }
 
 function looksLikeCalendarIntent(raw: string): boolean {

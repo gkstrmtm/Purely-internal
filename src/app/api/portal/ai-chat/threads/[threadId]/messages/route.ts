@@ -1627,11 +1627,13 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
         await (prisma as any).portalAiChatThread.update({ where: { id: threadId }, data: { contextJson: nextCtx } });
       }
 
-      // Pending plans are only safe to "replay" when they are execute-mode.
-      // If we previously asked a clarifying question (clarify-mode), we must re-plan using the user's reply
-      // or we'll loop and repeat the same question.
+      // Pending plans are only safe to "replay" when the user clicked a structured choice (no new text).
+      // If the user typed a reply (e.g. "make a new page"), ALWAYS re-plan so the model can adjust the steps
+      // and we avoid loops where we keep asking for the same ID.
       const pendingPlanMode = pendingPlan && typeof pendingPlan === "object" ? String((pendingPlan as any).mode || "") : "";
-      const shouldReplayPendingExecutePlan = Boolean(pendingPlan) && pendingPlanMode === "execute";
+      const hasNewUserText = Boolean(String(effectiveText || "").trim());
+      const didClickChoice = Boolean(choice && typeof choice === "object");
+      const shouldReplayPendingExecutePlan = Boolean(pendingPlan) && pendingPlanMode === "execute" && !hasNewUserText && didClickChoice;
 
       // Clear stale clarify-mode pendingPlan so follow-up replies can progress.
       if (pendingPlan && pendingPlanMode === "clarify" && !isConfirmOnly) {
@@ -1729,12 +1731,42 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
           });
           if (!resolved.ok) {
             clarifyChoices = Array.isArray((resolved as any).choices) ? ((resolved as any).choices as any[]) : null;
+
+            let clarifyText = String(resolved.clarifyQuestion || "").trim() || "I need one more detail to continue.";
+            try {
+              const system = [
+                "You are Pura, an AI assistant inside a business portal.",
+                "You are asking ONE clarifying question so you can run a tool/action.",
+                "Write a single short question.",
+                "Rules:",
+                "- Do not ask for internal IDs unless the user must paste one.",
+                "- If clickable choices are available, mention they can click one.",
+                "- If the user said to create something new, allow that option.",
+                "- No JSON.",
+              ].join("\n");
+
+              const user = [
+                "Latest user message:",
+                String(effectiveText || ""),
+                "\nMissing detail prompt (raw):",
+                clarifyText,
+                "\nChoices available:",
+                JSON.stringify((clarifyChoices || []).slice(0, 8)).slice(0, 1500),
+                "\nQuestion:",
+              ].join("\n");
+
+              const aiQ = String(await generateText({ system, user })).trim();
+              if (aiQ) clarifyText = aiQ.slice(0, 600);
+            } catch {
+              // ignore and keep deterministic fallback
+            }
+
             const assistantMsg = await (prisma as any).portalAiChatMessage.create({
               data: {
                 ownerId,
                 threadId,
                 role: "assistant",
-                text: resolved.clarifyQuestion,
+                text: clarifyText,
                 attachmentsJson: null,
                 createdByUserId: null,
                 sendAt: null,
