@@ -13,6 +13,8 @@ type Thread = {
   id: string;
   title: string;
   lastMessageAt: string | null;
+  isPinned: boolean;
+  pinnedAt: string | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -331,6 +333,18 @@ export function PortalAiChatClient() {
   const [attachMenu, setAttachMenu] = useState<FixedMenuStyle | null>(null);
   const [attachMenuAnchorRect, setAttachMenuAnchorRect] = useState<DOMRect | null>(null);
   const attachMenuRef = useRef<HTMLDivElement | null>(null);
+
+  const [threadMenu, setThreadMenu] = useState<FixedMenuStyle | null>(null);
+  const [threadMenuAnchorRect, setThreadMenuAnchorRect] = useState<DOMRect | null>(null);
+  const threadMenuRef = useRef<HTMLDivElement | null>(null);
+  const [threadMenuThreadId, setThreadMenuThreadId] = useState<string | null>(null);
+
+  const closeThreadMenu = useCallback(() => {
+    setThreadMenu(null);
+    setThreadMenuAnchorRect(null);
+    setThreadMenuThreadId(null);
+  }, []);
+
   const [mediaPickerOpen, setMediaPickerOpen] = useState(false);
   const [runningActionKey, setRunningActionKey] = useState<string | null>(null);
 
@@ -521,6 +535,90 @@ export function PortalAiChatClient() {
       toast.error(e instanceof Error ? e.message : String(e));
     }
   }, [toast]);
+
+  const pinThread = useCallback(
+    async (thread: Thread) => {
+      try {
+        const action = thread.isPinned ? "unpin" : "pin";
+        const res = await fetch(`/api/portal/ai-chat/threads/${encodeURIComponent(thread.id)}/actions`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ action }),
+        });
+        const json = await res.json().catch(() => null);
+        if (!json?.ok) throw new Error(json?.error || "Unable to update chat");
+        toast.success(thread.isPinned ? "Unpinned" : "Pinned");
+        closeThreadMenu();
+        void loadThreads();
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : String(e));
+      }
+    },
+    [closeThreadMenu, loadThreads, toast],
+  );
+
+  const duplicateThread = useCallback(
+    async (thread: Thread) => {
+      try {
+        const res = await fetch(`/api/portal/ai-chat/threads/${encodeURIComponent(thread.id)}/actions`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ action: "duplicate" }),
+        });
+        const json = await res.json().catch(() => null);
+        if (!json?.ok) throw new Error(json?.error || "Unable to duplicate chat");
+        const t = json.newThread as Thread;
+        toast.success("Duplicated");
+        closeThreadMenu();
+        setActiveThreadId(t.id);
+        void loadThreads();
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : String(e));
+      }
+    },
+    [closeThreadMenu, loadThreads, toast],
+  );
+
+  const deleteThread = useCallback(
+    async (thread: Thread) => {
+      const ok = await askConfirm({
+        title: "Delete chat?",
+        message: `Delete “${thread.title || "New chat"}”? This cannot be undone.`,
+        confirmLabel: "Delete",
+        cancelLabel: "Cancel",
+        destructive: true,
+      });
+      if (!ok) return;
+
+      try {
+        const res = await fetch(`/api/portal/ai-chat/threads/${encodeURIComponent(thread.id)}/actions`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ action: "delete" }),
+        });
+        const json = await res.json().catch(() => null);
+        if (!json?.ok) throw new Error(json?.error || "Unable to delete chat");
+
+        closeThreadMenu();
+        toast.success("Deleted");
+
+        setThreads((prev) => prev.filter((t) => t.id !== thread.id));
+
+        if (activeThreadId === thread.id) {
+          const remaining = threads.filter((t) => t.id !== thread.id);
+          if (remaining.length) {
+            selectThread(remaining[0]!.id);
+          } else {
+            setActiveThreadId(null);
+            void loadThreads();
+          }
+        }
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : String(e));
+      }
+    },
+    [activeThreadId, askConfirm, closeThreadMenu, loadThreads, selectThread, threads, toast],
+  );
 
   const uploadFiles = useCallback(
     async (files: FileList | null) => {
@@ -801,24 +899,58 @@ export function PortalAiChatClient() {
             {threads.map((t) => {
               const active = t.id === activeThreadId;
               return (
-                <button
+                <div
                   key={t.id}
-                  type="button"
-                  onClick={() => {
-                    selectThread(t.id);
-                  }}
                   className={classNames(
-                    "w-full rounded-2xl px-3 py-2 text-left",
+                    "group relative w-full rounded-2xl",
                     active ? "bg-[rgba(29,78,216,0.10)]" : "hover:bg-zinc-50",
                   )}
                 >
-                  <div className="flex items-start justify-between gap-2">
-                    <div className={classNames("min-w-0 text-sm font-semibold", active ? "text-zinc-900" : "text-zinc-800")}>
-                      <span className="block truncate">{t.title || "New chat"}</span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      selectThread(t.id);
+                    }}
+                    className="w-full rounded-2xl px-3 py-2 pr-10 text-left"
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div className={classNames("min-w-0 text-sm font-semibold", active ? "text-zinc-900" : "text-zinc-800")}>
+                        <span className="block truncate">
+                          {t.title || "New chat"}
+                          {t.isPinned ? <span className="ml-2 text-[11px] font-bold text-zinc-500">PINNED</span> : null}
+                        </span>
+                      </div>
+                      <div className="shrink-0 text-xs font-semibold text-zinc-500">{fmtShortTime(t.lastMessageAt || t.updatedAt)}</div>
                     </div>
-                    <div className="shrink-0 text-xs font-semibold text-zinc-500">{fmtShortTime(t.lastMessageAt || t.updatedAt)}</div>
-                  </div>
-                </button>
+                  </button>
+
+                  <button
+                    type="button"
+                    className={classNames(
+                      "absolute right-2 top-2 inline-flex h-7 w-7 items-center justify-center rounded-xl text-zinc-500",
+                      "opacity-0 transition-opacity group-hover:opacity-100 hover:bg-white/70 hover:text-zinc-700",
+                      active && "opacity-100",
+                    )}
+                    aria-label="Chat options"
+                    title="Chat options"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      if (threadMenu && threadMenuThreadId === t.id) {
+                        closeThreadMenu();
+                        return;
+                      }
+                      const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                      setThreadMenuAnchorRect(rect);
+                      setThreadMenuThreadId(t.id);
+                      setThreadMenu(
+                        computeFixedMenuStyle({ rect, width: 220, estHeight: 170, alignX: "right", minHeight: 140, gapPx: 4 }),
+                      );
+                    }}
+                  >
+                    <span className="text-lg font-semibold leading-none">⋯</span>
+                  </button>
+                </div>
               );
             })}
           </div>
@@ -827,7 +959,7 @@ export function PortalAiChatClient() {
     </div>
   );
 
-  const anyMenuOpen = Boolean(attachMenu);
+  const anyMenuOpen = Boolean(attachMenu || threadMenu);
 
   const toLocalInputValue = (iso: string | null) => {
     if (!iso) return "";
@@ -907,6 +1039,31 @@ export function PortalAiChatClient() {
     }
   }, [attachMenu, attachMenuAnchorRect]);
 
+  useEffect(() => {
+    if (!threadMenu || !threadMenuAnchorRect) return;
+    const el = threadMenuRef.current;
+    if (!el) return;
+    const h = el.getBoundingClientRect().height;
+    if (!Number.isFinite(h) || h <= 0) return;
+
+    const next = computeFixedMenuStyle({
+      rect: threadMenuAnchorRect,
+      width: 220,
+      estHeight: h,
+      alignX: "right",
+      minHeight: 140,
+      gapPx: 4,
+    });
+    if (Math.abs(next.top - threadMenu.top) > 2 || Math.abs(next.left - threadMenu.left) > 2) {
+      setThreadMenu(next);
+    }
+  }, [threadMenu, threadMenuAnchorRect]);
+
+  const activeThreadForMenu = useMemo(
+    () => (threadMenuThreadId ? threads.find((t) => t.id === threadMenuThreadId) || null : null),
+    [threads, threadMenuThreadId],
+  );
+
   const saveScheduledRow = useCallback(
     async (id: string) => {
       const edit = scheduledEditing[id];
@@ -960,9 +1117,11 @@ export function PortalAiChatClient() {
           className="fixed inset-0 z-12041"
           onMouseDown={() => {
             setAttachMenu(null);
+            closeThreadMenu();
           }}
           onTouchStart={() => {
             setAttachMenu(null);
+            closeThreadMenu();
           }}
           aria-hidden
         />
@@ -995,6 +1154,47 @@ export function PortalAiChatClient() {
             }}
           >
             Add from media library
+          </button>
+        </div>
+      ) : null}
+
+      {threadMenu ? (
+        <div
+          ref={threadMenuRef}
+          className="fixed z-12045 overflow-auto rounded-2xl border border-zinc-200 bg-white shadow-lg"
+          style={{ left: threadMenu.left, top: threadMenu.top, width: threadMenu.width, maxHeight: threadMenu.maxHeight }}
+          onMouseDown={(e) => e.stopPropagation()}
+          onTouchStart={(e) => e.stopPropagation()}
+        >
+          <button
+            type="button"
+            className="w-full px-4 py-3 text-left text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
+            onClick={() => {
+              if (!activeThreadForMenu) return;
+              void pinThread(activeThreadForMenu);
+            }}
+          >
+            {activeThreadForMenu?.isPinned ? "Unpin" : "Pin to top"}
+          </button>
+          <button
+            type="button"
+            className="w-full px-4 py-3 text-left text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
+            onClick={() => {
+              if (!activeThreadForMenu) return;
+              void duplicateThread(activeThreadForMenu);
+            }}
+          >
+            Duplicate / branch
+          </button>
+          <button
+            type="button"
+            className="w-full px-4 py-3 text-left text-sm font-semibold text-red-600 hover:bg-red-50"
+            onClick={() => {
+              if (!activeThreadForMenu) return;
+              void deleteThread(activeThreadForMenu);
+            }}
+          >
+            Delete
           </button>
         </div>
       ) : null}

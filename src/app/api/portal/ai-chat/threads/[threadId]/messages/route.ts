@@ -13,7 +13,7 @@ import {
   type PortalAgentActionKey,
 } from "@/lib/portalAgentActions";
 import { executePortalAgentAction, executePortalAgentActionForThread } from "@/lib/portalAgentActionExecutor";
-import { getConfirmSpecForPortalAgentAction, portalContactUiUrl } from "@/lib/portalAgentActionMeta";
+import { getConfirmSpecForPortalAgentAction, portalCanvasUrlForAction, portalContactUiUrl } from "@/lib/portalAgentActionMeta";
 import { isPortalSupportChatConfigured, runPortalSupportChat } from "@/lib/portalSupportChat";
 import { planPuraActions } from "@/lib/puraPlanner";
 import { resolvePlanArgs } from "@/lib/puraResolver";
@@ -55,6 +55,33 @@ function cleanSuggestedTitle(raw: string): string {
   const s = String(raw || "").trim().replace(/[\r\n\t]+/g, " ").replace(/\s+/g, " ");
   // Keep it short and UI-friendly.
   return s.replace(/^"|"$/g, "").replace(/^'|'$/g, "").slice(0, 60).trim();
+}
+
+function heuristicThreadTitleFromUserText(textRaw: string): string {
+  const t = String(textRaw || "")
+    .trim()
+    .replace(/[\r\n\t]+/g, " ")
+    .replace(/\s+/g, " ");
+  if (!t) return "";
+
+  // Prefer the first sentence/clause.
+  const first = t.split(/[.?!\n]/)[0] || t;
+  const cleaned = first
+    .trim()
+    .replace(/^please\s+/i, "")
+    .replace(/^can you\s+/i, "")
+    .replace(/^could you\s+/i, "")
+    .replace(/^help me\s+/i, "")
+    .trim();
+
+  if (!cleaned) return "";
+
+  const words = cleaned.split(" ").filter(Boolean);
+  const short = words.slice(0, 6).join(" ");
+  const title = cleanSuggestedTitle(short || cleaned);
+  if (title.length < 3) return "";
+  if (title.toLowerCase() === "new chat") return "";
+  return title;
 }
 
 const ActionProposalSchema = z
@@ -1278,7 +1305,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ threadId: stri
   return NextResponse.json({ ok: true, messages });
 }
 
-export async function POST(req: Request, ctx: { params: Promise<{ threadId: string }> }) {
+async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId: string }> }) {
   const auth = await requireClientSession();
   if (!auth.ok) {
     return NextResponse.json(
@@ -1340,9 +1367,17 @@ export async function POST(req: Request, ctx: { params: Promise<{ threadId: stri
       results.push({ ok: Boolean(exec.ok), markdown: exec.markdown, linkUrl: exec.linkUrl ?? null });
     }
 
+    const mappedCanvasUrl =
+      (confirmedSteps
+        .map((s) => portalCanvasUrlForAction(s.key, s.args))
+        .filter(Boolean)
+        .slice(-1)[0] as string | undefined) ||
+      null;
+
     const canvasUrl =
       (results.map((r) => r.linkUrl).filter(Boolean).slice(-1)[0] as string | undefined) ||
       confirmedSteps.map((s) => s.openUrl).filter(Boolean).slice(-1)[0] ||
+      mappedCanvasUrl ||
       null;
 
     const assistantText = (() => {
@@ -1589,7 +1624,14 @@ export async function POST(req: Request, ctx: { params: Promise<{ threadId: stri
 
         for (const step of plan.steps.slice(0, 6)) {
           const argsRaw = step.args && typeof step.args === "object" && !Array.isArray(step.args) ? (step.args as Record<string, unknown>) : {};
-          const resolved = await resolvePlanArgs({ ownerId, stepKey: step.key, args: argsRaw, userHint: cleanText });
+          const resolved = await resolvePlanArgs({
+            ownerId,
+            stepKey: step.key,
+            args: argsRaw,
+            userHint: cleanText,
+            url: parsed.data.url,
+            threadContext,
+          });
           if (!resolved.ok) {
             const assistantMsg = await (prisma as any).portalAiChatMessage.create({
               data: {
@@ -1660,9 +1702,17 @@ export async function POST(req: Request, ctx: { params: Promise<{ threadId: stri
           results.push({ ok: Boolean(exec.ok), markdown: exec.markdown, linkUrl: exec.linkUrl ?? null });
         }
 
+        const mappedCanvasUrl =
+          (resolvedSteps
+            .map((s) => portalCanvasUrlForAction(s.key, s.args))
+            .filter(Boolean)
+            .slice(-1)[0] as string | undefined) ||
+          null;
+
         const canvasUrl =
           (results.map((r) => r.linkUrl).filter(Boolean).slice(-1)[0] as string | undefined) ||
           resolvedSteps.map((s) => s.openUrl).filter(Boolean).slice(-1)[0] ||
+          mappedCanvasUrl ||
           null;
 
         const assistantText = (() => {
@@ -1888,13 +1938,6 @@ export async function POST(req: Request, ctx: { params: Promise<{ threadId: stri
     }
   }
 
-  if (!isPortalSupportChatConfigured()) {
-    return NextResponse.json(
-      { ok: false, error: "Pura is not configured for this environment." },
-      { status: 503 },
-    );
-  }
-
   const reply = await runPortalSupportChat({
     message: promptMessage,
     url: parsed.data.url,
@@ -1929,14 +1972,19 @@ export async function POST(req: Request, ctx: { params: Promise<{ threadId: stri
   });
 
   // AI-generated thread title (not just the first message).
-  // Only do this for untouched threads.
+  // Only do this for untouched threads or threads with generic names.
   try {
-    const isDefaultTitle = String(thread.title || "").trim() === "New chat";
-    if (isDefaultTitle && isPortalSupportChatConfigured()) {
+    const currentTitle = String(thread.title || "").trim();
+    const isDefaultTitle = currentTitle === "New chat" || !currentTitle || currentTitle.toLowerCase() === "new chat";
+    const threadAgeMs = now.getTime() - new Date((thread as any).createdAt).getTime();
+    const isRecent = threadAgeMs < 5 * 60 * 1000; // less than 5 min old
+
+    if (isDefaultTitle || isRecent) {
       const titleSystem = [
         "You name chat threads in a business automation portal.",
         "Return a short, helpful title (2-6 words).",
         "No quotes. No trailing punctuation.",
+        "Make it action-oriented and descriptive.",
       ].join("\n");
 
       const titleUser = [
@@ -1946,7 +1994,9 @@ export async function POST(req: Request, ctx: { params: Promise<{ threadId: stri
         "\nTitle:",
       ].join("\n");
 
-      const proposed = cleanSuggestedTitle(await generateText({ system: titleSystem, user: titleUser }));
+      const proposed = isPortalSupportChatConfigured()
+        ? cleanSuggestedTitle(await generateText({ system: titleSystem, user: titleUser }))
+        : heuristicThreadTitleFromUserText(promptMessage);
       if (proposed && proposed.length >= 3 && proposed.toLowerCase() !== "new chat") {
         await (prisma as any).portalAiChatThread.update({
           where: { id: threadId },
@@ -1959,4 +2009,17 @@ export async function POST(req: Request, ctx: { params: Promise<{ threadId: stri
   }
 
   return NextResponse.json({ ok: true, userMessage: userMsg, assistantMessage: assistantMsg, assistantActions, autoActionMessage: null, canvasUrl: null });
+}
+
+export async function POST(req: Request, ctx: { params: Promise<{ threadId: string }> }) {
+  try {
+    return await handlePostMessage(req, ctx);
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : "Internal server error";
+    console.error("[AI Chat POST Error]", { message, stack: err instanceof Error ? err.stack : undefined });
+    return NextResponse.json(
+      { ok: false, error: String(message || "Send failed").slice(0, 500) },
+      { status: 500 },
+    );
+  }
 }

@@ -113,3 +113,6 @@ next-env.d.ts
 
 # local-only action coverage scratch outputs (do not commit)
 tmp_uncovered_actions*.json
+
+# accidental local note at repo root (do not commit)
+/source of truth

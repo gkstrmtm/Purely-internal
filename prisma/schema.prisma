@@ -258,6 +258,11 @@ model PortalAiChatThread {
   createdByUserId String?
   lastMessageAt   DateTime?
 
+  isPinned Boolean  @default(false)
+  pinnedAt DateTime?
+
+  forkedFromThreadId String?
+
   contextJson Json?
 
   createdAt DateTime @default(now())
@@ -268,6 +273,7 @@ model PortalAiChatThread {
   messages      PortalAiChatMessage[]
 
   @@index([ownerId, lastMessageAt])
+  @@index([ownerId, isPinned, pinnedAt])
 }
 
 model PortalAiChatMessage {

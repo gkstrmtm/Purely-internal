@@ -174,6 +174,17 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
     pathname.includes("/editor");
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
+
+  const prevIsAiChatRef = useRef(false);
+  useEffect(() => {
+    // UX: when entering Pura (AI chat), auto-collapse the portal sidebar.
+    if (isAiChat && !prevIsAiChatRef.current) {
+      setCollapsed(true);
+      setMobileOpen(false);
+    }
+    prevIsAiChatRef.current = isAiChat;
+  }, [isAiChat]);
+
   const [me, setMe] = useState<Me | null>(null);
   const [portalMe, setPortalMe] = useState<PortalMe | null>(null);
   const [serviceStatuses, setServiceStatuses] = useState<Record<string, { state: string; label: string }> | null>(null);

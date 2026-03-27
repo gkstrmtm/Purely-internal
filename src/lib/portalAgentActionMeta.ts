@@ -110,3 +110,130 @@ export function portalBookingUiUrl(opts?: {
   const qs = sp.toString();
   return `/portal/app/services/booking${qs ? `?${qs}` : ""}`;
 }
+
+function pickStringArg(args: Record<string, unknown> | undefined, key: string): string | null {
+  if (!args) return null;
+  const v = (args as any)[key];
+  const s = typeof v === "string" ? v.trim() : "";
+  return s ? s.slice(0, 200) : null;
+}
+
+export function portalCanvasUrlForAction(action: PortalAgentActionKey, args?: Record<string, unknown>): string | null {
+  const a = String(action || "");
+  const safeArgs = args && typeof args === "object" && !Array.isArray(args) ? (args as Record<string, unknown>) : undefined;
+
+  // Contacts.
+  if (a.startsWith("contacts.")) {
+    const contactId = pickStringArg(safeArgs, "contactId");
+    return portalContactUiUrl(contactId);
+  }
+
+  // Portal users.
+  if (a.startsWith("people.users.")) {
+    const userId = pickStringArg(safeArgs, "userId");
+    if (userId) return `/portal/app/people/users?userId=${encodeURIComponent(userId)}`;
+    return "/portal/app/people/users";
+  }
+
+  // Inbox.
+  if (a.startsWith("inbox.")) {
+    const threadId = pickStringArg(safeArgs, "threadId");
+    const channel = (pickStringArg(safeArgs, "channel") || pickStringArg(safeArgs, "inboxChannel")) as any;
+    const to = pickStringArg(safeArgs, "to");
+    const compose = a === "inbox.send" || a === "inbox.send_sms" || a === "inbox.send_email";
+    return portalInboxUiUrl({
+      channel: channel === "sms" || channel === "SMS" ? "sms" : channel === "email" || channel === "EMAIL" ? "email" : undefined,
+      threadId,
+      to,
+      compose: compose || undefined,
+    });
+  }
+
+  // Booking.
+  if (a.startsWith("booking.")) {
+    const bookingId = pickStringArg(safeArgs, "bookingId");
+    if (a === "booking.reschedule") return portalBookingUiUrl({ bookingId, tab: "bookings", modal: "reschedule" });
+    if (a === "booking.contact") return portalBookingUiUrl({ bookingId, tab: "bookings", modal: "contact" });
+    if (bookingId) return portalBookingUiUrl({ bookingId, tab: "bookings" });
+    if (a.startsWith("booking.reminders.")) return portalBookingUiUrl({ tab: "reminders" });
+    if (a.startsWith("booking.settings.")) return portalBookingUiUrl({ tab: "settings" });
+    return portalBookingUiUrl();
+  }
+
+  // Funnel Builder.
+  if (a === "funnel.create" || a.startsWith("funnel_builder.")) {
+    const formId = pickStringArg(safeArgs, "formId");
+    if (formId) return `/portal/app/services/funnel-builder/forms/${encodeURIComponent(formId)}/edit`;
+
+    const funnelId = pickStringArg(safeArgs, "funnelId");
+    if (funnelId) return `/portal/app/services/funnel-builder/funnels/${encodeURIComponent(funnelId)}/edit`;
+
+    return "/portal/app/services/funnel-builder";
+  }
+
+  // Automations.
+  if (a.startsWith("automations.")) {
+    const automationId = pickStringArg(safeArgs, "automationId");
+    if (automationId) return `/portal/app/services/automations/editor?automation=${encodeURIComponent(automationId)}`;
+    return "/portal/app/services/automations";
+  }
+
+  // Blogs.
+  if (a.startsWith("blogs.")) {
+    const postId = pickStringArg(safeArgs, "postId");
+    if (postId) return `/portal/app/services/blogs/${encodeURIComponent(postId)}`;
+    return "/portal/app/services/blogs";
+  }
+
+  // Newsletter.
+  if (a.startsWith("newsletter.")) {
+    return "/portal/app/services/newsletter";
+  }
+
+  // Reviews.
+  if (a.startsWith("reviews.")) {
+    return "/portal/app/services/reviews";
+  }
+
+  // Media library.
+  if (a.startsWith("media.")) {
+    return "/portal/app/services/media-library";
+  }
+
+  // Lead scraping.
+  if (a.startsWith("lead_scraping.")) {
+    return "/portal/app/services/lead-scraping";
+  }
+
+  // Nurture campaigns.
+  if (a.startsWith("nurture.")) {
+    return "/portal/app/services/nurture-campaigns";
+  }
+
+  // Tasks.
+  if (a.startsWith("tasks.")) {
+    return "/portal/app/services/tasks";
+  }
+
+  // AI Outbound Calls.
+  if (a.startsWith("ai_outbound_calls.")) {
+    const campaignId = pickStringArg(safeArgs, "campaignId");
+    if (campaignId) return `/portal/app/services/ai-outbound-calls?campaignId=${encodeURIComponent(campaignId)}`;
+    return "/portal/app/services/ai-outbound-calls";
+  }
+
+  // AI Receptionist.
+  if (a.startsWith("ai_receptionist.")) {
+    return "/portal/app/services/ai-receptionist";
+  }
+
+  // Credit.
+  if (a.startsWith("credit.disputes.") || a.startsWith("credit.pulls.")) {
+    return "/portal/app/services/dispute-letters";
+  }
+  if (a.startsWith("credit.reports.")) {
+    return "/portal/app/services/credit-reports";
+  }
+
+  return null;
+}

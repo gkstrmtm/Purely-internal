@@ -27,12 +27,19 @@ export async function GET() {
 
   const threads = await (prisma as any).portalAiChatThread.findMany({
     where: { ownerId },
-    orderBy: [{ lastMessageAt: "desc" }, { updatedAt: "desc" }],
+    orderBy: [
+      { isPinned: "desc" },
+      { pinnedAt: "desc" },
+      { lastMessageAt: "desc" },
+      { updatedAt: "desc" },
+    ],
     take: 200,
     select: {
       id: true,
       title: true,
       lastMessageAt: true,
+      isPinned: true,
+      pinnedAt: true,
       createdAt: true,
       updatedAt: true,
     },
@@ -69,11 +76,15 @@ export async function POST(req: Request) {
       title,
       createdByUserId,
       lastMessageAt: null,
+      isPinned: false,
+      pinnedAt: null,
     },
     select: {
       id: true,
       title: true,
       lastMessageAt: true,
+      isPinned: true,
+      pinnedAt: true,
       createdAt: true,
       updatedAt: true,
     },
