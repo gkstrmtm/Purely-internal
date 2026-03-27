@@ -1,5 +1,10 @@
 # Portal AI Chat: Agentic Choices + Calendar Disambiguation
 
+## Status
+- Implemented in the portal AI chat UI and API.
+- Validated with `npm run lint` and `npm run build`.
+- Companion implementation plan: `docs/plans/portal-ai-agentic-implementation-plan.md`.
+
 ## Goal
 Make the portal AI chat feel “agentic” by minimizing back-and-forth when an action needs an entity (calendar, contact, etc.).
 
@@ -16,6 +21,12 @@ Specifically:
 ### Threads sidebar
 - Remove the close (×) control on the left threads sidebar.
 - Keep resize-only behavior (drag handle) on desktop.
+
+### Thread menu updates
+- Rename `Duplicate / Branch` to `Branch`.
+- Add `Share with team` in the thread menu.
+- Sharing uses a custom in-app modal with no divider lines and X-only close.
+- Threads remain private per member until explicitly shared.
 
 ### Clickable choices
 - Introduce a generic “choices” payload that the backend can return with an assistant message.
@@ -40,6 +51,8 @@ Allow sending a structured selection:
 
 Backend stores an override in `thread.contextJson.choiceOverrides` so the next plan resolution can proceed.
 
+Sharing state is stored in `thread.contextJson.sharedWithUserIds` and enforced at the API layer.
+
 ## Calendar Disambiguation (First Implementation)
 ### Where it applies
 - `booking.reminders.settings.get/update` when `calendarId` is not provided.
@@ -58,21 +71,20 @@ If multiple enabled calendars exist and the user has not specified one:
 - When multiple booking calendars exist, the AI chat can show clickable calendar options.
 - Clicking an option continues the pending plan without asking for IDs.
 - Replying “doesn’t matter” auto-selects and continues.
+- Thread menu shows `Branch` and `Share with team`.
+- Threads are private per member until explicitly shared with teammates.
 - No new lint/typecheck failures introduced.
 
-## Implementation Steps
-1. Update `.gitignore` to ignore `docs/plans/portalchatlog.md` (local transcript).
-2. Update chat UI to:
-   - Render generic `choices` buttons.
-   - Send structured `choice` payload on click.
-3. Update chat messages API to:
-   - Accept `choice` payload.
-   - Return `choices` when resolver requests disambiguation.
-4. Update resolver to produce calendar `choices` and support stored overrides.
-5. Update funnel builder action args to accept `calendarId` (optional) and have the executor honor it.
-6. Validate via `npm run lint` (and build/typecheck if available), then commit and push.
+## Implemented pieces
+1. Chat UI renders generic choice buttons and a `No preference` action.
+2. Chat messages API accepts structured `choice` payloads.
+3. Choice overrides persist to `thread.contextJson.choiceOverrides` through shared helpers.
+4. Calendar disambiguation honors stored overrides and validates selected calendar IDs before action execution.
+5. Thread menu includes `Branch` and `Share with team`.
+6. Sharing is enforced by thread/message/action/scheduled endpoints using per-member access checks.
+7. Validation completed with `npm run lint` and `npm run build`.
 
 ## Follow-ups
 - Expand choices support to additional ambiguous entities (forms, nurture campaigns, media folders, etc.).
 - Persist choice UI in message history (requires schema change) if desired.
-- Add a small “No preference” button alongside choices.
+- Add automated regression coverage if the repo gains a test harness for portal AI chat.

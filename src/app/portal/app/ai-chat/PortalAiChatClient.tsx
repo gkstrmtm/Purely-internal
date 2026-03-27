@@ -28,6 +28,8 @@ type Thread = {
   updatedAt: string;
 };
 
+type ShareMember = { userId: string; email: string; name: string };
+
 type Attachment = {
   id?: string;
   fileName: string;
@@ -530,6 +532,15 @@ export function PortalAiChatClient() {
   >([]);
   const [scheduledEditing, setScheduledEditing] = useState<Record<string, { sendAtLocal: string; repeatMinutes: string }>>({});
 
+  const [shareOpen, setShareOpen] = useState(false);
+  const [shareThread, setShareThread] = useState<Thread | null>(null);
+  const [shareLoading, setShareLoading] = useState(false);
+  const [shareSaving, setShareSaving] = useState(false);
+  const [shareMembers, setShareMembers] = useState<ShareMember[]>([]);
+  const [shareCreatorUserId, setShareCreatorUserId] = useState<string | null>(null);
+  const [shareSelectedUserIds, setShareSelectedUserIds] = useState<Set<string>>(() => new Set());
+  const [shareQuery, setShareQuery] = useState("");
+
   const scrollerRef = useRef<HTMLDivElement | null>(null);
   const endRef = useRef<HTMLDivElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -704,6 +715,76 @@ export function PortalAiChatClient() {
     },
     [closeThreadMenu, loadThreads, toast],
   );
+
+  const closeShareModal = useCallback(() => {
+    setShareOpen(false);
+    setShareThread(null);
+    setShareMembers([]);
+    setShareCreatorUserId(null);
+    setShareSelectedUserIds(new Set());
+    setShareQuery("");
+    setShareLoading(false);
+    setShareSaving(false);
+  }, []);
+
+  const openShareModal = useCallback(
+    async (thread: Thread) => {
+      setShareOpen(true);
+      setShareThread(thread);
+      setShareQuery("");
+      setShareMembers([]);
+      setShareCreatorUserId(null);
+      setShareSelectedUserIds(new Set());
+      setShareLoading(true);
+      setShareSaving(false);
+
+      try {
+        const res = await fetch(`/api/portal/ai-chat/threads/${encodeURIComponent(thread.id)}/share`, { cache: "no-store" });
+        const json = await res.json().catch(() => null);
+        if (!json?.ok) {
+          const statusMsg = res.status === 403 ? "Only the chat owner can manage sharing." : "Unable to load sharing";
+          throw new Error(json?.error || statusMsg);
+        }
+
+        const members = Array.isArray(json.members) ? (json.members as ShareMember[]) : [];
+        const creator = json.creatorUserId ? String(json.creatorUserId) : null;
+        const selected = new Set<string>(
+          (Array.isArray(json.sharedWithUserIds) ? json.sharedWithUserIds : []).map((x: any) => String(x)).filter(Boolean),
+        );
+
+        setShareMembers(members);
+        setShareCreatorUserId(creator);
+        setShareSelectedUserIds(selected);
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : String(e));
+        closeShareModal();
+      } finally {
+        setShareLoading(false);
+      }
+    },
+    [closeShareModal, toast],
+  );
+
+  const saveShare = useCallback(async () => {
+    if (!shareThread) return;
+    setShareSaving(true);
+    try {
+      const userIds = Array.from(shareSelectedUserIds);
+      const res = await fetch(`/api/portal/ai-chat/threads/${encodeURIComponent(shareThread.id)}/share`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ userIds }),
+      });
+      const json = await res.json().catch(() => null);
+      if (!json?.ok) throw new Error(json?.error || "Unable to save sharing");
+      toast.success("Sharing updated");
+      closeShareModal();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : String(e));
+    } finally {
+      setShareSaving(false);
+    }
+  }, [closeShareModal, shareSelectedUserIds, shareThread, toast]);
 
   const deleteThread = useCallback(
     async (thread: Thread) => {
@@ -1351,7 +1432,18 @@ export function PortalAiChatClient() {
               void duplicateThread(activeThreadForMenu);
             }}
           >
-            Duplicate / branch
+            Branch
+          </button>
+          <button
+            type="button"
+            className="w-full px-4 py-3 text-left text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
+            onClick={() => {
+              if (!activeThreadForMenu) return;
+              closeThreadMenu();
+              void openShareModal(activeThreadForMenu);
+            }}
+          >
+            Share with team
           </button>
           <button
             type="button"
@@ -1483,6 +1575,14 @@ export function PortalAiChatClient() {
                                 {c.label}
                               </button>
                             ))}
+                            <button
+                              type="button"
+                              className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-900 hover:bg-zinc-50"
+                              onClick={() => void send("doesn't matter")}
+                              title="No preference - pick a reasonable default"
+                            >
+                              No preference
+                            </button>
                           </div>
                         )}
                       </div>
@@ -1784,6 +1884,104 @@ export function PortalAiChatClient() {
               );
             })}
           </div>
+        )}
+      </AppModal>
+
+      <AppModal
+        open={shareOpen && Boolean(shareThread)}
+        title="Share with team"
+        description="This chat is private until you share it with specific teammates."
+        onClose={closeShareModal}
+        widthClassName="w-[min(720px,calc(100vw-32px))]"
+        closeVariant="x"
+        hideHeaderDivider
+        hideFooterDivider
+        footer={
+          <div className="flex justify-end">
+            <button
+              type="button"
+              className="rounded-2xl bg-brand-blue px-4 py-2 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
+              onClick={() => void saveShare()}
+              disabled={shareLoading || shareSaving}
+            >
+              {shareSaving ? "Saving…" : "Save"}
+            </button>
+          </div>
+        }
+      >
+        {shareLoading ? (
+          <div className="text-sm text-zinc-600">Loading…</div>
+        ) : (
+          (() => {
+            const q = shareQuery.trim().toLowerCase();
+            const creator = shareCreatorUserId;
+            const visible = shareMembers
+              .filter((m) => m && m.userId)
+              .filter((m) => (creator ? String(m.userId) !== creator : true))
+              .filter((m) => {
+                if (!q) return true;
+                return (
+                  String(m.name || "").toLowerCase().includes(q) ||
+                  String(m.email || "").toLowerCase().includes(q)
+                );
+              });
+
+            return (
+              <div className="space-y-4">
+                <input
+                  value={shareQuery}
+                  onChange={(e) => setShareQuery(e.target.value)}
+                  placeholder="Search by name or email"
+                  className="h-11 w-full rounded-2xl border border-zinc-200 bg-white px-3 text-sm text-zinc-900"
+                />
+
+                {!visible.length ? (
+                  <div className="text-sm text-zinc-600">No teammates found.</div>
+                ) : (
+                  <div className="space-y-2">
+                    {visible.map((m) => {
+                      const selected = shareSelectedUserIds.has(String(m.userId));
+                      return (
+                        <button
+                          key={String(m.userId)}
+                          type="button"
+                          className={classNames(
+                            "w-full rounded-3xl border px-4 py-3 text-left",
+                            selected ? "border-brand-blue bg-blue-50/60" : "border-zinc-200 bg-white hover:bg-zinc-50",
+                          )}
+                          onClick={() => {
+                            const id = String(m.userId);
+                            setShareSelectedUserIds((prev) => {
+                              const next = new Set(prev);
+                              if (next.has(id)) next.delete(id);
+                              else next.add(id);
+                              return next;
+                            });
+                          }}
+                        >
+                          <div className="flex items-center gap-3">
+                            <div
+                              className={classNames(
+                                "grid h-6 w-6 place-items-center rounded-lg border",
+                                selected ? "border-brand-blue bg-brand-blue text-white" : "border-zinc-300 bg-white text-transparent",
+                              )}
+                              aria-hidden
+                            >
+                              ✓
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <div className="truncate text-sm font-semibold text-zinc-900">{m.name || m.email}</div>
+                              <div className="truncate text-sm text-zinc-600">{m.email}</div>
+                            </div>
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            );
+          })()
         )}
       </AppModal>
 

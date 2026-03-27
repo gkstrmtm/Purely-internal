@@ -4,6 +4,7 @@ import { z } from "zod";
 import { requireClientSession } from "@/lib/apiAuth";
 import { prisma } from "@/lib/db";
 import { ensurePortalAiChatSchema } from "@/lib/portalAiChatSchema";
+import { isPortalAiChatThreadOwner } from "@/lib/portalAiChatSharing";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -25,6 +26,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ threadId: stri
 
   const ownerId = auth.session.user.id;
   const createdByUserId = auth.session.user.memberId || ownerId;
+  const memberId = createdByUserId;
   const { threadId } = await ctx.params;
 
   const body = await req.json().catch(() => null);
@@ -38,9 +40,13 @@ export async function POST(req: Request, ctx: { params: Promise<{ threadId: stri
   // Verify thread exists and belongs to user
   const thread = await (prisma as any).portalAiChatThread.findFirst({
     where: { id: threadId, ownerId },
-    select: { id: true, title: true, contextJson: true },
+    select: { id: true, title: true, contextJson: true, ownerId: true, createdByUserId: true },
   });
   if (!thread) {
+    return NextResponse.json({ ok: false, error: "Not found" }, { status: 404 });
+  }
+
+  if (!isPortalAiChatThreadOwner({ thread, memberId })) {
     return NextResponse.json({ ok: false, error: "Not found" }, { status: 404 });
   }
 
@@ -82,7 +88,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ threadId: stri
   if (action === "delete") {
     // Delete thread and all its messages
     await (prisma as any).portalAiChatMessage.deleteMany({
-      where: { threadId },
+      where: { ownerId, threadId },
     });
     await (prisma as any).portalAiChatThread.delete({
       where: { id: threadId },

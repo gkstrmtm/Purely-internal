@@ -6,6 +6,7 @@ import { requireClientSession } from "@/lib/apiAuth";
 import { generateText } from "@/lib/ai";
 import { prisma } from "@/lib/db";
 import { ensurePortalAiChatSchema } from "@/lib/portalAiChatSchema";
+import { canAccessPortalAiChatThread } from "@/lib/portalAiChatSharing";
 import {
   PortalAgentActionKeySchema,
   extractJsonObject,
@@ -1297,13 +1298,16 @@ export async function GET(_req: Request, ctx: { params: Promise<{ threadId: stri
   await ensurePortalAiChatSchema();
 
   const ownerId = auth.session.user.id;
+  const memberId = (auth.session.user as any).memberId || ownerId;
   const { threadId } = await ctx.params;
 
   const thread = await (prisma as any).portalAiChatThread.findFirst({
     where: { id: threadId, ownerId },
-    select: { id: true },
+    select: { id: true, ownerId: true, createdByUserId: true, contextJson: true },
   });
-  if (!thread) return NextResponse.json({ ok: false, error: "Not found" }, { status: 404 });
+  if (!thread || !canAccessPortalAiChatThread({ thread, memberId })) {
+    return NextResponse.json({ ok: false, error: "Not found" }, { status: 404 });
+  }
 
   const messages = await (prisma as any).portalAiChatMessage.findMany({
     where: { ownerId, threadId },
@@ -1337,6 +1341,7 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
 
   const ownerId = auth.session.user.id;
   const createdByUserId = auth.session.user.memberId || ownerId;
+  const memberId = createdByUserId;
   const { threadId } = await ctx.params;
 
   const body = await req.json().catch(() => null);
@@ -1347,9 +1352,11 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
 
   const thread = await (prisma as any).portalAiChatThread.findFirst({
     where: { id: threadId, ownerId },
-    select: { id: true, title: true, contextJson: true },
+    select: { id: true, title: true, contextJson: true, ownerId: true, createdByUserId: true },
   });
-  if (!thread) return NextResponse.json({ ok: false, error: "Not found" }, { status: 404 });
+  if (!thread || !canAccessPortalAiChatThread({ thread, memberId })) {
+    return NextResponse.json({ ok: false, error: "Not found" }, { status: 404 });
+  }
 
   const now = new Date();
 
@@ -1558,17 +1565,22 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
 
       // Apply structured choice selections to thread context for the next resolution pass.
       if (choice && typeof choice === "object") {
-        const prevCtx = threadContext && typeof threadContext === "object" && !Array.isArray(threadContext) ? (threadContext as any) : {};
-        const prevOverrides =
-          prevCtx.choiceOverrides && typeof prevCtx.choiceOverrides === "object" && !Array.isArray(prevCtx.choiceOverrides)
-            ? (prevCtx.choiceOverrides as any)
-            : {};
-
-        if (String((choice as any).type || "") === "booking_calendar") {
-          const calendarId = String((choice as any).calendarId || "").trim().slice(0, 80);
-          if (calendarId) {
-            threadContext = { ...prevCtx, choiceOverrides: { ...prevOverrides, bookingCalendarId: calendarId } };
+        try {
+          const kind = String((choice as any).type || "").trim();
+          if (kind) {
+            const value = kind === "booking_calendar" ? String((choice as any).calendarId || "").trim().slice(0, 80) : String((choice as any).value || "").trim().slice(0, 200);
+            if (value) {
+              // Persist via helper so validation is shared.
+              const setRes = await (await import("@/lib/portalAiChatChoices")).setThreadChoiceOverride({ ownerId, threadId, kind, value });
+              if (setRes && (setRes as any).ok) {
+                const prevCtx = threadContext && typeof threadContext === "object" && !Array.isArray(threadContext) ? (threadContext as any) : {};
+                const prevOverrides = prevCtx.choiceOverrides && typeof prevCtx.choiceOverrides === "object" && !Array.isArray(prevCtx.choiceOverrides) ? (prevCtx.choiceOverrides as any) : {};
+                threadContext = { ...prevCtx, choiceOverrides: { ...prevOverrides, ...((setRes as any).choiceOverrides || {}) } };
+              }
+            }
           }
+        } catch {
+          // ignore helper failures and continue gracefully
         }
       }
 

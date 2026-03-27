@@ -4,6 +4,7 @@ import { z } from "zod";
 import { requireClientSession } from "@/lib/apiAuth";
 import { prisma } from "@/lib/db";
 import { ensurePortalAiChatSchema } from "@/lib/portalAiChatSchema";
+import { canAccessPortalAiChatThread } from "@/lib/portalAiChatSharing";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -24,6 +25,7 @@ export async function GET() {
   await ensurePortalAiChatSchema();
 
   const ownerId = auth.session.user.id;
+  const memberId = (auth.session.user as any).memberId || ownerId;
 
   const threads = await (prisma as any).portalAiChatThread.findMany({
     where: { ownerId },
@@ -42,10 +44,25 @@ export async function GET() {
       pinnedAt: true,
       createdAt: true,
       updatedAt: true,
+      ownerId: true,
+      createdByUserId: true,
+      contextJson: true,
     },
   });
 
-  return NextResponse.json({ ok: true, threads });
+  const visible = (Array.isArray(threads) ? threads : [])
+    .filter((t: any) => canAccessPortalAiChatThread({ thread: t, memberId }))
+    .map((t: any) => ({
+      id: t.id,
+      title: t.title,
+      lastMessageAt: t.lastMessageAt,
+      isPinned: t.isPinned,
+      pinnedAt: t.pinnedAt,
+      createdAt: t.createdAt,
+      updatedAt: t.updatedAt,
+    }));
+
+  return NextResponse.json({ ok: true, threads: visible });
 }
 
 export async function POST(req: Request) {

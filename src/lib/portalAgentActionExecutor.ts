@@ -23625,6 +23625,36 @@ export async function executePortalAgentActionForThread(opts: {
     return { ok: false as const, status: 400, error: "Invalid action args" };
   }
 
+  // Validate bookingCalendarId if present
+  try {
+    const maybeCal = (argsParsed.data as any).bookingCalendarId;
+    if (typeof maybeCal === "string" && String(maybeCal).trim()) {
+      const { getBookingCalendarsConfig } = await import("@/lib/bookingCalendars");
+      const cfg = await getBookingCalendarsConfig(opts.ownerId).catch(() => ({ version: 1 as const, calendars: [] as any[] }));
+      const found = (cfg.calendars || []).some((c: any) => String(c.id || "") === String(maybeCal));
+      if (!found) {
+        const now = new Date();
+        const assistantMsg = await (prisma as any).portalAiChatMessage.create({
+          data: {
+            ownerId: opts.ownerId,
+            threadId: opts.threadId,
+            role: "assistant",
+            text: `I couldn't find the selected calendar (${String(maybeCal)}). Please pick a calendar from the list.`,
+            attachmentsJson: null,
+            createdByUserId: null,
+            sendAt: null,
+            sentAt: now,
+          },
+          select: { id: true, role: true, text: true, attachmentsJson: true, createdAt: true, sendAt: true, sentAt: true },
+        });
+        await (prisma as any).portalAiChatThread.update({ where: { id: opts.threadId }, data: { lastMessageAt: now } });
+        return { ok: false as const, status: 400, error: "Unknown booking calendar", assistantMessage: assistantMsg };
+      }
+    }
+  } catch (err) {
+    // validation best-effort - if it fails, proceed to let the downstream action handle errors.
+  }
+
   const actorUserId = opts.actorUserId || opts.ownerId;
   const { json, status } = await runDirectAction({ action: opts.action, ownerId: opts.ownerId, actorUserId, args: argsParsed.data as any });
   const { markdown, linkUrl } = resultMarkdown(opts.action, json);

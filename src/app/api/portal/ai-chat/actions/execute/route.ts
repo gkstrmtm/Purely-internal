@@ -4,6 +4,7 @@ import { z } from "zod";
 import { requireClientSession } from "@/lib/apiAuth";
 import { prisma } from "@/lib/db";
 import { ensurePortalAiChatSchema } from "@/lib/portalAiChatSchema";
+import { canAccessPortalAiChatThread } from "@/lib/portalAiChatSharing";
 import {
   PortalAgentActionKeySchema,
   type PortalAgentActionKey,
@@ -37,10 +38,18 @@ export async function POST(req: Request) {
   if (!parsed.success) return NextResponse.json({ ok: false, error: "Invalid input" }, { status: 400 });
 
   const ownerId = auth.session.user.id;
+  const memberId = (auth.session.user as any).memberId || ownerId;
   const threadId = parsed.data.threadId;
 
-  const thread = await (prisma as any).portalAiChatThread.findFirst({ where: { id: threadId, ownerId }, select: { id: true } });
+  const thread = await (prisma as any).portalAiChatThread.findFirst({
+    where: { id: threadId, ownerId },
+    select: { id: true, ownerId: true, createdByUserId: true, contextJson: true },
+  });
   if (!thread) return NextResponse.json({ ok: false, error: "Not found" }, { status: 404 });
+
+  if (!canAccessPortalAiChatThread({ thread, memberId })) {
+    return NextResponse.json({ ok: false, error: "Not found" }, { status: 404 });
+  }
 
   const action = parsed.data.action;
   const argsRaw = parsed.data.args ?? {};

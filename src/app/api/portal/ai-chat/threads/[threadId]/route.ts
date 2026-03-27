@@ -4,6 +4,7 @@ import { z } from "zod";
 import { requireClientSession } from "@/lib/apiAuth";
 import { prisma } from "@/lib/db";
 import { ensurePortalAiChatSchema } from "@/lib/portalAiChatSchema";
+import { isPortalAiChatThreadOwner } from "@/lib/portalAiChatSharing";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -30,6 +31,20 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ threadId: str
   await ensurePortalAiChatSchema();
 
   const ownerId = auth.session.user.id;
+  const memberId = (auth.session.user as any).memberId || ownerId;
+
+  const existing = await (prisma as any).portalAiChatThread.findFirst({
+    where: { id: threadId, ownerId },
+    select: { id: true, ownerId: true, createdByUserId: true, contextJson: true },
+  });
+  if (!existing) {
+    return NextResponse.json({ ok: false, error: "Chat not found" }, { status: 404 });
+  }
+
+  // Only the creating user can rename/pin.
+  if (!isPortalAiChatThreadOwner({ thread: existing, memberId })) {
+    return NextResponse.json({ ok: false, error: "Chat not found" }, { status: 404 });
+  }
 
   const body = await req.json().catch(() => null);
   const parsed = PatchThreadSchema.safeParse(body ?? {});
@@ -87,6 +102,18 @@ export async function DELETE(_req: Request, ctx: { params: Promise<{ threadId: s
   await ensurePortalAiChatSchema();
 
   const ownerId = auth.session.user.id;
+  const memberId = (auth.session.user as any).memberId || ownerId;
+
+  const existing = await (prisma as any).portalAiChatThread.findFirst({
+    where: { id: threadId, ownerId },
+    select: { id: true, ownerId: true, createdByUserId: true, contextJson: true },
+  });
+  if (!existing) {
+    return NextResponse.json({ ok: false, error: "Chat not found" }, { status: 404 });
+  }
+  if (!isPortalAiChatThreadOwner({ thread: existing, memberId })) {
+    return NextResponse.json({ ok: false, error: "Chat not found" }, { status: 404 });
+  }
 
   const deleted = await (prisma as any).portalAiChatThread.deleteMany({ where: { id: threadId, ownerId } });
   if (!deleted?.count) {

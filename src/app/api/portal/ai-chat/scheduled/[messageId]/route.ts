@@ -28,6 +28,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ messageId: st
   await ensurePortalAiChatSchema();
 
   const ownerId = auth.session.user.id;
+  const memberId = (auth.session.user as any).memberId || ownerId;
   const { messageId } = await ctx.params;
 
   const parsed = PatchSchema.safeParse(await req.json().catch(() => null));
@@ -36,7 +37,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ messageId: st
   }
 
   const msg = await (prisma as any).portalAiChatMessage.findFirst({
-    where: { id: String(messageId), ownerId, role: "user" },
+    where: { id: String(messageId), ownerId, role: "user", createdByUserId: memberId },
     select: { id: true, sentAt: true },
   });
   if (!msg) return NextResponse.json({ ok: false, error: "Not found" }, { status: 404 });
@@ -80,10 +81,11 @@ export async function DELETE(_req: Request, ctx: { params: Promise<{ messageId: 
   await ensurePortalAiChatSchema();
 
   const ownerId = auth.session.user.id;
+  const memberId = (auth.session.user as any).memberId || ownerId;
   const { messageId } = await ctx.params;
 
   const msg = await (prisma as any).portalAiChatMessage.findFirst({
-    where: { id: String(messageId), ownerId, role: "user" },
+    where: { id: String(messageId), ownerId, role: "user", createdByUserId: memberId },
     select: { id: true, sentAt: true },
   });
   if (!msg) return NextResponse.json({ ok: false, error: "Not found" }, { status: 404 });

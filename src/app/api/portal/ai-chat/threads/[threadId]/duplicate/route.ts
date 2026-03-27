@@ -4,6 +4,7 @@ import { z } from "zod";
 import { requireClientSession } from "@/lib/apiAuth";
 import { prisma } from "@/lib/db";
 import { ensurePortalAiChatSchema } from "@/lib/portalAiChatSchema";
+import { isPortalAiChatThreadOwner } from "@/lib/portalAiChatSharing";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -37,6 +38,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ threadId: stri
 
   const ownerId = auth.session.user.id;
   const createdByUserId = auth.session.user.memberId || ownerId;
+  const memberId = createdByUserId;
 
   const body = await req.json().catch(() => null);
   const parsed = DuplicateThreadSchema.safeParse(body ?? {});
@@ -50,9 +52,15 @@ export async function POST(req: Request, ctx: { params: Promise<{ threadId: stri
       id: true,
       title: true,
       contextJson: true,
+      ownerId: true,
+      createdByUserId: true,
     },
   });
   if (!src) {
+    return NextResponse.json({ ok: false, error: "Chat not found" }, { status: 404 });
+  }
+
+  if (!isPortalAiChatThreadOwner({ thread: src, memberId })) {
     return NextResponse.json({ ok: false, error: "Chat not found" }, { status: 404 });
   }
 

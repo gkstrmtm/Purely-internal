@@ -20,6 +20,7 @@ export async function GET() {
   await ensurePortalAiChatSchema();
 
   const ownerId = auth.session.user.id;
+  const memberId = auth.session.user.memberId || ownerId;
 
   const rows = await (prisma as any).portalAiChatMessage.findMany({
     where: {
@@ -27,6 +28,7 @@ export async function GET() {
       role: "user",
       sentAt: null,
       sendAt: { not: null },
+      createdByUserId: memberId,
     },
     orderBy: { sendAt: "asc" },
     take: 200,
