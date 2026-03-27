@@ -3727,7 +3727,13 @@ async function runDirectAction(opts: {
         const enabledCalendars = Array.isArray((bookingCalendars as any).calendars)
           ? (bookingCalendars as any).calendars.filter((c: any) => c && typeof c === "object" && (c as any).enabled !== false)
           : [];
-        const calendarId = enabledCalendars[0]?.id ? String(enabledCalendars[0].id).trim().slice(0, 50) : "";
+        const requestedCalendarId = typeof args?.calendarId === "string" ? String(args.calendarId).trim().slice(0, 80) : "";
+        const calendarId =
+          requestedCalendarId && enabledCalendars.some((c: any) => String(c?.id || "").trim() === requestedCalendarId)
+            ? requestedCalendarId
+            : enabledCalendars[0]?.id
+              ? String(enabledCalendars[0].id).trim().slice(0, 50)
+              : "";
 
         const agentIds = await getOwnerChatAgentIds(ownerId).catch(() => [] as string[]);
         const chatAgentId = agentIds[0] ? String(agentIds[0]).trim() : "";

@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db";
+import { getBookingCalendarsConfig } from "@/lib/bookingCalendars";
 import { normalizeEmailKey, normalizeNameKey, normalizePhoneKey } from "@/lib/portalContacts";
 import { createOwnerContactTag } from "@/lib/portalContactTags";
 import { normalizeSmsPeerKey } from "@/lib/portalInbox";
@@ -2082,7 +2083,110 @@ async function resolveAiOutboundCallsCampaignId(opts: {
 
 export type ResolveResult =
   | { ok: true; args: unknown; contextPatch?: Record<string, unknown> }
-  | { ok: false; clarifyQuestion: string };
+  | { ok: false; clarifyQuestion: string; choices?: AssistantChoice[] };
+
+export type AssistantChoice = {
+  type: "booking_calendar";
+  calendarId: string;
+  label: string;
+  description?: string;
+};
+
+function hintMeansAny(raw: string): boolean {
+  const s = String(raw || "")
+    .trim()
+    .toLowerCase();
+  if (!s) return false;
+  return (
+    s === "doesn't matter" ||
+    s === "doesnt matter" ||
+    s === "does not matter" ||
+    s === "any" ||
+    s === "either" ||
+    s === "whatever" ||
+    s === "no preference" ||
+    s === "no pref" ||
+    s === "pick one" ||
+    s === "you pick" ||
+    s === "choose for me"
+  );
+}
+
+function looksLikeCalendarIntent(raw: string): boolean {
+  const s = String(raw || "").toLowerCase();
+  return /\b(calendar|schedule|booking|book a call|book a meeting|appointment)\b/.test(s);
+}
+
+async function resolveBookingCalendarId(opts: {
+  ownerId: string;
+  hint: string;
+}): Promise<
+  | { kind: "ok"; calendarId: string; label: string }
+  | { kind: "clarify"; question: string; choices: AssistantChoice[] }
+  | { kind: "not_found"; question: string; choices?: AssistantChoice[] }
+> {
+  const ownerId = String(opts.ownerId);
+  const hintRaw = String(opts.hint || "").trim().slice(0, 200);
+
+  const cfg = await getBookingCalendarsConfig(ownerId).catch(() => ({ version: 1 as const, calendars: [] as any[] }));
+  const calendars = Array.isArray((cfg as any).calendars) ? ((cfg as any).calendars as any[]) : [];
+  const enabled = calendars
+    .filter((c) => c && typeof c === "object")
+    .map((c) => ({
+      id: String((c as any).id || "").trim().slice(0, 80),
+      title: String((c as any).title || "").trim().slice(0, 80),
+      description: typeof (c as any).description === "string" ? String((c as any).description).trim().slice(0, 240) : "",
+      enabled: (c as any).enabled !== false,
+    }))
+    .filter((c) => c.id && c.title && c.enabled);
+
+  if (!enabled.length) {
+    return {
+      kind: "not_found",
+      question: "I can embed a booking calendar, but you don’t have any enabled booking calendars configured yet.",
+    };
+  }
+
+  const defaultCal = enabled[0]!;
+
+  const mkChoices = (items: typeof enabled): AssistantChoice[] =>
+    items.slice(0, 8).map((c) => ({
+      type: "booking_calendar",
+      calendarId: c.id,
+      label: c.title,
+      ...(c.description ? { description: c.description } : {}),
+    }));
+
+  if (!hintRaw) {
+    if (enabled.length === 1) return { kind: "ok", calendarId: defaultCal.id, label: defaultCal.title };
+    return {
+      kind: "clarify",
+      question: "Which booking calendar should I use? Click one:",
+      choices: mkChoices(enabled),
+    };
+  }
+
+  if (hintMeansAny(hintRaw)) {
+    return { kind: "ok", calendarId: defaultCal.id, label: defaultCal.title };
+  }
+
+  const byId = enabled.find((c) => c.id.toLowerCase() === hintRaw.toLowerCase());
+  if (byId) return { kind: "ok", calendarId: byId.id, label: byId.title };
+
+  const needle = hintRaw.toLowerCase();
+  const exactTitle = enabled.filter((c) => c.title.toLowerCase() === needle);
+  if (exactTitle.length === 1) return { kind: "ok", calendarId: exactTitle[0]!.id, label: exactTitle[0]!.title };
+
+  const fuzzy = enabled.filter((c) => c.title.toLowerCase().includes(needle));
+  if (fuzzy.length === 1) return { kind: "ok", calendarId: fuzzy[0]!.id, label: fuzzy[0]!.title };
+
+  if (enabled.length === 1) return { kind: "ok", calendarId: defaultCal.id, label: defaultCal.title };
+
+  const question = fuzzy.length
+    ? `I found multiple calendars matching “${hintRaw}”. Click one:`
+    : `I couldn’t find a calendar matching “${hintRaw}”. Click one:`;
+  return { kind: "clarify", question: question.slice(0, 800), choices: mkChoices(fuzzy.length ? fuzzy : enabled) };
+}
 
 function deepMapRefs(v: unknown, f: (ref: PuraRef) => unknown): unknown {
   if (isPuraRef(v)) return f(v);
@@ -2107,6 +2211,8 @@ export async function resolvePlanArgs(opts: {
 }): Promise<ResolveResult> {
   const ownerId = String(opts.ownerId);
   const stepKeyLower = String(opts.stepKey || "").toLowerCase();
+  let args: Record<string, unknown> = opts.args && typeof opts.args === "object" && !Array.isArray(opts.args) ? opts.args : {};
+  let extraContextPatch: Record<string, unknown> | undefined = undefined;
   let resolvedContact: { id: string; name: string } | null = null;
   let resolvedInboxThread: { id: string; channel: "email" | "sms" } | null = null;
   let resolvedFunnel: { id: string; name: string } | null = null;
@@ -2132,10 +2238,49 @@ export async function resolvePlanArgs(opts: {
   let resolvedCustomDomain: { id: string; label: string } | null = null;
   let resolvedAiOutboundCallsCampaign: { id: string; label: string } | null = null;
 
+  const threadChoiceOverrides =
+    opts.threadContext && typeof opts.threadContext === "object" && !Array.isArray(opts.threadContext)
+      ? ((opts.threadContext as any).choiceOverrides as any)
+      : null;
+
+  const clearBookingCalendarChoiceOverride = () => {
+    const prevOverrides =
+      threadChoiceOverrides && typeof threadChoiceOverrides === "object" && !Array.isArray(threadChoiceOverrides)
+        ? { ...(threadChoiceOverrides as Record<string, unknown>) }
+        : {};
+    if (Object.prototype.hasOwnProperty.call(prevOverrides, "bookingCalendarId")) {
+      delete (prevOverrides as any).bookingCalendarId;
+      extraContextPatch = { ...(extraContextPatch || {}), choiceOverrides: prevOverrides };
+    }
+  };
+
+  // Special-case: for funnel HTML generation, treat booking calendar selection as an explicit disambiguation step.
+  if (stepKeyLower === "funnel_builder.pages.generate_html") {
+    const prompt = typeof (args as any).prompt === "string" ? String((args as any).prompt).trim() : "";
+    if (looksLikeCalendarIntent(prompt)) {
+      const overrideCalendarId =
+        threadChoiceOverrides && typeof threadChoiceOverrides === "object" && typeof (threadChoiceOverrides as any).bookingCalendarId === "string"
+          ? String((threadChoiceOverrides as any).bookingCalendarId).trim()
+          : "";
+
+      const hinted =
+        overrideCalendarId ||
+        (typeof (args as any).calendarId === "string" ? String((args as any).calendarId).trim() : "") ||
+        String(opts.userHint || "");
+
+      const rc = await resolveBookingCalendarId({ ownerId, hint: hinted });
+      if (rc.kind === "clarify") return { ok: false, clarifyQuestion: rc.question, choices: rc.choices };
+      if (rc.kind === "not_found") return { ok: false, clarifyQuestion: rc.question, choices: rc.choices };
+
+      args = { ...args, calendarId: rc.calendarId };
+      if (overrideCalendarId) clearBookingCalendarChoiceOverride();
+    }
+  }
+
   const resolveIdArgByKey = async (
     argKeyRaw: string,
     rawHintValue: unknown,
-  ): Promise<{ ok: true; value: string } | { ok: false; clarifyQuestion: string }> => {
+  ): Promise<{ ok: true; value: string } | { ok: false; clarifyQuestion: string; choices?: AssistantChoice[] }> => {
     const argKey = String(argKeyRaw || "").trim();
     const argKeyLower = argKey.toLowerCase();
     const rawHint = typeof rawHintValue === "string" ? rawHintValue.trim() : "";
@@ -2199,6 +2344,21 @@ export async function resolvePlanArgs(opts: {
       if (rb.kind !== "ok") return { ok: false, clarifyQuestion: rb.question };
       resolvedBooking = { id: rb.bookingId, label: rb.label };
       return { ok: true, value: rb.bookingId };
+    }
+
+    if (argKeyLower === "calendarid") {
+      const overrideCalendarId =
+        threadChoiceOverrides && typeof threadChoiceOverrides === "object" && typeof (threadChoiceOverrides as any).bookingCalendarId === "string"
+          ? String((threadChoiceOverrides as any).bookingCalendarId).trim()
+          : "";
+
+      const hinted = overrideCalendarId || mergeResolverHint(rawHint);
+      const rc = await resolveBookingCalendarId({ ownerId, hint: hinted });
+      if (rc.kind === "ok") {
+        if (overrideCalendarId) clearBookingCalendarChoiceOverride();
+        return { ok: true, value: rc.calendarId };
+      }
+      return { ok: false, clarifyQuestion: rc.question, ...(rc.kind === "clarify" ? { choices: rc.choices } : rc.choices ? { choices: rc.choices } : {}) };
     }
 
     if (argKeyLower === "postid" || argKeyLower === "blogpostid") {
@@ -2389,7 +2549,7 @@ export async function resolvePlanArgs(opts: {
   const funnelPageRefs: PuraRef[] = [];
   const customDomainRefs: PuraRef[] = [];
   const aiOutboundCallsCampaignRefs: PuraRef[] = [];
-  deepMapRefs(opts.args, (ref) => {
+  deepMapRefs(args, (ref) => {
     if (ref.$ref === "contact") contactRefs.push(ref);
     if (ref.$ref === "inbox_thread") inboxThreadRefs.push(ref);
     if (ref.$ref === "funnel") funnelRefs.push(ref);
@@ -2670,7 +2830,7 @@ export async function resolvePlanArgs(opts: {
     else return { ok: false, clarifyQuestion: rc.question };
   }
 
-  const resolved = deepMapRefs(opts.args, (ref) => {
+  const resolved = deepMapRefs(args, (ref) => {
     if (ref.$ref === "contact") return resolvedContact?.id || null;
     if (ref.$ref === "inbox_thread") return resolvedInboxThread?.id || null;
     if (ref.$ref === "funnel") return resolvedFunnel?.id || null;
@@ -2729,7 +2889,11 @@ export async function resolvePlanArgs(opts: {
           const hint = typeof o.hint === "string" ? o.hint.trim() : "";
           const resolvedGeneric = await resolveIdArgByKey(argKey, hint);
           if (!resolvedGeneric.ok) {
-            return { __PURA_GENERIC_ID_REF_FAILED__: true, question: resolvedGeneric.clarifyQuestion };
+            return {
+              __PURA_GENERIC_ID_REF_FAILED__: true,
+              question: resolvedGeneric.clarifyQuestion,
+              choices: Array.isArray((resolvedGeneric as any).choices) ? ((resolvedGeneric as any).choices as AssistantChoice[]) : undefined,
+            };
           }
           return resolvedGeneric.value;
         }
@@ -2744,6 +2908,7 @@ export async function resolvePlanArgs(opts: {
   })();
 
   let autoResolveClarifyQuestion: string | null = null;
+  let autoResolveClarifyChoices: AssistantChoice[] | undefined = undefined;
 
   const withAutoResolvedIdFields = await (async () => {
     const walk = async (v: unknown, parentKey?: string): Promise<unknown> => {
@@ -2762,6 +2927,7 @@ export async function resolvePlanArgs(opts: {
               const r = await resolveIdArgByKey(singularKey, raw);
               if (!r.ok) {
                 autoResolveClarifyQuestion = r.clarifyQuestion;
+                if (Array.isArray((r as any).choices)) autoResolveClarifyChoices = (r as any).choices as AssistantChoice[];
                 arr.push(item);
               } else {
                 arr.push(r.value);
@@ -2778,6 +2944,7 @@ export async function resolvePlanArgs(opts: {
         const o = v as Record<string, unknown>;
         if ((o as any).__PURA_GENERIC_ID_REF_FAILED__ && typeof (o as any).question === "string") {
           autoResolveClarifyQuestion = String((o as any).question).trim() || "I need a specific ID to continue.";
+          if (Array.isArray((o as any).choices)) autoResolveClarifyChoices = (o as any).choices as AssistantChoice[];
           return null;
         }
         const out: Record<string, unknown> = {};
@@ -2790,6 +2957,7 @@ export async function resolvePlanArgs(opts: {
               const r = await resolveIdArgByKey(k, raw);
               if (!r.ok) {
                 autoResolveClarifyQuestion = r.clarifyQuestion;
+                if (Array.isArray((r as any).choices)) autoResolveClarifyChoices = (r as any).choices as AssistantChoice[];
                 out[k] = val;
               } else {
                 out[k] = r.value;
@@ -2809,67 +2977,84 @@ export async function resolvePlanArgs(opts: {
   })();
 
   if (autoResolveClarifyQuestion) {
-    return { ok: false, clarifyQuestion: autoResolveClarifyQuestion };
+    return {
+      ok: false,
+      clarifyQuestion: autoResolveClarifyQuestion,
+      ...(autoResolveClarifyChoices ? { choices: autoResolveClarifyChoices } : {}),
+    };
   }
+
+  const baseContextPatch =
+    resolvedContact ||
+    resolvedInboxThread ||
+    resolvedFunnel ||
+    resolvedAutomation ||
+    resolvedBooking ||
+    resolvedBlogPost ||
+    resolvedNewsletter ||
+    resolvedMediaFolder ||
+    resolvedMediaItem ||
+    resolvedTask ||
+    resolvedReview ||
+    resolvedReviewQuestion ||
+    resolvedNurtureCampaign ||
+    resolvedNurtureStep ||
+    resolvedScrapedLead ||
+    resolvedCreditPull ||
+    resolvedCreditDisputeLetter ||
+    resolvedCreditReport ||
+    resolvedCreditReportItem ||
+    resolvedUser ||
+    resolvedFunnelForm ||
+    resolvedFunnelPage ||
+    resolvedCustomDomain ||
+    resolvedAiOutboundCallsCampaign
+      ? {
+          ...(resolvedContact ? { lastContact: resolvedContact } : {}),
+          ...(resolvedInboxThread ? { lastInboxThread: resolvedInboxThread } : {}),
+          ...(resolvedFunnel ? { lastFunnel: resolvedFunnel } : {}),
+          ...(resolvedAutomation ? { lastAutomation: resolvedAutomation } : {}),
+          ...(resolvedBooking ? { lastBooking: resolvedBooking } : {}),
+          ...(resolvedBlogPost ? { lastBlogPost: resolvedBlogPost } : {}),
+          ...(resolvedNewsletter ? { lastNewsletter: resolvedNewsletter } : {}),
+          ...(resolvedMediaFolder ? { lastMediaFolder: resolvedMediaFolder } : {}),
+          ...(resolvedMediaItem ? { lastMediaItem: resolvedMediaItem } : {}),
+          ...(resolvedTask ? { lastTask: resolvedTask } : {}),
+          ...(resolvedReview ? { lastReview: resolvedReview } : {}),
+          ...(resolvedReviewQuestion ? { lastReviewQuestion: resolvedReviewQuestion } : {}),
+          ...(resolvedNurtureCampaign ? { lastNurtureCampaign: resolvedNurtureCampaign } : {}),
+          ...(resolvedNurtureStep ? { lastNurtureStep: resolvedNurtureStep } : {}),
+          ...(resolvedScrapedLead ? { lastScrapedLead: resolvedScrapedLead } : {}),
+          ...(resolvedCreditPull ? { lastCreditPull: resolvedCreditPull } : {}),
+          ...(resolvedCreditDisputeLetter ? { lastCreditDisputeLetter: resolvedCreditDisputeLetter } : {}),
+          ...(resolvedCreditReport ? { lastCreditReport: resolvedCreditReport } : {}),
+          ...(resolvedCreditReportItem
+            ? {
+                lastCreditReportItem: {
+                  id: resolvedCreditReportItem.id,
+                  label: resolvedCreditReportItem.label,
+                  reportId: resolvedCreditReportItem.reportId,
+                },
+              }
+            : {}),
+          ...(resolvedUser ? { lastUser: resolvedUser } : {}),
+          ...(resolvedFunnelForm ? { lastFunnelForm: resolvedFunnelForm } : {}),
+          ...(resolvedFunnelPage
+            ? { lastFunnelPage: { id: resolvedFunnelPage.id, label: resolvedFunnelPage.label, funnelId: resolvedFunnelPage.funnelId } }
+            : {}),
+          ...(resolvedCustomDomain ? { lastCustomDomain: resolvedCustomDomain } : {}),
+          ...(resolvedAiOutboundCallsCampaign ? { lastAiOutboundCallsCampaign: resolvedAiOutboundCallsCampaign } : {}),
+        }
+      : undefined;
+
+  const mergedContextPatch =
+    baseContextPatch || extraContextPatch
+      ? { ...(baseContextPatch || {}), ...(extraContextPatch || {}) }
+      : undefined;
 
   return {
     ok: true,
     args: withAutoResolvedIdFields,
-    contextPatch:
-      resolvedContact ||
-      resolvedInboxThread ||
-      resolvedFunnel ||
-      resolvedAutomation ||
-      resolvedBooking ||
-      resolvedBlogPost ||
-      resolvedNewsletter ||
-      resolvedMediaFolder ||
-      resolvedMediaItem ||
-      resolvedTask ||
-      resolvedReview ||
-      resolvedReviewQuestion ||
-      resolvedNurtureCampaign ||
-      resolvedNurtureStep ||
-      resolvedScrapedLead ||
-      resolvedCreditPull ||
-      resolvedCreditDisputeLetter ||
-      resolvedCreditReport ||
-      resolvedCreditReportItem ||
-      resolvedUser ||
-      resolvedFunnelForm ||
-      resolvedFunnelPage ||
-      resolvedCustomDomain ||
-      resolvedAiOutboundCallsCampaign
-        ? {
-            ...(resolvedContact ? { lastContact: resolvedContact } : {}),
-            ...(resolvedInboxThread ? { lastInboxThread: resolvedInboxThread } : {}),
-            ...(resolvedFunnel ? { lastFunnel: resolvedFunnel } : {}),
-            ...(resolvedAutomation ? { lastAutomation: resolvedAutomation } : {}),
-            ...(resolvedBooking ? { lastBooking: resolvedBooking } : {}),
-            ...(resolvedBlogPost ? { lastBlogPost: resolvedBlogPost } : {}),
-            ...(resolvedNewsletter ? { lastNewsletter: resolvedNewsletter } : {}),
-            ...(resolvedMediaFolder ? { lastMediaFolder: resolvedMediaFolder } : {}),
-            ...(resolvedMediaItem ? { lastMediaItem: resolvedMediaItem } : {}),
-            ...(resolvedTask ? { lastTask: resolvedTask } : {}),
-            ...(resolvedReview ? { lastReview: resolvedReview } : {}),
-            ...(resolvedReviewQuestion ? { lastReviewQuestion: resolvedReviewQuestion } : {}),
-            ...(resolvedNurtureCampaign ? { lastNurtureCampaign: resolvedNurtureCampaign } : {}),
-            ...(resolvedNurtureStep ? { lastNurtureStep: resolvedNurtureStep } : {}),
-            ...(resolvedScrapedLead ? { lastScrapedLead: resolvedScrapedLead } : {}),
-            ...(resolvedCreditPull ? { lastCreditPull: resolvedCreditPull } : {}),
-            ...(resolvedCreditDisputeLetter ? { lastCreditDisputeLetter: resolvedCreditDisputeLetter } : {}),
-            ...(resolvedCreditReport ? { lastCreditReport: resolvedCreditReport } : {}),
-            ...(resolvedCreditReportItem
-              ? { lastCreditReportItem: { id: resolvedCreditReportItem.id, label: resolvedCreditReportItem.label, reportId: resolvedCreditReportItem.reportId } }
-              : {}),
-            ...(resolvedUser ? { lastUser: resolvedUser } : {}),
-            ...(resolvedFunnelForm ? { lastFunnelForm: resolvedFunnelForm } : {}),
-            ...(resolvedFunnelPage
-              ? { lastFunnelPage: { id: resolvedFunnelPage.id, label: resolvedFunnelPage.label, funnelId: resolvedFunnelPage.funnelId } }
-              : {}),
-            ...(resolvedCustomDomain ? { lastCustomDomain: resolvedCustomDomain } : {}),
-            ...(resolvedAiOutboundCallsCampaign ? { lastAiOutboundCallsCampaign: resolvedAiOutboundCallsCampaign } : {}),
-          }
-        : undefined,
+    contextPatch: mergedContextPatch,
   };
 }

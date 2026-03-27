@@ -36,17 +36,31 @@ const AttachmentSchema = z.object({
   url: z.string().trim().min(1).max(500),
 });
 
+const ChoiceSchema = z
+  .discriminatedUnion("type", [
+    z
+      .object({
+        type: z.literal("booking_calendar"),
+        calendarId: z.string().trim().min(1).max(80),
+        label: z.string().trim().min(1).max(160).optional(),
+      })
+      .strict(),
+  ])
+  .optional();
+
 const SendMessageSchema = z
   .object({
     text: z.string().trim().max(4000).optional(),
     url: z.string().trim().optional(),
     attachments: z.array(AttachmentSchema).max(10).optional(),
     confirmToken: z.string().trim().min(1).max(200).optional(),
+    choice: ChoiceSchema,
   })
   .refine(
     (d) =>
       Boolean(String((d as any).confirmToken || "").trim()) ||
       Boolean((d.text || "").trim()) ||
+      Boolean((d as any).choice) ||
       (Array.isArray(d.attachments) && d.attachments.length > 0),
     { message: "Text or attachments required" },
   );
@@ -1340,9 +1354,17 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
   const now = new Date();
 
   const confirmToken = typeof (parsed.data as any).confirmToken === "string" ? String((parsed.data as any).confirmToken).trim().slice(0, 200) : "";
+  const choice = (parsed.data as any).choice ?? null;
   const cleanText = (parsed.data.text || "").trim();
+  const choiceLabel =
+    choice && typeof choice === "object" && typeof (choice as any).label === "string" && String((choice as any).label || "").trim()
+      ? String((choice as any).label).trim().slice(0, 160)
+      : choice && typeof choice === "object" && String((choice as any).type || "") === "booking_calendar" && String((choice as any).calendarId || "").trim()
+        ? `Use calendar ${String((choice as any).calendarId).trim().slice(0, 24)}`
+        : "";
+  const effectiveText = cleanText || choiceLabel;
   const attachments = Array.isArray(parsed.data.attachments) ? parsed.data.attachments : [];
-  const isConfirmOnly = Boolean(confirmToken) && !cleanText && !attachments.length;
+  const isConfirmOnly = Boolean(confirmToken) && !cleanText && !choice && !attachments.length;
 
   if (isConfirmOnly) {
     const threadContext = (thread as any).contextJson ?? null;
@@ -1454,7 +1476,7 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
     .join("\n");
 
   const promptMessage = [
-    cleanText || "Please review the attachments.",
+    effectiveText || "Please review the attachments.",
     attachmentLines ? "\nAttachments:\n" + attachmentLines : null,
   ]
     .filter(Boolean)
@@ -1467,7 +1489,7 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
           ownerId,
           threadId,
           role: "user",
-          text: cleanText,
+          text: effectiveText,
           attachmentsJson: attachments.length ? attachments : null,
           createdByUserId,
           sendAt: null,
@@ -1513,7 +1535,7 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
     ownerId,
     threadId,
     now,
-    text: cleanText,
+    text: effectiveText,
     recentMessages,
   });
   if (tagWorkflow?.assistantMessage) {
@@ -1532,7 +1554,23 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
   // This runs before the legacy action-proposal flow, and it executes immediately for imperative requests.
   if (isPortalSupportChatConfigured()) {
     try {
-      const threadContext = (thread as any).contextJson ?? null;
+      let threadContext = (thread as any).contextJson ?? null;
+
+      // Apply structured choice selections to thread context for the next resolution pass.
+      if (choice && typeof choice === "object") {
+        const prevCtx = threadContext && typeof threadContext === "object" && !Array.isArray(threadContext) ? (threadContext as any) : {};
+        const prevOverrides =
+          prevCtx.choiceOverrides && typeof prevCtx.choiceOverrides === "object" && !Array.isArray(prevCtx.choiceOverrides)
+            ? (prevCtx.choiceOverrides as any)
+            : {};
+
+        if (String((choice as any).type || "") === "booking_calendar") {
+          const calendarId = String((choice as any).calendarId || "").trim().slice(0, 80);
+          if (calendarId) {
+            threadContext = { ...prevCtx, choiceOverrides: { ...prevOverrides, bookingCalendarId: calendarId } };
+          }
+        }
+      }
 
       const pendingConfirm =
         threadContext && typeof threadContext === "object" && !Array.isArray(threadContext)
@@ -1554,12 +1592,12 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
       }
 
       // If we previously asked a clarifying question, treat the user's reply as completing that plan.
-      const isLikelyFollowUpAnswer = Boolean(pendingPlan) && !shouldAutoExecuteFromUserText(cleanText);
+      const isLikelyFollowUpAnswer = Boolean(pendingPlan) && !shouldAutoExecuteFromUserText(effectiveText);
 
       const plan = isLikelyFollowUpAnswer
         ? (pendingPlan as any)
         : await planPuraActions({
-            text: cleanText,
+            text: effectiveText,
             url: parsed.data.url,
             recentMessages,
             threadContext,
@@ -1627,6 +1665,7 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
       if (plan?.mode === "execute" && Array.isArray(plan.steps) && plan.steps.length) {
         const resolvedSteps: Array<{ key: PortalAgentActionKey; title: string; args: Record<string, unknown>; openUrl?: string }> = [];
         const contextPatches: Array<Record<string, unknown> | undefined> = [];
+        let clarifyChoices: any[] | null = null;
 
         for (const step of plan.steps.slice(0, 6)) {
           const argsRaw = step.args && typeof step.args === "object" && !Array.isArray(step.args) ? (step.args as Record<string, unknown>) : {};
@@ -1634,11 +1673,12 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
             ownerId,
             stepKey: step.key,
             args: argsRaw,
-            userHint: cleanText,
+            userHint: effectiveText,
             url: parsed.data.url,
             threadContext,
           });
           if (!resolved.ok) {
+            clarifyChoices = Array.isArray((resolved as any).choices) ? ((resolved as any).choices as any[]) : null;
             const assistantMsg = await (prisma as any).portalAiChatMessage.create({
               data: {
                 ownerId,
@@ -1666,7 +1706,15 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
               ? { ...(prevCtx as any), pendingPlan: plan }
               : { pendingPlan: plan };
             await (prisma as any).portalAiChatThread.update({ where: { id: threadId }, data: { lastMessageAt: now, contextJson: nextCtx } });
-            return NextResponse.json({ ok: true, userMessage: userMsg, assistantMessage: assistantMsg, assistantActions: [], autoActionMessage: null, canvasUrl: null });
+            return NextResponse.json({
+              ok: true,
+              userMessage: userMsg,
+              assistantMessage: assistantMsg,
+              assistantActions: [],
+              autoActionMessage: null,
+              canvasUrl: null,
+              assistantChoices: clarifyChoices,
+            });
           }
 
           const resolvedArgs = resolved.args && typeof resolved.args === "object" && !Array.isArray(resolved.args)
@@ -1781,7 +1829,7 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
 
         await (prisma as any).portalAiChatThread.update({ where: { id: threadId }, data: { lastMessageAt: now, contextJson: nextCtx } });
 
-        return NextResponse.json({ ok: true, userMessage: userMsg, assistantMessage: assistantMsg, assistantActions: [], autoActionMessage: null, canvasUrl });
+        return NextResponse.json({ ok: true, userMessage: userMsg, assistantMessage: assistantMsg, assistantActions: [], autoActionMessage: null, canvasUrl, assistantChoices: null });
       }
     } catch {
       // If planning fails, fall through to existing behavior.
@@ -1860,7 +1908,7 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
 
   // 3) Auto-execute when the user is clearly asking to do something.
   let autoActionMessage: any = null;
-  if (shouldAutoExecuteFromUserText(cleanText) && assistantActions.length) {
+  if (shouldAutoExecuteFromUserText(effectiveText) && assistantActions.length) {
     const first = assistantActions[0];
     try {
       const exec = await executePortalAgentActionForThread({
@@ -1894,7 +1942,7 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
   // 5) Fall back to support-style chat when no action was executed.
   // If the user is issuing an imperative command but we couldn't safely execute anything,
   // ask for the missing info instead of giving step-by-step portal instructions.
-  if (shouldAutoExecuteFromUserText(cleanText) && !assistantActions.length) {
+  if (shouldAutoExecuteFromUserText(effectiveText) && !assistantActions.length) {
     try {
       const system = [
         "You are an automation agent inside a business portal.",

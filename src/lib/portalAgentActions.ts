@@ -682,6 +682,7 @@ export const PortalAgentActionArgsSchemaByKey = {
       funnelId: z.string().trim().min(1).max(120),
       pageId: z.string().trim().min(1).max(120),
       prompt: z.string().trim().min(1).max(4000),
+      calendarId: z.string().trim().min(1).max(120).optional(),
       currentHtml: z.string().optional().nullable(),
       attachments: z
         .array(

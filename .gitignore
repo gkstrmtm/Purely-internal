@@ -82,6 +82,9 @@ realupdatedhistory.md
 # local-only portal UI transcript (do not commit)
 /src/app/portal/app/settings/checkit.md
 
+# local-only transcript captured for context (do not commit)
+/docs/plans/portalchatlog.md
+
 # debug
 npm-debug.log*
 yarn-debug.log*

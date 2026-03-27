@@ -11,6 +11,13 @@ import { IconSchedule, IconSend, IconSendHover } from "@/app/portal/PortalIcons"
 
 type AmbiguousContact = { name: string; email?: string | null; phone?: string | null };
 
+type AssistantChoice = {
+  type: "booking_calendar";
+  calendarId: string;
+  label: string;
+  description?: string;
+};
+
 type Thread = {
   id: string;
   title: string;
@@ -271,31 +278,22 @@ function MessageBubble({
 }
 
 export function PortalAiChatClient() {
-  // Persistent open/close state for sidebar and canvas
-  const [sidebarOpen, setSidebarOpen] = useState(() => {
-    if (typeof window !== 'undefined') {
-      const raw = window.localStorage.getItem('puraSidebarOpen');
-      return raw === null ? true : raw === 'true';
-    }
-    return true;
-  });
+  // Threads sidebar is resize-only (no close control).
   const [canvasOpen, setCanvasOpen] = useState(() => {
-    if (typeof window !== 'undefined') {
-      const raw = window.localStorage.getItem('puraCanvasOpen');
-      return raw === null ? true : raw === 'true';
+    if (typeof window !== "undefined") {
+      const raw = window.localStorage.getItem("puraCanvasOpen");
+      return raw === null ? true : raw === "true";
     }
     return true;
   });
   const [sidebarWidth, setSidebarWidth] = useState<number>(320);
 
   useEffect(() => {
-    window.localStorage.setItem('puraSidebarOpen', String(sidebarOpen));
-  }, [sidebarOpen]);
-  useEffect(() => {
-    window.localStorage.setItem('puraCanvasOpen', String(canvasOpen));
+    window.localStorage.setItem("puraCanvasOpen", String(canvasOpen));
   }, [canvasOpen]);
 
   const [ambiguousContacts, setAmbiguousContacts] = useState<AmbiguousContact[] | null>(null);
+  const [assistantChoices, setAssistantChoices] = useState<AssistantChoice[] | null>(null);
 
 
   const toast = useToast();
@@ -414,14 +412,12 @@ export function PortalAiChatClient() {
       }
 
       if (isClose && mentionsSidebar) {
-        setSidebarOpen(false);
-        addLocalAssistantMessage("Closed the chat sidebar.");
+        addLocalAssistantMessage("The chat sidebar stays open (resize-only).");
         return true;
       }
 
       if (isOpen && mentionsSidebar) {
-        setSidebarOpen(true);
-        addLocalAssistantMessage("Opened the chat sidebar.");
+        addLocalAssistantMessage("The chat sidebar is already open.");
         return true;
       }
 
@@ -435,7 +431,6 @@ export function PortalAiChatClient() {
 
       if (isResize && mentionsSidebar) {
         const delta = /\b(smaller|narrower|decrease)\b/.test(text) ? -80 : 80;
-        setSidebarOpen(true);
         setSidebarWidth((prev) => Math.max(240, Math.min(520, prev + delta)));
         addLocalAssistantMessage(`Resized the chat sidebar ${delta > 0 ? "wider" : "narrower"}.`);
         return true;
@@ -790,10 +785,10 @@ export function PortalAiChatClient() {
   );
 
   const send = useCallback(
-    async (overrideText?: string) => {
+    async (overrideText?: string, choice?: { type: "booking_calendar"; calendarId: string; label?: string }) => {
       const text = typeof overrideText === "string" ? overrideText : input.trim();
       const attachments = pendingAttachments;
-      if (!text && !attachments.length) return;
+      if (!text && !attachments.length && !choice) return;
 
       if (!attachments.length && handleUiPanelCommand(text)) {
         if (!overrideText) setInput("");
@@ -829,6 +824,7 @@ export function PortalAiChatClient() {
       if (!overrideText) setInput("");
       setPendingAttachments([]);
       setAmbiguousContacts(null);
+      setAssistantChoices(null);
 
       setSending(true);
       try {
@@ -839,6 +835,7 @@ export function PortalAiChatClient() {
             text,
             url: window.location.href,
             attachments,
+            ...(choice ? { choice } : {}),
           }),
         });
         const json = await res.json().catch(() => null);
@@ -847,6 +844,12 @@ export function PortalAiChatClient() {
           setAmbiguousContacts(json.ambiguousContacts);
         } else {
           setAmbiguousContacts(null);
+        }
+
+        if (json.assistantChoices && Array.isArray(json.assistantChoices) && json.assistantChoices.length) {
+          setAssistantChoices(json.assistantChoices as AssistantChoice[]);
+        } else {
+          setAssistantChoices(null);
         }
 
         if (json?.needsConfirm?.token) {
@@ -952,6 +955,15 @@ export function PortalAiChatClient() {
       void send(value);
     }
   }, [send]);
+
+  const handleAssistantChoiceSelect = useCallback(
+    (c: AssistantChoice) => {
+      if (c.type === "booking_calendar" && c.calendarId) {
+        void send(c.label || "Selected calendar", { type: "booking_calendar", calendarId: c.calendarId, label: c.label });
+      }
+    },
+    [send],
+  );
 
   const executeAgentAction = useCallback(
     async (action: string, args: Record<string, unknown>) => {
@@ -1354,38 +1366,22 @@ export function PortalAiChatClient() {
         </div>
       ) : null}
 
-      {sidebarOpen && (
-        <div className="hidden h-full shrink-0 border-r border-zinc-200 bg-white shadow-[2px_0_12px_rgba(0,0,0,0.06)] lg:flex relative" style={{ width: sidebarWidth }}>
-          <button
-            className="absolute top-2 right-2 z-10 rounded-full bg-zinc-100 hover:bg-zinc-200 p-1 text-xs font-bold"
-            title="Close sidebar"
-            onClick={() => setSidebarOpen(false)}
-          >
-            ×
-          </button>
-          {left}
+      <div
+        className="hidden h-full shrink-0 border-r border-zinc-200 bg-white shadow-[2px_0_12px_rgba(0,0,0,0.06)] lg:flex relative"
+        style={{ width: sidebarWidth }}
+      >
+        {left}
 
-          <div
-            className="absolute right-0 top-0 hidden h-full w-2 translate-x-1/2 cursor-col-resize bg-transparent hover:bg-zinc-100 lg:block"
-            role="separator"
-            aria-orientation="vertical"
-            onMouseDown={(e) => {
-              sidebarDragRef.current = { startX: e.clientX, startWidth: sidebarWidth };
-            }}
-            title="Drag to resize sidebar"
-          />
-        </div>
-      )}
-      {!sidebarOpen && (
-        <button
-          className="absolute left-0 top-2 z-20 rounded-r-2xl bg-zinc-100 hover:bg-zinc-200 px-2 py-1 text-xs font-bold border border-zinc-200"
-          style={{ height: 40 }}
-          title="Open sidebar"
-          onClick={() => setSidebarOpen(true)}
-        >
-          &gt;
-        </button>
-      )}
+        <div
+          className="absolute right-0 top-0 hidden h-full w-2 translate-x-1/2 cursor-col-resize bg-transparent hover:bg-zinc-100 lg:block"
+          role="separator"
+          aria-orientation="vertical"
+          onMouseDown={(e) => {
+            sidebarDragRef.current = { startX: e.clientX, startWidth: sidebarWidth };
+          }}
+          title="Drag to resize sidebar"
+        />
+      </div>
 
       <div ref={canvasContainerRef} className="flex min-w-0 flex-1 bg-white shadow-[inset_12px_0_16px_-16px_rgba(0,0,0,0.22)] relative">
         <div className="flex min-w-0 flex-1 flex-col">
@@ -1447,11 +1443,9 @@ export function PortalAiChatClient() {
                   let assistantIdx = 0;
                   return messages.map((m, i) => {
                     const variant = m.role === "assistant" ? (assistantIdx++ % 2 === 0 ? "dark" : "light") : undefined;
-                    // If this is the last assistant message and ambiguousContacts is set, render the ambiguity UI
-                    const isLastAssistant =
-                      ambiguousContacts &&
-                      m.role === "assistant" &&
-                      i === messages.length - 1;
+                    const isLastAssistant = m.role === "assistant" && i === messages.length - 1;
+                    const showAmbiguousContacts = isLastAssistant && Boolean(ambiguousContacts && ambiguousContacts.length);
+                    const showChoices = isLastAssistant && Boolean(assistantChoices && assistantChoices.length);
                     return (
                       <div key={m.id}>
                         <MessageBubble
@@ -1461,9 +1455,9 @@ export function PortalAiChatClient() {
                           runningActionKey={runningActionKey}
                           onOpenLink={openInCanvas}
                         />
-                        {isLastAssistant && (
+                        {showAmbiguousContacts && (
                           <div className="mt-2 flex flex-wrap gap-2">
-                            {ambiguousContacts.map((c, idx) => (
+                            {ambiguousContacts?.map((c, idx) => (
                               <button
                                 key={c.email || c.phone || c.name || idx}
                                 type="button"
@@ -1472,6 +1466,21 @@ export function PortalAiChatClient() {
                               >
                                 {c.name}
                                 {c.email ? ` (${c.email})` : c.phone ? ` (${c.phone})` : ""}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                        {showChoices && (
+                          <div className="mt-2 flex flex-wrap gap-2">
+                            {assistantChoices?.map((c, idx) => (
+                              <button
+                                key={`${c.type}:${c.calendarId || idx}`}
+                                type="button"
+                                className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-900 hover:bg-zinc-50"
+                                onClick={() => handleAssistantChoiceSelect(c)}
+                                title={c.description || c.label}
+                              >
+                                {c.label}
                               </button>
                             ))}
                           </div>
