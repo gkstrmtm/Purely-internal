@@ -121,6 +121,46 @@ async function tryRepairPlannerJson(raw: string): Promise<unknown | null> {
   }
 }
 
+function summarizeActiveThreadEntities(threadContext: unknown): string {
+  const ctx = threadContext && typeof threadContext === "object" && !Array.isArray(threadContext)
+    ? (threadContext as Record<string, unknown>)
+    : null;
+  if (!ctx) return "(none)";
+
+  const rows: string[] = [];
+  const add = (label: string, value: unknown) => {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return;
+    const obj = value as Record<string, unknown>;
+    const id = typeof obj.id === "string" ? obj.id.trim() : "";
+    const name =
+      typeof obj.label === "string" ? obj.label.trim() :
+      typeof obj.name === "string" ? obj.name.trim() :
+      typeof obj.title === "string" ? obj.title.trim() :
+      "";
+    const funnelId = typeof obj.funnelId === "string" ? obj.funnelId.trim() : "";
+    const extra = funnelId ? ` funnelId=${funnelId.slice(0, 24)}` : "";
+    if (id || name) rows.push(`- ${label}: ${name || "(unnamed)"}${id ? ` [id=${id.slice(0, 24)}]` : ""}${extra}`);
+  };
+
+  add("funnel", ctx.lastFunnel);
+  add("funnel page", ctx.lastFunnelPage);
+  add("funnel form", ctx.lastFunnelForm);
+  add("automation", ctx.lastAutomation);
+  add("booking", ctx.lastBooking);
+  add("booking calendar", ctx.lastBookingCalendar);
+  add("scraped lead", ctx.lastScrapedLead);
+  add("AI outbound campaign", ctx.lastAiOutboundCallsCampaign);
+  add("custom domain", ctx.lastCustomDomain);
+  add("blog post", ctx.lastBlogPost);
+  add("newsletter", ctx.lastNewsletter);
+  add("task", ctx.lastTask);
+  add("review", ctx.lastReview);
+  add("nurture campaign", ctx.lastNurtureCampaign);
+  add("nurture step", ctx.lastNurtureStep);
+
+  return rows.length ? rows.join("\n") : "(none)";
+}
+
 export async function planPuraActions(opts: {
   text: string;
   url?: string;
@@ -134,6 +174,7 @@ export async function planPuraActions(opts: {
     opts.threadContext && typeof opts.threadContext === "object" && !Array.isArray(opts.threadContext) && typeof (opts.threadContext as any).threadSummary === "string"
       ? String((opts.threadContext as any).threadSummary || "").trim().slice(0, 1200)
       : "";
+  const activeEntities = summarizeActiveThreadEntities(opts.threadContext);
 
   const convo = (opts.recentMessages || [])
     .slice(-10)
@@ -146,10 +187,15 @@ export async function planPuraActions(opts: {
     "Rules:",
     "- If the user asks HOW, output mode=explain.",
     "- If the user gives an imperative instruction, prefer mode=execute.",
+    "- IMPORTANT: Treat this as an ongoing thread, not a stateless request.",
+    "- If the user says things like 'it', 'that one', 'same one', 'use the one we just made', or gives a short follow-up, prefer the active entity from thread context.",
+    "- For follow-up commands in the same thread, continue the current task/entity unless the user clearly switches topics.",
+    "- Only output mode=clarify when there is NO plausible active entity in thread context and the missing detail is truly required.",
     "- If required specifics are missing or ambiguous, output mode=clarify with ONE short question.",
     "- IMPORTANT: For booking calendar selection, NEVER ask the user for a calendar ID.",
     "  If a step needs calendarId but it isn't known, still output mode=execute and omit calendarId;",
     "  the system will auto-pick on 'any/doesn't matter' or show clickable calendar choices.",
+    "- Prefer using $ref hints that continue the active thread context instead of asking the user to restate the obvious.",
     "- Never output manual step-by-step portal instructions unless mode=explain.",
     "- Never invent IDs. Use $ref objects for things you need resolved (contact, contact_tag, inbox_thread, funnel, automation, booking, blog_post, newsletter, media_folder, media_item, task, review, review_question, nurture_campaign, nurture_step, scraped_lead, credit_pull, credit_dispute_letter, credit_report, credit_report_item, user, funnel_form, funnel_page, custom_domain, ai_outbound_calls_campaign, or generic 'id' for domain-specific IDs).",
     "- Output JSON only. No markdown.",
@@ -200,6 +246,8 @@ export async function planPuraActions(opts: {
     convo || "(none)",
     "\nThread summary (rolling, may include older context):",
     threadSummary || "(none)",
+    "\nActive entities from thread context (prefer these for follow-ups):",
+    activeEntities,
     "\nThread context JSON (may help with follow-ups):",
     JSON.stringify(opts.threadContext ?? null).slice(0, 4000),
     "\nCurrent page URL:",
