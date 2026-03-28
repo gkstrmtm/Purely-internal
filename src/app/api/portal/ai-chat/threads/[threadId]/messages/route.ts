@@ -91,6 +91,27 @@ function heuristicThreadTitleFromUserText(textRaw: string): string {
     .replace(/\s+/g, " ");
   if (!t) return "";
 
+  const scheduleTitle = (() => {
+    const tl = t.toLowerCase();
+    const isWeekdays = /\b(monday\s+through\s+friday|mon\s*[-–—]\s*fri|weekdays)\b/i.test(tl);
+    const isSms = /\b(text|sms)\b/i.test(tl);
+    if (!isWeekdays || !isSms) return "";
+
+    const contactMatch = /\b(contact|to)\s+(?:the\s+contact\s+)?([a-z][a-z0-9'._-]{1,40})\b/i.exec(t);
+    const contact = contactMatch?.[2] ? String(contactMatch[2]).trim() : "";
+
+    const timeMatch = /\b(\d{1,2})(?::(\d{2}))?\s*(a\.?m\.?|p\.?m\.?)\b/i.exec(t);
+    const hour = timeMatch?.[1] ? Number(timeMatch[1]) : NaN;
+    const minute = timeMatch?.[2] ? Number(timeMatch[2]) : 0;
+    const ampm = timeMatch?.[3] ? String(timeMatch[3]).toLowerCase() : "";
+    const validTime = Number.isFinite(hour) && hour >= 1 && hour <= 12 && Number.isFinite(minute) && minute >= 0 && minute <= 59;
+    const timeLabel = validTime ? `${hour}${minute ? `:${String(minute).padStart(2, "0")}` : ""}${ampm.startsWith("p") && hour !== 12 ? "pm" : ampm.startsWith("a") && hour === 12 ? "am" : ampm.startsWith("p") ? "pm" : "am"}` : "9am";
+
+    const who = contact ? `${contact.charAt(0).toUpperCase()}${contact.slice(1)}` : "";
+    return cleanSuggestedTitle(`Mon-Fri ${timeLabel} SMS${who ? ` ${who}` : ""}`);
+  })();
+  if (scheduleTitle) return scheduleTitle;
+
   // Prefer the first sentence/clause.
   const first = t.split(/[.?!\n]/)[0] || t;
   const cleaned = first
@@ -146,6 +167,121 @@ function shouldAutoExecuteFromUserText(text: string) {
   return /\b(task|funnel|newsletter|blog|automation|calendar|booking|appointment|contacts?|people|review|reviews|text|sms|email|message|media|media library|folder|dashboard|reporting|nurture|campaign|tag|tags|label)\b/i.test(
     t,
   );
+}
+
+function looksLikeWeekdaySmsSchedule(textRaw: string): boolean {
+  const t = String(textRaw || "").toLowerCase();
+  if (!t.trim()) return false;
+  const isWeekdays = /\b(monday\s+through\s+friday|mon\s*[-–—]\s*fri|weekdays)\b/i.test(t);
+  const isSms = /\b(text|sms)\b/i.test(t);
+  const hasTime = /\b\d{1,2}(?::\d{2})?\s*(a\.?m\.?|p\.?m\.?)\b/i.test(t) || /\b\d{1,2}:\d{2}\b/.test(t);
+  return Boolean(isWeekdays && isSms && hasTime);
+}
+
+function userWantsTestSendNow(textRaw: string): boolean {
+  const t = String(textRaw || "").toLowerCase();
+  return /\b(trigger|send)\b[\s\S]{0,40}\b(now|immediately)\b/.test(t) || /\b(as a test|test message|test sms)\b/.test(t);
+}
+
+function extractQuotedMessage(textRaw: string): string {
+  const t = String(textRaw || "");
+  const m1 = /"([^"]{3,200})"/.exec(t);
+  if (m1?.[1]) return String(m1[1]).trim();
+  const m2 = /'([^']{3,200})'/.exec(t);
+  if (m2?.[1]) return String(m2[1]).trim();
+  return "";
+}
+
+function extractContactHint(textRaw: string): string {
+  const t = String(textRaw || "");
+  const m = /\b(contact|to)\s+(?:the\s+contact\s+)?([a-z][a-z0-9'._-]{1,40})\b/i.exec(t);
+  return m?.[2] ? String(m[2]).trim().slice(0, 60) : "";
+}
+
+function extractTimeLocalHHmm(textRaw: string): string {
+  const t = String(textRaw || "");
+  const m1 = /\b(\d{1,2}):(\d{2})\b/.exec(t);
+  if (m1?.[1] && m1?.[2]) {
+    const hh = Number(m1[1]);
+    const mm = Number(m1[2]);
+    if (Number.isFinite(hh) && Number.isFinite(mm) && hh >= 0 && hh <= 23 && mm >= 0 && mm <= 59) {
+      return `${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}`;
+    }
+  }
+
+  const m2 = /\b(\d{1,2})(?::(\d{2}))?\s*(a\.?m\.?|p\.?m\.?)\b/i.exec(t);
+  if (m2?.[1]) {
+    const h12 = Number(m2[1]);
+    const mm = m2?.[2] ? Number(m2[2]) : 0;
+    const ampm = m2?.[3] ? String(m2[3]).toLowerCase() : "";
+    if (!Number.isFinite(h12) || h12 < 1 || h12 > 12 || !Number.isFinite(mm) || mm < 0 || mm > 59) return "";
+    let hh = h12 % 12;
+    if (ampm.startsWith("p")) hh += 12;
+    return `${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}`;
+  }
+
+  return "";
+}
+
+function buildDeterministicWeekdaySmsPlan(opts: {
+  text: string;
+  ownerTimeZone?: string;
+}): { mode: "execute"; workTitle: string; steps: Array<{ key: any; title: string; args: Record<string, unknown> }> } | null {
+  const text = String(opts.text || "");
+  if (!looksLikeWeekdaySmsSchedule(text)) return null;
+
+  const contactHint = extractContactHint(text) || "Chester";
+  const timeLocal = extractTimeLocalHHmm(text) || "09:00";
+  const tz = String(opts.ownerTimeZone || "").trim().slice(0, 80);
+
+  const msg = extractQuotedMessage(text) || "Good morning, ready to get started?";
+  const wantsNow = userWantsTestSendNow(text);
+
+  const steps: Array<{ key: any; title: string; args: Record<string, unknown> }> = [];
+
+  if (wantsNow) {
+    steps.push({
+      key: "inbox.send_sms",
+      title: `Send test SMS to ${contactHint}`,
+      args: {
+        contactId: { $ref: "contact", hint: contactHint },
+        body: msg,
+      },
+    });
+  }
+
+  const weekdays: Array<{ label: string; isoWeekday: number }> = [
+    { label: "Monday", isoWeekday: 1 },
+    { label: "Tuesday", isoWeekday: 2 },
+    { label: "Wednesday", isoWeekday: 3 },
+    { label: "Thursday", isoWeekday: 4 },
+    { label: "Friday", isoWeekday: 5 },
+  ];
+
+  for (const d of weekdays) {
+    if (steps.length >= 6) break;
+    steps.push({
+      key: "ai_chat.scheduled.create",
+      title: `Schedule ${d.label} ${timeLocal} SMS to ${contactHint}`,
+      args: {
+        text: `Send an SMS to ${contactHint}: ${msg}`,
+        sendAtLocal: {
+          isoWeekday: d.isoWeekday,
+          timeLocal,
+          ...(tz ? { timeZone: tz } : {}),
+        },
+        repeatEveryMinutes: 10080,
+      },
+    });
+  }
+
+  if (!steps.length) return null;
+
+  return {
+    mode: "execute",
+    workTitle: `Weekday ${timeLocal} SMS to ${contactHint}`,
+    steps,
+  };
 }
 
 function normalizePhoneLike(raw: string): string | null {
@@ -233,6 +369,66 @@ async function maybeUpdateThreadSummary(opts: {
     return nextCtx;
   } catch {
     return prevCtx;
+  }
+}
+
+async function maybeUpdateThreadTitle(opts: {
+  thread: any;
+  threadId: string;
+  now: Date;
+  promptMessage: string;
+  assistantText: string;
+}): Promise<void> {
+  try {
+    const currentTitle = String(opts.thread?.title || "").trim();
+    const isDefaultTitle = currentTitle === "New chat" || !currentTitle || currentTitle.toLowerCase() === "new chat";
+    const createdAt = (opts.thread as any)?.createdAt ? new Date((opts.thread as any).createdAt) : null;
+    const threadAgeMs = createdAt ? opts.now.getTime() - createdAt.getTime() : 0;
+    const isRecent = Boolean(createdAt) && threadAgeMs < 5 * 60 * 1000;
+
+    if (!isDefaultTitle && !isRecent) return;
+
+    const heuristic = heuristicThreadTitleFromUserText(opts.promptMessage);
+    const shouldPreferHeuristic = looksLikeWeekdaySmsSchedule(opts.promptMessage);
+
+    let nextTitle = cleanSuggestedTitle(heuristic);
+
+    if (!shouldPreferHeuristic && isPortalSupportChatConfigured()) {
+      const titleSystem = [
+        "You name chat threads in a business automation portal.",
+        "Return a short, helpful title (2-6 words).",
+        "No quotes. No trailing punctuation.",
+        "Make it action-oriented and descriptive.",
+      ].join("\n");
+
+      const titleUser = [
+        "Conversation:",
+        `User: ${String(opts.promptMessage || "").slice(0, 800)}`,
+        `Assistant: ${String(opts.assistantText || "").slice(0, 800)}`,
+        "\nTitle:",
+      ].join("\n");
+
+      try {
+        const aiProposed = cleanSuggestedTitle(await generateText({ system: titleSystem, user: titleUser }));
+        if (aiProposed && aiProposed.length >= 3) nextTitle = aiProposed;
+      } catch {
+        // ignore and keep heuristic
+      }
+    }
+
+    if (nextTitle && nextTitle.length >= 3 && nextTitle.toLowerCase() !== "new chat") {
+      await (prisma as any).portalAiChatThread.update({ where: { id: opts.threadId }, data: { title: nextTitle } });
+      return;
+    }
+
+    if (isDefaultTitle) {
+      const firstMsg = await prisma.portalAiChatMessage.findFirst({ where: { threadId: opts.threadId }, orderBy: { createdAt: "asc" } });
+      if (firstMsg && firstMsg.text && firstMsg.text.length > 3) {
+        await prisma.portalAiChatThread.update({ where: { id: opts.threadId }, data: { title: firstMsg.text.slice(0, 60) } });
+      }
+    }
+  } catch {
+    // best-effort
   }
 }
 
@@ -1908,14 +2104,38 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
         threadContext = nextCtx;
       }
 
-      const plan = shouldReplayPendingExecutePlan
-        ? (pendingPlan as any)
-        : await planPuraActions({
+      const deterministicWeekdaySmsPlan = shouldAutoExecuteFromUserText(effectiveText)
+        ? buildDeterministicWeekdaySmsPlan({
+            text: effectiveText,
+            ownerTimeZone: String(ownerTimeZone || (threadContext as any)?.ownerTimeZone || "").trim() || undefined,
+          })
+        : null;
+
+      let plan: any = null;
+      if (shouldReplayPendingExecutePlan) {
+        plan = pendingPlan as any;
+      } else {
+        try {
+          plan = await planPuraActions({
             text: effectiveText,
             url: contextUrl,
             recentMessages: modelMessages,
             threadContext,
           });
+        } catch {
+          plan = null;
+        }
+
+        if (deterministicWeekdaySmsPlan) {
+          const steps = plan && typeof plan === "object" && Array.isArray((plan as any).steps) ? ((plan as any).steps as any[]) : [];
+          const hasScheduler = steps.some((s) => String(s?.key || "") === "ai_chat.scheduled.create");
+          const wantsNow = userWantsTestSendNow(effectiveText);
+          const hasImmediateSms = steps.some((s) => String(s?.key || "") === "inbox.send_sms");
+          if (!plan || String((plan as any).mode || "") !== "execute" || !hasScheduler || (wantsNow && !hasImmediateSms)) {
+            plan = deterministicWeekdaySmsPlan;
+          }
+        }
+      }
 
       if (plan?.mode === "clarify" && plan.clarifyingQuestion) {
         const assistantMsg = await (prisma as any).portalAiChatMessage.create({
@@ -1946,6 +2166,7 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
           : { pendingPlan: plan };
 
         await (prisma as any).portalAiChatThread.update({ where: { id: threadId }, data: { lastMessageAt: now, contextJson: nextCtx } });
+        await maybeUpdateThreadTitle({ thread, threadId, now, promptMessage, assistantText: plan.clarifyingQuestion });
         return NextResponse.json({ ok: true, userMessage: userMsg, assistantMessage: assistantMsg, assistantActions: [], autoActionMessage: null, canvasUrl: null });
       }
 
@@ -1973,6 +2194,7 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
         });
 
         await (prisma as any).portalAiChatThread.update({ where: { id: threadId }, data: { lastMessageAt: now } });
+        await maybeUpdateThreadTitle({ thread, threadId, now, promptMessage, assistantText: plan.explanation });
         return NextResponse.json({ ok: true, userMessage: userMsg, assistantMessage: assistantMsg, assistantActions: [], autoActionMessage: null, canvasUrl: null });
       }
 
@@ -2117,6 +2339,7 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
             },
           });
 
+          await maybeUpdateThreadTitle({ thread, threadId, now, promptMessage, assistantText: confirmText });
           return NextResponse.json({
             ok: true,
             userMessage: userMsg,
@@ -2204,6 +2427,8 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
 
             const nextCtx = { ...localCtx, pendingPlan: plan, pendingPlanClarify: { at: now.toISOString(), stepKey: step.key, question: clarifyText } };
             await (prisma as any).portalAiChatThread.update({ where: { id: threadId }, data: { lastMessageAt: now, contextJson: nextCtx } });
+            await maybeUpdateThreadTitle({ thread, threadId, now, promptMessage, assistantText: clarifyText });
+            await maybeUpdateThreadTitle({ thread, threadId, now, promptMessage, assistantText: clarifyText });
             return NextResponse.json({
               ok: true,
               userMessage: userMsg,
@@ -2369,6 +2594,8 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
           : { ...mergedPatch, lastWorkTitle: plan.workTitle ?? null, lastCanvasUrl: canvasUrl, pendingPlan: null, pendingPlanClarify: null, runs };
 
         await (prisma as any).portalAiChatThread.update({ where: { id: threadId }, data: { lastMessageAt: now, contextJson: nextCtx } });
+
+        await maybeUpdateThreadTitle({ thread, threadId, now, promptMessage, assistantText: assistantTextFinal });
 
         return NextResponse.json({ ok: true, userMessage: userMsg, assistantMessage: assistantMsg, assistantActions: [], autoActionMessage: null, canvasUrl, assistantChoices: null, clientUiActions });
       }
@@ -2615,54 +2842,7 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
     data: { lastMessageAt: new Date() },
   });
 
-  // AI-generated thread title (not just the first message).
-  // Only do this for untouched threads or threads with generic names.
-  try {
-    const currentTitle = String(thread.title || "").trim();
-    const isDefaultTitle = currentTitle === "New chat" || !currentTitle || currentTitle.toLowerCase() === "new chat";
-    const threadAgeMs = now.getTime() - new Date((thread as any).createdAt).getTime();
-    const isRecent = threadAgeMs < 5 * 60 * 1000; // less than 5 min old
-
-    if (isDefaultTitle || isRecent) {
-      const titleSystem = [
-        "You name chat threads in a business automation portal.",
-        "Return a short, helpful title (2-6 words).",
-        "No quotes. No trailing punctuation.",
-        "Make it action-oriented and descriptive.",
-      ].join("\n");
-
-      const titleUser = [
-        "Conversation:",
-        `User: ${promptMessage}`,
-        `Assistant: ${reply}`,
-        "\nTitle:",
-      ].join("\n");
-
-      const proposed = isPortalSupportChatConfigured()
-        ? cleanSuggestedTitle(await generateText({ system: titleSystem, user: titleUser }))
-        : heuristicThreadTitleFromUserText(promptMessage);
-      if (proposed && proposed.length >= 3 && proposed.toLowerCase() !== "new chat") {
-        await (prisma as any).portalAiChatThread.update({
-          where: { id: threadId },
-          data: { title: proposed },
-        });
-      } else if (isDefaultTitle) {
-        // Fallback: use first message text as title if nothing else
-        const firstMsg = await prisma.portalAiChatMessage.findFirst({
-          where: { threadId },
-          orderBy: { createdAt: "asc" },
-        });
-        if (firstMsg && firstMsg.text && firstMsg.text.length > 3) {
-          await prisma.portalAiChatThread.update({
-            where: { id: threadId },
-            data: { title: firstMsg.text.slice(0, 120) },
-          });
-        }
-      }
-    }
-  } catch {
-    // best-effort
-  }
+  await maybeUpdateThreadTitle({ thread, threadId, now, promptMessage, assistantText: reply });
 
   return NextResponse.json({ ok: true, userMessage: userMsg, assistantMessage: assistantMsg, assistantActions, autoActionMessage: null, canvasUrl: null });
 }
