@@ -155,7 +155,9 @@ type BuilderNodeConfig =
       triggerKind: TriggerKind;
       tagId?: string;
       webhookKey?: string;
-  formId?: string;
+      formId?: string;
+
+      calendarId?: string;
 
       // scheduled_time scheduler
       scheduleMode?: "every" | "specific";
@@ -203,6 +205,8 @@ type ContactTag = { id: string; name: string; color: string | null };
 
 type AiOutboundCallCampaign = { id: string; name: string; status: string };
 type NurtureCampaign = { id: string; name: string; status: string };
+
+type BookingCalendar = { id: string; title: string; enabled?: boolean };
 
 type AccountMember = {
   userId: string;
@@ -730,6 +734,7 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
   const [accountMembers, setAccountMembers] = useState<AccountMember[]>([]);
   const [aiOutboundCallCampaigns, setAiOutboundCallCampaigns] = useState<AiOutboundCallCampaign[]>([]);
   const [nurtureCampaigns, setNurtureCampaigns] = useState<NurtureCampaign[]>([]);
+  const [bookingCalendars, setBookingCalendars] = useState<BookingCalendar[]>([]);
 
   const [createTagOpen, setCreateTagOpen] = useState(false);
   const [createTagName, setCreateTagName] = useState("");
@@ -1608,6 +1613,31 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
               status: String(c?.status || ""),
             }))
             .filter((c) => Boolean(c.id)),
+        );
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const res = await fetch("/api/portal/booking/calendars", { cache: "no-store" }).catch(() => null as any);
+      const data = (await res?.json?.().catch(() => null)) as any;
+      if (cancelled) return;
+      const calendars = Array.isArray(data?.config?.calendars) ? (data.config.calendars as any[]) : [];
+      if (res?.ok && data?.ok && calendars.length) {
+        setBookingCalendars(
+          calendars
+            .map((c) => ({
+              id: String(c?.id || "").trim(),
+              title: String(c?.title || "").trim().slice(0, 80) || "Calendar",
+              enabled: Boolean(c?.enabled ?? true),
+            }))
+            .filter((c) => Boolean(c.id))
+            .sort((a, b) => a.title.localeCompare(b.title)),
         );
       }
     })();
@@ -4004,6 +4034,52 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
                                       }}
                                     />
                                     <div className="mt-1 text-[11px] text-zinc-600">Used to match inbound webhook events.</div>
+                                  </div>
+                                );
+                              }
+
+                              if (
+                                cfg.triggerKind === "appointment_booked" ||
+                                cfg.triggerKind === "appointment_ended" ||
+                                cfg.triggerKind === "missed_appointment"
+                              ) {
+                                const calendarId = String((cfg as any).calendarId || "").trim();
+                                const options = [
+                                  { value: "", label: "Any calendar…" },
+                                  ...bookingCalendars.map((c) => ({
+                                    value: c.id,
+                                    label: c.enabled === false ? `${c.title} (disabled)` : c.title,
+                                  })),
+                                ];
+
+                                return (
+                                  <div className="mt-2">
+                                    <div className="text-xs font-semibold text-zinc-600">Only when calendar is</div>
+                                    <PortalListboxDropdown
+                                      className="mt-1"
+                                      value={calendarId}
+                                      options={options}
+                                      onChange={(next) => {
+                                        updateSelectedAutomation((a) => {
+                                          const nodes = a.nodes.map((n) => {
+                                            if (n.id !== selectedNode.id) return n;
+                                            const prev = n.config?.kind === "trigger" ? n.config : (defaultConfigForType("trigger") as any);
+                                            const nextCfg: BuilderNodeConfig = { ...(prev as any), kind: "trigger", calendarId: next || undefined };
+                                            const nextLabel =
+                                              autolabelSelectedNode && shouldAutolabel(n.label)
+                                                ? labelForConfig("trigger", nextCfg)
+                                                : n.label;
+                                            return { ...n, config: nextCfg, label: nextLabel };
+                                          });
+                                          return { ...a, nodes, updatedAtIso: new Date().toISOString() };
+                                        });
+                                      }}
+                                    />
+                                    {!bookingCalendars.length ? (
+                                      <div className="mt-1 text-[11px] text-zinc-600">
+                                        No calendars found yet. Create one in Booking → Calendars.
+                                      </div>
+                                    ) : null}
                                   </div>
                                 );
                               }

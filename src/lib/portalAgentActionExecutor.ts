@@ -10949,7 +10949,58 @@ async function runDirectAction(opts: {
       const prompt = promptRaw ? promptRaw.slice(0, 2000) : "";
 
       const nurtureCampaignIdRaw = String((args as any)?.nurtureCampaignId || "").trim();
-      const nurtureCampaignId = nurtureCampaignIdRaw ? nurtureCampaignIdRaw.slice(0, 80) : null;
+      const CREATE_NEW_VALUE = "__create_new__";
+
+      const createNewNurtureCampaign = async (): Promise<string | null> => {
+        await ensurePortalNurtureSchema();
+
+        const now = new Date();
+        const id = crypto.randomUUID();
+        const name = "New campaign";
+
+        try {
+          await prisma.portalNurtureCampaign.create({
+            data: {
+              id,
+              ownerId,
+              name,
+              status: "DRAFT",
+              smsFooter: "Reply STOP to opt out.",
+              emailFooter: "",
+              createdAt: now,
+              updatedAt: now,
+            },
+          });
+
+          const stepId = crypto.randomUUID();
+          await prisma.portalNurtureStep.create({
+            data: {
+              id: stepId,
+              ownerId,
+              campaignId: id,
+              ord: 0,
+              kind: "SMS",
+              delayMinutes: 0,
+              body: "Hey {contact.name}, just checking in. Any questions I can help with?",
+              createdAt: now,
+              updatedAt: now,
+            },
+          });
+
+          return id;
+        } catch {
+          return null;
+        }
+      };
+
+      let nurtureCampaignId: string | null = nurtureCampaignIdRaw ? nurtureCampaignIdRaw.slice(0, 80) : null;
+      if (nurtureCampaignId === CREATE_NEW_VALUE) {
+        const createdId = await createNewNurtureCampaign();
+        if (!createdId) {
+          return { status: 500, json: { ok: false, error: "Failed to create a new nurture campaign." } };
+        }
+        nurtureCampaignId = createdId;
+      }
 
       const needCredits = PORTAL_CREDIT_COSTS.automationCreate;
       const charged = await consumeCredits(ownerId, needCredits);

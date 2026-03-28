@@ -106,7 +106,14 @@ type ConditionOp =
   | "lte";
 
 type BuilderNodeConfig =
-  | { kind: "trigger"; triggerKind: TriggerKind }
+  | {
+      kind: "trigger";
+      triggerKind: TriggerKind;
+      tagId?: string;
+      webhookKey?: string;
+      formId?: string;
+      calendarId?: string;
+    }
   | {
       kind: "action";
       actionKind: ActionKind;
@@ -380,7 +387,9 @@ function getConfigKind(cfg: unknown): string {
   return cfg && typeof cfg === "object" && !Array.isArray(cfg) ? String((cfg as any).kind || "") : "";
 }
 
-function isTriggerConfig(cfg: unknown): cfg is { kind: "trigger"; triggerKind: TriggerKind; tagId?: string; webhookKey?: string } {
+function isTriggerConfig(
+  cfg: unknown,
+): cfg is { kind: "trigger"; triggerKind: TriggerKind; tagId?: string; webhookKey?: string; formId?: string; calendarId?: string } {
   return getConfigKind(cfg) === "trigger";
 }
 
@@ -631,6 +640,15 @@ async function runAutomationOnce(opts: {
       const actual = String(opts.event?.tagId || "").trim();
       if (expected && actual && expected !== actual) return false;
       if (expected && !actual) return false;
+    }
+    if (
+      opts.triggerKind === "appointment_booked" ||
+      opts.triggerKind === "appointment_ended" ||
+      opts.triggerKind === "missed_appointment"
+    ) {
+      const expected = String((cfg as any).calendarId || "").trim();
+      const actual = String(opts.event?.calendarId || "").trim();
+      if (expected && (!actual || expected !== actual)) return false;
     }
     if (opts.triggerKind === "form_submitted") {
       const expectedFormId = String((cfg as any).formId || "").trim();

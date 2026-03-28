@@ -497,7 +497,8 @@ export function PortalAiChatClient() {
   const [sending, setSending] = useState(false);
   const [dictating, setDictating] = useState(false);
   const [dictatingMessageId, setDictatingMessageId] = useState<string | null>(null);
-  const dictationRef = useRef<{ audio: HTMLAudioElement; objectUrl: string } | null>(null);
+  const [dictationPlayingMessageId, setDictationPlayingMessageId] = useState<string | null>(null);
+  const dictationRef = useRef<{ audio: HTMLAudioElement; objectUrl: string; messageId: string } | null>(null);
   const [regenerating, setRegenerating] = useState(false);
 
   const [pendingAttachments, setPendingAttachments] = useState<Attachment[]>([]);
@@ -1291,6 +1292,7 @@ export function PortalAiChatClient() {
     return () => {
       try {
         dictationRef.current?.audio.pause();
+        if (dictationRef.current?.audio) dictationRef.current.audio.currentTime = 0;
       } catch {
         // ignore
       }
@@ -1300,12 +1302,41 @@ export function PortalAiChatClient() {
         // ignore
       }
       dictationRef.current = null;
+      setDictationPlayingMessageId(null);
     };
   }, []);
 
   const dictateAssistantMessage = useCallback(
     async (messageId: string) => {
       if (!activeThreadId) return;
+
+      const current = dictationRef.current;
+      if (current && current.messageId === messageId) {
+        const audio = current.audio;
+        const isPlaying = !audio.paused && !audio.ended;
+
+        if (isPlaying) {
+          try {
+            audio.pause();
+            audio.currentTime = 0;
+          } catch {
+            // ignore
+          }
+          setDictationPlayingMessageId(null);
+          return;
+        }
+
+        try {
+          audio.currentTime = 0;
+          await audio.play();
+          setDictationPlayingMessageId(messageId);
+        } catch (e) {
+          toast.error(e instanceof Error ? e.message : String(e));
+          setDictationPlayingMessageId(null);
+        }
+        return;
+      }
+
       if (dictating) return;
 
       setDictating(true);
@@ -1313,6 +1344,7 @@ export function PortalAiChatClient() {
       try {
         try {
           dictationRef.current?.audio.pause();
+          if (dictationRef.current?.audio) dictationRef.current.audio.currentTime = 0;
         } catch {
           // ignore
         }
@@ -1322,6 +1354,7 @@ export function PortalAiChatClient() {
           // ignore
         }
         dictationRef.current = null;
+        setDictationPlayingMessageId(null);
 
         const res = await fetch(`/api/portal/ai-chat/threads/${encodeURIComponent(activeThreadId)}/dictate`, {
           method: "POST",
@@ -1337,7 +1370,11 @@ export function PortalAiChatClient() {
         const blob = await res.blob();
         const objectUrl = URL.createObjectURL(blob);
         const audio = new Audio(objectUrl);
-        dictationRef.current = { audio, objectUrl };
+        audio.onplay = () => setDictationPlayingMessageId(messageId);
+        audio.onpause = () => setDictationPlayingMessageId((prev) => (prev === messageId ? null : prev));
+        audio.onended = () => setDictationPlayingMessageId((prev) => (prev === messageId ? null : prev));
+
+        dictationRef.current = { audio, objectUrl, messageId };
         await audio.play();
       } catch (e) {
         toast.error(e instanceof Error ? e.message : String(e));
@@ -1849,10 +1886,22 @@ export function PortalAiChatClient() {
                               )}
                               onClick={() => void dictateAssistantMessage(m.id)}
                               disabled={dictating || regenerating || sending}
-                              aria-label="Dictate last assistant message"
-                              title={dictating ? "Dictating…" : "Dictate"}
+                              aria-label={dictationPlayingMessageId === m.id ? "Stop dictation" : "Dictate last assistant message"}
+                              title={
+                                dictating && dictatingMessageId === m.id
+                                  ? "Dictating…"
+                                  : dictationPlayingMessageId === m.id
+                                    ? "Stop dictation"
+                                    : "Dictate"
+                              }
                             >
-                              {dictating && dictatingMessageId === m.id ? <IconSpinner size={16} /> : <IconVolumeGlyph size={16} />}
+                              {dictating && dictatingMessageId === m.id ? (
+                                <IconSpinner size={16} />
+                              ) : dictationPlayingMessageId === m.id ? (
+                                <span className="text-[14px] font-bold leading-none">■</span>
+                              ) : (
+                                <IconVolumeGlyph size={16} />
+                              )}
                             </button>
 
                             <button
