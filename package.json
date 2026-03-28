@@ -12,6 +12,7 @@
     "start": "next start",
     "check:copy": "node scripts/check-no-em-dash.mjs",
     "portal:inventory": "node scripts/generate-portal-api-inventory.mjs",
+    "portal:master-checklist": "node scripts/generate-portal-ai-master-checklist.mjs",
     "lint": "npm run check:copy && eslint",
     "test:twilio-mms-smoke": "node scripts/twilio-mms-smoke.mjs",
     "postinstall": "prisma generate",

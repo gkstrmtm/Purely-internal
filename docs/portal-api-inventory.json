@@ -1,5 +1,5 @@
 {
-  "generatedAtIso": "2026-03-26T02:27:22.987Z",
+  "generatedAtIso": "2026-03-28T01:53:46.352Z",
   "routes": [
     {
       "endpoint": "/api/portal/ads/claim",
@@ -81,6 +81,35 @@
       "file": "src/app/api/portal/ai-chat/threads/route.ts"
     },
     {
+      "endpoint": "/api/portal/ai-chat/threads/[threadId]",
+      "methods": [
+        "DELETE",
+        "PATCH"
+      ],
+      "file": "src/app/api/portal/ai-chat/threads/[threadId]/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/ai-chat/threads/[threadId]/actions",
+      "methods": [
+        "POST"
+      ],
+      "file": "src/app/api/portal/ai-chat/threads/[threadId]/actions/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/ai-chat/threads/[threadId]/choice",
+      "methods": [
+        "POST"
+      ],
+      "file": "src/app/api/portal/ai-chat/threads/[threadId]/choice/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/ai-chat/threads/[threadId]/duplicate",
+      "methods": [
+        "POST"
+      ],
+      "file": "src/app/api/portal/ai-chat/threads/[threadId]/duplicate/route.ts"
+    },
+    {
       "endpoint": "/api/portal/ai-chat/threads/[threadId]/flush",
       "methods": [
         "POST"
@@ -94,6 +123,14 @@
         "POST"
       ],
       "file": "src/app/api/portal/ai-chat/threads/[threadId]/messages/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/ai-chat/threads/[threadId]/share",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "file": "src/app/api/portal/ai-chat/threads/[threadId]/share/route.ts"
     },
     {
       "endpoint": "/api/portal/ai-outbound-calls/campaigns",

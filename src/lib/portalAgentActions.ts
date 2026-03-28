@@ -177,6 +177,13 @@ export const PortalAgentActionKeySchema = z.enum([
   "ai_chat.threads.list",
   "ai_chat.threads.create",
   "ai_chat.threads.flush",
+  "ai_chat.threads.update",
+  "ai_chat.threads.delete",
+  "ai_chat.threads.duplicate",
+  "ai_chat.threads.share.get",
+  "ai_chat.threads.share.set",
+  "ai_chat.threads.choice.set",
+  "ai_chat.threads.actions.run",
   "ai_chat.messages.list",
   "ai_chat.messages.send",
   "ai_chat.scheduled.list",
@@ -449,6 +456,58 @@ export const PortalAgentActionArgsSchemaByKey = {
   "ai_chat.threads.flush": z
     .object({
       threadId: z.string().trim().min(1).max(120),
+    })
+    .strict(),
+
+  "ai_chat.threads.update": z
+    .object({
+      threadId: z.string().trim().min(1).max(120),
+      title: z.string().trim().min(1).max(120).optional(),
+      pinned: z.boolean().optional(),
+    })
+    .strict()
+    .refine((d) => typeof d.title === "string" || typeof d.pinned === "boolean", { message: "No changes" }),
+
+  "ai_chat.threads.delete": z
+    .object({
+      threadId: z.string().trim().min(1).max(120),
+    })
+    .strict(),
+
+  "ai_chat.threads.duplicate": z
+    .object({
+      threadId: z.string().trim().min(1).max(120),
+      title: z.string().trim().min(1).max(120).optional(),
+    })
+    .strict(),
+
+  "ai_chat.threads.share.get": z
+    .object({
+      threadId: z.string().trim().min(1).max(120),
+    })
+    .strict(),
+
+  "ai_chat.threads.share.set": z
+    .object({
+      threadId: z.string().trim().min(1).max(120),
+      userIds: z.array(z.string().trim().min(1).max(120)).max(100),
+    })
+    .strict(),
+
+  "ai_chat.threads.choice.set": z
+    .object({
+      threadId: z.string().trim().min(1).max(120),
+      kind: z.string().trim().min(1).max(80),
+      value: z.string().trim().min(1).max(200),
+    })
+    .strict(),
+
+  "ai_chat.threads.actions.run": z
+    .object({
+      threadId: z.string().trim().min(1).max(120),
+      action: z.enum(["pin", "unpin", "delete", "duplicate"]),
+      // Optional override for duplicate title
+      title: z.string().trim().min(1).max(120).optional(),
     })
     .strict(),
 

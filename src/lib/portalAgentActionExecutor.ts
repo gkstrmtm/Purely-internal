@@ -145,6 +145,13 @@ import { ensurePortalAiOutboundCallsSchema } from "@/lib/portalAiOutboundCallsSc
 import { ensurePortalAiChatSchema } from "@/lib/portalAiChatSchema";
 import { enqueueOutboundCallForContact, enqueueOutboundCallForTaggedContact, normalizeTagIdList } from "@/lib/portalAiOutboundCalls";
 import { enqueueOutboundMessageForContact, enqueueOutboundMessageForTaggedContact } from "@/lib/portalAiOutboundMessages";
+import { setThreadChoiceOverride } from "@/lib/portalAiChatChoices";
+import {
+  canAccessPortalAiChatThread,
+  getSharedWithUserIdsFromThreadContext,
+  isPortalAiChatThreadOwner,
+  setSharedWithUserIdsInThreadContext,
+} from "@/lib/portalAiChatSharing";
 import { normalizeToolIdList, normalizeToolKeyList, parseVoiceAgentConfig } from "@/lib/voiceAgentConfig.shared";
 import {
   buildElevenLabsAgentPrompt,
@@ -14159,6 +14166,449 @@ async function runDirectAction(opts: {
       if (!membership) return { status: 403, json: { ok: false, error: "Forbidden" } };
       void args;
       return { status: 200, json: { ok: true, processed: 0, note: "Pura scheduling is disabled" } };
+    }
+
+    case "ai_chat.threads.update": {
+      const membership = await requirePortalMember();
+      if (!membership) return { status: 403, json: { ok: false, error: "Forbidden" } };
+
+      await ensurePortalAiChatSchema();
+
+      const threadId = String((args as any)?.threadId || "").trim().slice(0, 120);
+      if (!threadId) return { status: 400, json: { ok: false, error: "Invalid request" } };
+
+      const nextTitle = typeof (args as any)?.title === "string" ? String((args as any).title).trim().slice(0, 120) : undefined;
+      const nextPinned = typeof (args as any)?.pinned === "boolean" ? Boolean((args as any).pinned) : undefined;
+      if (typeof nextTitle !== "string" && typeof nextPinned !== "boolean") {
+        return { status: 400, json: { ok: false, error: "No changes" } };
+      }
+
+      const thread = await (prisma as any).portalAiChatThread.findFirst({
+        where: { id: threadId, ownerId },
+        select: { id: true, ownerId: true, createdByUserId: true, contextJson: true },
+      });
+      if (!thread) return { status: 404, json: { ok: false, error: "Not found" } };
+
+      if (!isPortalAiChatThreadOwner({ thread, memberId: membership.memberId })) {
+        return { status: 404, json: { ok: false, error: "Not found" } };
+      }
+
+      const data: Record<string, unknown> = {};
+      if (typeof nextTitle === "string" && nextTitle) data.title = nextTitle;
+      if (typeof nextPinned === "boolean") {
+        data.isPinned = nextPinned;
+        data.pinnedAt = nextPinned ? new Date() : null;
+      }
+
+      const updated = await (prisma as any).portalAiChatThread.updateMany({ where: { id: threadId, ownerId }, data });
+      if (!updated?.count) return { status: 404, json: { ok: false, error: "Not found" } };
+
+      const outThread = await (prisma as any).portalAiChatThread.findFirst({
+        where: { id: threadId, ownerId },
+        select: {
+          id: true,
+          title: true,
+          lastMessageAt: true,
+          isPinned: true,
+          pinnedAt: true,
+          createdAt: true,
+          updatedAt: true,
+        },
+      });
+
+      return { status: 200, json: { ok: true, thread: outThread } };
+    }
+
+    case "ai_chat.threads.delete": {
+      const membership = await requirePortalMember();
+      if (!membership) return { status: 403, json: { ok: false, error: "Forbidden" } };
+
+      await ensurePortalAiChatSchema();
+
+      const threadId = String((args as any)?.threadId || "").trim().slice(0, 120);
+      if (!threadId) return { status: 400, json: { ok: false, error: "Invalid request" } };
+
+      const thread = await (prisma as any).portalAiChatThread.findFirst({
+        where: { id: threadId, ownerId },
+        select: { id: true, ownerId: true, createdByUserId: true, contextJson: true },
+      });
+      if (!thread) return { status: 404, json: { ok: false, error: "Not found" } };
+
+      if (!isPortalAiChatThreadOwner({ thread, memberId: membership.memberId })) {
+        return { status: 404, json: { ok: false, error: "Not found" } };
+      }
+
+      await (prisma as any).portalAiChatMessage.deleteMany({ where: { ownerId, threadId } });
+      const deleted = await (prisma as any).portalAiChatThread.deleteMany({ where: { id: threadId, ownerId } });
+      if (!deleted?.count) return { status: 404, json: { ok: false, error: "Not found" } };
+      return { status: 200, json: { ok: true } };
+    }
+
+    case "ai_chat.threads.duplicate": {
+      const membership = await requirePortalMember();
+      if (!membership) return { status: 403, json: { ok: false, error: "Forbidden" } };
+
+      await ensurePortalAiChatSchema();
+
+      const threadId = String((args as any)?.threadId || "").trim().slice(0, 120);
+      if (!threadId) return { status: 400, json: { ok: false, error: "Invalid request" } };
+
+      const safeCopyTitle = (original: string): string => {
+        const base = String(original || "").trim() || "Chat";
+        const prefix = base.toLowerCase().startsWith("copy of ") ? "" : "Copy of ";
+        const title = `${prefix}${base}`.trim();
+        return title.length > 120 ? title.slice(0, 120).trim() : title;
+      };
+
+      const src = await (prisma as any).portalAiChatThread.findFirst({
+        where: { id: threadId, ownerId },
+        select: { id: true, title: true, contextJson: true, ownerId: true, createdByUserId: true },
+      });
+      if (!src) return { status: 404, json: { ok: false, error: "Not found" } };
+      if (!isPortalAiChatThreadOwner({ thread: src, memberId: membership.memberId })) {
+        return { status: 404, json: { ok: false, error: "Not found" } };
+      }
+
+      const srcMessages = await (prisma as any).portalAiChatMessage.findMany({
+        where: { ownerId, threadId },
+        orderBy: [{ createdAt: "asc" }],
+        take: 500,
+        select: {
+          role: true,
+          text: true,
+          attachmentsJson: true,
+          createdByUserId: true,
+          sendAt: true,
+          sentAt: true,
+          createdAt: true,
+        },
+      });
+
+      const now = new Date();
+      const title = typeof (args as any)?.title === "string" && String((args as any).title).trim()
+        ? String((args as any).title).trim().slice(0, 120)
+        : safeCopyTitle(String(src.title || "Chat"));
+
+      const thread = await (prisma as any).portalAiChatThread.create({
+        data: {
+          ownerId,
+          title,
+          createdByUserId: membership.memberId,
+          lastMessageAt: now,
+          isPinned: false,
+          pinnedAt: null,
+          forkedFromThreadId: src.id,
+          contextJson: src.contextJson ?? null,
+        },
+        select: {
+          id: true,
+          title: true,
+          lastMessageAt: true,
+          isPinned: true,
+          pinnedAt: true,
+          createdAt: true,
+          updatedAt: true,
+        },
+      });
+
+      if (Array.isArray(srcMessages) && srcMessages.length) {
+        await (prisma as any).portalAiChatMessage.createMany({
+          data: srcMessages.map((m: any) => ({
+            ownerId,
+            threadId: thread.id,
+            role: String(m.role || ""),
+            text: String(m.text || ""),
+            attachmentsJson: m.attachmentsJson ?? null,
+            createdByUserId: m.createdByUserId ?? null,
+            sendAt: m.sendAt ?? null,
+            sentAt: m.sentAt ?? null,
+            createdAt: m.createdAt ?? now,
+          })),
+        });
+      }
+
+      return { status: 200, json: { ok: true, thread } };
+    }
+
+    case "ai_chat.threads.share.get": {
+      const membership = await requirePortalMember();
+      if (!membership) return { status: 403, json: { ok: false, error: "Forbidden" } };
+
+      await ensurePortalAiChatSchema();
+
+      const threadId = String((args as any)?.threadId || "").trim().slice(0, 120);
+      if (!threadId) return { status: 400, json: { ok: false, error: "Invalid request" } };
+
+      const thread = await (prisma as any).portalAiChatThread.findFirst({
+        where: { id: threadId, ownerId },
+        select: { id: true, ownerId: true, createdByUserId: true, contextJson: true },
+      });
+      if (!thread) return { status: 404, json: { ok: false, error: "Not found" } };
+
+      if (!isPortalAiChatThreadOwner({ thread, memberId: membership.memberId })) {
+        return { status: 403, json: { ok: false, error: "Forbidden" } };
+      }
+
+      const listShareableUsers = async (ownerIdForList: string) => {
+        const owner = await prisma.user.findUnique({
+          where: { id: ownerIdForList },
+          select: { id: true, email: true, name: true, active: true },
+        });
+        const members = await listPortalAccountMembers(ownerIdForList).catch(() => [] as any[]);
+
+        const out: Array<{ userId: string; email: string; name: string }> = [];
+        if (owner && (owner as any).active !== false) {
+          out.push({ userId: owner.id, email: owner.email, name: owner.name || owner.email });
+        }
+
+        for (const m of Array.isArray(members) ? members : []) {
+          const userId = String(m?.userId || "").trim();
+          const email = String(m?.user?.email || "").trim();
+          const name = String(m?.user?.name || "").trim() || email;
+          const active = Boolean(m?.user?.active ?? true);
+          if (!userId || !email || !active) continue;
+          if (out.some((x) => x.userId === userId)) continue;
+          out.push({ userId, email, name });
+        }
+
+        return out.slice(0, 500);
+      };
+
+      const members = await listShareableUsers(ownerId);
+      const allowedIds = new Set(members.map((m) => m.userId));
+      const creatorUserId = String(thread.createdByUserId || ownerId);
+
+      const sharedWithUserIds = getSharedWithUserIdsFromThreadContext(thread.contextJson)
+        .filter((id) => allowedIds.has(id))
+        .filter((id) => id !== creatorUserId);
+
+      return {
+        status: 200,
+        json: { ok: true, threadId: String(thread.id), creatorUserId, members, sharedWithUserIds },
+      };
+    }
+
+    case "ai_chat.threads.share.set": {
+      const membership = await requirePortalMember();
+      if (!membership) return { status: 403, json: { ok: false, error: "Forbidden" } };
+
+      await ensurePortalAiChatSchema();
+
+      const threadId = String((args as any)?.threadId || "").trim().slice(0, 120);
+      if (!threadId) return { status: 400, json: { ok: false, error: "Invalid request" } };
+
+      const userIds = Array.isArray((args as any)?.userIds)
+        ? ((args as any).userIds as any[])
+            .map((s) => String(s || "").trim())
+            .filter(Boolean)
+            .slice(0, 100)
+        : [];
+
+      const thread = await (prisma as any).portalAiChatThread.findFirst({
+        where: { id: threadId, ownerId },
+        select: { id: true, ownerId: true, createdByUserId: true, contextJson: true },
+      });
+      if (!thread) return { status: 404, json: { ok: false, error: "Not found" } };
+
+      if (!isPortalAiChatThreadOwner({ thread, memberId: membership.memberId })) {
+        return { status: 403, json: { ok: false, error: "Forbidden" } };
+      }
+
+      const listShareableUsers = async (ownerIdForList: string) => {
+        const owner = await prisma.user.findUnique({
+          where: { id: ownerIdForList },
+          select: { id: true, email: true, name: true, active: true },
+        });
+        const members = await listPortalAccountMembers(ownerIdForList).catch(() => [] as any[]);
+
+        const out: Array<{ userId: string; email: string; name: string }> = [];
+        if (owner && (owner as any).active !== false) {
+          out.push({ userId: owner.id, email: owner.email, name: owner.name || owner.email });
+        }
+
+        for (const m of Array.isArray(members) ? members : []) {
+          const userId = String(m?.userId || "").trim();
+          const email = String(m?.user?.email || "").trim();
+          const name = String(m?.user?.name || "").trim() || email;
+          const active = Boolean(m?.user?.active ?? true);
+          if (!userId || !email || !active) continue;
+          if (out.some((x) => x.userId === userId)) continue;
+          out.push({ userId, email, name });
+        }
+
+        return out.slice(0, 500);
+      };
+
+      const members = await listShareableUsers(ownerId);
+      const allowedIds = new Set(members.map((m) => m.userId));
+      const creator = String(thread.createdByUserId || ownerId);
+
+      const nextIds = Array.from(new Set(userIds))
+        .filter((id) => allowedIds.has(id))
+        .filter((id) => id !== creator)
+        .slice(0, 100);
+
+      const nextCtx = setSharedWithUserIdsInThreadContext(thread.contextJson, nextIds);
+      await (prisma as any).portalAiChatThread.update({ where: { id: threadId }, data: { contextJson: nextCtx } });
+
+      return { status: 200, json: { ok: true, threadId: String(thread.id), sharedWithUserIds: nextIds } };
+    }
+
+    case "ai_chat.threads.choice.set": {
+      const membership = await requirePortalMember();
+      if (!membership) return { status: 403, json: { ok: false, error: "Forbidden" } };
+
+      await ensurePortalAiChatSchema();
+
+      const threadId = String((args as any)?.threadId || "").trim().slice(0, 120);
+      const kind = String((args as any)?.kind || "").trim().slice(0, 80);
+      const value = String((args as any)?.value || "").trim().slice(0, 200);
+      if (!threadId || !kind || !value) return { status: 400, json: { ok: false, error: "Invalid request" } };
+
+      const thread = await (prisma as any).portalAiChatThread.findFirst({
+        where: { id: threadId, ownerId },
+        select: { id: true, ownerId: true, createdByUserId: true, contextJson: true },
+      });
+      if (!thread) return { status: 404, json: { ok: false, error: "Not found" } };
+      if (!canAccessPortalAiChatThread({ thread, memberId: membership.memberId })) {
+        return { status: 404, json: { ok: false, error: "Not found" } };
+      }
+
+      const setRes = await setThreadChoiceOverride({ ownerId, threadId, kind, value });
+      if (!setRes.ok) return { status: 400, json: { ok: false, error: setRes.error } };
+      return { status: 200, json: { ok: true, choiceOverrides: setRes.choiceOverrides } };
+    }
+
+    case "ai_chat.threads.actions.run": {
+      const membership = await requirePortalMember();
+      if (!membership) return { status: 403, json: { ok: false, error: "Forbidden" } };
+
+      await ensurePortalAiChatSchema();
+
+      const threadId = String((args as any)?.threadId || "").trim().slice(0, 120);
+      const action = String((args as any)?.action || "").trim().slice(0, 40);
+      if (!threadId || !action) return { status: 400, json: { ok: false, error: "Invalid request" } };
+
+      const thread = await (prisma as any).portalAiChatThread.findFirst({
+        where: { id: threadId, ownerId },
+        select: { id: true, title: true, contextJson: true, ownerId: true, createdByUserId: true },
+      });
+      if (!thread) return { status: 404, json: { ok: false, error: "Not found" } };
+      if (!isPortalAiChatThreadOwner({ thread, memberId: membership.memberId })) {
+        return { status: 404, json: { ok: false, error: "Not found" } };
+      }
+
+      if (action === "pin") {
+        const now = new Date();
+        const updated = await (prisma as any).portalAiChatThread.update({
+          where: { id: threadId },
+          data: { isPinned: true, pinnedAt: now },
+          select: {
+            id: true,
+            title: true,
+            lastMessageAt: true,
+            isPinned: true,
+            pinnedAt: true,
+            createdAt: true,
+            updatedAt: true,
+          },
+        });
+        return { status: 200, json: { ok: true, thread: updated } };
+      }
+
+      if (action === "unpin") {
+        const updated = await (prisma as any).portalAiChatThread.update({
+          where: { id: threadId },
+          data: { isPinned: false },
+          select: {
+            id: true,
+            title: true,
+            lastMessageAt: true,
+            isPinned: true,
+            pinnedAt: true,
+            createdAt: true,
+            updatedAt: true,
+          },
+        });
+        return { status: 200, json: { ok: true, thread: updated } };
+      }
+
+      if (action === "delete") {
+        await (prisma as any).portalAiChatMessage.deleteMany({ where: { ownerId, threadId } });
+        await (prisma as any).portalAiChatThread.deleteMany({ where: { id: threadId, ownerId } });
+        return { status: 200, json: { ok: true } };
+      }
+
+      if (action === "duplicate") {
+        const safeCopyTitle = (original: string): string => {
+          const base = String(original || "").trim() || "Chat";
+          const prefix = base.toLowerCase().startsWith("copy of ") ? "" : "Copy of ";
+          const title = `${prefix}${base}`.trim();
+          return title.length > 120 ? title.slice(0, 120).trim() : title;
+        };
+
+        const srcMessages = await (prisma as any).portalAiChatMessage.findMany({
+          where: { ownerId, threadId },
+          orderBy: [{ createdAt: "asc" }],
+          take: 500,
+          select: {
+            role: true,
+            text: true,
+            attachmentsJson: true,
+            createdByUserId: true,
+            sendAt: true,
+            sentAt: true,
+            createdAt: true,
+          },
+        });
+
+        const now = new Date();
+        const title = typeof (args as any)?.title === "string" && String((args as any).title).trim()
+          ? String((args as any).title).trim().slice(0, 120)
+          : safeCopyTitle(String((thread as any).title || "Chat"));
+
+        const newThread = await (prisma as any).portalAiChatThread.create({
+          data: {
+            ownerId,
+            title,
+            createdByUserId: membership.memberId,
+            lastMessageAt: srcMessages.length ? new Date() : null,
+            isPinned: false,
+            pinnedAt: null,
+            contextJson: (thread as any).contextJson ?? null,
+            forkedFromThreadId: (thread as any).id,
+          },
+          select: {
+            id: true,
+            title: true,
+            lastMessageAt: true,
+            isPinned: true,
+            pinnedAt: true,
+            createdAt: true,
+            updatedAt: true,
+          },
+        });
+
+        if (srcMessages.length) {
+          await (prisma as any).portalAiChatMessage.createMany({
+            data: srcMessages.map((m: any) => ({
+              ownerId,
+              threadId: newThread.id,
+              role: String(m.role || ""),
+              text: String(m.text || ""),
+              attachmentsJson: m.attachmentsJson ?? null,
+              createdByUserId: m.createdByUserId ?? null,
+              sendAt: m.sendAt ?? null,
+              sentAt: m.sentAt ?? null,
+              createdAt: m.createdAt ?? now,
+            })),
+          });
+        }
+
+        return { status: 200, json: { ok: true, newThread } };
+      }
+
+      return { status: 400, json: { ok: false, error: "Invalid request" } };
     }
 
     case "ai_chat.messages.list": {
