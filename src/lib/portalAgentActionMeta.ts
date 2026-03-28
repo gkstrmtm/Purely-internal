@@ -16,6 +16,7 @@ const NO_CONFIRM_KEYS = new Set<PortalAgentActionKey>([
 ]);
 
 export function getConfirmSpecForPortalAgentAction(action: PortalAgentActionKey): PortalAgentConfirmSpec | null {
+  if (action === "ai_chat.cron.run") return null;
   if (NO_CONFIRM_KEYS.has(action)) return null;
 
   if (/(^|\.)cron\.run$/i.test(action) || action === "seed_demo.run") {

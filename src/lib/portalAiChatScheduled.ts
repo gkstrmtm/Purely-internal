@@ -1,9 +1,15 @@
 import { prisma } from "@/lib/db";
 import { ensurePortalAiChatSchema } from "@/lib/portalAiChatSchema";
-import { isPortalSupportChatConfigured, runPortalSupportChat } from "@/lib/portalSupportChat";
+import { getConfirmSpecForPortalAgentAction, portalCanvasUrlForAction } from "@/lib/portalAgentActionMeta";
+import { deriveThreadContextPatchFromAction, executePortalAgentAction } from "@/lib/portalAgentActionExecutor";
+import type { PortalAgentActionKey } from "@/lib/portalAgentActions";
+import { planPuraActions } from "@/lib/puraPlanner";
+import { resolvePlanArgs } from "@/lib/puraResolver";
+import { isPortalSupportChatConfigured } from "@/lib/portalSupportChat";
 
-export async function processDuePortalAiChatScheduledMessages(opts?: { limit?: number }) {
+export async function processDuePortalAiChatScheduledMessages(opts?: { limit?: number; ownerId?: string }) {
   const limit = Math.max(1, Math.min(200, opts?.limit ?? 50));
+  const ownerIdFilter = typeof opts?.ownerId === "string" && opts.ownerId.trim() ? opts.ownerId.trim() : "";
 
   await ensurePortalAiChatSchema();
 
@@ -18,6 +24,7 @@ export async function processDuePortalAiChatScheduledMessages(opts?: { limit?: n
       role: "user",
       sentAt: null,
       sendAt: { lte: now },
+      ...(ownerIdFilter ? { ownerId: ownerIdFilter } : {}),
     },
     orderBy: { sendAt: "asc" },
     take: limit,
@@ -34,10 +41,12 @@ export async function processDuePortalAiChatScheduledMessages(opts?: { limit?: n
   });
 
   let processed = 0;
+  const ownerTimeZoneCache = new Map<string, string>();
 
   for (const p of pending) {
     const ownerId = String(p.ownerId);
     const threadId = String(p.threadId);
+    const actorUserId = String((p as any).createdByUserId || ownerId);
     const repeatEveryMinutes =
       typeof (p as any).repeatEveryMinutes === "number" && Number.isFinite((p as any).repeatEveryMinutes)
         ? Math.max(0, Math.floor((p as any).repeatEveryMinutes))
@@ -50,42 +59,230 @@ export async function processDuePortalAiChatScheduledMessages(opts?: { limit?: n
       data: { sentAt: new Date() },
     });
 
+    const thread = await (prisma as any).portalAiChatThread.findFirst({
+      where: { id: threadId, ownerId },
+      select: { id: true, contextJson: true },
+    });
+
     const recentRows = await (prisma as any).portalAiChatMessage.findMany({
       where: { ownerId, threadId },
-      orderBy: { createdAt: "desc" },
-      take: 13,
+      orderBy: { createdAt: "asc" },
+      take: 400,
       select: { id: true, role: true, text: true },
     });
 
-    const recentMessages = recentRows
-      .filter((m: any) => m.id !== p.id)
-      .reverse()
-      .slice(-12)
+    const recentMessages: Array<{ role: "user" | "assistant"; text: string }> = recentRows
+      .filter((m: any) => String(m.id) !== String(p.id))
       .map((m: any) => ({
         role: m.role === "assistant" ? "assistant" : "user",
         text: String(m.text || "").slice(0, 2000),
-      }));
+      }))
+      .filter((m: any) => Boolean(String(m.text || "").trim()))
+      .slice(-120);
 
-    const reply = await runPortalSupportChat({ message: String(p.text || ""), recentMessages });
+    const threadContext = (thread as any)?.contextJson ?? null;
+    const text = String((p as any).text || "").trim().slice(0, 4000);
 
-    await (prisma as any).portalAiChatMessage.create({
-      data: {
+    let ownerTimeZone = ownerTimeZoneCache.get(ownerId) || "";
+    if (!ownerTimeZone) {
+      const tz =
+        (await prisma.user.findUnique({ where: { id: ownerId }, select: { timeZone: true } }).catch(() => null))?.timeZone ||
+        "";
+      ownerTimeZone = tz ? String(tz).slice(0, 80) : "";
+      if (ownerTimeZone) ownerTimeZoneCache.set(ownerId, ownerTimeZone);
+    }
+
+    const effectiveThreadContext = (() => {
+      if (!ownerTimeZone) return threadContext;
+      const prevCtx = threadContext && typeof threadContext === "object" && !Array.isArray(threadContext) ? (threadContext as any) : {};
+      if (String(prevCtx.ownerTimeZone || "") === ownerTimeZone) return threadContext;
+      return { ...prevCtx, ownerTimeZone };
+    })();
+
+    const plan = await planPuraActions({
+      text,
+      url: undefined,
+      recentMessages,
+      threadContext: effectiveThreadContext,
+    });
+
+    const shouldExecute = plan?.mode === "execute" && Array.isArray((plan as any).steps) && (plan as any).steps.length;
+
+    if (!shouldExecute) {
+      await (prisma as any).portalAiChatMessage.create({
+        data: {
+          ownerId,
+          threadId,
+          role: "assistant",
+          text: "Scheduled run processed (no actions to execute).",
+          attachmentsJson: null,
+          createdByUserId: null,
+          sendAt: null,
+          sentAt: new Date(),
+        },
+        select: { id: true },
+      });
+
+      await (prisma as any).portalAiChatThread.update({ where: { id: threadId }, data: { lastMessageAt: new Date() } });
+      processed += 1;
+      continue;
+    }
+
+    const steps = (plan as any).steps as Array<{ key: PortalAgentActionKey; title: string; args: Record<string, unknown>; openUrl?: string }>;
+    const confirmSpec = steps.map((s) => getConfirmSpecForPortalAgentAction(s.key)).find(Boolean) || null;
+
+    if (confirmSpec) {
+      await (prisma as any).portalAiChatMessage.create({
+        data: {
+          ownerId,
+          threadId,
+          role: "assistant",
+          text: "This scheduled run requires confirmation. Open this chat thread to review and confirm.",
+          attachmentsJson: null,
+          createdByUserId: null,
+          sendAt: null,
+          sentAt: new Date(),
+        },
+        select: { id: true },
+      });
+      await (prisma as any).portalAiChatThread.update({ where: { id: threadId }, data: { lastMessageAt: new Date() } });
+      processed += 1;
+      continue;
+    }
+
+    const resolvedSteps: Array<{ key: PortalAgentActionKey; title: string; args: Record<string, unknown>; openUrl?: string }> = [];
+    const contextPatches: Array<Record<string, unknown> | undefined> = [];
+    const results: Array<{ ok: boolean; markdown?: string; linkUrl?: string | null }> = [];
+
+    let localCtx: any = threadContext && typeof threadContext === "object" && !Array.isArray(threadContext) ? { ...(threadContext as any) } : {};
+
+    for (const step of steps.slice(0, 6)) {
+      const argsRaw = step.args && typeof step.args === "object" && !Array.isArray(step.args) ? (step.args as Record<string, unknown>) : {};
+
+      const resolved = await resolvePlanArgs({
         ownerId,
-        threadId,
-        role: "assistant",
-        text: reply,
-        attachmentsJson: null,
-        createdByUserId: null,
-        sendAt: null,
-        sentAt: new Date(),
-      },
-      select: { id: true },
-    });
+        stepKey: step.key,
+        args: argsRaw,
+        userHint: text,
+        url: undefined,
+        threadContext: localCtx,
+      });
 
-    await (prisma as any).portalAiChatThread.update({
-      where: { id: threadId },
-      data: { lastMessageAt: new Date() },
-    });
+      if (!resolved.ok) {
+        const clarifyText = String(resolved.clarifyQuestion || "").trim() || "Scheduled run needs one more detail to continue.";
+
+        await (prisma as any).portalAiChatMessage.create({
+          data: {
+            ownerId,
+            threadId,
+            role: "assistant",
+            text: clarifyText.slice(0, 600),
+            attachmentsJson: null,
+            createdByUserId: null,
+            sendAt: null,
+            sentAt: new Date(),
+          },
+          select: { id: true },
+        });
+
+        const nextCtx = { ...localCtx, pendingPlan: plan, pendingPlanClarify: { at: now.toISOString(), stepKey: step.key, question: clarifyText } };
+        await (prisma as any).portalAiChatThread.update({ where: { id: threadId }, data: { lastMessageAt: new Date(), contextJson: nextCtx } });
+
+        // Stop on the first unresolved step.
+        resolvedSteps.length = 0;
+        results.length = 0;
+        break;
+      }
+
+      const resolvedArgs = resolved.args && typeof resolved.args === "object" && !Array.isArray(resolved.args)
+        ? (resolved.args as Record<string, unknown>)
+        : {};
+
+      resolvedSteps.push({ key: step.key, title: step.title, args: resolvedArgs, ...(step.openUrl ? { openUrl: step.openUrl } : {}) });
+      contextPatches.push(resolved.contextPatch);
+
+      if (resolved.contextPatch && typeof resolved.contextPatch === "object" && !Array.isArray(resolved.contextPatch)) {
+        localCtx = { ...localCtx, ...(resolved.contextPatch as any) };
+      }
+
+      const exec = await executePortalAgentAction({ ownerId, actorUserId, action: step.key, args: resolvedArgs });
+      results.push({ ok: Boolean((exec as any).ok), markdown: (exec as any).markdown, linkUrl: (exec as any).linkUrl ?? null });
+
+      const derivedPatch = deriveThreadContextPatchFromAction(step.key, resolvedArgs, (exec as any).result);
+      if (derivedPatch && typeof derivedPatch === "object") {
+        contextPatches.push(derivedPatch as any);
+        localCtx = { ...localCtx, ...(derivedPatch as any) };
+      }
+    }
+
+    if (resolvedSteps.length) {
+      const mappedCanvasUrl =
+        (resolvedSteps
+          .map((s) => portalCanvasUrlForAction(s.key, s.args))
+          .filter(Boolean)
+          .slice(-1)[0] as string | undefined) ||
+        null;
+
+      const canvasUrl =
+        (results.filter((r) => r.ok).map((r) => r.linkUrl).filter(Boolean).slice(-1)[0] as string | undefined) ||
+        resolvedSteps.map((s) => s.openUrl).filter(Boolean).slice(-1)[0] ||
+        mappedCanvasUrl ||
+        null;
+
+      const assistantText = (() => {
+        if (resolvedSteps.length === 1) {
+          return String(results[0]?.markdown || (results[0]?.ok ? "Done." : "Action failed.")).trim() || "Done.";
+        }
+        const allOk = results.every((r) => r.ok);
+        const anyOk = results.some((r) => r.ok);
+        const blocks = resolvedSteps.map((s, idx) => {
+          const md = String(results[idx]?.markdown || (results[idx]?.ok ? "Done." : "Action failed.")).trim();
+          return `#### ${s.title}\n${md}`;
+        });
+        const summary = allOk ? "Done." : anyOk ? "Some actions failed." : "Action failed.";
+        return `${summary}\n\n${blocks.join("\n\n")}`;
+      })();
+
+      await (prisma as any).portalAiChatMessage.create({
+        data: {
+          ownerId,
+          threadId,
+          role: "assistant",
+          text: assistantText.slice(0, 4000),
+          attachmentsJson: null,
+          createdByUserId: null,
+          sendAt: null,
+          sentAt: new Date(),
+        },
+        select: { id: true },
+      });
+
+      const mergedPatch = Object.assign({}, ...contextPatches.filter(Boolean));
+      const prevCtx = localCtx;
+      const prevRuns =
+        prevCtx && typeof prevCtx === "object" && !Array.isArray(prevCtx) && Array.isArray((prevCtx as any).runs)
+          ? ((prevCtx as any).runs as unknown[])
+          : [];
+      const runTrace = {
+        at: now.toISOString(),
+        workTitle: (plan as any)?.workTitle ?? null,
+        steps: resolvedSteps.map((s, idx) => ({
+          key: s.key,
+          title: s.title,
+          ok: Boolean(results[idx]?.ok),
+          linkUrl: results[idx]?.linkUrl ?? null,
+        })),
+        canvasUrl,
+        scheduledMessageId: String(p.id),
+      };
+      const runs = [...prevRuns.slice(-19), runTrace];
+
+      const nextCtx = prevCtx && typeof prevCtx === "object" && !Array.isArray(prevCtx)
+        ? { ...(prevCtx as any), ...mergedPatch, lastWorkTitle: (plan as any)?.workTitle ?? null, lastCanvasUrl: canvasUrl, pendingPlan: null, pendingPlanClarify: null, runs }
+        : { ...mergedPatch, lastWorkTitle: (plan as any)?.workTitle ?? null, lastCanvasUrl: canvasUrl, pendingPlan: null, pendingPlanClarify: null, runs };
+
+      await (prisma as any).portalAiChatThread.update({ where: { id: threadId }, data: { lastMessageAt: new Date(), contextJson: nextCtx } });
+    }
 
     // If this was a repeating scheduled message, enqueue the next run.
     if (repeatEveryMinutes > 0) {

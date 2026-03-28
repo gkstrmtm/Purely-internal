@@ -170,6 +170,11 @@ export async function planPuraActions(opts: {
   const text = String(opts.text || "").trim();
   if (!shouldPlan(text, opts.threadContext)) return null;
 
+  const ownerTimeZone =
+    opts.threadContext && typeof opts.threadContext === "object" && !Array.isArray(opts.threadContext) && typeof (opts.threadContext as any).ownerTimeZone === "string"
+      ? String((opts.threadContext as any).ownerTimeZone || "").trim().slice(0, 80)
+      : "";
+
   const threadSummary =
     opts.threadContext && typeof opts.threadContext === "object" && !Array.isArray(opts.threadContext) && typeof (opts.threadContext as any).threadSummary === "string"
       ? String((opts.threadContext as any).threadSummary || "").trim().slice(0, 1200)
@@ -199,10 +204,16 @@ export async function planPuraActions(opts: {
     "- Never output manual step-by-step portal instructions unless mode=explain.",
     "- Never invent IDs. Use $ref objects for things you need resolved (contact, contact_tag, inbox_thread, funnel, automation, booking, blog_post, newsletter, media_folder, media_item, task, review, review_question, nurture_campaign, nurture_step, scraped_lead, credit_pull, credit_dispute_letter, credit_report, credit_report_item, user, funnel_form, funnel_page, custom_domain, ai_outbound_calls_campaign, or generic 'id' for domain-specific IDs).",
     "- IMPORTANT: If the user says 'schedule' or describes a recurring time-based workflow (e.g., 'every weekday at 9am send a text'), do NOT create portal tasks.",
-    "  Instead, create an Automation (automations.create) using a scheduled_time trigger (and include targetContactId when scheduling a message to a specific contact).",
+    "  Instead, create Scheduled chat runs (ai_chat.scheduled.create).",
+    "  Notes for schedules:",
+    "  - For weekdays-only schedules, create ONE scheduled item per weekday (Mon-Fri) with repeatEveryMinutes=10080 (7 days).",
+    "  - The scheduled item's text MUST be a one-time instruction (e.g. 'Send Chester an SMS: ...') and MUST NOT include scheduling language like 'every weekday' (avoid rescheduling loops).",
+    "  - Use inbox.send_sms in the scheduled instruction so the run triggers a real SMS.",
+    "  - If the user asks to 'trigger one now as a test', create an additional one-time scheduled item with sendAtIso=now (or slightly in the past) and then run ai_chat.cron.run.",
+    "  - Only create automations when the user explicitly asks for an Automation.",
     "- Only use tasks.create / tasks.create_for_all when the user explicitly wants an internal human to-do item in the Tasks service.",
     "- Output JSON only. No markdown.",
-    "- Never propose ai_chat.* actions.",
+    "- You MAY propose ai_chat.scheduled.* actions (and ai_chat.cron.run for a test). Do NOT propose other ai_chat.* actions.",
     "",
     "Schema:",
     "{",
@@ -241,7 +252,7 @@ export async function planPuraActions(opts: {
     "- {\"$ref\":\"ai_outbound_calls_campaign\",\"name\":\"New Leads Outreach\"}",
     "- {\"$ref\":\"id\",\"hint\":\"ABC123\",\"argKey\":\"productId\"} (for domain-specific IDs)",
     "",
-    portalAgentActionsIndexText({ includeAiChat: false }),
+    portalAgentActionsIndexText({ includeAiChat: true }),
   ].join("\n");
 
   const user = [
@@ -249,6 +260,8 @@ export async function planPuraActions(opts: {
     convo || "(none)",
     "\nThread summary (rolling, may include older context):",
     threadSummary || "(none)",
+    "\nOwner time zone (if known):",
+    ownerTimeZone || "(unknown)",
     "\nActive entities from thread context (prefer these for follow-ups):",
     activeEntities,
     "\nThread context JSON (may help with follow-ups):",
@@ -276,8 +289,12 @@ export async function planPuraActions(opts: {
       if (!parsed.success) return null;
     }
 
-    // Defense-in-depth.
-    const steps = (parsed.data.steps || []).filter((s) => !String(s.key).startsWith("ai_chat."));
+    // Defense-in-depth: only allow the scheduling-related ai_chat actions.
+    const steps = (parsed.data.steps || []).filter((s) => {
+      const k = String((s as any)?.key || "");
+      if (!k.startsWith("ai_chat.")) return true;
+      return k.startsWith("ai_chat.scheduled.") || k === "ai_chat.cron.run";
+    });
     const plan: PuraPlan = { ...parsed.data, steps };
 
     // If the model emits execute with no steps, treat as null.

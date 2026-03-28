@@ -1464,6 +1464,10 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
 
   const now = new Date();
 
+  const ownerTimeZone =
+    (await prisma.user.findUnique({ where: { id: ownerId }, select: { timeZone: true } }).catch(() => null))?.timeZone ||
+    null;
+
   const redoLastAssistant = Boolean((parsed.data as any).redoLastAssistant);
   if (redoLastAssistant) {
     const recent = await (prisma as any).portalAiChatMessage.findMany({
@@ -1812,6 +1816,15 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
       });
       fallbackThreadContext = threadContext;
 
+      // Provide a stable time zone hint for scheduling requests.
+      if (ownerTimeZone) {
+        const prevCtx = threadContext && typeof threadContext === "object" && !Array.isArray(threadContext) ? (threadContext as any) : {};
+        if (String(prevCtx.ownerTimeZone || "") !== String(ownerTimeZone)) {
+          threadContext = { ...prevCtx, ownerTimeZone: String(ownerTimeZone).slice(0, 80) };
+          fallbackThreadContext = threadContext;
+        }
+      }
+
       // Apply structured choice selections to thread context for the next resolution pass.
       if (choice && typeof choice === "object") {
         try {
@@ -2052,7 +2065,18 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
               ? (resolved.args as Record<string, unknown>)
               : {};
 
-            resolvedSteps.push({ key: step.key, title: step.title, args: resolvedArgs, ...(step.openUrl ? { openUrl: step.openUrl } : {}) });
+            // Planner does not know the current threadId; inject it for schedule creation.
+            const resolvedArgsWithThread =
+              step.key === "ai_chat.scheduled.create" && !String((resolvedArgs as any).threadId || "").trim()
+                ? ({ ...resolvedArgs, threadId } as Record<string, unknown>)
+                : resolvedArgs;
+
+            resolvedSteps.push({
+              key: step.key,
+              title: step.title,
+              args: resolvedArgsWithThread,
+              ...(step.openUrl ? { openUrl: step.openUrl } : {}),
+            });
           }
 
           const token = crypto.randomUUID();
@@ -2195,7 +2219,18 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
             ? (resolved.args as Record<string, unknown>)
             : {};
 
-          resolvedSteps.push({ key: step.key, title: step.title, args: resolvedArgs, ...(step.openUrl ? { openUrl: step.openUrl } : {}) });
+          // Planner does not know the current threadId; inject it for schedule creation.
+          const resolvedArgsWithThread =
+            step.key === "ai_chat.scheduled.create" && !String((resolvedArgs as any).threadId || "").trim()
+              ? ({ ...resolvedArgs, threadId } as Record<string, unknown>)
+              : resolvedArgs;
+
+          resolvedSteps.push({
+            key: step.key,
+            title: step.title,
+            args: resolvedArgsWithThread,
+            ...(step.openUrl ? { openUrl: step.openUrl } : {}),
+          });
           contextPatches.push(resolved.contextPatch);
 
           if (resolved.contextPatch && typeof resolved.contextPatch === "object" && !Array.isArray(resolved.contextPatch)) {
@@ -2206,13 +2241,13 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
             ownerId,
             actorUserId: createdByUserId,
             action: step.key,
-            args: resolvedArgs,
+            args: resolvedArgsWithThread,
           });
           const cua = (exec as any).clientUiAction ?? null;
           results.push({ ok: Boolean(exec.ok), markdown: exec.markdown, linkUrl: exec.linkUrl ?? null, clientUiAction: cua });
           if (cua) clientUiActions.push(cua);
 
-          const derivedPatch = deriveThreadContextPatchFromAction(step.key, resolvedArgs, (exec as any).result);
+          const derivedPatch = deriveThreadContextPatchFromAction(step.key, resolvedArgsWithThread, (exec as any).result);
           if (derivedPatch && typeof derivedPatch === "object") {
             contextPatches.push(derivedPatch);
             localCtx = { ...localCtx, ...(derivedPatch as any) };

@@ -15760,6 +15760,77 @@ async function runDirectAction(opts: {
       return { status: 200, json: { ok: true, attachments } };
     }
 
+    case "ai_chat.scheduled.create": {
+      const membership = await requirePortalMember();
+      if (!membership) return { status: 403, json: { ok: false, error: "Forbidden" } };
+
+      await ensurePortalAiChatSchema();
+
+      const threadId = String((args as any)?.threadId || "").trim().slice(0, 120);
+      if (!threadId) return { status: 400, json: { ok: false, error: "Missing threadId" } };
+
+      const thread = await (prisma as any).portalAiChatThread.findFirst({
+        where: { id: threadId, ownerId },
+        select: { id: true },
+      });
+      if (!thread) return { status: 404, json: { ok: false, error: "Not found" } };
+
+      const text = String((args as any)?.text || "").trim().slice(0, 4000);
+      if (!text) return { status: 400, json: { ok: false, error: "Missing text" } };
+
+      const sendAtIso = String((args as any)?.sendAtIso || "").trim().slice(0, 64);
+      if (!sendAtIso) return { status: 400, json: { ok: false, error: "Missing sendAtIso" } };
+
+      const sendAt = new Date(sendAtIso);
+      if (!Number.isFinite(sendAt.getTime())) {
+        return { status: 400, json: { ok: false, error: "Invalid sendAt" } };
+      }
+
+      const repeatRaw = (args as any)?.repeatEveryMinutes;
+      const repeatEveryMinutes =
+        typeof repeatRaw === "number" && Number.isFinite(repeatRaw) ? Math.max(0, Math.floor(repeatRaw)) : 0;
+
+      const msg = await (prisma as any).portalAiChatMessage.create({
+        data: {
+          ownerId,
+          threadId,
+          role: "user",
+          text,
+          attachmentsJson: null,
+          createdByUserId: membership.memberId,
+          sendAt,
+          sentAt: null,
+          repeatEveryMinutes: repeatEveryMinutes > 0 ? repeatEveryMinutes : null,
+        },
+        select: {
+          id: true,
+          threadId: true,
+          text: true,
+          sendAt: true,
+          repeatEveryMinutes: true,
+          createdAt: true,
+        },
+      });
+
+      return {
+        status: 200,
+        json: {
+          ok: true,
+          scheduled: {
+            id: String(msg.id),
+            threadId: String(msg.threadId),
+            text: String(msg.text || ""),
+            sendAt: msg.sendAt ? new Date(msg.sendAt).toISOString() : null,
+            repeatEveryMinutes:
+              typeof msg.repeatEveryMinutes === "number" && Number.isFinite(msg.repeatEveryMinutes)
+                ? Math.max(0, Math.floor(msg.repeatEveryMinutes))
+                : 0,
+            createdAt: msg.createdAt ? new Date(msg.createdAt).toISOString() : null,
+          },
+        },
+      };
+    }
+
     case "ai_chat.scheduled.list": {
       const membership = await requirePortalMember();
       if (!membership) return { status: 403, json: { ok: false, error: "Forbidden" } };
@@ -15906,8 +15977,14 @@ async function runDirectAction(opts: {
     case "ai_chat.cron.run": {
       const membership = await requirePortalMember();
       if (!membership) return { status: 403, json: { ok: false, error: "Forbidden" } };
-      void args;
-      return { status: 200, json: { ok: true, processed: 0, note: "Pura scheduling is disabled" } };
+
+      const limitRaw = (args as any)?.limit;
+      const limit = typeof limitRaw === "number" && Number.isFinite(limitRaw) ? Math.max(1, Math.min(200, Math.floor(limitRaw))) : 50;
+
+      const { processDuePortalAiChatScheduledMessages } = await import("@/lib/portalAiChatScheduled");
+      const res = await processDuePortalAiChatScheduledMessages({ ownerId, limit });
+      if (!res.ok) return { status: 503, json: { ok: false, error: res.error } };
+      return { status: 200, json: { ok: true, processed: res.processed } };
     }
 
     case "auth.verification_email.cron.run": {

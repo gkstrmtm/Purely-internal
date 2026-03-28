@@ -205,6 +205,7 @@ export const PortalAgentActionKeySchema = z.enum([
   "ai_chat.threads.actions.run",
   "ai_chat.messages.list",
   "ai_chat.messages.send",
+  "ai_chat.scheduled.create",
   "ai_chat.scheduled.list",
   "ai_chat.scheduled.update",
   "ai_chat.scheduled.delete",
@@ -570,6 +571,16 @@ export const PortalAgentActionArgsSchemaByKey = {
       { message: "Text or attachments required" },
     ),
 
+  "ai_chat.scheduled.create": z
+    .object({
+      // When invoked from the AI chat thread, the API layer will inject the current threadId.
+      threadId: z.string().trim().min(1).max(120).optional(),
+      text: z.string().trim().min(1).max(4000),
+      sendAtIso: z.string().trim().min(1).max(64),
+      repeatEveryMinutes: z.number().int().min(0).max(60 * 24 * 365).optional(),
+    })
+    .strict(),
+
   "ai_chat.scheduled.list": z.object({}).strict(),
   "ai_chat.scheduled.update": z
     .object({
@@ -609,7 +620,11 @@ export const PortalAgentActionArgsSchemaByKey = {
     })
     .strict(),
 
-  "ai_chat.cron.run": z.object({}).strict(),
+  "ai_chat.cron.run": z
+    .object({
+      limit: z.number().int().min(1).max(200).optional(),
+    })
+    .strict(),
 
   "voice_agent.tools.get": z.object({}).strict(),
   "voice_agent.voices.list": z.object({}).strict(),
@@ -3323,11 +3338,12 @@ export function portalAgentActionsIndexText(opts?: { includeAiChat?: boolean }):
     "- ai_chat.messages.send: Send a chat message and get an assistant reply (fields: threadId, text?, url?, attachments?)",
     "- ai_chat.attachments.upload: Upload one or more files for chat (fields: files[{fileName,mimeType?,contentBase64}])",
     "- ai_chat.actions.execute: Execute a whitelisted portal action and append the result to a thread (fields: threadId, action, args?)",
+    "- ai_chat.scheduled.create: Create a scheduled AI chat user message (fields: threadId?, text, sendAtIso, repeatEveryMinutes?)",
     "- ai_chat.scheduled.list: List scheduled (unsent) AI chat user messages",
     "- ai_chat.scheduled.update: Update a scheduled message (fields: messageId, sendAtIso?, repeatEveryMinutes?)",
     "- ai_chat.scheduled.delete: Delete a scheduled message (fields: messageId)",
-    "- ai_chat.threads.flush: No-op (scheduling is disabled; kept for legacy callers)",
-    "- ai_chat.cron.run: No-op (scheduling is disabled; kept for legacy callers)",
+    "- ai_chat.threads.flush: No-op (kept for legacy callers)",
+    "- ai_chat.cron.run: Process due scheduled AI chat messages (cron)",
     "- contact_tags.list: List contact tags",
     "- contact_tags.create: Create a contact tag (fields: name, color?)",
     "- contact_tags.update: Update a contact tag (fields: tagId, name?, color?)",
