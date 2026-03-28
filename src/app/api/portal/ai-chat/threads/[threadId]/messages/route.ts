@@ -1641,9 +1641,10 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
 
   // 0.5) Agentic planning + deterministic resolution (multi-step, no IDs required).
   // This runs before the legacy action-proposal flow, and it executes immediately for imperative requests.
+  let fallbackThreadContext = (thread as any).contextJson ?? null;
   if (isPortalSupportChatConfigured()) {
     try {
-      let threadContext = (thread as any).contextJson ?? null;
+      let threadContext = fallbackThreadContext;
 
       // Maintain a rolling summary in contextJson so the model effectively has “full thread context” every turn.
       threadContext = await maybeUpdateThreadSummary({
@@ -1653,6 +1654,7 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
         recentMessages,
         latestUserText: effectiveText,
       });
+      fallbackThreadContext = threadContext;
 
       // Apply structured choice selections to thread context for the next resolution pass.
       if (choice && typeof choice === "object") {
@@ -1710,6 +1712,7 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
           ? { ...(prevCtx as any), pendingConfirm: null }
           : { pendingConfirm: null };
         await (prisma as any).portalAiChatThread.update({ where: { id: threadId }, data: { contextJson: nextCtx } });
+        threadContext = nextCtx;
       }
 
       // Pending plans are only safe to "replay" when the user clicked a structured choice (no new text).
@@ -2149,10 +2152,12 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
     }
 
     // AI-first: if we didn't execute/clarify/explain above, fall back to a normal conversation.
+
     const reply = await runPortalSupportChat({
       message: promptMessage,
       url: parsed.data.url,
       recentMessages,
+      threadContext: fallbackThreadContext,
     });
 
     const assistantMsg = await (prisma as any).portalAiChatMessage.create({
@@ -2353,6 +2358,7 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
     message: promptMessage,
     url: parsed.data.url,
     recentMessages,
+    threadContext: fallbackThreadContext,
   });
 
   const assistantMsg = await (prisma as any).portalAiChatMessage.create({

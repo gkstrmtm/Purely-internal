@@ -127,9 +127,15 @@ export async function runPortalSupportChat(opts: {
   url?: string;
   meta?: PortalSupportChatMeta;
   recentMessages?: PortalSupportChatRecentMessage[];
+  threadContext?: unknown;
 }): Promise<string> {
   const { message, url, meta } = opts;
   const recent = (opts.recentMessages ?? []).slice(-12);
+  const threadSummary =
+    opts.threadContext && typeof opts.threadContext === "object" && !Array.isArray(opts.threadContext) && typeof (opts.threadContext as any).threadSummary === "string"
+      ? String((opts.threadContext as any).threadSummary || "").trim().slice(0, 1600)
+      : "";
+  const threadContextJson = JSON.stringify(opts.threadContext ?? null).slice(0, 4000);
 
   const transcript = recent
     .map((m) => `${m.role === "user" ? "User" : "Assistant"}: ${m.text}`)
@@ -298,6 +304,8 @@ export async function runPortalSupportChat(opts: {
     `Base URL: ${baseOrigin}`,
     url ? `URL: ${url}` : "",
     meta?.buildSha ? `Build: ${meta.buildSha}` : "",
+    threadSummary ? `Thread summary:\n${threadSummary}` : "",
+    threadContextJson && threadContextJson !== "null" ? `Thread context JSON:\n${threadContextJson}` : "",
     transcript ? `Recent chat:\n${transcript}` : "",
     `User message: ${message}`,
   ]

@@ -588,8 +588,8 @@ async function resolveFunnelId(opts: {
     if (row?.id) return { kind: "ok", funnelId: String(row.id), funnelName: String(row.name || row.slug || "Funnel") };
   }
 
-  const last = !hintRaw ? getLastEntityId(opts.threadContext, "lastFunnel") : null;
-  if (!hintRaw && last) {
+  const last = !hintRaw || hintRefersToActiveContext(hintRaw) ? getLastEntityId(opts.threadContext, "lastFunnel") : null;
+  if ((!hintRaw || hintRefersToActiveContext(hintRaw)) && last) {
     const row = await prisma.creditFunnel
       .findFirst({ where: { ownerId, id: last }, select: { id: true, name: true, slug: true } })
       .catch(() => null);
@@ -651,7 +651,7 @@ async function resolveAutomationId(opts: {
   const hintRaw = String(opts.hint || "").trim();
 
   const fromUrl = extractAutomationIdFromUrl(opts.url);
-  const last = !hintRaw ? getLastEntityId(opts.threadContext, "lastAutomation") : null;
+  const last = !hintRaw || hintRefersToActiveContext(hintRaw) ? getLastEntityId(opts.threadContext, "lastAutomation") : null;
   const idHint = (fromUrl || last || "").trim();
 
   const row = await prisma.portalServiceSetup
@@ -660,7 +660,7 @@ async function resolveAutomationId(opts: {
   const dataJson = (row?.dataJson ?? null) as any;
   const list = Array.isArray(dataJson?.automations) ? (dataJson.automations as any[]) : [];
 
-  if (!hintRaw && idHint) {
+  if ((!hintRaw || hintRefersToActiveContext(hintRaw)) && idHint) {
     const match = list.find((a) => String(a?.id || "").trim() === idHint);
     if (match?.id) return { kind: "ok", automationId: String(match.id), automationName: String(match.name || "Automation") };
   }
@@ -735,8 +735,8 @@ async function resolveBookingId(opts: {
     }
   }
 
-  const last = !hintRaw ? getLastEntityId(opts.threadContext, "lastBooking") : null;
-  if (!hintRaw && last) {
+  const last = !hintRaw || hintRefersToActiveContext(hintRaw) ? getLastEntityId(opts.threadContext, "lastBooking") : null;
+  if ((!hintRaw || hintRefersToActiveContext(hintRaw)) && last) {
     const row = await prisma.portalBooking
       .findFirst({
         where: { id: last, site: { ownerId } },
@@ -1576,8 +1576,8 @@ async function resolveScrapedLeadId(opts: {
     }
   }
 
-  const last = !hintRaw ? getLastEntityId(opts.threadContext, "lastScrapedLead") : null;
-  if (!hintRaw && last) {
+  const last = !hintRaw || hintRefersToActiveContext(hintRaw) ? getLastEntityId(opts.threadContext, "lastScrapedLead") : null;
+  if ((!hintRaw || hintRefersToActiveContext(hintRaw)) && last) {
     const row = await prisma.portalLead
       .findFirst({ where: { ownerId, id: last }, select: { id: true, businessName: true, email: true, phone: true } })
       .catch(() => null);
@@ -1981,7 +1981,7 @@ async function resolveFunnelFormId(opts: {
   if (fromUrl) return { kind: "ok", formId: fromUrl, label: fromUrl };
 
   const lastId = getLastEntityId(opts.threadContext, "lastFunnelForm");
-  if ((!hint || /\b(last|latest|recent)\b/i.test(hint)) && lastId) return { kind: "ok", formId: lastId, label: "Last form" };
+  if ((!hint || /\b(last|latest|recent)\b/i.test(hint) || hintRefersToActiveContext(hint)) && lastId) return { kind: "ok", formId: lastId, label: "Last form" };
 
   if (!hint) return { kind: "clarify", question: "Which form do you mean? Reply with the form name or slug." };
   if (looksLikeId(hint)) return { kind: "ok", formId: hint.slice(0, 120), label: hint.slice(0, 40) };
@@ -2172,7 +2172,7 @@ async function resolveCustomDomainId(opts: {
   if (fromUrl) return { kind: "ok", domainId: fromUrl, label: fromUrl };
 
   const lastId = getLastEntityId(opts.threadContext, "lastCustomDomain");
-  if ((!hint || /\b(last|latest|recent)\b/i.test(hint)) && lastId) return { kind: "ok", domainId: lastId, label: "Last custom domain" };
+  if ((!hint || /\b(last|latest|recent)\b/i.test(hint) || hintRefersToActiveContext(hint)) && lastId) return { kind: "ok", domainId: lastId, label: "Last custom domain" };
 
   if (!hint) return { kind: "clarify", question: "Which custom domain do you mean? Reply with the domain name." };
   if (looksLikeId(hint)) return { kind: "ok", domainId: hint.slice(0, 120), label: hint.slice(0, 40) };
@@ -2227,7 +2227,7 @@ async function resolveAiOutboundCallsCampaignId(opts: {
   if (fromUrl) return { kind: "ok", campaignId: fromUrl, label: fromUrl };
 
   const lastId = getLastEntityId(opts.threadContext, "lastAiOutboundCallsCampaign");
-  if ((!hint || /\b(last|latest|recent)\b/i.test(hint)) && lastId) return { kind: "ok", campaignId: lastId, label: "Last AI outbound campaign" };
+  if ((!hint || /\b(last|latest|recent)\b/i.test(hint) || hintRefersToActiveContext(hint)) && lastId) return { kind: "ok", campaignId: lastId, label: "Last AI outbound campaign" };
 
   if (!hint) return { kind: "clarify", question: "Which AI outbound calls campaign do you mean? Reply with the campaign name." };
   if (looksLikeId(hint)) return { kind: "ok", campaignId: hint.slice(0, 120), label: hint.slice(0, 40) };
@@ -2304,6 +2304,37 @@ function hintMeansAny(raw: string): boolean {
     s.includes("you pick") ||
     s.includes("choose for me") ||
     /\b(any|either|whatever)\b/.test(s)
+  );
+}
+
+function hintRefersToActiveContext(raw: string): boolean {
+  const s = String(raw || "")
+    .trim()
+    .toLowerCase();
+  if (!s) return false;
+
+  if (
+    s === "it" ||
+    s === "that" ||
+    s === "this" ||
+    s === "same" ||
+    s === "same one" ||
+    s === "the same one" ||
+    s === "that one" ||
+    s === "this one" ||
+    s === "the one" ||
+    s === "current" ||
+    s === "current one"
+  ) {
+    return true;
+  }
+
+  return (
+    /\b(it|that|this)\b/.test(s) ||
+    /\b(same\s+one|the\s+same\s+one|that\s+one|this\s+one|the\s+one)\b/.test(s) ||
+    /\b(same\s+funnel|same\s+automation|same\s+booking|same\s+calendar|same\s+campaign|same\s+lead|same\s+form|same\s+domain)\b/.test(s) ||
+    /\b(current\s+page|current\s+funnel|current\s+automation|current\s+booking|current\s+campaign|current\s+lead|current\s+form|current\s+domain)\b/.test(s) ||
+    /\b(the\s+one\s+we\s+just\s+(made|created|used|edited|updated|opened|worked\s+on))\b/.test(s)
   );
 }
 

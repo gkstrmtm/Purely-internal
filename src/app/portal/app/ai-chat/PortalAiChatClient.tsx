@@ -563,6 +563,7 @@ export function PortalAiChatClient() {
   const endRef = useRef<HTMLDivElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const forceScrollToBottomRef = useRef(false);
+  const sendInFlightRef = useRef(false);
 
   const activeThread = useMemo(() => threads.find((t) => t.id === activeThreadId) || null, [threads, activeThreadId]);
 
@@ -890,6 +891,8 @@ export function PortalAiChatClient() {
         | { type: "booking_calendar"; calendarId: string; label?: string }
         | { type: "entity"; kind: string; value: string; label?: string },
     ) => {
+      if (sendInFlightRef.current) return;
+
       const text = typeof overrideText === "string" ? overrideText : input.trim();
       const attachments = pendingAttachments;
       if (!text && !attachments.length && !choice) return;
@@ -930,6 +933,7 @@ export function PortalAiChatClient() {
       setAmbiguousContacts(null);
       setAssistantChoices(null);
 
+      sendInFlightRef.current = true;
       setSending(true);
       try {
         const res = await fetch(`/api/portal/ai-chat/threads/${encodeURIComponent(activeThreadId)}/messages`, {
@@ -1045,6 +1049,7 @@ export function PortalAiChatClient() {
         setPendingAttachments(attachments);
         toast.error(e instanceof Error ? e.message : String(e));
       } finally {
+        sendInFlightRef.current = false;
         setSending(false);
       }
     },
