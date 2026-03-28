@@ -2106,6 +2106,29 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
       const pendingPlanMode = pendingPlan && typeof pendingPlan === "object" ? String((pendingPlan as any).mode || "") : "";
       const hasNewUserText = Boolean(String(effectiveText || "").trim());
       const didClickChoice = Boolean(choice && typeof choice === "object");
+
+      const pendingClarifyOriginalUserText =
+        pendingPlanClarify && typeof pendingPlanClarify === "object" && typeof (pendingPlanClarify as any).originalUserText === "string"
+          ? String((pendingPlanClarify as any).originalUserText || "").trim()
+          : "";
+
+      const shouldContinuePendingClarifyPlan =
+        Boolean(pendingPlan) &&
+        pendingPlanMode === "clarify" &&
+        !isConfirmOnly &&
+        Boolean(pendingClarifyOriginalUserText) &&
+        (didClickChoice || hasNewUserText);
+
+      const effectivePlanningText = shouldContinuePendingClarifyPlan
+        ? [
+            pendingClarifyOriginalUserText,
+            "\n\nUser answer:",
+            String(effectiveText || "").trim() || "(no text)",
+          ]
+            .filter(Boolean)
+            .join("\n")
+            .slice(0, 4000)
+        : effectiveText;
       const shouldReplayPendingExecutePlan =
         Boolean(pendingPlan) &&
         pendingPlanMode === "execute" &&
@@ -2113,7 +2136,7 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
         (didClickChoice || (hasNewUserText && Boolean(pendingPlanClarify)));
 
       // Clear stale clarify-mode pendingPlan so follow-up replies can progress.
-      if (pendingPlan && pendingPlanMode === "clarify" && !isConfirmOnly) {
+      if (pendingPlan && pendingPlanMode === "clarify" && !isConfirmOnly && !shouldContinuePendingClarifyPlan) {
         const prevCtx = threadContext;
         const nextCtx =
           prevCtx && typeof prevCtx === "object" && !Array.isArray(prevCtx)
@@ -2123,9 +2146,9 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
         threadContext = nextCtx;
       }
 
-      const deterministicWeekdaySmsPlan = !isHowToQuestionOnly(effectiveText)
+      const deterministicWeekdaySmsPlan = !isHowToQuestionOnly(effectivePlanningText)
         ? buildDeterministicWeekdaySmsPlan({
-            text: effectiveText,
+            text: effectivePlanningText,
             ownerTimeZone: String(ownerTimeZone || (threadContext as any)?.ownerTimeZone || "").trim() || undefined,
           })
         : null;
@@ -2136,7 +2159,7 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
       } else {
         try {
           plan = await planPuraActions({
-            text: effectiveText,
+            text: effectivePlanningText,
             url: contextUrl,
             recentMessages: modelMessages,
             threadContext,
@@ -2148,7 +2171,7 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
         if (deterministicWeekdaySmsPlan) {
           const steps = plan && typeof plan === "object" && Array.isArray((plan as any).steps) ? ((plan as any).steps as any[]) : [];
           const hasScheduler = steps.some((s) => String(s?.key || "") === "ai_chat.scheduled.create");
-          const wantsNow = userWantsTestSendNow(effectiveText);
+          const wantsNow = userWantsTestSendNow(effectivePlanningText);
           const hasImmediateSms = steps.some((s) => String(s?.key || "") === "inbox.send_sms");
           if (!plan || String((plan as any).mode || "") !== "execute" || !hasScheduler || (wantsNow && !hasImmediateSms)) {
             plan = deterministicWeekdaySmsPlan;
@@ -2181,8 +2204,23 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
 
         const prevCtx = threadContext;
         const nextCtx = prevCtx && typeof prevCtx === "object" && !Array.isArray(prevCtx)
-          ? { ...(prevCtx as any), pendingPlan: plan }
-          : { pendingPlan: plan };
+          ? {
+              ...(prevCtx as any),
+              pendingPlan: plan,
+              pendingPlanClarify: {
+                at: now.toISOString(),
+                question: String(plan.clarifyingQuestion || "").trim().slice(0, 800),
+                originalUserText: String(effectivePlanningText || "").trim().slice(0, 4000),
+              },
+            }
+          : {
+              pendingPlan: plan,
+              pendingPlanClarify: {
+                at: now.toISOString(),
+                question: String(plan.clarifyingQuestion || "").trim().slice(0, 800),
+                originalUserText: String(effectivePlanningText || "").trim().slice(0, 4000),
+              },
+            };
 
         await (prisma as any).portalAiChatThread.update({ where: { id: threadId }, data: { lastMessageAt: now, contextJson: nextCtx } });
         await maybeUpdateThreadTitle({ thread, threadId, now, promptMessage, assistantText: plan.clarifyingQuestion });
