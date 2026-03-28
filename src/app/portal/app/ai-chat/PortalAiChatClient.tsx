@@ -101,14 +101,36 @@ function IconRedoGlyph({ size = 16 }: { size?: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden>
       <path
-        d="M21 12a9 9 0 10-3.3 6.9"
+        d="M3 12a9 9 0 0115.3-6.3"
         stroke="currentColor"
         strokeWidth="2"
         strokeLinecap="round"
         strokeLinejoin="round"
       />
       <path
-        d="M21 12v7h-7"
+        d="M18 3v6h-6"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function IconSpinner({ size = 16 }: { size?: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+      aria-hidden
+      className="animate-spin"
+    >
+      <path
+        d="M21 12a9 9 0 11-2.64-6.36"
         stroke="currentColor"
         strokeWidth="2"
         strokeLinecap="round"
@@ -474,6 +496,7 @@ export function PortalAiChatClient() {
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
   const [dictating, setDictating] = useState(false);
+  const [dictatingMessageId, setDictatingMessageId] = useState<string | null>(null);
   const dictationRef = useRef<{ audio: HTMLAudioElement; objectUrl: string } | null>(null);
   const [regenerating, setRegenerating] = useState(false);
 
@@ -1286,6 +1309,7 @@ export function PortalAiChatClient() {
       if (dictating) return;
 
       setDictating(true);
+      setDictatingMessageId(messageId);
       try {
         try {
           dictationRef.current?.audio.pause();
@@ -1319,6 +1343,7 @@ export function PortalAiChatClient() {
         toast.error(e instanceof Error ? e.message : String(e));
       } finally {
         setDictating(false);
+        setDictatingMessageId(null);
       }
     },
     [activeThreadId, dictating, toast],
@@ -1788,9 +1813,19 @@ export function PortalAiChatClient() {
               <>
                 {(() => {
                   let assistantIdx = 0;
+                  const lastAssistantIndex = (() => {
+                    for (let i = messages.length - 1; i >= 0; i--) {
+                      const m = messages[i];
+                      if (m?.role !== "assistant") continue;
+                      if (String(m.id || "").startsWith("optimistic-assistant-")) continue;
+                      return i;
+                    }
+                    return -1;
+                  })();
                   return messages.map((m, i) => {
                     const variant = m.role === "assistant" ? (assistantIdx++ % 2 === 0 ? "dark" : "light") : undefined;
-                    const isLastAssistant = m.role === "assistant" && i === messages.length - 1;
+                    const isThinking = m.id.startsWith("optimistic-assistant-") && m.role === "assistant";
+                    const isLastAssistant = !isThinking && m.role === "assistant" && i === lastAssistantIndex;
                     const showAmbiguousContacts = isLastAssistant && Boolean(ambiguousContacts && ambiguousContacts.length);
                     const showChoices = isLastAssistant && Boolean(assistantChoices && assistantChoices.length);
                     const showCanvasUiAmbiguity =
@@ -1805,33 +1840,33 @@ export function PortalAiChatClient() {
                           onOpenLink={openInCanvas}
                         />
                         {isLastAssistant ? (
-                          <div className="mt-1 flex items-center justify-end gap-2">
+                          <div className="mt-1 flex items-center justify-start gap-1">
                             <button
                               type="button"
                               className={classNames(
-                                "inline-flex items-center justify-center rounded-xl border border-zinc-200 bg-white px-2 py-1 text-xs font-semibold text-zinc-800 hover:bg-zinc-50",
+                                "inline-flex h-8 w-8 items-center justify-center rounded-xl bg-transparent text-zinc-600 hover:bg-zinc-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/30",
                                 (dictating || regenerating || sending) && "opacity-60",
                               )}
                               onClick={() => void dictateAssistantMessage(m.id)}
                               disabled={dictating || regenerating || sending}
                               aria-label="Dictate last assistant message"
-                              title="Dictate"
+                              title={dictating ? "Dictating…" : "Dictate"}
                             >
-                              <IconVolumeGlyph size={16} />
+                              {dictating && dictatingMessageId === m.id ? <IconSpinner size={16} /> : <IconVolumeGlyph size={16} />}
                             </button>
 
                             <button
                               type="button"
                               className={classNames(
-                                "inline-flex items-center justify-center rounded-xl border border-zinc-200 bg-white px-2 py-1 text-xs font-semibold text-zinc-800 hover:bg-zinc-50",
+                                "inline-flex h-8 w-8 items-center justify-center rounded-xl bg-transparent text-zinc-600 hover:bg-zinc-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/30",
                                 (dictating || regenerating || sending) && "opacity-60",
                               )}
                               onClick={() => void redoLastAssistant()}
                               disabled={dictating || regenerating || sending}
                               aria-label="Redo last assistant response"
-                              title="Redo"
+                              title={regenerating ? "Redoing…" : "Redo"}
                             >
-                              <IconRedoGlyph size={16} />
+                              {regenerating ? <IconSpinner size={16} /> : <IconRedoGlyph size={16} />}
                             </button>
                           </div>
                         ) : null}

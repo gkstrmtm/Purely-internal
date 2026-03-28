@@ -5,6 +5,7 @@ import { prisma } from "@/lib/db";
 import { requireClientSession } from "@/lib/apiAuth";
 import { ensurePortalAiChatSchema } from "@/lib/portalAiChatSchema";
 import { canAccessPortalAiChatThread } from "@/lib/portalAiChatSharing";
+import { getAiReceptionistServiceData } from "@/lib/aiReceptionist";
 import { listElevenLabsVoices, synthesizeElevenLabsVoicePreview } from "@/lib/elevenLabsConvai";
 
 export const runtime = "nodejs";
@@ -45,7 +46,7 @@ async function getProfileVoiceAgentApiKey(ownerId: string): Promise<string | nul
 
   const raw = rec?.voiceAgentApiKey ?? rec?.elevenLabsApiKey;
   const key = typeof raw === "string" ? raw.trim().slice(0, 400) : "";
-  return key || envVoiceAgentApiKey() || null;
+  return key || null;
 }
 
 async function getProfileVoiceId(ownerId: string): Promise<string | null> {
@@ -62,6 +63,13 @@ async function getProfileVoiceId(ownerId: string): Promise<string | null> {
   const raw = rec?.voiceId ?? (rec as any)?.voiceAgentVoiceId ?? (rec as any)?.defaultVoiceId;
   const voiceId = typeof raw === "string" ? raw.trim().slice(0, 200) : "";
   return voiceId || null;
+}
+
+async function getAiReceptionistVoiceConfig(ownerId: string): Promise<{ voiceId: string | null; apiKey: string | null }> {
+  const data = await getAiReceptionistServiceData(ownerId).catch(() => null);
+  const voiceId = typeof (data as any)?.settings?.voiceId === "string" ? String((data as any).settings.voiceId).trim().slice(0, 200) : "";
+  const apiKey = typeof (data as any)?.settings?.voiceAgentApiKey === "string" ? String((data as any).settings.voiceAgentApiKey).trim().slice(0, 400) : "";
+  return { voiceId: voiceId || null, apiKey: apiKey || null };
 }
 
 function friendlyVoiceAgentError(status?: number): string {
@@ -106,7 +114,8 @@ function toSpeakableText(raw: string): string {
   // Collapse whitespace
   t = t.replace(/[\r\n\t]+/g, " ").replace(/\s+/g, " ").trim();
 
-  return t.slice(0, 2000);
+  // Cap to keep TTS latency reasonable.
+  return t.slice(0, 1200);
 }
 
 export async function POST(req: Request, ctx: { params: Promise<{ threadId: string }> }) {
@@ -151,15 +160,19 @@ export async function POST(req: Request, ctx: { params: Promise<{ threadId: stri
     return NextResponse.json({ ok: false, error: "No assistant message to dictate." }, { status: 400 });
   }
 
-  const apiKey = ((await getProfileVoiceAgentApiKey(ownerId).catch(() => null)) || "").trim();
+  const profileApiKey = ((await getProfileVoiceAgentApiKey(ownerId).catch(() => null)) || "").trim();
+  const profileVoiceId = ((await getProfileVoiceId(ownerId).catch(() => null)) || "").trim();
+  const receptionist = await getAiReceptionistVoiceConfig(ownerId);
+
+  const apiKey = (profileApiKey || receptionist.apiKey || envVoiceAgentApiKey() || "").trim();
   if (!apiKey) {
     return NextResponse.json(
-      { ok: false, error: "Missing ElevenLabs API key. Set it in Profile first." },
+      { ok: false, error: "Missing ElevenLabs API key. Set it in Profile (or AI Receptionist) first." },
       { status: 400 },
     );
   }
 
-  let voiceId = ((await getProfileVoiceId(ownerId).catch(() => null)) || "").trim();
+  let voiceId = (receptionist.voiceId || profileVoiceId || "").trim();
   if (!voiceId) {
     const voices = await listElevenLabsVoices({ apiKey });
     if (!voices.ok) {
@@ -175,7 +188,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ threadId: stri
     );
   }
 
-  const result = await synthesizeElevenLabsVoicePreview({ apiKey, voiceId, text: speakable.slice(0, 2000) });
+  const result = await synthesizeElevenLabsVoicePreview({ apiKey, voiceId, text: speakable });
   if (!result.ok) {
     return NextResponse.json(
       { ok: false, error: friendlyVoiceAgentError(result.status) },

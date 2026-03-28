@@ -10917,13 +10917,19 @@ async function runDirectAction(opts: {
 
       const automationId = String(args.automationId || "").trim();
       if (!automationId) return { status: 400, json: { ok: false, error: "Invalid input" } };
-      await runOwnerAutomationByIdForEvent({
-        ownerId,
-        automationId,
-        triggerKind: "manual",
-        contact: args.contact,
-      }).catch(() => null);
-      return { status: 200, json: { ok: true } };
+      try {
+        await runOwnerAutomationByIdForEvent({
+          ownerId,
+          automationId,
+          triggerKind: "manual",
+          contact: args.contact,
+        });
+        return { status: 200, json: { ok: true } };
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e || "");
+        const safe = msg.trim().slice(0, 200);
+        return { status: 500, json: { ok: false, error: safe ? `Automation run failed: ${safe}` : "Automation run failed" } };
+      }
     }
 
     case "automations.create": {
@@ -11156,8 +11162,16 @@ async function runDirectAction(opts: {
               y: 120,
               config: { kind: "trigger", triggerKind: "manual" },
             },
+            {
+              id: "action_1",
+              type: "action",
+              label: "Follow up",
+              x: 380,
+              y: 120,
+              config: { kind: "action", actionKind: "create_task", title: "Follow up", note: "Created from AI chat" },
+            },
           ],
-          edges: [],
+          edges: [{ id: "e1", from: "trigger", fromPort: "out", to: "action_1" }],
         };
       })();
 
