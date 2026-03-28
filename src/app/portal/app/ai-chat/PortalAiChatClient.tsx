@@ -394,8 +394,17 @@ export function PortalAiChatClient() {
   const [canvasUiAmbiguity, setCanvasUiAmbiguity] = useState<{ action: PuraCanvasUiAction; candidates: CanvasUiCandidate[] } | null>(null);
   const [canvasUiResumeActions, setCanvasUiResumeActions] = useState<PuraCanvasUiAction[] | null>(null);
 
-
   const toast = useToast();
+
+  const openCanvasInNewTab = useCallback((url: string | null) => {
+    const u = typeof url === "string" ? url.trim() : "";
+    if (!u) return;
+    try {
+      window.open(u, "_blank", "noopener,noreferrer");
+    } catch {
+      // ignore
+    }
+  }, []);
 
   const [canvasUrl, setCanvasUrl] = useState<string | null>(null);
   const [canvasWidth, setCanvasWidth] = useState<number>(520);
@@ -1276,14 +1285,14 @@ export function PortalAiChatClient() {
   );
 
   const openLatestCanvas = useCallback(
-    (opts?: { modal?: boolean }) => {
+    (_opts?: { modal?: boolean }) => {
+      void _opts;
       if (!canvasUrl) {
         toast.error("No canvas to open yet.");
         return;
       }
       setCanvasOpen(true);
-      if (opts?.modal) setCanvasModalOpen(true);
-      else setCanvasModalOpen(false);
+      setCanvasModalOpen(false);
     },
     [canvasUrl, toast],
   );
@@ -1822,7 +1831,7 @@ export function PortalAiChatClient() {
               <button
                 type="button"
                 className="inline-flex h-10 items-center justify-center rounded-2xl border border-brand-blue/20 bg-brand-blue px-3 text-sm font-semibold text-white hover:opacity-95 lg:hidden"
-                onClick={() => setCanvasModalOpen(true)}
+                onClick={() => openCanvasInNewTab(canvasUrl)}
                 aria-label="Open work"
                 title="Open work"
               >
@@ -1832,7 +1841,7 @@ export function PortalAiChatClient() {
               <button
                 type="button"
                 className="inline-flex h-10 items-center justify-center rounded-2xl border border-brand-blue/20 bg-brand-blue px-3 text-sm font-semibold text-white hover:opacity-95 lg:hidden"
-                onClick={() => openLatestCanvas({ modal: true })}
+                onClick={() => openCanvasInNewTab(canvasUrl)}
                 aria-label="Open work"
                 title="Open work"
               >
@@ -1996,7 +2005,7 @@ export function PortalAiChatClient() {
                 <button
                   type="button"
                   className="shrink-0 rounded-xl border border-brand-blue/20 bg-brand-blue px-2 py-1 font-semibold text-white hover:opacity-95"
-                  onClick={() => setCanvasModalOpen(true)}
+                  onClick={() => openCanvasInNewTab(canvasUrl)}
                 >
                   Open
                 </button>
@@ -2019,7 +2028,7 @@ export function PortalAiChatClient() {
               className="absolute right-0 top-2 z-20 inline-flex items-center gap-1 rounded-l-2xl border border-brand-blue/20 bg-brand-blue px-3 py-2 text-xs font-bold text-white hover:opacity-95"
               style={{ height: 40 }}
               title="Open canvas"
-              onClick={() => openLatestCanvas({ modal: true })}
+              onClick={() => openLatestCanvas({ modal: false })}
             >
               <span className="leading-none">Open</span>
               <span className="text-base leading-none">‹</span>

@@ -11021,9 +11021,80 @@ async function runDirectAction(opts: {
       const createdAtIso = new Date().toISOString();
       const actor = await prisma.user.findUnique({ where: { id: actorUserId }, select: { id: true, email: true, name: true } }).catch(() => null);
 
-      const graphFromPrompt = (text: string) => {
+      const targetContactId = typeof (args as any)?.targetContactId === "string" ? String((args as any).targetContactId).trim() : "";
+      const targetSmsToNumber = await (async () => {
+        if (!targetContactId) return null;
+        try {
+          const c = await (prisma as any).portalContact.findFirst({
+            where: { ownerId, id: targetContactId },
+            select: { phone: true },
+          });
+          const raw = typeof c?.phone === "string" ? String(c.phone).trim() : "";
+          if (!raw) return null;
+          const parsed = normalizePhoneStrict(raw);
+          if (parsed.ok && parsed.e164) return parsed.e164;
+          return raw.slice(0, 64);
+        } catch {
+          return null;
+        }
+      })();
+
+      const graphFromPrompt = (text: string, opts?: { targetSmsToNumber?: string | null }) => {
         const t = String(text || "").trim();
         const lower = t.toLowerCase();
+
+        const parseTimeHHMMFromText = (): string => {
+          // Prefer explicit 24h times like 09:00.
+          const m24 = /\b([01]?\d|2[0-3]):([0-5]\d)\b/.exec(t);
+          if (m24?.[1] && m24?.[2]) {
+            const hh = Math.max(0, Math.min(23, Number(m24[1])));
+            const mm = Math.max(0, Math.min(59, Number(m24[2])));
+            return `${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}`;
+          }
+
+          // Support 9am / 9:30am.
+          const m12 = /\b(\d{1,2})(?::([0-5]\d))?\s*(am|pm)\b/i.exec(t);
+          if (m12?.[1]) {
+            let hh = Math.max(1, Math.min(12, Number(m12[1])));
+            const mm = m12?.[2] ? Math.max(0, Math.min(59, Number(m12[2]))) : 0;
+            const ap = String(m12?.[3] || "").toLowerCase();
+            if (ap === "am") hh = hh === 12 ? 0 : hh;
+            if (ap === "pm") hh = hh === 12 ? 12 : hh + 12;
+            return `${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}`;
+          }
+
+          return "09:00";
+        };
+
+        const parseWeekdaysUtc = (): number[] | null => {
+          const wantsWeekdaysOnly =
+            /\bweekdays?\b/i.test(t) ||
+            /\bmonday\s+(?:through|thru|to|-)\s+friday\b/i.test(t) ||
+            /\bmon\s*(?:through|thru|to|-)\s*fri\b/i.test(t);
+          if (wantsWeekdaysOnly) return [1, 2, 3, 4, 5];
+
+          const days: Array<{ n: number; re: RegExp }> = [
+            { n: 0, re: /\b(sun|sunday)\b/i },
+            { n: 1, re: /\b(mon|monday)\b/i },
+            { n: 2, re: /\b(tue|tues|tuesday)\b/i },
+            { n: 3, re: /\b(wed|wednesday)\b/i },
+            { n: 4, re: /\b(thu|thur|thurs|thursday)\b/i },
+            { n: 5, re: /\b(fri|friday)\b/i },
+            { n: 6, re: /\b(sat|saturday)\b/i },
+          ];
+
+          const picked = days.filter((d) => d.re.test(t)).map((d) => d.n);
+          const uniq = Array.from(new Set(picked));
+          return uniq.length ? uniq.sort((a, b) => a - b) : null;
+        };
+
+        const wantsScheduledTime = (() => {
+          // Avoid mixing this up with appointment scheduling.
+          if (/\bappointment\b/i.test(t) && /\b(schedule|book|booking)\b/i.test(t)) return false;
+          const hasTime = /\b([01]?\d|2[0-3]):[0-5]\d\b/.test(t) || /\b\d{1,2}(?::[0-5]\d)?\s*(am|pm)\b/i.test(t);
+          const hasScheduleWord = /\b(schedule|scheduled|every|daily|weekly|monthly|weekday|weekdays|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/i.test(t);
+          return Boolean(hasTime && hasScheduleWord);
+        })();
 
         const inferTriggerKind = (): string => {
           if (/\bmissed\s+appointment\b/i.test(t)) return "missed_appointment";
@@ -11033,6 +11104,7 @@ async function runDirectAction(opts: {
           if (/\bform\b[\s\S]{0,20}\b(submit|submitted)\b/i.test(t)) return "form_submitted";
           if (/\bnew\s+lead\b/i.test(t)) return "new_lead";
           if (/\btag\s+added\b/i.test(t)) return "tag_added";
+          if (wantsScheduledTime) return "scheduled_time";
           return "manual";
         };
 
@@ -11062,18 +11134,114 @@ async function runDirectAction(opts: {
         const baseY = 120;
         const stepX = 300;
 
-        const nodes: any[] = [
-          {
-            id: "trigger",
+        const nodes: any[] = [];
+        const edges: any[] = [];
+
+        // If this looks like a scheduled recurring automation, build scheduled_time triggers.
+        // Also include a manual trigger for easy testing via automations.run.
+        if (triggerKind === "scheduled_time") {
+          const timeHHMM = parseTimeHHMMFromText();
+          const weekdays = parseWeekdaysUtc();
+
+          nodes.push({
+            id: "trigger_manual",
             type: "trigger",
-            label: "Trigger",
+            label: "Manual trigger (test)",
             x: baseX,
             y: baseY,
-            config: { kind: "trigger", triggerKind },
-          },
-        ];
+            config: { kind: "trigger", triggerKind: "manual" },
+          });
 
-        const edges: any[] = [];
+          if (Array.isArray(weekdays) && weekdays.length) {
+            weekdays.slice(0, 7).forEach((wd, idx) => {
+              nodes.push({
+                id: `trigger_w${wd}`,
+                type: "trigger",
+                label: `Scheduled (weekday ${wd})`,
+                x: baseX,
+                y: baseY + (idx + 1) * 110,
+                config: {
+                  kind: "trigger",
+                  triggerKind: "scheduled_time",
+                  scheduleMode: "specific",
+                  specificKind: "weekly",
+                  specificWeekday: wd,
+                  specificTime: timeHHMM,
+                },
+              });
+            });
+          } else {
+            nodes.push({
+              id: "trigger_scheduled",
+              type: "trigger",
+              label: "Scheduled",
+              x: baseX,
+              y: baseY + 110,
+              config: {
+                kind: "trigger",
+                triggerKind: "scheduled_time",
+                scheduleMode: "specific",
+                specificKind: "daily",
+                specificTime: timeHHMM,
+              },
+            });
+          }
+
+          const quoted = /"([\s\S]{1,800})"/.exec(t);
+          const body = quoted?.[1] ? String(quoted[1]).trim().slice(0, 900) : "";
+          const smsBody = body || "Good morning! Ready to get started?";
+          const toNum = String(opts?.targetSmsToNumber || "").trim();
+
+          // If we know a target number, use it. Otherwise, fall back to an internal task.
+          if (wantsSms && toNum) {
+            nodes.push({
+              id: "action_1",
+              type: "action",
+              label: "Send SMS",
+              x: baseX + stepX,
+              y: baseY,
+              config: { kind: "action", actionKind: "send_sms", smsTo: "custom", smsToNumber: toNum, body: smsBody },
+            });
+          } else if (wantsEmail) {
+            nodes.push({
+              id: "action_1",
+              type: "action",
+              label: "Send email",
+              x: baseX + stepX,
+              y: baseY,
+              config: { kind: "action", actionKind: "send_email", emailTo: "internal_notification", subject: "", body: body || "Scheduled message" },
+            });
+          } else {
+            nodes.push({
+              id: "action_1",
+              type: "action",
+              label: "Create task",
+              x: baseX + stepX,
+              y: baseY,
+              config: { kind: "action", actionKind: "create_task", title: "Scheduled work", note: t.slice(0, 400) || "Created from AI chat" },
+            });
+          }
+
+          // Connect all triggers to the action.
+          for (const n of nodes) {
+            if (String((n as any).type) !== "trigger") continue;
+            const fromId = String((n as any).id);
+            edges.push({ id: `e_${fromId}_action_1`, from: fromId, fromPort: "out", to: "action_1" });
+          }
+
+          return { nodes, edges };
+        }
+
+        // Default: single trigger -> action chain.
+        nodes.push({
+          id: "trigger",
+          type: "trigger",
+          label: "Trigger",
+          x: baseX,
+          y: baseY,
+          config: { kind: "trigger", triggerKind },
+        });
+
         let lastId = "trigger";
         let nextX = baseX + stepX;
 
@@ -11203,7 +11371,7 @@ async function runDirectAction(opts: {
         }
 
         if (prompt) {
-          return graphFromPrompt(prompt);
+          return graphFromPrompt(prompt, { targetSmsToNumber });
         }
 
         return {

@@ -204,16 +204,24 @@ export async function sendPortalInboxMessageNow(input: SendPortalInboxMessageInp
 
     const sendResult = await sendOwnerTwilioSms({ ownerId, to: peer.peer, body, mediaUrls });
     if (!sendResult.ok) {
-      const msg = String(sendResult.error ?? "").toLowerCase();
+      const raw = String(sendResult.error ?? "").trim();
+      const msg = raw.toLowerCase();
+
       if (msg.includes("not configured") || msg.includes("texting not configured")) {
         return { ok: false, error: "To send texts here, connect your Twilio number in Integrations." };
       }
 
+      // Twilio is reachable but rejected the message. Surface a concise reason instead of a misleading
+      // 'connection' error (common when the To-number is invalid/unreachable).
+      if (msg.startsWith("twilio failed")) {
+        const detail = raw.includes(":") ? raw.split(":").slice(1).join(":").trim() : raw;
+        const safeDetail = detail.replace(/\s+/g, " ").slice(0, 240);
+        return { ok: false, error: safeDetail ? `Twilio rejected the message: ${safeDetail}` : "Twilio rejected the message." };
+      }
+
       if (msg.includes("twilio")) {
-        return {
-          ok: false,
-          error: "We couldn’t send that text. Please verify your Twilio connection and try again.",
-        };
+        const safe = raw.replace(/\s+/g, " ").slice(0, 240);
+        return { ok: false, error: safe ? `Text send failed: ${safe}` : "Text send failed." };
       }
 
       return { ok: false, error: "We couldn’t send that text right now. Please try again." };

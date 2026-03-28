@@ -1415,6 +1415,10 @@ export const PortalAgentActionArgsSchemaByKey = {
       name: z.string().trim().min(1).max(80),
       template: z.enum(["blank", "post_appointment_nurture_enrollment"]).optional(),
       nurtureCampaignId: z.string().trim().min(1).max(80).optional().nullable(),
+      // Optional natural-language automation spec from the user.
+      prompt: z.string().trim().max(2000).optional(),
+      // Optional contact used to target scheduled automations (e.g., scheduled SMS to a specific person).
+      targetContactId: z.string().trim().min(1).max(120).optional(),
     })
     .strict(),
 
@@ -3295,7 +3299,7 @@ export function portalAgentActionsIndexText(opts?: { includeAiChat?: boolean }):
     "- credit.reports.pull: Create a placeholder provider-pulled report (fields: contactId, provider?)",
     "- credit.reports.items.update: Update a credit report item status (fields: reportId, itemId, auditTag?, disputeStatus?)",
     "- automations.run: Run an automation by id (fields: automationId, contact?)",
-    "- automations.create: Create an automation (fields: name, template?=blank|post_appointment_nurture_enrollment, nurtureCampaignId?)",
+    "- automations.create: Create an automation (fields: name, template?=blank|post_appointment_nurture_enrollment, nurtureCampaignId?, prompt?, targetContactId?)",
     "- automations.settings.get: Get automations settings (returns webhookToken, viewer, automations)",
     "- automations.settings.update: Replace automations settings (fields: automations)",
     "- automations.test_sms: Trigger an automation as if an inbound SMS occurred (fields: automationId, from, body?)",
