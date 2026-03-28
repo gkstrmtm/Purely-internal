@@ -36,12 +36,19 @@ export async function POST(req: Request) {
   const parsed = postSchema.safeParse(await req.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ ok: false, error: "Invalid input" }, { status: 400 });
 
-  await runOwnerAutomationByIdForEvent({
-    ownerId,
-    automationId: parsed.data.automationId,
-    triggerKind: "manual",
-    contact: parsed.data.contact,
-  }).catch(() => null);
-
-  return NextResponse.json({ ok: true });
+  try {
+    await runOwnerAutomationByIdForEvent({
+      ownerId,
+      automationId: parsed.data.automationId,
+      triggerKind: "manual",
+      contact: parsed.data.contact,
+      throwIfMissing: true,
+    });
+    return NextResponse.json({ ok: true });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e || "");
+    const safe = msg.trim().slice(0, 200);
+    const status = /not found/i.test(safe) ? 404 : 400;
+    return NextResponse.json({ ok: false, error: safe || "Automation run failed" }, { status });
+  }
 }

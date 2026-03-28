@@ -1613,6 +1613,7 @@ export async function runOwnerAutomationByIdForEvent(opts: {
   triggerKind: TriggerKind;
   message?: { from?: string; to?: string; body?: string };
   contact?: { id?: string | null; name?: string | null; email?: string | null; phone?: string | null };
+  throwIfMissing?: boolean;
   event?: {
     tagId?: string;
     webhookKey?: string;
@@ -1630,7 +1631,14 @@ export async function runOwnerAutomationByIdForEvent(opts: {
 }) {
   const automations = await loadOwnerAutomations(opts.ownerId);
   const automation = automations.find((a) => a.id === opts.automationId);
-  if (!automation || automation.paused) return;
+  if (!automation) {
+    if (opts.throwIfMissing) throw new Error("Automation not found");
+    return;
+  }
+  if (automation.paused) {
+    if (opts.throwIfMissing) throw new Error("Automation is paused");
+    return;
+  }
 
   await runAutomationOnce({
     ownerId: opts.ownerId,

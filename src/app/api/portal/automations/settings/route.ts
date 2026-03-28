@@ -34,6 +34,7 @@ const triggerConfigSchema = z
       "inbound_webhook",
       "scheduled_time",
       "missed_appointment",
+      "appointment_ended",
       "appointment_booked",
       "missed_call",
       "review_received",
@@ -57,6 +58,7 @@ const actionConfigSchema = z
       "send_review_request",
       "send_booking_link",
       "update_contact",
+      "create_contact",
       "trigger_service",
     ]),
   })

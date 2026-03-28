@@ -81,26 +81,17 @@ function friendlyVoiceAgentError(status?: number): string {
 function toSpeakableText(raw: string): string {
   let t = String(raw || "");
 
-  // Markdown links: [label](url) -> label (link: host)
+  // Markdown links: [label](url) -> label
   t = t.replace(/\[([^\]]+?)\]\((https?:\/\/[^\s)]+)\)/gi, (_m, label, url) => {
     const safeLabel = String(label || "").replace(/\s+/g, " ").trim();
-    const u = String(url || "").trim();
-    try {
-      const parsed = new URL(u);
-      return `${safeLabel || "Link"} (link: ${parsed.host})`;
-    } catch {
-      return `${safeLabel || "Link"} (link)`;
-    }
+    void url;
+    return safeLabel || "Link";
   });
 
-  // Bare URLs -> link: host
+  // Bare URLs -> "link" (avoid reading out long URLs)
   t = t.replace(/\bhttps?:\/\/[^\s)]+/gi, (u) => {
-    try {
-      const parsed = new URL(String(u));
-      return `link: ${parsed.host}`;
-    } catch {
-      return "link";
-    }
+    void u;
+    return "link";
   });
 
   // Strip code blocks/backticks

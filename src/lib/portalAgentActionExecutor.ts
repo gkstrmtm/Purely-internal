@@ -1474,6 +1474,7 @@ async function runDirectAction(opts: {
         "inbound_webhook",
         "scheduled_time",
         "missed_appointment",
+        "appointment_ended",
         "appointment_booked",
         "missed_call",
         "review_received",
@@ -1497,6 +1498,7 @@ async function runDirectAction(opts: {
         "send_review_request",
         "send_booking_link",
         "update_contact",
+        "create_contact",
         "trigger_service",
       ]),
     })
@@ -10923,6 +10925,7 @@ async function runDirectAction(opts: {
           automationId,
           triggerKind: "manual",
           contact: args.contact,
+          throwIfMissing: true,
         });
         return { status: 200, json: { ok: true } };
       } catch (e) {
