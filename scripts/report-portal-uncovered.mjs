@@ -33,7 +33,7 @@ function groupKey(endpoint) {
 
 async function loadCoveragePairs() {
   const text = await fs.readFile(GENERATOR_PATH, "utf8");
-  const re = /\{\s*action\s*:\s*"([^"]+)"\s*,\s*method\s*:\s*"([^"]+)"\s*,\s*endpoint\s*:\s*"([^"]+)"\s*\}/g;
+  const re = /\{\s*action\s*:\s*"([^"]+)"\s*,\s*method\s*:\s*"([^"]+)"\s*,\s*endpoint\s*:\s*"([^"]+)"\s*,?\s*\}/g;
   const pairs = new Set();
   let m;
   while ((m = re.exec(text))) {
