@@ -37,6 +37,7 @@ type TriggerKind =
   | "inbound_webhook"
   | "scheduled_time"
   | "missed_appointment"
+  | "appointment_ended"
   | "appointment_booked"
   | "missed_call"
   | "review_received"

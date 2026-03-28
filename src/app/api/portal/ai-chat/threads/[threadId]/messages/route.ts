@@ -1473,7 +1473,8 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
       return NextResponse.json({ ok: false, error: "Nothing to confirm" }, { status: 400 });
     }
 
-    const results: Array<{ ok: boolean; markdown?: string; linkUrl?: string | null }> = [];
+    const results: Array<{ ok: boolean; markdown?: string; linkUrl?: string | null; clientUiAction?: any | null }> = [];
+    const clientUiActions: any[] = [];
     for (const step of confirmedSteps) {
       const exec = await executePortalAgentAction({
         ownerId,
@@ -1481,7 +1482,9 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
         action: step.key,
         args: step.args,
       });
-      results.push({ ok: Boolean(exec.ok), markdown: exec.markdown, linkUrl: exec.linkUrl ?? null });
+      const cua = (exec as any).clientUiAction ?? null;
+      results.push({ ok: Boolean(exec.ok), markdown: exec.markdown, linkUrl: exec.linkUrl ?? null, clientUiAction: cua });
+      if (cua) clientUiActions.push(cua);
     }
 
     const mappedCanvasUrl =
@@ -1554,7 +1557,7 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
 
     await (prisma as any).portalAiChatThread.update({ where: { id: threadId }, data: { lastMessageAt: now, contextJson: nextCtx } });
 
-    return NextResponse.json({ ok: true, userMessage: null, assistantMessage: assistantMsg, assistantActions: [], autoActionMessage: null, canvasUrl });
+    return NextResponse.json({ ok: true, userMessage: null, assistantMessage: assistantMsg, assistantActions: [], autoActionMessage: null, canvasUrl, clientUiActions });
   }
 
   const attachmentLines = attachments
@@ -1971,7 +1974,8 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
 
         const resolvedSteps: Array<{ key: PortalAgentActionKey; title: string; args: Record<string, unknown>; openUrl?: string }> = [];
         const contextPatches: Array<Record<string, unknown> | undefined> = [];
-        const results: Array<{ ok: boolean; markdown?: string; linkUrl?: string | null }> = [];
+        const results: Array<{ ok: boolean; markdown?: string; linkUrl?: string | null; clientUiAction?: any | null }> = [];
+        const clientUiActions: any[] = [];
 
         let localCtx: any = threadContext && typeof threadContext === "object" && !Array.isArray(threadContext) ? { ...(threadContext as any) } : {};
         let clarifyChoices: any[] | null = null;
@@ -2072,7 +2076,9 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
             action: step.key,
             args: resolvedArgs,
           });
-          results.push({ ok: Boolean(exec.ok), markdown: exec.markdown, linkUrl: exec.linkUrl ?? null });
+          const cua = (exec as any).clientUiAction ?? null;
+          results.push({ ok: Boolean(exec.ok), markdown: exec.markdown, linkUrl: exec.linkUrl ?? null, clientUiAction: cua });
+          if (cua) clientUiActions.push(cua);
 
           const derivedPatch = deriveThreadContextPatchFromAction(step.key, resolvedArgs, (exec as any).result);
           if (derivedPatch && typeof derivedPatch === "object") {
@@ -2197,7 +2203,7 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
 
         await (prisma as any).portalAiChatThread.update({ where: { id: threadId }, data: { lastMessageAt: now, contextJson: nextCtx } });
 
-        return NextResponse.json({ ok: true, userMessage: userMsg, assistantMessage: assistantMsg, assistantActions: [], autoActionMessage: null, canvasUrl, assistantChoices: null });
+        return NextResponse.json({ ok: true, userMessage: userMsg, assistantMessage: assistantMsg, assistantActions: [], autoActionMessage: null, canvasUrl, assistantChoices: null, clientUiActions });
       }
     } catch {
       // If planning fails, fall through to existing behavior.
@@ -2258,6 +2264,7 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
       autoActionMessage: null,
       canvasUrl: exec.ok ? exec.linkUrl || null : null,
       assistantChoices: Array.isArray((exec as any).assistantChoices) ? (exec as any).assistantChoices : null,
+      clientUiActions: (exec as any).clientUiAction ? [(exec as any).clientUiAction] : [],
     });
   }
 
@@ -2334,6 +2341,7 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
           autoActionMessage: null,
           canvasUrl: null,
           assistantChoices: (exec as any).assistantChoices,
+          clientUiActions: (exec as any).clientUiAction ? [(exec as any).clientUiAction] : [],
         });
       }
     } catch {

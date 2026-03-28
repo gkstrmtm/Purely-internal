@@ -53,7 +53,7 @@ import { portalBasePath, type PortalVariant } from "@/lib/portalVariant";
 import { getNextPortalAdCampaignForOwner, getPortalAdCampaignForOwnerById, type PortalAdPlacement } from "@/lib/portalAdCampaigns.server";
 import { ensurePortalTasksSchema } from "@/lib/portalTasksSchema";
 import { runOwnerAutomationByIdForEvent, runOwnerAutomationByIdForInboundSms, runOwnerAutomationsForEvent } from "@/lib/portalAutomationsRunner";
-import { processDueMissedAppointments, processDueScheduledAutomations } from "@/lib/portalAutomationsCron";
+import { processDueAppointmentEnded, processDueMissedAppointments, processDueScheduledAutomations } from "@/lib/portalAutomationsCron";
 import { generateClientBlogDraft } from "@/lib/clientBlogAutomation";
 import { generateClientNewsletterDraft } from "@/lib/clientNewsletterAutomation";
 import { sendNewsletterToAudience, uniqueNewsletterSlug } from "@/lib/portalNewsletter";
@@ -10933,6 +10933,12 @@ async function runDirectAction(opts: {
       const name = String(args.name || "").trim().slice(0, 80);
       if (!name) return { status: 400, json: { ok: false, error: "Invalid name" } };
 
+      const templateRaw = String((args as any)?.template || "").trim();
+      const template = templateRaw === "post_appointment_nurture_enrollment" ? ("post_appointment_nurture_enrollment" as const) : ("blank" as const);
+
+      const nurtureCampaignIdRaw = String((args as any)?.nurtureCampaignId || "").trim();
+      const nurtureCampaignId = nurtureCampaignIdRaw ? nurtureCampaignIdRaw.slice(0, 80) : null;
+
       const needCredits = PORTAL_CREDIT_COSTS.automationCreate;
       const charged = await consumeCredits(ownerId, needCredits);
       if (!charged.ok) {
@@ -10952,6 +10958,51 @@ async function runDirectAction(opts: {
       const createdAtIso = new Date().toISOString();
       const actor = await prisma.user.findUnique({ where: { id: actorUserId }, select: { id: true, email: true, name: true } }).catch(() => null);
 
+      const graph = (() => {
+        if (template === "post_appointment_nurture_enrollment") {
+          return {
+            nodes: [
+              {
+                id: "trigger",
+                type: "trigger",
+                label: "Appointment ended",
+                x: 80,
+                y: 120,
+                config: { kind: "trigger", triggerKind: "appointment_ended" },
+              },
+              {
+                id: "enroll_nurture",
+                type: "action",
+                label: "Enroll in nurture campaign",
+                x: 380,
+                y: 120,
+                config: {
+                  kind: "action",
+                  actionKind: "trigger_service",
+                  serviceSlug: "nurture-campaigns",
+                  ...(nurtureCampaignId ? { serviceCampaignId: nurtureCampaignId } : {}),
+                },
+              },
+            ],
+            edges: [{ id: "e1", from: "trigger", fromPort: "out", to: "enroll_nurture" }],
+          };
+        }
+
+        return {
+          nodes: [
+            {
+              id: "trigger",
+              type: "trigger",
+              label: "Manual trigger",
+              x: 80,
+              y: 120,
+              config: { kind: "trigger", triggerKind: "manual" },
+            },
+          ],
+          edges: [],
+        };
+      })();
+
       const automation = {
         id,
         name,
@@ -10963,17 +11014,8 @@ async function runDirectAction(opts: {
           email: String(actor?.email || "").slice(0, 200) || undefined,
           name: String(actor?.name || "").slice(0, 200) || undefined,
         },
-        nodes: [
-          {
-            id: "trigger",
-            type: "trigger",
-            label: "Manual trigger",
-            x: 80,
-            y: 120,
-            config: { kind: "trigger", triggerKind: "manual" },
-          },
-        ],
-        edges: [],
+        nodes: graph.nodes,
+        edges: graph.edges,
       };
 
       const nextAutomations = [automation, ...list].slice(0, 50);
@@ -10991,7 +11033,7 @@ async function runDirectAction(opts: {
         select: { id: true },
       });
 
-      return { status: 200, json: { ok: true, automationId: id, creditsRemaining: charged.state.balance } };
+      return { status: 200, json: { ok: true, automationId: id, template, creditsRemaining: charged.state.balance } };
     }
 
     case "automations.settings.get": {
@@ -15521,7 +15563,8 @@ async function runDirectAction(opts: {
       void args;
       const scheduled = await processDueScheduledAutomations({ ownersLimit: 2000, perOwnerMaxRuns: 12 });
       const missed = await processDueMissedAppointments({ lookbackHours: 72, graceMinutes: 20, limit: 400 });
-      return { status: 200, json: { ok: true, scheduled, missed } };
+      const ended = await processDueAppointmentEnded({ lookbackHours: 72, graceMinutes: 20, limit: 400 });
+      return { status: 200, json: { ok: true, scheduled, missed, ended } };
     }
 
     case "blogs.automation.cron.run": {
@@ -15761,6 +15804,94 @@ async function runDirectAction(opts: {
       const res = await seedDemoPOST(req);
       const json = await res.json().catch(() => null);
       return { status: res.status, json: json ?? { ok: false, error: "Non-JSON response" } };
+    }
+
+    case "ui.canvas.click": {
+      const membership = await requirePortalMember();
+      if (!membership) return { status: 403, json: { ok: false, error: "Forbidden" } };
+      const query = typeof (args as any)?.query === "string" ? String((args as any).query).trim().slice(0, 200) : "";
+      const role = typeof (args as any)?.role === "string" ? String((args as any).role).trim().slice(0, 20) : undefined;
+      const nth = typeof (args as any)?.nth === "number" && Number.isFinite((args as any).nth) ? Math.max(0, Math.floor((args as any).nth)) : undefined;
+      if (!query) return { status: 400, json: { ok: false, error: "Missing query" } };
+      return {
+        status: 200,
+        json: {
+          ok: true,
+          note: "Queued a canvas UI click (runs in your browser canvas).",
+          clientUiAction: { kind: "click", query, ...(role ? { role } : {}), ...(nth !== undefined ? { nth } : {}) },
+        },
+      };
+    }
+
+    case "ui.canvas.type": {
+      const membership = await requirePortalMember();
+      if (!membership) return { status: 403, json: { ok: false, error: "Forbidden" } };
+      const query = typeof (args as any)?.query === "string" ? String((args as any).query).trim().slice(0, 200) : "";
+      const value = typeof (args as any)?.value === "string" ? String((args as any).value).slice(0, 10_000) : "";
+      const clear = Boolean((args as any)?.clear);
+      const role = typeof (args as any)?.role === "string" ? String((args as any).role).trim().slice(0, 20) : undefined;
+      const nth = typeof (args as any)?.nth === "number" && Number.isFinite((args as any).nth) ? Math.max(0, Math.floor((args as any).nth)) : undefined;
+      if (!query) return { status: 400, json: { ok: false, error: "Missing query" } };
+      return {
+        status: 200,
+        json: {
+          ok: true,
+          note: "Queued a canvas UI type action (runs in your browser canvas).",
+          clientUiAction: { kind: "type", query, value, ...(clear ? { clear: true } : {}), ...(role ? { role } : {}), ...(nth !== undefined ? { nth } : {}) },
+        },
+      };
+    }
+
+    case "ui.canvas.select": {
+      const membership = await requirePortalMember();
+      if (!membership) return { status: 403, json: { ok: false, error: "Forbidden" } };
+      const query = typeof (args as any)?.query === "string" ? String((args as any).query).trim().slice(0, 200) : "";
+      const option = typeof (args as any)?.option === "string" ? String((args as any).option).trim().slice(0, 200) : "";
+      const role = typeof (args as any)?.role === "string" ? String((args as any).role).trim().slice(0, 20) : undefined;
+      const nth = typeof (args as any)?.nth === "number" && Number.isFinite((args as any).nth) ? Math.max(0, Math.floor((args as any).nth)) : undefined;
+      if (!query) return { status: 400, json: { ok: false, error: "Missing query" } };
+      if (!option) return { status: 400, json: { ok: false, error: "Missing option" } };
+      return {
+        status: 200,
+        json: {
+          ok: true,
+          note: "Queued a canvas UI select action (runs in your browser canvas).",
+          clientUiAction: { kind: "select", query, option, ...(role ? { role } : {}), ...(nth !== undefined ? { nth } : {}) },
+        },
+      };
+    }
+
+    case "ui.canvas.set_checked": {
+      const membership = await requirePortalMember();
+      if (!membership) return { status: 403, json: { ok: false, error: "Forbidden" } };
+      const query = typeof (args as any)?.query === "string" ? String((args as any).query).trim().slice(0, 200) : "";
+      const checked = Boolean((args as any)?.checked);
+      const role = typeof (args as any)?.role === "string" ? String((args as any).role).trim().slice(0, 20) : undefined;
+      const nth = typeof (args as any)?.nth === "number" && Number.isFinite((args as any).nth) ? Math.max(0, Math.floor((args as any).nth)) : undefined;
+      if (!query) return { status: 400, json: { ok: false, error: "Missing query" } };
+      return {
+        status: 200,
+        json: {
+          ok: true,
+          note: "Queued a canvas UI toggle action (runs in your browser canvas).",
+          clientUiAction: { kind: "set_checked", query, checked, ...(role ? { role } : {}), ...(nth !== undefined ? { nth } : {}) },
+        },
+      };
+    }
+
+    case "ui.canvas.scroll": {
+      const membership = await requirePortalMember();
+      if (!membership) return { status: 403, json: { ok: false, error: "Forbidden" } };
+      const to = typeof (args as any)?.to === "string" ? String((args as any).to).trim() : "";
+      if (to !== "top" && to !== "bottom") return { status: 400, json: { ok: false, error: "Invalid to" } };
+      return { status: 200, json: { ok: true, note: "Queued a canvas UI scroll.", clientUiAction: { kind: "scroll", to } } };
+    }
+
+    case "ui.canvas.wait": {
+      const membership = await requirePortalMember();
+      if (!membership) return { status: 403, json: { ok: false, error: "Forbidden" } };
+      const ms = typeof (args as any)?.ms === "number" && Number.isFinite((args as any).ms) ? Math.floor((args as any).ms) : 0;
+      return { status: 200, json: { ok: true, note: "Queued a canvas UI wait.", clientUiAction: { kind: "wait", ms } } };
     }
 
     case "voice_agent.tools.get": {
@@ -24469,9 +24600,12 @@ function resultMarkdown(
   }
 
   if (action === "automations.create" && json?.ok && json?.automationId) {
+    const automationId = String(json.automationId || "").trim();
+    const url = `/portal/app/services/automations/editor?automation=${encodeURIComponent(automationId)}`;
+    const template = String((json as any)?.template || "").trim();
     return {
-      markdown: `Created an automation.\n\n[Open automations](/portal/app/services/automations)`,
-      linkUrl: "/portal/app/services/automations",
+      markdown: `Created an automation${template ? ` (${template})` : ""}.\n\n[Open automation editor](${url})`,
+      linkUrl: url,
     };
   }
 
@@ -25097,6 +25231,7 @@ export async function executePortalAgentActionForThread(opts: {
 
   const actorUserId = opts.actorUserId || opts.ownerId;
   const { json, status } = await runDirectAction({ action: opts.action, ownerId: opts.ownerId, actorUserId, args: resolvedArgs as any });
+  const clientUiAction = json && typeof json === "object" ? ((json as any).clientUiAction ?? null) : null;
   const ok =
     status >= 200 &&
     status < 300 &&
@@ -25150,6 +25285,7 @@ export async function executePortalAgentActionForThread(opts: {
     result: json,
     assistantMessage: assistantMsg,
     linkUrl,
+    clientUiAction,
     assistantChoices: null,
   };
 }
@@ -25210,6 +25346,7 @@ export async function executePortalAgentAction(opts: {
     actorUserId,
     args: argsParsed.data as any,
   });
+  const clientUiAction = json && typeof json === "object" ? ((json as any).clientUiAction ?? null) : null;
   const ok =
     status >= 200 &&
     status < 300 &&
@@ -25224,5 +25361,6 @@ export async function executePortalAgentAction(opts: {
     result: json,
     markdown,
     linkUrl,
+    clientUiAction,
   };
 }

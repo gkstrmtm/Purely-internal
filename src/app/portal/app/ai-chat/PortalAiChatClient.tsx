@@ -8,6 +8,7 @@ import { AppConfirmModal, AppModal } from "@/components/AppModal";
 import { useToast } from "@/components/ToastProvider";
 import { PortalMediaPickerModal, type PortalMediaPickItem } from "@/components/PortalMediaPickerModal";
 import { IconSchedule, IconSend, IconSendHover } from "@/app/portal/PortalIcons";
+import { usePuraCanvasUiBridgeClient, type PuraCanvasUiAction } from "@/lib/puraCanvasUiBridge.client";
 
 type AmbiguousContact = { name: string; email?: string | null; phone?: string | null };
 
@@ -52,6 +53,8 @@ type AssistantAction = {
   confirmLabel?: string;
   args: Record<string, unknown>;
 };
+
+type CanvasUiCandidate = { role: string; name: string; tag: string; nth: number };
 
 type Message = {
   id: string;
@@ -118,6 +121,21 @@ function safeHref(href: string) {
   try {
     const u = new URL(raw);
     if (!["http:", "https:", "mailto:", "tel:"].includes(u.protocol)) return null;
+
+    // If the assistant outputs an absolute URL to an internal portal path,
+    // force it to be relative so we never leak/use bogus hosts (e.g. yourportal.com).
+    if (u.protocol === "http:" || u.protocol === "https:") {
+      const path = u.pathname || "";
+      const internal =
+        path === "/portal" ||
+        path.startsWith("/portal/") ||
+        path === "/book" ||
+        path.startsWith("/book/") ||
+        path === "/api/portal" ||
+        path.startsWith("/api/portal/");
+      if (internal) return `${path}${u.search}${u.hash}`;
+    }
+
     return u.toString();
   } catch {
     return null;
@@ -304,6 +322,8 @@ export function PortalAiChatClient() {
 
   const [ambiguousContacts, setAmbiguousContacts] = useState<AmbiguousContact[] | null>(null);
   const [assistantChoices, setAssistantChoices] = useState<AssistantChoice[] | null>(null);
+  const [canvasUiAmbiguity, setCanvasUiAmbiguity] = useState<{ action: PuraCanvasUiAction; candidates: CanvasUiCandidate[] } | null>(null);
+  const [canvasUiResumeActions, setCanvasUiResumeActions] = useState<PuraCanvasUiAction[] | null>(null);
 
 
   const toast = useToast();
@@ -317,6 +337,8 @@ export function PortalAiChatClient() {
   const canvasIframeRef = useRef<HTMLIFrameElement | null>(null);
   const dragRef = useRef<{ startX: number; startWidth: number } | null>(null);
   const sidebarDragRef = useRef<{ startX: number; startWidth: number } | null>(null);
+
+  const canvasUi = usePuraCanvasUiBridgeClient(canvasIframeRef);
 
   useEffect(() => {
     try {
@@ -818,6 +840,91 @@ export function PortalAiChatClient() {
     [],
   );
 
+  const waitForCanvasReady = useCallback(
+    async (timeoutMs = 12_000) => {
+      const start = Date.now();
+      while (Date.now() - start < timeoutMs) {
+        try {
+          const ok = await canvasUi.ping();
+          if (ok) return;
+        } catch {
+          // ignore
+        }
+        await new Promise((r) => setTimeout(r, 200));
+      }
+      throw new Error("Canvas is not ready");
+    },
+    [canvasUi],
+  );
+
+  const executeClientUiActions = useCallback(
+    async (raw: unknown) => {
+      const list = (Array.isArray(raw) ? raw : [])
+        .filter((a) => a && typeof a === "object" && typeof (a as any).kind === "string")
+        .slice(0, 20) as PuraCanvasUiAction[];
+      if (!list.length) return;
+
+      setCanvasUiAmbiguity(null);
+      setCanvasUiResumeActions(null);
+
+      setCanvasOpen(true);
+      setCanvasModalOpen(false);
+
+      try {
+        await new Promise((r) => setTimeout(r, 50));
+        await waitForCanvasReady();
+
+        for (let i = 0; i < list.length; i++) {
+          const action = list[i]!;
+          try {
+            await canvasUi.run(action);
+          } catch (e: any) {
+            const candidates = Array.isArray(e?.candidates) ? (e.candidates as CanvasUiCandidate[]) : null;
+            if (candidates && candidates.length) {
+              setCanvasUiAmbiguity({ action, candidates });
+              const remaining = list.slice(i + 1);
+              setCanvasUiResumeActions(remaining.length ? remaining : null);
+              toast.error(e instanceof Error ? e.message : String(e));
+              return;
+            }
+            throw e;
+          }
+        }
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : String(e));
+      }
+    },
+    [canvasUi, toast, waitForCanvasReady],
+  );
+
+  const handleCanvasUiCandidateSelect = useCallback(
+    async (c: CanvasUiCandidate) => {
+      const amb = canvasUiAmbiguity;
+      if (!amb) return;
+
+      setCanvasUiAmbiguity(null);
+
+      try {
+        setCanvasOpen(true);
+        setCanvasModalOpen(false);
+        await new Promise((r) => setTimeout(r, 50));
+        await waitForCanvasReady();
+
+        const rerun = { ...(amb.action as any), nth: c.nth } as PuraCanvasUiAction;
+        await canvasUi.run(rerun);
+
+        const remaining = canvasUiResumeActions;
+        setCanvasUiResumeActions(null);
+        if (remaining && remaining.length) {
+          await executeClientUiActions(remaining);
+        }
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : String(e));
+      }
+    },
+    [canvasUi, canvasUiAmbiguity, canvasUiResumeActions, executeClientUiActions, toast, waitForCanvasReady],
+  );
+
   const send = useCallback(
     async (
       overrideText?: string,
@@ -861,6 +968,8 @@ export function PortalAiChatClient() {
       setPendingAttachments([]);
       setAmbiguousContacts(null);
       setAssistantChoices(null);
+      setCanvasUiAmbiguity(null);
+      setCanvasUiResumeActions(null);
 
       sendInFlightRef.current = true;
       setSending(true);
@@ -934,6 +1043,10 @@ export function PortalAiChatClient() {
             setCanvasModalOpen(false);
           }
 
+          if (Array.isArray((json2 as any)?.clientUiActions) && (json2 as any).clientUiActions.length) {
+            void executeClientUiActions((json2 as any).clientUiActions);
+          }
+
           const assistantActions2: AssistantAction[] = Array.isArray(json2.assistantActions)
             ? (json2.assistantActions as AssistantAction[])
             : [];
@@ -956,6 +1069,10 @@ export function PortalAiChatClient() {
           setCanvasUrl(nextCanvasUrl);
           setCanvasOpen(true);
           setCanvasModalOpen(false);
+        }
+
+        if (Array.isArray((json as any)?.clientUiActions) && (json as any).clientUiActions.length) {
+          void executeClientUiActions((json as any).clientUiActions);
         }
 
         const assistantActions: AssistantAction[] = Array.isArray(json.assistantActions)
@@ -985,7 +1102,7 @@ export function PortalAiChatClient() {
         setSending(false);
       }
     },
-    [activeThreadId, askConfirm, canvasUrl, input, pendingAttachments, toast, loadThreads],
+    [activeThreadId, askConfirm, canvasUrl, executeClientUiActions, input, pendingAttachments, toast, loadThreads],
   );
 
   // Handler for ambiguous contact selection (must be after send is defined)
@@ -1021,7 +1138,7 @@ export function PortalAiChatClient() {
       });
       const json = await res.json().catch(() => null);
       if (!json?.ok) throw new Error(json?.error || "Action failed");
-      return json as { assistantMessage?: Message; linkUrl?: string | null };
+      return json as { assistantMessage?: Message; linkUrl?: string | null; clientUiActions?: unknown[] };
     },
     [activeThreadId],
   );
@@ -1051,6 +1168,11 @@ export function PortalAiChatClient() {
           setCanvasOpen(true);
           setCanvasModalOpen(false);
         }
+
+        if (Array.isArray((json as any)?.clientUiActions) && (json as any).clientUiActions.length) {
+          void executeClientUiActions((json as any).clientUiActions);
+        }
+
         void loadThreads();
       } catch (e) {
         toast.error(e instanceof Error ? e.message : String(e));
@@ -1058,7 +1180,7 @@ export function PortalAiChatClient() {
         setRunningActionKey(null);
       }
     },
-    [askConfirm, executeAgentAction, loadThreads, runningActionKey, toast],
+    [askConfirm, executeAgentAction, executeClientUiActions, loadThreads, runningActionKey, toast],
   );
 
   const openInCanvas = useCallback(
@@ -1505,6 +1627,8 @@ export function PortalAiChatClient() {
                     const isLastAssistant = m.role === "assistant" && i === messages.length - 1;
                     const showAmbiguousContacts = isLastAssistant && Boolean(ambiguousContacts && ambiguousContacts.length);
                     const showChoices = isLastAssistant && Boolean(assistantChoices && assistantChoices.length);
+                    const showCanvasUiAmbiguity =
+                      isLastAssistant && Boolean(canvasUiAmbiguity && Array.isArray(canvasUiAmbiguity.candidates) && canvasUiAmbiguity.candidates.length);
                     return (
                       <div key={m.id}>
                         <MessageBubble
@@ -1550,6 +1674,24 @@ export function PortalAiChatClient() {
                             >
                               No preference
                             </button>
+                          </div>
+                        )}
+                        {showCanvasUiAmbiguity && (
+                          <div className="mt-2">
+                            <div className="mb-2 text-xs font-semibold text-zinc-500">Which UI element did you mean?</div>
+                            <div className="flex flex-wrap gap-2">
+                              {canvasUiAmbiguity?.candidates?.map((c, idx) => (
+                                <button
+                                  key={`${c.role}:${c.tag}:${c.nth}:${idx}`}
+                                  type="button"
+                                  className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-900 hover:bg-zinc-50"
+                                  onClick={() => void handleCanvasUiCandidateSelect(c)}
+                                  title={`${c.role || ""}${c.tag ? ` (${c.tag})` : ""}`.trim()}
+                                >
+                                  {c.name || `${c.role || "element"} #${c.nth}`}
+                                </button>
+                              ))}
+                            </div>
                           </div>
                         )}
                       </div>

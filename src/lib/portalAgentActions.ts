@@ -143,6 +143,14 @@ export const PortalAgentActionKeySchema = z.enum([
 
   "seed_demo.run",
 
+  // Canvas UI bridge actions (executed client-side inside the Work canvas iframe)
+  "ui.canvas.click",
+  "ui.canvas.type",
+  "ui.canvas.select",
+  "ui.canvas.set_checked",
+  "ui.canvas.scroll",
+  "ui.canvas.wait",
+
   "ads.next",
   "ads.click",
   "ads.claim",
@@ -1405,6 +1413,8 @@ export const PortalAgentActionArgsSchemaByKey = {
   "automations.create": z
     .object({
       name: z.string().trim().min(1).max(80),
+      template: z.enum(["blank", "post_appointment_nurture_enrollment"]).optional(),
+      nurtureCampaignId: z.string().trim().min(1).max(80).optional().nullable(),
     })
     .strict(),
 
@@ -2284,6 +2294,54 @@ export const PortalAgentActionArgsSchemaByKey = {
   "seed_demo.run": z
     .object({
       forceInboxSeed: z.boolean().optional(),
+    })
+    .strict(),
+
+  "ui.canvas.click": z
+    .object({
+      query: z.string().trim().min(1).max(200),
+      role: z.enum(["any", "button", "link", "tab", "checkbox", "radio", "select", "textbox", "menuitem"]).optional(),
+      nth: z.number().int().min(0).max(50).optional(),
+    })
+    .strict(),
+
+  "ui.canvas.type": z
+    .object({
+      query: z.string().trim().min(1).max(200),
+      value: z.string().max(10_000),
+      clear: z.boolean().optional(),
+      role: z.enum(["any", "button", "link", "tab", "checkbox", "radio", "select", "textbox", "menuitem"]).optional(),
+      nth: z.number().int().min(0).max(50).optional(),
+    })
+    .strict(),
+
+  "ui.canvas.select": z
+    .object({
+      query: z.string().trim().min(1).max(200),
+      option: z.string().trim().min(1).max(200),
+      role: z.enum(["any", "button", "link", "tab", "checkbox", "radio", "select", "textbox", "menuitem"]).optional(),
+      nth: z.number().int().min(0).max(50).optional(),
+    })
+    .strict(),
+
+  "ui.canvas.set_checked": z
+    .object({
+      query: z.string().trim().min(1).max(200),
+      checked: z.boolean(),
+      role: z.enum(["any", "button", "link", "tab", "checkbox", "radio", "select", "textbox", "menuitem"]).optional(),
+      nth: z.number().int().min(0).max(50).optional(),
+    })
+    .strict(),
+
+  "ui.canvas.scroll": z
+    .object({
+      to: z.enum(["top", "bottom"]),
+    })
+    .strict(),
+
+  "ui.canvas.wait": z
+    .object({
+      ms: z.number().int().min(0).max(5000),
     })
     .strict(),
 
@@ -3237,7 +3295,7 @@ export function portalAgentActionsIndexText(opts?: { includeAiChat?: boolean }):
     "- credit.reports.pull: Create a placeholder provider-pulled report (fields: contactId, provider?)",
     "- credit.reports.items.update: Update a credit report item status (fields: reportId, itemId, auditTag?, disputeStatus?)",
     "- automations.run: Run an automation by id (fields: automationId, contact?)",
-    "- automations.create: Create a new automation shell (fields: name)",
+    "- automations.create: Create an automation (fields: name, template?=blank|post_appointment_nurture_enrollment, nurtureCampaignId?)",
     "- automations.settings.get: Get automations settings (returns webhookToken, viewer, automations)",
     "- automations.settings.update: Replace automations settings (fields: automations)",
     "- automations.test_sms: Trigger an automation as if an inbound SMS occurred (fields: automationId, from, body?)",

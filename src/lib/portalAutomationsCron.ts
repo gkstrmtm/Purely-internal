@@ -360,3 +360,114 @@ export async function processDueMissedAppointments(opts: {
 
   return { ok: true, ownersTouched, missedFired, scanned: bookings.length, ms: Date.now() - startedAt };
 }
+
+export async function processDueAppointmentEnded(opts: {
+  lookbackHours: number;
+  graceMinutes: number;
+  limit: number;
+}) {
+  const startedAt = Date.now();
+
+  const graceMinutes = Math.max(5, Math.min(24 * 60, Math.round(opts.graceMinutes || 15)));
+  const lookbackHours = Math.max(1, Math.min(24 * 14, Math.round(opts.lookbackHours || 48)));
+  const cutoff = new Date(Date.now() - graceMinutes * 60_000);
+  const lookbackStart = new Date(Date.now() - lookbackHours * 60 * 60_000);
+
+  const bookings = await prisma.portalBooking.findMany({
+    where: {
+      status: "SCHEDULED",
+      endAt: { lt: cutoff, gte: lookbackStart },
+    },
+    select: {
+      id: true,
+      endAt: true,
+      calendarId: true,
+      contactId: true,
+      contactName: true,
+      contactEmail: true,
+      contactPhone: true,
+      site: { select: { ownerId: true } },
+    },
+    orderBy: { endAt: "desc" },
+    take: Math.max(1, Math.min(2000, Math.round(opts.limit || 200))),
+  });
+
+  // Group by owner for state updates.
+  const byOwner = new Map<string, Array<{ bookingId: string; payload: any }>>();
+
+  for (const b of bookings) {
+    const ownerId = b.site?.ownerId;
+    if (!ownerId) continue;
+
+    const list = byOwner.get(ownerId) || [];
+    list.push({
+      bookingId: b.id,
+      payload: {
+        ownerId,
+        triggerKind: "appointment_ended" as const,
+        contact: {
+          id: b.contactId ?? null,
+          name: b.contactName ?? null,
+          email: b.contactEmail ?? null,
+          phone: b.contactPhone ?? null,
+        },
+        message: {
+          from: b.contactEmail || b.contactPhone || "",
+          to: "",
+          body: `Appointment ended: ${b.contactName || "(unknown)"} (${b.contactEmail || b.contactPhone || ""})`,
+        },
+        event: { bookingId: b.id, calendarId: b.calendarId ?? undefined },
+      },
+    });
+    byOwner.set(ownerId, list);
+  }
+
+  let ownersTouched = 0;
+  let endedFired = 0;
+
+  for (const [ownerId, items] of byOwner.entries()) {
+    const row = await prisma.portalServiceSetup.findUnique({
+      where: { ownerId_serviceSlug: { ownerId, serviceSlug: SERVICE_SLUG } },
+      select: { dataJson: true },
+    });
+    const data = safeObj(row?.dataJson);
+    const fired = Array.isArray(data.appointmentEndedFiredIds)
+      ? (data.appointmentEndedFiredIds as any[]).flatMap((x) => (typeof x === "string" && x ? [x] : []))
+      : [];
+    const firedSet = new Set(fired);
+
+    let changed = false;
+
+    for (const it of items) {
+      if (firedSet.has(it.bookingId)) continue;
+
+      await runOwnerAutomationsForEvent({
+        ownerId,
+        triggerKind: "appointment_ended",
+        contact: it.payload.contact,
+        message: it.payload.message,
+        event: it.payload.event,
+      }).catch(() => null);
+
+      firedSet.add(it.bookingId);
+      endedFired += 1;
+      changed = true;
+
+      if (endedFired >= 500) break;
+    }
+
+    if (changed) {
+      ownersTouched += 1;
+      const nextIds = Array.from(firedSet).slice(-5000);
+      const nextData = { ...data, version: 1, appointmentEndedFiredIds: nextIds };
+      await prisma.portalServiceSetup.upsert({
+        where: { ownerId_serviceSlug: { ownerId, serviceSlug: SERVICE_SLUG } },
+        create: { ownerId, serviceSlug: SERVICE_SLUG, status: "COMPLETE", dataJson: nextData as any },
+        update: { status: "COMPLETE", dataJson: nextData as any },
+        select: { id: true },
+      });
+    }
+  }
+
+  return { ok: true, ownersTouched, endedFired, scanned: bookings.length, ms: Date.now() - startedAt };
+}

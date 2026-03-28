@@ -28,6 +28,7 @@ import { PORTAL_SERVICE_KEYS, type PortalServiceKey } from "@/lib/portalPermissi
 import type { Entitlements } from "@/lib/entitlements.shared";
 import { usePortalActiveTimeTracker } from "@/lib/portalActiveTime.client";
 import { toPurelyHostedUrl } from "@/lib/publicHostedOrigin";
+import { usePuraCanvasUiBridgeResponder } from "@/lib/puraCanvasUiBridge.client";
 
 const DEFAULT_FULL_DEMO_EMAIL = "demo-full@purelyautomation.dev";
 
@@ -78,6 +79,7 @@ function sidebarIconToneClassForSlug(slug: string) {
 
 export function PortalShell({ children }: { children: React.ReactNode }) {
   usePortalActiveTimeTracker();
+  usePuraCanvasUiBridgeResponder();
 
   const pathname = usePathname();
   const searchParams = useSearchParams();

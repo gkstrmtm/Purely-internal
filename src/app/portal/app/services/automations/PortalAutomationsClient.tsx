@@ -112,6 +112,7 @@ type TriggerKind =
   | "inbound_webhook"
   | "scheduled_time"
   | "missed_appointment"
+  | "appointment_ended"
   | "appointment_booked"
   | "missed_call"
   | "review_received"
@@ -502,6 +503,7 @@ function labelForConfig(t: BuilderNodeType, cfg: BuilderNodeConfig | undefined) 
       inbound_webhook: "Inbound webhook",
       scheduled_time: "Scheduled time",
       missed_appointment: "Missed appointment",
+      appointment_ended: "Appointment ended",
       appointment_booked: "Appointment booked",
       missed_call: "Missed call",
       review_received: "Review received",
@@ -3868,6 +3870,7 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
                                 { value: "inbound_webhook", label: "Inbound webhook" },
                                 { value: "scheduled_time", label: "Scheduler / time" },
                                 { value: "missed_appointment", label: "Missed appointment" },
+                                { value: "appointment_ended", label: "Appointment ended" },
                                 { value: "appointment_booked", label: "Appointment booked" },
                                 { value: "missed_call", label: "Missed call" },
                                 { value: "review_received", label: "Review received" },

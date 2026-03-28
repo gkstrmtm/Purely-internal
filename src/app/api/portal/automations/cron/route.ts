@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-import { processDueMissedAppointments, processDueScheduledAutomations } from "@/lib/portalAutomationsCron";
+import { processDueAppointmentEnded, processDueMissedAppointments, processDueScheduledAutomations } from "@/lib/portalAutomationsCron";
 import { isVercelCronRequest, readCronAuthValue } from "@/lib/cronAuth";
 
 export const dynamic = "force-dynamic";
@@ -34,6 +34,7 @@ export async function GET(req: Request) {
 
   const scheduled = await processDueScheduledAutomations({ ownersLimit: 2000, perOwnerMaxRuns: 12 });
   const missed = await processDueMissedAppointments({ lookbackHours: 72, graceMinutes: 20, limit: 400 });
+  const ended = await processDueAppointmentEnded({ lookbackHours: 72, graceMinutes: 20, limit: 400 });
 
-  return NextResponse.json({ ok: true, scheduled, missed });
+  return NextResponse.json({ ok: true, scheduled, missed, ended });
 }

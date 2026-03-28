@@ -65,5 +65,13 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: exec.error || "Invalid action args" }, { status: 400 });
   }
 
-  return NextResponse.json(exec);
+  const cua = (exec as any)?.clientUiAction ?? null;
+  return NextResponse.json({
+    ...(exec as any),
+    clientUiActions: Array.isArray((exec as any)?.clientUiActions)
+      ? (exec as any).clientUiActions
+      : cua
+        ? [cua]
+        : [],
+  });
 }
