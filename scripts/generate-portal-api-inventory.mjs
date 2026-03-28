@@ -38,6 +38,7 @@ const ACTION_COVERAGE = [
   { action: "people.contacts.duplicates.get", method: "GET", endpoint: "/api/portal/people/contacts/duplicates" },
   { action: "people.contacts.merge", method: "POST", endpoint: "/api/portal/people/contacts/merge" },
   { action: "people.contacts.custom_variables.patch", method: "PATCH", endpoint: "/api/portal/people/contacts/[contactId]/custom-variables" },
+  { action: "people.contacts.import", method: "POST", endpoint: "/api/portal/people/contacts/import" },
 
   { action: "contact_tags.list", method: "GET", endpoint: "/api/portal/contact-tags" },
   { action: "contact_tags.create", method: "POST", endpoint: "/api/portal/contact-tags" },
@@ -54,6 +55,8 @@ const ACTION_COVERAGE = [
   { action: "push.register", method: "POST", endpoint: "/api/portal/push/register" },
 
   { action: "profile.get", method: "GET", endpoint: "/api/portal/profile" },
+  { action: "profile.update", method: "PUT", endpoint: "/api/portal/profile" },
+  { action: "profile.password.update", method: "PUT", endpoint: "/api/portal/profile/password" },
 
   { action: "notifications.recipients.list", method: "GET", endpoint: "/api/portal/notifications/recipients" },
 
@@ -88,10 +91,13 @@ const ACTION_COVERAGE = [
   { action: "bug_report.submit", method: "POST", endpoint: "/api/portal/bug-report" },
 
   { action: "integrations.twilio.get", method: "GET", endpoint: "/api/portal/integrations/twilio" },
+  { action: "integrations.twilio.update", method: "PUT", endpoint: "/api/portal/integrations/twilio" },
   { action: "integrations.stripe.get", method: "GET", endpoint: "/api/portal/integrations/stripe" },
   { action: "integrations.stripe.delete", method: "DELETE", endpoint: "/api/portal/integrations/stripe" },
+  { action: "integrations.stripe.update", method: "PUT", endpoint: "/api/portal/integrations/stripe" },
   { action: "integrations.sales_reporting.get", method: "GET", endpoint: "/api/portal/integrations/sales-reporting" },
   { action: "integrations.sales_reporting.disconnect", method: "DELETE", endpoint: "/api/portal/integrations/sales-reporting" },
+  { action: "integrations.sales_reporting.update", method: "PUT", endpoint: "/api/portal/integrations/sales-reporting" },
 
   { action: "follow_up.settings.get", method: "GET", endpoint: "/api/portal/follow-up/settings" },
   { action: "follow_up.settings.update", method: "PUT", endpoint: "/api/portal/follow-up/settings" },
@@ -255,6 +261,7 @@ const ACTION_COVERAGE = [
   { action: "newsletter.newsletters.create", method: "POST", endpoint: "/api/portal/newsletter/newsletters" },
   { action: "newsletter.newsletters.get", method: "GET", endpoint: "/api/portal/newsletter/newsletters/[newsletterId]" },
   { action: "newsletter.newsletters.update", method: "PUT", endpoint: "/api/portal/newsletter/newsletters/[newsletterId]" },
+  { action: "newsletter.newsletters.send", method: "POST", endpoint: "/api/portal/newsletter/newsletters/[newsletterId]/send" },
   { action: "newsletter.audience.contacts.search", method: "GET", endpoint: "/api/portal/newsletter/audience/contacts" },
   { action: "newsletter.royalty_free_images.suggest", method: "POST", endpoint: "/api/portal/newsletter/royalty-free-images/suggest" },
   { action: "newsletter.automation.settings.get", method: "GET", endpoint: "/api/portal/newsletter/automation/settings" },
@@ -309,6 +316,7 @@ const ACTION_COVERAGE = [
   { action: "inbox.thread.messages.list", method: "GET", endpoint: "/api/portal/inbox/threads/[threadId]/messages" },
   { action: "inbox.thread.contact.set", method: "POST", endpoint: "/api/portal/inbox/threads/[threadId]/contact" },
   { action: "inbox.scheduled.update", method: "PATCH", endpoint: "/api/portal/inbox/scheduled/[scheduledId]" },
+  { action: "inbox.attachments.upload", method: "POST", endpoint: "/api/portal/inbox/attachments" },
   { action: "inbox.attachments.create_from_media", method: "POST", endpoint: "/api/portal/inbox/attachments/from-media" },
   { action: "inbox.attachments.delete", method: "DELETE", endpoint: "/api/portal/inbox/attachments/[id]" },
   { action: "inbox.settings.get", method: "GET", endpoint: "/api/portal/inbox/settings" },
