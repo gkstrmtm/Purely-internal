@@ -11033,7 +11033,7 @@ async function runDirectAction(opts: {
           if (!raw) return null;
           const parsed = normalizePhoneStrict(raw);
           if (parsed.ok && parsed.e164) return parsed.e164;
-          return raw.slice(0, 64);
+          return null;
         } catch {
           return null;
         }
@@ -18385,16 +18385,55 @@ async function runDirectAction(opts: {
     }
 
     case "inbox.send_sms": {
-      const to = String(args.to || "").trim();
+      let to = String((args as any).to || "").trim();
       const body = String(args.body || "").trim();
-      if (!to || !body) return { status: 400, json: { ok: false, error: "Missing to/body" } };
+      const threadIdRaw = typeof (args as any).threadId === "string" ? String((args as any).threadId).trim() : "";
+      const contactIdRaw = typeof (args as any).contactId === "string" ? String((args as any).contactId).trim() : "";
+      if (!body) return { status: 400, json: { ok: false, error: "Missing body" } };
+
+      // Prefer threadId peerAddress (most reliable / already normalized by inbox).
+      let threadId: string | undefined = threadIdRaw || undefined;
+      if (threadIdRaw && !to) {
+        const thread = await (prisma as any).portalInboxThread
+          .findFirst({ where: { ownerId, id: threadIdRaw }, select: { id: true, channel: true, peerAddress: true } })
+          .catch(() => null);
+        const peer = thread?.channel === "SMS" ? String(thread?.peerAddress || "").trim() : "";
+        if (peer) to = peer;
+      }
+
+      // If we have a contactId, prefer an existing SMS thread to mirror manual sending behavior.
+      if (contactIdRaw && !to) {
+        const latestSmsThread = await (prisma as any).portalInboxThread
+          .findFirst({
+            where: { ownerId, channel: "SMS", contactId: contactIdRaw },
+            orderBy: { updatedAt: "desc" },
+            select: { id: true, peerAddress: true },
+          })
+          .catch(() => null);
+        const peer = latestSmsThread?.peerAddress ? String(latestSmsThread.peerAddress).trim() : "";
+        if (peer) {
+          to = peer;
+          if (!threadId) threadId = String(latestSmsThread.id);
+        }
+      }
+
+      // Last resort: use the contact's stored phone.
+      if (contactIdRaw && !to) {
+        const contact = await (prisma as any).portalContact
+          .findFirst({ where: { ownerId, id: contactIdRaw }, select: { phone: true } })
+          .catch(() => null);
+        const phone = typeof contact?.phone === "string" ? String(contact.phone).trim() : "";
+        if (phone) to = phone;
+      }
+
+      if (!to) return { status: 400, json: { ok: false, error: "Missing recipient (to/contactId/threadId)" } };
 
       const sent = await sendPortalInboxMessageNow({
         ownerId,
         channel: "sms",
         to,
         body,
-        threadId: typeof args.threadId === "string" ? String(args.threadId) : undefined,
+        threadId,
         baseUrl: (process.env.NEXTAUTH_URL || "http://localhost:3000").replace(/\/$/, ""),
       });
 

@@ -2109,11 +2109,14 @@ export const PortalAgentActionArgsSchemaByKey = {
 
   "inbox.send_sms": z
     .object({
-      to: z.string().trim().min(3).max(64),
+      // Either provide a phone number in `to`, or a `contactId`.
+      to: z.string().trim().min(3).max(64).optional(),
+      contactId: z.string().trim().min(1).max(120).optional(),
       body: z.string().trim().min(1).max(900),
       threadId: z.string().trim().min(1).max(120).optional(),
     })
-    .strict(),
+    .strict()
+    .refine((v) => Boolean((v as any).to || (v as any).contactId || (v as any).threadId), { message: "Missing to/contactId/threadId" }),
 
   "inbox.send_email": z
     .object({
@@ -3399,7 +3402,7 @@ export function portalAgentActionsIndexText(opts?: { includeAiChat?: boolean }):
     "- inbox.settings.get: Get inbox settings (mailbox + webhook URLs)",
     "- inbox.settings.update: Regenerate inbox webhook token (fields: regenerateToken=true)",
     "- inbox.send: Send or schedule an inbox message (fields: channel=email|sms, to, subject?, body?, attachmentIds?, threadId?, sendAt?)",
-    "- inbox.send_sms: Send an SMS (fields: to, body, threadId?)",
+    "- inbox.send_sms: Send an SMS (fields: body, to? (phone), contactId? (preferred), threadId?)",
     "- inbox.send_email: Send an email (fields: to, subject, body, threadId?)",
     "- reviews.send_request_for_booking: Send a review request for a completed booking (fields: bookingId)",
     "- reviews.send_request_for_contact: Send a review request to a contact (fields: contactId)",

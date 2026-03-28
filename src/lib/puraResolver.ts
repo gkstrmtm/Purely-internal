@@ -380,6 +380,19 @@ async function resolveContactId(opts: {
   const ownerId = String(opts.ownerId);
   const hint = String(opts.hint || "").trim();
 
+  // If the hint is already a contact ID (e.g., from thread choiceOverrides), resolve directly.
+  if (looksLikeId(hint)) {
+    const row = await (prisma as any).portalContact
+      .findFirst({ where: { ownerId, id: hint.slice(0, 120) }, select: { id: true, name: true, email: true, phone: true } })
+      .catch(() => null);
+    if (row?.id) {
+      const name = String(row?.name || "").trim();
+      const email = String(row?.email || "").trim();
+      const phone = String(row?.phone || "").trim();
+      return { kind: "ok", contactId: String(row.id), contactName: name || email || phone || "Contact" };
+    }
+  }
+
   const makeContactChoices = (rows: Array<{ id: string; name?: string | null; email?: string | null; phone?: string | null }>): AssistantChoice[] => {
     const list = (rows || [])
       .filter((r) => r && typeof r === "object")

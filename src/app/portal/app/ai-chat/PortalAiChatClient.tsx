@@ -396,6 +396,28 @@ export function PortalAiChatClient() {
 
   const toast = useToast();
 
+  const inputRef = useRef<HTMLTextAreaElement | null>(null);
+
+  const resizeInput = useCallback(() => {
+    const el = inputRef.current;
+    if (!el) return;
+    try {
+      const cs = window.getComputedStyle(el);
+      const lineHeight = Number.parseFloat(cs.lineHeight || "20") || 20;
+      const padTop = Number.parseFloat(cs.paddingTop || "0") || 0;
+      const padBottom = Number.parseFloat(cs.paddingBottom || "0") || 0;
+      const maxLines = 5;
+      const maxHeight = Math.ceil(lineHeight * maxLines + padTop + padBottom);
+
+      el.style.height = "0px";
+      const next = Math.min(el.scrollHeight, maxHeight);
+      el.style.height = `${Math.max(next, 44)}px`;
+      el.style.overflowY = el.scrollHeight > maxHeight ? "auto" : "hidden";
+    } catch {
+      // ignore
+    }
+  }, []);
+
   const openCanvasInNewTab = useCallback((url: string | null) => {
     const u = typeof url === "string" ? url.trim() : "";
     if (!u) return;
@@ -1298,6 +1320,10 @@ export function PortalAiChatClient() {
   );
 
   useEffect(() => {
+    resizeInput();
+  }, [input, resizeInput]);
+
+  useEffect(() => {
     return () => {
       try {
         dictationRef.current?.audio.pause();
@@ -2093,8 +2119,13 @@ export function PortalAiChatClient() {
             />
 
             <textarea
+              ref={inputRef}
               value={input}
-              onChange={(e) => setInput(e.target.value)}
+              onChange={(e) => {
+                setInput(e.target.value);
+                // Ensure the element has the latest value before measuring.
+                requestAnimationFrame(() => resizeInput());
+              }}
               rows={1}
               placeholder={uploading ? "Uploading…" : "Message"}
               className="min-h-11 flex-1 resize-none rounded-3xl border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-900 placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-[rgba(29,78,216,0.25)]"
