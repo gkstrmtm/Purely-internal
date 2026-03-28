@@ -48,6 +48,9 @@ const ACTION_COVERAGE = [
   { action: "me.get", method: "GET", endpoint: "/api/portal/me" },
 
   { action: "auth.resend_verification", method: "POST", endpoint: "/api/portal/auth/resend-verification" },
+  { action: "auth.verify_email", method: "POST", endpoint: "/api/portal/auth/verify-email" },
+  { action: "auth.verification_email.cron.run", method: "GET", endpoint: "/api/portal/auth/verification-email/cron" },
+  { action: "auth.webview_session.get", method: "GET", endpoint: "/api/portal/auth/webview-session" },
 
   { action: "engagement.ping", method: "POST", endpoint: "/api/portal/engagement/ping" },
   { action: "engagement.active_time", method: "POST", endpoint: "/api/portal/engagement/active-time" },
@@ -105,6 +108,7 @@ const ACTION_COVERAGE = [
   { action: "follow_up.custom_variables.update", method: "PUT", endpoint: "/api/portal/follow-up/custom-variables" },
   { action: "follow_up.ai.generate_step", method: "POST", endpoint: "/api/portal/follow-up/ai/generate-step" },
   { action: "follow_up.test_send", method: "POST", endpoint: "/api/portal/follow-up/test-send" },
+  { action: "follow_up.cron.run", method: "GET", endpoint: "/api/portal/follow-up/cron" },
 
   { action: "lead_scraping.settings.get", method: "GET", endpoint: "/api/portal/lead-scraping/settings" },
   { action: "lead_scraping.settings.update", method: "PUT", endpoint: "/api/portal/lead-scraping/settings" },
@@ -116,12 +120,14 @@ const ACTION_COVERAGE = [
   { action: "lead_scraping.outbound.approve", method: "POST", endpoint: "/api/portal/lead-scraping/outbound/approve" },
   { action: "lead_scraping.outbound.send", method: "POST", endpoint: "/api/portal/lead-scraping/outbound/send" },
   { action: "lead_scraping.outbound.ai.draft_template", method: "POST", endpoint: "/api/portal/lead-scraping/outbound/ai/draft-template" },
+  { action: "lead_scraping.cron.run", method: "GET", endpoint: "/api/portal/lead-scraping/cron" },
 
   { action: "automations.run", method: "POST", endpoint: "/api/portal/automations/run" },
 
   { action: "automations.settings.get", method: "GET", endpoint: "/api/portal/automations/settings" },
   { action: "automations.settings.update", method: "PUT", endpoint: "/api/portal/automations/settings" },
   { action: "automations.test_sms", method: "POST", endpoint: "/api/portal/automations/test-sms" },
+  { action: "automations.cron.run", method: "GET", endpoint: "/api/portal/automations/cron" },
 
   { action: "services.catalog.get", method: "GET", endpoint: "/api/portal/services/catalog" },
   { action: "services.lifecycle.update", method: "POST", endpoint: "/api/portal/services/lifecycle" },
@@ -152,6 +158,7 @@ const ACTION_COVERAGE = [
   { action: "reviews.handle.get", method: "GET", endpoint: "/api/portal/reviews/handle" },
   { action: "reviews.questions.list", method: "GET", endpoint: "/api/portal/reviews/questions" },
   { action: "reviews.questions.answer", method: "PUT", endpoint: "/api/portal/reviews/questions/answer" },
+  { action: "reviews.cron.run", method: "GET", endpoint: "/api/portal/reviews/cron" },
 
   { action: "media.folders.list", method: "GET", endpoint: "/api/portal/media/folders" },
   { action: "media.folder.ensure", method: "POST", endpoint: "/api/portal/media/folders" },
@@ -164,6 +171,7 @@ const ACTION_COVERAGE = [
   { action: "media.import_remote_image", method: "POST", endpoint: "/api/portal/media/import-remote" },
   { action: "media.list.get", method: "GET", endpoint: "/api/portal/media/list" },
   { action: "media.stats.get", method: "GET", endpoint: "/api/portal/media/stats" },
+  { action: "media.blob_upload.create", method: "POST", endpoint: "/api/portal/media/blob-upload" },
 
   { action: "dashboard.get", method: "GET", endpoint: "/api/portal/dashboard" },
 
@@ -195,6 +203,7 @@ const ACTION_COVERAGE = [
   { action: "booking.reminders.settings.get", method: "GET", endpoint: "/api/portal/booking/reminders/settings" },
   { action: "booking.reminders.settings.update", method: "PUT", endpoint: "/api/portal/booking/reminders/settings" },
   { action: "booking.reminders.ai.generate_step", method: "POST", endpoint: "/api/portal/booking/reminders/ai/generate-step" },
+  { action: "booking.reminders.cron.run", method: "GET", endpoint: "/api/portal/booking/reminders/cron" },
 
   { action: "nurture.campaigns.list", method: "GET", endpoint: "/api/portal/nurture/campaigns" },
   { action: "nurture.campaigns.create", method: "POST", endpoint: "/api/portal/nurture/campaigns" },
@@ -207,6 +216,7 @@ const ACTION_COVERAGE = [
   { action: "nurture.campaigns.enroll", method: "POST", endpoint: "/api/portal/nurture/campaigns/[campaignId]/enroll" },
   { action: "nurture.billing.confirm_checkout", method: "POST", endpoint: "/api/portal/nurture/campaigns/[campaignId]/confirm-checkout" },
   { action: "nurture.ai.generate_step", method: "POST", endpoint: "/api/portal/nurture/ai/generate-step" },
+  { action: "nurture.cron.run", method: "GET", endpoint: "/api/portal/nurture/cron" },
 
   // AI Outbound Calls (safe CRUD + reporting)
   { action: "ai_outbound_calls.campaigns.list", method: "GET", endpoint: "/api/portal/ai-outbound-calls/campaigns" },
@@ -247,6 +257,7 @@ const ACTION_COVERAGE = [
   { action: "blogs.posts.export_markdown", method: "GET", endpoint: "/api/portal/blogs/posts/[postId]/export" },
   { action: "blogs.automation.settings.get", method: "GET", endpoint: "/api/portal/blogs/automation/settings" },
   { action: "blogs.automation.settings.update", method: "PUT", endpoint: "/api/portal/blogs/automation/settings" },
+  { action: "blogs.automation.cron.run", method: "GET", endpoint: "/api/portal/blogs/automation/cron" },
   { action: "blogs.generate_now", method: "POST", endpoint: "/api/portal/blogs/automation/generate-now" },
   { action: "blogs.posts.generate_draft", method: "POST", endpoint: "/api/portal/blogs/posts/[postId]/generate" },
   { action: "blogs.posts.publish", method: "POST", endpoint: "/api/portal/blogs/posts/[postId]/publish" },
@@ -266,6 +277,7 @@ const ACTION_COVERAGE = [
   { action: "newsletter.royalty_free_images.suggest", method: "POST", endpoint: "/api/portal/newsletter/royalty-free-images/suggest" },
   { action: "newsletter.automation.settings.get", method: "GET", endpoint: "/api/portal/newsletter/automation/settings" },
   { action: "newsletter.automation.settings.update", method: "PUT", endpoint: "/api/portal/newsletter/automation/settings" },
+  { action: "newsletter.automation.cron.run", method: "GET", endpoint: "/api/portal/newsletter/automation/cron" },
   { action: "newsletter.generate_now", method: "POST", endpoint: "/api/portal/newsletter/automation/generate-now" },
 
   // Billing (safe reads)
@@ -286,9 +298,19 @@ const ACTION_COVERAGE = [
   { action: "billing.upgrade.checkout", method: "POST", endpoint: "/api/portal/billing/upgrade-checkout" },
   { action: "pricing.get", method: "GET", endpoint: "/api/portal/pricing" },
 
+  { action: "seed_demo.run", method: "POST", endpoint: "/api/portal/seed-demo" },
+
+  // Ads (billing-adjacent)
+  { action: "ads.next", method: "GET", endpoint: "/api/portal/ads/next" },
+  { action: "ads.click", method: "GET", endpoint: "/api/portal/ads/click" },
+  { action: "ads.claim", method: "POST", endpoint: "/api/portal/ads/claim" },
+  { action: "ads.reward", method: "POST", endpoint: "/api/portal/ads/reward" },
+
   // Credits (billing-gated)
   { action: "credits.get", method: "GET", endpoint: "/api/portal/credits" },
   { action: "credits.auto_topup.set", method: "PUT", endpoint: "/api/portal/credits" },
+  { action: "credits.topup.start", method: "POST", endpoint: "/api/portal/credits/topup" },
+  { action: "credits.topup.confirm_checkout", method: "POST", endpoint: "/api/portal/credits/topup/confirm-checkout" },
 
   // Reporting (safe reads)
   { action: "reporting.summary.get", method: "GET", endpoint: "/api/portal/reporting" },
@@ -316,6 +338,7 @@ const ACTION_COVERAGE = [
   { action: "inbox.thread.messages.list", method: "GET", endpoint: "/api/portal/inbox/threads/[threadId]/messages" },
   { action: "inbox.thread.contact.set", method: "POST", endpoint: "/api/portal/inbox/threads/[threadId]/contact" },
   { action: "inbox.scheduled.update", method: "PATCH", endpoint: "/api/portal/inbox/scheduled/[scheduledId]" },
+  { action: "inbox.scheduled.cron.run", method: "GET", endpoint: "/api/portal/inbox/scheduled/cron" },
   { action: "inbox.attachments.upload", method: "POST", endpoint: "/api/portal/inbox/attachments" },
   { action: "inbox.attachments.create_from_media", method: "POST", endpoint: "/api/portal/inbox/attachments/from-media" },
   { action: "inbox.attachments.delete", method: "DELETE", endpoint: "/api/portal/inbox/attachments/[id]" },
@@ -325,6 +348,9 @@ const ACTION_COVERAGE = [
 
   // AI Receptionist (safe-ish reads / playback helpers)
   { action: "ai_receptionist.settings.get", method: "GET", endpoint: "/api/portal/ai-receptionist/settings" },
+  { action: "ai_receptionist.settings.update", method: "PUT", endpoint: "/api/portal/ai-receptionist/settings" },
+  { action: "ai_receptionist.events.refresh", method: "POST", endpoint: "/api/portal/ai-receptionist/events/[callSid]" },
+  { action: "ai_receptionist.events.delete", method: "DELETE", endpoint: "/api/portal/ai-receptionist/events/[callSid]" },
   { action: "ai_receptionist.recordings.get", method: "GET", endpoint: "/api/portal/ai-receptionist/recordings/[recordingSid]" },
   { action: "ai_receptionist.recordings.demo.get", method: "GET", endpoint: "/api/portal/ai-receptionist/recordings/demo/[id]" },
   { action: "ai_receptionist.demo_audio.get", method: "GET", endpoint: "/api/portal/ai-receptionist/demo-audio/[id]" },

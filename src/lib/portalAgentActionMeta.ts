@@ -18,10 +18,19 @@ const NO_CONFIRM_KEYS = new Set<PortalAgentActionKey>([
 export function getConfirmSpecForPortalAgentAction(action: PortalAgentActionKey): PortalAgentConfirmSpec | null {
   if (NO_CONFIRM_KEYS.has(action)) return null;
 
+  if (/(^|\.)cron\.run$/i.test(action) || action === "seed_demo.run") {
+    return {
+      title: "Confirm",
+      message: "This action runs a background/system job and may affect many accounts. Continue?",
+    };
+  }
+
   // Explicit high-risk / destructive actions.
   if (
     action === "billing.subscriptions.cancel" ||
     action === "billing.subscriptions.cancel_by_id" ||
+    action === "ads.click" ||
+    action === "credits.topup.start" ||
     action === "integrations.stripe.delete" ||
     action === "integrations.sales_reporting.disconnect" ||
     action === "tasks.create_for_all" ||

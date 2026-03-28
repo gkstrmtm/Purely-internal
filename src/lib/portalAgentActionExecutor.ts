@@ -5,6 +5,8 @@ import { Expo } from "expo-server-sdk";
 
 import { Prisma } from "@prisma/client";
 
+import { handleUpload, type HandleUploadBody } from "@vercel/blob/client";
+
 import { z } from "zod";
 
 import { PORTAL_SERVICES } from "@/app/portal/services/catalog";
@@ -12,7 +14,7 @@ import { groupPortalServices } from "@/app/portal/services/categories";
 import { prisma } from "@/lib/db";
 import { dbHasPublicColumn } from "@/lib/dbSchemaCompat";
 import { parseCsv } from "@/lib/csv";
-import { renderTemplate, sendEmail, sendSms } from "@/lib/leadOutbound";
+import { baseUrlFromRequest, renderTemplate, sendEmail, sendSms } from "@/lib/leadOutbound";
 import { draftLeadOutboundEmail, draftLeadOutboundSms } from "@/lib/leadOutboundAi";
 import { getPortalServiceStatusesForOwner } from "@/lib/portalServicesStatus";
 import {
@@ -48,8 +50,10 @@ import {
   planQuantity,
 } from "@/lib/portalOnboardingWizardCatalog";
 import { portalBasePath, type PortalVariant } from "@/lib/portalVariant";
+import { getNextPortalAdCampaignForOwner, getPortalAdCampaignForOwnerById, type PortalAdPlacement } from "@/lib/portalAdCampaigns.server";
 import { ensurePortalTasksSchema } from "@/lib/portalTasksSchema";
 import { runOwnerAutomationByIdForEvent, runOwnerAutomationByIdForInboundSms, runOwnerAutomationsForEvent } from "@/lib/portalAutomationsRunner";
+import { processDueMissedAppointments, processDueScheduledAutomations } from "@/lib/portalAutomationsCron";
 import { generateClientBlogDraft } from "@/lib/clientBlogAutomation";
 import { generateClientNewsletterDraft } from "@/lib/clientNewsletterAutomation";
 import { sendNewsletterToAudience, uniqueNewsletterSlug } from "@/lib/portalNewsletter";
@@ -64,8 +68,10 @@ import {
   getAppointmentReminderSettingsForCalendar,
   listAppointmentReminderEvents,
   parseAppointmentReminderSettings,
+  processDueAppointmentReminders,
   setAppointmentReminderSettingsForCalendar,
 } from "@/lib/appointmentReminders";
+import { processDueBookingInternalReminders } from "@/lib/bookingInternalReminders";
 import { ensurePortalContactsSchema } from "@/lib/portalContactsSchema";
 import { findOrCreatePortalContact, normalizeEmailKey, normalizeNameKey as normalizeContactNameKey, normalizePhoneKey } from "@/lib/portalContacts";
 import { listDuplicatePortalContactsByPhoneKey, mergePortalContacts } from "@/lib/portalContactDedup";
@@ -82,7 +88,7 @@ import {
   updateOwnerContactTag,
 } from "@/lib/portalContactTags";
 import { extractEmailAddress, getPortalInboxSettings, regeneratePortalInboxWebhookToken } from "@/lib/portalInbox";
-import { schedulePortalInboxMessage, sendPortalInboxMessageNow } from "@/lib/portalInboxSend";
+import { processDuePortalInboxScheduledMessages, schedulePortalInboxMessage, sendPortalInboxMessageNow } from "@/lib/portalInboxSend";
 import { ensurePortalInboxSchema } from "@/lib/portalInboxSchema";
 import { extractAllEmailAddresses, getOrCreateOwnerMailboxAddress, getOwnerMailboxAddressForUi, updateOwnerMailboxLocalPartOnce } from "@/lib/portalMailbox";
 import {
@@ -98,6 +104,7 @@ import {
   getReviewRequestsServiceData,
   listReviewRequestEvents,
   parseReviewRequestsSettings,
+  processDueReviewRequests,
   sendReviewRequestForBooking,
   sendReviewRequestForContact,
   setReviewRequestsSettings,
@@ -113,6 +120,7 @@ import {
   getFollowUpServiceData,
   getFollowUpSettings,
   parseFollowUpSettings,
+  processDueFollowUps,
   scheduleFollowUpsForBooking,
   setFollowUpSettings,
 } from "@/lib/followUpAutomation";
@@ -132,6 +140,12 @@ import { getOrCreateStripeCustomerId, isStripeConfigured, stripeDelete, stripeGe
 import { generateText, generateTextWithImages, transcribeAudio, transcribeAudioVerbose } from "@/lib/ai";
 import { getBusinessProfileAiContext, getBusinessProfileTemplateVars } from "@/lib/businessProfileAiContext.server";
 import { getAppBaseUrl, listPortalAccountRecipientContacts, tryNotifyPortalAccountUsers, tryNotifyPortalUserIds } from "@/lib/portalNotifications";
+import { GET as authVerificationEmailCronGET } from "@/app/api/portal/auth/verification-email/cron/route";
+import { GET as blogsAutomationCronGET } from "@/app/api/portal/blogs/automation/cron/route";
+import { GET as leadScrapingCronGET } from "@/app/api/portal/lead-scraping/cron/route";
+import { GET as newsletterAutomationCronGET } from "@/app/api/portal/newsletter/automation/cron/route";
+import { GET as nurtureCronGET } from "@/app/api/portal/nurture/cron/route";
+import { POST as seedDemoPOST } from "@/app/api/portal/seed-demo/route";
 import { resolveEntitlementsForOwnerId } from "@/lib/entitlements";
 import { checkHttpsReachable, ensureVercelProjectDomain, formatVercelVerificationRecords } from "@/lib/vercelProjectDomains";
 import { coerceBlocksJson, type CreditFunnelBlock } from "@/lib/creditFunnelBlocks";
@@ -9484,6 +9498,483 @@ async function runDirectAction(opts: {
       };
     }
 
+    case "ads.next": {
+      const ok = await requireServiceCapability("billing", "view");
+      if (!ok) return { status: 403, json: { ok: false, error: "Forbidden" } };
+
+      const owner = await prisma.user.findUnique({ where: { id: ownerId }, select: { clientPortalVariant: true } }).catch(() => null);
+      const portalVariant: PortalVariant = owner?.clientPortalVariant === "CREDIT" ? "credit" : "portal";
+
+      const placement = String((args as any)?.placement || "") as PortalAdPlacement;
+      const path = typeof (args as any)?.path === "string" ? String((args as any).path).trim().slice(0, 500) : null;
+      const excludeCampaignIds = Array.isArray((args as any)?.excludeCampaignIds)
+        ? (args as any).excludeCampaignIds.map((x: any) => String(x || "").trim()).filter(Boolean).slice(0, 200)
+        : [];
+
+      const campaign = await getNextPortalAdCampaignForOwner({ ownerId, portalVariant, placement, path, excludeCampaignIds });
+
+      if (campaign?.id) {
+        await prisma.portalAdCampaignEvent
+          .create({
+            data: {
+              campaignId: campaign.id,
+              ownerId,
+              kind: "IMPRESSION",
+              metaJson: { action: "IMPRESSION", placement, path, device: "desktop", userAgent: "portal-agent" },
+            },
+            select: { id: true },
+          })
+          .catch(() => null);
+      }
+
+      const reward = campaign?.reward ?? null;
+      const credits = Math.max(0, Math.floor(Number((reward as any)?.credits || 0)));
+      const cooldownHours = Math.max(0, Math.floor(Number((reward as any)?.cooldownHours || 0)));
+
+      if (campaign?.id && credits > 0 && cooldownHours > 0) {
+        const cooldownMs = cooldownHours * 60 * 60 * 1000;
+        const lastClaim = await prisma.portalAdCampaignEvent
+          .findFirst({
+            where: { ownerId, campaignId: campaign.id, kind: "CLAIM" },
+            orderBy: { createdAt: "desc" },
+            select: { createdAt: true },
+          })
+          .catch(() => null);
+
+        const nowMs = Date.now();
+        const lastMs = lastClaim?.createdAt ? lastClaim.createdAt.getTime() : 0;
+        const eligibleAtMs = lastMs ? lastMs + cooldownMs : 0;
+        const eligible = !lastMs || nowMs >= eligibleAtMs;
+
+        return {
+          status: 200,
+          json: {
+            ok: true,
+            campaign,
+            rewardStatus: {
+              eligible,
+              nextEligibleAtIso: eligible ? null : new Date(eligibleAtMs).toISOString(),
+            },
+          },
+        };
+      }
+
+      return { status: 200, json: { ok: true, campaign: campaign ?? null } };
+    }
+
+    case "ads.click": {
+      if (!(await requireOwnerOrAdmin())) return { status: 403, json: { ok: false, error: "Forbidden" } };
+
+      function safeRedirectUrl(raw: string | null, fallback: string) {
+        const v = String(raw || "").trim();
+        if (!v) return fallback;
+        if (v.startsWith("/")) return v;
+        try {
+          const u = new URL(v);
+          if (u.protocol === "https:") return u.toString();
+        } catch {
+          // ignore
+        }
+        return fallback;
+      }
+
+      function normalizePortalVariantPath(p: string, portalVariant: PortalVariant): string {
+        const s = String(p || "").trim();
+        if (!s.startsWith("/")) return s;
+        const basePath = portalVariant === "credit" ? "/credit" : "/portal";
+        if (s === "/portal" || s.startsWith("/portal/")) return basePath + s.slice("/portal".length);
+        if (s === "/credit" || s.startsWith("/credit/")) return basePath + s.slice("/credit".length);
+        if (s === "/app" || s.startsWith("/app/")) return basePath + s;
+        return s;
+      }
+
+      function readDiscountOffer(rewardJson: unknown): { promoCode: string; appliesToServiceSlugs: string[] } | null {
+        if (!rewardJson || typeof rewardJson !== "object" || Array.isArray(rewardJson)) return null;
+        const offers = (rewardJson as any).offers;
+        if (!Array.isArray(offers)) return null;
+
+        for (const o of offers) {
+          if (!o || typeof o !== "object" || Array.isArray(o)) continue;
+          if (String((o as any).kind || "") !== "discount") continue;
+          const promoCode = String((o as any).promoCode || "").trim().slice(0, 64);
+          const appliesToServiceSlugs = Array.isArray((o as any).appliesToServiceSlugs)
+            ? (o as any).appliesToServiceSlugs.map((x: any) => String(x || "").trim()).filter(Boolean).slice(0, 50)
+            : [];
+          return { promoCode, appliesToServiceSlugs };
+        }
+
+        return null;
+      }
+
+      function startOfUtcDay(d: Date) {
+        return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), 0, 0, 0, 0));
+      }
+
+      function normalizeEmail(raw: unknown): string {
+        return typeof raw === "string" ? raw.trim().toLowerCase() : "";
+      }
+
+      function readCpcBillingFromTarget(targetJson: unknown): { dailyBudgetCents: number; costPerClickCents: number } | null {
+        if (!targetJson || typeof targetJson !== "object" || Array.isArray(targetJson)) return null;
+        const billing = (targetJson as any).billing;
+        if (!billing || typeof billing !== "object" || Array.isArray(billing)) return null;
+        const modelRaw = typeof (billing as any).model === "string" ? String((billing as any).model).trim().toLowerCase() : "";
+        if (modelRaw !== "cpc") return null;
+
+        const dailyRaw =
+          typeof (billing as any).dailyBudgetCents === "number"
+            ? (billing as any).dailyBudgetCents
+            : typeof (billing as any).dailyBudgetCents === "string"
+              ? Number((billing as any).dailyBudgetCents)
+              : NaN;
+        const cpcRaw =
+          typeof (billing as any).costPerClickCents === "number"
+            ? (billing as any).costPerClickCents
+            : typeof (billing as any).costPerClickCents === "string"
+              ? Number((billing as any).costPerClickCents)
+              : NaN;
+
+        const dailyBudgetCents = Number.isFinite(dailyRaw) ? Math.max(0, Math.min(1_000_000_00, Math.floor(dailyRaw))) : 0;
+        const costPerClickCents = Number.isFinite(cpcRaw) ? Math.max(1, Math.min(50_000, Math.floor(cpcRaw))) : 0;
+        if (!costPerClickCents) return null;
+
+        return { dailyBudgetCents, costPerClickCents };
+      }
+
+      const owner = await prisma.user.findUnique({ where: { id: ownerId }, select: { clientPortalVariant: true } }).catch(() => null);
+      const portalVariant: PortalVariant = owner?.clientPortalVariant === "CREDIT" ? "credit" : "portal";
+
+      const campaignId = String((args as any)?.campaignId || "").trim();
+      const placement = String((args as any)?.placement || "").trim() as PortalAdPlacement;
+      const path = typeof (args as any)?.path === "string" ? String((args as any).path).trim().slice(0, 500) : null;
+      const to = typeof (args as any)?.to === "string" ? String((args as any).to).trim().slice(0, 2000) : null;
+
+      const fallback = portalVariant === "credit" ? "/credit/app/billing" : "/portal/app/billing";
+      let redirectTo = normalizePortalVariantPath(safeRedirectUrl(to, fallback), portalVariant);
+
+      if (campaignId && placement) {
+        const row = await prisma.portalAdCampaign
+          .findUnique({ where: { id: campaignId }, select: { rewardJson: true } })
+          .catch(() => null);
+
+        const discount = readDiscountOffer(row?.rewardJson);
+        const billingBase = portalVariant === "credit" ? "/credit/app/billing" : "/portal/app/billing";
+        if (discount && (redirectTo === billingBase || redirectTo.startsWith(billingBase + "?"))) {
+          const basePath = portalVariant === "credit" ? "/credit" : "/portal";
+          const serviceSlug = String(discount.appliesToServiceSlugs?.[0] || "").trim();
+          const hasServices = (discount.appliesToServiceSlugs || []).length > 0;
+          if (serviceSlug) {
+            const qs = new URLSearchParams();
+            if (discount.promoCode) qs.set("promoCode", discount.promoCode);
+            qs.set("campaignId", campaignId);
+            redirectTo = `${basePath}/app/discount/${encodeURIComponent(serviceSlug)}?${qs.toString()}`;
+          } else if (hasServices) {
+            const qs = new URLSearchParams();
+            if (discount.promoCode) qs.set("promoCode", discount.promoCode);
+            qs.set("services", discount.appliesToServiceSlugs.join(","));
+            qs.set("campaignId", campaignId);
+            redirectTo = `${basePath}/app/discount?${qs.toString()}`;
+          }
+        }
+      }
+
+      if (campaignId && placement) {
+        await prisma.portalAdCampaignEvent
+          .create({
+            data: {
+              campaignId,
+              ownerId,
+              kind: "IMPRESSION",
+              metaJson: { action: "CLICK", placement, path, device: "desktop", userAgent: "portal-agent", to: redirectTo },
+            },
+            select: { id: true },
+          })
+          .catch(() => null);
+
+        try {
+          const campaign = await prisma.portalAdCampaign.findUnique({
+            where: { id: campaignId },
+            select: { createdById: true, targetJson: true },
+          });
+
+          const advertiserUserId = String(campaign?.createdById || "").trim();
+          const billing = readCpcBillingFromTarget(campaign?.targetJson);
+
+          if (advertiserUserId && billing) {
+            const now = new Date();
+            const dayStart = startOfUtcDay(now);
+
+            await prisma.$transaction(async (tx) => {
+              await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`ads_auto_topup:${advertiserUserId}`})::bigint)`;
+
+              const account = await tx.adsAdvertiserAccount.upsert({
+                where: { userId: advertiserUserId },
+                update: {},
+                create: { userId: advertiserUserId },
+                select: {
+                  id: true,
+                  balanceCents: true,
+                  autoTopUpEnabled: true,
+                  autoTopUpThresholdCents: true,
+                  autoTopUpAmountCents: true,
+                  currency: true,
+                },
+              });
+
+              let balanceCents = account.balanceCents;
+              if (
+                account.autoTopUpEnabled &&
+                account.autoTopUpAmountCents > 0 &&
+                balanceCents < Math.max(0, account.autoTopUpThresholdCents)
+              ) {
+                if (isStripeConfigured() && String(account.currency || "USD").toUpperCase() === "USD") {
+                  const advertiser = await tx.user.findUnique({ where: { id: advertiserUserId }, select: { email: true } }).catch(() => null);
+                  const email = normalizeEmail(advertiser?.email);
+                  if (email) {
+                    try {
+                      const customerId = await getOrCreateStripeCustomerId(email);
+                      const customer = await stripeGet<any>(`/v1/customers/${encodeURIComponent(customerId)}`);
+
+                      const paymentMethod =
+                        typeof customer?.invoice_settings?.default_payment_method === "string"
+                          ? customer.invoice_settings.default_payment_method
+                          : typeof customer?.default_source === "string"
+                            ? customer.default_source
+                            : "";
+
+                      if (paymentMethod) {
+                        const pi = await stripePost<any>("/v1/payment_intents", {
+                          amount: account.autoTopUpAmountCents,
+                          currency: "usd",
+                          customer: customerId,
+                          payment_method: paymentMethod,
+                          off_session: true,
+                          confirm: true,
+                          description: `Purely Automation ads auto top-up ($${(account.autoTopUpAmountCents / 100).toFixed(2)})`,
+                          "metadata[kind]": "ads_auto_topup",
+                          "metadata[advertiserUserId]": advertiserUserId,
+                          "metadata[reason]": "balance_below_threshold",
+                        });
+
+                        const paymentIntentId = typeof pi?.id === "string" ? pi.id : null;
+
+                        await tx.adsAdvertiserAccount.update({
+                          where: { id: account.id },
+                          data: { balanceCents: { increment: account.autoTopUpAmountCents } },
+                          select: { id: true },
+                        });
+
+                        await tx.adsAdvertiserLedgerEntry.create({
+                          data: {
+                            accountId: account.id,
+                            kind: "TOPUP",
+                            amountCents: account.autoTopUpAmountCents,
+                            metaJson: { source: "stripe_auto_topup", reason: "balance_below_threshold", paymentIntentId },
+                          },
+                          select: { id: true },
+                        });
+
+                        balanceCents += account.autoTopUpAmountCents;
+                      }
+                    } catch {
+                      // ignore
+                    }
+                  }
+                }
+              }
+
+              if (balanceCents < billing.costPerClickCents) return;
+
+              if (billing.dailyBudgetCents > 0) {
+                const sum = await tx.adsAdvertiserLedgerEntry.aggregate({
+                  where: { campaignId, kind: "SPEND", createdAt: { gte: dayStart } },
+                  _sum: { amountCents: true },
+                });
+                const spentToday = Number(sum?._sum?.amountCents || 0);
+                if (spentToday + billing.costPerClickCents > billing.dailyBudgetCents) return;
+              }
+
+              const updated = await tx.adsAdvertiserAccount.updateMany({
+                where: { id: account.id, balanceCents: { gte: billing.costPerClickCents } },
+                data: { balanceCents: { decrement: billing.costPerClickCents } },
+              });
+              if (!updated.count) return;
+
+              await tx.adsAdvertiserLedgerEntry.create({
+                data: {
+                  accountId: account.id,
+                  kind: "SPEND",
+                  amountCents: billing.costPerClickCents,
+                  campaignId,
+                  metaJson: { source: "portal_click", placement, path, ownerId },
+                },
+                select: { id: true },
+              });
+            });
+          }
+        } catch {
+          // ignore
+        }
+      }
+
+      return { status: 200, json: { ok: true, redirectTo } };
+    }
+
+    case "ads.claim": {
+      const ok = await requireServiceCapability("billing", "view");
+      if (!ok) return { status: 403, json: { ok: false, error: "Forbidden" } };
+
+      const campaignId = String((args as any)?.campaignId || "").trim();
+      const path = typeof (args as any)?.path === "string" ? String((args as any).path).trim().slice(0, 500) : null;
+      const watchedSeconds = typeof (args as any)?.watchedSeconds === "number" ? Math.max(0, Math.floor((args as any).watchedSeconds)) : 0;
+
+      if (!campaignId) return { status: 400, json: { ok: false, error: "Missing campaignId" } };
+
+      const owner = await prisma.user.findUnique({ where: { id: ownerId }, select: { clientPortalVariant: true } }).catch(() => null);
+      const portalVariant: PortalVariant = owner?.clientPortalVariant === "CREDIT" ? "credit" : "portal";
+
+      const campaign = await getPortalAdCampaignForOwnerById({ ownerId, portalVariant, campaignId, path });
+      if (!campaign) return { status: 404, json: { ok: false, error: "Campaign not available." } };
+
+      const reward = campaign.reward ?? null;
+      const credits = Math.max(0, Math.floor(Number((reward as any)?.credits || 0)));
+      const cooldownHours = Math.max(0, Math.floor(Number((reward as any)?.cooldownHours || 0)));
+      const minWatchSeconds = Math.max(0, Math.floor(Number((reward as any)?.minWatchSeconds || 0)));
+
+      if (!credits) return { status: 400, json: { ok: false, error: "This campaign has no reward." } };
+      if (minWatchSeconds && watchedSeconds < minWatchSeconds) {
+        return { status: 400, json: { ok: false, error: `Watch at least ${minWatchSeconds}s to claim.` } };
+      }
+
+      const now = new Date();
+      const cooldownMs = cooldownHours > 0 ? cooldownHours * 60 * 60 * 1000 : 0;
+
+      const result = await prisma.$transaction(async (tx) => {
+        if (cooldownMs) {
+          const last = await tx.portalAdCampaignEvent.findFirst({
+            where: { ownerId, campaignId, kind: "CLAIM" },
+            orderBy: { createdAt: "desc" },
+            select: { createdAt: true },
+          });
+
+          if (last?.createdAt) {
+            const dt = now.getTime() - last.createdAt.getTime();
+            if (dt < cooldownMs) {
+              const nextAt = new Date(last.createdAt.getTime() + cooldownMs);
+              return { ok: false as const, nextAtIso: nextAt.toISOString() };
+            }
+          }
+        }
+
+        await tx.portalAdCampaignEvent.create({
+          data: {
+            ownerId,
+            campaignId,
+            kind: "CLAIM",
+            metaJson: { watchedSeconds, path },
+          },
+          select: { id: true },
+        });
+
+        const creditsRow = await tx.portalServiceSetup.findUnique({
+          where: { ownerId_serviceSlug: { ownerId, serviceSlug: "credits" } },
+          select: { dataJson: true },
+        });
+
+        const rec =
+          creditsRow?.dataJson && typeof creditsRow.dataJson === "object" && !Array.isArray(creditsRow.dataJson)
+            ? (creditsRow.dataJson as Record<string, unknown>)
+            : {};
+        const prevBalanceRaw = typeof rec.balance === "number" ? rec.balance : 0;
+        const prevBalance = Number.isFinite(prevBalanceRaw) ? Math.max(0, Math.floor(prevBalanceRaw)) : 0;
+        const autoTopUp = Boolean(rec.autoTopUp);
+
+        const nextBalance = prevBalance + credits;
+        const nextCreditsState = { balance: nextBalance, autoTopUp };
+
+        await tx.portalServiceSetup.upsert({
+          where: { ownerId_serviceSlug: { ownerId, serviceSlug: "credits" } },
+          create: { ownerId, serviceSlug: "credits", status: "COMPLETE", dataJson: nextCreditsState },
+          update: { status: "COMPLETE", dataJson: nextCreditsState },
+          select: { id: true },
+        });
+
+        const nextAtIso = cooldownMs ? new Date(now.getTime() + cooldownMs).toISOString() : null;
+        return { ok: true as const, creditsAdded: credits, balance: nextBalance, nextAtIso };
+      });
+
+      if (!result.ok) {
+        return { status: 429, json: { ok: false, error: "Already claimed recently.", nextAtIso: result.nextAtIso } };
+      }
+
+      return {
+        status: 200,
+        json: { ok: true, creditsAdded: result.creditsAdded, balance: result.balance, nextAtIso: result.nextAtIso },
+      };
+    }
+
+    case "ads.reward": {
+      const ok = await requireServiceCapability("billing", "view");
+      if (!ok) return { status: 403, json: { ok: false, error: "Forbidden" } };
+
+      const owner = await prisma.user.findUnique({ where: { id: ownerId }, select: { clientPortalVariant: true } }).catch(() => null);
+      const portalVariant: PortalVariant = owner?.clientPortalVariant === "CREDIT" ? "credit" : "portal";
+
+      const billingModel = await getPortalBillingModelForOwner({ ownerId, portalVariant });
+      if (!isCreditsOnlyBilling(billingModel)) {
+        return { status: 400, json: { ok: false, error: "Ad rewards are only available in credits-only mode." } };
+      }
+
+      const rewardCreditsRaw = Number(process.env.PORTAL_AD_REWARD_CREDITS ?? 25);
+      const rewardCredits = Number.isFinite(rewardCreditsRaw) ? Math.max(1, Math.floor(rewardCreditsRaw)) : 25;
+
+      const now = new Date();
+      const cooldownMs = 24 * 60 * 60 * 1000;
+      const rewardSlug = "__portal_ads_reward";
+
+      const result = await prisma.$transaction(async (tx) => {
+        const existing = await tx.portalServiceSetup.findUnique({
+          where: { ownerId_serviceSlug: { ownerId, serviceSlug: rewardSlug } },
+          select: { id: true, dataJson: true },
+        });
+
+        const lastClaimAtIso =
+          existing?.dataJson && typeof existing.dataJson === "object" && !Array.isArray(existing.dataJson)
+            ? typeof (existing.dataJson as any).lastClaimAtIso === "string"
+              ? String((existing.dataJson as any).lastClaimAtIso)
+              : ""
+            : "";
+        const lastClaimAt = lastClaimAtIso ? new Date(lastClaimAtIso) : null;
+        if (lastClaimAt && !Number.isNaN(lastClaimAt.getTime()) && now.getTime() - lastClaimAt.getTime() < cooldownMs) {
+          const nextAt = new Date(lastClaimAt.getTime() + cooldownMs);
+          return { ok: false as const, nextAtIso: nextAt.toISOString() };
+        }
+
+        const nextData = {
+          version: 1,
+          lastClaimAtIso: now.toISOString(),
+          rewardCredits,
+          updatedAtIso: now.toISOString(),
+        };
+
+        await tx.portalServiceSetup.upsert({
+          where: { ownerId_serviceSlug: { ownerId, serviceSlug: rewardSlug } },
+          create: { ownerId, serviceSlug: rewardSlug, status: "COMPLETE", dataJson: nextData },
+          update: { status: "COMPLETE", dataJson: nextData },
+          select: { id: true },
+        });
+
+        const state = await addCreditsTx(tx as any, ownerId, rewardCredits);
+        return { ok: true as const, creditsAdded: rewardCredits, balance: state.balance };
+      });
+
+      if (!result.ok) {
+        return { status: 429, json: { ok: false, error: "Already claimed recently.", nextAtIso: result.nextAtIso } };
+      }
+
+      return { status: 200, json: { ok: true, creditsAdded: result.creditsAdded, balance: result.balance } };
+    }
+
     case "credits.get": {
       if (!(await requireOwnerOrAdmin())) return { status: 403, json: { ok: false, error: "Forbidden" } };
 
@@ -14981,6 +15472,295 @@ async function runDirectAction(opts: {
       if (!membership) return { status: 403, json: { ok: false, error: "Forbidden" } };
       void args;
       return { status: 200, json: { ok: true, processed: 0, note: "Pura scheduling is disabled" } };
+    }
+
+    case "auth.verification_email.cron.run": {
+      if (!(await requireOwnerOrAdmin())) return { status: 403, json: { ok: false, error: "Forbidden" } };
+      void args;
+
+      const baseUrl = getAppBaseUrl();
+      const req = new Request(`${baseUrl}/api/portal/auth/verification-email/cron`, {
+        method: "GET",
+        headers: { "x-vercel-cron": "1", "user-agent": "vercel-cron" },
+      });
+
+      const res = await authVerificationEmailCronGET(req);
+      const json = await res.json().catch(() => null);
+      return { status: res.status, json: json ?? { ok: false, error: "Non-JSON response" } };
+    }
+
+    case "auth.webview_session.get": {
+      const membership = await requirePortalMember();
+      if (!membership) return { status: 403, json: { ok: false, error: "Forbidden" } };
+
+      const bearerToken = String((args as any)?.bearerToken || "").trim();
+      if (!bearerToken) return { status: 400, json: { ok: false, error: "Missing bearerToken" } };
+
+      const nextPathRaw = (args as any)?.nextPath;
+      const nextPath = typeof nextPathRaw === "string" && nextPathRaw.trim() ? nextPathRaw.trim() : null;
+
+      const baseUrl = getAppBaseUrl();
+      const url = new URL("/api/portal/auth/webview-session", baseUrl);
+      if (nextPath) url.searchParams.set("next", nextPath);
+
+      return {
+        status: 200,
+        json: {
+          ok: true,
+          url: url.toString(),
+          note: "Open this URL in the target webview with Authorization: Bearer <token>. It will set the portal session cookie and redirect.",
+          authorizationHeaderName: "Authorization",
+          authorizationHeaderValueHint: "Bearer (token provided)",
+          nextPath: nextPath ?? "/portal/app",
+        },
+      };
+    }
+
+    case "automations.cron.run": {
+      if (!(await requireOwnerOrAdmin())) return { status: 403, json: { ok: false, error: "Forbidden" } };
+      void args;
+      const scheduled = await processDueScheduledAutomations({ ownersLimit: 2000, perOwnerMaxRuns: 12 });
+      const missed = await processDueMissedAppointments({ lookbackHours: 72, graceMinutes: 20, limit: 400 });
+      return { status: 200, json: { ok: true, scheduled, missed } };
+    }
+
+    case "blogs.automation.cron.run": {
+      if (!(await requireOwnerOrAdmin())) return { status: 403, json: { ok: false, error: "Forbidden" } };
+      void args;
+
+      const baseUrl = getAppBaseUrl();
+      const req = new Request(`${baseUrl}/api/portal/blogs/automation/cron`, {
+        method: "GET",
+        headers: { "x-vercel-cron": "1", "user-agent": "vercel-cron" },
+      });
+
+      const res = await blogsAutomationCronGET(req);
+      const json = await res.json().catch(() => null);
+      return { status: res.status, json: json ?? { ok: false, error: "Non-JSON response" } };
+    }
+
+    case "booking.reminders.cron.run": {
+      if (!(await requireOwnerOrAdmin())) return { status: 403, json: { ok: false, error: "Forbidden" } };
+      void args;
+
+      const [customer, internal] = await Promise.all([
+        processDueAppointmentReminders({ ownersLimit: 2000, perOwnerLimit: 25, windowMinutes: 5 }),
+        processDueBookingInternalReminders({ ownersLimit: 2000, perOwnerLimit: 25, windowMinutes: 5 }),
+      ]);
+
+      return { status: 200, json: { ok: true, customer, internal } };
+    }
+
+    case "follow_up.cron.run": {
+      if (!(await requireOwnerOrAdmin())) return { status: 403, json: { ok: false, error: "Forbidden" } };
+      const limitRaw = (args as any)?.limit;
+      const limit = typeof limitRaw === "number" && Number.isFinite(limitRaw) ? Math.max(1, Math.min(500, Math.round(limitRaw))) : 50;
+      const result = await processDueFollowUps({ limit });
+      return { status: 200, json: { ok: true, ...result } };
+    }
+
+    case "inbox.scheduled.cron.run": {
+      if (!(await requireOwnerOrAdmin())) return { status: 403, json: { ok: false, error: "Forbidden" } };
+
+      const limitRaw = (args as any)?.limit;
+      const limit = typeof limitRaw === "number" && Number.isFinite(limitRaw) ? Math.max(1, Math.min(500, Math.round(limitRaw))) : 50;
+
+      const baseUrl = baseUrlFromRequest();
+      const result = await processDuePortalInboxScheduledMessages({ baseUrl, limit });
+      if (!result.ok) return { status: 500, json: { ok: false, error: result.error || "Cron failed" } };
+      return { status: 200, json: result };
+    }
+
+    case "lead_scraping.cron.run": {
+      if (!(await requireOwnerOrAdmin())) return { status: 403, json: { ok: false, error: "Forbidden" } };
+      void args;
+
+      const baseUrl = getAppBaseUrl();
+      const req = new Request(`${baseUrl}/api/portal/lead-scraping/cron`, {
+        method: "GET",
+        headers: { "x-vercel-cron": "1", "user-agent": "vercel-cron" },
+      });
+
+      const res = await leadScrapingCronGET(req);
+      const json = await res.json().catch(() => null);
+      return { status: res.status, json: json ?? { ok: false, error: "Non-JSON response" } };
+    }
+
+    case "newsletter.automation.cron.run": {
+      if (!(await requireOwnerOrAdmin())) return { status: 403, json: { ok: false, error: "Forbidden" } };
+      void args;
+
+      const baseUrl = getAppBaseUrl();
+      const req = new Request(`${baseUrl}/api/portal/newsletter/automation/cron`, {
+        method: "GET",
+        headers: { "x-vercel-cron": "1", "user-agent": "vercel-cron" },
+      });
+
+      const res = await newsletterAutomationCronGET(req);
+      const json = await res.json().catch(() => null);
+      return { status: res.status, json: json ?? { ok: false, error: "Non-JSON response" } };
+    }
+
+    case "nurture.cron.run": {
+      if (!(await requireOwnerOrAdmin())) return { status: 403, json: { ok: false, error: "Forbidden" } };
+      void args;
+
+      const baseUrl = getAppBaseUrl();
+      const req = new Request(`${baseUrl}/api/portal/nurture/cron`, {
+        method: "GET",
+        headers: { "x-vercel-cron": "1", "user-agent": "vercel-cron" },
+      });
+
+      const res = await nurtureCronGET(req);
+      const json = await res.json().catch(() => null);
+      return { status: res.status, json: json ?? { ok: false, error: "Non-JSON response" } };
+    }
+
+    case "reviews.cron.run": {
+      if (!(await requireOwnerOrAdmin())) return { status: 403, json: { ok: false, error: "Forbidden" } };
+
+      const ownersLimitRaw = (args as any)?.ownersLimit;
+      const perOwnerLimitRaw = (args as any)?.perOwnerLimit;
+      const windowMinutesRaw = (args as any)?.windowMinutes;
+
+      const result = await processDueReviewRequests({
+        ownersLimit: typeof ownersLimitRaw === "number" && Number.isFinite(ownersLimitRaw) ? ownersLimitRaw : 2000,
+        perOwnerLimit: typeof perOwnerLimitRaw === "number" && Number.isFinite(perOwnerLimitRaw) ? perOwnerLimitRaw : 25,
+        windowMinutes: typeof windowMinutesRaw === "number" && Number.isFinite(windowMinutesRaw) ? windowMinutesRaw : 5,
+      });
+
+      return { status: 200, json: result };
+    }
+
+    case "media.blob_upload.create": {
+      const membership = await requirePortalMember();
+      if (!membership) return { status: 403, json: { ok: false, error: "Forbidden" } };
+
+      const body = (args as any)?.body as HandleUploadBody | null;
+      if (!body || typeof (body as any)?.type !== "string") return { status: 400, json: { ok: false, error: "Invalid request" } };
+
+      const TOKEN_ENV_CANDIDATES = [
+        "BLOB_READ_WRITE_TOKEN",
+        "VERCEL_BLOB_READ_WRITE_TOKEN",
+        "VERCEL_BLOB_TOKEN",
+        "BLOB_RW_TOKEN",
+        "BLOB_TOKEN",
+      ] as const;
+
+      const resolved = (() => {
+        for (const key of TOKEN_ENV_CANDIDATES) {
+          const raw = (process.env as any)?.[key];
+          if (!raw) continue;
+          const token = String(raw).trim();
+          if (token) return { token, source: key };
+        }
+        return null;
+      })();
+
+      if (!resolved) {
+        const present: Record<string, boolean> = {};
+        for (const key of TOKEN_ENV_CANDIDATES) {
+          present[key] = Boolean((process.env as any)?.[key] && String((process.env as any)[key]).trim());
+        }
+        return {
+          status: 400,
+          json: {
+            ok: false,
+            error: "Video uploads require an external storage provider (Vercel Blob) for large files.",
+            hint: "Enable Vercel Blob for this deployment (sets BLOB_READ_WRITE_TOKEN / VERCEL_BLOB_READ_WRITE_TOKEN).",
+            diagnostics: {
+              present,
+              vercel: {
+                deploymentId: process.env.VERCEL_DEPLOYMENT_ID ?? null,
+                commitSha: process.env.VERCEL_GIT_COMMIT_SHA ?? null,
+                commitRef: process.env.VERCEL_GIT_COMMIT_REF ?? null,
+                region: process.env.VERCEL_REGION ?? null,
+              },
+              nodeEnv: process.env.NODE_ENV ?? null,
+            },
+          },
+        };
+      }
+
+      const baseUrl = getAppBaseUrl();
+      const request = new Request(`${baseUrl}/api/portal/media/blob-upload`, { method: "POST" });
+
+      try {
+        const jsonResponse = await handleUpload({
+          token: resolved.token,
+          body,
+          request,
+          onBeforeGenerateToken: async () => {
+            return {
+              access: "public",
+              addRandomSuffix: true,
+              allowedContentTypes: [
+                "image/jpeg",
+                "image/png",
+                "image/webp",
+                "image/gif",
+                "image/svg+xml",
+                "image/avif",
+                "video/mp4",
+                "video/quicktime",
+                "video/webm",
+                "video/ogg",
+                "video/mpeg",
+                "video/x-m4v",
+                "video/x-msvideo",
+                "video/x-ms-wmv",
+                "video/3gpp",
+                "video/3gpp2",
+                "video/x-matroska",
+                "audio/mpeg",
+                "audio/mp4",
+                "audio/x-m4a",
+                "audio/ogg",
+                "audio/wav",
+                "application/pdf",
+                "application/octet-stream",
+              ],
+              tokenPayload: JSON.stringify({ ownerId: membership.memberId }),
+            };
+          },
+          onUploadCompleted: async () => {
+            // no-op
+          },
+        });
+
+        return { status: 200, json: jsonResponse };
+      } catch (error) {
+        const message = (error as any)?.message ? String((error as any).message) : "Blob upload token failed";
+        return {
+          status: 400,
+          json: {
+            ok: false,
+            error: message,
+            hint:
+              "If the token is set but uploads still fail, the token may be invalid/expired or set on a different Vercel project/environment.",
+            tokenSource: resolved.source,
+          },
+        };
+      }
+    }
+
+    case "seed_demo.run": {
+      if (!(await requireOwnerOrAdmin())) return { status: 403, json: { ok: false, error: "Forbidden" } };
+      const forceInboxSeed = Boolean((args as any)?.forceInboxSeed);
+
+      const secret = (process.env.DEMO_PORTAL_SEED_SECRET ?? "").trim();
+      if (!secret) return { status: 400, json: { ok: false, error: "Missing DEMO_PORTAL_SEED_SECRET" } };
+
+      const baseUrl = getAppBaseUrl();
+      const url = `${baseUrl}/api/portal/seed-demo${forceInboxSeed ? "?force=1" : ""}`;
+      const req = new Request(url, {
+        method: "POST",
+        headers: { "x-demo-seed-secret": secret },
+      });
+
+      const res = await seedDemoPOST(req);
+      const json = await res.json().catch(() => null);
+      return { status: res.status, json: json ?? { ok: false, error: "Non-JSON response" } };
     }
 
     case "voice_agent.tools.get": {

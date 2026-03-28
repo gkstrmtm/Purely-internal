@@ -2094,7 +2094,7 @@ async function resolveFunnelPageId(opts: {
   if (hintMeansCreateNew(hint)) {
     return {
       kind: "not_found",
-      question: "Got it — you want a new page. What should the page title be? (Optional: include a slug like /thank-you)",
+      question: "Got it - you want a new page. What should the page title be? (Optional: include a slug like /thank-you)",
     };
   }
 

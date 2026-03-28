@@ -103,6 +103,7 @@ export const PortalAgentActionKeySchema = z.enum([
   "blogs.posts.export_markdown",
   "blogs.automation.settings.get",
   "blogs.automation.settings.update",
+  "blogs.automation.cron.run",
   "blogs.generate_now",
   "blogs.posts.generate_draft",
   "blogs.posts.publish",
@@ -120,6 +121,7 @@ export const PortalAgentActionKeySchema = z.enum([
   "newsletter.audience.contacts.search",
   "newsletter.automation.settings.get",
   "newsletter.automation.settings.update",
+  "newsletter.automation.cron.run",
   "newsletter.generate_now",
 
   "billing.summary.get",
@@ -138,6 +140,14 @@ export const PortalAgentActionKeySchema = z.enum([
   "billing.setup_intent.finalize",
   "billing.upgrade.checkout",
   "pricing.get",
+
+  "seed_demo.run",
+
+  "ads.next",
+  "ads.click",
+  "ads.claim",
+  "ads.reward",
+
   "credits.get",
   "credits.auto_topup.set",
   "credits.topup.start",
@@ -161,6 +171,7 @@ export const PortalAgentActionKeySchema = z.enum([
   "automations.settings.get",
   "automations.settings.update",
   "automations.test_sms",
+  "automations.cron.run",
   "contacts.list",
   "contacts.create",
   "contacts.get",
@@ -197,6 +208,8 @@ export const PortalAgentActionKeySchema = z.enum([
 
   "auth.resend_verification",
   "auth.verify_email",
+  "auth.verification_email.cron.run",
+  "auth.webview_session.get",
   "engagement.ping",
   "engagement.active_time",
 
@@ -225,6 +238,7 @@ export const PortalAgentActionKeySchema = z.enum([
   "follow_up.custom_variables.update",
   "follow_up.ai.generate_step",
   "follow_up.test_send",
+  "follow_up.cron.run",
 
   "lead_scraping.settings.get",
   "lead_scraping.settings.update",
@@ -236,6 +250,7 @@ export const PortalAgentActionKeySchema = z.enum([
   "lead_scraping.outbound.approve",
   "lead_scraping.outbound.send",
   "lead_scraping.outbound.ai.draft_template",
+  "lead_scraping.cron.run",
 
   "notifications.recipients.list",
 
@@ -276,6 +291,7 @@ export const PortalAgentActionKeySchema = z.enum([
   "inbox.thread.messages.list",
   "inbox.thread.contact.set",
   "inbox.scheduled.update",
+  "inbox.scheduled.cron.run",
   "inbox.attachments.upload",
   "inbox.attachments.create_from_media",
   "inbox.attachments.delete",
@@ -300,6 +316,7 @@ export const PortalAgentActionKeySchema = z.enum([
   "reviews.handle.get",
   "reviews.questions.list",
   "reviews.questions.answer",
+  "reviews.cron.run",
   "media.folders.list",
   "media.folders.update",
   "media.folder.ensure",
@@ -311,6 +328,7 @@ export const PortalAgentActionKeySchema = z.enum([
   "media.import_remote_image",
   "media.list.get",
   "media.stats.get",
+  "media.blob_upload.create",
 
   "dashboard.get",
   "dashboard.save",
@@ -337,6 +355,7 @@ export const PortalAgentActionKeySchema = z.enum([
   "booking.reminders.settings.get",
   "booking.reminders.settings.update",
   "booking.reminders.ai.generate_step",
+  "booking.reminders.cron.run",
 
   "nurture.campaigns.list",
   "nurture.campaigns.create",
@@ -349,6 +368,7 @@ export const PortalAgentActionKeySchema = z.enum([
   "nurture.campaigns.enroll",
   "nurture.billing.confirm_checkout",
   "nurture.ai.generate_step",
+  "nurture.cron.run",
 
   "ai_outbound_calls.campaigns.list",
   "ai_outbound_calls.campaigns.create",
@@ -938,6 +958,8 @@ export const PortalAgentActionArgsSchemaByKey = {
     })
     .strict(),
 
+  "blogs.automation.cron.run": z.object({}).strict(),
+
   "blogs.generate_now": z.object({}).strict(),
 
   "blogs.posts.generate_draft": z
@@ -1100,6 +1122,8 @@ export const PortalAgentActionArgsSchemaByKey = {
     })
     .strict(),
 
+  "newsletter.automation.cron.run": z.object({}).strict(),
+
   "billing.summary.get": z.object({}).strict(),
 
   "billing.subscriptions.list": z.object({}).strict(),
@@ -1202,6 +1226,49 @@ export const PortalAgentActionArgsSchemaByKey = {
     .strict(),
 
   "pricing.get": z.object({}).strict(),
+
+  "ads.next": z
+    .object({
+      placement: z.enum([
+        "SIDEBAR_BANNER",
+        "TOP_BANNER",
+        "BILLING_SPONSORED",
+        "FULLSCREEN_REWARD",
+        "POPUP_CARD",
+        "HOSTED_BLOG_PAGE",
+        "HOSTED_REVIEWS_PAGE",
+      ]),
+      path: z.string().trim().max(500).optional().nullable(),
+      excludeCampaignIds: z.array(z.string().trim().min(1).max(120)).max(200).optional(),
+    })
+    .strict(),
+
+  "ads.click": z
+    .object({
+      campaignId: z.string().trim().min(1).max(120),
+      placement: z.enum([
+        "SIDEBAR_BANNER",
+        "TOP_BANNER",
+        "BILLING_SPONSORED",
+        "FULLSCREEN_REWARD",
+        "POPUP_CARD",
+        "HOSTED_BLOG_PAGE",
+        "HOSTED_REVIEWS_PAGE",
+      ]),
+      path: z.string().trim().max(500).optional().nullable(),
+      to: z.string().trim().max(2000).optional().nullable(),
+    })
+    .strict(),
+
+  "ads.claim": z
+    .object({
+      campaignId: z.string().trim().min(1).max(120),
+      watchedSeconds: z.number().int().min(0).max(60 * 60).optional(),
+      path: z.string().trim().max(500).optional().nullable(),
+    })
+    .strict(),
+
+  "ads.reward": z.object({}).strict(),
 
   "credits.get": z.object({}).strict(),
 
@@ -1357,6 +1424,8 @@ export const PortalAgentActionArgsSchemaByKey = {
     })
     .strict(),
 
+  "automations.cron.run": z.object({}).strict(),
+
   "contacts.list": z
     .object({
       limit: z.number().int().min(1).max(100).optional(),
@@ -1466,6 +1535,15 @@ export const PortalAgentActionArgsSchemaByKey = {
   "auth.verify_email": z
     .object({
       token: z.string().trim().min(1).max(500),
+    })
+    .strict(),
+
+  "auth.verification_email.cron.run": z.object({}).strict(),
+
+  "auth.webview_session.get": z
+    .object({
+      bearerToken: z.string().trim().min(1).max(4000),
+      nextPath: z.string().trim().max(500).optional().nullable(),
     })
     .strict(),
 
@@ -1645,6 +1723,12 @@ export const PortalAgentActionArgsSchemaByKey = {
     })
     .strict(),
 
+  "follow_up.cron.run": z
+    .object({
+      limit: z.number().int().min(1).max(500).optional(),
+    })
+    .strict(),
+
   "lead_scraping.settings.get": z.object({}).strict(),
 
   "lead_scraping.settings.update": z
@@ -1773,6 +1857,8 @@ export const PortalAgentActionArgsSchemaByKey = {
       leadId: z.string().trim().min(1).max(64),
     })
     .strict(),
+
+  "lead_scraping.cron.run": z.object({}).strict(),
 
   "webhooks.get": z.object({}).strict(),
 
@@ -1952,6 +2038,12 @@ export const PortalAgentActionArgsSchemaByKey = {
     })
     .strict(),
 
+  "inbox.scheduled.cron.run": z
+    .object({
+      limit: z.number().int().min(1).max(500).optional(),
+    })
+    .strict(),
+
   "inbox.attachments.upload": z
     .object({
       files: z
@@ -2092,6 +2184,14 @@ export const PortalAgentActionArgsSchemaByKey = {
     })
     .strict(),
 
+  "reviews.cron.run": z
+    .object({
+      ownersLimit: z.number().int().min(1).max(10000).optional(),
+      perOwnerLimit: z.number().int().min(1).max(500).optional(),
+      windowMinutes: z.number().int().min(1).max(60 * 24).optional(),
+    })
+    .strict(),
+
   "media.folders.list": z.object({}).strict(),
 
   "media.folders.update": z
@@ -2170,6 +2270,22 @@ export const PortalAgentActionArgsSchemaByKey = {
     .strict(),
 
   "media.stats.get": z.object({}).strict(),
+
+  "media.blob_upload.create": z
+    .object({
+      body: z
+        .record(z.string(), z.unknown())
+        .refine((b) => typeof (b as any)?.type === "string" && String((b as any).type).trim().length > 0, {
+          message: "body.type is required",
+        }),
+    })
+    .strict(),
+
+  "seed_demo.run": z
+    .object({
+      forceInboxSeed: z.boolean().optional(),
+    })
+    .strict(),
 
   "dashboard.get": z
     .object({
@@ -2378,6 +2494,8 @@ export const PortalAgentActionArgsSchemaByKey = {
     })
     .strict(),
 
+  "booking.reminders.cron.run": z.object({}).strict(),
+
   "nurture.campaigns.list": z
     .object({
       take: z.number().int().min(1).max(200).optional(),
@@ -2461,6 +2579,8 @@ export const PortalAgentActionArgsSchemaByKey = {
       existingBody: z.string().trim().max(8000).optional(),
     })
     .strict(),
+
+  "nurture.cron.run": z.object({}).strict(),
 
   "ai_outbound_calls.campaigns.list": z
     .object({
@@ -3091,6 +3211,10 @@ export function portalAgentActionsIndexText(opts?: { includeAiChat?: boolean }):
     "- billing.setup_intent.finalize: Finalize SetupIntent and set default payment method (fields: setupIntentId)",
     "- billing.upgrade.checkout: Start upgrade bundle checkout (fields: bundleId)",
     "- pricing.get: Get module and credits pricing (includes credit USD value)",
+    "- ads.next: Get the next portal ad campaign for a placement (fields: placement, path?, excludeCampaignIds?)",
+    "- ads.click: Record an ad click and get the redirect URL (fields: campaignId, placement, path?, to?)",
+    "- ads.claim: Claim an ad campaign reward (fields: campaignId, watchedSeconds?, path?)",
+    "- ads.reward: Claim the daily ad reward (credits-only billing)",
     "- credits.get: Get credits balance + auto-top-up state",
     "- credits.auto_topup.set: Enable/disable auto-top-up (fields: autoTopUp)",
     "- credits.topup.start: Start a credits top-up (fields: credits OR packages (legacy))",
