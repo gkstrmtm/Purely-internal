@@ -186,6 +186,7 @@ model User {
   portalInboxThreads  PortalInboxThread[]
   portalInboxMessages PortalInboxMessage[]
   portalInboxAttachments PortalInboxAttachment[]
+  portalInboxScheduledMessages PortalInboxScheduledMessage[]
 
   portalDeviceTokens PortalDeviceToken[]
 
@@ -1080,6 +1081,14 @@ enum PortalInboxDirection {
   OUT
 }
 
+enum PortalInboxScheduledStatus {
+  PENDING
+  SENDING
+  SENT
+  FAILED
+  CANCELED
+}
+
 model PortalInboxThread {
   id String @id @default(cuid())
 
@@ -1111,6 +1120,7 @@ model PortalInboxThread {
   owner    User               @relation(fields: [ownerId], references: [id])
   contact  PortalContact?      @relation(fields: [contactId], references: [id], onDelete: SetNull)
   messages PortalInboxMessage[]
+  scheduledMessages PortalInboxScheduledMessage[]
 
   @@unique([ownerId, channel, threadKey])
   @@index([ownerId, channel, lastMessageAt])
@@ -1169,6 +1179,37 @@ model PortalInboxAttachment {
 
   @@index([ownerId, createdAt])
   @@index([messageId])
+}
+
+model PortalInboxScheduledMessage {
+  id String @id
+
+  ownerId  String
+  threadId String?
+
+  channel   PortalInboxChannel
+  toAddress String
+
+  subject  String?
+  bodyText String @default("")
+
+  attachmentIds String[] @default([])
+
+  scheduledFor DateTime
+  status       PortalInboxScheduledStatus @default(PENDING)
+  attempts     Int @default(0)
+  lastError    String?
+  sentAt       DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  owner  User              @relation(fields: [ownerId], references: [id])
+  thread PortalInboxThread? @relation(fields: [threadId], references: [id], onDelete: SetNull)
+
+  @@index([ownerId, status, scheduledFor])
+  @@index([status, scheduledFor])
+  @@index([threadId])
 }
 
 model PortalDeviceToken {

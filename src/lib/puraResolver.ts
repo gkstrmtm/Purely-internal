@@ -324,7 +324,8 @@ function getLastEntityId(
     | "lastFunnelForm"
     | "lastFunnelPage"
     | "lastCustomDomain"
-    | "lastAiOutboundCallsCampaign",
+    | "lastAiOutboundCallsCampaign"
+    | "lastInboxScheduledMessage"
 ): string | null {
   const obj = getThreadContextObj(threadContext);
   const v = obj ? (obj as any)[key] : null;
@@ -607,6 +608,216 @@ async function resolveInboxThreadId(opts: {
   }
 
   return { kind: "not_found", question: `I couldn’t find an email conversation for ${emailLike}.` };
+}
+
+async function resolveInboxScheduledMessageId(opts: {
+  ownerId: string;
+  hint: string;
+  threadContext?: unknown;
+}): Promise<
+  | { kind: "ok"; scheduledId: string; label: string }
+  | { kind: "clarify"; question: string; choices: AssistantChoice[] }
+  | { kind: "not_found"; question: string }
+> {
+  const ownerId = String(opts.ownerId);
+  const hintRaw = String(opts.hint || "").trim().slice(0, 240);
+
+  const lastId = getLastEntityId(opts.threadContext, "lastInboxScheduledMessage");
+  if ((!hintRaw || /\b(last|latest|recent)\b/i.test(hintRaw) || hintRefersToActiveContext(hintRaw)) && lastId) {
+    return { kind: "ok", scheduledId: lastId, label: "Last scheduled message" };
+  }
+
+  await ensurePortalInboxSchema();
+
+  const rows = (await (prisma as any).portalInboxScheduledMessage
+    .findMany({
+      where: { ownerId, status: "PENDING" },
+      orderBy: [{ scheduledFor: "desc" }, { createdAt: "desc" }],
+      take: 12,
+      select: { id: true, channel: true, toAddress: true, subject: true, scheduledFor: true, createdAt: true },
+    })
+    .catch(() => [])) as any[];
+
+  if (!rows.length) return { kind: "not_found", question: "You don’t have any pending scheduled inbox messages." };
+
+  const makeLabel = (r: any): { label: string; description?: string } => {
+    const channel = String(r?.channel || "").toUpperCase() === "EMAIL" ? "Email" : "SMS";
+    const to = String(r?.toAddress || "").slice(0, 80) || "(unknown recipient)";
+    const when = r?.scheduledFor instanceof Date ? r.scheduledFor.toLocaleString() : String(r?.scheduledFor || "");
+    const subject = String(r?.subject || "").trim();
+    const label = `${channel} to ${to}`.slice(0, 120);
+    const desc = [when ? `Send at: ${when}` : null, subject ? `Subject: ${subject.slice(0, 80)}` : null].filter(Boolean).join(" · ");
+    return { label, ...(desc ? { description: desc.slice(0, 200) } : {}) };
+  };
+
+  if (looksLikeId(hintRaw)) {
+    const id = hintRaw.slice(0, 120);
+    const found = rows.find((r) => String(r?.id || "") === id);
+    const meta = found ? makeLabel(found) : null;
+    return { kind: "ok", scheduledId: id, label: meta?.label || id.slice(0, 40) };
+  }
+
+  const hk = normKey(hintRaw);
+  const filtered = hk
+    ? rows.filter((r) => {
+        const to = normKey(String(r?.toAddress || ""));
+        const subject = normKey(String(r?.subject || ""));
+        const id = normKey(String(r?.id || ""));
+        return to.includes(hk) || subject.includes(hk) || id.includes(hk);
+      })
+    : rows;
+
+  if (filtered.length === 1) {
+    const r = filtered[0]!;
+    const meta = makeLabel(r);
+    return { kind: "ok", scheduledId: String(r.id), label: meta.label };
+  }
+
+  const choices: AssistantChoice[] = (filtered.length ? filtered : rows).slice(0, 8).map((r) => {
+    const meta = makeLabel(r);
+    return {
+      type: "entity",
+      kind: "inbox_scheduled_message",
+      value: String(r.id),
+      label: meta.label,
+      ...(meta.description ? { description: meta.description } : {}),
+    };
+  });
+
+  return {
+    kind: "clarify",
+    question: "Which scheduled message do you mean? Click one:",
+    choices,
+  };
+}
+
+async function resolveElevenLabsAgentId(opts: {
+  ownerId: string;
+  hint: string;
+}): Promise<
+  | { kind: "ok"; agentId: string; label: string }
+  | { kind: "clarify"; question: string; choices: AssistantChoice[] }
+  | { kind: "not_found"; question: string }
+> {
+  const ownerId = String(opts.ownerId);
+  const hintRaw = String(opts.hint || "").trim().slice(0, 240);
+
+  const normalizeAgentId = (raw: unknown): string => {
+    const s = typeof raw === "string" ? raw.trim() : "";
+    if (!s) return "";
+    const cleaned = s.slice(0, 120);
+    if (!cleaned.startsWith("agent_")) return "";
+    return cleaned;
+  };
+
+  const normalizeLabel = (raw: unknown): string => {
+    const s = typeof raw === "string" ? raw.trim().replace(/\s+/g, " ") : "";
+    return s ? s.slice(0, 160) : "";
+  };
+
+  const asRecord = (value: unknown): Record<string, unknown> => {
+    return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+  };
+
+  const pushUnique = (list: string[], value: string) => {
+    if (!value) return;
+    if (list.includes(value)) return;
+    list.push(value);
+  };
+
+  const agentsMap = new Map<string, { id: string; labels: string[] }>();
+
+  const addAgent = (idRaw: unknown, labelRaw?: unknown) => {
+    const id = normalizeAgentId(idRaw);
+    if (!id) return;
+    const label = normalizeLabel(labelRaw);
+    const existing = agentsMap.get(id);
+    if (existing) {
+      pushUnique(existing.labels, label);
+      return;
+    }
+    agentsMap.set(id, { id, labels: label ? [label] : [] });
+  };
+
+  const PROFILE_EXTRAS_SERVICE_SLUG = "profile";
+  const AI_RECEPTIONIST_SERVICE_SLUG = "ai-receptionist";
+
+  const setups = await prisma.portalServiceSetup.findMany({
+    where: { ownerId, serviceSlug: { in: [PROFILE_EXTRAS_SERVICE_SLUG, AI_RECEPTIONIST_SERVICE_SLUG] } },
+    select: { serviceSlug: true, dataJson: true },
+  });
+
+  for (const s of setups) {
+    const data = asRecord((s as any).dataJson);
+    if (s.serviceSlug === PROFILE_EXTRAS_SERVICE_SLUG) {
+      addAgent((data as any).voiceAgentId, "Profile: Voice");
+      continue;
+    }
+    if (s.serviceSlug === AI_RECEPTIONIST_SERVICE_SLUG) {
+      const settings = asRecord(((data as any).settings ?? data) as any);
+      addAgent((settings as any).voiceAgentId, "AI Receptionist: Voice");
+      addAgent((settings as any).chatAgentId ?? (settings as any).messagingAgentId, "AI Receptionist: SMS");
+      continue;
+    }
+  }
+
+  const campaigns = await (prisma as any).portalAiOutboundCallCampaign
+    .findMany({
+      where: { ownerId },
+      select: { id: true, name: true, voiceAgentId: true, chatAgentId: true, updatedAt: true },
+      orderBy: { updatedAt: "desc" },
+      take: 60,
+    })
+    .catch(() => [] as any[]);
+
+  for (const c of campaigns) {
+    const n = normalizeLabel((c as any).name) || "Outbound campaign";
+    addAgent((c as any).voiceAgentId, `AI Outbound: ${n} (Calls)`);
+    addAgent((c as any).chatAgentId, `AI Outbound: ${n} (Messages)`);
+  }
+
+  const agents = Array.from(agentsMap.values()).map((a) => {
+    const label = a.labels.length ? a.labels.join(" · ") : "";
+    return { id: a.id, label: label.slice(0, 180) };
+  });
+
+  if (!agents.length) {
+    return {
+      kind: "not_found",
+      question: "I couldn’t find any ElevenLabs agent IDs referenced by your portal account yet.",
+    };
+  }
+
+  agents.sort((a, b) => (a.label || a.id).localeCompare(b.label || b.id));
+
+  if (looksLikeId(hintRaw) && hintRaw.startsWith("agent_")) {
+    return { kind: "ok", agentId: hintRaw.slice(0, 120), label: hintRaw.slice(0, 40) };
+  }
+
+  const hk = normKey(hintRaw);
+  const filtered = hk
+    ? agents.filter((a) => normKey(a.id).includes(hk) || normKey(a.label).includes(hk))
+    : agents;
+
+  if (filtered.length === 1) {
+    const a = filtered[0]!;
+    return { kind: "ok", agentId: a.id, label: a.label || a.id.slice(0, 40) };
+  }
+
+  if (!hintRaw && agents.length === 1) {
+    const a = agents[0]!;
+    return { kind: "ok", agentId: a.id, label: a.label || a.id.slice(0, 40) };
+  }
+
+  const choices: AssistantChoice[] = (filtered.length ? filtered : agents).slice(0, 8).map((a) => ({
+    type: "entity",
+    kind: "elevenlabs_agent",
+    value: a.id,
+    label: a.label || a.id,
+    description: a.label ? a.id : undefined,
+  }));
+
+  return { kind: "clarify", question: "Which ElevenLabs agent should I use? Click one:", choices };
 }
 
 async function resolveFunnelId(opts: {
@@ -2695,6 +2906,7 @@ export async function resolvePlanArgs(opts: {
   let resolvedCustomDomain: { id: string; label: string } | null = null;
   let resolvedAiOutboundCallsCampaign: { id: string; label: string } | null = null;
   let resolvedBookingCalendar: { id: string; label: string } | null = null;
+  let resolvedInboxScheduledMessage: { id: string; label: string } | null = null;
 
   const threadChoiceOverrides =
     opts.threadContext && typeof opts.threadContext === "object" && !Array.isArray(opts.threadContext)
@@ -2855,7 +3067,7 @@ export async function resolvePlanArgs(opts: {
       return { ok: true, value: String(rawHintValue ?? "").trim() };
     }
 
-    if (argKeyLower === "contactid" || argKeyLower === "targetcontactid" || argKeyLower === "leadcontactid") {
+    if (argKeyLower.endsWith("contactid") || argKeyLower === "contactid" || argKeyLower === "targetcontactid" || argKeyLower === "leadcontactid") {
       if (resolvedContact?.id) return { ok: true, value: resolvedContact.id };
 
       const lastContactFromCtx =
@@ -2916,13 +3128,48 @@ export async function resolvePlanArgs(opts: {
       return { ok: true, value: rc.contactId };
     }
 
-    if (argKeyLower === "tagid") {
+    if (argKeyLower === "tagid" || argKeyLower.endsWith("tagid")) {
       const tagName = rawHint || String(rawHintValue ?? "").trim();
       const rt = await resolveContactTagId({ ownerId, name: tagName, createIfMissing: true });
       if (rt.kind !== "ok") {
         return { ok: false, clarifyQuestion: `Which tag should I use for ${argKey}? Reply with the tag name.` };
       }
       return { ok: true, value: rt.tagId };
+    }
+
+    if (argKeyLower === "scheduledid") {
+      if (resolvedInboxScheduledMessage?.id) return { ok: true, value: resolvedInboxScheduledMessage.id };
+      const rs = await resolveInboxScheduledMessageId({ ownerId, hint, threadContext: opts.threadContext });
+      if (rs.kind !== "ok") return { ok: false, clarifyQuestion: rs.question, ...(rs.kind === "clarify" ? { choices: rs.choices } : {}) };
+      resolvedInboxScheduledMessage = { id: rs.scheduledId, label: rs.label };
+      return { ok: true, value: rs.scheduledId };
+    }
+
+    if (
+      argKeyLower === "agentid" ||
+      argKeyLower === "voiceagentid" ||
+      argKeyLower === "chatagentid" ||
+      argKeyLower === "manualvoiceagentid" ||
+      argKeyLower === "manualchatagentid"
+    ) {
+      const ra = await resolveElevenLabsAgentId({ ownerId, hint });
+      if (ra.kind !== "ok") return { ok: false, clarifyQuestion: ra.question, ...(ra.kind === "clarify" ? { choices: ra.choices } : {}) };
+      return { ok: true, value: ra.agentId };
+    }
+
+    if (argKeyLower === "parentid" && stepKeyLower.startsWith("media.")) {
+      const rf = await resolveMediaFolderId({ ownerId, hint: mergeResolverHint(rawHint), url: opts.url, threadContext: opts.threadContext });
+      if (rf.kind !== "ok") return { ok: false, clarifyQuestion: rf.question };
+      resolvedMediaFolder = { id: rf.folderId, name: rf.folderName, tag: rf.folderTag };
+      return { ok: true, value: rf.folderId };
+    }
+
+    if (argKeyLower === "keeponpageid") {
+      const funnelIdHint = resolvedFunnel?.id || (typeof (args as any).funnelId === "string" ? String((args as any).funnelId).trim() : "") || null;
+      const rp = await resolveFunnelPageId({ ownerId, hint: mergeResolverHint(rawHint), url: opts.url, threadContext: opts.threadContext, funnelIdHint });
+      if (rp.kind !== "ok") return { ok: false, clarifyQuestion: rp.question, ...(rp.choices ? { choices: rp.choices } : {}) };
+      resolvedFunnelPage = { id: rp.pageId, label: rp.label, funnelId: rp.funnelId };
+      return { ok: true, value: rp.pageId };
     }
 
     if (argKeyLower === "threadid") {
@@ -3712,7 +3959,8 @@ export async function resolvePlanArgs(opts: {
     resolvedFunnelPage ||
     resolvedBookingCalendar ||
     resolvedCustomDomain ||
-    resolvedAiOutboundCallsCampaign
+    resolvedAiOutboundCallsCampaign ||
+    resolvedInboxScheduledMessage
       ? {
           ...(resolvedContact ? { lastContact: resolvedContact } : {}),
           ...(resolvedInboxThread ? { lastInboxThread: resolvedInboxThread } : {}),
@@ -3749,6 +3997,7 @@ export async function resolvePlanArgs(opts: {
           ...(resolvedBookingCalendar ? { lastBookingCalendar: resolvedBookingCalendar } : {}),
           ...(resolvedCustomDomain ? { lastCustomDomain: resolvedCustomDomain } : {}),
           ...(resolvedAiOutboundCallsCampaign ? { lastAiOutboundCallsCampaign: resolvedAiOutboundCallsCampaign } : {}),
+          ...(resolvedInboxScheduledMessage ? { lastInboxScheduledMessage: resolvedInboxScheduledMessage } : {}),
         }
       : undefined;
 

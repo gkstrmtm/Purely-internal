@@ -1,5 +1,5 @@
 {
-  "generatedAtIso": "2026-03-28T02:38:03.343Z",
+  "generatedAtIso": "2026-03-28T23:02:58.649Z",
   "routes": [
     {
       "endpoint": "/api/portal/ads/claim",
@@ -101,6 +101,13 @@
         "POST"
       ],
       "file": "src/app/api/portal/ai-chat/threads/[threadId]/choice/route.ts"
+    },
+    {
+      "endpoint": "/api/portal/ai-chat/threads/[threadId]/dictate",
+      "methods": [
+        "POST"
+      ],
+      "file": "src/app/api/portal/ai-chat/threads/[threadId]/dictate/route.ts"
     },
     {
       "endpoint": "/api/portal/ai-chat/threads/[threadId]/duplicate",

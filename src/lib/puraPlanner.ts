@@ -10,9 +10,28 @@ import {
 
 export type PuraPlannerMode = "execute" | "clarify" | "explain" | "noop";
 
+function userExplicitlyWantsAgentToDoIt(textRaw: string): boolean {
+  const t = String(textRaw || "").toLowerCase();
+  if (!t.trim()) return false;
+
+  // Strong signals that the user wants execution, not just guidance.
+  if (/(\bdo it\b|\bdo that\b|\bhandle it\b|\btake care of it\b|\bgo ahead\b|\bjust do\b|\bplease do\b)/.test(t)) return true;
+  if (/\bfor me\b/.test(t)) return true;
+  if (/\b(can|could|would) you\b/.test(t)) {
+    // Many users phrase imperatives as questions: "can you send..."
+    return /(\bsend\b|\btext\b|\bsms\b|\bemail\b|\bschedule\b|\bcreate\b|\bupdate\b|\bdelete\b|\bremove\b|\badd\b|\bapply\b|\btag\b|\buntag\b|\benroll\b|\brun\b|\bimport\b|\bupload\b|\bverify\b)/.test(t);
+  }
+
+  return false;
+}
+
 function userAsksForHowOrSteps(textRaw: string): boolean {
   const t = String(textRaw || "").toLowerCase();
   if (!t.trim()) return false;
+
+  // If they also asked the agent to do it, we should execute instead of explaining.
+  if (userExplicitlyWantsAgentToDoIt(t)) return false;
+
   return (
     /\bhow\b/.test(t) ||
     /\bsteps?\b/.test(t) ||
@@ -26,8 +45,12 @@ function userAsksForHowOrSteps(textRaw: string): boolean {
 function looksLikeImperativeRequest(textRaw: string): boolean {
   const t = String(textRaw || "").toLowerCase();
   if (!t.trim()) return false;
+
+  // Explicit execution intent wins even if the user wrote "how".
+  if (userExplicitlyWantsAgentToDoIt(t)) return true;
+
   if (userAsksForHowOrSteps(t)) return false;
-  return /(\bsend\b|\btext\b|\bsms\b|\bschedule\b|\bevery\b|\bmonday\b|\btuesday\b|\bwednesday\b|\bthursday\b|\bfriday\b|\bmon\b|\btue\b|\bwed\b|\bthu\b|\bfri\b)/.test(t);
+  return /(\bsend\b|\btext\b|\bsms\b|\bemail\b|\bschedule\b|\bcreate\b|\bupdate\b|\bdelete\b|\bremove\b|\badd\b|\bapply\b|\btag\b|\buntag\b|\benroll\b|\brun\b|\bimport\b|\bupload\b|\bverify\b|\bpublish\b|\bunpublish\b|\bconnect\b|\bdisconnect\b|\benable\b|\bdisable\b|\bset\b|\bchange\b|\bevery\b|\bmonday\b|\btuesday\b|\bwednesday\b|\bthursday\b|\bfriday\b|\bmon\b|\btue\b|\bwed\b|\bthu\b|\bfri\b)/.test(t);
 }
 
 const RefSchema = z
@@ -210,8 +233,8 @@ export async function planPuraActions(opts: {
     "You are Pura, an agent inside a business portal.",
     "Your job is to output a strict JSON plan for what to do next.",
     "Rules:",
-    "- If the user explicitly asks HOW / for steps / what to click, output mode=explain.",
-    "- If the user tells you to DO something (send/schedule/update/delete), you MUST output mode=execute (not explain).",
+    "- If the user asks HOW / for steps / what to click AND does NOT ask you to do it for them, output mode=explain.",
+    "- If the user asks you to DO something (send/schedule/update/delete) OR says to do it for them (e.g. 'do it', 'for me', 'can you send...'), you MUST output mode=execute (not explain).",
     "- IMPORTANT: Treat this as an ongoing thread, not a stateless request.",
     "- If the user says things like 'it', 'that one', 'same one', 'use the one we just made', or gives a short follow-up, prefer the active entity from thread context.",
     "- For follow-up commands in the same thread, continue the current task/entity unless the user clearly switches topics.",

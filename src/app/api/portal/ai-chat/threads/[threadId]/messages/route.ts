@@ -156,15 +156,16 @@ function shouldAutoExecuteFromUserText(text: string) {
     .toLowerCase();
   if (!t) return false;
 
-  // Avoid auto-executing on obvious questions.
-  if (/\b(how|why|what|can you|could you|should i|help me|explain)\b/i.test(t)) return false;
+  // Avoid auto-executing when the user is asking for an explanation/steps.
+  // Note: many users phrase imperatives as questions ("can you send...").
+  if (isHowToQuestionOnly(t)) return false;
 
-  const verb = /\b(create|make|build|generate|run|start|trigger|send|text|sms|email|reply|respond|reset|optimize|add|remove|move|import|upload|activate|pause|enroll|apply|tag|untag|label)\b/i.test(
+  const verb = /\b(create|make|build|generate|run|start|trigger|send|text|sms|email|reply|respond|reset|optimize|add|remove|move|import|upload|activate|pause|enroll|apply|tag|untag|label|update|delete|publish|unpublish|connect|disconnect|enable|disable|set|change|schedule)\b/i.test(
     t,
   );
   if (!verb) return false;
 
-  return /\b(task|funnel|newsletter|blog|automation|calendar|booking|appointment|contacts?|people|review|reviews|text|sms|email|message|media|media library|folder|dashboard|reporting|nurture|campaign|tag|tags|label)\b/i.test(
+  return /\b(task|funnel|newsletter|blog|automation|calendar|booking|appointment|contacts?|people|review|reviews|text|sms|email|message|media|media library|folder|dashboard|reporting|nurture|campaign|tag|tags|label|domain|custom domain|business profile|settings)\b/i.test(
     t,
   );
 }
@@ -2661,38 +2662,44 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
     }
 
     // AI-first: if we didn't execute/clarify/explain above, fall back to a normal conversation.
+    // BUT: if the user is issuing an imperative request, do not return a text-only reply here.
+    // Instead, fall through to the deterministic/proposal flow below so we can execute actions.
+    const wantsExecutionFallback =
+      shouldAutoExecuteFromUserText(effectiveText) ||
+      /\b(do it|do that|handle it|take care of it|go ahead|just do|for me|please do)\b/i.test(effectiveText);
+    if (!wantsExecutionFallback) {
+      const reply = await runPortalSupportChat({
+        message: promptMessage,
+        url: contextUrl,
+        recentMessages: modelMessages,
+        threadContext: fallbackThreadContext,
+      });
 
-    const reply = await runPortalSupportChat({
-      message: promptMessage,
-      url: contextUrl,
-      recentMessages: modelMessages,
-      threadContext: fallbackThreadContext,
-    });
+      const assistantMsg = await (prisma as any).portalAiChatMessage.create({
+        data: {
+          ownerId,
+          threadId,
+          role: "assistant",
+          text: reply,
+          attachmentsJson: null,
+          createdByUserId: null,
+          sendAt: null,
+          sentAt: now,
+        },
+        select: {
+          id: true,
+          role: true,
+          text: true,
+          attachmentsJson: true,
+          createdAt: true,
+          sendAt: true,
+          sentAt: true,
+        },
+      });
 
-    const assistantMsg = await (prisma as any).portalAiChatMessage.create({
-      data: {
-        ownerId,
-        threadId,
-        role: "assistant",
-        text: reply,
-        attachmentsJson: null,
-        createdByUserId: null,
-        sendAt: null,
-        sentAt: now,
-      },
-      select: {
-        id: true,
-        role: true,
-        text: true,
-        attachmentsJson: true,
-        createdAt: true,
-        sendAt: true,
-        sentAt: true,
-      },
-    });
-
-    await (prisma as any).portalAiChatThread.update({ where: { id: threadId }, data: { lastMessageAt: now } });
-    return NextResponse.json({ ok: true, userMessage: userMsg, assistantMessage: assistantMsg, assistantActions: [], autoActionMessage: null, canvasUrl: null });
+      await (prisma as any).portalAiChatThread.update({ where: { id: threadId }, data: { lastMessageAt: now } });
+      return NextResponse.json({ ok: true, userMessage: userMsg, assistantMessage: assistantMsg, assistantActions: [], autoActionMessage: null, canvasUrl: null });
+    }
   }
 
   // 1) Prefer deterministic action execution for common commands.

@@ -25882,6 +25882,29 @@ export function deriveThreadContextPatchFromAction(action: PortalAgentActionKey,
         return { lastFunnelPage: { id: pageId, label, funnelId } };
       }
     }
+
+    if (action === "inbox.send" && (json as any).scheduled === true && typeof (json as any).scheduledId === "string") {
+      const scheduledId = String((json as any).scheduledId || "").trim().slice(0, 120);
+      if (!scheduledId) return null;
+      const channel = String((json as any).channel || (args as any).channel || "").trim().toLowerCase();
+      const to = String((args as any).to || "").trim().slice(0, 120);
+      const sendAt = String((args as any).sendAt || "").trim().slice(0, 80);
+      const label = `${channel === "email" ? "Email" : "SMS"} to ${to || "recipient"}`.slice(0, 120);
+      const desc = sendAt ? `Send at: ${sendAt}` : undefined;
+      return {
+        lastInboxScheduledMessage: {
+          id: scheduledId,
+          label,
+          ...(desc ? { description: desc } : {}),
+        },
+      };
+    }
+
+    if (action === "inbox.scheduled.update" && typeof (args as any).scheduledId === "string") {
+      const scheduledId = String((args as any).scheduledId || "").trim().slice(0, 120);
+      if (!scheduledId) return null;
+      return { lastInboxScheduledMessage: { id: scheduledId, label: "Scheduled message" } };
+    }
   } catch {
     // best-effort only
   }
