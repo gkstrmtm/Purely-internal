@@ -1442,6 +1442,13 @@ async function resolveNurtureCampaignId(opts: {
   const ownerId = String(opts.ownerId);
   const hintRaw = String(opts.hint || "").trim();
 
+  const isUuidLike = (s: string) => {
+    const t = String(s || "").trim();
+    if (!t) return false;
+    if (/^[0-9a-f]{32}$/i.test(t)) return true;
+    return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(t);
+  };
+
   const CREATE_NEW_VALUE = "__create_new__";
 
   const makeChoices = (rows: Array<{ id: string; name: string | null; status?: string | null; updatedAt?: Date | null }>): AssistantChoice[] => {
@@ -1551,8 +1558,8 @@ async function resolveNurtureCampaignId(opts: {
     if (created) return { kind: "ok", campaignId: created.campaignId, campaignName: created.campaignName };
   }
 
-  // If they pasted an id, accept it.
-  if (/^[a-z0-9]{20,40}$/i.test(hint)) {
+  // If they pasted an id (including UUIDs), accept it.
+  if (/^[a-z0-9]{20,40}$/i.test(hint) || isUuidLike(hint)) {
     const row = await prisma.portalNurtureCampaign.findFirst({ where: { ownerId, id: hint }, select: { id: true, name: true } }).catch(() => null);
     if (row?.id) return { kind: "ok", campaignId: String(row.id), campaignName: String(row.name || "Campaign") };
   }
@@ -1602,6 +1609,13 @@ async function resolveNurtureStepId(opts: {
   const ownerId = String(opts.ownerId);
   const hintRaw = String(opts.hint || "").trim();
 
+  const isUuidLike = (s: string) => {
+    const t = String(s || "").trim();
+    if (!t) return false;
+    if (/^[0-9a-f]{32}$/i.test(t)) return true;
+    return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(t);
+  };
+
   const fromUrl = extractNurtureStepIdFromUrl(opts.url);
   if (!hintRaw && fromUrl) {
     const row = await prisma.portalNurtureStep
@@ -1635,8 +1649,8 @@ async function resolveNurtureStepId(opts: {
     getLastEntityId(opts.threadContext, "lastNurtureCampaign") ||
     null;
 
-  // If they pasted an id, accept it.
-  if (/^[a-z0-9]{20,40}$/i.test(hint)) {
+  // If they pasted an id (including UUIDs), accept it.
+  if (/^[a-z0-9]{20,40}$/i.test(hint) || isUuidLike(hint)) {
     const row = await prisma.portalNurtureStep
       .findFirst({ where: { ownerId, id: hint }, select: { id: true, ord: true, kind: true, subject: true, campaignId: true } })
       .catch(() => null);
