@@ -374,12 +374,40 @@ async function resolveContactId(opts: {
   hint: string;
 }): Promise<
   | { kind: "ok"; contactId: string; contactName: string }
-  | { kind: "clarify"; question: string }
-  | { kind: "not_found"; question: string }
+  | { kind: "clarify"; question: string; choices?: AssistantChoice[] }
+  | { kind: "not_found"; question: string; choices?: AssistantChoice[] }
 > {
   const ownerId = String(opts.ownerId);
   const hint = String(opts.hint || "").trim();
-  if (!hint) return { kind: "clarify", question: "Which contact should I use? Reply with a name, email, or phone." };
+
+  const makeContactChoices = (rows: Array<{ id: string; name?: string | null; email?: string | null; phone?: string | null }>): AssistantChoice[] => {
+    const list = (rows || [])
+      .filter((r) => r && typeof r === "object")
+      .slice(0, 8)
+      .map((r) => {
+        const name = String((r as any).name || "").trim();
+        const email = String((r as any).email || "").trim();
+        const phone = String((r as any).phone || "").trim();
+        const label = name || email || phone || "Contact";
+        const descBits = [email ? `email: ${email}` : null, phone ? `phone: ${phone}` : null].filter(Boolean).join(" · ");
+        return {
+          type: "entity" as const,
+          kind: "contact",
+          value: String((r as any).id || "").trim(),
+          label,
+          description: descBits || undefined,
+        };
+      })
+      .filter((c) => Boolean(c.value));
+    return list;
+  };
+
+  if (!hint) {
+    const rows = await (prisma as any).portalContact
+      .findMany({ where: { ownerId }, orderBy: { updatedAt: "desc" }, take: 8, select: { id: true, name: true, email: true, phone: true } })
+      .catch(() => []);
+    return { kind: "clarify", question: "Which contact should I use?", choices: makeContactChoices(rows as any) };
+  }
 
   const emailLike = extractFirstEmailLike(hint);
   const emailKey = emailLike ? normalizeEmailKey(emailLike) : null;
@@ -398,14 +426,11 @@ async function resolveContactId(opts: {
       return { kind: "ok", contactId: String(rows[0].id), contactName: String(rows[0].name || "").trim() || emailLike || "Contact" };
     }
     if (rows?.length > 1) {
-      const list = rows
-        .slice(0, 5)
-        .map((r: any) => {
-          const bits = [r.email ? `email: ${r.email}` : null, r.phone ? `phone: ${r.phone}` : null].filter(Boolean).join(" · ");
-          return `- ${String(r.name || "(No name)").trim()}${bits ? ` (${bits})` : ""}`;
-        })
-        .join("\n");
-      return { kind: "clarify", question: `I found multiple matches for “${hint}”. Reply with the contact’s email or phone:\n\n${list}` };
+      return {
+        kind: "clarify",
+        question: `I found multiple matches for “${hint}”. Which contact should I use?`,
+        choices: makeContactChoices(rows as any),
+      };
     }
   }
 
@@ -429,18 +454,22 @@ async function resolveContactId(opts: {
       return { kind: "ok", contactId: String(rows[0].id), contactName: String(rows[0].name || "").trim() || nameLike };
     }
     if (rows?.length > 1) {
-      const list = rows
-        .slice(0, 5)
-        .map((r: any) => {
-          const bits = [r.email ? `email: ${r.email}` : null, r.phone ? `phone: ${r.phone}` : null].filter(Boolean).join(" · ");
-          return `- ${String(r.name || "(No name)").trim()}${bits ? ` (${bits})` : ""}`;
-        })
-        .join("\n");
-      return { kind: "clarify", question: `I found multiple contacts named “${nameLike}”. Reply with the email or phone:\n\n${list}` };
+      return {
+        kind: "clarify",
+        question: `I found multiple contacts named “${nameLike}”. Which contact should I use?`,
+        choices: makeContactChoices(rows as any),
+      };
     }
   }
 
-  return { kind: "not_found", question: `I couldn’t find a contact for “${hint}”. Reply with their email or phone.` };
+  const recent = await (prisma as any).portalContact
+    .findMany({ where: { ownerId }, orderBy: { updatedAt: "desc" }, take: 8, select: { id: true, name: true, email: true, phone: true } })
+    .catch(() => []);
+  return {
+    kind: "not_found",
+    question: `I couldn’t find a contact for “${hint}”. Pick one of these:`,
+    choices: makeContactChoices(recent as any),
+  };
 }
 
 async function resolveContactTagId(opts: {
@@ -574,11 +603,29 @@ async function resolveFunnelId(opts: {
   threadContext?: unknown;
 }): Promise<
   | { kind: "ok"; funnelId: string; funnelName: string }
-  | { kind: "clarify"; question: string }
-  | { kind: "not_found"; question: string }
+  | { kind: "clarify"; question: string; choices?: AssistantChoice[] }
+  | { kind: "not_found"; question: string; choices?: AssistantChoice[] }
 > {
   const ownerId = String(opts.ownerId);
   const hintRaw = String(opts.hint || "").trim();
+
+  const makeFunnelChoices = (rows: Array<{ id: string; name?: string | null; slug?: string | null; updatedAt?: Date | null }>): AssistantChoice[] => {
+    return (rows || [])
+      .filter((r) => r && typeof r === "object")
+      .slice(0, 8)
+      .map((r) => {
+        const name = String((r as any).name || "").trim();
+        const slug = String((r as any).slug || "").trim();
+        return {
+          type: "entity" as const,
+          kind: "funnel",
+          value: String((r as any).id || "").trim(),
+          label: name || slug || "Funnel",
+          description: slug && name && slug !== name ? `slug: ${slug}` : slug ? `slug: ${slug}` : undefined,
+        };
+      })
+      .filter((c) => Boolean(c.value));
+  };
 
   const fromUrl = extractFunnelIdFromUrl(opts.url);
   if (!hintRaw && fromUrl) {
@@ -598,7 +645,10 @@ async function resolveFunnelId(opts: {
 
   const hint = hintRaw.slice(0, 120);
   if (!hint) {
-    return { kind: "clarify", question: "Which funnel should I use? Reply with the funnel name (or open it in Funnel Builder)." };
+    const rows = await prisma.creditFunnel
+      .findMany({ where: { ownerId }, orderBy: { updatedAt: "desc" }, take: 8, select: { id: true, name: true, slug: true, updatedAt: true } })
+      .catch(() => []);
+    return { kind: "clarify", question: "Which funnel should I use?", choices: makeFunnelChoices(rows as any) };
   }
 
   // If they pasted an ID, accept it.
@@ -624,17 +674,13 @@ async function resolveFunnelId(opts: {
   }
 
   if (rows.length > 1) {
-    const list = rows
-      .slice(0, 5)
-      .map((r) => `- ${String(r.name || r.slug || "(no name)").trim()} (slug: ${String(r.slug)})`)
-      .join("\n");
-    return {
-      kind: "clarify",
-      question: `I found multiple funnels matching “${hint}”. Reply with the exact slug you mean:\n\n${list}`,
-    };
+    return { kind: "clarify", question: `I found multiple funnels matching “${hint}”. Which one should I use?`, choices: makeFunnelChoices(rows as any) };
   }
 
-  return { kind: "not_found", question: `I couldn’t find a funnel matching “${hint}”. Reply with the funnel name or slug.` };
+  const recent = await prisma.creditFunnel
+    .findMany({ where: { ownerId }, orderBy: { updatedAt: "desc" }, take: 8, select: { id: true, name: true, slug: true, updatedAt: true } })
+    .catch(() => []);
+  return { kind: "not_found", question: `I couldn’t find a funnel matching “${hint}”. Pick one of these:`, choices: makeFunnelChoices(recent as any) };
 }
 
 async function resolveAutomationId(opts: {
@@ -644,11 +690,19 @@ async function resolveAutomationId(opts: {
   threadContext?: unknown;
 }): Promise<
   | { kind: "ok"; automationId: string; automationName: string }
-  | { kind: "clarify"; question: string }
-  | { kind: "not_found"; question: string }
+  | { kind: "clarify"; question: string; choices?: AssistantChoice[] }
+  | { kind: "not_found"; question: string; choices?: AssistantChoice[] }
 > {
   const ownerId = String(opts.ownerId);
   const hintRaw = String(opts.hint || "").trim();
+
+  const makeAutomationChoices = (list: any[]): AssistantChoice[] => {
+    return (Array.isArray(list) ? list : [])
+      .map((a) => ({ id: String(a?.id || "").trim(), name: String(a?.name || "").trim() }))
+      .filter((a) => a.id)
+      .slice(0, 8)
+      .map((a) => ({ type: "entity" as const, kind: "automation", value: a.id, label: a.name || "Automation" }));
+  };
 
   const fromUrl = extractAutomationIdFromUrl(opts.url);
   const last = !hintRaw || hintRefersToActiveContext(hintRaw) ? getLastEntityId(opts.threadContext, "lastAutomation") : null;
@@ -667,7 +721,7 @@ async function resolveAutomationId(opts: {
 
   const hint = hintRaw.slice(0, 120);
   if (!hint) {
-    return { kind: "clarify", question: "Which automation should I use? Reply with the automation name (or open it in Automations)." };
+    return { kind: "clarify", question: "Which automation should I use?", choices: makeAutomationChoices(list) };
   }
 
   // If they pasted an automation id, accept it.
@@ -687,8 +741,7 @@ async function resolveAutomationId(opts: {
   if (matches.length === 1) return { kind: "ok", automationId: matches[0]!.id, automationName: matches[0]!.name };
 
   if (matches.length > 1) {
-    const listText = matches.slice(0, 5).map((m) => `- ${m.name} (id: ${m.id})`).join("\n");
-    return { kind: "clarify", question: `I found multiple automations named “${hint}”. Reply with the id you mean:\n\n${listText}` };
+    return { kind: "clarify", question: `I found multiple automations named “${hint}”. Which one should I use?`, choices: matches.slice(0, 8).map((m) => ({ type: "entity" as const, kind: "automation", value: m.id, label: m.name })) };
   }
 
   // Fallback: partial contains match.
@@ -700,11 +753,10 @@ async function resolveAutomationId(opts: {
 
   if (contains.length === 1) return { kind: "ok", automationId: contains[0]!.id, automationName: contains[0]!.name };
   if (contains.length > 1) {
-    const listText = contains.slice(0, 5).map((m) => `- ${m.name} (id: ${m.id})`).join("\n");
-    return { kind: "clarify", question: `I found multiple automations matching “${hint}”. Reply with the exact name or id:\n\n${listText}` };
+    return { kind: "clarify", question: `I found multiple automations matching “${hint}”. Which one should I use?`, choices: contains.slice(0, 8).map((m) => ({ type: "entity" as const, kind: "automation", value: m.id, label: m.name })) };
   }
 
-  return { kind: "not_found", question: `I couldn’t find an automation matching “${hint}”. Reply with the exact automation name.` };
+  return { kind: "not_found", question: `I couldn’t find an automation matching “${hint}”. Pick one of these:`, choices: makeAutomationChoices(list) };
 }
 
 async function resolveBookingId(opts: {
@@ -714,11 +766,30 @@ async function resolveBookingId(opts: {
   threadContext?: unknown;
 }): Promise<
   | { kind: "ok"; bookingId: string; label: string }
-  | { kind: "clarify"; question: string }
-  | { kind: "not_found"; question: string }
+  | { kind: "clarify"; question: string; choices?: AssistantChoice[] }
+  | { kind: "not_found"; question: string; choices?: AssistantChoice[] }
 > {
   const ownerId = String(opts.ownerId);
   const hintRaw = String(opts.hint || "").trim();
+
+  const makeBookingChoices = (rows: Array<{ id: string; startAt?: Date | null; contactName?: string | null; contactEmail?: string | null }>): AssistantChoice[] => {
+    return (rows || [])
+      .filter((r) => r && typeof r === "object")
+      .slice(0, 8)
+      .map((r) => {
+        const when = (r as any).startAt instanceof Date ? (r as any).startAt.toLocaleString() : "";
+        const name = String((r as any).contactName || "").trim();
+        const email = String((r as any).contactEmail || "").trim();
+        return {
+          type: "entity" as const,
+          kind: "booking",
+          value: String((r as any).id || "").trim(),
+          label: `${name || email || "Booking"}${when ? ` - ${when}` : ""}`,
+          description: email && name ? `email: ${email}` : email ? `email: ${email}` : undefined,
+        };
+      })
+      .filter((c) => Boolean(c.value));
+  };
 
   const fromUrl = extractBookingIdFromUrl(opts.url);
   if (!hintRaw && fromUrl) {
@@ -752,7 +823,10 @@ async function resolveBookingId(opts: {
 
   const hint = hintRaw.slice(0, 160);
   if (!hint) {
-    return { kind: "clarify", question: "Which booking should I use? Reply with the customer’s email (or open the booking and try again)." };
+    const rows = await prisma.portalBooking
+      .findMany({ where: { site: { ownerId } }, orderBy: { startAt: "desc" }, take: 8, select: { id: true, startAt: true, contactName: true, contactEmail: true } })
+      .catch(() => []);
+    return { kind: "clarify", question: "Which booking should I use?", choices: makeBookingChoices(rows as any) };
   }
 
   // If they pasted an id, accept it.
@@ -784,14 +858,7 @@ async function resolveBookingId(opts: {
       return { kind: "ok", bookingId: String(r.id), label };
     }
     if (rows.length > 1) {
-      const list = rows
-        .slice(0, 5)
-        .map((r) => {
-          const when = r.startAt instanceof Date ? r.startAt.toLocaleString() : "";
-          return `- ${String(r.contactName || "Booking").trim() || "Booking"}${when ? ` - ${when}` : ""}`;
-        })
-        .join("\n");
-      return { kind: "clarify", question: `I found multiple bookings for ${emailLike}. Reply with the date/time you mean, or paste the booking id:\n\n${list}` };
+      return { kind: "clarify", question: `I found multiple bookings for ${emailLike}. Which one should I use?`, choices: makeBookingChoices(rows as any) };
     }
   }
 
@@ -818,18 +885,17 @@ async function resolveBookingId(opts: {
     return { kind: "ok", bookingId: String(r.id), label };
   }
   if (rows.length > 1) {
-    const list = rows
-      .slice(0, 5)
-      .map((r) => {
-        const when = r.startAt instanceof Date ? r.startAt.toLocaleString() : "";
-        const email = String(r.contactEmail || "").trim();
-        return `- ${String(r.contactName || "Booking").trim() || "Booking"}${when ? ` - ${when}` : ""}${email ? ` (${email})` : ""}`;
-      })
-      .join("\n");
-    return { kind: "clarify", question: `I found multiple bookings matching “${hint}”. Reply with the customer’s email or the date/time:\n\n${list}` };
+    return { kind: "clarify", question: `I found multiple bookings matching “${hint}”. Which one should I use?`, choices: makeBookingChoices(rows as any) };
   }
 
-  return { kind: "not_found", question: `I couldn’t find a booking matching “${hint}”. Reply with the customer’s email.` };
+  const recent = await prisma.portalBooking
+    .findMany({ where: { site: { ownerId } }, orderBy: { startAt: "desc" }, take: 8, select: { id: true, startAt: true, contactName: true, contactEmail: true } })
+    .catch(() => []);
+  return {
+    kind: "not_found",
+    question: `I couldn’t find a booking matching “${hint}”. Pick a recent booking:` ,
+    choices: makeBookingChoices(recent as any),
+  };
 }
 
 async function resolveBlogPostId(opts: {
@@ -1370,11 +1436,77 @@ async function resolveNurtureCampaignId(opts: {
   threadContext?: unknown;
 }): Promise<
   | { kind: "ok"; campaignId: string; campaignName: string }
-  | { kind: "clarify"; question: string }
-  | { kind: "not_found"; question: string }
+  | { kind: "clarify"; question: string; choices?: AssistantChoice[] }
+  | { kind: "not_found"; question: string; choices?: AssistantChoice[] }
 > {
   const ownerId = String(opts.ownerId);
   const hintRaw = String(opts.hint || "").trim();
+
+  const CREATE_NEW_VALUE = "__create_new__";
+
+  const makeChoices = (rows: Array<{ id: string; name: string | null; status?: string | null; updatedAt?: Date | null }>): AssistantChoice[] => {
+    const list = (rows || [])
+      .filter((r) => r && typeof r === "object")
+      .slice(0, 8)
+      .map((r) => ({
+        type: "entity" as const,
+        kind: "nurture_campaign",
+        value: String(r.id),
+        label: String(r.name || "Campaign").trim() || "Campaign",
+        description: r.status ? String(r.status) : undefined,
+      }))
+      .filter((c) => Boolean(c.value));
+    return [
+      ...list,
+      {
+        type: "entity" as const,
+        kind: "nurture_campaign",
+        value: CREATE_NEW_VALUE,
+        label: "Create new campaign",
+        description: "Creates a new nurture campaign",
+      },
+    ];
+  };
+
+  const createNewCampaign = async (): Promise<{ campaignId: string; campaignName: string } | null> => {
+    const now = new Date();
+    const id = crypto.randomUUID();
+    const name = "New campaign";
+
+    try {
+      await prisma.portalNurtureCampaign.create({
+        data: {
+          id,
+          ownerId,
+          name,
+          status: "DRAFT",
+          smsFooter: "Reply STOP to opt out.",
+          emailFooter: "",
+          createdAt: now,
+          updatedAt: now,
+        },
+      });
+
+      const stepId = crypto.randomUUID();
+      await prisma.portalNurtureStep.create({
+        data: {
+          id: stepId,
+          ownerId,
+          campaignId: id,
+          ord: 0,
+          kind: "SMS",
+          delayMinutes: 0,
+          body: "Hey {contact.name}, just checking in. Any questions I can help with?",
+          createdAt: now,
+          updatedAt: now,
+        },
+      });
+
+      return { campaignId: id, campaignName: name };
+    } catch {
+      return null;
+    }
+  };
 
   const fromUrl = extractNurtureCampaignIdFromUrl(opts.url);
   if (!hintRaw && fromUrl) {
@@ -1392,9 +1524,31 @@ async function resolveNurtureCampaignId(opts: {
     if (row?.id) return { kind: "ok", campaignId: String(row.id), campaignName: String(row.name || "Campaign") };
   }
 
+  // If user explicitly wants a new campaign, create one and return it.
+  if (hintRaw === CREATE_NEW_VALUE || hintMeansCreateNew(hintRaw)) {
+    const created = await createNewCampaign();
+    if (created) return { kind: "ok", campaignId: created.campaignId, campaignName: created.campaignName };
+  }
+
   const hint = hintRaw.slice(0, 160);
   if (!hint) {
-    return { kind: "clarify", question: "Which nurture campaign should I use? Reply with the campaign name." };
+    const rows = await prisma.portalNurtureCampaign
+      .findMany({ where: { ownerId }, orderBy: { updatedAt: "desc" }, take: 8, select: { id: true, name: true, status: true, updatedAt: true } })
+      .catch(() => []);
+    return { kind: "clarify", question: "Which nurture campaign should I use?", choices: makeChoices(rows as any) };
+  }
+
+  // If they don't care, pick a deterministic default (or create one if none exist).
+  if (hintMeansAny(hint)) {
+    const rows = await prisma.portalNurtureCampaign
+      .findMany({ where: { ownerId }, orderBy: [{ status: "asc" }, { updatedAt: "desc" }], take: 1, select: { id: true, name: true } })
+      .catch(() => []);
+    if (rows.length === 1) {
+      const r = rows[0]!;
+      return { kind: "ok", campaignId: String(r.id), campaignName: String(r.name || "Campaign") };
+    }
+    const created = await createNewCampaign();
+    if (created) return { kind: "ok", campaignId: created.campaignId, campaignName: created.campaignName };
   }
 
   // If they pasted an id, accept it.
@@ -1417,17 +1571,21 @@ async function resolveNurtureCampaignId(opts: {
     return { kind: "ok", campaignId: String(r.id), campaignName: String(r.name || hint) };
   }
   if (rows.length > 1) {
-    const list = rows
-      .slice(0, 5)
-      .map((r) => {
-        const when = r.updatedAt instanceof Date ? r.updatedAt.toLocaleString() : "";
-        return `- [${String(r.status)}] ${String(r.name || "(no name)").trim()}${when ? ` - updated ${when}` : ""} (id: ${String(r.id)})`;
-      })
-      .join("\n");
-    return { kind: "clarify", question: `I found multiple nurture campaigns matching “${hint}”. Reply with the campaign id you mean:\n\n${list}` };
+    return {
+      kind: "clarify",
+      question: `I found multiple nurture campaigns matching “${hint}”. Which one should I use?`,
+      choices: makeChoices(rows as any),
+    };
   }
 
-  return { kind: "not_found", question: `I couldn’t find a nurture campaign matching “${hint}”. Reply with the exact campaign name.` };
+  const recent = await prisma.portalNurtureCampaign
+    .findMany({ where: { ownerId }, orderBy: { updatedAt: "desc" }, take: 8, select: { id: true, name: true, status: true, updatedAt: true } })
+    .catch(() => []);
+  return {
+    kind: "not_found",
+    question: `I couldn’t find a nurture campaign matching “${hint}”. Pick one of these (or create a new one):`,
+    choices: makeChoices(recent as any),
+  };
 }
 
 async function resolveNurtureStepId(opts: {
@@ -1902,8 +2060,8 @@ async function resolvePortalUserId(opts: {
   threadContext?: unknown;
 }): Promise<
   | { kind: "ok"; userId: string; label: string }
-  | { kind: "clarify"; question: string }
-  | { kind: "not_found"; question: string }
+  | { kind: "clarify"; question: string; choices?: AssistantChoice[] }
+  | { kind: "not_found"; question: string; choices?: AssistantChoice[] }
 > {
   const ownerId = String(opts.ownerId);
   const hint = String(opts.hint || "").trim();
@@ -1914,7 +2072,6 @@ async function resolvePortalUserId(opts: {
   const lastId = getLastEntityId(opts.threadContext, "lastUser");
   if ((!hint || /\b(last|latest|recent)\b/i.test(hint)) && lastId) return { kind: "ok", userId: lastId, label: "Last user" };
 
-  if (!hint) return { kind: "clarify", question: "Which user do you mean? Reply with their email address." };
   if (looksLikeId(hint)) return { kind: "ok", userId: hint.slice(0, 120), label: hint.slice(0, 40) };
 
   const owner = await prisma.user.findUnique({ where: { id: ownerId }, select: { id: true, email: true, name: true } }).catch(() => null);
@@ -1931,6 +2088,31 @@ async function resolvePortalUserId(opts: {
       : []),
     ...members.map((m: any) => ({ userId: m.userId, user: m.user, role: m.role })),
   ].filter((m, idx, arr) => arr.findIndex((x) => x.userId === m.userId) === idx);
+
+  const makeUserChoices = (rows: any[]): AssistantChoice[] => {
+    return (rows || [])
+      .filter((r: any) => r && typeof r === "object")
+      .slice(0, 8)
+      .map((r: any) => {
+        const userId = String(r.userId || r?.user?.id || "").trim();
+        const email = String(r?.user?.email || "").trim();
+        const name = String(r?.user?.name || "").trim();
+        const role = String(r?.role || "").trim();
+        return {
+          type: "entity" as const,
+          kind: "user",
+          value: userId,
+          label: name || email || "User",
+          description: role ? `role: ${role}${email && name ? ` · email: ${email}` : email && !name ? ` · email: ${email}` : ""}` : email && name ? `email: ${email}` : email && !name ? `email: ${email}` : undefined,
+        };
+      })
+      .filter((c: any) => Boolean(c.value));
+  };
+
+  if (!hint) {
+    if (!merged.length) return { kind: "not_found", question: "I couldn’t find any users on this account." };
+    return { kind: "clarify", question: "Which user should I use?", choices: makeUserChoices(merged) };
+  }
 
   const emailLike = extractFirstEmailLike(hint);
   const hk = normKey(hint);
@@ -1951,17 +2133,11 @@ async function resolvePortalUserId(opts: {
     return { kind: "ok", userId: String(u.userId), label: name || email || "User" };
   }
 
-  const list = rows
-    .slice(0, 8)
-    .map((m: any) => {
-      const email = String(m?.user?.email || "").trim();
-      const name = String(m?.user?.name || "").trim();
-      const role = String(m?.role || "").trim();
-      return `- ${name || email || "(unknown)"}${role ? ` (${role})` : ""} - ${String(m.userId).slice(0, 8)}...`;
-    })
-    .join("\n");
-
-  return { kind: "clarify", question: `Which user should I use? Reply with their email or user id:\n\n${list}` };
+  return {
+    kind: "clarify",
+    question: filtered.length ? `I found multiple users matching “${hint}”. Which one should I use?` : "Which user should I use?",
+    choices: makeUserChoices(rows),
+  };
 }
 
 async function resolveFunnelFormId(opts: {
@@ -2294,6 +2470,11 @@ function hintMeansAny(raw: string): boolean {
     return true;
   }
 
+  // Extra common replies
+  if (s === "i don't care" || s === "i dont care" || s === "dont care" || s === "don't care" || s === "name it anything" || s === "anything" || s === "anything is fine") {
+    return true;
+  }
+
   // Embedded phrases (hints often include extra context/newlines)
   return (
     s.includes("doesn't matter") ||
@@ -2303,7 +2484,8 @@ function hintMeansAny(raw: string): boolean {
     s.includes("no pref") ||
     s.includes("you pick") ||
     s.includes("choose for me") ||
-    /\b(any|either|whatever)\b/.test(s)
+    /\b(any|either|whatever|anything)\b/.test(s) ||
+    /\b(i\s*(don't|dont)\s*care|name\s+it\s+anything|anything\s+is\s+fine)\b/.test(s)
   );
 }
 
@@ -2348,8 +2530,8 @@ function hintMeansCreateNew(raw: string): boolean {
   if (s === "new" || s === "new one" || s === "make a new one" || s === "create a new one") return true;
 
   // Embedded phrases.
-  if (s.includes("make a new") || s.includes("create a new") || s.includes("new page")) return true;
-  return /\b(new|create|make)\b/.test(s) && /\b(page|form|domain)\b/.test(s);
+  if (s.includes("make a new") || s.includes("create a new") || s.includes("new page") || s.includes("new campaign")) return true;
+  return /\b(new|create|make)\b/.test(s) && /\b(page|form|domain|campaign)\b/.test(s);
 }
 
 function looksLikeCalendarIntent(raw: string): boolean {
@@ -2536,6 +2718,72 @@ export async function resolvePlanArgs(opts: {
     }
   };
 
+  const clearNurtureCampaignChoiceOverride = () => {
+    const prevOverrides =
+      threadChoiceOverrides && typeof threadChoiceOverrides === "object" && !Array.isArray(threadChoiceOverrides)
+        ? { ...(threadChoiceOverrides as Record<string, unknown>) }
+        : {};
+    if (Object.prototype.hasOwnProperty.call(prevOverrides, "nurtureCampaignId")) {
+      delete (prevOverrides as any).nurtureCampaignId;
+      extraContextPatch = { ...(extraContextPatch || {}), choiceOverrides: prevOverrides };
+    }
+  };
+
+  const clearContactChoiceOverride = () => {
+    const prevOverrides =
+      threadChoiceOverrides && typeof threadChoiceOverrides === "object" && !Array.isArray(threadChoiceOverrides)
+        ? { ...(threadChoiceOverrides as Record<string, unknown>) }
+        : {};
+    if (Object.prototype.hasOwnProperty.call(prevOverrides, "contactId")) {
+      delete (prevOverrides as any).contactId;
+      extraContextPatch = { ...(extraContextPatch || {}), choiceOverrides: prevOverrides };
+    }
+  };
+
+  const clearUserChoiceOverride = () => {
+    const prevOverrides =
+      threadChoiceOverrides && typeof threadChoiceOverrides === "object" && !Array.isArray(threadChoiceOverrides)
+        ? { ...(threadChoiceOverrides as Record<string, unknown>) }
+        : {};
+    if (Object.prototype.hasOwnProperty.call(prevOverrides, "userId")) {
+      delete (prevOverrides as any).userId;
+      extraContextPatch = { ...(extraContextPatch || {}), choiceOverrides: prevOverrides };
+    }
+  };
+
+  const clearFunnelChoiceOverride = () => {
+    const prevOverrides =
+      threadChoiceOverrides && typeof threadChoiceOverrides === "object" && !Array.isArray(threadChoiceOverrides)
+        ? { ...(threadChoiceOverrides as Record<string, unknown>) }
+        : {};
+    if (Object.prototype.hasOwnProperty.call(prevOverrides, "funnelId")) {
+      delete (prevOverrides as any).funnelId;
+      extraContextPatch = { ...(extraContextPatch || {}), choiceOverrides: prevOverrides };
+    }
+  };
+
+  const clearAutomationChoiceOverride = () => {
+    const prevOverrides =
+      threadChoiceOverrides && typeof threadChoiceOverrides === "object" && !Array.isArray(threadChoiceOverrides)
+        ? { ...(threadChoiceOverrides as Record<string, unknown>) }
+        : {};
+    if (Object.prototype.hasOwnProperty.call(prevOverrides, "automationId")) {
+      delete (prevOverrides as any).automationId;
+      extraContextPatch = { ...(extraContextPatch || {}), choiceOverrides: prevOverrides };
+    }
+  };
+
+  const clearBookingChoiceOverride = () => {
+    const prevOverrides =
+      threadChoiceOverrides && typeof threadChoiceOverrides === "object" && !Array.isArray(threadChoiceOverrides)
+        ? { ...(threadChoiceOverrides as Record<string, unknown>) }
+        : {};
+    if (Object.prototype.hasOwnProperty.call(prevOverrides, "bookingId")) {
+      delete (prevOverrides as any).bookingId;
+      extraContextPatch = { ...(extraContextPatch || {}), choiceOverrides: prevOverrides };
+    }
+  };
+
   // Special-case: for funnel HTML generation, treat booking calendar selection as an explicit disambiguation step.
   if (stepKeyLower === "funnel_builder.pages.generate_html") {
     const prompt = typeof (args as any).prompt === "string" ? String((args as any).prompt).trim() : "";
@@ -2583,9 +2831,14 @@ export async function resolvePlanArgs(opts: {
 
     if (argKeyLower === "contactid" || argKeyLower === "targetcontactid" || argKeyLower === "leadcontactid") {
       if (resolvedContact?.id) return { ok: true, value: resolvedContact.id };
-      const rc = await resolveContactId({ ownerId, hint: mergeResolverHint(rawHint) });
-      if (rc.kind !== "ok") return { ok: false, clarifyQuestion: rc.question };
+      const overrideContactId =
+        threadChoiceOverrides && typeof threadChoiceOverrides === "object" && typeof (threadChoiceOverrides as any).contactId === "string"
+          ? String((threadChoiceOverrides as any).contactId).trim()
+          : "";
+      const rc = await resolveContactId({ ownerId, hint: overrideContactId || mergeResolverHint(rawHint) });
+      if (rc.kind !== "ok") return { ok: false, clarifyQuestion: rc.question, ...(rc.choices ? { choices: rc.choices } : {}) };
       resolvedContact = { id: rc.contactId, name: rc.contactName };
+      if (overrideContactId) clearContactChoiceOverride();
       return { ok: true, value: rc.contactId };
     }
 
@@ -2623,25 +2876,40 @@ export async function resolvePlanArgs(opts: {
 
     if (argKeyLower === "funnelid") {
       if (resolvedFunnel?.id) return { ok: true, value: resolvedFunnel.id };
-      const rf = await resolveFunnelId({ ownerId, hint: mergeResolverHint(rawHint), url: opts.url, threadContext: opts.threadContext });
-      if (rf.kind !== "ok") return { ok: false, clarifyQuestion: rf.question };
+      const overrideFunnelId =
+        threadChoiceOverrides && typeof threadChoiceOverrides === "object" && typeof (threadChoiceOverrides as any).funnelId === "string"
+          ? String((threadChoiceOverrides as any).funnelId).trim()
+          : "";
+      const rf = await resolveFunnelId({ ownerId, hint: overrideFunnelId || mergeResolverHint(rawHint), url: opts.url, threadContext: opts.threadContext });
+      if (rf.kind !== "ok") return { ok: false, clarifyQuestion: rf.question, ...(rf.choices ? { choices: rf.choices } : {}) };
       resolvedFunnel = { id: rf.funnelId, name: rf.funnelName };
+      if (overrideFunnelId) clearFunnelChoiceOverride();
       return { ok: true, value: rf.funnelId };
     }
 
     if (argKeyLower === "automationid") {
       if (resolvedAutomation?.id) return { ok: true, value: resolvedAutomation.id };
-      const ra = await resolveAutomationId({ ownerId, hint: mergeResolverHint(rawHint), url: opts.url, threadContext: opts.threadContext });
-      if (ra.kind !== "ok") return { ok: false, clarifyQuestion: ra.question };
+      const overrideAutomationId =
+        threadChoiceOverrides && typeof threadChoiceOverrides === "object" && typeof (threadChoiceOverrides as any).automationId === "string"
+          ? String((threadChoiceOverrides as any).automationId).trim()
+          : "";
+      const ra = await resolveAutomationId({ ownerId, hint: overrideAutomationId || mergeResolverHint(rawHint), url: opts.url, threadContext: opts.threadContext });
+      if (ra.kind !== "ok") return { ok: false, clarifyQuestion: ra.question, ...(ra.choices ? { choices: ra.choices } : {}) };
       resolvedAutomation = { id: ra.automationId, name: ra.automationName };
+      if (overrideAutomationId) clearAutomationChoiceOverride();
       return { ok: true, value: ra.automationId };
     }
 
     if (argKeyLower === "bookingid") {
       if (resolvedBooking?.id) return { ok: true, value: resolvedBooking.id };
-      const rb = await resolveBookingId({ ownerId, hint: mergeResolverHint(rawHint), url: opts.url, threadContext: opts.threadContext });
-      if (rb.kind !== "ok") return { ok: false, clarifyQuestion: rb.question };
+      const overrideBookingId =
+        threadChoiceOverrides && typeof threadChoiceOverrides === "object" && typeof (threadChoiceOverrides as any).bookingId === "string"
+          ? String((threadChoiceOverrides as any).bookingId).trim()
+          : "";
+      const rb = await resolveBookingId({ ownerId, hint: overrideBookingId || mergeResolverHint(rawHint), url: opts.url, threadContext: opts.threadContext });
+      if (rb.kind !== "ok") return { ok: false, clarifyQuestion: rb.question, ...(rb.choices ? { choices: rb.choices } : {}) };
       resolvedBooking = { id: rb.bookingId, label: rb.label };
+      if (overrideBookingId) clearBookingChoiceOverride();
       return { ok: true, value: rb.bookingId };
     }
 
@@ -2726,9 +2994,29 @@ export async function resolvePlanArgs(opts: {
         return { ok: true, value: rc.campaignId };
       }
       if (resolvedNurtureCampaign?.id) return { ok: true, value: resolvedNurtureCampaign.id };
-      const rc = await resolveNurtureCampaignId({ ownerId, hint: mergeResolverHint(rawHint), url: opts.url, threadContext: opts.threadContext });
-      if (rc.kind !== "ok") return { ok: false, clarifyQuestion: rc.question };
+      const overrideCampaignId =
+        threadChoiceOverrides && typeof threadChoiceOverrides === "object" && typeof (threadChoiceOverrides as any).nurtureCampaignId === "string"
+          ? String((threadChoiceOverrides as any).nurtureCampaignId).trim()
+          : "";
+
+      const rc = await resolveNurtureCampaignId({ ownerId, hint: overrideCampaignId || mergeResolverHint(rawHint), url: opts.url, threadContext: opts.threadContext });
+      if (rc.kind !== "ok") return { ok: false, clarifyQuestion: rc.question, ...(rc.choices ? { choices: rc.choices } : {}) };
       resolvedNurtureCampaign = { id: rc.campaignId, name: rc.campaignName };
+      if (overrideCampaignId) clearNurtureCampaignChoiceOverride();
+      return { ok: true, value: rc.campaignId };
+    }
+
+    if (argKeyLower === "nurturecampaignid") {
+      if (resolvedNurtureCampaign?.id) return { ok: true, value: resolvedNurtureCampaign.id };
+      const overrideCampaignId =
+        threadChoiceOverrides && typeof threadChoiceOverrides === "object" && typeof (threadChoiceOverrides as any).nurtureCampaignId === "string"
+          ? String((threadChoiceOverrides as any).nurtureCampaignId).trim()
+          : "";
+
+      const rc = await resolveNurtureCampaignId({ ownerId, hint: overrideCampaignId || mergeResolverHint(rawHint), url: opts.url, threadContext: opts.threadContext });
+      if (rc.kind !== "ok") return { ok: false, clarifyQuestion: rc.question, ...(rc.choices ? { choices: rc.choices } : {}) };
+      resolvedNurtureCampaign = { id: rc.campaignId, name: rc.campaignName };
+      if (overrideCampaignId) clearNurtureCampaignChoiceOverride();
       return { ok: true, value: rc.campaignId };
     }
 
@@ -2782,9 +3070,14 @@ export async function resolvePlanArgs(opts: {
 
     if (argKeyLower === "userid" || argKeyLower === "memberid" || argKeyLower === "assignedtouserid") {
       if (resolvedUser?.id) return { ok: true, value: resolvedUser.id };
-      const ru = await resolvePortalUserId({ ownerId, hint: mergeResolverHint(rawHint), url: opts.url, threadContext: opts.threadContext });
-      if (ru.kind !== "ok") return { ok: false, clarifyQuestion: ru.question };
+      const overrideUserId =
+        threadChoiceOverrides && typeof threadChoiceOverrides === "object" && typeof (threadChoiceOverrides as any).userId === "string"
+          ? String((threadChoiceOverrides as any).userId).trim()
+          : "";
+      const ru = await resolvePortalUserId({ ownerId, hint: overrideUserId || mergeResolverHint(rawHint), url: opts.url, threadContext: opts.threadContext });
+      if (ru.kind !== "ok") return { ok: false, clarifyQuestion: ru.question, ...(ru.choices ? { choices: ru.choices } : {}) };
       resolvedUser = { id: ru.userId, label: ru.label };
+      if (overrideUserId) clearUserChoiceOverride();
       return { ok: true, value: ru.userId };
     }
 
@@ -2907,7 +3200,7 @@ export async function resolvePlanArgs(opts: {
     const hint = extra && baseHint ? `${baseHint}\n${extra}` : extra || baseHint;
     const rc = await resolveContactId({ ownerId, hint });
     if (rc.kind === "ok") resolvedContact = { id: rc.contactId, name: rc.contactName };
-    else return { ok: false, clarifyQuestion: rc.question };
+    else return { ok: false, clarifyQuestion: rc.question, ...(rc.choices ? { choices: rc.choices } : {}) };
   }
 
   if (inboxThreadRefs.length) {
@@ -2926,7 +3219,7 @@ export async function resolvePlanArgs(opts: {
     const hint = extra && baseHint ? `${baseHint}\n${extra}` : extra || baseHint;
     const rf = await resolveFunnelId({ ownerId, hint, url: opts.url, threadContext: opts.threadContext });
     if (rf.kind === "ok") resolvedFunnel = { id: rf.funnelId, name: rf.funnelName };
-    else return { ok: false, clarifyQuestion: rf.question };
+    else return { ok: false, clarifyQuestion: rf.question, ...(rf.choices ? { choices: rf.choices } : {}) };
   }
 
   if (automationRefs.length) {
@@ -2935,7 +3228,7 @@ export async function resolvePlanArgs(opts: {
     const hint = extra && baseHint ? `${baseHint}\n${extra}` : extra || baseHint;
     const ra = await resolveAutomationId({ ownerId, hint, url: opts.url, threadContext: opts.threadContext });
     if (ra.kind === "ok") resolvedAutomation = { id: ra.automationId, name: ra.automationName };
-    else return { ok: false, clarifyQuestion: ra.question };
+    else return { ok: false, clarifyQuestion: ra.question, ...(ra.choices ? { choices: ra.choices } : {}) };
   }
 
   if (bookingRefs.length) {
@@ -2944,7 +3237,7 @@ export async function resolvePlanArgs(opts: {
     const hint = extra && baseHint ? `${baseHint}\n${extra}` : extra || baseHint;
     const rb = await resolveBookingId({ ownerId, hint, url: opts.url, threadContext: opts.threadContext });
     if (rb.kind === "ok") resolvedBooking = { id: rb.bookingId, label: rb.label };
-    else return { ok: false, clarifyQuestion: rb.question };
+    else return { ok: false, clarifyQuestion: rb.question, ...(rb.choices ? { choices: rb.choices } : {}) };
   }
 
   if (blogPostRefs.length) {
@@ -3016,7 +3309,7 @@ export async function resolvePlanArgs(opts: {
     const hint = extra && baseHint ? `${baseHint}\n${extra}` : extra || baseHint;
     const rc = await resolveNurtureCampaignId({ ownerId, hint, url: opts.url, threadContext: opts.threadContext });
     if (rc.kind === "ok") resolvedNurtureCampaign = { id: rc.campaignId, name: rc.campaignName };
-    else return { ok: false, clarifyQuestion: rc.question };
+    else return { ok: false, clarifyQuestion: rc.question, ...(rc.choices ? { choices: rc.choices } : {}) };
   }
 
   if (nurtureStepRefs.length) {
@@ -3109,7 +3402,7 @@ export async function resolvePlanArgs(opts: {
     const hint = extra && baseHint ? `${baseHint}\n${extra}` : extra || baseHint;
     const ru = await resolvePortalUserId({ ownerId, hint, url: opts.url, threadContext: opts.threadContext });
     if (ru.kind === "ok") resolvedUser = { id: ru.userId, label: ru.label };
-    else return { ok: false, clarifyQuestion: ru.question };
+    else return { ok: false, clarifyQuestion: ru.question, ...(ru.choices ? { choices: ru.choices } : {}) };
   }
 
   if (funnelFormRefs.length) {
@@ -3118,7 +3411,7 @@ export async function resolvePlanArgs(opts: {
     const hint = extra && baseHint ? `${baseHint}\n${extra}` : extra || baseHint;
     const rf = await resolveFunnelFormId({ ownerId, hint, url: opts.url, threadContext: opts.threadContext });
     if (rf.kind === "ok") resolvedFunnelForm = { id: rf.formId, label: rf.label };
-    else return { ok: false, clarifyQuestion: rf.question };
+    else return { ok: false, clarifyQuestion: rf.question, ...(rf.choices ? { choices: rf.choices } : {}) };
   }
 
   if (funnelPageRefs.length) {
@@ -3133,7 +3426,7 @@ export async function resolvePlanArgs(opts: {
       funnelIdHint: resolvedFunnel?.id || null,
     });
     if (rp.kind === "ok") resolvedFunnelPage = { id: rp.pageId, label: rp.label, funnelId: rp.funnelId };
-    else return { ok: false, clarifyQuestion: rp.question };
+    else return { ok: false, clarifyQuestion: rp.question, ...(rp.choices ? { choices: rp.choices } : {}) };
   }
 
   if (customDomainRefs.length) {
@@ -3142,7 +3435,7 @@ export async function resolvePlanArgs(opts: {
     const hint = extra && baseHint ? `${baseHint}\n${extra}` : extra || baseHint;
     const rd = await resolveCustomDomainId({ ownerId, hint, url: opts.url, threadContext: opts.threadContext });
     if (rd.kind === "ok") resolvedCustomDomain = { id: rd.domainId, label: rd.label };
-    else return { ok: false, clarifyQuestion: rd.question };
+    else return { ok: false, clarifyQuestion: rd.question, ...(rd.choices ? { choices: rd.choices } : {}) };
   }
 
   if (aiOutboundCallsCampaignRefs.length) {
@@ -3227,7 +3520,6 @@ export async function resolvePlanArgs(opts: {
       }
       return v;
     };
-
     return walk(resolved);
   })();
 

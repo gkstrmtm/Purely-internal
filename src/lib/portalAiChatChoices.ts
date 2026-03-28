@@ -10,10 +10,15 @@ function mapKindToKey(kind: string) {
 
   // Known kinds map to stable keys used by the resolver.
   if (kn === "booking_calendar" || kn === "booking_calendar_id") return "bookingCalendarId";
+  if (kn === "contact" || kn === "contact_id") return "contactId";
+  if (kn === "user" || kn === "user_id" || kn === "portal_user" || kn === "portal_user_id") return "userId";
   if (kn === "funnel" || kn === "funnel_id") return "funnelId";
+  if (kn === "automation" || kn === "automation_id") return "automationId";
+  if (kn === "booking" || kn === "booking_id") return "bookingId";
   if (kn === "funnel_page" || kn === "page" || kn === "page_id" || kn === "funnel_page_id") return "funnelPageId";
   if (kn === "funnel_form" || kn === "form" || kn === "form_id" || kn === "funnel_form_id") return "funnelFormId";
   if (kn === "custom_domain" || kn === "domain" || kn === "domain_id" || kn === "custom_domain_id") return "customDomainId";
+  if (kn === "nurture_campaign" || kn === "nurture_campaign_id") return "nurtureCampaignId";
 
   // Fallback: store under a sanitized key.
   return k.replace(/[^a-z0-9]+/gi, "_");
@@ -29,6 +34,56 @@ export async function validateChoiceOverride(ownerId: string, key: string, value
     } catch (err) {
       return { ok: false, error: "Validation failed" };
     }
+  }
+
+  if (key === "contactId") {
+    const v = String(value || "").trim();
+    const found = await (prisma as any).portalContact.findFirst({ where: { ownerId: String(ownerId), id: v }, select: { id: true } }).catch(() => null);
+    if (!found?.id) return { ok: false, error: "Unknown contact" };
+    return { ok: true };
+  }
+
+  if (key === "userId") {
+    const v = String(value || "").trim();
+    const found = await prisma.user.findUnique({ where: { id: v }, select: { id: true } }).catch(() => null);
+    if (!found?.id) return { ok: false, error: "Unknown user" };
+    return { ok: true };
+  }
+
+  if (key === "funnelId") {
+    const v = String(value || "").trim();
+    const found = await prisma.creditFunnel.findFirst({ where: { ownerId: String(ownerId), id: v }, select: { id: true } }).catch(() => null);
+    if (!found?.id) return { ok: false, error: "Unknown funnel" };
+    return { ok: true };
+  }
+
+  if (key === "bookingId") {
+    const v = String(value || "").trim();
+    const found = await prisma.portalBooking.findFirst({ where: { id: v, site: { ownerId: String(ownerId) } }, select: { id: true } }).catch(() => null);
+    if (!found?.id) return { ok: false, error: "Unknown booking" };
+    return { ok: true };
+  }
+
+  if (key === "automationId") {
+    const v = String(value || "").trim();
+    const row = await prisma.portalServiceSetup
+      .findUnique({ where: { ownerId_serviceSlug: { ownerId: String(ownerId), serviceSlug: "automations" } }, select: { dataJson: true } })
+      .catch(() => null);
+    const dataJson = (row?.dataJson ?? null) as any;
+    const list = Array.isArray(dataJson?.automations) ? (dataJson.automations as any[]) : [];
+    const found = list.some((a) => String(a?.id || "").trim() === v);
+    if (!found) return { ok: false, error: "Unknown automation" };
+    return { ok: true };
+  }
+
+  if (key === "nurtureCampaignId") {
+    const v = String(value || "").trim();
+    if (v === "__create_new__") return { ok: true };
+    const found = await prisma.portalNurtureCampaign
+      .findFirst({ where: { ownerId: String(ownerId), id: v }, select: { id: true } })
+      .catch(() => null);
+    if (!found?.id) return { ok: false, error: "Unknown campaign" };
+    return { ok: true };
   }
 
   // Default: accept non-empty string
