@@ -169,6 +169,25 @@ function shouldAutoExecuteFromUserText(text: string) {
   );
 }
 
+function isHowToQuestionOnly(textRaw: string): boolean {
+  const t = String(textRaw || "").trim().toLowerCase();
+  if (!t) return false;
+
+  const startsAsQuestion =
+    /^(how|why|what|when|where)\b/.test(t) ||
+    /^(can|could|should|would|do|does|did)\s+(i|we|you)\b/.test(t) ||
+    /^how\s+do\s+(i|we|you)\b/.test(t) ||
+    /^how\s+can\s+(i|we|you)\b/.test(t);
+
+  if (!startsAsQuestion && !t.includes("?")) return false;
+
+  const explicitCommand =
+    /\b(i need you to|please|go ahead and|send|text|sms|schedule|trigger|set up|do this)\b/.test(t) ||
+    /\bfor\s+me\b/.test(t);
+
+  return !explicitCommand;
+}
+
 function looksLikeWeekdaySmsSchedule(textRaw: string): boolean {
   const t = String(textRaw || "").toLowerCase();
   if (!t.trim()) return false;
@@ -264,7 +283,7 @@ function buildDeterministicWeekdaySmsPlan(opts: {
       key: "ai_chat.scheduled.create",
       title: `Schedule ${d.label} ${timeLocal} SMS to ${contactHint}`,
       args: {
-        text: `Send an SMS to ${contactHint}: ${msg}`,
+        text: `Send an SMS to ${contactHint}. Use this intent as the base message: "${msg}". Keep it short and friendly, and vary the wording slightly from previous weekdays.`,
         sendAtLocal: {
           isoWeekday: d.isoWeekday,
           timeLocal,
@@ -2104,7 +2123,7 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
         threadContext = nextCtx;
       }
 
-      const deterministicWeekdaySmsPlan = shouldAutoExecuteFromUserText(effectiveText)
+      const deterministicWeekdaySmsPlan = !isHowToQuestionOnly(effectiveText)
         ? buildDeterministicWeekdaySmsPlan({
             text: effectiveText,
             ownerTimeZone: String(ownerTimeZone || (threadContext as any)?.ownerTimeZone || "").trim() || undefined,
