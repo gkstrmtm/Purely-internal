@@ -1604,6 +1604,20 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
       where: { id: threadId },
       data: { lastMessageAt: now },
     });
+
+    // Auto-title threads in the agentic flow as soon as we have a real user message.
+    // Skip chip-click submissions (they include `choice` plus a synthetic label).
+    const currentTitle = String((thread as any).title || "").trim().toLowerCase();
+    const isDefaultTitle = !currentTitle || currentTitle === "new chat";
+    if (!choice && cleanText && isDefaultTitle) {
+      const suggested = heuristicThreadTitleFromUserText(cleanText);
+      if (suggested) {
+        await (prisma as any).portalAiChatThread.update({
+          where: { id: threadId },
+          data: { title: suggested },
+        });
+      }
+    }
   }
 
   // 0) Deterministic workflows that can resolve IDs for the user.

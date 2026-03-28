@@ -2804,7 +2804,6 @@ export async function resolvePlanArgs(opts: {
       if (rc.kind === "ok") {
         args = { ...args, calendarId: rc.calendarId };
         resolvedBookingCalendar = { id: rc.calendarId, label: rc.label };
-        if (overrideCalendarId) clearBookingCalendarChoiceOverride();
       }
     }
   }
@@ -2838,7 +2837,6 @@ export async function resolvePlanArgs(opts: {
       const rc = await resolveContactId({ ownerId, hint: overrideContactId || mergeResolverHint(rawHint) });
       if (rc.kind !== "ok") return { ok: false, clarifyQuestion: rc.question, ...(rc.choices ? { choices: rc.choices } : {}) };
       resolvedContact = { id: rc.contactId, name: rc.contactName };
-      if (overrideContactId) clearContactChoiceOverride();
       return { ok: true, value: rc.contactId };
     }
 
@@ -2869,7 +2867,6 @@ export async function resolvePlanArgs(opts: {
       if (rc.kind === "clarify") return { ok: false, clarifyQuestion: rc.question, choices: rc.choices };
       if (rc.kind === "not_found") return { ok: false, clarifyQuestion: rc.question, choices: rc.choices };
 
-      if (overrideCalendarId) clearBookingCalendarChoiceOverride();
       resolvedBookingCalendar = { id: rc.calendarId, label: rc.label };
       return { ok: true, value: rc.calendarId };
     }
@@ -2883,7 +2880,6 @@ export async function resolvePlanArgs(opts: {
       const rf = await resolveFunnelId({ ownerId, hint: overrideFunnelId || mergeResolverHint(rawHint), url: opts.url, threadContext: opts.threadContext });
       if (rf.kind !== "ok") return { ok: false, clarifyQuestion: rf.question, ...(rf.choices ? { choices: rf.choices } : {}) };
       resolvedFunnel = { id: rf.funnelId, name: rf.funnelName };
-      if (overrideFunnelId) clearFunnelChoiceOverride();
       return { ok: true, value: rf.funnelId };
     }
 
@@ -2896,7 +2892,6 @@ export async function resolvePlanArgs(opts: {
       const ra = await resolveAutomationId({ ownerId, hint: overrideAutomationId || mergeResolverHint(rawHint), url: opts.url, threadContext: opts.threadContext });
       if (ra.kind !== "ok") return { ok: false, clarifyQuestion: ra.question, ...(ra.choices ? { choices: ra.choices } : {}) };
       resolvedAutomation = { id: ra.automationId, name: ra.automationName };
-      if (overrideAutomationId) clearAutomationChoiceOverride();
       return { ok: true, value: ra.automationId };
     }
 
@@ -2909,7 +2904,6 @@ export async function resolvePlanArgs(opts: {
       const rb = await resolveBookingId({ ownerId, hint: overrideBookingId || mergeResolverHint(rawHint), url: opts.url, threadContext: opts.threadContext });
       if (rb.kind !== "ok") return { ok: false, clarifyQuestion: rb.question, ...(rb.choices ? { choices: rb.choices } : {}) };
       resolvedBooking = { id: rb.bookingId, label: rb.label };
-      if (overrideBookingId) clearBookingChoiceOverride();
       return { ok: true, value: rb.bookingId };
     }
 
@@ -2922,7 +2916,6 @@ export async function resolvePlanArgs(opts: {
       const hinted = overrideCalendarId || mergeResolverHint(rawHint);
       const rc = await resolveBookingCalendarId({ ownerId, hint: hinted, threadContext: opts.threadContext });
       if (rc.kind === "ok") {
-        if (overrideCalendarId) clearBookingCalendarChoiceOverride();
         resolvedBookingCalendar = { id: rc.calendarId, label: rc.label };
         return { ok: true, value: rc.calendarId };
       }
@@ -3002,7 +2995,6 @@ export async function resolvePlanArgs(opts: {
       const rc = await resolveNurtureCampaignId({ ownerId, hint: overrideCampaignId || mergeResolverHint(rawHint), url: opts.url, threadContext: opts.threadContext });
       if (rc.kind !== "ok") return { ok: false, clarifyQuestion: rc.question, ...(rc.choices ? { choices: rc.choices } : {}) };
       resolvedNurtureCampaign = { id: rc.campaignId, name: rc.campaignName };
-      if (overrideCampaignId) clearNurtureCampaignChoiceOverride();
       return { ok: true, value: rc.campaignId };
     }
 
@@ -3016,7 +3008,6 @@ export async function resolvePlanArgs(opts: {
       const rc = await resolveNurtureCampaignId({ ownerId, hint: overrideCampaignId || mergeResolverHint(rawHint), url: opts.url, threadContext: opts.threadContext });
       if (rc.kind !== "ok") return { ok: false, clarifyQuestion: rc.question, ...(rc.choices ? { choices: rc.choices } : {}) };
       resolvedNurtureCampaign = { id: rc.campaignId, name: rc.campaignName };
-      if (overrideCampaignId) clearNurtureCampaignChoiceOverride();
       return { ok: true, value: rc.campaignId };
     }
 
@@ -3077,7 +3068,6 @@ export async function resolvePlanArgs(opts: {
       const ru = await resolvePortalUserId({ ownerId, hint: overrideUserId || mergeResolverHint(rawHint), url: opts.url, threadContext: opts.threadContext });
       if (ru.kind !== "ok") return { ok: false, clarifyQuestion: ru.question, ...(ru.choices ? { choices: ru.choices } : {}) };
       resolvedUser = { id: ru.userId, label: ru.label };
-      if (overrideUserId) clearUserChoiceOverride();
       return { ok: true, value: ru.userId };
     }
 
@@ -3091,7 +3081,6 @@ export async function resolvePlanArgs(opts: {
       const rf = await resolveFunnelFormId({ ownerId, hint: overrideFormId || mergeResolverHint(rawHint), url: opts.url, threadContext: opts.threadContext });
       if (rf.kind !== "ok") return { ok: false, clarifyQuestion: rf.question, ...(rf.choices ? { choices: rf.choices } : {}) };
       resolvedFunnelForm = { id: rf.formId, label: rf.label };
-      if (overrideFormId) clearFunnelFormChoiceOverride();
       return { ok: true, value: rf.formId };
     }
 
@@ -3111,7 +3100,6 @@ export async function resolvePlanArgs(opts: {
       });
       if (rp.kind !== "ok") return { ok: false, clarifyQuestion: rp.question, ...(rp.choices ? { choices: rp.choices } : {}) };
       resolvedFunnelPage = { id: rp.pageId, label: rp.label, funnelId: rp.funnelId };
-      if (overridePageId) clearFunnelPageChoiceOverride();
       return { ok: true, value: rp.pageId };
     }
 
@@ -3125,7 +3113,6 @@ export async function resolvePlanArgs(opts: {
       const rd = await resolveCustomDomainId({ ownerId, hint: overrideDomainId || mergeResolverHint(rawHint), url: opts.url, threadContext: opts.threadContext });
       if (rd.kind !== "ok") return { ok: false, clarifyQuestion: rd.question, ...(rd.choices ? { choices: rd.choices } : {}) };
       resolvedCustomDomain = { id: rd.domainId, label: rd.label };
-      if (overrideDomainId) clearCustomDomainChoiceOverride();
       return { ok: true, value: rd.domainId };
     }
 
@@ -3198,7 +3185,11 @@ export async function resolvePlanArgs(opts: {
     const baseHint = String(contactRefs[0].hint || "").trim();
     const extra = String(opts.userHint || "").trim();
     const hint = extra && baseHint ? `${baseHint}\n${extra}` : extra || baseHint;
-    const rc = await resolveContactId({ ownerId, hint });
+    const overrideContactId =
+      threadChoiceOverrides && typeof threadChoiceOverrides === "object" && typeof (threadChoiceOverrides as any).contactId === "string"
+        ? String((threadChoiceOverrides as any).contactId).trim()
+        : "";
+    const rc = await resolveContactId({ ownerId, hint: overrideContactId || hint });
     if (rc.kind === "ok") resolvedContact = { id: rc.contactId, name: rc.contactName };
     else return { ok: false, clarifyQuestion: rc.question, ...(rc.choices ? { choices: rc.choices } : {}) };
   }
@@ -3217,7 +3208,11 @@ export async function resolvePlanArgs(opts: {
     const baseHint = String(funnelRefs[0].name || funnelRefs[0].hint || "").trim();
     const extra = String(opts.userHint || "").trim();
     const hint = extra && baseHint ? `${baseHint}\n${extra}` : extra || baseHint;
-    const rf = await resolveFunnelId({ ownerId, hint, url: opts.url, threadContext: opts.threadContext });
+    const overrideFunnelId =
+      threadChoiceOverrides && typeof threadChoiceOverrides === "object" && typeof (threadChoiceOverrides as any).funnelId === "string"
+        ? String((threadChoiceOverrides as any).funnelId).trim()
+        : "";
+    const rf = await resolveFunnelId({ ownerId, hint: overrideFunnelId || hint, url: opts.url, threadContext: opts.threadContext });
     if (rf.kind === "ok") resolvedFunnel = { id: rf.funnelId, name: rf.funnelName };
     else return { ok: false, clarifyQuestion: rf.question, ...(rf.choices ? { choices: rf.choices } : {}) };
   }
@@ -3226,7 +3221,11 @@ export async function resolvePlanArgs(opts: {
     const baseHint = String(automationRefs[0].name || automationRefs[0].hint || "").trim();
     const extra = String(opts.userHint || "").trim();
     const hint = extra && baseHint ? `${baseHint}\n${extra}` : extra || baseHint;
-    const ra = await resolveAutomationId({ ownerId, hint, url: opts.url, threadContext: opts.threadContext });
+    const overrideAutomationId =
+      threadChoiceOverrides && typeof threadChoiceOverrides === "object" && typeof (threadChoiceOverrides as any).automationId === "string"
+        ? String((threadChoiceOverrides as any).automationId).trim()
+        : "";
+    const ra = await resolveAutomationId({ ownerId, hint: overrideAutomationId || hint, url: opts.url, threadContext: opts.threadContext });
     if (ra.kind === "ok") resolvedAutomation = { id: ra.automationId, name: ra.automationName };
     else return { ok: false, clarifyQuestion: ra.question, ...(ra.choices ? { choices: ra.choices } : {}) };
   }
@@ -3235,7 +3234,11 @@ export async function resolvePlanArgs(opts: {
     const baseHint = String(bookingRefs[0].hint || bookingRefs[0].name || "").trim();
     const extra = String(opts.userHint || "").trim();
     const hint = extra && baseHint ? `${baseHint}\n${extra}` : extra || baseHint;
-    const rb = await resolveBookingId({ ownerId, hint, url: opts.url, threadContext: opts.threadContext });
+    const overrideBookingId =
+      threadChoiceOverrides && typeof threadChoiceOverrides === "object" && typeof (threadChoiceOverrides as any).bookingId === "string"
+        ? String((threadChoiceOverrides as any).bookingId).trim()
+        : "";
+    const rb = await resolveBookingId({ ownerId, hint: overrideBookingId || hint, url: opts.url, threadContext: opts.threadContext });
     if (rb.kind === "ok") resolvedBooking = { id: rb.bookingId, label: rb.label };
     else return { ok: false, clarifyQuestion: rb.question, ...(rb.choices ? { choices: rb.choices } : {}) };
   }
@@ -3307,7 +3310,11 @@ export async function resolvePlanArgs(opts: {
     const baseHint = String(nurtureCampaignRefs[0].name || nurtureCampaignRefs[0].hint || "").trim();
     const extra = String(opts.userHint || "").trim();
     const hint = extra && baseHint ? `${baseHint}\n${extra}` : extra || baseHint;
-    const rc = await resolveNurtureCampaignId({ ownerId, hint, url: opts.url, threadContext: opts.threadContext });
+    const overrideCampaignId =
+      threadChoiceOverrides && typeof threadChoiceOverrides === "object" && typeof (threadChoiceOverrides as any).nurtureCampaignId === "string"
+        ? String((threadChoiceOverrides as any).nurtureCampaignId).trim()
+        : "";
+    const rc = await resolveNurtureCampaignId({ ownerId, hint: overrideCampaignId || hint, url: opts.url, threadContext: opts.threadContext });
     if (rc.kind === "ok") resolvedNurtureCampaign = { id: rc.campaignId, name: rc.campaignName };
     else return { ok: false, clarifyQuestion: rc.question, ...(rc.choices ? { choices: rc.choices } : {}) };
   }
@@ -3400,7 +3407,11 @@ export async function resolvePlanArgs(opts: {
     const baseHint = String(userRefs[0].name || userRefs[0].hint || "").trim();
     const extra = String(opts.userHint || "").trim();
     const hint = extra && baseHint ? `${baseHint}\n${extra}` : extra || baseHint;
-    const ru = await resolvePortalUserId({ ownerId, hint, url: opts.url, threadContext: opts.threadContext });
+    const overrideUserId =
+      threadChoiceOverrides && typeof threadChoiceOverrides === "object" && typeof (threadChoiceOverrides as any).userId === "string"
+        ? String((threadChoiceOverrides as any).userId).trim()
+        : "";
+    const ru = await resolvePortalUserId({ ownerId, hint: overrideUserId || hint, url: opts.url, threadContext: opts.threadContext });
     if (ru.kind === "ok") resolvedUser = { id: ru.userId, label: ru.label };
     else return { ok: false, clarifyQuestion: ru.question, ...(ru.choices ? { choices: ru.choices } : {}) };
   }
