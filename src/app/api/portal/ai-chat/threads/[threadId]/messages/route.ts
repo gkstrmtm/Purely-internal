@@ -13,7 +13,7 @@ import {
   portalAgentActionsIndexText,
   type PortalAgentActionKey,
 } from "@/lib/portalAgentActions";
-import { executePortalAgentAction, executePortalAgentActionForThread } from "@/lib/portalAgentActionExecutor";
+import { deriveThreadContextPatchFromAction, executePortalAgentAction, executePortalAgentActionForThread } from "@/lib/portalAgentActionExecutor";
 import { getConfirmSpecForPortalAgentAction, portalCanvasUrlForAction, portalContactUiUrl } from "@/lib/portalAgentActionMeta";
 import { isPortalSupportChatConfigured, runPortalSupportChat } from "@/lib/portalSupportChat";
 import { planPuraActions } from "@/lib/puraPlanner";
@@ -1805,20 +1805,134 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
       }
 
       if (plan?.mode === "execute" && Array.isArray(plan.steps) && plan.steps.length) {
+        const confirmSpec = plan.steps.map((s: any) => getConfirmSpecForPortalAgentAction(s.key)).find(Boolean) || null;
+        if (confirmSpec) {
+          const resolvedSteps: Array<{ key: PortalAgentActionKey; title: string; args: Record<string, unknown>; openUrl?: string }> = [];
+
+          for (const step of plan.steps.slice(0, 6)) {
+            const argsRaw = step.args && typeof step.args === "object" && !Array.isArray(step.args) ? (step.args as Record<string, unknown>) : {};
+            const resolved = await resolvePlanArgs({
+              ownerId,
+              stepKey: step.key,
+              args: argsRaw,
+              userHint: effectiveText,
+              url: parsed.data.url,
+              threadContext,
+            });
+            if (!resolved.ok) {
+              const clarifyChoices = Array.isArray((resolved as any).choices) ? ((resolved as any).choices as any[]) : null;
+
+              let clarifyText = String(resolved.clarifyQuestion || "").trim() || "I need one more detail to continue.";
+              try {
+                const system = [
+                  "You are Pura, an AI assistant inside a business portal.",
+                  "You are asking ONE clarifying question so you can run a tool/action.",
+                  "Write a single short question.",
+                  "Rules:",
+                  "- Do not ask for internal IDs unless the user must paste one.",
+                  "- If clickable choices are available, mention they can click one.",
+                  "- If the user said to create something new, allow that option.",
+                  "- No JSON.",
+                ].join("\n");
+
+                const user = [
+                  "Latest user message:",
+                  String(effectiveText || ""),
+                  "\nMissing detail prompt (raw):",
+                  clarifyText,
+                  "\nChoices available:",
+                  JSON.stringify((clarifyChoices || []).slice(0, 8)).slice(0, 1500),
+                  "\nQuestion:",
+                ].join("\n");
+
+                const aiQ = String(await generateText({ system, user })).trim();
+                if (aiQ) clarifyText = aiQ.slice(0, 600);
+              } catch {
+                // ignore and keep deterministic fallback
+              }
+
+              const assistantMsg = await (prisma as any).portalAiChatMessage.create({
+                data: {
+                  ownerId,
+                  threadId,
+                  role: "assistant",
+                  text: clarifyText,
+                  attachmentsJson: null,
+                  createdByUserId: null,
+                  sendAt: null,
+                  sentAt: now,
+                },
+                select: {
+                  id: true,
+                  role: true,
+                  text: true,
+                  attachmentsJson: true,
+                  createdAt: true,
+                  sendAt: true,
+                  sentAt: true,
+                },
+              });
+
+              const prevCtx = threadContext;
+              const nextCtx = prevCtx && typeof prevCtx === "object" && !Array.isArray(prevCtx)
+                ? { ...(prevCtx as any), pendingPlan: plan, pendingPlanClarify: { at: now.toISOString(), stepKey: step.key, question: clarifyText } }
+                : { pendingPlan: plan, pendingPlanClarify: { at: now.toISOString(), stepKey: step.key, question: clarifyText } };
+              await (prisma as any).portalAiChatThread.update({ where: { id: threadId }, data: { lastMessageAt: now, contextJson: nextCtx } });
+              return NextResponse.json({
+                ok: true,
+                userMessage: userMsg,
+                assistantMessage: assistantMsg,
+                assistantActions: [],
+                autoActionMessage: null,
+                canvasUrl: null,
+                assistantChoices: clarifyChoices,
+              });
+            }
+
+            const resolvedArgs = resolved.args && typeof resolved.args === "object" && !Array.isArray(resolved.args)
+              ? (resolved.args as Record<string, unknown>)
+              : {};
+
+            resolvedSteps.push({ key: step.key, title: step.title, args: resolvedArgs, ...(step.openUrl ? { openUrl: step.openUrl } : {}) });
+          }
+
+          const token = crypto.randomUUID();
+          const prevCtx = threadContext;
+          const nextCtx = prevCtx && typeof prevCtx === "object" && !Array.isArray(prevCtx)
+            ? { ...(prevCtx as any), pendingConfirm: { token, createdAt: now.toISOString(), workTitle: plan.workTitle ?? null, steps: resolvedSteps, confirm: confirmSpec } }
+            : { pendingConfirm: { token, createdAt: now.toISOString(), workTitle: plan.workTitle ?? null, steps: resolvedSteps, confirm: confirmSpec } };
+          await (prisma as any).portalAiChatThread.update({ where: { id: threadId }, data: { contextJson: nextCtx } });
+
+          return NextResponse.json({
+            ok: true,
+            userMessage: userMsg,
+            assistantMessage: null,
+            assistantActions: [],
+            autoActionMessage: null,
+            canvasUrl: null,
+            needsConfirm: { ...confirmSpec, token },
+          });
+        }
+
         const resolvedSteps: Array<{ key: PortalAgentActionKey; title: string; args: Record<string, unknown>; openUrl?: string }> = [];
         const contextPatches: Array<Record<string, unknown> | undefined> = [];
+        const results: Array<{ ok: boolean; markdown?: string; linkUrl?: string | null }> = [];
+
+        let localCtx: any = threadContext && typeof threadContext === "object" && !Array.isArray(threadContext) ? { ...(threadContext as any) } : {};
         let clarifyChoices: any[] | null = null;
 
         for (const step of plan.steps.slice(0, 6)) {
           const argsRaw = step.args && typeof step.args === "object" && !Array.isArray(step.args) ? (step.args as Record<string, unknown>) : {};
+
           const resolved = await resolvePlanArgs({
             ownerId,
             stepKey: step.key,
             args: argsRaw,
             userHint: effectiveText,
             url: parsed.data.url,
-            threadContext,
+            threadContext: localCtx,
           });
+
           if (!resolved.ok) {
             clarifyChoices = Array.isArray((resolved as any).choices) ? ((resolved as any).choices as any[]) : null;
 
@@ -1873,10 +1987,7 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
               },
             });
 
-            const prevCtx = threadContext;
-            const nextCtx = prevCtx && typeof prevCtx === "object" && !Array.isArray(prevCtx)
-              ? { ...(prevCtx as any), pendingPlan: plan, pendingPlanClarify: { at: now.toISOString(), stepKey: step.key, question: clarifyText } }
-              : { pendingPlan: plan, pendingPlanClarify: { at: now.toISOString(), stepKey: step.key, question: clarifyText } };
+            const nextCtx = { ...localCtx, pendingPlan: plan, pendingPlanClarify: { at: now.toISOString(), stepKey: step.key, question: clarifyText } };
             await (prisma as any).portalAiChatThread.update({ where: { id: threadId }, data: { lastMessageAt: now, contextJson: nextCtx } });
             return NextResponse.json({
               ok: true,
@@ -1895,37 +2006,24 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
 
           resolvedSteps.push({ key: step.key, title: step.title, args: resolvedArgs, ...(step.openUrl ? { openUrl: step.openUrl } : {}) });
           contextPatches.push(resolved.contextPatch);
-        }
 
-        const confirmSpec = resolvedSteps.map((s) => getConfirmSpecForPortalAgentAction(s.key)).find(Boolean) || null;
-        if (confirmSpec) {
-          const token = crypto.randomUUID();
-          const prevCtx = threadContext;
-          const nextCtx = prevCtx && typeof prevCtx === "object" && !Array.isArray(prevCtx)
-            ? { ...(prevCtx as any), pendingConfirm: { token, createdAt: now.toISOString(), workTitle: plan.workTitle ?? null, steps: resolvedSteps, confirm: confirmSpec } }
-            : { pendingConfirm: { token, createdAt: now.toISOString(), workTitle: plan.workTitle ?? null, steps: resolvedSteps, confirm: confirmSpec } };
-          await (prisma as any).portalAiChatThread.update({ where: { id: threadId }, data: { contextJson: nextCtx } });
+          if (resolved.contextPatch && typeof resolved.contextPatch === "object" && !Array.isArray(resolved.contextPatch)) {
+            localCtx = { ...localCtx, ...(resolved.contextPatch as any) };
+          }
 
-          return NextResponse.json({
-            ok: true,
-            userMessage: userMsg,
-            assistantMessage: null,
-            assistantActions: [],
-            autoActionMessage: null,
-            canvasUrl: null,
-            needsConfirm: { ...confirmSpec, token },
-          });
-        }
-
-        const results: Array<{ ok: boolean; markdown?: string; linkUrl?: string | null }> = [];
-        for (const step of resolvedSteps) {
           const exec = await executePortalAgentAction({
             ownerId,
             actorUserId: createdByUserId,
             action: step.key,
-            args: step.args,
+            args: resolvedArgs,
           });
           results.push({ ok: Boolean(exec.ok), markdown: exec.markdown, linkUrl: exec.linkUrl ?? null });
+
+          const derivedPatch = deriveThreadContextPatchFromAction(step.key, resolvedArgs, (exec as any).result);
+          if (derivedPatch && typeof derivedPatch === "object") {
+            contextPatches.push(derivedPatch);
+            localCtx = { ...localCtx, ...(derivedPatch as any) };
+          }
         }
 
         const mappedCanvasUrl =
@@ -2017,7 +2115,7 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
           },
         });
 
-        const prevCtx = threadContext;
+        const prevCtx = localCtx;
         const mergedPatch = Object.assign({}, ...contextPatches.filter(Boolean));
 
         const runTrace = {

@@ -23746,12 +23746,49 @@ export async function executePortalAgentActionForThread(opts: {
 
   if (!resolved.ok) {
     const now = new Date();
+
+    let clarifyText = String(resolved.clarifyQuestion || "").trim() || "I need one more detail to continue.";
+    const clarifyChoices = Array.isArray((resolved as any).choices) ? ((resolved as any).choices as any[]) : null;
+    try {
+      const prevCtx = thread?.contextJson;
+      const summary =
+        prevCtx && typeof prevCtx === "object" && !Array.isArray(prevCtx) && typeof (prevCtx as any).threadSummary === "string"
+          ? String((prevCtx as any).threadSummary || "").trim().slice(0, 1200)
+          : "";
+
+      const system = [
+        "You are Pura, an AI assistant inside a business portal.",
+        "You are asking ONE clarifying question so you can run a tool/action.",
+        "Write a single short question.",
+        "Rules:",
+        "- Do not ask for internal IDs unless the user must paste one.",
+        "- If clickable choices are available, mention they can click one.",
+        "- If the user said to create something new, allow that option.",
+        "- No JSON.",
+      ].join("\n");
+
+      const user = [
+        "Thread summary:",
+        summary || "(none)",
+        "\nMissing detail prompt (raw):",
+        clarifyText,
+        "\nChoices available:",
+        JSON.stringify((clarifyChoices || []).slice(0, 8)).slice(0, 1500),
+        "\nQuestion:",
+      ].join("\n");
+
+      const aiQ = String(await generateText({ system, user })).trim();
+      if (aiQ) clarifyText = aiQ.slice(0, 600);
+    } catch {
+      // ignore and keep deterministic fallback
+    }
+
     const assistantMsg = await (prisma as any).portalAiChatMessage.create({
       data: {
         ownerId: opts.ownerId,
         threadId: opts.threadId,
         role: "assistant",
-        text: resolved.clarifyQuestion,
+        text: clarifyText,
         attachmentsJson: null,
         createdByUserId: null,
         sendAt: null,
@@ -23775,8 +23812,8 @@ export async function executePortalAgentActionForThread(opts: {
       steps: [{ key: opts.action, title: opts.action, args: (argsParsed.data as any) ?? {} }],
     };
     const nextCtx = prevCtx && typeof prevCtx === "object" && !Array.isArray(prevCtx)
-      ? { ...(prevCtx as any), pendingPlan }
-      : { pendingPlan };
+      ? { ...(prevCtx as any), pendingPlan, pendingPlanClarify: { at: now.toISOString(), stepKey: opts.action, question: clarifyText } }
+      : { pendingPlan, pendingPlanClarify: { at: now.toISOString(), stepKey: opts.action, question: clarifyText } };
 
     await (prisma as any).portalAiChatThread.update({
       where: { id: opts.threadId },
@@ -23787,9 +23824,9 @@ export async function executePortalAgentActionForThread(opts: {
       ok: false as const,
       status: 409,
       action: opts.action,
-      error: resolved.clarifyQuestion,
+      error: clarifyText,
       assistantMessage: assistantMsg,
-      assistantChoices: Array.isArray((resolved as any).choices) ? (resolved as any).choices : null,
+      assistantChoices: clarifyChoices,
       linkUrl: null,
     };
   }
@@ -23862,12 +23899,13 @@ export async function executePortalAgentActionForThread(opts: {
 
   const prevCtx = thread?.contextJson;
   const mergedPatch = resolved.contextPatch && typeof resolved.contextPatch === "object" ? resolved.contextPatch : null;
+  const derivedPatch = deriveThreadContextPatchFromAction(opts.action, resolvedArgs, json);
   const nextCtx = mergedPatch
     ? (prevCtx && typeof prevCtx === "object" && !Array.isArray(prevCtx)
-        ? { ...(prevCtx as any), ...mergedPatch, pendingPlan: null }
-        : { ...mergedPatch, pendingPlan: null })
+        ? { ...(prevCtx as any), ...mergedPatch, ...(derivedPatch ? derivedPatch : {}), pendingPlan: null, pendingPlanClarify: null }
+        : { ...mergedPatch, ...(derivedPatch ? derivedPatch : {}), pendingPlan: null, pendingPlanClarify: null })
     : prevCtx && typeof prevCtx === "object" && !Array.isArray(prevCtx)
-      ? { ...(prevCtx as any), pendingPlan: null }
+      ? { ...(prevCtx as any), ...(derivedPatch ? derivedPatch : {}), pendingPlan: null, pendingPlanClarify: null }
       : undefined;
 
   await (prisma as any).portalAiChatThread.update({
@@ -23886,7 +23924,7 @@ export async function executePortalAgentActionForThread(opts: {
   };
 }
 
-function deriveThreadContextPatchFromAction(action: PortalAgentActionKey, args: Record<string, unknown>, json: any): Record<string, unknown> | null {
+export function deriveThreadContextPatchFromAction(action: PortalAgentActionKey, args: Record<string, unknown>, json: any): Record<string, unknown> | null {
   try {
     if (!json || typeof json !== "object") return null;
     if ((json as any).ok !== true) return null;
