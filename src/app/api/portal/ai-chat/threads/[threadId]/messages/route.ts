@@ -62,6 +62,7 @@ const SendMessageSchema = z
   .object({
     text: z.string().trim().max(4000).optional(),
     url: z.string().trim().optional(),
+    canvasUrl: z.string().trim().max(1200).optional(),
     attachments: z.array(AttachmentSchema).max(10).optional(),
     confirmToken: z.string().trim().min(1).max(200).optional(),
     choice: ChoiceSchema,
@@ -1604,28 +1605,35 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
 
   // 0) Deterministic workflows that can resolve IDs for the user.
   // (Example: add/remove a contact tag by name + email/phone/contact name.)
-  const recentRows = await (prisma as any).portalAiChatMessage.findMany({
+  const modelRows = await (prisma as any).portalAiChatMessage.findMany({
     where: { ownerId, threadId },
-    orderBy: { createdAt: "desc" },
-    take: 13,
+    orderBy: { createdAt: "asc" },
+    take: 400,
     select: { id: true, role: true, text: true },
   });
 
-  const recentMessages: Array<{ role: "user" | "assistant"; text: string }> = recentRows
+  const modelMessages: Array<{ role: "user" | "assistant"; text: string }> = modelRows
     .filter((m: any) => (userMsg ? m.id !== (userMsg as any).id : true))
-    .reverse()
-    .slice(-12)
     .map((m: any) => ({
       role: m.role === "assistant" ? "assistant" : "user",
       text: String(m.text || "").slice(0, 2000),
-    }));
+    }))
+    .filter((m: { role: "user" | "assistant"; text: string }) => Boolean(String(m.text || "").trim()));
+
+  // Keep a compatibility alias for the legacy fallback flow later in this route.
+  const recentMessages = modelMessages.slice(-120);
+
+  // Use a URL that actually represents what the user is working on.
+  // The chat page URL is often not enough context to resolve funnel/page entities.
+  const canvasUrlRaw = String(parsed.data.canvasUrl || "").trim();
+  const contextUrl = String(canvasUrlRaw || parsed.data.url || "").trim() || undefined;
 
   const tagWorkflow = await tryExecuteContactTagCommand({
     ownerId,
     threadId,
     now,
     text: effectiveText,
-    recentMessages,
+    recentMessages: modelMessages,
   });
   if (tagWorkflow?.assistantMessage) {
     return NextResponse.json({
@@ -1646,12 +1654,25 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
     try {
       let threadContext = fallbackThreadContext;
 
+      // Persist the latest canvas URL so entity resolution can infer the current funnel/page.
+      // Only do this when the client actually provided a canvas URL (not just the chat page URL).
+      if (canvasUrlRaw) {
+        const prevCtx = threadContext && typeof threadContext === "object" && !Array.isArray(threadContext) ? (threadContext as any) : {};
+        const prevCanvasUrl = typeof prevCtx.lastCanvasUrl === "string" ? String(prevCtx.lastCanvasUrl).trim() : "";
+        if (!prevCanvasUrl || prevCanvasUrl !== canvasUrlRaw) {
+          const nextCtx = { ...prevCtx, lastCanvasUrl: canvasUrlRaw };
+          await (prisma as any).portalAiChatThread.update({ where: { id: threadId }, data: { contextJson: nextCtx } });
+          threadContext = nextCtx;
+          fallbackThreadContext = nextCtx;
+        }
+      }
+
       // Maintain a rolling summary in contextJson so the model effectively has “full thread context” every turn.
       threadContext = await maybeUpdateThreadSummary({
         ownerId,
         threadId,
         threadContext,
-        recentMessages,
+        recentMessages: modelMessages,
         latestUserText: effectiveText,
       });
       fallbackThreadContext = threadContext;
@@ -1743,8 +1764,8 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
         ? (pendingPlan as any)
         : await planPuraActions({
             text: effectiveText,
-            url: parsed.data.url,
-            recentMessages,
+            url: contextUrl,
+            recentMessages: modelMessages,
             threadContext,
           });
 
@@ -1819,7 +1840,7 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
               stepKey: step.key,
               args: argsRaw,
               userHint: effectiveText,
-              url: parsed.data.url,
+              url: contextUrl,
               threadContext,
             });
             if (!resolved.ok) {
@@ -1906,10 +1927,41 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
             : { pendingConfirm: { token, createdAt: now.toISOString(), workTitle: plan.workTitle ?? null, steps: resolvedSteps, confirm: confirmSpec } };
           await (prisma as any).portalAiChatThread.update({ where: { id: threadId }, data: { contextJson: nextCtx } });
 
+          const confirmText = [
+            (typeof (confirmSpec as any)?.message === "string" && String((confirmSpec as any).message).trim())
+              ? String((confirmSpec as any).message).trim()
+              : "Ready to continue.",
+            "Click Confirm to proceed (or Cancel to stop).",
+          ]
+            .filter(Boolean)
+            .join("\n");
+
+          const assistantMsg = await (prisma as any).portalAiChatMessage.create({
+            data: {
+              ownerId,
+              threadId,
+              role: "assistant",
+              text: confirmText,
+              attachmentsJson: null,
+              createdByUserId: null,
+              sendAt: null,
+              sentAt: now,
+            },
+            select: {
+              id: true,
+              role: true,
+              text: true,
+              attachmentsJson: true,
+              createdAt: true,
+              sendAt: true,
+              sentAt: true,
+            },
+          });
+
           return NextResponse.json({
             ok: true,
             userMessage: userMsg,
-            assistantMessage: null,
+            assistantMessage: assistantMsg,
             assistantActions: [],
             autoActionMessage: null,
             canvasUrl: null,
@@ -1932,7 +1984,7 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
             stepKey: step.key,
             args: argsRaw,
             userHint: effectiveText,
-            url: parsed.data.url,
+            url: contextUrl,
             threadContext: localCtx,
           });
 
@@ -2155,8 +2207,8 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
 
     const reply = await runPortalSupportChat({
       message: promptMessage,
-      url: parsed.data.url,
-      recentMessages,
+      url: contextUrl,
+      recentMessages: modelMessages,
       threadContext: fallbackThreadContext,
     });
 
@@ -2356,8 +2408,8 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
 
   const reply = await runPortalSupportChat({
     message: promptMessage,
-    url: parsed.data.url,
-    recentMessages,
+    url: contextUrl,
+    recentMessages: modelMessages,
     threadContext: fallbackThreadContext,
   });
 

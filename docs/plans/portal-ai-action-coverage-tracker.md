@@ -18,6 +18,7 @@ Conventions:
 
 Updates:
 - 2026-03-27: Calendar selection should never require IDs; “any/doesn’t matter” should auto-pick, otherwise show clickable choices.
+- 2026-03-27: Funnel Builder can embed calendars via the built-in `calendarEmbed` block (see `funnel_builder.pages.generate_html` in `src/lib/portalAgentActionExecutor.ts`). If the user requests a calendar and none exist, it will enable the first existing calendar or create a default one (credits permitting).
 
 ## Booking Automation
 - Status: In Progress
@@ -42,6 +43,10 @@ Updates:
 
 Updates:
 - 2026-03-27: Fixed agent action replies so errors never masquerade as success (was causing "action failed" scenarios to still display "Done.").
+- 2026-03-27: Verified end-to-end “plain English” support for adding interactive funnel content:
+  - `funnel_builder.pages.generate_html` detects intent (shop/cart/checkout/calendar/chatbot) and can insert real blocks (including `calendarEmbed`) and also generates a Custom HTML snapshot for preview.
+  - `funnel_builder.pages.generate_html` supports `attachments` + `contextMedia` and will call image-aware generation when images are provided.
+  - `funnel_builder.custom_code_block.generate` can return structured block insert actions (including `calendarEmbed`, `image`, `button`, `formEmbed`) so the agent can prefer built-ins over fragile custom HTML.
 
 ## Lead Scraping
 - Status: Not Started

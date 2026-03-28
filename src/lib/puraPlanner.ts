@@ -177,7 +177,7 @@ export async function planPuraActions(opts: {
   const activeEntities = summarizeActiveThreadEntities(opts.threadContext);
 
   const convo = (opts.recentMessages || [])
-    .slice(-10)
+    .slice(-80)
     .map((m) => `${m.role === "assistant" ? "Assistant" : "User"}: ${String(m.text || "").slice(0, 800)}`)
     .join("\n");
 

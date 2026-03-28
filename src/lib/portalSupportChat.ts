@@ -130,7 +130,7 @@ export async function runPortalSupportChat(opts: {
   threadContext?: unknown;
 }): Promise<string> {
   const { message, url, meta } = opts;
-  const recent = (opts.recentMessages ?? []).slice(-12);
+  const recent = (opts.recentMessages ?? []).slice(-120);
   const threadSummary =
     opts.threadContext && typeof opts.threadContext === "object" && !Array.isArray(opts.threadContext) && typeof (opts.threadContext as any).threadSummary === "string"
       ? String((opts.threadContext as any).threadSummary || "").trim().slice(0, 1600)

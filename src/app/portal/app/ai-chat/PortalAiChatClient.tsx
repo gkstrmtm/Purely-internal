@@ -392,74 +392,8 @@ export function PortalAiChatClient() {
     };
   }, []);
 
-  const addLocalAssistantMessage = useCallback((text: string) => {
-    const nowIso = new Date().toISOString();
-    const localAssistant: Message = {
-      id: `local-assistant-${newClientId()}`,
-      role: "assistant",
-      text,
-      attachmentsJson: [],
-      createdAt: nowIso,
-      sendAt: null,
-      sentAt: nowIso,
-    };
-    setMessages((prev) => [...prev, localAssistant]);
-  }, []);
-
-  const handleUiPanelCommand = useCallback(
-    (rawText: string) => {
-      const text = String(rawText || "").trim().toLowerCase();
-      if (!text) return false;
-
-      const mentionsCanvas = /\b(canvas|workspace|work panel|right panel)\b/.test(text);
-      const mentionsSidebar = /\b(sidebar|chat list|thread list|threads panel|left panel|chats)\b/.test(text);
-
-      const isClose = /\b(close|hide|collapse|minimize)\b/.test(text);
-      const isOpen = /\b(open|show|expand|restore)\b/.test(text);
-      const isResize = /\b(resize|wider|narrower|bigger|smaller|increase|decrease)\b/.test(text);
-
-      if (isClose && (mentionsCanvas || /\bclose it\b/.test(text))) {
-        setCanvasOpen(false);
-        setCanvasModalOpen(false);
-        addLocalAssistantMessage("Closed the workspace panel.");
-        return true;
-      }
-
-      if (isOpen && (mentionsCanvas || /\bopen it\b/.test(text))) {
-        setCanvasOpen(true);
-        addLocalAssistantMessage("Opened the workspace panel.");
-        return true;
-      }
-
-      if (isClose && mentionsSidebar) {
-        addLocalAssistantMessage("The chat sidebar stays open (resize-only).");
-        return true;
-      }
-
-      if (isOpen && mentionsSidebar) {
-        addLocalAssistantMessage("The chat sidebar is already open.");
-        return true;
-      }
-
-      if (isResize && (mentionsCanvas || /\bresize it\b/.test(text))) {
-        const delta = /\b(smaller|narrower|decrease)\b/.test(text) ? -120 : 120;
-        setCanvasOpen(true);
-        setCanvasWidth((prev) => Math.max(320, Math.min(980, prev + delta)));
-        addLocalAssistantMessage(`Resized the workspace panel ${delta > 0 ? "wider" : "narrower"}.`);
-        return true;
-      }
-
-      if (isResize && mentionsSidebar) {
-        const delta = /\b(smaller|narrower|decrease)\b/.test(text) ? -80 : 80;
-        setSidebarWidth((prev) => Math.max(240, Math.min(520, prev + delta)));
-        addLocalAssistantMessage(`Resized the chat sidebar ${delta > 0 ? "wider" : "narrower"}.`);
-        return true;
-      }
-
-      return false;
-    },
-    [addLocalAssistantMessage],
-  );
+  // Intentionally no local chat command interception.
+  // Every user message should go through the server AI pipeline.
 
   const [threads, setThreads] = useState<Thread[]>([]);
   const [threadsLoading, setThreadsLoading] = useState(true);
@@ -897,11 +831,6 @@ export function PortalAiChatClient() {
       const attachments = pendingAttachments;
       if (!text && !attachments.length && !choice) return;
 
-      if (!attachments.length && handleUiPanelCommand(text)) {
-        if (!overrideText) setInput("");
-        return;
-      }
-
       if (!activeThreadId) return;
 
       const optimisticId = newClientId();
@@ -942,6 +871,7 @@ export function PortalAiChatClient() {
           body: JSON.stringify({
             text,
             url: window.location.href,
+            ...(canvasUrl ? { canvasUrl } : {}),
             attachments,
             ...(choice ? { choice } : {}),
           }),
@@ -969,6 +899,7 @@ export function PortalAiChatClient() {
             const cleaned = prev.filter((m) => m.id !== optimisticUser.id && m.id !== optimisticAssistant.id);
             const next: Message[] = [...cleaned];
             if (json.userMessage) next.push(json.userMessage);
+            if (json.assistantMessage) next.push(json.assistantMessage);
             return next;
           });
 
@@ -990,6 +921,7 @@ export function PortalAiChatClient() {
             body: JSON.stringify({
               confirmToken: token,
               url: window.location.href,
+              ...(canvasUrl ? { canvasUrl } : {}),
             }),
           });
           const json2 = await res2.json().catch(() => null);
@@ -1053,7 +985,7 @@ export function PortalAiChatClient() {
         setSending(false);
       }
     },
-    [activeThreadId, askConfirm, input, pendingAttachments, toast, loadThreads, handleUiPanelCommand],
+    [activeThreadId, askConfirm, canvasUrl, input, pendingAttachments, toast, loadThreads],
   );
 
   // Handler for ambiguous contact selection (must be after send is defined)
