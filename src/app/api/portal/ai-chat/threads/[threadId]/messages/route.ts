@@ -66,9 +66,11 @@ const SendMessageSchema = z
     attachments: z.array(AttachmentSchema).max(10).optional(),
     confirmToken: z.string().trim().min(1).max(200).optional(),
     choice: ChoiceSchema,
+    redoLastAssistant: z.boolean().optional(),
   })
   .refine(
     (d) =>
+      Boolean((d as any).redoLastAssistant) ||
       Boolean(String((d as any).confirmToken || "").trim()) ||
       Boolean((d.text || "").trim()) ||
       Boolean((d as any).choice) ||
@@ -1342,7 +1344,22 @@ function detectDeterministicActionsFromText(opts: {
   if (/\b(build|create|make)\b[\s\S]{0,30}\bautomation\b/i.test(t)) {
     const nameMatch = /\b(named|called)\s+"?([^"\n]{2,80})"?/i.exec(t);
     const name = (nameMatch?.[2] || "New automation").trim().slice(0, 80);
-    return [{ key: "automations.create", title: "Create an automation", args: { name } }];
+
+    const wantsAppointment = /\bappointment\b/i.test(t);
+    const wantsNurture = /\b(nurture|campaign)\b/i.test(t);
+    const template = wantsAppointment && wantsNurture ? "post_appointment_nurture_enrollment" : undefined;
+
+    return [
+      {
+        key: "automations.create",
+        title: "Create an automation",
+        args: {
+          name,
+          ...(template ? { template } : {}),
+          prompt: t,
+        },
+      },
+    ];
   }
 
   // Create tasks for every employee.
@@ -1406,7 +1423,13 @@ export async function GET(_req: Request, ctx: { params: Promise<{ threadId: stri
     },
   });
 
-  return NextResponse.json({ ok: true, messages });
+  const ctxJson = thread.contextJson && typeof thread.contextJson === "object" && !Array.isArray(thread.contextJson)
+    ? (thread.contextJson as any)
+    : {};
+  const lastCanvasUrl = typeof ctxJson.lastCanvasUrl === "string" && ctxJson.lastCanvasUrl.trim() ? String(ctxJson.lastCanvasUrl).trim().slice(0, 1200) : null;
+  const lastWorkTitle = typeof ctxJson.lastWorkTitle === "string" && ctxJson.lastWorkTitle.trim() ? String(ctxJson.lastWorkTitle).trim().slice(0, 200) : null;
+
+  return NextResponse.json({ ok: true, messages, threadContext: { lastCanvasUrl, lastWorkTitle } });
 }
 
 async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId: string }> }) {
@@ -1440,6 +1463,101 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
   }
 
   const now = new Date();
+
+  const redoLastAssistant = Boolean((parsed.data as any).redoLastAssistant);
+  if (redoLastAssistant) {
+    const recent = await (prisma as any).portalAiChatMessage.findMany({
+      where: { ownerId, threadId },
+      orderBy: { createdAt: "desc" },
+      take: 40,
+      select: { id: true, role: true, text: true, createdAt: true },
+    });
+
+    const ordered = Array.isArray(recent) ? [...recent].reverse() : [];
+    let lastAssistantIdx = -1;
+    for (let i = ordered.length - 1; i >= 0; i--) {
+      if (String(ordered[i]?.role) === "assistant") {
+        lastAssistantIdx = i;
+        break;
+      }
+    }
+
+    if (lastAssistantIdx < 0) {
+      return NextResponse.json({ ok: false, error: "No assistant message to redo." }, { status: 400 });
+    }
+
+    const lastAssistant = ordered[lastAssistantIdx];
+    let lastUser: any = null;
+    for (let i = lastAssistantIdx - 1; i >= 0; i--) {
+      if (String(ordered[i]?.role) === "user") {
+        lastUser = ordered[i];
+        break;
+      }
+    }
+
+    if (!lastUser || !String(lastUser.text || "").trim()) {
+      return NextResponse.json({ ok: false, error: "No user message found to redo." }, { status: 400 });
+    }
+
+    await (prisma as any).portalAiChatMessage.deleteMany({ where: { id: lastAssistant.id, ownerId, threadId } });
+
+    const threadContext = (thread as any).contextJson ?? null;
+
+    const recentMessages = ordered
+      .slice(0, lastAssistantIdx)
+      .filter((m) => (m?.role === "user" || m?.role === "assistant") && String(m?.text || "").trim())
+      .slice(-40)
+      .map((m) => ({ role: m.role, text: String(m.text || "").trim().slice(0, 4000) }));
+
+    const prompt = [
+      "Regenerate the assistant's last response to the user message below.",
+      "Constraints:",
+      "- Do not mention that you are regenerating or redoing.",
+      "- Do not execute any portal actions; this is text-only regeneration.",
+      "- Keep the answer helpful and concise.",
+      "",
+      "User message:",
+      String(lastUser.text || "").trim().slice(0, 4000),
+      "",
+      "Previous assistant response (for reference):",
+      String(lastAssistant.text || "").trim().slice(0, 4000),
+      "",
+      "New assistant response:",
+    ].join("\n");
+
+    const contextUrl = typeof parsed.data.url === "string" ? String(parsed.data.url).trim().slice(0, 1200) : "";
+    const reply = await runPortalSupportChat({
+      message: prompt,
+      url: contextUrl || undefined,
+      recentMessages,
+      threadContext,
+    });
+
+    const assistantMsg = await (prisma as any).portalAiChatMessage.create({
+      data: {
+        ownerId,
+        threadId,
+        role: "assistant",
+        text: reply,
+        attachmentsJson: null,
+        createdByUserId: null,
+        sendAt: null,
+        sentAt: now,
+      },
+      select: {
+        id: true,
+        role: true,
+        text: true,
+        attachmentsJson: true,
+        createdAt: true,
+        sendAt: true,
+        sentAt: true,
+      },
+    });
+
+    await (prisma as any).portalAiChatThread.update({ where: { id: threadId }, data: { lastMessageAt: now } });
+    return NextResponse.json({ ok: true, userMessage: null, assistantMessage: assistantMsg, assistantActions: [], autoActionMessage: null, canvasUrl: null });
+  }
 
   const confirmToken = typeof (parsed.data as any).confirmToken === "string" ? String((parsed.data as any).confirmToken).trim().slice(0, 200) : "";
   const choice = (parsed.data as any).choice ?? null;

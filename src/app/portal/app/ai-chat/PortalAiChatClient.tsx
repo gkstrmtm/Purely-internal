@@ -71,6 +71,53 @@ function classNames(...xs: Array<string | false | null | undefined>) {
   return xs.filter(Boolean).join(" ");
 }
 
+function IconVolumeGlyph({ size = 16 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden>
+      <path
+        d="M11 5L6.5 9H3v6h3.5L11 19V5z"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M15.5 8.5a5 5 0 010 7"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+      />
+      <path
+        d="M17.8 6.2a8.5 8.5 0 010 11.6"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
+function IconRedoGlyph({ size = 16 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden>
+      <path
+        d="M21 12a9 9 0 10-3.3 6.9"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M21 12v7h-7"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
 type FixedMenuStyle = { left: number; top: number; width: number; maxHeight: number };
 
 function computeFixedMenuStyle(opts: {
@@ -426,6 +473,9 @@ export function PortalAiChatClient() {
 
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
+  const [dictating, setDictating] = useState(false);
+  const dictationRef = useRef<{ audio: HTMLAudioElement; objectUrl: string } | null>(null);
+  const [regenerating, setRegenerating] = useState(false);
 
   const [pendingAttachments, setPendingAttachments] = useState<Attachment[]>([]);
   const [uploading, setUploading] = useState(false);
@@ -586,6 +636,13 @@ export function PortalAiChatClient() {
         const json = await res.json().catch(() => null);
         if (!json?.ok) throw new Error(json?.error || "Failed to load messages");
         setMessages(Array.isArray(json.messages) ? (json.messages as Message[]) : []);
+        const nextLastCanvasUrl =
+          typeof json?.threadContext?.lastCanvasUrl === "string" && json.threadContext.lastCanvasUrl.trim()
+            ? String(json.threadContext.lastCanvasUrl).trim()
+            : null;
+        if (nextLastCanvasUrl) {
+          setCanvasUrl(nextLastCanvasUrl);
+        }
         // Ensure we scroll after the new messages have actually rendered.
         requestAnimationFrame(() => scrollToBottom(true));
         setTimeout(() => scrollToBottom(true), 0);
@@ -1194,6 +1251,105 @@ export function PortalAiChatClient() {
     [],
   );
 
+  const openLatestCanvas = useCallback(
+    (opts?: { modal?: boolean }) => {
+      if (!canvasUrl) {
+        toast.error("No canvas to open yet.");
+        return;
+      }
+      setCanvasOpen(true);
+      if (opts?.modal) setCanvasModalOpen(true);
+      else setCanvasModalOpen(false);
+    },
+    [canvasUrl, toast],
+  );
+
+  useEffect(() => {
+    return () => {
+      try {
+        dictationRef.current?.audio.pause();
+      } catch {
+        // ignore
+      }
+      try {
+        if (dictationRef.current?.objectUrl) URL.revokeObjectURL(dictationRef.current.objectUrl);
+      } catch {
+        // ignore
+      }
+      dictationRef.current = null;
+    };
+  }, []);
+
+  const dictateAssistantMessage = useCallback(
+    async (messageId: string) => {
+      if (!activeThreadId) return;
+      if (dictating) return;
+
+      setDictating(true);
+      try {
+        try {
+          dictationRef.current?.audio.pause();
+        } catch {
+          // ignore
+        }
+        try {
+          if (dictationRef.current?.objectUrl) URL.revokeObjectURL(dictationRef.current.objectUrl);
+        } catch {
+          // ignore
+        }
+        dictationRef.current = null;
+
+        const res = await fetch(`/api/portal/ai-chat/threads/${encodeURIComponent(activeThreadId)}/dictate`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ messageId }),
+        });
+
+        if (!res.ok) {
+          const json = await res.json().catch(() => null);
+          throw new Error(json?.error || "Dictation failed");
+        }
+
+        const blob = await res.blob();
+        const objectUrl = URL.createObjectURL(blob);
+        const audio = new Audio(objectUrl);
+        dictationRef.current = { audio, objectUrl };
+        await audio.play();
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : String(e));
+      } finally {
+        setDictating(false);
+      }
+    },
+    [activeThreadId, dictating, toast],
+  );
+
+  const redoLastAssistant = useCallback(async () => {
+    if (!activeThreadId) return;
+    if (regenerating) return;
+
+    setRegenerating(true);
+    try {
+      const res = await fetch(`/api/portal/ai-chat/threads/${encodeURIComponent(activeThreadId)}/messages`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          redoLastAssistant: true,
+          url: typeof window !== "undefined" ? window.location.href : undefined,
+          ...(canvasUrl ? { canvasUrl } : {}),
+        }),
+      });
+      const json = await res.json().catch(() => null);
+      if (!json?.ok) throw new Error(json?.error || "Redo failed");
+      void loadMessages(activeThreadId);
+      void loadThreads();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : String(e));
+    } finally {
+      setRegenerating(false);
+    }
+  }, [activeThreadId, canvasUrl, loadMessages, loadThreads, regenerating, toast]);
+
   const left = (
     <div className="flex h-full flex-col overflow-hidden">
       <div className="shrink-0 px-3 pb-2 pt-3">
@@ -1610,6 +1766,16 @@ export function PortalAiChatClient() {
               >
                 Work
               </button>
+            ) : canvasUrl ? (
+              <button
+                type="button"
+                className="inline-flex h-10 items-center justify-center rounded-2xl border border-brand-blue/20 bg-brand-blue px-3 text-sm font-semibold text-white hover:opacity-95 lg:hidden"
+                onClick={() => openLatestCanvas({ modal: true })}
+                aria-label="Open work"
+                title="Open work"
+              >
+                Work
+              </button>
             ) : null}
           </div>
         </div>
@@ -1638,6 +1804,37 @@ export function PortalAiChatClient() {
                           runningActionKey={runningActionKey}
                           onOpenLink={openInCanvas}
                         />
+                        {isLastAssistant ? (
+                          <div className="mt-1 flex items-center justify-end gap-2">
+                            <button
+                              type="button"
+                              className={classNames(
+                                "inline-flex items-center justify-center rounded-xl border border-zinc-200 bg-white px-2 py-1 text-xs font-semibold text-zinc-800 hover:bg-zinc-50",
+                                (dictating || regenerating || sending) && "opacity-60",
+                              )}
+                              onClick={() => void dictateAssistantMessage(m.id)}
+                              disabled={dictating || regenerating || sending}
+                              aria-label="Dictate last assistant message"
+                              title="Dictate"
+                            >
+                              <IconVolumeGlyph size={16} />
+                            </button>
+
+                            <button
+                              type="button"
+                              className={classNames(
+                                "inline-flex items-center justify-center rounded-xl border border-zinc-200 bg-white px-2 py-1 text-xs font-semibold text-zinc-800 hover:bg-zinc-50",
+                                (dictating || regenerating || sending) && "opacity-60",
+                              )}
+                              onClick={() => void redoLastAssistant()}
+                              disabled={dictating || regenerating || sending}
+                              aria-label="Redo last assistant response"
+                              title="Redo"
+                            >
+                              <IconRedoGlyph size={16} />
+                            </button>
+                          </div>
+                        ) : null}
                         {showAmbiguousContacts && (
                           <div className="mt-2 flex flex-wrap gap-2">
                             {ambiguousContacts?.map((c, idx) => (
@@ -1738,7 +1935,7 @@ export function PortalAiChatClient() {
               className="absolute right-0 top-2 z-20 inline-flex items-center gap-1 rounded-l-2xl border border-brand-blue/20 bg-brand-blue px-3 py-2 text-xs font-bold text-white hover:opacity-95"
               style={{ height: 40 }}
               title="Open canvas"
-              onClick={() => setCanvasOpen(true)}
+              onClick={() => openLatestCanvas({ modal: true })}
             >
               <span className="leading-none">Open</span>
               <span className="text-base leading-none">‹</span>

@@ -10936,6 +10936,9 @@ async function runDirectAction(opts: {
       const templateRaw = String((args as any)?.template || "").trim();
       const template = templateRaw === "post_appointment_nurture_enrollment" ? ("post_appointment_nurture_enrollment" as const) : ("blank" as const);
 
+      const promptRaw = String((args as any)?.prompt || (args as any)?.description || "").trim();
+      const prompt = promptRaw ? promptRaw.slice(0, 2000) : "";
+
       const nurtureCampaignIdRaw = String((args as any)?.nurtureCampaignId || "").trim();
       const nurtureCampaignId = nurtureCampaignIdRaw ? nurtureCampaignIdRaw.slice(0, 80) : null;
 
@@ -10957,6 +10960,157 @@ async function runDirectAction(opts: {
       const id = `a_${crypto.randomUUID().replace(/-/g, "").slice(0, 20)}`;
       const createdAtIso = new Date().toISOString();
       const actor = await prisma.user.findUnique({ where: { id: actorUserId }, select: { id: true, email: true, name: true } }).catch(() => null);
+
+      const graphFromPrompt = (text: string) => {
+        const t = String(text || "").trim();
+        const lower = t.toLowerCase();
+
+        const inferTriggerKind = (): string => {
+          if (/\bmissed\s+appointment\b/i.test(t)) return "missed_appointment";
+          if (/\bappointment\b/i.test(t) && /\b(book|booked|schedule|scheduled)\b/i.test(t)) return "appointment_booked";
+          if (/\bappointment\b/i.test(t) && /\b(end|ended|after)\b/i.test(t)) return "appointment_ended";
+          if (/\binbound\b[\s\S]{0,10}\b(sms|text)\b/i.test(t)) return "inbound_sms";
+          if (/\bform\b[\s\S]{0,20}\b(submit|submitted)\b/i.test(t)) return "form_submitted";
+          if (/\bnew\s+lead\b/i.test(t)) return "new_lead";
+          if (/\btag\s+added\b/i.test(t)) return "tag_added";
+          return "manual";
+        };
+
+        const parseDelayMinutes = (): number | null => {
+          const m = /\b(?:wait|delay|after)\s+(\d{1,3})\s*(minutes?|mins?|hours?|days?|weeks?|months?)\b/i.exec(t);
+          if (!m?.[1]) return null;
+          const n = Math.max(0, Math.min(9999, Math.floor(Number(m[1]))));
+          if (!Number.isFinite(n) || n <= 0) return null;
+          const unit = String(m[2] || "").toLowerCase();
+          const mult = unit.startsWith("hour") ? 60 : unit.startsWith("day") ? 60 * 24 : unit.startsWith("week") ? 60 * 24 * 7 : unit.startsWith("month") ? 60 * 24 * 30 : 1;
+          return Math.max(1, Math.min(60 * 24 * 365, n * mult));
+        };
+
+        const wantsSms = /\b(sms|text)\b/i.test(t) && /\b(send|message|reply|follow\s*up)\b/i.test(t);
+        const wantsEmail = /\bemail\b/i.test(t) && /\b(send|message|follow\s*up)\b/i.test(t);
+        const wantsReview = /\breview\b/i.test(t) && /\b(send|request|ask)\b/i.test(t);
+        const wantsBookingLink = /\b(booking\s+link|book\s+appointment|schedule\s+appointment)\b/i.test(t);
+        const wantsNurture = /\b(nurture|campaign)\b/i.test(t) && /\b(enroll|add|start|trigger)\b/i.test(t);
+
+        const quoted = /"([\s\S]{1,800})"/.exec(t);
+        const body = quoted?.[1] ? String(quoted[1]).trim().slice(0, 900) : "";
+
+        const triggerKind = inferTriggerKind();
+        const delayMinutes = parseDelayMinutes();
+
+        const baseX = 80;
+        const baseY = 120;
+        const stepX = 300;
+
+        const nodes: any[] = [
+          {
+            id: "trigger",
+            type: "trigger",
+            label: "Trigger",
+            x: baseX,
+            y: baseY,
+            config: { kind: "trigger", triggerKind },
+          },
+        ];
+
+        const edges: any[] = [];
+        let lastId = "trigger";
+        let nextX = baseX + stepX;
+
+        const includeCondition = /\bif\b/i.test(lower) && /\b(email|phone)\b/i.test(lower);
+        if (includeCondition) {
+          const wantsEmailCond = /\bemail\b/i.test(lower);
+          const conditionId = "condition_1";
+          nodes.push({
+            id: conditionId,
+            type: "condition",
+            label: "Condition",
+            x: nextX,
+            y: baseY,
+            config: {
+              kind: "condition",
+              left: wantsEmailCond ? "contact.email" : "contact.phone",
+              op: "is_not_empty",
+              right: "",
+            },
+          });
+          edges.push({ id: "e1", from: lastId, fromPort: "out", to: conditionId });
+
+          const noteId = "note_no_contact";
+          nodes.push({
+            id: noteId,
+            type: "note",
+            label: "Note",
+            x: nextX,
+            y: baseY + 170,
+            config: {
+              kind: "note",
+              text: wantsEmailCond ? "No email on contact; skipped." : "No phone on contact; skipped.",
+            },
+          });
+          edges.push({ id: "e2", from: conditionId, fromPort: "false", to: noteId });
+
+          lastId = conditionId;
+          nextX += stepX;
+        }
+
+        if (delayMinutes) {
+          const delayId = "delay_1";
+          nodes.push({
+            id: delayId,
+            type: "delay",
+            label: "Delay",
+            x: nextX,
+            y: baseY,
+            config: { kind: "delay", minutes: delayMinutes },
+          });
+          edges.push({ id: `e${edges.length + 1}`, from: lastId, fromPort: includeCondition ? "true" : "out", to: delayId });
+          lastId = delayId;
+          nextX += stepX;
+        }
+
+        const actions: any[] = [];
+        if (wantsReview) {
+          actions.push({ kind: "action", actionKind: "send_review_request" });
+        }
+        if (wantsBookingLink) {
+          actions.push({ kind: "action", actionKind: "send_booking_link" });
+        }
+        if (wantsNurture) {
+          actions.push({
+            kind: "action",
+            actionKind: "trigger_service",
+            serviceSlug: "nurture-campaigns",
+            ...(nurtureCampaignId ? { serviceCampaignId: nurtureCampaignId } : {}),
+          });
+        }
+        if (wantsEmail) {
+          actions.push({ kind: "action", actionKind: "send_email", emailTo: "event_contact", subject: "", body });
+        }
+        if (wantsSms) {
+          actions.push({ kind: "action", actionKind: "send_sms", smsTo: "event_contact", body });
+        }
+        if (!actions.length) {
+          actions.push({ kind: "action", actionKind: "create_task", title: "Follow up", note: t.slice(0, 400) || "Created from AI chat" });
+        }
+
+        actions.slice(0, 4).forEach((cfg, idx) => {
+          const id = `action_${idx + 1}`;
+          nodes.push({
+            id,
+            type: "action",
+            label: "Action",
+            x: nextX,
+            y: baseY,
+            config: cfg,
+          });
+          edges.push({ id: `e${edges.length + 1}`, from: lastId, fromPort: includeCondition && lastId === "condition_1" ? "true" : "out", to: id });
+          lastId = id;
+          nextX += stepX;
+        });
+
+        return { nodes, edges };
+      };
 
       const graph = (() => {
         if (template === "post_appointment_nurture_enrollment") {
@@ -10986,6 +11140,10 @@ async function runDirectAction(opts: {
             ],
             edges: [{ id: "e1", from: "trigger", fromPort: "out", to: "enroll_nurture" }],
           };
+        }
+
+        if (prompt) {
+          return graphFromPrompt(prompt);
         }
 
         return {
