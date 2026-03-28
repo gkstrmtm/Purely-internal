@@ -2857,10 +2857,59 @@ export async function resolvePlanArgs(opts: {
 
     if (argKeyLower === "contactid" || argKeyLower === "targetcontactid" || argKeyLower === "leadcontactid") {
       if (resolvedContact?.id) return { ok: true, value: resolvedContact.id };
+
+      const lastContactFromCtx =
+        opts.threadContext && typeof opts.threadContext === "object" && !Array.isArray(opts.threadContext)
+          ? ((opts.threadContext as any).lastContact as any)
+          : null;
+      const lastContactId = typeof lastContactFromCtx?.id === "string" ? String(lastContactFromCtx.id).trim().slice(0, 120) : "";
+      const lastContactLabel =
+        typeof lastContactFromCtx?.label === "string"
+          ? String(lastContactFromCtx.label).trim().slice(0, 120)
+          : typeof lastContactFromCtx?.name === "string"
+            ? String(lastContactFromCtx.name).trim().slice(0, 120)
+            : "";
+
+      const hintLower = hint.toLowerCase().trim();
+      const hintIsPronounOrImplicit =
+        !hintLower ||
+        ["him", "her", "them", "that", "that one", "this", "this one", "same", "same one", "same person", "that contact", "this contact", "again"].some(
+          (w) => hintLower === w || hintLower.endsWith(` ${w}`) || hintLower.startsWith(`${w} `) || hintLower.includes(` ${w} `),
+        );
+
+      // If the user is referring to “him/her/that one/same one” (or gave no hint), reuse the lastContact.
+      if (lastContactId && hintIsPronounOrImplicit) {
+        const row = await (prisma as any).portalContact
+          .findFirst({ where: { ownerId, id: lastContactId }, select: { id: true, name: true, email: true, phone: true } })
+          .catch(() => null);
+        if (row?.id) {
+          const name = String(row?.name || "").trim();
+          const email = String(row?.email || "").trim();
+          const phone = String(row?.phone || "").trim();
+          resolvedContact = { id: String(row.id), name: name || email || phone || lastContactLabel || "Contact" };
+          return { ok: true, value: String(row.id) };
+        }
+      }
+
       const overrideContactId =
         threadChoiceOverrides && typeof threadChoiceOverrides === "object" && typeof (threadChoiceOverrides as any).contactId === "string"
           ? String((threadChoiceOverrides as any).contactId).trim()
           : "";
+
+      // If the hint matches the last contact label, strongly prefer that contact to avoid repeated “which contact?” loops.
+      if (lastContactId && lastContactLabel && normKey(lastContactLabel) && normKey(hint) && normKey(lastContactLabel) === normKey(hint)) {
+        const row = await (prisma as any).portalContact
+          .findFirst({ where: { ownerId, id: lastContactId }, select: { id: true, name: true, email: true, phone: true } })
+          .catch(() => null);
+        if (row?.id) {
+          const name = String(row?.name || "").trim();
+          const email = String(row?.email || "").trim();
+          const phone = String(row?.phone || "").trim();
+          resolvedContact = { id: String(row.id), name: name || email || phone || lastContactLabel || "Contact" };
+          return { ok: true, value: String(row.id) };
+        }
+      }
+
       const rc = await resolveContactId({ ownerId, hint: overrideContactId || mergeResolverHint(rawHint) });
       if (rc.kind !== "ok") return { ok: false, clarifyQuestion: rc.question, ...(rc.choices ? { choices: rc.choices } : {}) };
       resolvedContact = { id: rc.contactId, name: rc.contactName };

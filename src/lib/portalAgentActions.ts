@@ -576,7 +576,20 @@ export const PortalAgentActionArgsSchemaByKey = {
       // When invoked from the AI chat thread, the API layer will inject the current threadId.
       threadId: z.string().trim().min(1).max(120).optional(),
       text: z.string().trim().min(1).max(4000),
-      sendAtIso: z.string().trim().min(1).max(64),
+      // Prefer sendAtLocal for “every weekday at 9am”-style schedules (timezone-safe).
+      // sendAtIso remains supported for absolute timestamps.
+      sendAtIso: z.string().trim().min(1).max(64).optional(),
+      sendAtLocal: z
+        .object({
+          // 1=Mon ... 7=Sun (ISO weekday)
+          isoWeekday: z.number().int().min(1).max(7),
+          // "HH:mm" (24h)
+          timeLocal: z.string().trim().regex(/^\d{2}:\d{2}$/),
+          // Optional; if omitted, executor defaults to owner timezone (or UTC).
+          timeZone: z.string().trim().min(1).max(80).optional(),
+        })
+        .strict()
+        .optional(),
       repeatEveryMinutes: z.number().int().min(0).max(60 * 24 * 365).optional(),
     })
     .strict(),
@@ -3338,7 +3351,8 @@ export function portalAgentActionsIndexText(opts?: { includeAiChat?: boolean }):
     "- ai_chat.messages.send: Send a chat message and get an assistant reply (fields: threadId, text?, url?, attachments?)",
     "- ai_chat.attachments.upload: Upload one or more files for chat (fields: files[{fileName,mimeType?,contentBase64}])",
     "- ai_chat.actions.execute: Execute a whitelisted portal action and append the result to a thread (fields: threadId, action, args?)",
-    "- ai_chat.scheduled.create: Create a scheduled AI chat user message (fields: threadId?, text, sendAtIso, repeatEveryMinutes?)",
+    "- ai_chat.scheduled.create: Create a scheduled AI chat user message (fields: threadId?, text, sendAtIso? OR sendAtLocal?, repeatEveryMinutes?)",
+    "  - sendAtLocal: { isoWeekday: 1..7, timeLocal: \"HH:mm\", timeZone?: \"America/Chicago\" } (recommended for weekday schedules)",
     "- ai_chat.scheduled.list: List scheduled (unsent) AI chat user messages",
     "- ai_chat.scheduled.update: Update a scheduled message (fields: messageId, sendAtIso?, repeatEveryMinutes?)",
     "- ai_chat.scheduled.delete: Delete a scheduled message (fields: messageId)",

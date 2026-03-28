@@ -15778,12 +15778,64 @@ async function runDirectAction(opts: {
       const text = String((args as any)?.text || "").trim().slice(0, 4000);
       if (!text) return { status: 400, json: { ok: false, error: "Missing text" } };
 
-      const sendAtIso = String((args as any)?.sendAtIso || "").trim().slice(0, 64);
-      if (!sendAtIso) return { status: 400, json: { ok: false, error: "Missing sendAtIso" } };
+      const sendAtIso = typeof (args as any)?.sendAtIso === "string" ? String((args as any).sendAtIso).trim().slice(0, 64) : "";
+      const sendAtLocalRaw = (args as any)?.sendAtLocal;
 
-      const sendAt = new Date(sendAtIso);
-      if (!Number.isFinite(sendAt.getTime())) {
-        return { status: 400, json: { ok: false, error: "Invalid sendAt" } };
+      const computeSendAtFromLocal = async (raw: any): Promise<Date | null> => {
+        if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+        const isoWeekday = typeof raw.isoWeekday === "number" && Number.isFinite(raw.isoWeekday) ? Math.floor(raw.isoWeekday) : 0;
+        const timeLocal = typeof raw.timeLocal === "string" ? String(raw.timeLocal).trim() : "";
+        const tzFromArgs = typeof raw.timeZone === "string" ? String(raw.timeZone).trim().slice(0, 80) : "";
+        if (!(isoWeekday >= 1 && isoWeekday <= 7)) return null;
+        if (!/^\d{2}:\d{2}$/.test(timeLocal)) return null;
+        const [hhS, mmS] = timeLocal.split(":");
+        const hour = Number(hhS);
+        const minute = Number(mmS);
+        if (!Number.isFinite(hour) || !Number.isFinite(minute) || hour < 0 || hour > 23 || minute < 0 || minute > 59) return null;
+
+        const { DateTime } = await import("luxon");
+
+        const ownerTz =
+          (await prisma.user.findUnique({ where: { id: ownerId }, select: { timeZone: true } }).catch(() => null))?.timeZone || "";
+        const tz = (tzFromArgs || String(ownerTz || "").trim() || "UTC").slice(0, 80);
+
+        const now = DateTime.now().setZone(tz);
+        const zone = now.isValid ? tz : "UTC";
+        const base = DateTime.now().setZone(zone);
+        const daysAhead = (target: number) => {
+          const cur = base.weekday; // 1..7
+          const diff = (target - cur + 7) % 7;
+          return diff;
+        };
+
+        const candidate = base
+          .plus({ days: daysAhead(isoWeekday) })
+          .set({ hour, minute, second: 0, millisecond: 0 });
+
+        // If the computed local time already passed “today”, schedule next week.
+        const finalLocal = candidate <= base ? candidate.plus({ days: 7 }) : candidate;
+        if (!finalLocal.isValid) return null;
+        return finalLocal.toJSDate();
+      };
+
+      const sendAt = (() => {
+        if (sendAtIso) {
+          const d = new Date(sendAtIso);
+          if (Number.isFinite(d.getTime())) return d;
+        }
+        return null;
+      })();
+
+      const computedFromLocal = !sendAt ? await computeSendAtFromLocal(sendAtLocalRaw) : null;
+      const finalSendAt = sendAt || computedFromLocal;
+      if (!finalSendAt) {
+        return {
+          status: 400,
+          json: {
+            ok: false,
+            error: "Invalid sendAt (provide sendAtIso or sendAtLocal)",
+          },
+        };
       }
 
       const repeatRaw = (args as any)?.repeatEveryMinutes;
@@ -15798,7 +15850,7 @@ async function runDirectAction(opts: {
           text,
           attachmentsJson: null,
           createdByUserId: membership.memberId,
-          sendAt,
+          sendAt: finalSendAt,
           sentAt: null,
           repeatEveryMinutes: repeatEveryMinutes > 0 ? repeatEveryMinutes : null,
         },

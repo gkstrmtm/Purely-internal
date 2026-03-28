@@ -10,6 +10,26 @@ import {
 
 export type PuraPlannerMode = "execute" | "clarify" | "explain" | "noop";
 
+function userAsksForHowOrSteps(textRaw: string): boolean {
+  const t = String(textRaw || "").toLowerCase();
+  if (!t.trim()) return false;
+  return (
+    /\bhow\b/.test(t) ||
+    /\bsteps?\b/.test(t) ||
+    /\bwhere do i\b/.test(t) ||
+    /\bshow me\b/.test(t) ||
+    /\bwalk me through\b/.test(t) ||
+    /\bwhat do i click\b/.test(t)
+  );
+}
+
+function looksLikeImperativeRequest(textRaw: string): boolean {
+  const t = String(textRaw || "").toLowerCase();
+  if (!t.trim()) return false;
+  if (userAsksForHowOrSteps(t)) return false;
+  return /(\bsend\b|\btext\b|\bsms\b|\bschedule\b|\bevery\b|\bmonday\b|\btuesday\b|\bwednesday\b|\bthursday\b|\bfriday\b|\bmon\b|\btue\b|\bwed\b|\bthu\b|\bfri\b)/.test(t);
+}
+
 const RefSchema = z
   .object({
     $ref: z.enum([
@@ -186,12 +206,12 @@ export async function planPuraActions(opts: {
     .map((m) => `${m.role === "assistant" ? "Assistant" : "User"}: ${String(m.text || "").slice(0, 800)}`)
     .join("\n");
 
-  const system = [
+  const baseSystem = [
     "You are Pura, an agent inside a business portal.",
     "Your job is to output a strict JSON plan for what to do next.",
     "Rules:",
-    "- If the user asks HOW, output mode=explain.",
-    "- If the user gives an imperative instruction, prefer mode=execute.",
+    "- If the user explicitly asks HOW / for steps / what to click, output mode=explain.",
+    "- If the user tells you to DO something (send/schedule/update/delete), you MUST output mode=execute (not explain).",
     "- IMPORTANT: Treat this as an ongoing thread, not a stateless request.",
     "- If the user says things like 'it', 'that one', 'same one', 'use the one we just made', or gives a short follow-up, prefer the active entity from thread context.",
     "- For follow-up commands in the same thread, continue the current task/entity unless the user clearly switches topics.",
@@ -202,14 +222,16 @@ export async function planPuraActions(opts: {
     "  the system will auto-pick on 'any/doesn't matter' or show clickable calendar choices.",
     "- Prefer using $ref hints that continue the active thread context instead of asking the user to restate the obvious.",
     "- Never output manual step-by-step portal instructions unless mode=explain.",
+    "- IMPORTANT: Do NOT route non-booking SMS schedules to Booking Automation / Reminders / Follow-up. Use inbox.send_sms + AI chat scheduled runs.",
     "- Never invent IDs. Use $ref objects for things you need resolved (contact, contact_tag, inbox_thread, funnel, automation, booking, blog_post, newsletter, media_folder, media_item, task, review, review_question, nurture_campaign, nurture_step, scraped_lead, credit_pull, credit_dispute_letter, credit_report, credit_report_item, user, funnel_form, funnel_page, custom_domain, ai_outbound_calls_campaign, or generic 'id' for domain-specific IDs).",
     "- IMPORTANT: If the user says 'schedule' or describes a recurring time-based workflow (e.g., 'every weekday at 9am send a text'), do NOT create portal tasks.",
     "  Instead, create Scheduled chat runs (ai_chat.scheduled.create).",
     "  Notes for schedules:",
     "  - For weekdays-only schedules, create ONE scheduled item per weekday (Mon-Fri) with repeatEveryMinutes=10080 (7 days).",
+    "  - Use ai_chat.scheduled.create with sendAtLocal={isoWeekday,timeLocal,timeZone?} instead of guessing an ISO timestamp.",
     "  - The scheduled item's text MUST be a one-time instruction (e.g. 'Send Chester an SMS: ...') and MUST NOT include scheduling language like 'every weekday' (avoid rescheduling loops).",
-    "  - Use inbox.send_sms in the scheduled instruction so the run triggers a real SMS.",
-    "  - If the user asks to 'trigger one now as a test', create an additional one-time scheduled item with sendAtIso=now (or slightly in the past) and then run ai_chat.cron.run.",
+    "  - The scheduled instruction should cause a real SMS by executing inbox.send_sms.",
+    "  - If the user asks to 'trigger one now as a test', ALSO send an immediate inbox.send_sms now (do not give steps).",
     "  - Only create automations when the user explicitly asks for an Automation.",
     "- Only use tasks.create / tasks.create_for_all when the user explicitly wants an internal human to-do item in the Tasks service.",
     "- Output JSON only. No markdown.",
@@ -255,6 +277,8 @@ export async function planPuraActions(opts: {
     portalAgentActionsIndexText({ includeAiChat: true }),
   ].join("\n");
 
+  const system = baseSystem;
+
   const user = [
     "Conversation (most recent last):",
     convo || "(none)",
@@ -287,6 +311,31 @@ export async function planPuraActions(opts: {
       const repaired = await tryRepairPlannerJson(raw);
       parsed = PlannerOutputSchema.safeParse(repaired);
       if (!parsed.success) return null;
+    }
+
+    // If the model incorrectly returned an explanation for an imperative request, re-run with a hard constraint.
+    if (parsed.success && parsed.data.mode === "explain" && looksLikeImperativeRequest(text)) {
+      const forceSystem = [
+        baseSystem,
+        "\nHARD OVERRIDE:",
+        "- The user is asking you to DO it now. Output mode=execute.",
+        "- Do not output mode=explain.",
+        "- If a detail is missing, use mode=clarify with ONE short question.",
+      ].join("\n");
+
+      const raw2 = await generateText({ system: forceSystem, user });
+      let obj2: unknown = null;
+      try {
+        obj2 = extractJsonObject(raw2);
+      } catch {
+        obj2 = null;
+      }
+      let parsed2 = PlannerOutputSchema.safeParse(obj2);
+      if (!parsed2.success) {
+        const repaired2 = await tryRepairPlannerJson(raw2);
+        parsed2 = PlannerOutputSchema.safeParse(repaired2);
+      }
+      if (parsed2.success) parsed = parsed2;
     }
 
     // Defense-in-depth: only allow the scheduling-related ai_chat actions.
