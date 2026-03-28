@@ -45,8 +45,16 @@ export function formatPhoneForDisplay(inputRaw: string): string {
 }
 
 export function normalizePhoneStrict(inputRaw: string): StrictPhoneNormalizeResult {
-  const input = String(inputRaw ?? "").trim();
+  let input = String(inputRaw ?? "").trim();
   if (!input) return { ok: true, e164: null, display: "" };
+
+  // Common URI-ish prefixes can leak in from links or integrations.
+  // Examples: "tel:+15551234567", "sms:+15551234567"
+  input = input.replace(/^\s*(tel|sms)\s*:\s*/i, "");
+
+  // Strip common extensions at the end (keep the base number only).
+  // Examples: "+1 (555) 123-4567 ext 9", "555-123-4567 x123"
+  input = input.replace(/\s*(?:ext\.?|x)\s*\d+\s*$/i, "").trim();
 
   // Only allow common phone characters.
   if (!/^[0-9+()\- .]*$/.test(input)) {

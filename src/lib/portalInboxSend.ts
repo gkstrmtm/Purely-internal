@@ -397,6 +397,8 @@ export async function schedulePortalInboxMessage(
   const to = String(input.to || "").trim();
   if (!to) return { ok: false, error: "Missing recipient" };
 
+  let toNormalized = to;
+
   const bodyInput = String(input.body ?? "");
   const attachmentIds = asStringArray(input.attachmentIds).slice(0, 10);
   if (!String(bodyInput || "").trim() && attachmentIds.length === 0) {
@@ -414,10 +416,13 @@ export async function schedulePortalInboxMessage(
     const peer = normalizeSmsPeerKey(to);
     if (peer.error) return { ok: false, error: peer.error };
     if (!peer.peer || !peer.peerKey) return { ok: false, error: "Invalid phone" };
+    toNormalized = peer.peer;
   }
 
   if (channel === "email") {
-    if (!to.includes("@")) return { ok: false, error: "Invalid email" };
+    const thread = makeEmailThreadKey(to, normalizeSubjectKey(String(input.subject ?? "")));
+    if (!thread) return { ok: false, error: "Invalid email" };
+    toNormalized = thread.peerKey;
   }
 
   if (attachmentIds.length) {
@@ -439,7 +444,7 @@ export async function schedulePortalInboxMessage(
       ownerId,
       threadId: input.threadId ? String(input.threadId) : null,
       channel: channel === "email" ? "EMAIL" : "SMS",
-      toAddress: to,
+      toAddress: toNormalized,
       subject: input.subject ? String(input.subject) : null,
       bodyText: bodyInput,
       attachmentIds,

@@ -130,7 +130,7 @@ export function makeEmailThreadKey(peerEmail: string, subjectRaw: string): {
   const subjectKey = normalizeSubjectKey(subjectRaw);
   const threadKey = `${peerKey}::${subjectKey.toLowerCase()}`;
   return {
-    peerAddress: peerEmail.trim().slice(0, 200),
+    peerAddress: peerKey.slice(0, 200),
     peerKey,
     subject: String(subjectRaw ?? "").trim().slice(0, 200) || "(no subject)",
     subjectKey,

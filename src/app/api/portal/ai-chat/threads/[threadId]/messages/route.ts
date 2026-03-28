@@ -93,7 +93,7 @@ function heuristicThreadTitleFromUserText(textRaw: string): string {
 
   const scheduleTitle = (() => {
     const tl = t.toLowerCase();
-    const isWeekdays = /\b(monday\s+through\s+friday|mon\s*[-–—]\s*fri|weekdays)\b/i.test(tl);
+    const isWeekdays = /\b(monday\s+through\s+friday|mon\s*(?:-|\u2013|\u2014)\s*fri|weekdays)\b/i.test(tl);
     const isSms = /\b(text|sms)\b/i.test(tl);
     if (!isWeekdays || !isSms) return "";
 
@@ -191,7 +191,7 @@ function isHowToQuestionOnly(textRaw: string): boolean {
 function looksLikeWeekdaySmsSchedule(textRaw: string): boolean {
   const t = String(textRaw || "").toLowerCase();
   if (!t.trim()) return false;
-  const isWeekdays = /\b(monday\s+through\s+friday|mon\s*[-–—]\s*fri|weekdays)\b/i.test(t);
+  const isWeekdays = /\b(monday\s+through\s+friday|mon\s*(?:-|\u2013|\u2014)\s*fri|weekdays)\b/i.test(t);
   const isSms = /\b(text|sms)\b/i.test(t);
   const hasTime = /\b\d{1,2}(?::\d{2})?\s*(a\.?m\.?|p\.?m\.?)\b/i.test(t) || /\b\d{1,2}:\d{2}\b/.test(t);
   return Boolean(isWeekdays && isSms && hasTime);

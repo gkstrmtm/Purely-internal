@@ -12,9 +12,21 @@ export function normalizeNameKey(nameRaw: string): string {
 }
 
 export function normalizeEmailKey(emailRaw: string): string | null {
-  const email = String(emailRaw ?? "").trim().toLowerCase();
+  const input = String(emailRaw ?? "").trim();
+  if (!input) return null;
+
+  // Accept common formats like:
+  // - email@domain.com
+  // - Name <email@domain.com>
+  // - Multiple emails in a blob (pick first)
+  const m = /([A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,})/i.exec(input);
+  const extracted = (m?.[1] ? String(m[1]) : input).trim();
+  const email = extracted.toLowerCase();
   if (!email) return null;
-  if (!email.includes("@")) return null;
+
+  // Keep validation intentionally lightweight but stricter than "includes('@')".
+  if (!/^[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}$/.test(email)) return null;
+
   return email.slice(0, 120);
 }
 

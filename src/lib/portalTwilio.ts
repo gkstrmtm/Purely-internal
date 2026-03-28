@@ -292,13 +292,18 @@ export async function sendOwnerTwilioSms(opts: {
   const config = await getOwnerTwilioSmsConfig(opts.ownerId);
   if (!config) return { ok: false, error: "Texting not configured" };
 
+  const toParsed = normalizePhoneStrict(String(opts.to ?? "").trim());
+  if (!toParsed.ok) return { ok: false, error: toParsed.error };
+  if (!toParsed.e164) return { ok: false, error: "Invalid phone number" };
+  const to = toParsed.e164;
+
   const logToInbox = opts.logToInbox !== false;
 
   const url = `https://api.twilio.com/2010-04-01/Accounts/${config.accountSid}/Messages.json`;
   const basic = Buffer.from(`${config.accountSid}:${config.authToken}`).toString("base64");
 
   const form = new URLSearchParams();
-  form.set("To", opts.to);
+  form.set("To", to);
   form.set("From", config.fromNumberE164);
   const body = (opts.body || "").slice(0, 900);
   if (body.trim()) form.set("Body", body);
@@ -336,7 +341,7 @@ export async function sendOwnerTwilioSms(opts: {
     const messageSid = typeof json?.sid === "string" ? json.sid : undefined;
     if (messageSid) {
       if (logToInbox) {
-        const { threadKey, peerAddress, peerKey } = makeSmsThreadKey(opts.to);
+        const { threadKey, peerAddress, peerKey } = makeSmsThreadKey(to);
         await tryUpsertPortalInboxMessage({
           ownerId: opts.ownerId,
           channel: "SMS",
@@ -345,7 +350,7 @@ export async function sendOwnerTwilioSms(opts: {
           peerAddress,
           peerKey,
           fromAddress: config.fromNumberE164,
-          toAddress: opts.to,
+          toAddress: to,
           bodyText: opts.body,
           provider: "TWILIO",
           providerMessageId: messageSid,
@@ -355,7 +360,7 @@ export async function sendOwnerTwilioSms(opts: {
     return { ok: true, messageSid };
   } catch {
     if (logToInbox) {
-      const { threadKey, peerAddress, peerKey } = makeSmsThreadKey(opts.to);
+      const { threadKey, peerAddress, peerKey } = makeSmsThreadKey(to);
       await tryUpsertPortalInboxMessage({
         ownerId: opts.ownerId,
         channel: "SMS",
@@ -364,7 +369,7 @@ export async function sendOwnerTwilioSms(opts: {
         peerAddress,
         peerKey,
         fromAddress: config.fromNumberE164,
-        toAddress: opts.to,
+        toAddress: to,
         bodyText: opts.body,
         provider: "TWILIO",
         providerMessageId: null,
