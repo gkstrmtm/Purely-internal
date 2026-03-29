@@ -1270,7 +1270,7 @@ function detectDeterministicActionsFromText(opts: {
   // AI Receptionist: highlights / status summary.
   if (
     isAiReceptionistContext &&
-    /\b(anything\s+important|important\s+things?|highlights?|status\s+check|health\s+check|summary|what'?s\s+new)\b/i.test(t)
+    /\b(anything\s+important|important\s+things?|highlights?|(status|health)\s*(check|summary)?|summary|what'?s\s+new|any\s+(issues?|problems?|errors?)|issues?|problems?|errors?|failing|failed|failure|broken|not\s+working|how'?s[\s\S]{0,20}(doing|performing))\b/i.test(t)
   ) {
     return [{ key: "ai_receptionist.highlights.get", title: "AI receptionist highlights", args: { lookbackHours: 24 * 7, limit: 80 } }];
   }
