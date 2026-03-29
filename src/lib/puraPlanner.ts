@@ -301,7 +301,15 @@ export async function planPuraActions(opts: {
     "- {\"$ref\":\"ai_outbound_calls_campaign\",\"name\":\"New Leads Outreach\"}",
     "- {\"$ref\":\"id\",\"hint\":\"ABC123\",\"argKey\":\"productId\"} (for domain-specific IDs)",
     "",
-    portalAgentActionsIndexText({ includeAiChat: true }),
+    portalAgentActionsIndexText({ includeAiChat: false }),
+    "",
+    "Scheduling-only AI chat actions (allowed):",
+    "- ai_chat.scheduled.create: Create a scheduled user message (fields: threadId?, text, sendAtIso? OR sendAtLocal?, repeatEveryMinutes?)",
+    "  - sendAtLocal: { isoWeekday: 1..7, timeLocal: \"HH:mm\", timeZone?: \"America/Chicago\" }",
+    "- ai_chat.scheduled.list: List scheduled (unsent) messages",
+    "- ai_chat.scheduled.update: Update a scheduled message (fields: messageId, sendAtIso?, repeatEveryMinutes?)",
+    "- ai_chat.scheduled.delete: Delete a scheduled message (fields: messageId)",
+    "- ai_chat.cron.run: Run due scheduled messages (cron/test)",
   ].join("\n");
 
   const system = baseSystem;

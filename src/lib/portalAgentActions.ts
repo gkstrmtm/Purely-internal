@@ -3543,7 +3543,14 @@ export function portalAgentActionsIndexText(opts?: { includeAiChat?: boolean }):
     "- elevenlabs.convai.signed_url.get: Get an ElevenLabs ConvAI signed URL for an agent (fields: agentId) (returns sensitive URL)",
   ];
 
-  const filtered = includeAiChat ? lines : lines.filter((l) => !/^\-\s*ai_chat\./i.test(String(l)));
+  const filtered = includeAiChat
+    ? lines
+    : lines.filter((l) => {
+        const s = String(l).trimStart();
+        if (/^\-\s*ai_chat\./i.test(s)) return false;
+        if (/^\-\s*sendAtLocal\s*:/i.test(s)) return false;
+        return true;
+      });
   return filtered.join("\n");
 }
 
