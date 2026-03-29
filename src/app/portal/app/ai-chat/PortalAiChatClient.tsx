@@ -448,6 +448,19 @@ export function PortalAiChatClient() {
 
   const toast = useToast();
 
+  const clientTimeZone = useMemo(() => {
+    try {
+      const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+      return typeof tz === "string" && tz.trim() ? tz.trim() : null;
+    } catch {
+      return null;
+    }
+  }, []);
+
+  const clientTimeZoneHeaders = useMemo(() => {
+    return clientTimeZone ? ({ "x-client-timezone": clientTimeZone } as Record<string, string>) : ({} as Record<string, string>);
+  }, [clientTimeZone]);
+
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
 
   const resizeInput = useCallback(() => {
@@ -658,12 +671,15 @@ export function PortalAiChatClient() {
       id: string;
       threadId: string;
       threadTitle: string;
-      text: string;
+      displayText: string;
       sendAt: string | null;
       repeatEveryMinutes: number;
     }>
   >([]);
-  const [scheduledEditing, setScheduledEditing] = useState<Record<string, { sendAtLocal: string; repeatMinutes: string }>>({});
+
+  type RepeatUnit = "minutes" | "hours" | "days" | "weeks";
+  const [scheduledEditing, setScheduledEditing] = useState<Record<string, { sendAtLocal: string; repeatEvery: string; repeatUnit: RepeatUnit }>>({});
+  const [scheduledSavingIds, setScheduledSavingIds] = useState<Set<string>>(() => new Set());
 
   const [shareOpen, setShareOpen] = useState(false);
   const [shareThread, setShareThread] = useState<Thread | null>(null);
@@ -1141,12 +1157,13 @@ export function PortalAiChatClient() {
       try {
         const res = await fetch(`/api/portal/ai-chat/threads/${encodeURIComponent(threadIdForSend)}/messages`, {
           method: "POST",
-          headers: { "content-type": "application/json" },
+          headers: { "content-type": "application/json", ...clientTimeZoneHeaders },
           body: JSON.stringify({
             text,
             url: window.location.href,
             ...(canvasUrl ? { canvasUrl } : {}),
             attachments,
+            ...(clientTimeZone ? { clientTimeZone } : {}),
             ...(choice ? { choice } : {}),
           }),
         });
@@ -1197,11 +1214,12 @@ export function PortalAiChatClient() {
 
           const res2 = await fetch(`/api/portal/ai-chat/threads/${encodeURIComponent(threadIdForSend)}/messages`, {
             method: "POST",
-            headers: { "content-type": "application/json" },
+            headers: { "content-type": "application/json", ...clientTimeZoneHeaders },
             body: JSON.stringify({
               confirmToken: token,
               url: window.location.href,
               ...(canvasUrl ? { canvasUrl } : {}),
+              ...(clientTimeZone ? { clientTimeZone } : {}),
             }),
           });
           const json2 = await res2.json().catch(() => null);
@@ -1289,7 +1307,7 @@ export function PortalAiChatClient() {
         setSending(false);
       }
     },
-    [activeThreadId, askConfirm, canvasUrl, executeClientUiActions, input, pendingAttachments, toast, loadThreads],
+    [activeThreadId, askConfirm, canvasUrl, clientTimeZone, clientTimeZoneHeaders, executeClientUiActions, input, pendingAttachments, toast, loadThreads],
   );
 
   // Handler for ambiguous contact selection (must be after send is defined)
@@ -1320,14 +1338,14 @@ export function PortalAiChatClient() {
       if (!activeThreadId) throw new Error("No active chat");
       const res = await fetch("/api/portal/ai-chat/actions/execute", {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", ...clientTimeZoneHeaders },
         body: JSON.stringify({ threadId: activeThreadId, action, args }),
       });
       const json = await res.json().catch(() => null);
       if (!json?.ok) throw new Error(json?.error || "Action failed");
       return json as { assistantMessage?: Message; linkUrl?: string | null; clientUiActions?: unknown[]; openScheduledTasks?: boolean };
     },
-    [activeThreadId],
+    [activeThreadId, clientTimeZoneHeaders],
   );
 
   const runAssistantAction = useCallback(
@@ -1627,13 +1645,52 @@ export function PortalAiChatClient() {
 
   const anyMenuOpen = Boolean(attachMenu || threadMenu);
 
-  const toLocalInputValue = (iso: string | null) => {
+  const toLocalInputValue = useCallback((iso: string | null) => {
     if (!iso) return "";
     const d = new Date(iso);
     if (!Number.isFinite(d.getTime())) return "";
     const pad = (n: number) => String(n).padStart(2, "0");
     return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
-  };
+  }, []);
+
+  const REPEAT_UNIT_MINUTES = useMemo<Record<RepeatUnit, number>>(
+    () => ({
+      minutes: 1,
+      hours: 60,
+      days: 60 * 24,
+      weeks: 60 * 24 * 7,
+    }),
+    [],
+  );
+
+  const splitRepeatEveryMinutes = useCallback(
+    (repeatEveryMinutes: number): { repeatEvery: string; repeatUnit: RepeatUnit } => {
+      const mins =
+        typeof repeatEveryMinutes === "number" && Number.isFinite(repeatEveryMinutes)
+          ? Math.max(0, Math.floor(repeatEveryMinutes))
+          : 0;
+      if (!mins) return { repeatEvery: "", repeatUnit: "days" };
+      if (mins % REPEAT_UNIT_MINUTES.weeks === 0) return { repeatEvery: String(mins / REPEAT_UNIT_MINUTES.weeks), repeatUnit: "weeks" };
+      if (mins % REPEAT_UNIT_MINUTES.days === 0) return { repeatEvery: String(mins / REPEAT_UNIT_MINUTES.days), repeatUnit: "days" };
+      if (mins % REPEAT_UNIT_MINUTES.hours === 0) return { repeatEvery: String(mins / REPEAT_UNIT_MINUTES.hours), repeatUnit: "hours" };
+      return { repeatEvery: String(mins), repeatUnit: "minutes" };
+    },
+    [REPEAT_UNIT_MINUTES],
+  );
+
+  const computeRepeatEveryMinutes = useCallback(
+    (edit: { repeatEvery: string; repeatUnit: RepeatUnit }): number => {
+      const raw = String(edit.repeatEvery || "").trim();
+      if (!raw) return 0;
+      const n = Number(raw);
+      if (!Number.isFinite(n)) return 0;
+      const every = Math.max(0, Math.floor(n));
+      if (!every) return 0;
+      const unitMinutes = REPEAT_UNIT_MINUTES[edit.repeatUnit] || 1;
+      return every * unitMinutes;
+    },
+    [REPEAT_UNIT_MINUTES],
+  );
 
   const loadScheduled = useCallback(async () => {
     setScheduledLoading(true);
@@ -1653,7 +1710,7 @@ export function PortalAiChatClient() {
           id: String(r.id),
           threadId: String(r.threadId),
           threadTitle: String(r.threadTitle || "Chat"),
-          text: String(r.text || ""),
+          displayText: String(r.displayText || ""),
           sendAt: r.sendAt ? String(r.sendAt) : null,
           repeatEveryMinutes:
             typeof r.repeatEveryMinutes === "number" && Number.isFinite(r.repeatEveryMinutes)
@@ -1664,11 +1721,13 @@ export function PortalAiChatClient() {
 
       setScheduledRows(normalized);
 
-      const nextEditing: Record<string, { sendAtLocal: string; repeatMinutes: string }> = {};
+      const nextEditing: Record<string, { sendAtLocal: string; repeatEvery: string; repeatUnit: RepeatUnit }> = {};
       for (const r of normalized) {
+        const split = splitRepeatEveryMinutes(r.repeatEveryMinutes);
         nextEditing[r.id] = {
           sendAtLocal: toLocalInputValue(r.sendAt),
-          repeatMinutes: r.repeatEveryMinutes ? String(r.repeatEveryMinutes) : "",
+          repeatEvery: split.repeatEvery,
+          repeatUnit: split.repeatUnit,
         };
       }
       setScheduledEditing(nextEditing);
@@ -1678,7 +1737,7 @@ export function PortalAiChatClient() {
     } finally {
       setScheduledLoading(false);
     }
-  }, []);
+  }, [splitRepeatEveryMinutes, toLocalInputValue]);
 
   useEffect(() => {
     if (!scheduledOpen) return;
@@ -1735,22 +1794,36 @@ export function PortalAiChatClient() {
       const edit = scheduledEditing[id];
       if (!edit) return;
 
-      const sendAtIso = edit.sendAtLocal ? new Date(edit.sendAtLocal).toISOString() : null;
-      const repeatEveryMinutes = edit.repeatMinutes.trim() ? Math.max(0, Math.floor(Number(edit.repeatMinutes.trim()))) : 0;
+      setScheduledSavingIds((prev) => {
+        const next = new Set(prev);
+        next.add(id);
+        return next;
+      });
 
-      const res = await fetch(`/api/portal/ai-chat/scheduled/${encodeURIComponent(id)}`,
-        {
-          method: "PATCH",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ sendAtIso, repeatEveryMinutes }),
-        },
-      );
-      const json = await res.json().catch(() => null);
-      if (!json?.ok) throw new Error(json?.error || "Unable to save schedule");
-      toast.success("Saved");
-      void loadScheduled();
+      const sendAtIso = edit.sendAtLocal ? new Date(edit.sendAtLocal).toISOString() : null;
+      const repeatEveryMinutes = computeRepeatEveryMinutes({ repeatEvery: edit.repeatEvery, repeatUnit: edit.repeatUnit });
+
+      try {
+        const res = await fetch(`/api/portal/ai-chat/scheduled/${encodeURIComponent(id)}`,
+          {
+            method: "PATCH",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ sendAtIso, repeatEveryMinutes }),
+          },
+        );
+        const json = await res.json().catch(() => null);
+        if (!json?.ok) throw new Error(json?.error || "Unable to save schedule");
+        toast.success("Saved");
+        void loadScheduled();
+      } finally {
+        setScheduledSavingIds((prev) => {
+          const next = new Set(prev);
+          next.delete(id);
+          return next;
+        });
+      }
     },
-    [loadScheduled, scheduledEditing, toast],
+    [computeRepeatEveryMinutes, loadScheduled, scheduledEditing, toast],
   );
 
   const cancelScheduledRow = useCallback(
@@ -2191,7 +2264,7 @@ export function PortalAiChatClient() {
                 </button>
               </div>
             ) : null}
-          {!canvasOpen && (
+          {!canvasOpen && Boolean(canvasUrl) && (
             <button
               className="absolute right-0 top-2 z-20 inline-flex items-center gap-1 rounded-l-2xl border border-brand-blue/20 bg-brand-blue px-3 py-2 text-xs font-bold text-white hover:opacity-95"
               style={{ height: 40 }}
@@ -2402,14 +2475,26 @@ export function PortalAiChatClient() {
         ) : (
           <div className="space-y-3">
             {scheduledRows.map((r) => {
-              const edit = scheduledEditing[r.id] || { sendAtLocal: "", repeatMinutes: "" };
+              const defaults = (() => {
+                const split = splitRepeatEveryMinutes(r.repeatEveryMinutes || 0);
+                return {
+                  sendAtLocal: toLocalInputValue(r.sendAt),
+                  repeatEvery: split.repeatEvery,
+                  repeatUnit: split.repeatUnit,
+                };
+              })();
+
+              const edit = scheduledEditing[r.id] || defaults;
+              const saving = scheduledSavingIds.has(r.id);
+              const nextRepeatEveryMinutes = computeRepeatEveryMinutes({ repeatEvery: edit.repeatEvery, repeatUnit: edit.repeatUnit });
+              const isDirty = edit.sendAtLocal !== defaults.sendAtLocal || nextRepeatEveryMinutes !== (r.repeatEveryMinutes || 0);
               const isRepeating = (r.repeatEveryMinutes || 0) > 0;
               return (
                 <div key={r.id} className="rounded-3xl border border-zinc-200 bg-white p-4">
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                     <div className="min-w-0">
                       <div className="truncate text-sm font-semibold text-zinc-900">{r.threadTitle}</div>
-                      <div className="mt-1 line-clamp-2 text-sm text-zinc-600">{r.text || "(empty)"}</div>
+                      <div className="mt-1 line-clamp-2 text-sm text-zinc-600">{r.displayText || "(scheduled task)"}</div>
                       <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-zinc-500">
                         <span className="rounded-full border border-zinc-200 bg-zinc-50 px-2 py-0.5">
                           Next: {r.sendAt ? new Date(r.sendAt).toLocaleString() : "-"}
@@ -2461,28 +2546,46 @@ export function PortalAiChatClient() {
                     </div>
 
                     <div>
-                      <div className="text-xs font-semibold text-zinc-500">Frequency (minutes)</div>
-                      <input
-                        inputMode="numeric"
-                        value={edit.repeatMinutes}
-                        onChange={(e) =>
-                          setScheduledEditing((prev) => ({
-                            ...prev,
-                            [r.id]: { ...edit, repeatMinutes: e.target.value },
-                          }))
-                        }
-                        placeholder="Leave blank for one-time"
-                        className="mt-1 h-11 w-full rounded-2xl border border-zinc-200 bg-white px-3 text-sm text-zinc-900"
-                      />
+                      <div className="text-xs font-semibold text-zinc-500">Frequency</div>
+                      <div className="mt-1 flex gap-2">
+                        <input
+                          inputMode="numeric"
+                          value={edit.repeatEvery}
+                          onChange={(e) =>
+                            setScheduledEditing((prev) => ({
+                              ...prev,
+                              [r.id]: { ...edit, repeatEvery: e.target.value },
+                            }))
+                          }
+                          placeholder="Leave blank for one-time"
+                          className="h-11 w-full rounded-2xl border border-zinc-200 bg-white px-3 text-sm text-zinc-900"
+                        />
+                        <select
+                          value={edit.repeatUnit}
+                          onChange={(e) =>
+                            setScheduledEditing((prev) => ({
+                              ...prev,
+                              [r.id]: { ...edit, repeatUnit: e.target.value as RepeatUnit },
+                            }))
+                          }
+                          className="h-11 w-36 rounded-2xl border border-zinc-200 bg-white px-3 text-sm text-zinc-900"
+                        >
+                          <option value="minutes">minutes</option>
+                          <option value="hours">hours</option>
+                          <option value="days">days</option>
+                          <option value="weeks">weeks</option>
+                        </select>
+                      </div>
                     </div>
 
                     <div className="flex items-end justify-end">
                       <button
                         type="button"
-                        className="h-11 rounded-2xl bg-brand-blue px-4 text-sm font-semibold text-white hover:opacity-95"
+                        className="h-11 rounded-2xl bg-brand-blue px-4 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
                         onClick={() => void saveScheduledRow(r.id)}
+                        disabled={!isDirty || saving}
                       >
-                        Save
+                        {saving ? "Saving…" : "Save"}
                       </button>
                     </div>
                   </div>

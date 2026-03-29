@@ -15778,6 +15778,9 @@ async function runDirectAction(opts: {
       const text = String((args as any)?.text || "").trim().slice(0, 4000);
       if (!text) return { status: 400, json: { ok: false, error: "Missing text" } };
 
+      const clientTimeZone =
+        typeof (args as any)?.clientTimeZone === "string" ? String((args as any).clientTimeZone).trim().slice(0, 80) : "";
+
       const sendAtIso = typeof (args as any)?.sendAtIso === "string" ? String((args as any).sendAtIso).trim().slice(0, 64) : "";
       const sendAtLocalRaw = (args as any)?.sendAtLocal;
 
@@ -15797,7 +15800,7 @@ async function runDirectAction(opts: {
 
         const ownerTz =
           (await prisma.user.findUnique({ where: { id: ownerId }, select: { timeZone: true } }).catch(() => null))?.timeZone || "";
-        const tz = (tzFromArgs || String(ownerTz || "").trim() || "UTC").slice(0, 80);
+        const tz = (tzFromArgs || clientTimeZone || String(ownerTz || "").trim() || "UTC").slice(0, 80);
 
         const now = DateTime.now().setZone(tz);
         const zone = now.isValid ? tz : "UTC";

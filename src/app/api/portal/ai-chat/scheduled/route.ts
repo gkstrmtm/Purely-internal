@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { requireClientSession } from "@/lib/apiAuth";
 import { prisma } from "@/lib/db";
+import { tryParseScheduledActionEnvelope } from "@/lib/portalAiChatScheduledActionEnvelope";
 import { ensurePortalAiChatSchema } from "@/lib/portalAiChatSchema";
 
 export const runtime = "nodejs";
@@ -54,11 +55,32 @@ export async function GET() {
   const titleByThreadId = new Map<string, string>();
   for (const t of threads) titleByThreadId.set(String(t.id), String(t.title || "Chat"));
 
+  const toDisplayText = (textRaw: unknown): string => {
+    const raw = String(textRaw || "").trim();
+    const env = tryParseScheduledActionEnvelope(raw);
+    if (!env) return raw;
+
+    const workTitle = typeof env.workTitle === "string" ? env.workTitle.trim() : "";
+    if (workTitle) return workTitle;
+
+    const titles = (Array.isArray(env.steps) ? env.steps : [])
+      .map((s) => (typeof (s as any)?.title === "string" ? String((s as any).title).trim() : ""))
+      .filter(Boolean)
+      .slice(0, 3);
+    if (titles.length) return titles.join(" • ");
+
+    const keys = (Array.isArray(env.steps) ? env.steps : [])
+      .map((s) => (typeof (s as any)?.key === "string" ? String((s as any).key).trim() : ""))
+      .filter(Boolean)
+      .slice(0, 2);
+    return keys.length ? `Scheduled: ${keys.join(" • ")}` : "Scheduled task";
+  };
+
   const scheduled = rows.map((r: any) => ({
     id: String(r.id),
     threadId: String(r.threadId),
     threadTitle: titleByThreadId.get(String(r.threadId)) || "Chat",
-    text: String(r.text || ""),
+    displayText: toDisplayText(r.text),
     sendAt: r.sendAt ? new Date(r.sendAt).toISOString() : null,
     repeatEveryMinutes:
       typeof r.repeatEveryMinutes === "number" && Number.isFinite(r.repeatEveryMinutes)

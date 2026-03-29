@@ -65,6 +65,7 @@ const SendMessageSchema = z
     url: z.string().trim().optional(),
     canvasUrl: z.string().trim().max(1200).optional(),
     attachments: z.array(AttachmentSchema).max(10).optional(),
+    clientTimeZone: z.string().trim().max(80).optional(),
     confirmToken: z.string().trim().min(1).max(200).optional(),
     choice: ChoiceSchema,
     redoLastAssistant: z.boolean().optional(),
@@ -1390,6 +1391,27 @@ function detectDeterministicActionsFromText(opts: {
   const attachments = Array.isArray(opts.attachments) ? opts.attachments : [];
   if (!t && !attachments.length) return [];
 
+  const scheduledMessageIdFromText = () => {
+    const m =
+      /\b(?:scheduled\s*)?(?:message|schedule|scheduled)\s*(?:id)?\s*[:#]?\s*([a-zA-Z0-9_-]{6,120})\b/i.exec(t) ||
+      /\bmessageId\s*[:=]\s*([a-zA-Z0-9_-]{6,120})\b/i.exec(t);
+    return m?.[1] ? String(m[1]).trim() : "";
+  };
+
+  // AI Chat Scheduler: stop/edit scheduled items (never create a new schedule).
+  if (/\b(schedule|scheduled)\b/i.test(t)) {
+    const wantsStop = /\b(stop|cancel|delete|remove|disable|turn\s*off)\b/i.test(t);
+    const wantsEdit = /\b(edit|change|update|modify|reschedule)\b/i.test(t);
+    if (wantsStop) {
+      const messageId = scheduledMessageIdFromText();
+      if (messageId) return [{ key: "ai_chat.scheduled.delete", title: "Stop scheduled task", args: { messageId } }];
+      return [{ key: "ai_chat.scheduled.list", title: "Manage scheduled tasks", args: {} }];
+    }
+    if (wantsEdit) {
+      return [{ key: "ai_chat.scheduled.list", title: "Manage scheduled tasks", args: {} }];
+    }
+  }
+
   // AI Chat Scheduler: list scheduled items.
   // This is intentionally separate from the portal Tasks service.
   if (
@@ -2292,6 +2314,35 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
     (await prisma.user.findUnique({ where: { id: ownerId }, select: { timeZone: true } }).catch(() => null))?.timeZone ||
     null;
 
+  const headerClientTimeZone = String(req.headers.get("x-client-timezone") || "").trim().slice(0, 80);
+  const bodyClientTimeZone =
+    typeof (parsed.data as any)?.clientTimeZone === "string" ? String((parsed.data as any).clientTimeZone).trim().slice(0, 80) : "";
+  const clientTimeZone = (bodyClientTimeZone || headerClientTimeZone || "").trim().slice(0, 80);
+
+  const getTimeZoneHint = (threadContext?: any): string | null => {
+    const ctxTz =
+      threadContext && typeof threadContext === "object" && !Array.isArray(threadContext) && typeof threadContext.ownerTimeZone === "string"
+        ? String(threadContext.ownerTimeZone).trim().slice(0, 80)
+        : "";
+    const tz = (clientTimeZone || String(ownerTimeZone || "").trim().slice(0, 80) || ctxTz || "").trim().slice(0, 80);
+    return tz || null;
+  };
+
+  const patchArgsForScheduledCreate = (args: Record<string, unknown>, threadContext?: any): Record<string, unknown> => {
+    const tzHint = getTimeZoneHint(threadContext);
+    if (!tzHint) return args;
+
+    const next: Record<string, unknown> = { ...args };
+    if (!String((next as any).clientTimeZone || "").trim()) (next as any).clientTimeZone = tzHint;
+
+    const sendAtLocal = (next as any).sendAtLocal;
+    if (sendAtLocal && typeof sendAtLocal === "object" && !Array.isArray(sendAtLocal)) {
+      const tzExisting = typeof (sendAtLocal as any).timeZone === "string" ? String((sendAtLocal as any).timeZone).trim() : "";
+      if (!tzExisting) (next as any).sendAtLocal = { ...(sendAtLocal as any), timeZone: tzHint };
+    }
+    return next;
+  };
+
   const redoLastAssistant = Boolean((parsed.data as any).redoLastAssistant);
   if (redoLastAssistant) {
     const recent = await (prisma as any).portalAiChatMessage.findMany({
@@ -2661,10 +2712,11 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
       fallbackThreadContext = threadContext;
 
       // Provide a stable time zone hint for scheduling requests.
-      if (ownerTimeZone) {
+      const tzHintForContext = getTimeZoneHint(threadContext);
+      if (tzHintForContext) {
         const prevCtx = threadContext && typeof threadContext === "object" && !Array.isArray(threadContext) ? (threadContext as any) : {};
-        if (String(prevCtx.ownerTimeZone || "") !== String(ownerTimeZone)) {
-          threadContext = { ...prevCtx, ownerTimeZone: String(ownerTimeZone).slice(0, 80) };
+        if (String(prevCtx.ownerTimeZone || "") !== String(tzHintForContext)) {
+          threadContext = { ...prevCtx, ownerTimeZone: String(tzHintForContext).slice(0, 80) };
           fallbackThreadContext = threadContext;
         }
       }
@@ -2785,7 +2837,7 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
 
       const deterministicWeekdaySmsPlan = buildDeterministicWeekdaySmsPlan({
         text: effectivePlanningText,
-        ownerTimeZone: String(ownerTimeZone || (threadContext as any)?.ownerTimeZone || "").trim() || undefined,
+        ownerTimeZone: String(getTimeZoneHint(threadContext) || "").trim() || undefined,
       });
 
       let plan: any = null;
@@ -2975,10 +3027,13 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
               : {};
 
             // Planner does not know the current threadId; inject it for schedule creation.
-            const resolvedArgsWithThread =
-              step.key === "ai_chat.scheduled.create" && !String((resolvedArgs as any).threadId || "").trim()
-                ? ({ ...resolvedArgs, threadId } as Record<string, unknown>)
-                : resolvedArgs;
+            const resolvedArgsWithThread = (() => {
+              const withThread =
+                step.key === "ai_chat.scheduled.create" && !String((resolvedArgs as any).threadId || "").trim()
+                  ? ({ ...resolvedArgs, threadId } as Record<string, unknown>)
+                  : resolvedArgs;
+              return step.key === "ai_chat.scheduled.create" ? patchArgsForScheduledCreate(withThread, threadContext) : withThread;
+            })();
 
             resolvedSteps.push({
               key: step.key,
@@ -3132,10 +3187,13 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
             : {};
 
           // Planner does not know the current threadId; inject it for schedule creation.
-          const resolvedArgsWithThread =
-            step.key === "ai_chat.scheduled.create" && !String((resolvedArgs as any).threadId || "").trim()
-              ? ({ ...resolvedArgs, threadId } as Record<string, unknown>)
-              : resolvedArgs;
+          const resolvedArgsWithThread = (() => {
+            const withThread =
+              step.key === "ai_chat.scheduled.create" && !String((resolvedArgs as any).threadId || "").trim()
+                ? ({ ...resolvedArgs, threadId } as Record<string, unknown>)
+                : resolvedArgs;
+            return step.key === "ai_chat.scheduled.create" ? patchArgsForScheduledCreate(withThread, localCtx) : withThread;
+          })();
 
           resolvedSteps.push({
             key: step.key,
@@ -3340,7 +3398,7 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
   // (and thus agentic planning) is not configured. This prevents “Done.” with no rows created.
   const weekdaySmsFallbackPlan = buildDeterministicWeekdaySmsPlan({
     text: effectiveText,
-    ownerTimeZone: String(ownerTimeZone || "").trim() || undefined,
+    ownerTimeZone: String(getTimeZoneHint((thread as any).contextJson) || "").trim() || undefined,
   });
   if (weekdaySmsFallbackPlan?.mode === "execute" && Array.isArray(weekdaySmsFallbackPlan.steps) && weekdaySmsFallbackPlan.steps.length) {
     const results: Array<{ ok: boolean; markdown?: string; linkUrl?: string | null; clientUiAction?: any | null }> = [];
@@ -3348,9 +3406,12 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
 
     for (const step of weekdaySmsFallbackPlan.steps.slice(0, 6)) {
       const argsRaw = step.args && typeof step.args === "object" && !Array.isArray(step.args) ? (step.args as Record<string, unknown>) : {};
-      const argsPatched: Record<string, unknown> = { ...argsRaw };
+      let argsPatched: Record<string, unknown> = { ...argsRaw };
       if (String(step.key || "").startsWith("ai_chat.") && !String((argsPatched as any).threadId || "").trim()) {
         (argsPatched as any).threadId = threadId;
+      }
+      if (step.key === "ai_chat.scheduled.create") {
+        argsPatched = patchArgsForScheduledCreate(argsPatched, (thread as any).contextJson);
       }
 
       const exec = await executePortalAgentAction({
@@ -3453,11 +3514,13 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
         argsPatched.threadId = threadId;
       }
 
+      const argsFinal = first.key === "ai_chat.scheduled.create" ? patchArgsForScheduledCreate(argsPatched, (thread as any).contextJson) : argsPatched;
+
       return NextResponse.json({
         ok: true,
         userMessage: userMsg,
         assistantMessage: assistantMsg,
-        assistantActions: [{ key: first.key, title: first.title, args: argsPatched }],
+        assistantActions: [{ key: first.key, title: first.title, args: argsFinal }],
         autoActionMessage: null,
         canvasUrl: null,
         assistantChoices: null,
@@ -3465,9 +3528,12 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
       });
     }
 
-    const argsPatched: Record<string, unknown> = { ...(first.args || {}) };
+    let argsPatched: Record<string, unknown> = { ...(first.args || {}) };
     if (String(first.key || "").startsWith("ai_chat.") && !String((argsPatched as any).threadId || "").trim()) {
       argsPatched.threadId = threadId;
+    }
+    if (first.key === "ai_chat.scheduled.create") {
+      argsPatched = patchArgsForScheduledCreate(argsPatched, (thread as any).contextJson);
     }
 
     const exec = await executePortalAgentActionForThread({
