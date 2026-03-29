@@ -3,19 +3,60 @@ import { ensurePortalAiChatSchema } from "@/lib/portalAiChatSchema";
 import { getConfirmSpecForPortalAgentAction, portalCanvasUrlForAction } from "@/lib/portalAgentActionMeta";
 import { deriveThreadContextPatchFromAction, executePortalAgentAction } from "@/lib/portalAgentActionExecutor";
 import type { PortalAgentActionKey } from "@/lib/portalAgentActions";
+import { PortalAgentActionKeySchema, extractJsonObject } from "@/lib/portalAgentActions";
 import { planPuraActions } from "@/lib/puraPlanner";
 import { resolvePlanArgs } from "@/lib/puraResolver";
 import { isPortalSupportChatConfigured } from "@/lib/portalSupportChat";
 
-export async function processDuePortalAiChatScheduledMessages(opts?: { limit?: number; ownerId?: string }) {
+const SCHEDULED_ACTION_PREFIX = "__PURA_SCHEDULED_ACTION__";
+
+type ScheduledActionEnvelope = {
+  workTitle?: string | null;
+  steps: Array<{ key: PortalAgentActionKey; title?: string | null; args?: Record<string, unknown> | null }>;
+};
+
+function tryParseScheduledActionEnvelope(textRaw: string): ScheduledActionEnvelope | null {
+  const t = String(textRaw || "").trim();
+  if (!t.startsWith(SCHEDULED_ACTION_PREFIX)) return null;
+
+  const jsonText = t.slice(SCHEDULED_ACTION_PREFIX.length).trim();
+  const extracted = extractJsonObject(jsonText);
+  if (!extracted || typeof extracted !== "object" || Array.isArray(extracted)) return null;
+
+  const workTitle =
+    typeof (extracted as any).workTitle === "string" && String((extracted as any).workTitle).trim()
+      ? String((extracted as any).workTitle).trim().slice(0, 200)
+      : null;
+
+  const stepsRaw = Array.isArray((extracted as any).steps) ? ((extracted as any).steps as unknown[]) : [];
+  if (!stepsRaw.length) return null;
+
+  const steps: ScheduledActionEnvelope["steps"] = [];
+  for (const s of stepsRaw.slice(0, 6)) {
+    if (!s || typeof s !== "object" || Array.isArray(s)) continue;
+    const keyRaw = (s as any).key;
+    const parsedKey = PortalAgentActionKeySchema.safeParse(keyRaw);
+    if (!parsedKey.success) continue;
+    const args = (s as any).args;
+    const argsObj = args && typeof args === "object" && !Array.isArray(args) ? (args as Record<string, unknown>) : {};
+    const title = typeof (s as any).title === "string" && String((s as any).title).trim() ? String((s as any).title).trim().slice(0, 120) : null;
+    steps.push({ key: parsedKey.data, title, args: argsObj });
+  }
+
+  if (!steps.length) return null;
+  return { workTitle, steps };
+}
+
+export async function processDuePortalAiChatScheduledMessages(
+  opts?: { limit?: number; ownerId?: string },
+): Promise<{ ok: true; processed: number } | { ok: false; error: string }> {
   const limit = Math.max(1, Math.min(200, opts?.limit ?? 50));
   const ownerIdFilter = typeof opts?.ownerId === "string" && opts.ownerId.trim() ? opts.ownerId.trim() : "";
 
-  await ensurePortalAiChatSchema();
+  try {
+    await ensurePortalAiChatSchema();
 
-  if (!isPortalSupportChatConfigured()) {
-    return { ok: false as const, error: "Pura is not configured for this environment." };
-  }
+  // Note: we support deterministic scheduled action envelopes that do NOT require portal support chat.
 
   const now = new Date();
 
@@ -83,6 +124,8 @@ export async function processDuePortalAiChatScheduledMessages(opts?: { limit?: n
     const threadContext = (thread as any)?.contextJson ?? null;
     const text = String((p as any).text || "").trim().slice(0, 4000);
 
+    const envelope = tryParseScheduledActionEnvelope(text);
+
     let ownerTimeZone = ownerTimeZoneCache.get(ownerId) || "";
     if (!ownerTimeZone) {
       const tz =
@@ -99,12 +142,27 @@ export async function processDuePortalAiChatScheduledMessages(opts?: { limit?: n
       return { ...prevCtx, ownerTimeZone };
     })();
 
-    const plan = await planPuraActions({
-      text,
-      url: undefined,
-      recentMessages,
-      threadContext: effectiveThreadContext,
-    });
+    const plan = envelope
+      ? ({
+          mode: "execute" as const,
+          workTitle: envelope.workTitle || "Scheduled action",
+          steps: envelope.steps.map((s) => ({
+            key: s.key,
+            title: String(s.title || "Scheduled action"),
+            args: (s.args && typeof s.args === "object" && !Array.isArray(s.args) ? s.args : {}) as Record<string, unknown>,
+          })),
+        } as any)
+      : await (async () => {
+          if (!isPortalSupportChatConfigured()) {
+            return null;
+          }
+          return planPuraActions({
+            text,
+            url: undefined,
+            recentMessages,
+            threadContext: effectiveThreadContext,
+          });
+        })();
 
     const shouldExecute = plan?.mode === "execute" && Array.isArray((plan as any).steps) && (plan as any).steps.length;
 
@@ -114,7 +172,11 @@ export async function processDuePortalAiChatScheduledMessages(opts?: { limit?: n
           ownerId,
           threadId,
           role: "assistant",
-          text: "Scheduled run processed (no actions to execute).",
+          text: envelope
+            ? "Scheduled run processed (invalid scheduled action payload)."
+            : !isPortalSupportChatConfigured()
+              ? "Scheduled run skipped (Pura is not configured in this environment)."
+              : "Scheduled run processed (no actions to execute).",
           attachmentsJson: null,
           createdByUserId: null,
           sendAt: null,
@@ -307,5 +369,9 @@ export async function processDuePortalAiChatScheduledMessages(opts?: { limit?: n
     processed += 1;
   }
 
-  return { ok: true as const, processed };
+    return { ok: true as const, processed };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : "Unknown error";
+    return { ok: false as const, error: msg };
+  }
 }

@@ -290,7 +290,11 @@ function buildDeterministicWeekdaySmsPlan(opts: {
       key: "ai_chat.scheduled.create",
       title: `Schedule ${d.label} ${timeLocal} SMS to ${contactHint}`,
       args: {
-        text: `Send an SMS to ${contactHint}. Use this intent as the base message: "${msg}". Keep it short and friendly, and vary the wording slightly from previous weekdays.`,
+        // Deterministic scheduled action envelope: when this scheduled message becomes due,
+        // the scheduled processor will execute inbox.send_sms directly (no general planner).
+        text: `__PURA_SCHEDULED_ACTION__ {"workTitle":"Weekday SMS","steps":[{"key":"inbox.send_sms","title":"Send scheduled SMS","args":{"contactId":{"$ref":"contact","hint":${JSON.stringify(
+          contactHint,
+        )}},"body":${JSON.stringify(msg)}}}]}`,
         sendAtLocal: {
           isoWeekday: d.isoWeekday,
           timeLocal,
