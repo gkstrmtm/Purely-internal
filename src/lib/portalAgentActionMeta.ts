@@ -35,6 +35,7 @@ export function getConfirmSpecForPortalAgentAction(action: PortalAgentActionKey)
     action === "credits.topup.start" ||
     action === "integrations.stripe.delete" ||
     action === "integrations.sales_reporting.disconnect" ||
+    action === "funnel.create" ||
     action === "tasks.create_for_all" ||
     action === "booking.cancel"
   ) {

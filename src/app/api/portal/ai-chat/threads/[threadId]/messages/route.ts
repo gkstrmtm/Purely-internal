@@ -1376,6 +1376,28 @@ function detectDeterministicActionsFromText(opts: {
     }
   }
 
+  // Funnel Builder: create a funnel by name.
+  // Note: This consumes credits; confirmation gating will prevent accidental auto-execution.
+  if (/\b(create|make|add|new)\b/i.test(t) && /\b(funnel)\b/i.test(t)) {
+    const m =
+      /\b(?:create|make|add)\b[\s\S]{0,20}\b(?:a\s+)?(?:new\s+)?funnel\b[\s\S]{0,40}\b(?:named|called|titled)?\b\s*(?:to|as|:|-|—)?\s*["“]?([^"”\n]{1,160})["”]?\s*$/i.exec(t) ||
+      /\b(?:new)\s+funnel\b\s*(?:named|called|titled)?\b\s*(?:to|as|:|-|—)?\s*["“]?([^"”\n]{1,160})["”]?\s*$/i.exec(t);
+
+    const name = m?.[1] ? cleanShortLabel(m[1], 120) : "";
+    if (name) {
+      const slug = name
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/-+/g, "-")
+        .replace(/^-|-$/g, "")
+        .slice(0, 60);
+
+      if (slug) {
+        return [{ key: "funnel.create", title: `Create funnel: ${name}`, args: { name, slug } }];
+      }
+    }
+  }
+
   const bookingIdFromText = () => {
     const m = /\bbooking\s*(?:id)?\s*[:#]?\s*([a-zA-Z0-9_-]{6,120})\b/i.exec(t) || /\bbookingId\s*[:=]\s*([a-zA-Z0-9_-]{6,120})\b/i.exec(t);
     return m?.[1] ? String(m[1]).trim() : "";
