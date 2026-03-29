@@ -190,6 +190,7 @@ function summarizeActiveThreadEntities(threadContext: unknown): string {
   add("funnel page", ctx.lastFunnelPage);
   add("funnel form", ctx.lastFunnelForm);
   add("automation", ctx.lastAutomation);
+  add("contact", (ctx as any).lastContact);
   add("booking", ctx.lastBooking);
   add("booking calendar", ctx.lastBookingCalendar);
   add("scraped lead", ctx.lastScrapedLead);
@@ -197,10 +198,14 @@ function summarizeActiveThreadEntities(threadContext: unknown): string {
   add("custom domain", ctx.lastCustomDomain);
   add("blog post", ctx.lastBlogPost);
   add("newsletter", ctx.lastNewsletter);
+  add("media folder", ctx.lastMediaFolder);
+  add("media item", ctx.lastMediaItem);
   add("task", ctx.lastTask);
   add("review", ctx.lastReview);
+  add("review question", ctx.lastReviewQuestion);
   add("nurture campaign", ctx.lastNurtureCampaign);
   add("nurture step", ctx.lastNurtureStep);
+  add("scheduled message", (ctx as any).lastInboxScheduledMessage);
 
   return rows.length ? rows.join("\n") : "(none)";
 }
