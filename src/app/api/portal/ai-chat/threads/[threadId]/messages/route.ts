@@ -1123,7 +1123,7 @@ function extractTaskCreateFromText(text: string): { forAll: boolean; title: stri
     if (title) return { forAll, title };
   }
 
-  const after = /\b(?:create|add|make)\b[\s\S]{0,20}\b(?:a\s+)?(?:new\s+)?(?:task|todo|to-do|to\s*do)\b\s*(?:to\s+|:|\-|—)?\s*([^\n]{1,200})\s*$/i.exec(t);
+  const after = /\b(?:create|add|make)\b[\s\S]{0,20}\b(?:a\s+)?(?:new\s+)?(?:task|todo|to-do|to\s*do)\b\s*(?:to\s+|:|\-|\u2014)?\s*([^\n]{1,200})\s*$/i.exec(t);
   if (after?.[1]) {
     let title = String(after[1] || "").trim();
     title = title.replace(/\b(for\s+(everyone|all|the\s+team|the\s+whole\s+team))\b/gi, "").trim();
@@ -1167,6 +1167,13 @@ async function tryExecuteTaskCommand(opts: {
   const threadId = String(opts.threadId);
   const text = String(opts.text || "").trim();
   if (!text) return null;
+
+  // IMPORTANT: “scheduled tasks” belong to the AI chat scheduler, not the portal Tasks service.
+  // If the user is asking about scheduled items, let the scheduler flows handle it.
+  const lower = text.toLowerCase();
+  const mentionsScheduled = /\b(scheduled|schedule)\b/i.test(lower);
+  const mentionsTaskLike = /\b(tasks?|runs?|messages?|items?)\b/i.test(lower);
+  if (mentionsScheduled && mentionsTaskLike) return null;
 
   const createAssistantMessage = async (msgText: string) => {
     const assistantMsg = await (prisma as any).portalAiChatMessage.create({
@@ -1346,6 +1353,16 @@ function detectDeterministicActionsFromText(opts: {
   const attachments = Array.isArray(opts.attachments) ? opts.attachments : [];
   if (!t && !attachments.length) return [];
 
+  // AI Chat Scheduler: list scheduled items.
+  // This is intentionally separate from the portal Tasks service.
+  if (
+    /\b(list|show|view|see|what\s+(?:is|are|'s)|any)\b/i.test(t) &&
+    /\b(scheduled|schedule)\b/i.test(t) &&
+    /\b(tasks?|messages?|runs?|items?)\b/i.test(t)
+  ) {
+    return [{ key: "ai_chat.scheduled.list", title: "List scheduled tasks", args: {} }];
+  }
+
   // AI Chat: manage the current thread (rename/pin/unpin/duplicate/delete).
   // Note: We intentionally omit threadId here; the caller can inject the active threadId.
   const isThisChatThread =
@@ -1380,8 +1397,8 @@ function detectDeterministicActionsFromText(opts: {
   // Note: This consumes credits; confirmation gating will prevent accidental auto-execution.
   if (/\b(create|make|add|new)\b/i.test(t) && /\b(funnel)\b/i.test(t)) {
     const m =
-      /\b(?:create|make|add)\b[\s\S]{0,20}\b(?:a\s+)?(?:new\s+)?funnel\b[\s\S]{0,40}\b(?:named|called|titled)?\b\s*(?:to|as|:|-|—)?\s*["“]?([^"”\n]{1,160})["”]?\s*$/i.exec(t) ||
-      /\b(?:new)\s+funnel\b\s*(?:named|called|titled)?\b\s*(?:to|as|:|-|—)?\s*["“]?([^"”\n]{1,160})["”]?\s*$/i.exec(t);
+      /\b(?:create|make|add)\b[\s\S]{0,20}\b(?:a\s+)?(?:new\s+)?funnel\b[\s\S]{0,40}\b(?:named|called|titled)?\b\s*(?:to|as|:|-|\u2014)?\s*["“]?([^"”\n]{1,160})["”]?\s*$/i.exec(t) ||
+      /\b(?:new)\s+funnel\b\s*(?:named|called|titled)?\b\s*(?:to|as|:|-|\u2014)?\s*["“]?([^"”\n]{1,160})["”]?\s*$/i.exec(t);
 
     const name = m?.[1] ? cleanShortLabel(m[1], 120) : "";
     if (name) {
@@ -3241,6 +3258,9 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
     const wantsExecutionFallback =
       looksLikeWeekdaySmsSchedule(effectiveText) ||
       shouldAutoExecuteFromUserText(effectiveText) ||
+      (/\b(list|show|view|see|what\s+(?:is|are|'s)|any)\b/i.test(effectiveText) &&
+        /\b(scheduled|schedule)\b/i.test(effectiveText) &&
+        /\b(tasks?|messages?|runs?|items?)\b/i.test(effectiveText)) ||
       /\b(do it|do that|handle it|take care of it|go ahead|just do|for me|please do)\b/i.test(effectiveText);
     if (!wantsExecutionFallback) {
       const reply = await runPortalSupportChat({

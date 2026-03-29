@@ -1852,7 +1852,9 @@ export function PortalAiChatClient() {
                 onClick={() => {
                   const t = scheduleTaskText.trim();
                   setScheduleTaskOpen(false);
-                  if (t) void send(t);
+                  if (!t) return;
+                  setScheduledOpen(true);
+                  void send(t).then(() => loadScheduled());
                 }}
               >
                 Schedule

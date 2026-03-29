@@ -15895,6 +15895,7 @@ async function runDirectAction(opts: {
           role: "user",
           sentAt: null,
           sendAt: { not: null },
+          createdByUserId: membership.memberId,
         },
         orderBy: { sendAt: "asc" },
         take: 200,
@@ -23429,7 +23430,7 @@ async function runDirectAction(opts: {
         if (st === "FAILED") {
           const note = String(e?.notes || "").trim();
           const who = String(e?.contactName || "").trim() || String(e?.from || "").trim();
-          pushIssue("failed_call", e, `${who ? who + ": " : ""}Call failed${note ? ` — ${note}` : ""}`);
+          pushIssue("failed_call", e, `${who ? who + ": " : ""}Call failed${note ? ` - ${note}` : ""}`);
           continue;
         }
 
@@ -25264,6 +25265,37 @@ function resultMarkdown(
   json: any,
   meta?: { ok: boolean; status: number },
 ): { markdown: string; linkUrl?: string } {
+  if (action === "ai_chat.scheduled.create" && json?.ok && json?.scheduled?.id) {
+    const id = String(json.scheduled.id || "").trim().slice(0, 120);
+    const sendAt = typeof json.scheduled.sendAt === "string" ? String(json.scheduled.sendAt).trim().slice(0, 80) : "";
+    const repeatEveryMinutes =
+      typeof json.scheduled.repeatEveryMinutes === "number" && Number.isFinite(json.scheduled.repeatEveryMinutes)
+        ? Math.max(0, Math.floor(json.scheduled.repeatEveryMinutes))
+        : 0;
+
+    const repeatLabel = repeatEveryMinutes > 0 ? `Every ${repeatEveryMinutes} minutes` : "No";
+    const whenLabel = sendAt ? sendAt : "(time not available)";
+
+    return {
+      markdown: `Scheduled.\n\n- When: ${whenLabel}\n- Repeats: ${repeatLabel}\n\nOpen “Scheduled tasks” (clock icon) to see or edit it.${id ? `\n\nScheduled id: ${id}` : ""}`,
+    };
+  }
+
+  if (action === "ai_chat.scheduled.list" && json?.ok) {
+    const rows = Array.isArray(json.scheduled) ? (json.scheduled as any[]) : [];
+    if (!rows.length) return { markdown: "No scheduled tasks." };
+
+    const lines = rows.slice(0, 15).map((r) => {
+      const id = String(r?.id || "").trim().slice(0, 32);
+      const sendAt = r?.sendAt ? String(r.sendAt).trim().slice(0, 80) : "";
+      const text = String(r?.text || "").replace(/[\r\n\t]+/g, " ").trim().slice(0, 140);
+      const prefix = sendAt ? `${sendAt}: ` : "";
+      return `- ${prefix}${text || "(no text)"}${id ? ` (id: ${id})` : ""}`;
+    });
+
+    return { markdown: ["Here are your scheduled tasks:", "", ...lines].join("\n") };
+  }
+
   if (action === "bug_report.submit" && json?.ok && json?.reportId) {
     const id = String(json.reportId || "").trim();
     const emailed = Boolean(json.emailed);
@@ -25956,7 +25988,18 @@ export async function executePortalAgentActionForThread(opts: {
   }
 
   const actorUserId = opts.actorUserId || opts.ownerId;
-  const { json, status } = await runDirectAction({ action: opts.action, ownerId: opts.ownerId, actorUserId, args: resolvedArgs as any });
+  const argsForExec: Record<string, unknown> =
+    resolvedArgs && typeof resolvedArgs === "object" && !Array.isArray(resolvedArgs)
+      ? { ...(resolvedArgs as any) }
+      : { ...(argsParsed.data as any) };
+
+  // The action schema allows threadId to be omitted when invoked from the AI chat thread.
+  // Inject it here so scheduled actions can be created reliably.
+  if (opts.action === "ai_chat.scheduled.create" && !String((argsForExec as any).threadId || "").trim()) {
+    (argsForExec as any).threadId = opts.threadId;
+  }
+
+  const { json, status } = await runDirectAction({ action: opts.action, ownerId: opts.ownerId, actorUserId, args: argsForExec as any });
   const clientUiAction = json && typeof json === "object" ? ((json as any).clientUiAction ?? null) : null;
   const ok =
     status >= 200 &&
