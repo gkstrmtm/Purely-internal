@@ -15,6 +15,7 @@ import {
 } from "@/lib/portalAgentActions";
 import { deriveThreadContextPatchFromAction, executePortalAgentAction, executePortalAgentActionForThread } from "@/lib/portalAgentActionExecutor";
 import { getConfirmSpecForPortalAgentAction, portalCanvasUrlForAction, portalContactUiUrl } from "@/lib/portalAgentActionMeta";
+import { encodeScheduledActionEnvelope } from "@/lib/portalAiChatScheduledActionEnvelope";
 import { isPortalSupportChatConfigured, runPortalSupportChat } from "@/lib/portalSupportChat";
 import { planPuraActions } from "@/lib/puraPlanner";
 import { resolvePlanArgs } from "@/lib/puraResolver";
@@ -292,9 +293,16 @@ function buildDeterministicWeekdaySmsPlan(opts: {
       args: {
         // Deterministic scheduled action envelope: when this scheduled message becomes due,
         // the scheduled processor will execute inbox.send_sms directly (no general planner).
-        text: `__PURA_SCHEDULED_ACTION__ {"workTitle":"Weekday SMS","steps":[{"key":"inbox.send_sms","title":"Send scheduled SMS","args":{"contactId":{"$ref":"contact","hint":${JSON.stringify(
-          contactHint,
-        )}},"body":${JSON.stringify(msg)}}}]}`,
+        text: encodeScheduledActionEnvelope({
+          workTitle: "Weekday SMS",
+          steps: [
+            {
+              key: "inbox.send_sms",
+              title: "Send scheduled SMS",
+              args: { contactId: { $ref: "contact", hint: contactHint }, body: msg },
+            },
+          ],
+        }),
         sendAtLocal: {
           isoWeekday: d.isoWeekday,
           timeLocal,

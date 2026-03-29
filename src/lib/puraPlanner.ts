@@ -7,6 +7,7 @@ import {
   portalAgentActionsIndexText,
   type PortalAgentActionKey,
 } from "@/lib/portalAgentActions";
+import { SCHEDULED_ACTION_PREFIX } from "@/lib/portalAiChatScheduledActionEnvelope";
 
 export type PuraPlannerMode = "execute" | "clarify" | "explain" | "noop";
 
@@ -252,8 +253,10 @@ export async function planPuraActions(opts: {
     "  Notes for schedules:",
     "  - For weekdays-only schedules, create ONE scheduled item per weekday (Mon-Fri) with repeatEveryMinutes=10080 (7 days).",
     "  - Use ai_chat.scheduled.create with sendAtLocal={isoWeekday,timeLocal,timeZone?} instead of guessing an ISO timestamp.",
-    "  - The scheduled item's text MUST be a one-time instruction (e.g. 'Send Chester an SMS: ...') and MUST NOT include scheduling language like 'every weekday' (avoid rescheduling loops).",
-    "  - The scheduled instruction should cause a real SMS by executing inbox.send_sms.",
+    "  - IMPORTANT: The scheduled item's text MUST be a deterministic scheduled-action envelope so it executes reliably when due.",
+    "    Format: " + SCHEDULED_ACTION_PREFIX + " {\"workTitle\":\"...\",\"steps\":[{\"key\":\"inbox.send_sms\",\"title\":\"...\",\"args\":{...}}]}",
+    "  - Put the real action(s) to run inside envelope.steps (usually inbox.send_sms).",
+    "  - Do NOT include scheduling language like 'every weekday' inside the envelope (avoid rescheduling loops).",
     "  - If the user asks to 'trigger one now as a test', ALSO send an immediate inbox.send_sms now (do not give steps).",
     "  - Only create automations when the user explicitly asks for an Automation.",
     "- Only use tasks.create / tasks.create_for_all when the user explicitly wants an internal human to-do item in the Tasks service.",
@@ -336,14 +339,46 @@ export async function planPuraActions(opts: {
       if (!parsed.success) return null;
     }
 
-    // If the model incorrectly returned an explanation for an imperative request, re-run with a hard constraint.
-    if (parsed.success && parsed.data.mode === "explain" && looksLikeImperativeRequest(text)) {
+    // If the model incorrectly returned explain/noop for an imperative request, re-run with a hard constraint.
+    if (parsed.success && (parsed.data.mode === "explain" || parsed.data.mode === "noop") && looksLikeImperativeRequest(text)) {
       const forceSystem = [
         baseSystem,
         "\nHARD OVERRIDE:",
         "- The user is asking you to DO it now. Output mode=execute.",
         "- Do not output mode=explain.",
+        "- Do not output mode=noop.",
         "- If a detail is missing, use mode=clarify with ONE short question.",
+      ].join("\n");
+
+      const raw2 = await generateText({ system: forceSystem, user });
+      let obj2: unknown = null;
+      try {
+        obj2 = extractJsonObject(raw2);
+      } catch {
+        obj2 = null;
+      }
+      let parsed2 = PlannerOutputSchema.safeParse(obj2);
+      if (!parsed2.success) {
+        const repaired2 = await tryRepairPlannerJson(raw2);
+        parsed2 = PlannerOutputSchema.safeParse(repaired2);
+      }
+      if (parsed2.success) parsed = parsed2;
+    }
+
+    // If the model emits scheduled items without deterministic envelopes, re-run with a hard constraint.
+    const hasNonEnvelopeScheduledText = (parsed.data.steps || []).some((s) => {
+      const key = String((s as any)?.key || "");
+      if (key !== "ai_chat.scheduled.create") return false;
+      const txt = String(((s as any)?.args as any)?.text || "").trim();
+      return !txt.startsWith(SCHEDULED_ACTION_PREFIX);
+    });
+
+    if (hasNonEnvelopeScheduledText) {
+      const forceSystem = [
+        baseSystem,
+        "\nHARD OVERRIDE:",
+        `- Every ai_chat.scheduled.create.args.text MUST start with '${SCHEDULED_ACTION_PREFIX}' and contain a JSON envelope with steps to execute when due.`,
+        "- The envelope.steps should contain the real action(s) (e.g. inbox.send_sms), not scheduling instructions.",
       ].join("\n");
 
       const raw2 = await generateText({ system: forceSystem, user });
