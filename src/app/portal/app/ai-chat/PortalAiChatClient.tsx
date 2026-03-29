@@ -1257,6 +1257,10 @@ export function PortalAiChatClient() {
           return next;
         });
 
+        if ((json as any)?.openScheduledTasks) {
+          setScheduledOpen(true);
+        }
+
         void loadThreads();
       } catch (e) {
         setMessages((prev) => prev.filter((m) => m.id !== optimisticUser.id && m.id !== optimisticAssistant.id));
@@ -1304,7 +1308,7 @@ export function PortalAiChatClient() {
       });
       const json = await res.json().catch(() => null);
       if (!json?.ok) throw new Error(json?.error || "Action failed");
-      return json as { assistantMessage?: Message; linkUrl?: string | null; clientUiActions?: unknown[] };
+      return json as { assistantMessage?: Message; linkUrl?: string | null; clientUiActions?: unknown[]; openScheduledTasks?: boolean };
     },
     [activeThreadId],
   );
@@ -1328,6 +1332,9 @@ export function PortalAiChatClient() {
       try {
         const json = await executeAgentAction(a.key, a.args || {});
         if (json.assistantMessage) setMessages((prev) => [...prev, json.assistantMessage as Message]);
+        if ((json as any)?.openScheduledTasks) {
+          setScheduledOpen(true);
+        }
         const nextCanvasUrl = typeof json?.linkUrl === "string" && json.linkUrl.trim() ? String(json.linkUrl).trim() : null;
         if (nextCanvasUrl) {
           setCanvasUrl(nextCanvasUrl);

@@ -415,8 +415,45 @@ function extractQuotedMessage(textRaw: string): string {
 
 function extractContactHint(textRaw: string): string {
   const t = String(textRaw || "");
-  const m = /\b(contact|to)\s+(?:the\s+contact\s+)?([a-z][a-z0-9'._-]{1,40})\b/i.exec(t);
-  return m?.[2] ? String(m[2]).trim().slice(0, 60) : "";
+  const stop = new Set([
+    "send",
+    "text",
+    "sms",
+    "email",
+    "message",
+    "call",
+    "notify",
+    "remind",
+    "schedule",
+    "trigger",
+    "create",
+    "make",
+    "build",
+    "set",
+    "do",
+  ]);
+
+  const isBad = (raw: string) => {
+    const s = String(raw || "").trim().toLowerCase();
+    return !s || stop.has(s);
+  };
+
+  // Prefer explicit "contact <name>" mentions.
+  let out = "";
+  const re1 = /\bcontact\s+([a-z][a-z0-9'._-]{1,40})\b/gi;
+  for (const m of t.matchAll(re1)) {
+    const candidate = m?.[1] ? String(m[1]).trim() : "";
+    if (candidate && !isBad(candidate)) out = candidate;
+  }
+  if (out) return out.slice(0, 60);
+
+  // Next: "to (the contact) <name>" but avoid "to send" etc.
+  const re2 = /\bto\s+(?:the\s+contact\s+)?([a-z][a-z0-9'._-]{1,40})\b/gi;
+  for (const m of t.matchAll(re2)) {
+    const candidate = m?.[1] ? String(m[1]).trim() : "";
+    if (candidate && !isBad(candidate)) out = candidate;
+  }
+  return out ? out.slice(0, 60) : "";
 }
 
 function extractTimeLocalHHmm(textRaw: string): string {
@@ -2467,7 +2504,8 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
 
     await (prisma as any).portalAiChatThread.update({ where: { id: threadId }, data: { lastMessageAt: now, contextJson: nextCtx } });
 
-    return NextResponse.json({ ok: true, userMessage: null, assistantMessage: assistantMsg, assistantActions: [], autoActionMessage: null, canvasUrl, clientUiActions });
+    const openScheduledTasks = confirmedSteps.some((s) => String(s.key || "").startsWith("ai_chat.scheduled."));
+    return NextResponse.json({ ok: true, userMessage: null, assistantMessage: assistantMsg, assistantActions: [], autoActionMessage: null, canvasUrl, clientUiActions, openScheduledTasks });
   }
 
   const attachmentLines = attachments
@@ -3246,7 +3284,8 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
 
         await maybeUpdateThreadTitle({ thread, threadId, now, promptMessage, assistantText: assistantTextFinal });
 
-        return NextResponse.json({ ok: true, userMessage: userMsg, assistantMessage: assistantMsg, assistantActions: [], autoActionMessage: null, canvasUrl, assistantChoices: null, clientUiActions });
+        const openScheduledTasks = resolvedSteps.some((s) => String((s as any)?.key || "").startsWith("ai_chat.scheduled."));
+        return NextResponse.json({ ok: true, userMessage: userMsg, assistantMessage: assistantMsg, assistantActions: [], autoActionMessage: null, canvasUrl, assistantChoices: null, clientUiActions, openScheduledTasks });
       }
     } catch {
       // If planning fails, fall through to existing behavior.
@@ -3373,6 +3412,7 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
       canvasUrl: null,
       assistantChoices: null,
       clientUiActions,
+      openScheduledTasks: true,
     });
   }
 
@@ -3447,6 +3487,7 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
       canvasUrl: exec.ok ? exec.linkUrl || null : null,
       assistantChoices: Array.isArray((exec as any).assistantChoices) ? (exec as any).assistantChoices : null,
       clientUiActions: (exec as any).clientUiAction ? [(exec as any).clientUiAction] : [],
+      openScheduledTasks: String(first.key || "").startsWith("ai_chat.scheduled."),
     });
   }
 
@@ -3553,6 +3594,7 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
           canvasUrl: null,
           assistantChoices: (exec as any).assistantChoices,
           clientUiActions: (exec as any).clientUiAction ? [(exec as any).clientUiAction] : [],
+          openScheduledTasks: String(first.key || "").startsWith("ai_chat.scheduled."),
         });
       }
     } catch {
