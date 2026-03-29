@@ -1062,6 +1062,281 @@ async function tryExecuteContactTagCommand(opts: {
   return { ok: anyOk, assistantMessage: msg, autoActionMessage: msg, canvasUrl: portalContactUiUrl(contact.id) };
 }
 
+function normalizeTaskTitleKey(s: string) {
+  return String(s || "")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function extractTaskTitleHintFromText(text: string): { mode: "done" | "open" | "canceled"; titleHint: string } | null {
+  const t = String(text || "").trim();
+  if (!t) return null;
+
+  const done = /\b(done|complete|completed|finish|finished|close|closed|mark\s+done|mark\s+complete)\b/i.test(t);
+  const reopen = /\b(reopen|re-open|open|undo|uncomplete|un-complete|mark\s+open)\b/i.test(t);
+  const cancel = /\b(cancel|canceled|cancelled)\b/i.test(t);
+  const mode: "done" | "open" | "canceled" = cancel ? "canceled" : done ? "done" : reopen ? "open" : "done";
+
+  if (!/\b(task|todo|to-do|to\s*do)\b/i.test(t) && !/\b(mark|complete|finish|close|reopen|cancel)\b/i.test(t)) return null;
+
+  const quoted = /["“]([^"”\n]{1,200})["”]/.exec(t);
+  if (quoted?.[1]) {
+    const titleHint = cleanShortLabel(quoted[1], 160);
+    if (titleHint) return { mode, titleHint };
+  }
+
+  const afterTask = /\b(?:task|todo|to-do|to\s*do)\b\s*(?:named|called|titled)?\s*[:\-]?\s*([^\n]{1,200})\s*$/i.exec(t);
+  if (afterTask?.[1]) {
+    const titleHint = cleanShortLabel(afterTask[1], 160);
+    if (titleHint) return { mode, titleHint };
+  }
+
+  const markPattern = /\b(?:mark|complete|finish|close|reopen|cancel)\b[\s\S]{0,60}\b(?:task|todo|to-do|to\s*do)\b\s*[:\-]?\s*([^\n]{1,200})\s*$/i.exec(t);
+  if (markPattern?.[1]) {
+    const titleHint = cleanShortLabel(markPattern[1], 160);
+    if (titleHint) return { mode, titleHint };
+  }
+
+  return null;
+}
+
+function extractTaskIdFromText(text: string) {
+  const t = String(text || "");
+  const m =
+    /\btask\s*(?:id)?\s*[:#]?\s*([a-zA-Z0-9_-]{6,120})\b/i.exec(t) ||
+    /\btaskId\s*[:=]\s*([a-zA-Z0-9_-]{6,120})\b/i.exec(t);
+  return m?.[1] ? String(m[1]).trim() : "";
+}
+
+function extractTaskCreateFromText(text: string): { forAll: boolean; title: string; description?: string } | null {
+  const t = String(text || "").trim();
+  if (!t) return null;
+  if (!/\b(task|todo|to-do|to\s*do)\b/i.test(t)) return null;
+  if (!/\b(create|add|make|new)\b/i.test(t)) return null;
+
+  const forAll = /\b(for\s+(everyone|all|the\s+team|the\s+whole\s+team)|everyone|all\s+team\s+members)\b/i.test(t);
+
+  const quoted = /\b(?:create|add|make)\b[\s\S]{0,20}\b(?:task|todo|to-do|to\s*do)\b[\s\S]{0,20}["“]([^"”\n]{1,200})["”]/i.exec(t);
+  if (quoted?.[1]) {
+    const title = cleanShortLabel(quoted[1], 160);
+    if (title) return { forAll, title };
+  }
+
+  const after = /\b(?:create|add|make)\b[\s\S]{0,20}\b(?:a\s+)?(?:new\s+)?(?:task|todo|to-do|to\s*do)\b\s*(?:to\s+|:|\-|—)?\s*([^\n]{1,200})\s*$/i.exec(t);
+  if (after?.[1]) {
+    let title = String(after[1] || "").trim();
+    title = title.replace(/\b(for\s+(everyone|all|the\s+team|the\s+whole\s+team))\b/gi, "").trim();
+    title = cleanShortLabel(title, 160);
+    if (title) return { forAll, title };
+  }
+
+  return null;
+}
+
+function extractTaskListFromText(text: string): { status?: "OPEN" | "DONE" | "CANCELED" | "ALL"; assigned?: "me" | "all" } | null {
+  const t = String(text || "").trim();
+  if (!t) return null;
+  if (!/\b(task|tasks|todo|to-do|to\s*do)\b/i.test(t)) return null;
+  if (!/\b(list|show|view|see|what\s+are|what\s+is|any)\b/i.test(t)) return null;
+
+  const assigned: "me" | "all" = /\b(my|mine|assigned\s+to\s+me)\b/i.test(t) ? "me" : "all";
+
+  const wantsAll = /\b(all|everything)\b/i.test(t) && /\btask|tasks|todo|to-do|to\s*do\b/i.test(t);
+  const wantsDone = /\b(done|completed|finished|closed)\b/i.test(t);
+  const wantsCanceled = /\b(canceled|cancelled)\b/i.test(t);
+  const wantsOpen = /\b(open|pending|active)\b/i.test(t);
+
+  const status: "OPEN" | "DONE" | "CANCELED" | "ALL" | undefined = wantsAll ? "ALL" : wantsCanceled ? "CANCELED" : wantsDone ? "DONE" : wantsOpen ? "OPEN" : undefined;
+
+  return { status, assigned };
+}
+
+async function tryExecuteTaskCommand(opts: {
+  ownerId: string;
+  threadId: string;
+  now: Date;
+  text: string;
+  actorUserId: string | null;
+}): Promise<
+  | { ok: true; assistantMessage: any; autoActionMessage: any; canvasUrl: string | null }
+  | { ok: false; assistantMessage: any; autoActionMessage?: any; canvasUrl: string | null }
+  | null
+> {
+  const ownerId = String(opts.ownerId);
+  const threadId = String(opts.threadId);
+  const text = String(opts.text || "").trim();
+  if (!text) return null;
+
+  const createAssistantMessage = async (msgText: string) => {
+    const assistantMsg = await (prisma as any).portalAiChatMessage.create({
+      data: {
+        ownerId,
+        threadId,
+        role: "assistant",
+        text: String(msgText || "").slice(0, 12000),
+        attachmentsJson: null,
+        createdByUserId: null,
+        sendAt: null,
+        sentAt: opts.now,
+      },
+      select: {
+        id: true,
+        role: true,
+        text: true,
+        attachmentsJson: true,
+        createdAt: true,
+        sendAt: true,
+        sentAt: true,
+      },
+    });
+    await (prisma as any).portalAiChatThread.update({ where: { id: threadId }, data: { lastMessageAt: opts.now } });
+    return assistantMsg;
+  };
+
+  // 1) List tasks.
+  const listCmd = extractTaskListFromText(text);
+  if (listCmd) {
+    const exec = await executePortalAgentActionForThread({
+      ownerId,
+      threadId,
+      action: "tasks.list",
+      args: { status: listCmd.status ?? null, assigned: listCmd.assigned ?? null, limit: 50 },
+      actorUserId: opts.actorUserId || undefined,
+    });
+
+    const tasks = Array.isArray((exec as any)?.json?.tasks) ? ((exec as any).json.tasks as any[]) : [];
+    if (!(exec as any)?.json?.ok) {
+      const assistantMsg = await createAssistantMessage(`I couldn’t list tasks: ${String((exec as any)?.json?.error || "Unknown error")}`);
+      return { ok: false, assistantMessage: assistantMsg, canvasUrl: "/portal/app/services/tasks" };
+    }
+
+    if (!tasks.length) {
+      const assistantMsg = await createAssistantMessage("No tasks found.");
+      return { ok: true, assistantMessage: assistantMsg, autoActionMessage: assistantMsg, canvasUrl: "/portal/app/services/tasks" };
+    }
+
+    const lines = tasks.slice(0, 15).map((t) => {
+      const id = String(t?.id || "").slice(0, 32);
+      const title = String(t?.title || "(Untitled)").slice(0, 160);
+      const status = String(t?.status || "OPEN");
+      const dueAt = t?.dueAtIso ? String(t.dueAtIso).slice(0, 25) : "";
+      const due = dueAt ? ` (due ${dueAt})` : "";
+      return `- ${title}${due} [${status}] (task id: ${id})`;
+    });
+
+    const assistantMsg = await createAssistantMessage(["Here are your tasks:", ...lines].join("\n"));
+    return { ok: true, assistantMessage: assistantMsg, autoActionMessage: assistantMsg, canvasUrl: "/portal/app/services/tasks" };
+  }
+
+  // 2) Create task.
+  const createCmd = extractTaskCreateFromText(text);
+  if (createCmd?.title) {
+    const action: PortalAgentActionKey = createCmd.forAll ? "tasks.create_for_all" : "tasks.create";
+    const args = createCmd.forAll
+      ? { title: createCmd.title, description: createCmd.description || undefined, dueAtIso: null }
+      : { title: createCmd.title, description: createCmd.description || undefined, assignedToUserId: null, dueAtIso: null };
+
+    const exec = await executePortalAgentActionForThread({ ownerId, threadId, action, args, actorUserId: opts.actorUserId || undefined });
+    if (!(exec as any)?.json?.ok) {
+      const assistantMsg = await createAssistantMessage(`I couldn’t create that task: ${String((exec as any)?.json?.error || "Unknown error")}`);
+      return { ok: false, assistantMessage: assistantMsg, canvasUrl: "/portal/app/services/tasks" };
+    }
+
+    const taskId = typeof (exec as any)?.json?.taskId === "string" ? String((exec as any).json.taskId).slice(0, 32) : "";
+    const assistantMsg = await createAssistantMessage(`Created task “${createCmd.title}”.${taskId ? ` (task id: ${taskId})` : ""}`);
+    return { ok: true, assistantMessage: assistantMsg, autoActionMessage: assistantMsg, canvasUrl: "/portal/app/services/tasks" };
+  }
+
+  // 3) Update task status by explicit ID.
+  const explicitTaskId = extractTaskIdFromText(text);
+  if (explicitTaskId) {
+    const wantsDone = /\b(done|complete|completed|finish|finished|close|closed)\b/i.test(text);
+    const wantsOpen = /\b(reopen|re-open|open|undo|uncomplete|un-complete)\b/i.test(text);
+    const wantsCanceled = /\b(cancel|canceled|cancelled)\b/i.test(text);
+    const status: "OPEN" | "DONE" | "CANCELED" | null = wantsCanceled ? "CANCELED" : wantsOpen ? "OPEN" : wantsDone ? "DONE" : null;
+    if (status) {
+      const exec = await executePortalAgentActionForThread({
+        ownerId,
+        threadId,
+        action: "tasks.update",
+        args: { taskId: explicitTaskId, status },
+        actorUserId: opts.actorUserId || undefined,
+      });
+
+      if (!(exec as any)?.json?.ok) {
+        const assistantMsg = await createAssistantMessage(`I couldn’t update that task: ${String((exec as any)?.json?.error || "Unknown error")}`);
+        return { ok: false, assistantMessage: assistantMsg, canvasUrl: "/portal/app/services/tasks" };
+      }
+
+      const assistantMsg = await createAssistantMessage(`Updated task (task id: ${explicitTaskId}) to ${status}.`);
+      return { ok: true, assistantMessage: assistantMsg, autoActionMessage: assistantMsg, canvasUrl: "/portal/app/services/tasks" };
+    }
+  }
+
+  // 4) Update task status by title hint (resolve to a single task first).
+  const titleCmd = extractTaskTitleHintFromText(text);
+  if (titleCmd?.titleHint) {
+    const desiredStatus: "OPEN" | "DONE" | "CANCELED" = titleCmd.mode === "open" ? "OPEN" : titleCmd.mode === "canceled" ? "CANCELED" : "DONE";
+    const hintKey = normalizeTaskTitleKey(titleCmd.titleHint);
+    if (!hintKey) return null;
+
+    const exec = await executePortalAgentActionForThread({
+      ownerId,
+      threadId,
+      action: "tasks.list",
+      args: { status: desiredStatus === "DONE" ? "OPEN" : "OPEN", assigned: "me", limit: 200 },
+      actorUserId: opts.actorUserId || undefined,
+    });
+
+    const tasks = Array.isArray((exec as any)?.json?.tasks) ? ((exec as any).json.tasks as any[]) : [];
+    if (!(exec as any)?.json?.ok) return null;
+
+    const matches = tasks
+      .map((t) => ({ id: String(t?.id || ""), title: String(t?.title || "") }))
+      .filter((t) => t.id && t.title)
+      .filter((t) => normalizeTaskTitleKey(t.title).includes(hintKey))
+      .slice(0, 8);
+
+    if (!matches.length) {
+      const assistantMsg = await createAssistantMessage(
+        `I couldn’t find an open task matching “${titleCmd.titleHint}”. If you paste the task id (e.g. “task id: …”) I can update it.`,
+      );
+      return { ok: false, assistantMessage: assistantMsg, canvasUrl: "/portal/app/services/tasks" };
+    }
+
+    if (matches.length > 1) {
+      const preview = matches
+        .slice(0, 5)
+        .map((m) => `- ${m.title} (task id: ${m.id.slice(0, 32)})`)
+        .join("\n");
+      const assistantMsg = await createAssistantMessage(
+        `I found multiple matching tasks. Reply with the exact task id to update:\n${preview}`,
+      );
+      return { ok: false, assistantMessage: assistantMsg, canvasUrl: "/portal/app/services/tasks" };
+    }
+
+    const chosen = matches[0];
+    const exec2 = await executePortalAgentActionForThread({
+      ownerId,
+      threadId,
+      action: "tasks.update",
+      args: { taskId: chosen.id, status: desiredStatus },
+      actorUserId: opts.actorUserId || undefined,
+    });
+
+    if (!(exec2 as any)?.json?.ok) {
+      const assistantMsg = await createAssistantMessage(`I couldn’t update that task: ${String((exec2 as any)?.json?.error || "Unknown error")}`);
+      return { ok: false, assistantMessage: assistantMsg, canvasUrl: "/portal/app/services/tasks" };
+    }
+
+    const assistantMsg = await createAssistantMessage(`Updated “${chosen.title}” to ${desiredStatus}.`);
+    return { ok: true, assistantMessage: assistantMsg, autoActionMessage: assistantMsg, canvasUrl: "/portal/app/services/tasks" };
+  }
+
+  return null;
+}
+
 function detectDeterministicActionsFromText(opts: {
   text: string;
   attachments: Array<{ id?: string | null; fileName?: string; url?: string }>;
@@ -2257,6 +2532,24 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
       autoActionMessage: null,
       canvasUrl: tagWorkflow.canvasUrl || null,
       ambiguousContacts: (tagWorkflow as any).ambiguousContacts || null,
+    });
+  }
+
+  const taskWorkflow = await tryExecuteTaskCommand({
+    ownerId,
+    threadId,
+    now,
+    text: effectiveText,
+    actorUserId: createdByUserId,
+  });
+  if (taskWorkflow?.assistantMessage) {
+    return NextResponse.json({
+      ok: true,
+      userMessage: userMsg,
+      assistantMessage: taskWorkflow.assistantMessage,
+      assistantActions: [],
+      autoActionMessage: taskWorkflow.autoActionMessage || null,
+      canvasUrl: taskWorkflow.canvasUrl || null,
     });
   }
 
