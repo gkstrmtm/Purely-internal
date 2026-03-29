@@ -1894,13 +1894,11 @@ export function PortalAiChatClient() {
 
   const showWelcomeComposer = !messagesLoading && messages.length === 0;
 
-  const composerControlButtonClass = showWelcomeComposer
-    ? "inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-zinc-50 text-zinc-700 hover:bg-zinc-100"
-    : "inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50";
+  const composerControlButtonClass =
+    "inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50";
 
-  const composerTextareaClass = showWelcomeComposer
-    ? "min-h-11 flex-1 resize-none rounded-3xl bg-zinc-50 px-4 py-3 text-sm text-zinc-900 placeholder:text-zinc-400 focus:outline-none"
-    : "min-h-11 flex-1 resize-none rounded-3xl border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-900 placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-[rgba(29,78,216,0.25)]";
+  const composerTextareaClass =
+    "min-h-11 flex-1 resize-none rounded-3xl border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-900 placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-[rgba(29,78,216,0.25)]";
 
   const composerInner = (
     <>
@@ -2402,7 +2400,7 @@ export function PortalAiChatClient() {
                     <div className="text-3xl font-semibold tracking-tight text-zinc-900">Let Pura work for you</div>
                     <div className="mt-2 text-sm text-zinc-500">Ask a question, schedule follow-ups, or attach a file.</div>
                   </div>
-                  <div className="rounded-3xl border border-zinc-200 bg-white p-3 shadow-[0_18px_50px_rgba(0,0,0,0.08)]">
+                  <div className="rounded-3xl bg-white p-3 shadow-[0_18px_50px_rgba(0,0,0,0.08)]">
                     {composerInner}
                   </div>
                 </div>
