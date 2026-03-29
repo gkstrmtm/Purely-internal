@@ -192,7 +192,13 @@ function isHowToQuestionOnly(textRaw: string): boolean {
 function looksLikeWeekdaySmsSchedule(textRaw: string): boolean {
   const t = String(textRaw || "").toLowerCase();
   if (!t.trim()) return false;
-  const isWeekdays = /\b(monday\s+through\s+friday|mon\s*(?:-|\u2013|\u2014)\s*fri|weekdays)\b/i.test(t);
+  const isWeekdays =
+    /\bweekdays\b/i.test(t) ||
+    /\bmonday\s+(?:to|thru|through)\s+friday\b/i.test(t) ||
+    /\bmonday\s*(?:-|\u2013|\u2014)\s*friday\b/i.test(t) ||
+    /\bmon(?:day)?\s+(?:to|thru|through)\s+fri(?:day)?\b/i.test(t) ||
+    /\bmon\s*(?:-|\u2013|\u2014)\s*fri\b/i.test(t) ||
+    /\bmon\s*(?:-|\u2013|\u2014)\s*friday\b/i.test(t);
   const isSms = /\b(text|sms)\b/i.test(t);
   const hasTime = /\b\d{1,2}(?::\d{2})?\s*(a\.?m\.?|p\.?m\.?)\b/i.test(t) || /\b\d{1,2}:\d{2}\b/.test(t);
   return Boolean(isWeekdays && isSms && hasTime);
@@ -2157,6 +2163,10 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
       let plan: any = null;
       if (shouldReplayPendingExecutePlan) {
         plan = pendingPlan as any;
+      } else if (deterministicWeekdaySmsPlan) {
+        // Hard rule: recurring weekday SMS schedules are NOT Booking Reminders.
+        // Force the deterministic execute plan so the assistant schedules + sends immediately (when requested).
+        plan = deterministicWeekdaySmsPlan;
       } else {
         try {
           plan = await planPuraActions({
@@ -2167,16 +2177,6 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
           });
         } catch {
           plan = null;
-        }
-
-        if (deterministicWeekdaySmsPlan) {
-          const steps = plan && typeof plan === "object" && Array.isArray((plan as any).steps) ? ((plan as any).steps as any[]) : [];
-          const hasScheduler = steps.some((s) => String(s?.key || "") === "ai_chat.scheduled.create");
-          const wantsNow = userWantsTestSendNow(effectivePlanningText);
-          const hasImmediateSms = steps.some((s) => String(s?.key || "") === "inbox.send_sms");
-          if (!plan || String((plan as any).mode || "") !== "execute" || !hasScheduler || (wantsNow && !hasImmediateSms)) {
-            plan = deterministicWeekdaySmsPlan;
-          }
         }
       }
 
