@@ -1655,7 +1655,7 @@ export function PortalAiChatClient() {
                     type="button"
                     className={classNames(
                       "absolute right-2 top-2 inline-flex h-7 w-7 items-center justify-center rounded-xl text-zinc-500",
-                      "opacity-0 transition-opacity group-hover:opacity-100 hover:bg-white/70 hover:text-zinc-700",
+                      "opacity-0 transition-all group-hover:opacity-100 hover:scale-110 hover:text-zinc-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/30",
                       active && "opacity-100",
                     )}
                     aria-label="Chat options"
@@ -1890,6 +1890,118 @@ export function PortalAiChatClient() {
       void loadScheduled();
     },
     [askConfirm, loadScheduled, toast],
+  );
+
+  const showWelcomeComposer = !messagesLoading && messages.length === 0;
+
+  const composerInner = (
+    <>
+      {pendingAttachments.length ? (
+        <div className="mb-2 flex flex-wrap gap-2">
+          {pendingAttachments.map((a, idx) => (
+            <div key={idx} className="flex items-center gap-2 rounded-2xl border border-zinc-200 bg-white px-3 py-2">
+              {looksLikeImageAttachment(a) && safeImgSrc(String(a?.url || "")) ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={safeImgSrc(String(a?.url || ""))!}
+                  alt={a.fileName}
+                  className="h-9 w-9 shrink-0 rounded-xl border border-zinc-200 object-cover"
+                  loading="lazy"
+                  referrerPolicy="no-referrer"
+                />
+              ) : null}
+              <span className="max-w-72 truncate text-xs font-semibold text-zinc-900">{a.fileName}</span>
+              <button
+                type="button"
+                className="rounded-xl px-2 py-1 text-xs font-semibold text-zinc-600 hover:bg-zinc-50"
+                onClick={() => setPendingAttachments((prev) => prev.filter((_, i) => i !== idx))}
+                aria-label="Remove attachment"
+                title="Remove"
+              >
+                ×
+              </button>
+            </div>
+          ))}
+        </div>
+      ) : null}
+
+      <div className="flex items-end gap-2">
+        <div className="relative">
+          <button
+            type="button"
+            className={classNames(
+              "inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50",
+              (uploading || sending) && "opacity-60",
+            )}
+            disabled={uploading || sending}
+            onClick={(e) => {
+              if (attachMenu) {
+                setAttachMenu(null);
+                setAttachMenuAnchorRect(null);
+                return;
+              }
+              const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+              setAttachMenuAnchorRect(rect);
+              setAttachMenu(computeFixedMenuStyle({ rect, width: 260, estHeight: 140, alignX: "left", minHeight: 120, gapPx: 4 }));
+            }}
+            aria-label="Add attachment"
+            title="Add attachment"
+          >
+            <span className="text-lg font-semibold">＋</span>
+          </button>
+        </div>
+
+        <input
+          ref={fileInputRef}
+          type="file"
+          multiple
+          className="hidden"
+          disabled={uploading || sending}
+          onChange={(e) => {
+            void uploadFiles(e.target.files);
+            e.currentTarget.value = "";
+          }}
+        />
+
+        <textarea
+          ref={inputRef}
+          value={input}
+          onChange={(e) => {
+            setInput(e.target.value);
+            requestAnimationFrame(() => resizeInput());
+          }}
+          rows={1}
+          placeholder={uploading ? "Uploading…" : showWelcomeComposer ? "Ask Pura anything" : "Message"}
+          className="min-h-11 flex-1 resize-none rounded-3xl border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-900 placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-[rgba(29,78,216,0.25)]"
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && !e.shiftKey) {
+              e.preventDefault();
+              void send();
+            }
+          }}
+          disabled={sending}
+        />
+
+        <button
+          type="button"
+          className={classNames(
+            "group inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-brand-blue text-white hover:opacity-95",
+            (!input.trim() && !pendingAttachments.length) || sending ? "opacity-60" : "",
+          )}
+          onClick={() => void send()}
+          disabled={(!input.trim() && !pendingAttachments.length) || sending}
+          aria-label="Send"
+          title="Send"
+        >
+          <span className="group-hover:hidden">
+            <IconSend />
+          </span>
+          <span className="hidden group-hover:inline">
+            <IconSendHover />
+          </span>
+        </button>
+      </div>
+    </>
   );
 
   return (
@@ -2274,14 +2386,27 @@ export function PortalAiChatClient() {
                 })()}
                 <div ref={endRef} />
               </>
+            ) : showWelcomeComposer ? (
+              <div className="flex min-h-[60vh] items-center justify-center">
+                <div className="w-full max-w-2xl">
+                  <div className="mb-6 text-center">
+                    <div className="text-3xl font-semibold tracking-tight text-zinc-900">Let Pura work for you</div>
+                    <div className="mt-2 text-sm text-zinc-500">Ask a question, schedule follow-ups, or attach a file.</div>
+                  </div>
+                  <div className="rounded-3xl border border-zinc-200 bg-white p-3 shadow-[0_18px_50px_rgba(0,0,0,0.08)]">
+                    {composerInner}
+                  </div>
+                </div>
+              </div>
             ) : (
               <div className="text-sm text-zinc-400">&nbsp;</div>
             )}
           </div>
         </div>
 
-        <div className="shrink-0 border-t border-zinc-200 bg-white px-3 py-3 shadow-[0_-1px_10px_rgba(0,0,0,0.05)]">
-          {canvasOpen && canvasUrl ? (
+        {!showWelcomeComposer ? (
+          <div className="shrink-0 border-t border-zinc-200 bg-white px-3 py-3 shadow-[0_-1px_10px_rgba(0,0,0,0.05)]">
+            {canvasOpen && canvasUrl ? (
               <div className="mb-2 flex items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs text-zinc-700 lg:hidden relative">
                 <div className="min-w-0 truncate">
                   Working on <span className="font-semibold">{canvasUrl}</span>
@@ -2319,114 +2444,9 @@ export function PortalAiChatClient() {
             </button>
           )}
 
-          {pendingAttachments.length ? (
-            <div className="mb-2 flex flex-wrap gap-2">
-              {pendingAttachments.map((a, idx) => (
-                <div key={idx} className="flex items-center gap-2 rounded-2xl border border-zinc-200 bg-white px-3 py-2">
-                  {looksLikeImageAttachment(a) && safeImgSrc(String(a?.url || "")) ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
-                      src={safeImgSrc(String(a?.url || ""))!}
-                      alt={a.fileName}
-                      className="h-9 w-9 shrink-0 rounded-xl border border-zinc-200 object-cover"
-                      loading="lazy"
-                      referrerPolicy="no-referrer"
-                    />
-                  ) : null}
-                  <span className="max-w-72 truncate text-xs font-semibold text-zinc-900">{a.fileName}</span>
-                  <button
-                    type="button"
-                    className="rounded-xl px-2 py-1 text-xs font-semibold text-zinc-600 hover:bg-zinc-50"
-                    onClick={() => setPendingAttachments((prev) => prev.filter((_, i) => i !== idx))}
-                    aria-label="Remove attachment"
-                    title="Remove"
-                  >
-                    ×
-                  </button>
-                </div>
-              ))}
-            </div>
-          ) : null}
-
-          <div className="flex items-end gap-2">
-            <div className="relative">
-              <button
-                type="button"
-                className={classNames(
-                  "inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50",
-                  (uploading || sending) && "opacity-60",
-                )}
-                disabled={uploading || sending}
-                onClick={(e) => {
-                  if (attachMenu) {
-                    setAttachMenu(null);
-                    setAttachMenuAnchorRect(null);
-                    return;
-                  }
-                  const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-                  setAttachMenuAnchorRect(rect);
-                  setAttachMenu(computeFixedMenuStyle({ rect, width: 260, estHeight: 140, alignX: "left", minHeight: 120, gapPx: 4 }));
-                }}
-                aria-label="Add attachment"
-                title="Add attachment"
-              >
-                <span className="text-lg font-semibold">＋</span>
-              </button>
-            </div>
-
-            <input
-              ref={fileInputRef}
-              type="file"
-              multiple
-              className="hidden"
-              disabled={uploading || sending}
-              onChange={(e) => {
-                void uploadFiles(e.target.files);
-                e.currentTarget.value = "";
-              }}
-            />
-
-            <textarea
-              ref={inputRef}
-              value={input}
-              onChange={(e) => {
-                setInput(e.target.value);
-                // Ensure the element has the latest value before measuring.
-                requestAnimationFrame(() => resizeInput());
-              }}
-              rows={1}
-              placeholder={uploading ? "Uploading…" : "Message"}
-              className="min-h-11 flex-1 resize-none rounded-3xl border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-900 placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-[rgba(29,78,216,0.25)]"
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && !e.shiftKey) {
-                  e.preventDefault();
-                  void send();
-                }
-              }}
-              disabled={sending}
-            />
-
-            <button
-              type="button"
-              className={classNames(
-                "group inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-brand-blue text-white hover:opacity-95",
-                (!input.trim() && !pendingAttachments.length) || sending ? "opacity-60" : "",
-              )}
-              onClick={() => void send()}
-              disabled={(!input.trim() && !pendingAttachments.length) || sending}
-              aria-label="Send"
-              title="Send"
-            >
-              <span className="group-hover:hidden">
-                <IconSend />
-              </span>
-              <span className="hidden group-hover:inline">
-                <IconSendHover />
-              </span>
-            </button>
-
+            {composerInner}
           </div>
-        </div>
+        ) : null}
         </div>
 
         {canvasOpen && canvasUrl ? (
