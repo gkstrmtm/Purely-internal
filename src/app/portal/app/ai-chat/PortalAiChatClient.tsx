@@ -1894,6 +1894,14 @@ export function PortalAiChatClient() {
 
   const showWelcomeComposer = !messagesLoading && messages.length === 0;
 
+  const composerControlButtonClass = showWelcomeComposer
+    ? "inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-zinc-50 text-zinc-700 hover:bg-zinc-100"
+    : "inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50";
+
+  const composerTextareaClass = showWelcomeComposer
+    ? "min-h-11 flex-1 resize-none rounded-3xl bg-zinc-50 px-4 py-3 text-sm text-zinc-900 placeholder:text-zinc-400 focus:outline-none"
+    : "min-h-11 flex-1 resize-none rounded-3xl border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-900 placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-[rgba(29,78,216,0.25)]";
+
   const composerInner = (
     <>
       {pendingAttachments.length ? (
@@ -1930,7 +1938,7 @@ export function PortalAiChatClient() {
           <button
             type="button"
             className={classNames(
-              "inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50",
+              composerControlButtonClass,
               (uploading || sending) && "opacity-60",
             )}
             disabled={uploading || sending}
@@ -1972,20 +1980,21 @@ export function PortalAiChatClient() {
           }}
           rows={1}
           placeholder={uploading ? "Uploading…" : showWelcomeComposer ? "Ask Pura anything" : "Message"}
-          className="min-h-11 flex-1 resize-none rounded-3xl border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-900 placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-[rgba(29,78,216,0.25)]"
+          className={composerTextareaClass}
           onKeyDown={(e) => {
             if (e.key === "Enter" && !e.shiftKey) {
               e.preventDefault();
               void send();
             }
           }}
-          disabled={sending}
+          disabled={false}
         />
 
         <button
           type="button"
           className={classNames(
             "group inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-brand-blue text-white hover:opacity-95",
+            showWelcomeComposer ? "shadow-none" : "",
             (!input.trim() && !pendingAttachments.length) || sending ? "opacity-60" : "",
           )}
           onClick={() => void send()}
