@@ -3297,6 +3297,85 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
     }
   }
 
+  // Fallback: execute the deterministic weekday SMS scheduler even when the support chat
+  // (and thus agentic planning) is not configured. This prevents “Done.” with no rows created.
+  const weekdaySmsFallbackPlan = buildDeterministicWeekdaySmsPlan({
+    text: effectiveText,
+    ownerTimeZone: String(ownerTimeZone || "").trim() || undefined,
+  });
+  if (weekdaySmsFallbackPlan?.mode === "execute" && Array.isArray(weekdaySmsFallbackPlan.steps) && weekdaySmsFallbackPlan.steps.length) {
+    const results: Array<{ ok: boolean; markdown?: string; linkUrl?: string | null; clientUiAction?: any | null }> = [];
+    const clientUiActions: any[] = [];
+
+    for (const step of weekdaySmsFallbackPlan.steps.slice(0, 6)) {
+      const argsRaw = step.args && typeof step.args === "object" && !Array.isArray(step.args) ? (step.args as Record<string, unknown>) : {};
+      const argsPatched: Record<string, unknown> = { ...argsRaw };
+      if (String(step.key || "").startsWith("ai_chat.") && !String((argsPatched as any).threadId || "").trim()) {
+        (argsPatched as any).threadId = threadId;
+      }
+
+      const exec = await executePortalAgentAction({
+        ownerId,
+        actorUserId: createdByUserId,
+        action: step.key,
+        args: argsPatched,
+      });
+
+      const cua = (exec as any).clientUiAction ?? null;
+      results.push({ ok: Boolean(exec.ok), markdown: exec.markdown, linkUrl: exec.linkUrl ?? null, clientUiAction: cua });
+      if (cua) clientUiActions.push(cua);
+    }
+
+    const assistantText = (() => {
+      if (weekdaySmsFallbackPlan.steps.length === 1) {
+        return String(results[0]?.markdown || "Done.").trim() || "Done.";
+      }
+      const allOk = results.every((r) => r.ok);
+      const anyOk = results.some((r) => r.ok);
+      const blocks = weekdaySmsFallbackPlan.steps.slice(0, 6).map((s: any, idx: number) => {
+        const md = String(results[idx]?.markdown || (results[idx]?.ok ? "Done." : "Action failed.")).trim();
+        return `#### ${String(s.title || s.key || "Step")}\n${md}`;
+      });
+      const summary = allOk ? "Scheduled." : anyOk ? "Some schedules failed." : "Scheduling failed.";
+      return `${summary}\n\n${blocks.join("\n\n")}`;
+    })();
+
+    const assistantMsg = await (prisma as any).portalAiChatMessage.create({
+      data: {
+        ownerId,
+        threadId,
+        role: "assistant",
+        text: assistantText,
+        attachmentsJson: null,
+        createdByUserId: null,
+        sendAt: null,
+        sentAt: now,
+      },
+      select: {
+        id: true,
+        role: true,
+        text: true,
+        attachmentsJson: true,
+        createdAt: true,
+        sendAt: true,
+        sentAt: true,
+      },
+    });
+
+    await (prisma as any).portalAiChatThread.update({ where: { id: threadId }, data: { lastMessageAt: now } });
+
+    return NextResponse.json({
+      ok: true,
+      userMessage: userMsg,
+      assistantMessage: assistantMsg,
+      assistantActions: [],
+      autoActionMessage: null,
+      canvasUrl: null,
+      assistantChoices: null,
+      clientUiActions,
+    });
+  }
+
   // 1) Prefer deterministic action execution for common commands.
   const deterministicActions = detectDeterministicActionsFromText({ text: cleanText, attachments });
   if (deterministicActions.length) {
