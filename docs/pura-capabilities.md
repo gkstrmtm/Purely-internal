@@ -20,8 +20,8 @@ This canvas path is the foundation for “Pura can do anything a user can do” 
 ## Uploaded files ("use this as inspiration")
 
 - **Images**: When you attach images to a chat message, Pura can visually interpret them (image URLs are passed into the planner/model).
-- **Text-like files** (new): When you attach a file that looks like text (e.g. `.txt`, `.md`, `.csv`, `.json`, `.yaml`, etc.), Pura can ingest the text content and use it as context for planning and generating portal changes.
-- **Not supported yet**: Rich/binary formats like PDF/DOCX aren’t reliably parsed as text (they’ll be ignored unless their bytes look like UTF-8 text).
+- **Text-like files**: When you attach a file that looks like text (e.g. `.txt`, `.md`, `.csv`, `.json`, `.yaml`, etc.), Pura ingests the text content and uses it as context for planning and generating portal changes.
+- **PDF/DOCX** (best-effort): Pura will attempt to extract raw text from `.pdf` and `.docx` uploads (size-limited). If extraction fails, the attachment is ignored.
 
 Implementation: the AI-chat messages route extracts text from Media Library-backed attachments and appends it to the planner prompt.
 

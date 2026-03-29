@@ -99,9 +99,21 @@ function looksLikeImageAttachment(a: any): boolean {
   return /\.(png|jpe?g|gif|webp|bmp|svg)(\?|#|$)/i.test(`${name} ${url}`);
 }
 
-function looksLikeTextAttachment(a: any): boolean {
+type AttachmentTextKind = "utf8" | "pdf" | "docx";
+
+function classifyTextAttachment(a: any): AttachmentTextKind | null {
   const mime = typeof a?.mimeType === "string" ? a.mimeType.trim().toLowerCase() : "";
-  if (mime.startsWith("text/")) return true;
+  const name = typeof a?.fileName === "string" ? a.fileName.trim().toLowerCase() : "";
+
+  if (mime === "application/pdf" || /\.(pdf)(\?|#|$)/i.test(name)) return "pdf";
+  if (
+    mime === "application/vnd.openxmlformats-officedocument.wordprocessingml.document" ||
+    /\.(docx)(\?|#|$)/i.test(name)
+  ) {
+    return "docx";
+  }
+
+  if (mime.startsWith("text/")) return "utf8";
   if (
     mime === "application/json" ||
     mime === "application/xml" ||
@@ -110,11 +122,16 @@ function looksLikeTextAttachment(a: any): boolean {
     mime === "application/javascript" ||
     mime === "application/x-javascript"
   ) {
-    return true;
+    return "utf8";
   }
 
-  const name = typeof a?.fileName === "string" ? a.fileName.trim().toLowerCase() : "";
-  return /\.(txt|md|markdown|csv|tsv|json|yaml|yml|xml|html?|js|ts|tsx|jsx)(\?|#|$)/i.test(name);
+  if (/\.(txt|md|markdown|csv|tsv|json|yaml|yml|xml|html?|js|ts|tsx|jsx)(\?|#|$)/i.test(name)) return "utf8";
+
+  return null;
+}
+
+function looksLikeTextAttachment(a: any): boolean {
+  return classifyTextAttachment(a) !== null;
 }
 
 function looksLikeMostlyTextUtf8(buf: Buffer): boolean {
@@ -141,6 +158,19 @@ function cleanExtractedText(raw: string, maxChars: number): string {
     .replace(/\r/g, "\n");
 
   return s.trim().slice(0, maxChars);
+}
+
+async function extractPdfText(bytes: Buffer): Promise<string> {
+  const mod: any = await import("pdf-parse");
+  const pdfParse: any = mod?.default ?? mod;
+  const res = await pdfParse(bytes);
+  return typeof (res as any)?.text === "string" ? String((res as any).text) : "";
+}
+
+async function extractDocxText(bytes: Buffer): Promise<string> {
+  const mammoth = await import("mammoth");
+  const res = await (mammoth as any).extractRawText({ buffer: bytes });
+  return typeof res?.value === "string" ? String(res.value) : "";
 }
 
 async function extractTextContextFromAttachments(opts: {
@@ -175,6 +205,8 @@ async function extractTextContextFromAttachments(opts: {
   for (const r of rows || []) byId.set(String(r.id), r);
 
   const MAX_BYTES_PER_FILE = 220_000;
+  const MAX_BYTES_PDF = 4_000_000;
+  const MAX_BYTES_DOCX = 4_000_000;
   const MAX_CHARS_PER_FILE = 4000;
 
   let budget = maxTotalChars;
@@ -186,11 +218,34 @@ async function extractTextContextFromAttachments(opts: {
     const fileSize = typeof r.fileSize === "number" && Number.isFinite(r.fileSize) ? r.fileSize : 0;
     if (fileSize > 2_000_000) continue; // don't try to ingest huge files
 
-    const bytes = Buffer.isBuffer(r.bytes) ? r.bytes : Buffer.from(r.bytes || "");
-    const slice = bytes.subarray(0, Math.min(bytes.length, MAX_BYTES_PER_FILE));
-    if (!looksLikeMostlyTextUtf8(slice)) continue;
+    const attachment = attachments.find((a) => String((a as any)?.id || "").trim() === String(id));
+    const kind = classifyTextAttachment(attachment);
+    if (!kind) continue;
 
-    const text = cleanExtractedText(slice.toString("utf8"), Math.min(MAX_CHARS_PER_FILE, budget));
+    const bytes = Buffer.isBuffer(r.bytes) ? r.bytes : Buffer.from(r.bytes || "");
+    let rawText = "";
+
+    if (kind === "utf8") {
+      const slice = bytes.subarray(0, Math.min(bytes.length, MAX_BYTES_PER_FILE));
+      if (!looksLikeMostlyTextUtf8(slice)) continue;
+      rawText = slice.toString("utf8");
+    } else if (kind === "pdf") {
+      if (bytes.length > MAX_BYTES_PDF) continue;
+      try {
+        rawText = await extractPdfText(bytes);
+      } catch {
+        rawText = "";
+      }
+    } else if (kind === "docx") {
+      if (bytes.length > MAX_BYTES_DOCX) continue;
+      try {
+        rawText = await extractDocxText(bytes);
+      } catch {
+        rawText = "";
+      }
+    }
+
+    const text = cleanExtractedText(rawText, Math.min(MAX_CHARS_PER_FILE, budget));
     if (!text) continue;
 
     const fileName = typeof r.fileName === "string" ? String(r.fileName).trim().slice(0, 160) : "attachment";
