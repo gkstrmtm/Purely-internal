@@ -1071,6 +1071,36 @@ function detectDeterministicActionsFromText(opts: {
   const attachments = Array.isArray(opts.attachments) ? opts.attachments : [];
   if (!t && !attachments.length) return [];
 
+  // AI Chat: manage the current thread (rename/pin/unpin/duplicate/delete).
+  // Note: We intentionally omit threadId here; the caller can inject the active threadId.
+  const isThisChatThread =
+    /\b(this|the)\s+(chat|thread|conversation)\b/i.test(t) ||
+    /\b(chat\s*thread|ai\s*chat\s*thread)\b/i.test(t);
+  if (isThisChatThread) {
+    const renameMatch =
+      /\b(?:rename|title|name)\b[\s\S]{0,40}\b(?:this|the)\s+(?:chat|thread|conversation)\b[\s\S]{0,60}\b(?:to|as)\b\s*["“]?([^"”\n]{1,200})["”]?\s*$/i.exec(t) ||
+      /\b(?:rename|title|name)\b[\s\S]{0,10}\b(?:to|as)\b\s*["“]?([^"”\n]{1,200})["”]?\s*$/i.exec(t);
+    if (renameMatch?.[1]) {
+      const title = String(renameMatch[1]).trim().slice(0, 120);
+      if (title) return [{ key: "ai_chat.threads.update", title: "Rename chat thread", args: { title } }];
+    }
+
+    if (/\bunpin\b/i.test(t)) {
+      return [{ key: "ai_chat.threads.actions.run", title: "Unpin chat thread", args: { action: "unpin" } }];
+    }
+    if (/\bpin\b/i.test(t)) {
+      return [{ key: "ai_chat.threads.actions.run", title: "Pin chat thread", args: { action: "pin" } }];
+    }
+
+    if (/\b(duplicate|copy|clone)\b/i.test(t)) {
+      return [{ key: "ai_chat.threads.duplicate", title: "Duplicate chat thread", args: {} }];
+    }
+
+    if (/\b(delete|remove)\b/i.test(t)) {
+      return [{ key: "ai_chat.threads.delete", title: "Delete chat thread", args: {} }];
+    }
+  }
+
   const bookingIdFromText = () => {
     const m = /\bbooking\s*(?:id)?\s*[:#]?\s*([a-zA-Z0-9_-]{6,120})\b/i.exec(t) || /\bbookingId\s*[:=]\s*([a-zA-Z0-9_-]{6,120})\b/i.exec(t);
     return m?.[1] ? String(m[1]).trim() : "";
@@ -2936,12 +2966,62 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
   const deterministicActions = detectDeterministicActionsFromText({ text: cleanText, attachments });
   if (deterministicActions.length) {
     const first = deterministicActions[0];
+
+    // If a deterministic action needs confirmation, do not auto-execute it.
+    // Instead, return it as an assistantAction so the user can confirm in the UI.
+    const confirmSpec = getConfirmSpecForPortalAgentAction(first.key);
+    if (confirmSpec) {
+      const assistantMsg = await (prisma as any).portalAiChatMessage.create({
+        data: {
+          ownerId,
+          threadId,
+          role: "assistant",
+          text: String(confirmSpec.message || "Confirm to continue.").slice(0, 12000),
+          attachmentsJson: null,
+          createdByUserId: null,
+          sendAt: null,
+          sentAt: now,
+        },
+        select: {
+          id: true,
+          role: true,
+          text: true,
+          attachmentsJson: true,
+          createdAt: true,
+          sendAt: true,
+          sentAt: true,
+        },
+      });
+      await (prisma as any).portalAiChatThread.update({ where: { id: threadId }, data: { lastMessageAt: now } });
+
+      const argsPatched: Record<string, unknown> = { ...(first.args || {}) };
+      if (String(first.key || "").startsWith("ai_chat.") && !String((argsPatched as any).threadId || "").trim()) {
+        argsPatched.threadId = threadId;
+      }
+
+      return NextResponse.json({
+        ok: true,
+        userMessage: userMsg,
+        assistantMessage: assistantMsg,
+        assistantActions: [{ key: first.key, title: first.title, args: argsPatched }],
+        autoActionMessage: null,
+        canvasUrl: null,
+        assistantChoices: null,
+        clientUiActions: [],
+      });
+    }
+
+    const argsPatched: Record<string, unknown> = { ...(first.args || {}) };
+    if (String(first.key || "").startsWith("ai_chat.") && !String((argsPatched as any).threadId || "").trim()) {
+      argsPatched.threadId = threadId;
+    }
+
     const exec = await executePortalAgentActionForThread({
       ownerId,
       actorUserId: createdByUserId,
       threadId,
       action: first.key,
-      args: first.args,
+      args: argsPatched,
     });
 
     return NextResponse.json({
