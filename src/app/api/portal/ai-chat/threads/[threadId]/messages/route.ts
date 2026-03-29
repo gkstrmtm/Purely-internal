@@ -1267,6 +1267,14 @@ function detectDeterministicActionsFromText(opts: {
 
   const isAiReceptionistContext = /\b(ai[\s-]*receptionist|receptionist)\b/i.test(t) || /\b(ai-receptionist)\b/i.test(lower);
 
+  // AI Receptionist: highlights / status summary.
+  if (
+    isAiReceptionistContext &&
+    /\b(anything\s+important|important\s+things?|highlights?|status\s+check|health\s+check|summary|what'?s\s+new)\b/i.test(t)
+  ) {
+    return [{ key: "ai_receptionist.highlights.get", title: "AI receptionist highlights", args: { lookbackHours: 24 * 7, limit: 80 } }];
+  }
+
   // AI Receptionist: get recording playback link.
   if (isAiReceptionistContext && recordingSidFromText() && /\b(recording|audio|listen|play|playback)\b/i.test(t)) {
     return [{ key: "ai_receptionist.recordings.get", title: "Get call recording link", args: { recordingSid: recordingSidFromText() } }];

@@ -23339,6 +23339,137 @@ async function runDirectAction(opts: {
       };
     }
 
+    case "ai_receptionist.highlights.get": {
+      if (!(await requireOwnerOrAdmin())) return { status: 403, json: { ok: false, error: "Forbidden" } };
+
+      const lookbackHoursRaw = (args as any)?.lookbackHours;
+      const limitRaw = (args as any)?.limit;
+      const lookbackHours =
+        typeof lookbackHoursRaw === "number" && Number.isFinite(lookbackHoursRaw)
+          ? Math.max(1, Math.min(24 * 30, Math.floor(lookbackHoursRaw)))
+          : 24 * 7;
+      const limit = typeof limitRaw === "number" && Number.isFinite(limitRaw) ? Math.max(1, Math.min(200, Math.floor(limitRaw))) : 60;
+
+      const data = await getAiReceptionistServiceData(ownerId);
+      const settings = toPublicSettings((data as any)?.settings ?? {});
+
+      const twilio = await getOwnerTwilioSmsConfigMasked(ownerId).catch(() => null);
+      const twilioConfigured = Boolean((twilio as any)?.configured);
+
+      const allEvents = await listAiReceptionistEvents(ownerId, 200);
+      const sinceMs = Date.now() - lookbackHours * 60 * 60 * 1000;
+
+      const recent = allEvents
+        .filter((e) => {
+          const ms = typeof e?.createdAtIso === "string" ? Date.parse(e.createdAtIso) : NaN;
+          return Number.isFinite(ms) ? ms >= sinceMs : true;
+        })
+        .slice(0, limit);
+
+      const stats = {
+        total: recent.length,
+        completed: 0,
+        failed: 0,
+        inProgress: 0,
+        unknown: 0,
+        missingTranscript: 0,
+        notificationErrors: 0,
+      };
+
+      for (const e of recent) {
+        const st = String((e as any)?.status || "UNKNOWN").toUpperCase();
+        if (st === "COMPLETED") stats.completed += 1;
+        else if (st === "FAILED") stats.failed += 1;
+        else if (st === "IN_PROGRESS") stats.inProgress += 1;
+        else stats.unknown += 1;
+
+        const transcript = typeof (e as any)?.transcript === "string" ? String((e as any).transcript).trim() : "";
+        if (st === "COMPLETED" && !transcript) stats.missingTranscript += 1;
+
+        const hasNotifErr =
+          Boolean(String((e as any)?.smsTranscriptSendError || "").trim()) ||
+          Boolean(String((e as any)?.emailTranscriptSendError || "").trim()) ||
+          Boolean(String((e as any)?.emailRecordingSentAtIso || "").trim() === "" && String((e as any)?.recordingSid || "").trim());
+        if (hasNotifErr) stats.notificationErrors += 1;
+      }
+
+      const warnings: string[] = [];
+      if (!settings.enabled) warnings.push("AI receptionist is currently disabled.");
+      if (!String((settings as any)?.webhookToken || "").trim()) warnings.push("Webhook token is missing (incoming calls may not route correctly).");
+      if (settings.mode === "FORWARD" && !settings.forwardToPhoneE164) warnings.push("Mode is FORWARD but forwardToPhoneE164 is not set.");
+      if (settings.aiCanTransferToHuman && !settings.forwardToPhoneE164) warnings.push("Transfers are enabled but no forward/transfer phone number is set.");
+      if (settings.mode === "AI" && !String((settings as any)?.voiceAgentId || "").trim()) warnings.push("Voice agent ID is missing (AI mode can’t run).");
+      if (settings.mode === "AI" && !(settings as any)?.voiceAgentConfigured) warnings.push("Voice agent API key is not configured.");
+      if (settings.smsEnabled && !twilioConfigured) warnings.push("SMS replies are enabled but Twilio SMS is not configured.");
+      if (settings.smsEnabled && !String((settings as any)?.smsSystemPrompt || "").trim()) warnings.push("SMS replies are enabled but smsSystemPrompt is empty.");
+
+      const voiceKbErr = String((settings as any)?.voiceKnowledgeBase?.lastSyncError || "").trim();
+      if (voiceKbErr) warnings.push(`Voice knowledge base sync error: ${voiceKbErr.slice(0, 200)}`);
+      const smsKbErr = String((settings as any)?.smsKnowledgeBase?.lastSyncError || "").trim();
+      if (smsKbErr) warnings.push(`SMS knowledge base sync error: ${smsKbErr.slice(0, 200)}`);
+
+      const sanitizeSummary = (raw: string, max = 220) =>
+        String(raw || "")
+          .trim()
+          .replace(/[\r\n\t]+/g, " ")
+          .replace(/\s+/g, " ")
+          .slice(0, max)
+          .trim();
+
+      const issues: Array<{ kind: string; callSid: string; createdAtIso: string; summary: string }> = [];
+      const pushIssue = (kind: string, e: any, summary: string) => {
+        const callSid = String(e?.callSid || "").trim().slice(0, 120);
+        const createdAtIso = typeof e?.createdAtIso === "string" ? String(e.createdAtIso).slice(0, 40) : "";
+        if (!callSid) return;
+        issues.push({ kind, callSid, createdAtIso, summary: sanitizeSummary(summary, 220) });
+      };
+
+      for (const e of recent) {
+        const st = String(e?.status || "UNKNOWN").toUpperCase();
+        if (st === "FAILED") {
+          const note = String(e?.notes || "").trim();
+          const who = String(e?.contactName || "").trim() || String(e?.from || "").trim();
+          pushIssue("failed_call", e, `${who ? who + ": " : ""}Call failed${note ? ` — ${note}` : ""}`);
+          continue;
+        }
+
+        const smsErr = String(e?.smsTranscriptSendError || "").trim();
+        const emailErr = String(e?.emailTranscriptSendError || "").trim();
+        if (smsErr || emailErr) {
+          pushIssue("notification_error", e, `Notification error${smsErr ? ` (SMS): ${smsErr}` : ""}${emailErr ? ` (Email): ${emailErr}` : ""}`);
+          continue;
+        }
+
+        const transcript = typeof e?.transcript === "string" ? String(e.transcript).trim() : "";
+        if (st === "COMPLETED" && !transcript) {
+          const who = String(e?.contactName || "").trim() || String(e?.from || "").trim();
+          pushIssue("missing_transcript", e, `${who ? who + ": " : ""}Completed call has no transcript text yet.`);
+        }
+      }
+
+      // Keep the list short and high-signal.
+      const topIssues = issues.slice(0, 12);
+
+      return {
+        status: 200,
+        json: {
+          ok: true,
+          lookbackHours,
+          stats,
+          warnings: warnings.slice(0, 12),
+          issues: topIssues,
+          settings: {
+            enabled: Boolean((settings as any)?.enabled),
+            mode: (settings as any)?.mode,
+            forwardToPhoneE164: (settings as any)?.forwardToPhoneE164 ?? null,
+            aiCanTransferToHuman: Boolean((settings as any)?.aiCanTransferToHuman),
+            smsEnabled: Boolean((settings as any)?.smsEnabled),
+            voiceAgentConfigured: Boolean((settings as any)?.voiceAgentConfigured),
+          },
+        },
+      };
+    }
+
     case "ai_receptionist.settings.update": {
       if (!(await requireServiceCapability("aiReceptionist", "edit"))) {
         return { status: 403, json: { ok: false, error: "Forbidden" } };

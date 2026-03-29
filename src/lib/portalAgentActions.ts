@@ -403,6 +403,7 @@ export const PortalAgentActionKeySchema = z.enum([
   "ai_outbound_calls.recordings.get",
 
   "ai_receptionist.settings.get",
+  "ai_receptionist.highlights.get",
   "ai_receptionist.recordings.get",
   "ai_receptionist.recordings.demo.get",
   "ai_receptionist.demo_audio.get",
@@ -2933,6 +2934,13 @@ export const PortalAgentActionArgsSchemaByKey = {
 
   "ai_receptionist.settings.get": z.object({}).strict(),
 
+  "ai_receptionist.highlights.get": z
+    .object({
+      lookbackHours: z.number().int().min(1).max(24 * 30).optional(),
+      limit: z.number().int().min(1).max(200).optional(),
+    })
+    .strict(),
+
   "ai_receptionist.settings.update": z
     .object({
       settings: z.unknown().optional(),
@@ -3523,6 +3531,7 @@ export function portalAgentActionsIndexText(opts?: { includeAiChat?: boolean }):
     "- ai_outbound_calls.manual_calls.refresh: Refresh a manual call record (fetch transcript/recording if available) (fields: id)",
     "- ai_outbound_calls.recordings.get: Fetch a manual-call recording audio (base64; size-limited) (fields: recordingSid, asBase64?, maxBytes?)",
     "- ai_receptionist.settings.get: Get AI receptionist settings and recent call events",
+    "- ai_receptionist.highlights.get: Summarize important AI receptionist status + recent call issues (fields: lookbackHours?, limit?)",
     "- ai_receptionist.settings.update: Update AI receptionist settings or regenerate webhook token (fields: settings? OR regenerateToken=true, syncChatAgent?)",
     "- ai_receptionist.events.refresh: Refresh/reconcile a call event (fields: callSid)",
     "- ai_receptionist.events.delete: Delete a call event (fields: callSid)",

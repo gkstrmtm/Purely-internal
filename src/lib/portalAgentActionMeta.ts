@@ -13,6 +13,7 @@ const NO_CONFIRM_KEYS = new Set<PortalAgentActionKey>([
   "contacts.create",
   "tasks.create",
   "tasks.update",
+  "ai_receptionist.highlights.get",
 ]);
 
 export function getConfirmSpecForPortalAgentAction(action: PortalAgentActionKey): PortalAgentConfirmSpec | null {

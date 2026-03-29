@@ -32,6 +32,7 @@ This is not exhaustive (see the action index text in `src/lib/portalAgentActions
 - **Funnel Builder**: create/update funnels, pages, forms, domains; generate/export HTML; generate custom code blocks.
 - **AI Outbound Calls**: create/update campaigns; enroll contacts; manual calls; activity; knowledge base sync/upload; agent config generation; ElevenLabs sync.
 - **AI Receptionist**: get/update settings; refresh/delete call events; recordings; generate/polish text; preview SMS replies; knowledge base sync/upload.
+- **AI Receptionist highlights**: Pura can generate a quick "anything important?" status summary from recent call events + current configuration.
 - **Tasks**: list/create/update tasks and assignees.
 - **Inbox**: list threads/messages; send email/SMS; schedule messages; upload attachments.
 - **Media Library**: list/move/update/delete items and folders; import remote images; create from blob.
