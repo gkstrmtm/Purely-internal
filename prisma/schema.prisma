@@ -293,6 +293,8 @@ model PortalAiChatMessage {
   sendAt DateTime?
   sentAt DateTime?
 
+  repeatEveryMinutes Int?
+
   createdAt DateTime @default(now())
 
   owner         User              @relation("PortalAiChatMessageOwner", fields: [ownerId], references: [id])
