@@ -25916,6 +25916,39 @@ export function deriveThreadContextPatchFromAction(action: PortalAgentActionKey,
       }
     }
 
+    // Track funnels/forms so follow-ups can infer “the one we just used”.
+    if (action === "funnel_builder.funnels.get" && typeof (json as any).funnel?.id === "string") {
+      const id = String((json as any).funnel.id).trim().slice(0, 120);
+      if (id) {
+        const label = String((json as any).funnel?.name || (json as any).funnel?.slug || "Funnel").trim().slice(0, 120) || "Funnel";
+        return { lastFunnel: { id, label } };
+      }
+    }
+
+    if ((action === "funnel_builder.funnels.update" || action === "funnel_builder.funnels.delete") && typeof (args as any)?.funnelId === "string") {
+      const id = String((args as any).funnelId).trim().slice(0, 120);
+      if (id) {
+        const nameHint = typeof (args as any).name === "string" ? String((args as any).name).trim().slice(0, 120) : "";
+        return { lastFunnel: { id, label: nameHint || "Funnel" } };
+      }
+    }
+
+    if ((action === "funnel_builder.forms.create" || action === "funnel_builder.forms.get") && typeof (json as any).form?.id === "string") {
+      const id = String((json as any).form.id).trim().slice(0, 120);
+      if (id) {
+        const label = String((json as any).form?.name || (json as any).form?.slug || "Form").trim().slice(0, 120) || "Form";
+        return { lastFunnelForm: { id, label } };
+      }
+    }
+
+    if ((action === "funnel_builder.forms.update" || action === "funnel_builder.forms.delete") && typeof (args as any)?.formId === "string") {
+      const id = String((args as any).formId).trim().slice(0, 120);
+      if (id) {
+        const nameHint = typeof (args as any).name === "string" ? String((args as any).name).trim().slice(0, 120) : "";
+        return { lastFunnelForm: { id, label: nameHint || "Form" } };
+      }
+    }
+
     // Track the most recently used AI outbound campaign so follow-ups like
     // “update the same campaign” can resolve without re-asking.
     if (action.startsWith("ai_outbound_calls.")) {
