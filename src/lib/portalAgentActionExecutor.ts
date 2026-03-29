@@ -25949,6 +25949,22 @@ export function deriveThreadContextPatchFromAction(action: PortalAgentActionKey,
       }
     }
 
+    if (action === "tasks.create" && typeof (json as any).taskId === "string") {
+      const id = String((json as any).taskId).trim().slice(0, 120);
+      if (id) {
+        const titleHint = typeof (args as any).title === "string" ? String((args as any).title).trim().slice(0, 120) : "";
+        return { lastTask: { id, label: titleHint || "Task" } };
+      }
+    }
+
+    if (action === "tasks.update" && typeof (args as any).taskId === "string") {
+      const id = String((args as any).taskId).trim().slice(0, 120);
+      if (id) {
+        const titleHint = typeof (args as any).title === "string" ? String((args as any).title).trim().slice(0, 120) : "";
+        return { lastTask: { id, label: titleHint || "Task" } };
+      }
+    }
+
     // Track the most recently used AI outbound campaign so follow-ups like
     // “update the same campaign” can resolve without re-asking.
     if (action.startsWith("ai_outbound_calls.")) {
@@ -26012,6 +26028,114 @@ export function deriveThreadContextPatchFromAction(action: PortalAgentActionKey,
       if (id) {
         return { lastNurtureStep: { id, label: "Nurture step" } };
       }
+    }
+
+    if (action === "contacts.create" && typeof (json as any).contactId === "string") {
+      const id = String((json as any).contactId).trim().slice(0, 120);
+      if (id) {
+        const label = typeof (args as any).name === "string" ? String((args as any).name).trim().slice(0, 120) : "Contact";
+        return { lastContact: { id, label: label || "Contact" } };
+      }
+    }
+
+    if (action === "contacts.get" && typeof (json as any).contact?.id === "string") {
+      const id = String((json as any).contact.id).trim().slice(0, 120);
+      if (id) {
+        const label = String((json as any).contact?.name || (json as any).contact?.email || (json as any).contact?.phone || "Contact")
+          .trim()
+          .slice(0, 120);
+        return { lastContact: { id, label: label || "Contact" } };
+      }
+    }
+
+    if (action === "contacts.update") {
+      const id = typeof (json as any).contactId === "string" ? String((json as any).contactId).trim().slice(0, 120) : "";
+      const fallback = typeof (args as any).contactId === "string" ? String((args as any).contactId).trim().slice(0, 120) : "";
+      const contactId = (id || fallback).slice(0, 120);
+      if (contactId) {
+        const label = typeof (args as any).name === "string" ? String((args as any).name).trim().slice(0, 120) : "Contact";
+        return { lastContact: { id: contactId, label: label || "Contact" } };
+      }
+    }
+
+    if (action === "booking.calendar.create" && typeof (json as any).calendarId === "string") {
+      const id = String((json as any).calendarId).trim().slice(0, 120);
+      if (id) {
+        const label = typeof (args as any).title === "string" ? String((args as any).title).trim().slice(0, 120) : "Booking calendar";
+        return { lastBookingCalendar: { id, label: label || "Booking calendar" } };
+      }
+    }
+
+    if (
+      (action === "booking.reminders.settings.get" || action === "booking.reminders.settings.update") &&
+      typeof (json as any).calendarId === "string" &&
+      String((json as any).calendarId).trim()
+    ) {
+      const id = String((json as any).calendarId).trim().slice(0, 120);
+      return { lastBookingCalendar: { id, label: "Booking calendar" } };
+    }
+
+    if (action === "booking.cancel" || action === "booking.reschedule" || action === "booking.contact") {
+      const fromJson = typeof (json as any).booking?.id === "string" ? String((json as any).booking.id).trim() : "";
+      const fromArgs = typeof (args as any).bookingId === "string" ? String((args as any).bookingId).trim() : "";
+      const id = (fromJson || fromArgs).slice(0, 120);
+      if (id) return { lastBooking: { id, label: "Booking" } };
+    }
+
+    if (action === "media.folder.ensure" && typeof (json as any).folderId === "string") {
+      const id = String((json as any).folderId).trim().slice(0, 120);
+      if (id) {
+        const label = typeof (args as any).name === "string" ? String((args as any).name).trim().slice(0, 120) : "Media folder";
+        return { lastMediaFolder: { id, label: label || "Media folder" } };
+      }
+    }
+
+    if (action === "media.folders.update" && typeof (args as any).id === "string") {
+      const id = String((args as any).id).trim().slice(0, 120);
+      if (id) {
+        const label = typeof (args as any).name === "string" ? String((args as any).name).trim().slice(0, 120) : "Media folder";
+        return { lastMediaFolder: { id, label: label || "Media folder" } };
+      }
+    }
+
+    if (action === "media.items.move") {
+      const folderId = typeof (json as any).folderId === "string" ? String((json as any).folderId).trim().slice(0, 120) : "";
+      const itemIds = Array.isArray((args as any).itemIds) ? ((args as any).itemIds as unknown[]) : [];
+      const firstItemId = typeof itemIds[0] === "string" ? String(itemIds[0]).trim().slice(0, 120) : "";
+      return {
+        ...(folderId ? { lastMediaFolder: { id: folderId, label: "Media folder" } } : {}),
+        ...(firstItemId ? { lastMediaItem: { id: firstItemId, label: "Media item" } } : {}),
+      };
+    }
+
+    if ((action === "media.items.update" || action === "media.items.delete") && typeof (args as any).id === "string") {
+      const id = String((args as any).id).trim().slice(0, 120);
+      if (!id) return null;
+      const folderId = typeof (args as any).folderId === "string" ? String((args as any).folderId).trim().slice(0, 120) : "";
+      return {
+        lastMediaItem: { id, label: "Media item" },
+        ...(folderId ? { lastMediaFolder: { id: folderId, label: "Media folder" } } : {}),
+      };
+    }
+
+    if ((action === "media.items.create_from_blob" || action === "media.import_remote_image") && typeof (json as any).item?.id === "string") {
+      const id = String((json as any).item.id).trim().slice(0, 120);
+      const fileName = typeof (json as any).item?.fileName === "string" ? String((json as any).item.fileName).trim().slice(0, 120) : "";
+      const folderId = typeof (json as any).item?.folderId === "string" ? String((json as any).item.folderId).trim().slice(0, 120) : "";
+      return {
+        ...(folderId ? { lastMediaFolder: { id: folderId, label: "Media folder" } } : {}),
+        lastMediaItem: { id, label: fileName || "Media item" },
+      };
+    }
+
+    if (action === "reviews.reply" && typeof (args as any).reviewId === "string") {
+      const id = String((args as any).reviewId).trim().slice(0, 120);
+      if (id) return { lastReview: { id, label: "Review" } };
+    }
+
+    if (action === "reviews.questions.answer" && typeof (args as any).id === "string") {
+      const id = String((args as any).id).trim().slice(0, 120);
+      if (id) return { lastReviewQuestion: { id, label: "Review question" } };
     }
 
     if (action === "inbox.send" && (json as any).scheduled === true && typeof (json as any).scheduledId === "string") {

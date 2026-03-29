@@ -126,7 +126,7 @@ export const PlannerOutputSchema = z
 export type PuraPlanStep = z.infer<typeof StepSchema>;
 export type PuraPlan = z.infer<typeof PlannerOutputSchema>;
 
-function shouldPlan(textRaw: string, threadContext?: unknown): boolean {
+function shouldPlan(textRaw: string): boolean {
   const t = String(textRaw || "").trim();
   if (!t) return false;
 
@@ -213,7 +213,7 @@ export async function planPuraActions(opts: {
   imageUrls?: string[];
 }): Promise<PuraPlan | null> {
   const text = String(opts.text || "").trim();
-  if (!shouldPlan(text, opts.threadContext)) return null;
+  if (!shouldPlan(text)) return null;
 
   const ownerTimeZone =
     opts.threadContext && typeof opts.threadContext === "object" && !Array.isArray(opts.threadContext) && typeof (opts.threadContext as any).ownerTimeZone === "string"
