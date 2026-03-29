@@ -56,6 +56,7 @@ export async function POST(req: Request) {
 
   const exec = await executePortalAgentActionForThread({
     ownerId,
+    actorUserId: memberId,
     threadId,
     action: action as PortalAgentActionKey,
     args: argsRaw,
