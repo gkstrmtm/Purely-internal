@@ -116,7 +116,10 @@ export function middleware(req: NextRequest) {
     if (host && !PLATFORM_HOSTNAMES.has(host)) {
       const url = req.nextUrl.clone();
       url.pathname = `/domain-router/${encodeURIComponent(host)}${pathname}`;
-      return NextResponse.rewrite(url);
+      const res = NextResponse.rewrite(url);
+      res.headers.set("x-pa-domain-router", "1");
+      res.headers.set("x-pa-domain-host", host);
+      return res;
     }
   }
 
