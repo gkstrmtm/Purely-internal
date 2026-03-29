@@ -27,8 +27,24 @@ export async function GET() {
   const ownerId = auth.session.user.id;
   const memberId = (auth.session.user as any).memberId || ownerId;
 
+  // Cleanup: remove empty placeholder threads created by older client behavior.
+  // "Empty" means: no messages at all.
+  try {
+    await (prisma as any).portalAiChatThread.deleteMany({
+      where: {
+        ownerId,
+        isPinned: false,
+        lastMessageAt: null,
+        messages: { none: {} },
+      },
+    });
+  } catch {
+    // ignore cleanup errors
+  }
+
   const threads = await (prisma as any).portalAiChatThread.findMany({
-    where: { ownerId },
+    // Never return empty threads; a thread should exist only if it has content.
+    where: { ownerId, messages: { some: {} } },
     orderBy: [
       { isPinned: "desc" },
       { pinnedAt: "desc" },

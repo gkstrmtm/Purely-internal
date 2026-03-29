@@ -712,20 +712,11 @@ export function PortalAiChatClient() {
       const next = Array.isArray(json.threads) ? (json.threads as Thread[]) : [];
       setThreads(next);
 
-      if (!activeThreadId) {
-        if (next.length) {
-          setActiveThreadId(next[0]!.id);
-        } else {
-          const created = await fetch("/api/portal/ai-chat/threads", {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify({}),
-          }).then((r) => r.json());
-          if (created?.ok && created?.thread?.id) {
-            setThreads([created.thread]);
-            setActiveThreadId(created.thread.id);
-          }
-        }
+      // Default to a draft "new chat" when opening the page.
+      // If an active thread was selected during this session but was deleted,
+      // clear it and fall back to draft.
+      if (activeThreadId && !next.some((t) => t.id === activeThreadId)) {
+        setActiveThreadId(null);
       }
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
@@ -793,26 +784,23 @@ export function PortalAiChatClient() {
     void loadMessages(activeThreadId);
   }, [activeThreadId, loadMessages]);
 
-  const createThread = useCallback(async () => {
-    try {
-      const res = await fetch("/api/portal/ai-chat/threads", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({}),
-      });
-      const json = await res.json().catch(() => null);
-      if (!json?.ok) throw new Error(json?.error || "Failed to create thread");
-      const t = json.thread as Thread;
-      setThreads((prev) => [t, ...prev]);
-      setActiveThreadId(t.id);
-      setCanvasUrl(null);
-      setCanvasModalOpen(false);
-      setCanvasOpen(false);
-      setMobileThreadsOpen(false);
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : String(e));
-    }
-  }, [toast]);
+  const createThread = useCallback(() => {
+    // "New chat" is a local-only draft until the user sends the first message.
+    // This prevents empty threads from being persisted.
+    forceScrollToBottomRef.current = true;
+    setActiveThreadId(null);
+    setMessages([]);
+    setInput("");
+    setPendingAttachments([]);
+    setAmbiguousContacts(null);
+    setAssistantChoices(null);
+    setCanvasUiAmbiguity(null);
+    setCanvasUiResumeActions(null);
+    setCanvasUrl(null);
+    setCanvasModalOpen(false);
+    setCanvasOpen(false);
+    setMobileThreadsOpen(false);
+  }, []);
 
   const pinThread = useCallback(
     async (thread: Thread) => {
@@ -1104,7 +1092,18 @@ export function PortalAiChatClient() {
       const attachments = pendingAttachments;
       if (!text && !attachments.length && !choice) return;
 
-      if (!activeThreadId) return;
+      let threadIdForSend = activeThreadId;
+      let createdThread: Thread | null = null;
+      if (!threadIdForSend) {
+        const created = await fetch("/api/portal/ai-chat/threads", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({}),
+        }).then((r) => r.json().catch(() => null));
+        if (!created?.ok || !created?.thread?.id) throw new Error(created?.error || "Failed to create chat");
+        createdThread = created.thread as Thread;
+        threadIdForSend = String(createdThread.id);
+      }
 
       const optimisticId = newClientId();
       const nowIso = new Date().toISOString();
@@ -1140,7 +1139,7 @@ export function PortalAiChatClient() {
       sendInFlightRef.current = true;
       setSending(true);
       try {
-        const res = await fetch(`/api/portal/ai-chat/threads/${encodeURIComponent(activeThreadId)}/messages`, {
+        const res = await fetch(`/api/portal/ai-chat/threads/${encodeURIComponent(threadIdForSend)}/messages`, {
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({
@@ -1153,6 +1152,12 @@ export function PortalAiChatClient() {
         });
         const json = await res.json().catch(() => null);
         if (!json?.ok) throw new Error(json?.error || "Send failed");
+
+        if (createdThread) {
+          setThreads((prev) => [createdThread as Thread, ...prev]);
+          setActiveThreadId(threadIdForSend);
+          setMobileThreadsOpen(false);
+        }
         if (json.ambiguousContacts && Array.isArray(json.ambiguousContacts) && json.ambiguousContacts.length) {
           setAmbiguousContacts(json.ambiguousContacts);
         } else {
@@ -1190,7 +1195,7 @@ export function PortalAiChatClient() {
             return;
           }
 
-          const res2 = await fetch(`/api/portal/ai-chat/threads/${encodeURIComponent(activeThreadId)}/messages`, {
+          const res2 = await fetch(`/api/portal/ai-chat/threads/${encodeURIComponent(threadIdForSend)}/messages`, {
             method: "POST",
             headers: { "content-type": "application/json" },
             body: JSON.stringify({
@@ -1266,6 +1271,18 @@ export function PortalAiChatClient() {
         setMessages((prev) => prev.filter((m) => m.id !== optimisticUser.id && m.id !== optimisticAssistant.id));
         setInput(text);
         setPendingAttachments(attachments);
+
+        // If the first send failed right after creating a brand new thread,
+        // proactively delete it so empty chats are never persisted.
+        if (createdThread?.id) {
+          void fetch(`/api/portal/ai-chat/threads/${encodeURIComponent(String(createdThread.id))}/actions`, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ action: "delete" }),
+          }).catch(() => null);
+          setThreads((prev) => prev.filter((t) => t.id !== String(createdThread?.id)));
+        }
+
         toast.error(e instanceof Error ? e.message : String(e));
       } finally {
         sendInFlightRef.current = false;
