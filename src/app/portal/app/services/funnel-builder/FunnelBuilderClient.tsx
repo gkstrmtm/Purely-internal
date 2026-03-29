@@ -67,9 +67,9 @@ function funnelStatusLabel(
   assignedDomainStatus: "PENDING" | "VERIFIED" | null,
 ) {
   if (f.status === "ARCHIVED") return "ARCHIVED";
+  if (f.status !== "ACTIVE") return "DRAFT";
   if (f.assignedDomain) return assignedDomainStatus === "VERIFIED" ? "LIVE" : "PENDING";
-  if (f.status === "ACTIVE") return "LIVE";
-  return "DRAFT";
+  return "LIVE";
 }
 
 function statusPillClass(label: string) {
@@ -977,7 +977,7 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                           ? isLocalPreview
                             ? `${platformTargetHost || ""}/domain-router/${assignedDomainClean}/${f.slug}`
                             : `https://${assignedDomainClean}/${f.slug}`
-                          : `${platformTargetHost || ""}${hostedFunnelPath(f.slug, f.id) || ""}`}
+                          : toPurelyHostedUrl(hostedFunnelPath(f.slug, f.id) || `/f/${encodeURIComponent(f.slug)}`)}
                       </span>
                       {assignedDomainClean && assignedDomainStatus !== "VERIFIED" ? (
                         <span
