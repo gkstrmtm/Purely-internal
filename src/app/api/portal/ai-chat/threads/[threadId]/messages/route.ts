@@ -3088,6 +3088,35 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
   let autoActionMessage: any = null;
   if (shouldAutoExecuteFromUserText(effectiveText) && assistantActions.length) {
     const first = assistantActions[0];
+
+    // Never auto-execute actions that require confirmation.
+    const confirmSpec = getConfirmSpecForPortalAgentAction(first.key as PortalAgentActionKey);
+    if (confirmSpec) {
+      const assistantMsg = await (prisma as any).portalAiChatMessage.create({
+        data: {
+          ownerId,
+          threadId,
+          role: "assistant",
+          text: String(confirmSpec.message || "Confirm to continue.").slice(0, 12000),
+          attachmentsJson: null,
+          createdByUserId: null,
+          sendAt: null,
+          sentAt: now,
+        },
+        select: {
+          id: true,
+          role: true,
+          text: true,
+          attachmentsJson: true,
+          createdAt: true,
+          sendAt: true,
+          sentAt: true,
+        },
+      });
+      await (prisma as any).portalAiChatThread.update({ where: { id: threadId }, data: { lastMessageAt: now } });
+      return NextResponse.json({ ok: true, userMessage: userMsg, assistantMessage: assistantMsg, assistantActions, autoActionMessage: null, canvasUrl: null });
+    }
+
     try {
       const exec = await executePortalAgentActionForThread({
         ownerId,
