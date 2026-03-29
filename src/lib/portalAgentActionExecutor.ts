@@ -25916,6 +25916,24 @@ export function deriveThreadContextPatchFromAction(action: PortalAgentActionKey,
       }
     }
 
+    // Track the most recently used AI outbound campaign so follow-ups like
+    // “update the same campaign” can resolve without re-asking.
+    if (action.startsWith("ai_outbound_calls.")) {
+      const fromJson =
+        typeof (json as any).campaign?.id === "string"
+          ? String((json as any).campaign.id).trim()
+          : typeof (json as any).id === "string"
+            ? String((json as any).id).trim()
+            : "";
+      const fromArgs = typeof (args as any).campaignId === "string" ? String((args as any).campaignId).trim() : "";
+      const id = (fromJson || fromArgs).slice(0, 120);
+      if (id) {
+        const nameHint = typeof (args as any).name === "string" ? String((args as any).name).trim().slice(0, 120) : "";
+        const label = nameHint || "AI outbound campaign";
+        return { lastAiOutboundCallsCampaign: { id, label } };
+      }
+    }
+
     if (action === "inbox.send" && (json as any).scheduled === true && typeof (json as any).scheduledId === "string") {
       const scheduledId = String((json as any).scheduledId || "").trim().slice(0, 120);
       if (!scheduledId) return null;
