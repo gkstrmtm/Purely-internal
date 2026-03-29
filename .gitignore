@@ -39,6 +39,9 @@ scripts/User:*
 # local uploads (ephemeral on most hosts)
 /public/uploads/
 
+# public folder transcript artifact (do not commit)
+/public/brand/chat.md
+
 # local notes / chat transcripts
 /src/lib/notes/
 
