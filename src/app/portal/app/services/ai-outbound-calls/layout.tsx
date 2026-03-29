@@ -10,10 +10,8 @@ export const revalidate = 0;
 type TabKey = "calls" | "messages" | "settings";
 
 export default async function PortalAiOutboundCallsLayout({
-  children,
   params,
 }: {
-  children: React.ReactNode;
   params: Promise<{ tab?: string }>;
 }) {
   // Keep the client shell mounted across /ai-outbound-calls/calls|messages|settings.
@@ -29,7 +27,6 @@ export default async function PortalAiOutboundCallsLayout({
   return (
     <PortalServiceGate slug="ai-outbound-calls">
       <PortalAiOutboundCallsClient initialTab={raw as TabKey} />
-      {children}
     </PortalServiceGate>
   );
 }

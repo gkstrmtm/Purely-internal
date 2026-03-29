@@ -6,9 +6,5 @@ import { requestPortalAppBasePath } from "@/lib/portalVariant.server";
 export default async function PortalAiOutboundCallsServicePage() {
   const base = await requestPortalAppBasePath();
   redirect(`${base}/services/ai-outbound-calls/calls`);
-  return (
-    <PortalServiceGate slug="ai-outbound-calls">
-      <PortalAiOutboundCallsClient />
-    </PortalServiceGate>
-  );
+  return null;
 }

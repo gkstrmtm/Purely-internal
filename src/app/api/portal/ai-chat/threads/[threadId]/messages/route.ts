@@ -99,6 +99,112 @@ function looksLikeImageAttachment(a: any): boolean {
   return /\.(png|jpe?g|gif|webp|bmp|svg)(\?|#|$)/i.test(`${name} ${url}`);
 }
 
+function looksLikeTextAttachment(a: any): boolean {
+  const mime = typeof a?.mimeType === "string" ? a.mimeType.trim().toLowerCase() : "";
+  if (mime.startsWith("text/")) return true;
+  if (
+    mime === "application/json" ||
+    mime === "application/xml" ||
+    mime === "application/x-yaml" ||
+    mime === "application/yaml" ||
+    mime === "application/javascript" ||
+    mime === "application/x-javascript"
+  ) {
+    return true;
+  }
+
+  const name = typeof a?.fileName === "string" ? a.fileName.trim().toLowerCase() : "";
+  return /\.(txt|md|markdown|csv|tsv|json|yaml|yml|xml|html?|js|ts|tsx|jsx)(\?|#|$)/i.test(name);
+}
+
+function looksLikeMostlyTextUtf8(buf: Buffer): boolean {
+  if (!buf.length) return false;
+  const max = Math.min(buf.length, 4096);
+  let nul = 0;
+  let control = 0;
+  for (let i = 0; i < max; i++) {
+    const b = buf[i]!;
+    if (b === 0) nul += 1;
+    // Count control chars excluding common whitespace.
+    if (b < 0x20 && b !== 0x09 && b !== 0x0a && b !== 0x0d) control += 1;
+  }
+  if (nul / max > 0.01) return false;
+  if (control / max > 0.2) return false;
+  return true;
+}
+
+function cleanExtractedText(raw: string, maxChars: number): string {
+  const s = String(raw || "")
+    .replace(/\u0000/g, "")
+    .replace(/[\u0001-\u0008\u000B\u000C\u000E-\u001F]/g, " ")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n");
+
+  return s.trim().slice(0, maxChars);
+}
+
+async function extractTextContextFromAttachments(opts: {
+  ownerId: string;
+  attachments: any[];
+  maxTotalChars?: number;
+}): Promise<string> {
+  const ownerId = String(opts.ownerId || "").trim();
+  const attachments = Array.isArray(opts.attachments) ? opts.attachments : [];
+  const maxTotalChars = typeof opts.maxTotalChars === "number" && Number.isFinite(opts.maxTotalChars)
+    ? Math.max(1000, Math.min(20_000, Math.floor(opts.maxTotalChars)))
+    : 8000;
+  if (!ownerId || !attachments.length) return "";
+
+  const ids = Array.from(
+    new Set(
+      attachments
+        .filter((a) => a && typeof a === "object" && looksLikeTextAttachment(a) && !looksLikeImageAttachment(a))
+        .map((a) => String((a as any).id || "").trim())
+        .filter(Boolean)
+        .slice(0, 10),
+    ),
+  );
+  if (!ids.length) return "";
+
+  const rows = await (prisma as any).portalMediaItem.findMany({
+    where: { ownerId, id: { in: ids } },
+    select: { id: true, fileName: true, mimeType: true, fileSize: true, bytes: true },
+  });
+
+  const byId = new Map<string, any>();
+  for (const r of rows || []) byId.set(String(r.id), r);
+
+  const MAX_BYTES_PER_FILE = 220_000;
+  const MAX_CHARS_PER_FILE = 4000;
+
+  let budget = maxTotalChars;
+  const parts: string[] = [];
+  for (const id of ids) {
+    const r = byId.get(id);
+    if (!r) continue;
+
+    const fileSize = typeof r.fileSize === "number" && Number.isFinite(r.fileSize) ? r.fileSize : 0;
+    if (fileSize > 2_000_000) continue; // don't try to ingest huge files
+
+    const bytes = Buffer.isBuffer(r.bytes) ? r.bytes : Buffer.from(r.bytes || "");
+    const slice = bytes.subarray(0, Math.min(bytes.length, MAX_BYTES_PER_FILE));
+    if (!looksLikeMostlyTextUtf8(slice)) continue;
+
+    const text = cleanExtractedText(slice.toString("utf8"), Math.min(MAX_CHARS_PER_FILE, budget));
+    if (!text) continue;
+
+    const fileName = typeof r.fileName === "string" ? String(r.fileName).trim().slice(0, 160) : "attachment";
+    const mimeType = typeof r.mimeType === "string" ? String(r.mimeType).trim().slice(0, 120) : "";
+
+    parts.push([`[Attachment: ${fileName}${mimeType ? ` (${mimeType})` : ""}]`, text].join("\n"));
+    budget -= text.length;
+    if (budget <= 0) break;
+  }
+
+  if (!parts.length) return "";
+  return ["\n\nAttachment text (for context):", parts.join("\n\n---\n\n")].join("\n");
+}
+
 function imageUrlsFromAttachments(attachments: any[], reqUrl: string): string[] {
   if (!Array.isArray(attachments) || !attachments.length) return [];
   const out: string[] = [];
@@ -2206,6 +2312,14 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
         threadContext = nextCtx;
       }
 
+      const attachmentTextContext = attachments.length
+        ? await extractTextContextFromAttachments({ ownerId, attachments, maxTotalChars: 8000 }).catch(() => "")
+        : "";
+
+      const planningTextWithAttachments = attachmentTextContext
+        ? [effectivePlanningText, attachmentTextContext].filter(Boolean).join("\n").slice(0, 12_000)
+        : effectivePlanningText;
+
       const deterministicWeekdaySmsPlan = buildDeterministicWeekdaySmsPlan({
         text: effectivePlanningText,
         ownerTimeZone: String(ownerTimeZone || (threadContext as any)?.ownerTimeZone || "").trim() || undefined,
@@ -2221,7 +2335,7 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
       } else {
         try {
           plan = await planPuraActions({
-            text: effectivePlanningText,
+            text: planningTextWithAttachments,
             url: contextUrl,
             recentMessages: modelMessages,
             threadContext,
