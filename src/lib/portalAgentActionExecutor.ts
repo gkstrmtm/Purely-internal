@@ -25934,6 +25934,53 @@ export function deriveThreadContextPatchFromAction(action: PortalAgentActionKey,
       }
     }
 
+    // Track nurture campaigns/steps so follow-ups like “add a step to that campaign”
+    // and “edit the last step” can resolve without re-asking.
+    if (action === "nurture.campaigns.create" && typeof (json as any).id === "string") {
+      const id = String((json as any).id).trim().slice(0, 120);
+      if (id) {
+        const nameHint = typeof (args as any).name === "string" ? String((args as any).name).trim().slice(0, 120) : "";
+        const label = nameHint || "Nurture campaign";
+        return { lastNurtureCampaign: { id, label } };
+      }
+    }
+
+    if (action === "nurture.campaigns.get" && typeof (json as any).campaign?.id === "string") {
+      const id = String((json as any).campaign.id).trim().slice(0, 120);
+      if (id) {
+        const label = String((json as any).campaign?.name || "Nurture campaign").trim().slice(0, 120) || "Nurture campaign";
+        return { lastNurtureCampaign: { id, label } };
+      }
+    }
+
+    if (
+      (action === "nurture.campaigns.update" || action === "nurture.campaigns.delete" || action === "nurture.campaigns.enroll") &&
+      typeof (args as any).campaignId === "string"
+    ) {
+      const id = String((args as any).campaignId).trim().slice(0, 120);
+      if (id) {
+        return { lastNurtureCampaign: { id, label: "Nurture campaign" } };
+      }
+    }
+
+    if (action === "nurture.campaigns.steps.add" && typeof (json as any).id === "string") {
+      const stepId = String((json as any).id).trim().slice(0, 120);
+      const campaignId = typeof (args as any).campaignId === "string" ? String((args as any).campaignId).trim().slice(0, 120) : "";
+      const kind = typeof (args as any).kind === "string" ? String((args as any).kind).trim().slice(0, 40) : "";
+      const stepLabel = kind ? `Nurture step (${kind})`.slice(0, 120) : "Nurture step";
+      return {
+        ...(campaignId ? { lastNurtureCampaign: { id: campaignId, label: "Nurture campaign" } } : {}),
+        ...(stepId ? { lastNurtureStep: { id: stepId, label: stepLabel } } : {}),
+      };
+    }
+
+    if ((action === "nurture.steps.update" || action === "nurture.steps.delete") && typeof (args as any).stepId === "string") {
+      const id = String((args as any).stepId).trim().slice(0, 120);
+      if (id) {
+        return { lastNurtureStep: { id, label: "Nurture step" } };
+      }
+    }
+
     if (action === "inbox.send" && (json as any).scheduled === true && typeof (json as any).scheduledId === "string") {
       const scheduledId = String((json as any).scheduledId || "").trim().slice(0, 120);
       if (!scheduledId) return null;
