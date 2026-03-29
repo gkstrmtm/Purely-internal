@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { generateText } from "@/lib/ai";
+import { generateText, generateTextWithImages } from "@/lib/ai";
 import {
   PortalAgentActionKeySchema,
   extractJsonObject,
@@ -210,6 +210,7 @@ export async function planPuraActions(opts: {
   url?: string;
   recentMessages: Array<{ role: "user" | "assistant"; text: string }>;
   threadContext?: unknown;
+  imageUrls?: string[];
 }): Promise<PuraPlan | null> {
   const text = String(opts.text || "").trim();
   if (!shouldPlan(text, opts.threadContext)) return null;
@@ -323,8 +324,21 @@ export async function planPuraActions(opts: {
     "\nJSON:",
   ].join("\n");
 
+  const imageUrls = Array.isArray(opts.imageUrls)
+    ? opts.imageUrls
+        .map((u) => (typeof u === "string" ? u.trim() : ""))
+        .filter(Boolean)
+        .slice(0, 8)
+    : [];
+
+  const runModel = async (systemPrompt: string) => {
+    return imageUrls.length
+      ? generateTextWithImages({ system: systemPrompt, user, imageUrls })
+      : generateText({ system: systemPrompt, user });
+  };
+
   try {
-    const raw = await generateText({ system, user });
+    const raw = await runModel(system);
     let obj: unknown = null;
     try {
       obj = extractJsonObject(raw);
@@ -350,7 +364,7 @@ export async function planPuraActions(opts: {
         "- If a detail is missing, use mode=clarify with ONE short question.",
       ].join("\n");
 
-      const raw2 = await generateText({ system: forceSystem, user });
+      const raw2 = await runModel(forceSystem);
       let obj2: unknown = null;
       try {
         obj2 = extractJsonObject(raw2);
@@ -381,7 +395,7 @@ export async function planPuraActions(opts: {
         "- The envelope.steps should contain the real action(s) (e.g. inbox.send_sms), not scheduling instructions.",
       ].join("\n");
 
-      const raw2 = await generateText({ system: forceSystem, user });
+      const raw2 = await runModel(forceSystem);
       let obj2: unknown = null;
       try {
         obj2 = extractJsonObject(raw2);

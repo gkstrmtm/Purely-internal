@@ -79,6 +79,38 @@ const SendMessageSchema = z
     { message: "Text or attachments required" },
   );
 
+function toAbsoluteHttpUrl(raw: string, reqUrl: string): string | null {
+  const s = String(raw || "").trim();
+  if (!s) return null;
+  try {
+    const u = s.startsWith("/") ? new URL(s, reqUrl) : new URL(s);
+    if (u.protocol !== "https:" && u.protocol !== "http:") return null;
+    return u.toString();
+  } catch {
+    return null;
+  }
+}
+
+function looksLikeImageAttachment(a: any): boolean {
+  const mime = typeof a?.mimeType === "string" ? a.mimeType.trim().toLowerCase() : "";
+  if (mime.startsWith("image/")) return true;
+  const name = typeof a?.fileName === "string" ? a.fileName.trim().toLowerCase() : "";
+  const url = typeof a?.url === "string" ? a.url.trim().toLowerCase() : "";
+  return /\.(png|jpe?g|gif|webp|bmp|svg)(\?|#|$)/i.test(`${name} ${url}`);
+}
+
+function imageUrlsFromAttachments(attachments: any[], reqUrl: string): string[] {
+  if (!Array.isArray(attachments) || !attachments.length) return [];
+  const out: string[] = [];
+  for (const a of attachments.slice(0, 10)) {
+    if (!looksLikeImageAttachment(a)) continue;
+    const abs = toAbsoluteHttpUrl(String(a?.url || ""), reqUrl);
+    if (abs) out.push(abs);
+    if (out.length >= 8) break;
+  }
+  return out;
+}
+
 function cleanSuggestedTitle(raw: string): string {
   const s = String(raw || "").trim().replace(/[\r\n\t]+/g, " ").replace(/\s+/g, " ");
   // Keep it short and UI-friendly.
@@ -1818,6 +1850,7 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
         : "";
   const effectiveText = cleanText || choiceLabel;
   const attachments = Array.isArray(parsed.data.attachments) ? parsed.data.attachments : [];
+  const imageUrls = imageUrlsFromAttachments(attachments as any[], req.url);
   const isConfirmOnly = Boolean(confirmToken) && !cleanText && !choice && !attachments.length;
 
   if (isConfirmOnly) {
@@ -2192,6 +2225,7 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
             url: contextUrl,
             recentMessages: modelMessages,
             threadContext,
+            imageUrls,
           });
         } catch {
           plan = null;

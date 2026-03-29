@@ -47,6 +47,21 @@ type Attachment = {
   url: string;
 };
 
+function looksLikeImageAttachment(a: any): boolean {
+  const mime = typeof a?.mimeType === "string" ? a.mimeType.trim().toLowerCase() : "";
+  if (mime.startsWith("image/")) return true;
+
+  const name = typeof a?.fileName === "string" ? a.fileName.trim().toLowerCase() : "";
+  const url = typeof a?.url === "string" ? a.url.trim().toLowerCase() : "";
+  const hay = `${name} ${url}`;
+  return /\.(png|jpe?g|gif|webp|bmp|svg)(\?|#|$)/i.test(hay);
+}
+
+function safeImgSrc(src: string) {
+  // Reuse href allowlisting; image src needs the same protocol constraints.
+  return safeHref(src);
+}
+
 type AssistantAction = {
   key: string;
   title: string;
@@ -325,20 +340,57 @@ function MessageBubble({
 
       {Array.isArray(msg.attachmentsJson) && msg.attachmentsJson.length ? (
         <div className={classNames("mt-3 flex flex-wrap gap-2", isUser ? "text-white/90" : "text-zinc-700")}>
-          {msg.attachmentsJson.map((a: any, idx: number) => (
-            <a
-              key={idx}
-              href={safeHref(String(a?.url || "")) || "#"}
-              target="_blank"
-              rel="noreferrer noopener"
-              className={classNames(
-                "inline-flex max-w-full items-center gap-2 rounded-2xl border px-3 py-2 text-xs font-semibold",
-                isUser ? "border-white/25 bg-white/10 hover:bg-white/15" : "border-zinc-200 bg-zinc-50 hover:bg-white",
-              )}
-            >
-              <span className="truncate">{String(a?.fileName || "Attachment")}</span>
-            </a>
-          ))}
+          {msg.attachmentsJson.map((a: any, idx: number) => {
+            const href = safeHref(String(a?.url || "")) || "#";
+            const isImg = looksLikeImageAttachment(a);
+            const src = isImg ? safeImgSrc(String(a?.url || "")) : null;
+
+            if (isImg && src) {
+              return (
+                <a
+                  key={idx}
+                  href={href}
+                  target="_blank"
+                  rel="noreferrer noopener"
+                  className={classNames(
+                    "group flex max-w-full items-center gap-3 rounded-2xl border p-2",
+                    isUser ? "border-white/25 bg-white/10 hover:bg-white/15" : "border-zinc-200 bg-zinc-50 hover:bg-white",
+                  )}
+                  title={String(a?.fileName || "Image")}
+                >
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={src}
+                    alt={String(a?.fileName || "Image")}
+                    className="h-16 w-16 shrink-0 rounded-xl border border-black/10 object-cover"
+                    loading="lazy"
+                    referrerPolicy="no-referrer"
+                  />
+                  <div className="min-w-0">
+                    <div className="truncate text-xs font-semibold">{String(a?.fileName || "Image")}</div>
+                    <div className={classNames("mt-0.5 text-[11px]", isUser ? "text-white/70" : "text-zinc-500")}>
+                      Click to open
+                    </div>
+                  </div>
+                </a>
+              );
+            }
+
+            return (
+              <a
+                key={idx}
+                href={href}
+                target="_blank"
+                rel="noreferrer noopener"
+                className={classNames(
+                  "inline-flex max-w-full items-center gap-2 rounded-2xl border px-3 py-2 text-xs font-semibold",
+                  isUser ? "border-white/25 bg-white/10 hover:bg-white/15" : "border-zinc-200 bg-zinc-50 hover:bg-white",
+                )}
+              >
+                <span className="truncate">{String(a?.fileName || "Attachment")}</span>
+              </a>
+            );
+          })}
         </div>
       ) : null}
 
@@ -2129,6 +2181,16 @@ export function PortalAiChatClient() {
             <div className="mb-2 flex flex-wrap gap-2">
               {pendingAttachments.map((a, idx) => (
                 <div key={idx} className="flex items-center gap-2 rounded-2xl border border-zinc-200 bg-white px-3 py-2">
+                  {looksLikeImageAttachment(a) && safeImgSrc(String(a?.url || "")) ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={safeImgSrc(String(a?.url || ""))!}
+                      alt={a.fileName}
+                      className="h-9 w-9 shrink-0 rounded-xl border border-zinc-200 object-cover"
+                      loading="lazy"
+                      referrerPolicy="no-referrer"
+                    />
+                  ) : null}
                   <span className="max-w-72 truncate text-xs font-semibold text-zinc-900">{a.fileName}</span>
                   <button
                     type="button"

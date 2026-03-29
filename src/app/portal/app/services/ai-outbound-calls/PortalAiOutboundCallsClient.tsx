@@ -411,6 +411,8 @@ type OutboundTabKey = "calls" | "messages" | "settings";
 export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey } = {}) {
   const toast = useToast();
 
+  const pageRootRef = useRef<HTMLDivElement | null>(null);
+
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -531,14 +533,50 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
 
   const prevTabRef = useRef<OutboundTabKey | null>(null);
 
+  const scrollNearestScrollerToTop = useCallback(() => {
+    if (typeof window === "undefined") return;
+
+    const start = pageRootRef.current;
+    let el: HTMLElement | null = start;
+
+    while (el) {
+      try {
+        const style = window.getComputedStyle(el);
+        const overflowY = style.overflowY;
+        const canScrollY =
+          (overflowY === "auto" || overflowY === "scroll" || overflowY === "overlay") &&
+          el.scrollHeight > el.clientHeight + 1;
+        if (canScrollY) {
+          el.scrollTo({ top: 0, left: 0, behavior: "auto" });
+          return;
+        }
+      } catch {
+        // ignore
+      }
+
+      el = el.parentElement;
+    }
+
+    try {
+      window.scrollTo({ top: 0, left: 0, behavior: "auto" });
+    } catch {
+      // ignore
+    }
+  }, []);
+
   useEffect(() => {
     if (typeof window === "undefined") return;
     const prev = prevTabRef.current;
     prevTabRef.current = tab;
     if (prev && prev !== tab) {
-      window.scrollTo({ top: 0, left: 0, behavior: "auto" });
+      scrollNearestScrollerToTop();
     }
-  }, [tab]);
+  }, [scrollNearestScrollerToTop, tab]);
+
+  useEffect(() => {
+    if (tab !== "settings") return;
+    scrollNearestScrollerToTop();
+  }, [scrollNearestScrollerToTop, settingsTab, tab]);
 
   const [variablePickerOpen, setVariablePickerOpen] = useState(false);
   const [variablePickerTarget, setVariablePickerTarget] = useState<null | "calls_first" | "messages_first">(null);
@@ -672,14 +710,10 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
       if (typeof window === "undefined") return;
       router.replace(`${basePath}/${next}${window.location.search || ""}`);
       requestAnimationFrame(() => {
-        try {
-          window.scrollTo({ top: 0, left: 0, behavior: "auto" });
-        } catch {
-          // ignore
-        }
+        scrollNearestScrollerToTop();
       });
     },
-    [basePath, router],
+    [basePath, router, scrollNearestScrollerToTop],
   );
 
   const [callsGenerateContext, setCallsGenerateContext] = useState("");
@@ -2149,7 +2183,7 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
   }
 
   return (
-    <div className="mx-auto w-full max-w-6xl px-4 pb-6 sm:px-6">
+    <div ref={pageRootRef} className="mx-auto w-full max-w-6xl px-4 sm:px-6">
       <PortalVariablePickerModal
         open={variablePickerOpen}
         variables={variablePickerVariables}
@@ -2988,7 +3022,6 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
 
               {tab === "settings" ? (
                 <>
-
                   <div className="mt-5 rounded-3xl border border-zinc-200 bg-white p-4">
                     <div className="text-sm font-semibold text-zinc-900">Agents</div>
                     <div className="mt-1 text-xs text-zinc-600">
