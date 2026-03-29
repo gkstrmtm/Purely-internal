@@ -18515,9 +18515,42 @@ async function runDirectAction(opts: {
 
     case "inbox.send_sms": {
       let to = String((args as any).to || "").trim();
-      const body = String(args.body || "").trim();
+      const bodyRaw = typeof (args as any).body === "string" ? String((args as any).body).trim() : "";
+      const bodyPromptRaw = typeof (args as any).bodyPrompt === "string" ? String((args as any).bodyPrompt).trim() : "";
       const threadIdRaw = typeof (args as any).threadId === "string" ? String((args as any).threadId).trim() : "";
       const contactIdRaw = typeof (args as any).contactId === "string" ? String((args as any).contactId).trim() : "";
+
+      const body = await (async (): Promise<string> => {
+        if (bodyRaw) return bodyRaw.slice(0, 900);
+        if (!bodyPromptRaw) return "";
+        try {
+          const system = [
+            "You write a single SMS message.",
+            "Constraints:",
+            "- Output ONLY the message body (no quotes, no markdown).",
+            "- Keep it short (ideally <= 220 characters).",
+            "- Be friendly and natural.",
+          ].join("\n");
+
+          const nonce = Math.random().toString(36).slice(2);
+          const user = [
+            "Task:",
+            bodyPromptRaw.slice(0, 1200),
+            "",
+            `Now: ${new Date().toISOString()}`,
+            `Nonce: ${nonce}`,
+            "",
+            "Message:",
+          ].join("\n");
+
+          const out = String(await generateText({ system, user })).trim();
+          const cleaned = out.replace(/^"|"$/g, "").replace(/^'|'$/g, "").trim();
+          return cleaned.slice(0, 900);
+        } catch {
+          return "";
+        }
+      })();
+
       if (!body) return { status: 400, json: { ok: false, error: "Missing body" } };
 
       // Prefer threadId peerAddress (most reliable / already normalized by inbox).

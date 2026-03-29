@@ -533,6 +533,8 @@ export function PortalAiChatClient() {
   const [regenerating, setRegenerating] = useState(false);
 
   const [pendingAttachments, setPendingAttachments] = useState<Attachment[]>([]);
+  const [scheduleTaskOpen, setScheduleTaskOpen] = useState(false);
+  const [scheduleTaskText, setScheduleTaskText] = useState("");
   const [uploading, setUploading] = useState(false);
 
   const [attachMenu, setAttachMenu] = useState<FixedMenuStyle | null>(null);
@@ -1743,6 +1745,68 @@ export function PortalAiChatClient() {
           >
             Add from media library
           </button>
+          <button
+            type="button"
+            className="w-full px-4 py-3 text-left text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
+            onClick={() => {
+              setAttachMenu(null);
+              setScheduleTaskText("");
+              setScheduleTaskOpen(true);
+            }}
+          >
+            Schedule task
+          </button>
+        </div>
+      ) : null}
+
+      {scheduleTaskOpen ? (
+        <div
+          className="fixed inset-0 z-12060 flex items-end justify-center bg-black/30 p-4 sm:items-center"
+          onMouseDown={() => setScheduleTaskOpen(false)}
+          onTouchStart={() => setScheduleTaskOpen(false)}
+          aria-hidden
+        >
+          <div
+            className="w-full max-w-xl rounded-2xl border border-zinc-200 bg-white p-4 shadow-2xl"
+            onMouseDown={(e) => e.stopPropagation()}
+            onTouchStart={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-label="Schedule task"
+          >
+            <div className="text-base font-semibold text-zinc-900">Schedule task</div>
+            <div className="mt-1 text-sm text-zinc-600">Describe what should run and when (plain English).</div>
+
+            <textarea
+              className="mt-3 h-28 w-full resize-none rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 outline-none focus:border-zinc-400"
+              placeholder="Example: Every day Monday through Friday at 9am, send a text to the contact Chester with a unique good-morning message to get started."
+              value={scheduleTaskText}
+              onChange={(e) => setScheduleTaskText(e.target.value)}
+              autoFocus
+            />
+
+            <div className="mt-3 flex items-center justify-end gap-2">
+              <button
+                type="button"
+                className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
+                onClick={() => setScheduleTaskOpen(false)}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="rounded-xl bg-zinc-900 px-3 py-2 text-sm font-semibold text-white hover:bg-zinc-800 disabled:opacity-50"
+                disabled={!scheduleTaskText.trim() || sending}
+                onClick={() => {
+                  const t = scheduleTaskText.trim();
+                  setScheduleTaskOpen(false);
+                  if (t) void send(t);
+                }}
+              >
+                Schedule
+              </button>
+            </div>
+          </div>
         </div>
       ) : null}
 

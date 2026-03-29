@@ -195,6 +195,7 @@ function looksLikeWeekdaySmsSchedule(textRaw: string): boolean {
   if (!t.trim()) return false;
   const isWeekdays =
     /\bweekdays\b/i.test(t) ||
+    /\bm\s*(?:-|\u2013|\u2014)\s*f\b/i.test(t) ||
     /\bmonday\s+(?:to|thru|through)\s+friday\b/i.test(t) ||
     /\bmonday\s*(?:-|\u2013|\u2014)\s*friday\b/i.test(t) ||
     /\bmon(?:day)?\s+(?:to|thru|through)\s+fri(?:day)?\b/i.test(t) ||
@@ -264,6 +265,13 @@ function buildDeterministicWeekdaySmsPlan(opts: {
   const msg = extractQuotedMessage(text) || "Good morning, ready to get started?";
   const wantsNow = userWantsTestSendNow(text);
 
+  const bodyPrompt = [
+    `Write a short, friendly good-morning SMS to the contact '${contactHint}'.`,
+    "The goal is to prompt them to get started today.",
+    "Make it feel fresh/unique each day (avoid repeating the same phrasing).",
+    `Style inspiration (optional): ${msg}`,
+  ].join(" ");
+
   const steps: Array<{ key: any; title: string; args: Record<string, unknown> }> = [];
 
   if (wantsNow) {
@@ -272,7 +280,7 @@ function buildDeterministicWeekdaySmsPlan(opts: {
       title: `Send test SMS to ${contactHint}`,
       args: {
         contactId: { $ref: "contact", hint: contactHint },
-        body: msg,
+        bodyPrompt,
       },
     });
   }
@@ -299,7 +307,7 @@ function buildDeterministicWeekdaySmsPlan(opts: {
             {
               key: "inbox.send_sms",
               title: "Send scheduled SMS",
-              args: { contactId: { $ref: "contact", hint: contactHint }, body: msg },
+              args: { contactId: { $ref: "contact", hint: contactHint }, bodyPrompt },
             },
           ],
         }),
@@ -2165,12 +2173,10 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
         threadContext = nextCtx;
       }
 
-      const deterministicWeekdaySmsPlan = !isHowToQuestionOnly(effectivePlanningText)
-        ? buildDeterministicWeekdaySmsPlan({
-            text: effectivePlanningText,
-            ownerTimeZone: String(ownerTimeZone || (threadContext as any)?.ownerTimeZone || "").trim() || undefined,
-          })
-        : null;
+      const deterministicWeekdaySmsPlan = buildDeterministicWeekdaySmsPlan({
+        text: effectivePlanningText,
+        ownerTimeZone: String(ownerTimeZone || (threadContext as any)?.ownerTimeZone || "").trim() || undefined,
+      });
 
       let plan: any = null;
       if (shouldReplayPendingExecutePlan) {
@@ -2677,6 +2683,7 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
     // BUT: if the user is issuing an imperative request, do not return a text-only reply here.
     // Instead, fall through to the deterministic/proposal flow below so we can execute actions.
     const wantsExecutionFallback =
+      looksLikeWeekdaySmsSchedule(effectiveText) ||
       shouldAutoExecuteFromUserText(effectiveText) ||
       /\b(do it|do that|handle it|take care of it|go ahead|just do|for me|please do)\b/i.test(effectiveText);
     if (!wantsExecutionFallback) {

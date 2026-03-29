@@ -2140,11 +2140,14 @@ export const PortalAgentActionArgsSchemaByKey = {
       // Either provide a phone number in `to`, or a `contactId`.
       to: z.string().trim().min(3).max(64).optional(),
       contactId: z.string().trim().min(1).max(120).optional(),
-      body: z.string().trim().min(1).max(900),
+      body: z.string().trim().min(1).max(900).optional(),
+      // If provided, the system will generate a fresh SMS body at send-time.
+      bodyPrompt: z.string().trim().min(3).max(1200).optional(),
       threadId: z.string().trim().min(1).max(120).optional(),
     })
     .strict()
-    .refine((v) => Boolean((v as any).to || (v as any).contactId || (v as any).threadId), { message: "Missing to/contactId/threadId" }),
+    .refine((v) => Boolean((v as any).to || (v as any).contactId || (v as any).threadId), { message: "Missing to/contactId/threadId" })
+    .refine((v) => Boolean((v as any).body || (v as any).bodyPrompt), { message: "Missing body/bodyPrompt" }),
 
   "inbox.send_email": z
     .object({
