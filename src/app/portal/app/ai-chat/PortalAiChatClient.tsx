@@ -10,6 +10,30 @@ import { PortalMediaPickerModal, type PortalMediaPickItem } from "@/components/P
 import { IconSchedule, IconSend, IconSendHover } from "@/app/portal/PortalIcons";
 import { usePuraCanvasUiBridgeClient, type PuraCanvasUiAction } from "@/lib/puraCanvasUiBridge.client";
 
+const SCHEDULED_ACTION_PREFIX = "__PURA_SCHEDULED_ACTION__";
+
+function tryParseScheduledEnvelopeForUi(textRaw: string): { title: string; stepsCount: number } | null {
+  const t = String(textRaw || "").trim();
+  if (!t.startsWith(SCHEDULED_ACTION_PREFIX)) return null;
+
+  const afterPrefix = t.slice(SCHEDULED_ACTION_PREFIX.length).trim();
+  const start = afterPrefix.indexOf("{");
+  const end = afterPrefix.lastIndexOf("}");
+  if (start < 0 || end <= start) return { title: "Scheduled task", stepsCount: 0 };
+
+  try {
+    const obj = JSON.parse(afterPrefix.slice(start, end + 1));
+    const workTitle = typeof obj?.workTitle === "string" ? obj.workTitle.trim() : "";
+    const steps = Array.isArray(obj?.steps) ? obj.steps : [];
+    const firstStepTitle = typeof steps?.[0]?.title === "string" ? String(steps[0].title).trim() : "";
+    const firstStepKey = typeof steps?.[0]?.key === "string" ? String(steps[0].key).trim() : "";
+    const title = (workTitle || firstStepTitle || firstStepKey || "Scheduled task").slice(0, 200);
+    return { title, stepsCount: steps.length };
+  } catch {
+    return { title: "Scheduled task", stepsCount: 0 };
+  }
+}
+
 type AmbiguousContact = { name: string; email?: string | null; phone?: string | null };
 
 type AssistantChoice =
@@ -245,6 +269,14 @@ function ThinkingDots() {
   );
 }
 
+function formatLocalDateTime(d: Date): string {
+  try {
+    return new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(d);
+  } catch {
+    return d.toLocaleString();
+  }
+}
+
 function MessageBubble({
   msg,
   assistantVariant,
@@ -261,6 +293,7 @@ function MessageBubble({
   const isUser = msg.role === "user";
   const isThinking = msg.id.startsWith("optimistic-assistant-") && msg.role === "assistant";
   const actions = !isUser && !isThinking && Array.isArray(msg.assistantActions) ? msg.assistantActions : [];
+  const scheduledEnv = tryParseScheduledEnvelopeForUi(msg.text);
 
   const assistantBg =
     assistantVariant === "dark" ? "bg-zinc-100" : assistantVariant === "light" ? "bg-zinc-50" : "bg-zinc-50";
@@ -273,7 +306,17 @@ function MessageBubble({
       )}
     >
       {isUser ? (
-        <div className="whitespace-pre-wrap">{msg.text}</div>
+        scheduledEnv ? (
+          <div className="space-y-1">
+            <div className="text-[11px] font-semibold uppercase tracking-wide text-white/80">Scheduled task</div>
+            <div className="whitespace-pre-wrap font-semibold">{scheduledEnv.title}</div>
+            {scheduledEnv.stepsCount > 0 ? (
+              <div className="text-[11px] text-white/80">{scheduledEnv.stepsCount} step{scheduledEnv.stepsCount === 1 ? "" : "s"}</div>
+            ) : null}
+          </div>
+        ) : (
+          <div className="whitespace-pre-wrap">{msg.text}</div>
+        )
       ) : isThinking ? (
         <ThinkingDots />
       ) : (
@@ -333,7 +376,7 @@ function MessageBubble({
               },
             }}
           >
-            {msg.text || ""}
+            {scheduledEnv ? `Scheduled task: ${scheduledEnv.title}` : msg.text || ""}
           </ReactMarkdown>
         </div>
       )}
@@ -2497,7 +2540,7 @@ export function PortalAiChatClient() {
                       <div className="mt-1 line-clamp-2 text-sm text-zinc-600">{r.displayText || "(scheduled task)"}</div>
                       <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-zinc-500">
                         <span className="rounded-full border border-zinc-200 bg-zinc-50 px-2 py-0.5">
-                          Next: {r.sendAt ? new Date(r.sendAt).toLocaleString() : "-"}
+                          Next: {r.sendAt ? formatLocalDateTime(new Date(r.sendAt)) : "-"}
                         </span>
                         {isRepeating ? (
                           <span className="rounded-full border border-zinc-200 bg-zinc-50 px-2 py-0.5">Repeats</span>

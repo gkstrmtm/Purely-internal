@@ -577,6 +577,9 @@ export const PortalAgentActionArgsSchemaByKey = {
       // When invoked from the AI chat thread, the API layer will inject the current threadId.
       threadId: z.string().trim().min(1).max(120).optional(),
       text: z.string().trim().min(1).max(4000),
+      // Optional browser/user timezone hint (IANA name) used when computing sendAtLocal.
+      // If omitted, the executor will fall back to the member or owner timezone.
+      clientTimeZone: z.string().trim().min(1).max(80).optional(),
       // Prefer sendAtLocal for “every weekday at 9am”-style schedules (timezone-safe).
       // sendAtIso remains supported for absolute timestamps.
       sendAtIso: z.string().trim().min(1).max(64).optional(),

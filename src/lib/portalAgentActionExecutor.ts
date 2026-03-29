@@ -15781,6 +15781,9 @@ async function runDirectAction(opts: {
       const clientTimeZone =
         typeof (args as any)?.clientTimeZone === "string" ? String((args as any).clientTimeZone).trim().slice(0, 80) : "";
 
+      const memberTimeZone =
+        (await prisma.user.findUnique({ where: { id: membership.memberId }, select: { timeZone: true } }).catch(() => null))?.timeZone || "";
+
       const sendAtIso = typeof (args as any)?.sendAtIso === "string" ? String((args as any).sendAtIso).trim().slice(0, 64) : "";
       const sendAtLocalRaw = (args as any)?.sendAtLocal;
 
@@ -15800,7 +15803,7 @@ async function runDirectAction(opts: {
 
         const ownerTz =
           (await prisma.user.findUnique({ where: { id: ownerId }, select: { timeZone: true } }).catch(() => null))?.timeZone || "";
-        const tz = (tzFromArgs || clientTimeZone || String(ownerTz || "").trim() || "UTC").slice(0, 80);
+        const tz = (tzFromArgs || clientTimeZone || String(memberTimeZone || "").trim() || String(ownerTz || "").trim() || "UTC").slice(0, 80);
 
         const now = DateTime.now().setZone(tz);
         const zone = now.isValid ? tz : "UTC";
@@ -25268,19 +25271,37 @@ function resultMarkdown(
   json: any,
   meta?: { ok: boolean; status: number },
 ): { markdown: string; linkUrl?: string } {
+  const formatRepeatEveryMinutes = (repeatEveryMinutes: number): string => {
+    const m = Number.isFinite(repeatEveryMinutes) ? Math.max(0, Math.floor(repeatEveryMinutes)) : 0;
+    if (m <= 0) return "No";
+
+    const units: Array<{ label: string; minutes: number }> = [
+      { label: "week", minutes: 60 * 24 * 7 },
+      { label: "day", minutes: 60 * 24 },
+      { label: "hour", minutes: 60 },
+      { label: "minute", minutes: 1 },
+    ];
+
+    for (const u of units) {
+      if (m % u.minutes === 0) {
+        const n = m / u.minutes;
+        return n === 1 ? `Every ${u.label}` : `Every ${n} ${u.label}s`;
+      }
+    }
+
+    return `Every ${m} minutes`;
+  };
+
   if (action === "ai_chat.scheduled.create" && json?.ok && json?.scheduled?.id) {
-    const id = String(json.scheduled.id || "").trim().slice(0, 120);
-    const sendAt = typeof json.scheduled.sendAt === "string" ? String(json.scheduled.sendAt).trim().slice(0, 80) : "";
     const repeatEveryMinutes =
       typeof json.scheduled.repeatEveryMinutes === "number" && Number.isFinite(json.scheduled.repeatEveryMinutes)
         ? Math.max(0, Math.floor(json.scheduled.repeatEveryMinutes))
         : 0;
 
-    const repeatLabel = repeatEveryMinutes > 0 ? `Every ${repeatEveryMinutes} minutes` : "No";
-    const whenLabel = sendAt ? sendAt : "(time not available)";
+    const repeatLabel = formatRepeatEveryMinutes(repeatEveryMinutes);
 
     return {
-      markdown: `Scheduled.\n\n- When: ${whenLabel}\n- Repeats: ${repeatLabel}\n\nOpen “Scheduled tasks” (clock icon) to see or edit it.${id ? `\n\nScheduled id: ${id}` : ""}`,
+      markdown: `Scheduled.\n\n- Repeats: ${repeatLabel}\n\nOpen “Scheduled tasks” (clock icon) to see the next run time and edit it.`,
     };
   }
 
@@ -25290,10 +25311,9 @@ function resultMarkdown(
 
     const lines = rows.slice(0, 15).map((r) => {
       const id = String(r?.id || "").trim().slice(0, 32);
-      const sendAt = r?.sendAt ? String(r.sendAt).trim().slice(0, 80) : "";
       const text = String(r?.text || "").replace(/[\r\n\t]+/g, " ").trim().slice(0, 140);
-      const prefix = sendAt ? `${sendAt}: ` : "";
-      return `- ${prefix}${text || "(no text)"}${id ? ` (id: ${id})` : ""}`;
+      // Intentionally omit absolute timestamps here (they tend to be ISO/UTC and confuse users).
+      return `- ${text || "(no text)"}${id ? ` (id: ${id})` : ""}`;
     });
 
     return { markdown: ["Here are your scheduled tasks:", "", ...lines].join("\n") };

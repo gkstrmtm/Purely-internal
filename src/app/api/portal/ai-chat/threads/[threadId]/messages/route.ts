@@ -2314,6 +2314,10 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
     (await prisma.user.findUnique({ where: { id: ownerId }, select: { timeZone: true } }).catch(() => null))?.timeZone ||
     null;
 
+  const memberTimeZone =
+    (await prisma.user.findUnique({ where: { id: createdByUserId }, select: { timeZone: true } }).catch(() => null))?.timeZone ||
+    null;
+
   const headerClientTimeZone = String(req.headers.get("x-client-timezone") || "").trim().slice(0, 80);
   const bodyClientTimeZone =
     typeof (parsed.data as any)?.clientTimeZone === "string" ? String((parsed.data as any).clientTimeZone).trim().slice(0, 80) : "";
@@ -2324,7 +2328,15 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
       threadContext && typeof threadContext === "object" && !Array.isArray(threadContext) && typeof threadContext.ownerTimeZone === "string"
         ? String(threadContext.ownerTimeZone).trim().slice(0, 80)
         : "";
-    const tz = (clientTimeZone || String(ownerTimeZone || "").trim().slice(0, 80) || ctxTz || "").trim().slice(0, 80);
+    const tz = (
+      clientTimeZone ||
+      String(memberTimeZone || "").trim().slice(0, 80) ||
+      String(ownerTimeZone || "").trim().slice(0, 80) ||
+      ctxTz ||
+      ""
+    )
+      .trim()
+      .slice(0, 80);
     return tz || null;
   };
 
