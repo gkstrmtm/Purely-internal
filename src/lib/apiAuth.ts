@@ -2,10 +2,10 @@ import { getServerSession } from "next-auth";
 
 import { authOptions } from "@/lib/auth";
 import { getPortalUser } from "@/lib/portalAuth";
+import type { PortalApiKeyPermission } from "@/lib/portalApiKeys.shared";
 import {
   authenticatePortalApiKeyForPermission,
   sessionUserFromApiKeyContext,
-  type PortalApiKeyPermission,
 } from "@/lib/portalApiKeys.server";
 
 export async function requireManagerSession() {
