@@ -1,7 +1,7 @@
 "use client";
 
-import { usePathname } from "next/navigation";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { usePathname, useRouter } from "next/navigation";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { IconChevron, IconSend, IconSendHover } from "@/app/portal/PortalIcons";
 
@@ -16,7 +16,36 @@ type VersionPayload = {
 
 type BugReportResponse = { ok?: boolean; reportId?: string; emailed?: boolean; error?: string };
 
-type SupportChatMessage = { id: string; role: "assistant" | "user"; text: string };
+type SuggestedSetupAction = {
+  id: string;
+  serviceSlug: string;
+  title: string;
+  description: string;
+};
+
+type SuggestedSetupCardState = "ready" | "applying" | "applied" | "error";
+
+type SupportChatMessage = {
+  id: string;
+  role: "assistant" | "user";
+  text: string;
+  suggestedSetup?: {
+    key: string;
+    title: string;
+    actionIds: string[];
+    detailLines: string[];
+    status: SuggestedSetupCardState;
+    error?: string | null;
+  };
+};
+
+type WidgetSuggestedSetup = {
+  key: string;
+  title: string;
+  actionIds: string[];
+  detailLines: string[];
+  text: string;
+};
 
 function isSafeHref(href: string) {
   const raw = String(href || "").trim();
@@ -287,6 +316,47 @@ function newClientId() {
   return `${Date.now().toString(16)}-${Math.random().toString(16).slice(2)}`;
 }
 
+function titleCaseWord(word: string) {
+  if (!word) return word;
+  if (word.toUpperCase() === word) return word;
+  return `${word.slice(0, 1).toUpperCase()}${word.slice(1)}`;
+}
+
+function formatServiceSlugLabel(slug: string) {
+  const raw = String(slug || "").trim();
+  if (!raw) return "this page";
+  const parts = raw.split("-").filter(Boolean);
+  return parts.map((part) => (/^(ai|crm|sms)$/i.test(part) ? part.toUpperCase() : titleCaseWord(part))).join(" ");
+}
+
+function inferSuggestedSetupServiceSlug(pathname: string) {
+  const cleanPath = String(pathname || "").replace(/^\/(portal|credit)/, "") || "";
+  if (cleanPath === "/app" || cleanPath === "/app/" || cleanPath.startsWith("/app/dashboard")) return "dashboard";
+  const match = cleanPath.match(/^\/app\/services\/([^/]+)/);
+  return match?.[1] ?? null;
+}
+
+function buildWidgetSuggestedSetup(actions: SuggestedSetupAction[]): WidgetSuggestedSetup | null {
+  if (!actions.length) return null;
+  const serviceLabel = formatServiceSlugLabel(actions[0]?.serviceSlug || "");
+  const actionIds = actions.map((action) => action.id);
+  const key = actionIds.join("|");
+  const detailLines = actions.map((action) => `${action.title}: ${action.description}`).filter(Boolean);
+  const intro =
+    actions.length === 1
+      ? `I found a suggested setup for ${serviceLabel}.`
+      : `I found ${actions.length} suggested setup updates for ${serviceLabel}.`;
+  const bulletLines = detailLines.map((line) => `- ${line}`).join("\n");
+
+  return {
+    key,
+    title: actions.length === 1 ? actions[0]!.title : `Suggested setup for ${serviceLabel}`,
+    actionIds,
+    detailLines,
+    text: `${intro}\n${bulletLines}\n\nIf you want, I can apply it now.`,
+  };
+}
+
 function ThinkingDots() {
   return (
     <div className="inline-flex items-center gap-1" aria-label="Thinking">
@@ -328,6 +398,7 @@ const floatingToolsGradientButtonClass =
 
 export function PortalFloatingTools() {
   const pathname = usePathname() || "";
+  const router = useRouter();
   const portalBase = pathname.startsWith("/credit") ? "/credit" : "/portal";
   const [minimized, setMinimized] = useState(true);
   const [compactDock, setCompactDock] = useState(false);
@@ -343,12 +414,14 @@ export function PortalFloatingTools() {
   const [message, setMessage] = useState("");
   const [sending, setSending] = useState(false);
   const [note, setNote] = useState<string | null>(null);
+  const [pageSuggestion, setPageSuggestion] = useState<WidgetSuggestedSetup | null>(null);
 
   const chatMessagesRef = useRef<SupportChatMessage[]>(chatMessages);
   const chatScrollRef = useRef<HTMLDivElement | null>(null);
   const chatEndRef = useRef<HTMLDivElement | null>(null);
   const shouldAutoScrollRef = useRef(true);
   const chatScrollRafRef = useRef<number | null>(null);
+  const injectedSuggestionKeyRef = useRef<string | null>(null);
 
   const toolsCardRef = useRef<HTMLDivElement | null>(null);
   const chatPanelRef = useRef<HTMLDivElement | null>(null);
@@ -357,6 +430,38 @@ export function PortalFloatingTools() {
   useEffect(() => {
     chatMessagesRef.current = chatMessages;
   }, [chatMessages]);
+
+  const loadSuggestedSetupPreview = useCallback(async () => {
+    const serviceSlug = inferSuggestedSetupServiceSlug(pathname);
+    if (!serviceSlug) {
+      setPageSuggestion(null);
+      return;
+    }
+
+    const res = await fetch("/api/portal/suggested-setup/preview", { cache: "no-store" }).catch(() => null as any);
+    if (!res?.ok) {
+      setPageSuggestion(null);
+      return;
+    }
+
+    const json = (await res.json().catch(() => null)) as { proposedActions?: SuggestedSetupAction[] } | null;
+    const proposedActions = Array.isArray(json?.proposedActions)
+      ? json.proposedActions
+          .filter((action) => action && typeof action.id === "string" && typeof action.serviceSlug === "string")
+          .map((action) => ({
+            id: String(action.id),
+            serviceSlug: String(action.serviceSlug),
+            title: String(action.title || "Suggested setup"),
+            description: String(action.description || ""),
+          }))
+      : [];
+
+    setPageSuggestion(buildWidgetSuggestedSetup(proposedActions.filter((action) => action.serviceSlug === serviceSlug)));
+  }, [pathname]);
+
+  useEffect(() => {
+    void loadSuggestedSetupPreview();
+  }, [loadSuggestedSetupPreview]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -553,7 +658,76 @@ export function PortalFloatingTools() {
 
   function persistMinimized(next: boolean) {
     setMinimized(next);
-    if (!next) setCompactDock(false);
+  }
+
+  function setSuggestionCardStatus(key: string, status: SuggestedSetupCardState, error?: string | null) {
+    setChatMessages((current) =>
+      current.map((message) =>
+        message.suggestedSetup?.key === key
+          ? {
+              ...message,
+              suggestedSetup: {
+                ...message.suggestedSetup,
+                status,
+                error: error ?? null,
+              },
+            }
+          : message,
+      ),
+    );
+  }
+
+  function openPageSuggestionInChat() {
+    if (!pageSuggestion) return;
+    injectedSuggestionKeyRef.current = pageSuggestion.key;
+    setReportOpen(false);
+    setChatOpen(true);
+    setMinimized(false);
+    setChatMessages((current) => {
+      if (current.some((message) => message.suggestedSetup?.key === pageSuggestion.key)) return current;
+      return [
+        ...current,
+        {
+          id: `widget-suggested-setup-${pageSuggestion.key}`,
+          role: "assistant",
+          text: pageSuggestion.text,
+          suggestedSetup: {
+            key: pageSuggestion.key,
+            title: pageSuggestion.title,
+            actionIds: pageSuggestion.actionIds,
+            detailLines: pageSuggestion.detailLines,
+            status: "ready",
+            error: null,
+          },
+        },
+      ];
+    });
+    shouldAutoScrollRef.current = true;
+    scheduleChatScrollToBottom(true);
+  }
+
+  async function applySuggestedSetupFromMessage(actionIds: string[], key: string) {
+    if (!actionIds.length) return;
+    setSuggestionCardStatus(key, "applying", null);
+
+    const res = await fetch("/api/portal/suggested-setup/apply", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ actionIds }),
+    }).catch(() => null as any);
+
+    const json = (await res?.json?.().catch(() => null)) as { ok?: boolean; error?: string } | null;
+    if (!res?.ok || !json?.ok) {
+      setSuggestionCardStatus(key, "error", json?.error ?? "Suggested setup could not be applied.");
+      return;
+    }
+
+    setSuggestionCardStatus(key, "applied", null);
+    setPageSuggestion(null);
+    setNote("Suggested setup applied.");
+    window.setTimeout(() => setNote(null), 3500);
+    router.refresh();
+    void loadSuggestedSetupPreview();
   }
 
   function persistWidgetThreadId(nextThreadId: string | null) {
@@ -809,7 +983,7 @@ export function PortalFloatingTools() {
             <div className="mb-3 h-1.5 w-16 rounded-full bg-[linear-gradient(90deg,rgba(29,78,216,0.9),rgba(251,113,133,0.35))]" />
             <div className="flex items-start justify-between gap-3">
               <div>
-                <div className="text-sm font-semibold text-zinc-900">Chat</div>
+                <div className="text-sm font-semibold text-zinc-900">Pura</div>
                 <div className="mt-1 text-xs text-zinc-500">{versionLabel}</div>
               </div>
               <div className="flex items-center gap-2">
@@ -858,6 +1032,43 @@ export function PortalFloatingTools() {
                   }
                 >
                   {m.role === "assistant" && m.id.startsWith("optimistic-assistant-") ? <ThinkingDots /> : m.role === "assistant" ? renderMarkdownish(m.text) : m.text}
+                  {m.role === "assistant" && m.suggestedSetup ? (
+                    <div className="mt-3 rounded-2xl border border-zinc-200 bg-zinc-50/80 p-3">
+                      <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Suggestion</div>
+                      <div className="mt-1 text-sm font-semibold text-zinc-900">{m.suggestedSetup.title}</div>
+                      {m.suggestedSetup.detailLines.length ? (
+                        <div className="mt-1 space-y-1 text-xs text-zinc-600">
+                          {m.suggestedSetup.detailLines.map((line) => (
+                            <div key={line}>{line}</div>
+                          ))}
+                        </div>
+                      ) : null}
+                      <div className="mt-3 flex items-center gap-2">
+                        <button
+                          type="button"
+                          className={classNames(
+                            "rounded-xl px-3 py-2 text-xs font-semibold text-white transition-transform duration-150",
+                            m.suggestedSetup.status === "applied"
+                              ? "bg-emerald-600"
+                              : m.suggestedSetup.status === "applying"
+                                ? "bg-zinc-400"
+                                : "bg-brand-blue hover:-translate-y-0.5 hover:opacity-95",
+                          )}
+                          onClick={() => void applySuggestedSetupFromMessage(m.suggestedSetup!.actionIds, m.suggestedSetup!.key)}
+                          disabled={m.suggestedSetup.status === "applying" || m.suggestedSetup.status === "applied"}
+                        >
+                          {m.suggestedSetup.status === "applied"
+                            ? "Applied"
+                            : m.suggestedSetup.status === "applying"
+                              ? "Applying…"
+                              : "Apply now"}
+                        </button>
+                        {m.suggestedSetup.status === "error" && m.suggestedSetup.error ? (
+                          <div className="text-xs text-red-600">{m.suggestedSetup.error}</div>
+                        ) : null}
+                      </div>
+                    </div>
+                  ) : null}
                 </div>
               ))}
               <div ref={chatEndRef} />
@@ -912,10 +1123,11 @@ export function PortalFloatingTools() {
               </button>
               <button
                 type="button"
-                className="grid h-11 w-11 place-items-center rounded-full border border-zinc-200 bg-white text-zinc-800 shadow-lg ring-1 ring-[rgba(29,78,216,0.14)] transition-all duration-150 hover:-translate-y-0.5 hover:scale-105 hover:bg-zinc-50"
+                className="relative grid h-11 w-11 place-items-center rounded-full border border-zinc-200 bg-white text-zinc-800 shadow-lg ring-1 ring-[rgba(29,78,216,0.14)] transition-all duration-150 hover:-translate-y-0.5 hover:scale-105 hover:bg-zinc-50"
                 onClick={() => persistMinimized(false)}
                 aria-label="Open chat and report tools"
               >
+                {pageSuggestion ? <span className="absolute -right-1 -top-1 h-3.5 w-3.5 rounded-full bg-brand-pink ring-2 ring-white" /> : null}
                 <span className="grid h-8 w-8 place-items-center rounded-full bg-[linear-gradient(90deg,rgba(29,78,216,0.95),rgba(251,113,133,0.55))] text-white">
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
                     <path
@@ -938,12 +1150,23 @@ export function PortalFloatingTools() {
               >
                 Hide
               </button>
+              {pageSuggestion ? (
+                <button
+                  type="button"
+                  className="pointer-events-none rounded-full border border-brand-blue/20 bg-brand-blue/10 px-3 py-2 text-xs font-semibold text-brand-blue opacity-0 shadow-lg transition-all duration-150 group-hover:pointer-events-auto group-hover:opacity-100"
+                  onClick={openPageSuggestionInChat}
+                  aria-label="View suggestion"
+                >
+                  Suggestion
+                </button>
+              ) : null}
               <button
                 type="button"
-                className="flex items-center gap-2 rounded-full border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 shadow-lg ring-1 ring-[rgba(29,78,216,0.14)] transition-all duration-150 hover:-translate-y-0.5 hover:bg-zinc-50"
+                className="relative flex items-center gap-2 rounded-full border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 shadow-lg ring-1 ring-[rgba(29,78,216,0.14)] transition-all duration-150 hover:-translate-y-0.5 hover:bg-zinc-50"
                 onClick={() => persistMinimized(false)}
                 aria-label="Open tools"
               >
+                {pageSuggestion ? <span className="absolute right-2 top-1.5 h-2.5 w-2.5 rounded-full bg-brand-pink" /> : null}
                 <span className="grid h-8 w-8 place-items-center rounded-full bg-[linear-gradient(90deg,rgba(29,78,216,0.95),rgba(251,113,133,0.55))] text-white">
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
                     <path
@@ -980,6 +1203,15 @@ export function PortalFloatingTools() {
             </div>
 
             <div className="mt-3 flex items-center justify-between gap-3">
+              {pageSuggestion ? (
+                <button
+                  type="button"
+                  className="rounded-2xl border border-brand-blue/20 bg-brand-blue/10 px-3 py-2 text-sm font-semibold text-brand-blue transition-transform duration-150 hover:-translate-y-0.5 hover:bg-brand-blue/15"
+                  onClick={openPageSuggestionInChat}
+                >
+                  Suggestion
+                </button>
+              ) : <div />}
               <button
                 type="button"
                 className={classNames(

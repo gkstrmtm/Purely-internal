@@ -36,7 +36,7 @@ export async function POST(req: Request) {
     );
   }
 
-  const ownerId = auth.session.user.id;
+  const ownerId = ((auth as any).access?.ownerId as string | undefined) || auth.session.user.id;
 
   // Recompute suggestions at apply-time. Only actions still proposed are eligible.
   let preview: { proposedActions: SuggestedSetupAction[] };

@@ -287,19 +287,15 @@ export function PortalAppearanceSettingsClient() {
   return (
     <div className="space-y-6">
       <div className="rounded-3xl border border-zinc-200 bg-white p-6">
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-          <div>
-            <h2 className="text-lg font-semibold text-brand-ink">Theme</h2>
-            <p className="mt-1 text-sm text-zinc-600">Pick the mode you want ready once the full theme rollout lands.</p>
-          </div>
-          <div className="w-full max-w-xs">
-            <PortalListboxDropdown
-              value={themeMode}
-              options={themeOptions}
-              onChange={(value) => setThemeMode(value as "device" | "light" | "dark")}
-              disabled={loading}
-            />
-          </div>
+        <h2 className="text-lg font-semibold text-brand-ink">Theme</h2>
+        <p className="mt-1 text-sm text-zinc-600">Pick the mode you want ready once the full theme rollout lands.</p>
+        <div className="mt-4 w-full max-w-xs">
+          <PortalListboxDropdown
+            value={themeMode}
+            options={themeOptions}
+            onChange={(value) => setThemeMode(value as "device" | "light" | "dark")}
+            disabled={loading}
+          />
         </div>
       </div>
 
