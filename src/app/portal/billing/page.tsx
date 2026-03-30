@@ -7,5 +7,5 @@ export default async function LegacyPortalBillingPage() {
   const h = await headers();
   const variant = normalizePortalVariant(h.get(PORTAL_VARIANT_HEADER)) || "portal";
   const base = portalBasePath(variant);
-  redirect(`${base}/app/settings?tab=billing`);
+  redirect(`${base}/app/billing`);
 }

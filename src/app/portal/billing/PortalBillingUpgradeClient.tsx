@@ -121,8 +121,8 @@ export function PortalBillingUpgradeClient({ embedded }: { embedded?: boolean } 
             className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
             onClick={() => {
               const next = fromMobileApp
-                ? "/portal/app/settings?tab=billing&pa_mobileapp=1"
-                : "/portal/app/settings?tab=billing";
+                ? "/portal/app/billing?pa_mobileapp=1"
+                : "/portal/app/billing";
               router.push(next);
             }}
             disabled={busy !== null}

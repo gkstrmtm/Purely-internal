@@ -8,7 +8,7 @@ export default async function PortalAppSettingsPage() {
     <div className="mx-auto w-full max-w-6xl">
       <h1 className="text-2xl font-bold text-brand-ink sm:text-3xl">Settings</h1>
 
-      <SettingsTabsClient />
+      <SettingsTabsClient generalOnly />
     </div>
   );
 }

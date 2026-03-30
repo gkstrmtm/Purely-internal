@@ -101,12 +101,12 @@ function daysBetweenIso(startIso: string, endIso: string): number {
   return Math.max(1, raw);
 }
 
-export function SettingsTabsClient() {
+export function SettingsTabsClient({ generalOnly = false }: { generalOnly?: boolean } = {}) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const toast = useToast();
 
-  const tab = useMemo<TabKey>(() => normalizeTab(searchParams?.get("tab")), [searchParams]);
+  const tab = useMemo<TabKey>(() => (generalOnly ? "general" : normalizeTab(searchParams?.get("tab"))), [generalOnly, searchParams]);
   const focus = (searchParams?.get("focus") || "").trim().toLowerCase();
 
   const goTab = useCallback(
@@ -122,35 +122,37 @@ export function SettingsTabsClient() {
 
   return (
     <div className="mt-5">
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-        <div className="inline-flex w-full flex-wrap items-center gap-2">
-          {([
-            { key: "general" as const, label: "General", icon: <IconSettingsGlyph size={16} /> },
-            { key: "profile" as const, label: "Profile", icon: <IconProfileGlyph size={16} /> },
-            { key: "billing" as const, label: "Billing", icon: <IconBillingGlyph size={16} /> },
-          ] as const).map((t) => {
-            const active = tab === t.key;
-            return (
-              <button
-                key={t.key}
-                type="button"
-                onClick={() => goTab(t.key)}
-                className={classNames(
-                  "inline-flex items-center gap-2 rounded-2xl px-4 py-2 text-sm font-semibold transition",
-                  active
-                    ? "bg-[rgba(29,78,216,0.10)] text-(--color-brand-blue) ring-1 ring-[rgba(29,78,216,0.22)]"
-                    : "bg-transparent text-zinc-600 hover:bg-zinc-100/60 hover:text-zinc-900",
-                )}
-              >
-                <span aria-hidden="true" className="text-current">
-                  {t.icon}
-                </span>
-                <span>{t.label}</span>
-              </button>
-            );
-          })}
+      {!generalOnly ? (
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+          <div className="inline-flex w-full flex-wrap items-center gap-2">
+            {([
+              { key: "general" as const, label: "General", icon: <IconSettingsGlyph size={16} /> },
+              { key: "profile" as const, label: "Profile", icon: <IconProfileGlyph size={16} /> },
+              { key: "billing" as const, label: "Billing", icon: <IconBillingGlyph size={16} /> },
+            ] as const).map((t) => {
+              const active = tab === t.key;
+              return (
+                <button
+                  key={t.key}
+                  type="button"
+                  onClick={() => goTab(t.key)}
+                  className={classNames(
+                    "inline-flex items-center gap-2 rounded-2xl px-4 py-2 text-sm font-semibold transition",
+                    active
+                      ? "bg-[rgba(29,78,216,0.10)] text-(--color-brand-blue) ring-1 ring-[rgba(29,78,216,0.22)]"
+                      : "bg-transparent text-zinc-600 hover:bg-zinc-100/60 hover:text-zinc-900",
+                  )}
+                >
+                  <span aria-hidden="true" className="text-current">
+                    {t.icon}
+                  </span>
+                  <span>{t.label}</span>
+                </button>
+              );
+            })}
+          </div>
         </div>
-      </div>
+      ) : null}
 
       {tab === "general" ? (
         <GeneralTab

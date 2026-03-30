@@ -233,10 +233,13 @@ function formatMoney(cents: number, currency: string) {
 }
 
 export function PortalBillingClient({
+  embedded,
   hideMonthlyBreakdown,
 }: {
+  embedded?: boolean;
   hideMonthlyBreakdown?: boolean;
 } = {}) {
+  void embedded;
   const router = useRouter();
   const searchParams = useSearchParams();
   const creditsFirstForMobileApp = (() => {

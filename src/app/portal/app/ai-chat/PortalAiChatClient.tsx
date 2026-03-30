@@ -115,23 +115,11 @@ function IconVolumeGlyph({ size = 16 }: { size?: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden>
       <path
-        d="M11 5L6.5 9H3v6h3.5L11 19V5z"
+        d="M19.7479 4.99993C21.1652 6.97016 22 9.38756 22 11.9999C22 14.6123 21.1652 17.0297 19.7479 18.9999M15.7453 7.99993C16.5362 9.13376 17 10.5127 17 11.9999C17 13.4872 16.5362 14.8661 15.7453 15.9999M9.63432 4.36561L6.46863 7.5313C6.29568 7.70425 6.2092 7.79073 6.10828 7.85257C6.01881 7.9074 5.92127 7.9478 5.81923 7.9723C5.70414 7.99993 5.58185 7.99993 5.33726 7.99993H3.6C3.03995 7.99993 2.75992 7.99993 2.54601 8.10892C2.35785 8.20479 2.20487 8.35777 2.10899 8.54594C2 8.75985 2 9.03987 2 9.59993V14.3999C2 14.96 2 15.24 2.10899 15.4539C2.20487 15.6421 2.35785 15.7951 2.54601 15.8909C2.75992 15.9999 3.03995 15.9999 3.6 15.9999H5.33726C5.58185 15.9999 5.70414 15.9999 5.81923 16.0276C5.92127 16.0521 6.01881 16.0925 6.10828 16.1473C6.2092 16.2091 6.29568 16.2956 6.46863 16.4686L9.63431 19.6342C10.0627 20.0626 10.2769 20.2768 10.4608 20.2913C10.6203 20.3038 10.7763 20.2392 10.8802 20.1175C11 19.9773 11 19.6744 11 19.0686V4.9313C11 4.32548 11 4.02257 10.8802 3.88231C10.7763 3.76061 10.6203 3.69602 10.4608 3.70858C10.2769 3.72305 10.0627 3.93724 9.63432 4.36561Z"
         stroke="currentColor"
         strokeWidth="2"
         strokeLinecap="round"
         strokeLinejoin="round"
-      />
-      <path
-        d="M15.5 8.5a5 5 0 010 7"
-        stroke="currentColor"
-        strokeWidth="2"
-        strokeLinecap="round"
-      />
-      <path
-        d="M17.8 6.2a8.5 8.5 0 010 11.6"
-        stroke="currentColor"
-        strokeWidth="2"
-        strokeLinecap="round"
       />
     </svg>
   );
@@ -141,14 +129,7 @@ function IconRedoGlyph({ size = 16 }: { size?: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden>
       <path
-        d="M3 12a9 9 0 0115.3-6.3"
-        stroke="currentColor"
-        strokeWidth="2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-      <path
-        d="M18 3v6h-6"
+        d="M2 10C2 10 2.12132 9.15076 5.63604 5.63604C9.15076 2.12132 14.8492 2.12132 18.364 5.63604C19.6092 6.88131 20.4133 8.40072 20.7762 10M2 10V4M2 10H8M22 14C22 14 21.8787 14.8492 18.364 18.364C14.8492 21.8787 9.15076 21.8787 5.63604 18.364C4.39076 17.1187 3.58669 15.5993 3.22383 14M22 14V20M22 14H16"
         stroke="currentColor"
         strokeWidth="2"
         strokeLinecap="round"
@@ -756,10 +737,13 @@ export function PortalAiChatClient() {
   }, []);
 
   const scrollToBottom = useCallback((force = false) => {
-    if (!force && scrollerRef.current) {
-      const el = scrollerRef.current;
+    const el = scrollerRef.current;
+    if (!force && el) {
       const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
       if (distanceFromBottom > 200) return;
+    }
+    if (el) {
+      el.scrollTop = el.scrollHeight;
     }
     endRef.current?.scrollIntoView({ block: "end" });
   }, []);
@@ -811,6 +795,7 @@ export function PortalAiChatClient() {
         // Ensure we scroll after the new messages have actually rendered.
         requestAnimationFrame(() => scrollToBottom(true));
         setTimeout(() => scrollToBottom(true), 0);
+        setTimeout(() => scrollToBottom(true), 120);
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
         toast.error(msg);
@@ -1592,7 +1577,8 @@ export function PortalAiChatClient() {
     }
   }, [activeThreadId, canvasUrl, loadMessages, loadThreads, regenerating, toast]);
 
-  const left = (
+  const left = useMemo(
+    () => (
     <div className="flex h-full flex-col overflow-hidden">
       <div className="shrink-0 px-3 pb-2 pt-3">
         <div className="flex items-center justify-between">
@@ -1600,7 +1586,7 @@ export function PortalAiChatClient() {
           <div className="flex items-center gap-2">
             <button
               type="button"
-              className="inline-flex h-9 w-9 items-center justify-center rounded-2xl border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50"
+              className="inline-flex h-9 w-9 items-center justify-center rounded-2xl bg-transparent text-zinc-700 transition-all duration-150 hover:scale-110 hover:bg-zinc-50"
               onClick={() => {
                 setScheduledOpen(true);
               }}
@@ -1611,7 +1597,7 @@ export function PortalAiChatClient() {
             </button>
             <button
               type="button"
-              className="inline-flex h-9 w-9 items-center justify-center rounded-2xl bg-brand-blue text-white hover:opacity-95"
+              className="inline-flex h-9 w-9 items-center justify-center rounded-2xl bg-brand-blue text-white transition-transform duration-150 hover:scale-110 hover:opacity-95"
               onClick={createThread}
               aria-label="New chat"
               title="New chat"
@@ -1690,15 +1676,18 @@ export function PortalAiChatClient() {
         )}
       </div>
     </div>
+    ),
+    [activeThreadId, closeThreadMenu, createThread, selectThread, setScheduledOpen, threadMenu, threadMenuThreadId, threads, threadsLoading],
   );
 
   const setSidebarOverride = useSetPortalSidebarOverride();
   useEffect(() => {
     setSidebarOverride({ desktopSidebarContent: left });
+  }, [left, setSidebarOverride]);
+
+  useEffect(() => {
     return () => setSidebarOverride(null);
-    // NOTE: Intentionally omit `left` to avoid effect loops; we update when the thread list state changes.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [setSidebarOverride, threadsLoading, threads, activeThreadId]);
+  }, [setSidebarOverride]);
 
   const anyMenuOpen = Boolean(attachMenu || threadMenu);
 
@@ -2290,7 +2279,7 @@ export function PortalAiChatClient() {
                             <button
                               type="button"
                               className={classNames(
-                                "inline-flex h-8 w-8 items-center justify-center rounded-xl bg-transparent text-zinc-600 hover:bg-zinc-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/30",
+                                "inline-flex h-8 w-8 items-center justify-center rounded-xl bg-transparent text-zinc-600 transition-all duration-150 hover:scale-110 hover:bg-zinc-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/30",
                                 (dictating || regenerating || sending) && "opacity-60",
                               )}
                               onClick={() => void dictateAssistantMessage(m.id)}
@@ -2316,7 +2305,7 @@ export function PortalAiChatClient() {
                             <button
                               type="button"
                               className={classNames(
-                                "inline-flex h-8 w-8 items-center justify-center rounded-xl bg-transparent text-zinc-600 hover:bg-zinc-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/30",
+                                "inline-flex h-8 w-8 items-center justify-center rounded-xl bg-transparent text-zinc-600 transition-all duration-150 hover:scale-110 hover:bg-zinc-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/30",
                                 (dictating || regenerating || sending) && "opacity-60",
                               )}
                               onClick={() => void redoLastAssistant()}

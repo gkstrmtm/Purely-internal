@@ -133,7 +133,9 @@ function CopyRow({ label, value }: { label: string; value: string | null | undef
   );
 }
 
-export function PortalProfileClient({ embedded }: { embedded?: boolean } = {}) {
+type PortalProfileClientMode = "all" | "profile" | "integrations" | "business";
+
+export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boolean; mode?: PortalProfileClientMode } = {}) {
   const toast = useToast();
   const pathname = usePathname() || "";
   const searchParams = useSearchParams();
@@ -238,6 +240,12 @@ export function PortalProfileClient({ embedded }: { embedded?: boolean } = {}) {
 
   const [passwordModalOpen, setPasswordModalOpen] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(false);
+
+  const showSuggestedSetup = mode === "all" || mode === "profile";
+  const showContactSection = mode === "all" || mode === "profile";
+  const showIntegrationSections = mode === "all" || mode === "integrations";
+  const showBusinessSections = mode === "all" || mode === "business";
+  const showAdvancedToggle = mode === "all";
 
   type AdvancedScrollTarget =
     | "advanced"
@@ -913,7 +921,8 @@ export function PortalProfileClient({ embedded }: { embedded?: boolean } = {}) {
         </div>
       ) : (
         <div className="mt-6 space-y-4">
-          <SuggestedSetupSection canEdit={canEditBusinessInfo} />
+          {showSuggestedSetup ? <SuggestedSetupSection canEdit={canEditBusinessInfo} /> : null}
+          {showContactSection ? (
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
             <div className="lg:col-span-2">
               <PortalSettingsSection
@@ -999,79 +1008,85 @@ export function PortalProfileClient({ embedded }: { embedded?: boolean } = {}) {
               </PortalSettingsSection>
             </div>
           </div>
+          ) : null}
 
-          <div
-            ref={advancedRef}
-            className={embedded ? "scroll-mt-24" : "scroll-mt-24 rounded-3xl border border-zinc-200 bg-white p-6"}
-          >
-            <button
-              type="button"
-              onClick={() => setAdvancedOpen((v) => !v)}
-              className="inline-flex w-full items-center justify-between rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50 sm:w-auto"
+          {showAdvancedToggle ? (
+            <div
+              ref={advancedRef}
+              className={embedded ? "scroll-mt-24" : "scroll-mt-24 rounded-3xl border border-zinc-200 bg-white p-6"}
             >
-              <span>Advanced</span>
-              <span
-                className={
-                  "ml-3 inline-block text-sm leading-none transition-transform " +
-                  (advancedOpen ? "rotate-180" : "rotate-0")
-                }
-                aria-hidden="true"
+              <button
+                type="button"
+                onClick={() => setAdvancedOpen((v) => !v)}
+                className="inline-flex w-full items-center justify-between rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50 sm:w-auto"
               >
-                ▾
-              </span>
-            </button>
-          </div>
-
-          {advancedOpen ? (
-            <div className="space-y-4">
-
-              <div className="flex flex-wrap gap-x-3 gap-y-1">
-                {canViewTwilio ? (
-                  <button
-                    type="button"
-                    onClick={() => requestAdvancedScroll("twilio")}
-                    className="rounded-md px-2 py-1 text-xs font-semibold text-zinc-700 hover:bg-blue-50 hover:text-(--color-brand-blue) focus-visible:outline-none focus-visible:text-(--color-brand-blue) focus-visible:underline"
-                  >
-                    Twilio
-                  </button>
-                ) : null}
-                {canViewWebhooks ? (
-                  <button
-                    type="button"
-                    onClick={() => requestAdvancedScroll("webhooks")}
-                    className="rounded-md px-2 py-1 text-xs font-semibold text-zinc-700 hover:bg-blue-50 hover:text-(--color-brand-blue) focus-visible:outline-none focus-visible:text-(--color-brand-blue) focus-visible:underline"
-                  >
-                    Webhooks
-                  </button>
-                ) : null}
-                <button
-                  type="button"
-                  onClick={() => requestAdvancedScroll("salesReporting")}
-                  className="rounded-md px-2 py-1 text-xs font-semibold text-zinc-700 hover:bg-blue-50 hover:text-(--color-brand-blue) focus-visible:outline-none focus-visible:text-(--color-brand-blue) focus-visible:underline"
+                <span>Advanced</span>
+                <span
+                  className={
+                    "ml-3 inline-block text-sm leading-none transition-transform " +
+                    (advancedOpen ? "rotate-180" : "rotate-0")
+                  }
+                  aria-hidden="true"
                 >
-                  Sales reporting
-                </button>
-                {portalMe?.ok === true ? (
-                  <button
-                    type="button"
-                    onClick={() => requestAdvancedScroll("businessEmail")}
-                    className="rounded-md px-2 py-1 text-xs font-semibold text-zinc-700 hover:bg-blue-50 hover:text-(--color-brand-blue) focus-visible:outline-none focus-visible:text-(--color-brand-blue) focus-visible:underline"
-                  >
-                    Business email
-                  </button>
-                ) : null}
-                {canViewBusinessInfo ? (
-                  <button
-                    type="button"
-                    onClick={() => requestAdvancedScroll("businessInfo")}
-                    className="rounded-md px-2 py-1 text-xs font-semibold text-zinc-700 hover:bg-blue-50 hover:text-(--color-brand-blue) focus-visible:outline-none focus-visible:text-(--color-brand-blue) focus-visible:underline"
-                  >
-                    Business info
-                  </button>
-                ) : null}
-              </div>
-              
-              {canViewWebhooks ? (
+                  ▾
+                </span>
+              </button>
+            </div>
+          ) : null}
+
+          {((showAdvancedToggle && advancedOpen) || !showAdvancedToggle) ? (
+            <div className="space-y-4">
+              {showAdvancedToggle ? (
+                <div className="flex flex-wrap gap-x-3 gap-y-1">
+                  {showIntegrationSections && canViewTwilio ? (
+                    <button
+                      type="button"
+                      onClick={() => requestAdvancedScroll("twilio")}
+                      className="rounded-md px-2 py-1 text-xs font-semibold text-zinc-700 hover:bg-blue-50 hover:text-(--color-brand-blue) focus-visible:outline-none focus-visible:text-(--color-brand-blue) focus-visible:underline"
+                    >
+                      Twilio
+                    </button>
+                  ) : null}
+                  {showIntegrationSections && canViewWebhooks ? (
+                    <button
+                      type="button"
+                      onClick={() => requestAdvancedScroll("webhooks")}
+                      className="rounded-md px-2 py-1 text-xs font-semibold text-zinc-700 hover:bg-blue-50 hover:text-(--color-brand-blue) focus-visible:outline-none focus-visible:text-(--color-brand-blue) focus-visible:underline"
+                    >
+                      Webhooks
+                    </button>
+                  ) : null}
+                  {showIntegrationSections ? (
+                    <button
+                      type="button"
+                      onClick={() => requestAdvancedScroll("salesReporting")}
+                      className="rounded-md px-2 py-1 text-xs font-semibold text-zinc-700 hover:bg-blue-50 hover:text-(--color-brand-blue) focus-visible:outline-none focus-visible:text-(--color-brand-blue) focus-visible:underline"
+                    >
+                      Sales reporting
+                    </button>
+                  ) : null}
+                  {showBusinessSections && portalMe?.ok === true ? (
+                    <button
+                      type="button"
+                      onClick={() => requestAdvancedScroll("businessEmail")}
+                      className="rounded-md px-2 py-1 text-xs font-semibold text-zinc-700 hover:bg-blue-50 hover:text-(--color-brand-blue) focus-visible:outline-none focus-visible:text-(--color-brand-blue) focus-visible:underline"
+                    >
+                      Business email
+                    </button>
+                  ) : null}
+                  {showBusinessSections && canViewBusinessInfo ? (
+                    <button
+                      type="button"
+                      onClick={() => requestAdvancedScroll("businessInfo")}
+                      className="rounded-md px-2 py-1 text-xs font-semibold text-zinc-700 hover:bg-blue-50 hover:text-(--color-brand-blue) focus-visible:outline-none focus-visible:text-(--color-brand-blue) focus-visible:underline"
+                    >
+                      Business info
+                    </button>
+                  ) : null}
+                </div>
+              ) : null}
+
+              {showIntegrationSections && canViewWebhooks ? (
                 <div ref={webhooksRef} className="scroll-mt-24">
                   <PortalSettingsSection
                     title="Webhooks (copy/paste)"
@@ -1084,7 +1099,6 @@ export function PortalProfileClient({ embedded }: { embedded?: boolean } = {}) {
                     <div className="space-y-3">
                       <CopyRow label="Calls (Primary handler: AI Receptionist)" value={webhooks?.legacy?.aiReceptionistVoiceUrl ?? null} />
                       <CopyRow label="Calls (If primary handler fails: Missed Call Text Back)" value={webhooks?.legacy?.missedCallVoiceUrl ?? null} />
-
                       <div className="rounded-2xl border border-zinc-200 bg-white p-4 text-sm text-zinc-700">
                         <div className="font-semibold text-zinc-900">Where do I paste these in Twilio?</div>
                         <div className="mt-2 space-y-1">
@@ -1094,7 +1108,6 @@ export function PortalProfileClient({ embedded }: { embedded?: boolean } = {}) {
                         </div>
                         <div className="mt-2 text-xs text-zinc-500">SMS webhooks are configured automatically when you connect Twilio.</div>
                       </div>
-
                       {webhooks?.baseUrl ? (
                         <div className="text-xs text-zinc-500">
                           Webhook base: <span className="font-mono">{webhooks.baseUrl}</span>
@@ -1105,7 +1118,7 @@ export function PortalProfileClient({ embedded }: { embedded?: boolean } = {}) {
                 </div>
               ) : null}
 
-              {canViewTwilio ? (
+              {showIntegrationSections && canViewTwilio ? (
                 <div ref={twilioRef} className="scroll-mt-24">
                   <PortalSettingsSection
                     title="Twilio"
@@ -1206,444 +1219,438 @@ export function PortalProfileClient({ embedded }: { embedded?: boolean } = {}) {
                 </div>
               ) : null}
 
-              <div ref={salesReportingRef} className="scroll-mt-24">
-                <PortalSettingsSection
-                  title="Sales Reporting"
-                  description="Connect your payment processor to unlock a sales dashboard."
-                  accent="blue"
-                  collapsible={false}
-                  dotClassName="hidden"
-                  variant={sectionVariant}
-                >
-                  <div className="space-y-3">
-                    {stripeNote ? (
-                      <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800">{stripeNote}</div>
-                    ) : null}
+              {showIntegrationSections ? (
+                <div ref={salesReportingRef} className="scroll-mt-24">
+                  <PortalSettingsSection
+                    title="Sales Reporting"
+                    description="Connect your payment processor to unlock a sales dashboard."
+                    accent="blue"
+                    collapsible={false}
+                    dotClassName="hidden"
+                    variant={sectionVariant}
+                  >
+                    <div className="space-y-3">
+                      {stripeNote ? (
+                        <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800">{stripeNote}</div>
+                      ) : null}
 
-              {stripeError ? (
-                <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">{stripeError}</div>
-              ) : null}
+                      {stripeError ? (
+                        <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">{stripeError}</div>
+                      ) : null}
 
-              {salesStatusLoaded && salesStatus?.ok === true && !salesStatus.encryptionConfigured ? (
-                <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
-                  Sales reporting setup is temporarily unavailable. Please contact support.
-                </div>
-              ) : null}
+                      {salesStatusLoaded && salesStatus?.ok === true && !salesStatus.encryptionConfigured ? (
+                        <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+                          Sales reporting setup is temporarily unavailable. Please contact support.
+                        </div>
+                      ) : null}
 
-              <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-700">
-                <div className="font-semibold text-zinc-900">Connect a payment processor</div>
-                <div className="mt-1">Whichever one you connect becomes the active provider for your Sales dashboard and widget.</div>
-              </div>
-
-              {salesStatusLoaded && salesStatus?.ok === true ? (
-                (() => {
-                  const connectedOptions = SALES_REPORTING_PROVIDER_OPTIONS.filter((o) => salesStatus.providers[o.value]?.configured);
-                  if (connectedOptions.length === 0) return null;
-                  const active = salesStatus.activeProvider ?? connectedOptions[0].value;
-                  return (
-                    <div className="rounded-2xl border border-zinc-200 bg-white p-4">
-                      <div className="text-xs font-semibold text-zinc-600">Active provider</div>
-                      <div className="mt-2">
-                        <PortalListboxDropdown
-                          value={active}
-                          options={connectedOptions}
-                          onChange={(v) => void setActiveProvider(v)}
-                          disabled={!canEditProfile || stripeSaving}
-                          portal={false}
-                        />
-                      </div>
-                      <div className="mt-2 text-xs text-zinc-500">Your Sales dashboard uses the active provider.</div>
-                    </div>
-                  );
-                })()
-              ) : null}
-
-              {!canEditProfile ? (
-                <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">You have view-only access.</div>
-              ) : null}
-
-              <div className="rounded-2xl border border-zinc-200 bg-white p-4">
-                <div className="text-xs font-semibold text-zinc-600">Provider</div>
-                <div className="mt-2">
-                  <PortalListboxDropdown
-                    value={salesProvider}
-                    options={SALES_REPORTING_PROVIDER_OPTIONS}
-                    onChange={(v) => setSalesProvider(v)}
-                    disabled={stripeSaving}
-                    portal={false}
-                  />
-                </div>
-
-                <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-4 text-xs text-zinc-700">
-                  <div>
-                    Connected:{" "}
-                    <span className="font-semibold text-zinc-900">
-                      {salesStatus?.ok === true && salesStatus.providers[salesProvider]?.configured ? "Yes" : "No"}
-                    </span>
-                  </div>
-                  {salesProvider === "stripe" ? (
-                    <>
-                      <div className="mt-1">
-                        Key type: <span className="font-mono">{salesStatus?.ok === true ? salesStatus.stripe.prefix ?? "N/A" : "N/A"}</span>
-                      </div>
-                      <div className="mt-1">
-                        Account: <span className="font-mono">{salesStatus?.ok === true ? salesStatus.stripe.accountId ?? "N/A" : "N/A"}</span>
-                      </div>
-                    </>
-                  ) : (
-                    <div className="mt-1">
-                      Details:{" "}
-                      <span className="font-mono">
-                        {salesStatus?.ok === true ? salesStatus.providers[salesProvider]?.displayHint ?? "N/A" : "N/A"}
-                      </span>
-                    </div>
-                  )}
-                </div>
-
-                <div className="mt-4 space-y-3">
-                  {salesProvider === "stripe" ? (
-                    <div>
-                      <label className="text-xs font-semibold text-zinc-700">Stripe secret key</label>
-                      <input
-                        value={stripeSecretKey}
-                        onChange={(e) => setStripeSecretKey(e.target.value)}
-                        type="password"
-                        placeholder={salesStatus?.ok === true && salesStatus.providers.stripe?.configured ? "•••••• (paste to replace)" : "sk_live_… or rk_live_…"}
-                        className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                        disabled={!canEditProfile || stripeSaving || !(salesStatus?.ok === true && salesStatus.encryptionConfigured)}
-                        autoComplete="off"
-                      />
-                      <div className="mt-2 text-xs text-zinc-500">
-                        Find it in Stripe: <span className="font-semibold">Dashboard → Developers → API keys</span> → copy your Secret key.
-                      </div>
-                      <div className="mt-2 text-xs text-zinc-500">We store it encrypted and never show the full key back to you.</div>
-                    </div>
-                  ) : null}
-
-                  {salesProvider === "authorizenet" ? (
-                    <>
-                      <div>
-                        <label className="text-xs font-semibold text-zinc-700">API Login ID</label>
-                        <input
-                          value={authNetLoginId}
-                          onChange={(e) => setAuthNetLoginId(e.target.value)}
-                          className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                          disabled={!canEditProfile || stripeSaving || !(salesStatus?.ok === true && salesStatus.encryptionConfigured)}
-                          autoComplete="off"
-                        />
-                      </div>
-                      <div>
-                        <label className="text-xs font-semibold text-zinc-700">Transaction Key</label>
-                        <input
-                          value={authNetTxKey}
-                          onChange={(e) => setAuthNetTxKey(e.target.value)}
-                          type="password"
-                          className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                          disabled={!canEditProfile || stripeSaving || !(salesStatus?.ok === true && salesStatus.encryptionConfigured)}
-                          autoComplete="off"
-                        />
-                      </div>
-                      <div>
-                        <label className="text-xs font-semibold text-zinc-700">Environment</label>
-                        <select
-                          value={authNetEnv}
-                          onChange={(e) => setAuthNetEnv(e.target.value as any)}
-                          className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                          disabled={!canEditProfile || stripeSaving}
-                        >
-                          <option value="production">Production</option>
-                          <option value="sandbox">Sandbox</option>
-                        </select>
+                      <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-700">
+                        <div className="font-semibold text-zinc-900">Connect a payment processor</div>
+                        <div className="mt-1">Whichever one you connect becomes the active provider for your Sales dashboard and widget.</div>
                       </div>
 
-                      <div className="text-xs text-zinc-500">
-                        Find these in Authorize.Net: <span className="font-semibold">Account → Settings → Security Settings → API Credentials &amp; Keys</span>.
-                      </div>
-                      <div className="text-xs text-zinc-500">Use Sandbox keys for Sandbox; use Production keys for Production.</div>
-                    </>
-                  ) : null}
+                      {salesStatusLoaded && salesStatus?.ok === true ? (
+                        (() => {
+                          const connectedOptions = SALES_REPORTING_PROVIDER_OPTIONS.filter((o) => salesStatus.providers[o.value]?.configured);
+                          if (connectedOptions.length === 0) return null;
+                          const active = salesStatus.activeProvider ?? connectedOptions[0].value;
+                          return (
+                            <div className="rounded-2xl border border-zinc-200 bg-white p-4">
+                              <div className="text-xs font-semibold text-zinc-600">Active provider</div>
+                              <div className="mt-2">
+                                <PortalListboxDropdown
+                                  value={active}
+                                  options={connectedOptions}
+                                  onChange={(v) => void setActiveProvider(v)}
+                                  disabled={!canEditProfile || stripeSaving}
+                                  portal={false}
+                                />
+                              </div>
+                              <div className="mt-2 text-xs text-zinc-500">Your Sales dashboard uses the active provider.</div>
+                            </div>
+                          );
+                        })()
+                      ) : null}
 
-                  {salesProvider === "braintree" ? (
-                    <>
-                      <div>
-                        <label className="text-xs font-semibold text-zinc-700">Merchant ID</label>
-                        <input
-                          value={braintreeMerchantId}
-                          onChange={(e) => setBraintreeMerchantId(e.target.value)}
-                          className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                          disabled={!canEditProfile || stripeSaving || !(salesStatus?.ok === true && salesStatus.encryptionConfigured)}
-                          autoComplete="off"
-                        />
-                      </div>
-                      <div>
-                        <label className="text-xs font-semibold text-zinc-700">Public Key</label>
-                        <input
-                          value={braintreePublicKey}
-                          onChange={(e) => setBraintreePublicKey(e.target.value)}
-                          className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                          disabled={!canEditProfile || stripeSaving || !(salesStatus?.ok === true && salesStatus.encryptionConfigured)}
-                          autoComplete="off"
-                        />
-                      </div>
-                      <div>
-                        <label className="text-xs font-semibold text-zinc-700">Private Key</label>
-                        <input
-                          value={braintreePrivateKey}
-                          onChange={(e) => setBraintreePrivateKey(e.target.value)}
-                          type="password"
-                          className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                          disabled={!canEditProfile || stripeSaving || !(salesStatus?.ok === true && salesStatus.encryptionConfigured)}
-                          autoComplete="off"
-                        />
-                      </div>
-                      <div>
-                        <label className="text-xs font-semibold text-zinc-700">Environment</label>
-                        <select
-                          value={braintreeEnv}
-                          onChange={(e) => setBraintreeEnv(e.target.value as any)}
-                          className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                          disabled={!canEditProfile || stripeSaving}
-                        >
-                          <option value="production">Production</option>
-                          <option value="sandbox">Sandbox</option>
-                        </select>
-                      </div>
+                      {!canEditProfile ? (
+                        <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">You have view-only access.</div>
+                      ) : null}
 
-                      <div className="text-xs text-zinc-500">
-                        Find these in Braintree: <span className="font-semibold">Control Panel → Settings → API</span> (API Keys).
-                      </div>
-                      <div className="text-xs text-zinc-500">Use Sandbox keys for Sandbox; use Production keys for Production.</div>
-                    </>
-                  ) : null}
-
-                  {salesProvider === "razorpay" ? (
-                    <>
-                      <div>
-                        <label className="text-xs font-semibold text-zinc-700">Key ID</label>
-                        <input
-                          value={razorpayKeyId}
-                          onChange={(e) => setRazorpayKeyId(e.target.value)}
-                          className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                          disabled={!canEditProfile || stripeSaving || !(salesStatus?.ok === true && salesStatus.encryptionConfigured)}
-                          autoComplete="off"
-                        />
-                      </div>
-                      <div>
-                        <label className="text-xs font-semibold text-zinc-700">Key Secret</label>
-                        <input
-                          value={razorpayKeySecret}
-                          onChange={(e) => setRazorpayKeySecret(e.target.value)}
-                          type="password"
-                          className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                          disabled={!canEditProfile || stripeSaving || !(salesStatus?.ok === true && salesStatus.encryptionConfigured)}
-                          autoComplete="off"
-                        />
-                      </div>
-
-                      <div className="text-xs text-zinc-500">
-                        Find these in Razorpay: <span className="font-semibold">Dashboard → Settings → API Keys</span>.
-                      </div>
-                    </>
-                  ) : null}
-
-                  {salesProvider === "paystack" ? (
-                    <div>
-                      <label className="text-xs font-semibold text-zinc-700">Secret key</label>
-                      <input
-                        value={paystackSecretKey}
-                        onChange={(e) => setPaystackSecretKey(e.target.value)}
-                        type="password"
-                        className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                        disabled={!canEditProfile || stripeSaving || !(salesStatus?.ok === true && salesStatus.encryptionConfigured)}
-                        autoComplete="off"
-                      />
-
-                      <div className="mt-2 text-xs text-zinc-500">
-                        Find it in Paystack: <span className="font-semibold">Settings → API Keys &amp; Webhooks</span>.
-                      </div>
-                    </div>
-                  ) : null}
-
-                  {salesProvider === "flutterwave" ? (
-                    <div>
-                      <label className="text-xs font-semibold text-zinc-700">Secret key</label>
-                      <input
-                        value={flutterwaveSecretKey}
-                        onChange={(e) => setFlutterwaveSecretKey(e.target.value)}
-                        type="password"
-                        className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                        disabled={!canEditProfile || stripeSaving || !(salesStatus?.ok === true && salesStatus.encryptionConfigured)}
-                        autoComplete="off"
-                      />
-
-                      <div className="mt-2 text-xs text-zinc-500">
-                        Find it in Flutterwave: <span className="font-semibold">Dashboard → Settings → API</span>.
-                      </div>
-                    </div>
-                  ) : null}
-
-                  {salesProvider === "mollie" ? (
-                    <div>
-                      <label className="text-xs font-semibold text-zinc-700">API key</label>
-                      <input
-                        value={mollieApiKey}
-                        onChange={(e) => setMollieApiKey(e.target.value)}
-                        type="password"
-                        className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                        disabled={!canEditProfile || stripeSaving || !(salesStatus?.ok === true && salesStatus.encryptionConfigured)}
-                        autoComplete="off"
-                      />
-
-                      <div className="mt-2 text-xs text-zinc-500">
-                        Find it in Mollie: <span className="font-semibold">Dashboard → Developers → API keys</span>.
-                      </div>
-                    </div>
-                  ) : null}
-
-                  {salesProvider === "mercadopago" ? (
-                    <div>
-                      <label className="text-xs font-semibold text-zinc-700">Access token</label>
-                      <input
-                        value={mercadoPagoAccessToken}
-                        onChange={(e) => setMercadoPagoAccessToken(e.target.value)}
-                        type="password"
-                        className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                        disabled={!canEditProfile || stripeSaving || !(salesStatus?.ok === true && salesStatus.encryptionConfigured)}
-                        autoComplete="off"
-                      />
-
-                      <div className="mt-2 text-xs text-zinc-500">
-                        Find it in Mercado Pago: <span className="font-semibold">Developers → Your integrations → Credentials</span> (use the Access Token).
-                      </div>
-                    </div>
-                  ) : null}
-                </div>
-
-                <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                  <div className="flex gap-2">
-                    <button
-                      type="button"
-                      onClick={() => void connectSelectedProvider()}
-                      disabled={!canEditProfile || stripeSaving || !(salesStatus?.ok === true && salesStatus.encryptionConfigured)}
-                      className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
-                    >
-                      {stripeSaving
-                        ? "Saving…"
-                        : salesStatus?.ok === true && salesStatus.providers[salesProvider]?.configured
-                          ? `Replace ${providerLabel(salesProvider)}`
-                          : `Connect ${providerLabel(salesProvider)}`}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => void disconnectSelectedProvider()}
-                      disabled={!canEditProfile || stripeSaving || !(salesStatus?.ok === true && salesStatus.providers[salesProvider]?.configured)}
-                      className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50 disabled:opacity-60"
-                    >
-                      Disconnect
-                    </button>
-                  </div>
-                  <Link href="/portal/app/services/reporting/sales" className="text-sm font-semibold text-(--color-brand-blue) hover:underline">
-                    Open sales dashboard →
-                  </Link>
-                </div>
-              </div>
-            </div>
-          </PortalSettingsSection>
-          </div>
-
-          {portalMe?.ok === true ? (
-            <div ref={businessEmailRef} className="scroll-mt-24">
-              <PortalSettingsSection
-                title="Business email"
-                description="Your managed @purelyautomation.com email address (used for inbox sending + receiving)."
-                accent="pink"
-                collapsible={false}
-                dotClassName="hidden"
-                variant={sectionVariant}
-              >
-                <div className="space-y-3">
-                {mailboxNote ? (
-                  <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800">{mailboxNote}</div>
-                ) : null}
-
-                {mailboxError ? (
-                  <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">{mailboxError}</div>
-                ) : null}
-
-                {mailboxLoading ? (
-                  <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">Loading…</div>
-                ) : null}
-
-                {mailbox ? (
-                  <CopyRow label="Business email" value={mailbox.emailAddress} />
-                ) : mailboxLoading ? null : (
-                  <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">Business email unavailable.</div>
-                )}
-
-                {mailbox ? (
-                  mailbox.canChange ? (
-                    <div className="rounded-2xl border border-zinc-200 bg-white p-4">
-                      <div className="text-sm font-semibold text-zinc-900">Change email name (one time)</div>
-                      <div className="mt-1 text-sm text-zinc-600">
-                        Pick the part before <span className="font-mono">@purelyautomation.com</span>. We’ll normalize spaces/symbols.
-                      </div>
-
-                      <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
-                        <div className="sm:col-span-2">
-                          <label className="text-xs font-semibold text-zinc-600">Email name</label>
-                          <input
-                            value={mailboxLocalPart}
-                            onChange={(e) => setMailboxLocalPart(e.target.value)}
-                            className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 font-mono text-sm outline-none focus:border-zinc-300"
-                            placeholder="your-business"
-                            autoComplete="off"
+                      <div className="rounded-2xl border border-zinc-200 bg-white p-4">
+                        <div className="text-xs font-semibold text-zinc-600">Provider</div>
+                        <div className="mt-2">
+                          <PortalListboxDropdown
+                            value={salesProvider}
+                            options={SALES_REPORTING_PROVIDER_OPTIONS}
+                            onChange={(v) => setSalesProvider(v)}
+                            disabled={stripeSaving}
+                            portal={false}
                           />
                         </div>
-                        <div className="sm:col-span-1 sm:flex sm:items-end">
-                          <button
-                            type="button"
-                            onClick={() => void saveMailboxOnce()}
-                            disabled={!canSaveMailbox || mailboxSaving}
-                            className="w-full rounded-2xl bg-brand-ink px-5 py-3 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
-                          >
-                            {mailboxSaving ? "Saving…" : canSaveMailbox ? "Save" : "Saved"}
-                          </button>
+
+                        <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-4 text-xs text-zinc-700">
+                          <div>
+                            Connected:{" "}
+                            <span className="font-semibold text-zinc-900">
+                              {salesStatus?.ok === true && salesStatus.providers[salesProvider]?.configured ? "Yes" : "No"}
+                            </span>
+                          </div>
+                          {salesProvider === "stripe" ? (
+                            <>
+                              <div className="mt-1">
+                                Key type: <span className="font-mono">{salesStatus?.ok === true ? salesStatus.stripe.prefix ?? "N/A" : "N/A"}</span>
+                              </div>
+                              <div className="mt-1">
+                                Account: <span className="font-mono">{salesStatus?.ok === true ? salesStatus.stripe.accountId ?? "N/A" : "N/A"}</span>
+                              </div>
+                            </>
+                          ) : (
+                            <div className="mt-1">
+                              Details:{" "}
+                              <span className="font-mono">
+                                {salesStatus?.ok === true ? salesStatus.providers[salesProvider]?.displayHint ?? "N/A" : "N/A"}
+                              </span>
+                            </div>
+                          )}
+                        </div>
+
+                        <div className="mt-4 space-y-3">
+                          {salesProvider === "stripe" ? (
+                            <div>
+                              <label className="text-xs font-semibold text-zinc-700">Stripe secret key</label>
+                              <input
+                                value={stripeSecretKey}
+                                onChange={(e) => setStripeSecretKey(e.target.value)}
+                                type="password"
+                                placeholder={salesStatus?.ok === true && salesStatus.providers.stripe?.configured ? "•••••• (paste to replace)" : "sk_live_… or rk_live_…"}
+                                className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                                disabled={!canEditProfile || stripeSaving || !(salesStatus?.ok === true && salesStatus.encryptionConfigured)}
+                                autoComplete="off"
+                              />
+                              <div className="mt-2 text-xs text-zinc-500">
+                                Find it in Stripe: <span className="font-semibold">Dashboard → Developers → API keys</span> → copy your Secret key.
+                              </div>
+                              <div className="mt-2 text-xs text-zinc-500">We store it encrypted and never show the full key back to you.</div>
+                            </div>
+                          ) : null}
+
+                          {salesProvider === "authorizenet" ? (
+                            <>
+                              <div>
+                                <label className="text-xs font-semibold text-zinc-700">API Login ID</label>
+                                <input
+                                  value={authNetLoginId}
+                                  onChange={(e) => setAuthNetLoginId(e.target.value)}
+                                  className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                                  disabled={!canEditProfile || stripeSaving || !(salesStatus?.ok === true && salesStatus.encryptionConfigured)}
+                                  autoComplete="off"
+                                />
+                              </div>
+                              <div>
+                                <label className="text-xs font-semibold text-zinc-700">Transaction Key</label>
+                                <input
+                                  value={authNetTxKey}
+                                  onChange={(e) => setAuthNetTxKey(e.target.value)}
+                                  type="password"
+                                  className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                                  disabled={!canEditProfile || stripeSaving || !(salesStatus?.ok === true && salesStatus.encryptionConfigured)}
+                                  autoComplete="off"
+                                />
+                              </div>
+                              <div>
+                                <label className="text-xs font-semibold text-zinc-700">Environment</label>
+                                <select
+                                  value={authNetEnv}
+                                  onChange={(e) => setAuthNetEnv(e.target.value as any)}
+                                  className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                                  disabled={!canEditProfile || stripeSaving}
+                                >
+                                  <option value="production">Production</option>
+                                  <option value="sandbox">Sandbox</option>
+                                </select>
+                              </div>
+                              <div className="text-xs text-zinc-500">
+                                Find these in Authorize.Net: <span className="font-semibold">Account → Settings → Security Settings → API Credentials &amp; Keys</span>.
+                              </div>
+                              <div className="text-xs text-zinc-500">Use Sandbox keys for Sandbox; use Production keys for Production.</div>
+                            </>
+                          ) : null}
+
+                          {salesProvider === "braintree" ? (
+                            <>
+                              <div>
+                                <label className="text-xs font-semibold text-zinc-700">Merchant ID</label>
+                                <input
+                                  value={braintreeMerchantId}
+                                  onChange={(e) => setBraintreeMerchantId(e.target.value)}
+                                  className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                                  disabled={!canEditProfile || stripeSaving || !(salesStatus?.ok === true && salesStatus.encryptionConfigured)}
+                                  autoComplete="off"
+                                />
+                              </div>
+                              <div>
+                                <label className="text-xs font-semibold text-zinc-700">Public Key</label>
+                                <input
+                                  value={braintreePublicKey}
+                                  onChange={(e) => setBraintreePublicKey(e.target.value)}
+                                  className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                                  disabled={!canEditProfile || stripeSaving || !(salesStatus?.ok === true && salesStatus.encryptionConfigured)}
+                                  autoComplete="off"
+                                />
+                              </div>
+                              <div>
+                                <label className="text-xs font-semibold text-zinc-700">Private Key</label>
+                                <input
+                                  value={braintreePrivateKey}
+                                  onChange={(e) => setBraintreePrivateKey(e.target.value)}
+                                  type="password"
+                                  className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                                  disabled={!canEditProfile || stripeSaving || !(salesStatus?.ok === true && salesStatus.encryptionConfigured)}
+                                  autoComplete="off"
+                                />
+                              </div>
+                              <div>
+                                <label className="text-xs font-semibold text-zinc-700">Environment</label>
+                                <select
+                                  value={braintreeEnv}
+                                  onChange={(e) => setBraintreeEnv(e.target.value as any)}
+                                  className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                                  disabled={!canEditProfile || stripeSaving}
+                                >
+                                  <option value="production">Production</option>
+                                  <option value="sandbox">Sandbox</option>
+                                </select>
+                              </div>
+                              <div className="text-xs text-zinc-500">
+                                Find these in Braintree: <span className="font-semibold">Control Panel → Settings → API</span> (API Keys).
+                              </div>
+                              <div className="text-xs text-zinc-500">Use Sandbox keys for Sandbox; use Production keys for Production.</div>
+                            </>
+                          ) : null}
+
+                          {salesProvider === "razorpay" ? (
+                            <>
+                              <div>
+                                <label className="text-xs font-semibold text-zinc-700">Key ID</label>
+                                <input
+                                  value={razorpayKeyId}
+                                  onChange={(e) => setRazorpayKeyId(e.target.value)}
+                                  className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                                  disabled={!canEditProfile || stripeSaving || !(salesStatus?.ok === true && salesStatus.encryptionConfigured)}
+                                  autoComplete="off"
+                                />
+                              </div>
+                              <div>
+                                <label className="text-xs font-semibold text-zinc-700">Key Secret</label>
+                                <input
+                                  value={razorpayKeySecret}
+                                  onChange={(e) => setRazorpayKeySecret(e.target.value)}
+                                  type="password"
+                                  className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                                  disabled={!canEditProfile || stripeSaving || !(salesStatus?.ok === true && salesStatus.encryptionConfigured)}
+                                  autoComplete="off"
+                                />
+                              </div>
+                              <div className="text-xs text-zinc-500">
+                                Find these in Razorpay: <span className="font-semibold">Dashboard → Settings → API Keys</span>.
+                              </div>
+                            </>
+                          ) : null}
+
+                          {salesProvider === "paystack" ? (
+                            <div>
+                              <label className="text-xs font-semibold text-zinc-700">Secret key</label>
+                              <input
+                                value={paystackSecretKey}
+                                onChange={(e) => setPaystackSecretKey(e.target.value)}
+                                type="password"
+                                className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                                disabled={!canEditProfile || stripeSaving || !(salesStatus?.ok === true && salesStatus.encryptionConfigured)}
+                                autoComplete="off"
+                              />
+                              <div className="mt-2 text-xs text-zinc-500">
+                                Find it in Paystack: <span className="font-semibold">Settings → API Keys &amp; Webhooks</span>.
+                              </div>
+                            </div>
+                          ) : null}
+
+                          {salesProvider === "flutterwave" ? (
+                            <div>
+                              <label className="text-xs font-semibold text-zinc-700">Secret key</label>
+                              <input
+                                value={flutterwaveSecretKey}
+                                onChange={(e) => setFlutterwaveSecretKey(e.target.value)}
+                                type="password"
+                                className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                                disabled={!canEditProfile || stripeSaving || !(salesStatus?.ok === true && salesStatus.encryptionConfigured)}
+                                autoComplete="off"
+                              />
+                              <div className="mt-2 text-xs text-zinc-500">
+                                Find it in Flutterwave: <span className="font-semibold">Dashboard → Settings → API</span>.
+                              </div>
+                            </div>
+                          ) : null}
+
+                          {salesProvider === "mollie" ? (
+                            <div>
+                              <label className="text-xs font-semibold text-zinc-700">API key</label>
+                              <input
+                                value={mollieApiKey}
+                                onChange={(e) => setMollieApiKey(e.target.value)}
+                                type="password"
+                                className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                                disabled={!canEditProfile || stripeSaving || !(salesStatus?.ok === true && salesStatus.encryptionConfigured)}
+                                autoComplete="off"
+                              />
+                              <div className="mt-2 text-xs text-zinc-500">
+                                Find it in Mollie: <span className="font-semibold">Dashboard → Developers → API keys</span>.
+                              </div>
+                            </div>
+                          ) : null}
+
+                          {salesProvider === "mercadopago" ? (
+                            <div>
+                              <label className="text-xs font-semibold text-zinc-700">Access token</label>
+                              <input
+                                value={mercadoPagoAccessToken}
+                                onChange={(e) => setMercadoPagoAccessToken(e.target.value)}
+                                type="password"
+                                className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                                disabled={!canEditProfile || stripeSaving || !(salesStatus?.ok === true && salesStatus.encryptionConfigured)}
+                                autoComplete="off"
+                              />
+                              <div className="mt-2 text-xs text-zinc-500">
+                                Find it in Mercado Pago: <span className="font-semibold">Developers → Your integrations → Credentials</span> (use the Access Token).
+                              </div>
+                            </div>
+                          ) : null}
+                        </div>
+
+                        <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                          <div className="flex gap-2">
+                            <button
+                              type="button"
+                              onClick={() => void connectSelectedProvider()}
+                              disabled={!canEditProfile || stripeSaving || !(salesStatus?.ok === true && salesStatus.encryptionConfigured)}
+                              className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
+                            >
+                              {stripeSaving
+                                ? "Saving…"
+                                : salesStatus?.ok === true && salesStatus.providers[salesProvider]?.configured
+                                  ? `Replace ${providerLabel(salesProvider)}`
+                                  : `Connect ${providerLabel(salesProvider)}`}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => void disconnectSelectedProvider()}
+                              disabled={!canEditProfile || stripeSaving || !(salesStatus?.ok === true && salesStatus.providers[salesProvider]?.configured)}
+                              className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50 disabled:opacity-60"
+                            >
+                              Disconnect
+                            </button>
+                          </div>
+                          <Link href="/portal/app/services/reporting/sales" className="text-sm font-semibold text-(--color-brand-blue) hover:underline">
+                            Open sales dashboard →
+                          </Link>
                         </div>
                       </div>
-                      <div className="mt-3 text-xs text-zinc-500">After saving, this will be locked.</div>
                     </div>
-                  ) : (
-                    <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">
-                      {portalMe.role !== "OWNER"
-                        ? "Only the account owner can change this."
-                        : "This business email is locked (one-time change already used)."}
-                    </div>
-                  )
-                ) : null}
+                  </PortalSettingsSection>
                 </div>
-              </PortalSettingsSection>
-            </div>
-          ) : null}
+              ) : null}
 
-          {canViewBusinessInfo ? (
-            <div ref={businessInfoRef} className="scroll-mt-24">
-              <PortalSettingsSection
-                title="Business info"
-                description="Update your business details and branding anytime."
-                accent="pink"
-                collapsible={false}
-                dotClassName="hidden"
-                variant={sectionVariant}
-              >
-                <BusinessProfileForm
-                  embedded
-                  readOnly={!canEditBusinessInfo}
-                  onSaved={() => setNotice("Business info saved.")}
-                />
-              </PortalSettingsSection>
-            </div>
-          ) : null}
+              {showBusinessSections && portalMe?.ok === true ? (
+                <div ref={businessEmailRef} className="scroll-mt-24">
+                  <PortalSettingsSection
+                    title="Business email"
+                    description="Your managed @purelyautomation.com email address (used for inbox sending + receiving)."
+                    accent="pink"
+                    collapsible={false}
+                    dotClassName="hidden"
+                    variant={sectionVariant}
+                  >
+                    <div className="space-y-3">
+                      {mailboxNote ? (
+                        <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800">{mailboxNote}</div>
+                      ) : null}
 
+                      {mailboxError ? (
+                        <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">{mailboxError}</div>
+                      ) : null}
+
+                      {mailboxLoading ? (
+                        <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">Loading…</div>
+                      ) : null}
+
+                      {mailbox ? (
+                        <CopyRow label="Business email" value={mailbox.emailAddress} />
+                      ) : mailboxLoading ? null : (
+                        <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">Business email unavailable.</div>
+                      )}
+
+                      {mailbox ? (
+                        mailbox.canChange ? (
+                          <div className="rounded-2xl border border-zinc-200 bg-white p-4">
+                            <div className="text-sm font-semibold text-zinc-900">Change email name (one time)</div>
+                            <div className="mt-1 text-sm text-zinc-600">
+                              Pick the part before <span className="font-mono">@purelyautomation.com</span>. We’ll normalize spaces/symbols.
+                            </div>
+
+                            <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
+                              <div className="sm:col-span-2">
+                                <label className="text-xs font-semibold text-zinc-600">Email name</label>
+                                <input
+                                  value={mailboxLocalPart}
+                                  onChange={(e) => setMailboxLocalPart(e.target.value)}
+                                  className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 font-mono text-sm outline-none focus:border-zinc-300"
+                                  placeholder="your-business"
+                                  autoComplete="off"
+                                />
+                              </div>
+                              <div className="sm:col-span-1 sm:flex sm:items-end">
+                                <button
+                                  type="button"
+                                  onClick={() => void saveMailboxOnce()}
+                                  disabled={!canSaveMailbox || mailboxSaving}
+                                  className="w-full rounded-2xl bg-brand-ink px-5 py-3 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
+                                >
+                                  {mailboxSaving ? "Saving…" : canSaveMailbox ? "Save" : "Saved"}
+                                </button>
+                              </div>
+                            </div>
+                            <div className="mt-3 text-xs text-zinc-500">After saving, this will be locked.</div>
+                          </div>
+                        ) : (
+                          <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">
+                            {portalMe.role !== "OWNER"
+                              ? "Only the account owner can change this."
+                              : "This business email is locked (one-time change already used)."}
+                          </div>
+                        )
+                      ) : null}
+                    </div>
+                  </PortalSettingsSection>
+                </div>
+              ) : null}
+
+              {showBusinessSections && canViewBusinessInfo ? (
+                <div ref={businessInfoRef} className="scroll-mt-24">
+                  <PortalSettingsSection
+                    title="Business info"
+                    description="Update your business details and branding anytime."
+                    accent="pink"
+                    collapsible={false}
+                    dotClassName="hidden"
+                    variant={sectionVariant}
+                  >
+                    <BusinessProfileForm
+                      embedded
+                      readOnly={!canEditBusinessInfo}
+                      onSaved={() => setNotice("Business info saved.")}
+                    />
+                  </PortalSettingsSection>
+                </div>
+              ) : null}
             </div>
           ) : null}
 

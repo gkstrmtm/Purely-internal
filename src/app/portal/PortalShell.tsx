@@ -89,6 +89,21 @@ function sidebarIconToneClassForSlug(slug: string) {
   return sidebarIconToneClassForCategory(portalServiceCategoryForSlug(slug));
 }
 
+function sidebarIconButtonClass(active: boolean, extra?: string) {
+  return classNames(
+    "inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl text-zinc-700 transition-all duration-150 hover:scale-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/20",
+    active ? "bg-zinc-100 text-brand-blue ring-2 ring-brand-blue/20" : "bg-transparent hover:bg-zinc-50 hover:text-zinc-900",
+    extra,
+  );
+}
+
+function sidebarIconChipClass(active: boolean) {
+  return classNames(
+    "inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl text-zinc-700 transition-all duration-150",
+    active ? "bg-zinc-100 text-zinc-700" : "bg-transparent group-hover:bg-zinc-100 group-hover:scale-110",
+  );
+}
+
 export function PortalShell({ children }: { children: React.ReactNode }) {
   usePortalActiveTimeTracker();
   usePuraCanvasUiBridgeResponder();
@@ -979,7 +994,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
   }, [activeServiceSlug]);
 
   const [dashboardQuickAccess, setDashboardQuickAccess] = useState<string[] | null>(null);
-  const [dashboardQuickAccessFallback, setDashboardQuickAccessFallback] = useState<string[]>([]);
+  const [dashboardQuickAccessFallback, setDashboardQuickAccessFallback] = useState<string[]>([DASHBOARD_SALES_SHORTCUT_SLUG]);
 
   const saveDashboardQuickAccess = useCallback(
     async (slugs: string[]) => {
@@ -1052,9 +1067,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
     const base = (dashboardQuickAccess && dashboardQuickAccess.length ? dashboardQuickAccess : dashboardQuickAccessFallback) || [];
     const unique = Array.from(new Set(base.map((s) => String(s || "").trim()).filter(Boolean)));
     const withoutSales = unique.filter((s) => s !== DASHBOARD_SALES_SHORTCUT_SLUG);
-    const salesFirst = unique.includes(DASHBOARD_SALES_SHORTCUT_SLUG)
-      ? [DASHBOARD_SALES_SHORTCUT_SLUG, ...withoutSales]
-      : withoutSales;
+    const salesFirst = [DASHBOARD_SALES_SHORTCUT_SLUG, ...withoutSales];
     return salesFirst.slice(0, 6);
   }, [dashboardQuickAccess, dashboardQuickAccessFallback]);
 
@@ -1159,11 +1172,11 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
         key={s.slug}
         href={`${basePath}/app/services/${s.slug}`}
         className={classNames(
-          "flex items-center gap-2 rounded-2xl px-2.5 py-1.5 text-[13px] font-medium",
+          "group flex items-center gap-2 rounded-2xl px-2.5 py-1.5 text-[13px] font-medium transition-colors",
           active ? "bg-zinc-100 text-zinc-900" : "text-zinc-700 hover:bg-zinc-50",
         )}
       >
-        <span className="inline-flex h-8 w-8 items-center justify-center rounded-2xl border border-zinc-200 bg-white">
+        <span className={sidebarIconChipClass(active)}>
           <span className={sidebarIconToneClassForSlug(s.slug)}>
             <IconServiceGlyph slug={s.slug} />
           </span>
@@ -1327,14 +1340,14 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                   href={toPurelyHostedUrl("/book-a-call")}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="inline-flex h-10 w-10 items-center justify-center rounded-xl bg-transparent text-zinc-700 transition-colors hover:text-zinc-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--color-brand-blue)"
+                  className="inline-flex h-10 w-10 items-center justify-center rounded-xl bg-transparent text-zinc-700 transition-transform duration-150 hover:scale-110 hover:text-zinc-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/20"
                   aria-label="Book a call"
                 >
                   <IconCalendar size={22} />
                 </Link>
                 <Link
                   href={`${basePath}/tutorials/getting-started?embed=1`}
-                  className="inline-flex h-10 w-10 items-center justify-center rounded-xl bg-transparent text-zinc-700 transition-colors hover:text-zinc-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--color-brand-blue)"
+                  className="inline-flex h-10 w-10 items-center justify-center rounded-xl bg-transparent text-zinc-700 transition-transform duration-150 hover:scale-110 hover:text-zinc-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/20"
                   aria-label="Help"
                 >
                   <IconHelpCircle size={22} />
@@ -1783,7 +1796,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                       `/api/portal/ads/click?campaignId=${encodeURIComponent(sidebarCampaign.id)}` +
                       `&placement=SIDEBAR_BANNER` +
                       `&path=${encodeURIComponent(pathname || "")}` +
-                      `&to=${encodeURIComponent(sidebarCampaign?.creative?.linkUrl || `${basePath}/app/settings?tab=billing`)}`
+                      `&to=${encodeURIComponent(sidebarCampaign?.creative?.linkUrl || `${basePath}/app/billing`)}`
                     }
                     className="mt-2 inline-flex rounded-xl bg-brand-ink px-3 py-2 text-xs font-semibold text-white hover:opacity-95"
                   >
@@ -1845,12 +1858,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                   const active = activeTopKey === key;
                   const isSidebarOnly = key === "services" || key === "settings";
 
-                  const iconClass = classNames(
-                    "inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border bg-white text-zinc-700 shadow-[0_1px_0_rgba(0,0,0,0.02)] transition",
-                    active
-                      ? "border-brand-blue/25 ring-2 ring-brand-blue/20 text-brand-blue"
-                      : "border-zinc-200 hover:border-zinc-300 hover:bg-zinc-50",
-                  );
+                  const iconClass = sidebarIconButtonClass(active);
 
                   const onSidebarOnlyClick = () => {
                     if (key === "settings") {
@@ -1957,13 +1965,13 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                           void saveDashboardQuickAccess(next);
                         }}
                         className={classNames(
-                          "flex w-full items-center gap-2 rounded-2xl px-2.5 py-1.5 text-[13px] font-medium",
+                          "group flex w-full items-center gap-2 rounded-2xl px-2.5 py-1.5 text-[13px] font-medium transition-colors",
                           dashboardQuickAccessEffective.includes(DASHBOARD_SALES_SHORTCUT_SLUG)
                             ? "bg-zinc-100 text-zinc-900"
                             : "text-zinc-700 hover:bg-zinc-50",
                         )}
                       >
-                        <span className="inline-flex h-8 w-8 items-center justify-center rounded-2xl border border-zinc-200 bg-white text-zinc-700" aria-hidden>
+                        <span className={sidebarIconChipClass(dashboardQuickAccessEffective.includes(DASHBOARD_SALES_SHORTCUT_SLUG))} aria-hidden>
                           <IconSalesDashboardGlyph size={18} />
                         </span>
                         <span className="min-w-0 flex-1 truncate">Sales dashboard</span>
@@ -2004,11 +2012,11 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                               void saveDashboardQuickAccess(next);
                             }}
                             className={classNames(
-                              "flex w-full items-center gap-2 rounded-2xl px-2.5 py-1.5 text-[13px] font-medium",
+                              "group flex w-full items-center gap-2 rounded-2xl px-2.5 py-1.5 text-[13px] font-medium transition-colors",
                               selected ? "bg-zinc-100 text-zinc-900" : "text-zinc-700 hover:bg-zinc-50",
                             )}
                           >
-                            <span className="inline-flex h-8 w-8 items-center justify-center rounded-2xl border border-zinc-200 bg-white">
+                            <span className={sidebarIconChipClass(selected)}>
                               <span className={sidebarIconToneClassForSlug(svc.slug)}>
                                 <IconServiceGlyph slug={svc.slug} />
                               </span>
@@ -2046,7 +2054,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                                       : "text-zinc-700 hover:bg-zinc-50",
                                   )}
                                 >
-                                  <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl bg-zinc-100 text-zinc-700" aria-hidden>
+                                  <span className={sidebarIconChipClass(pathname === `${basePath}/app/services/reporting/sales`)} aria-hidden>
                                     <IconSalesDashboardGlyph size={18} />
                                   </span>
                                   <span className="truncate">Sales dashboard</span>
@@ -2149,12 +2157,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                     href={`${basePath}/app/services`}
                     title="See all"
                     aria-label="See all"
-                    className={classNames(
-                      "inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border bg-white shadow-[0_1px_0_rgba(0,0,0,0.02)] transition",
-                      pathname === `${basePath}/app/services`
-                        ? "border-brand-blue/25 ring-2 ring-brand-blue/20 text-brand-blue"
-                        : "border-zinc-200 text-zinc-700 hover:border-zinc-300 hover:bg-zinc-50",
-                    )}
+                    className={sidebarIconButtonClass(pathname === `${basePath}/app/services`)}
                   >
                     <IconEyeGlyph />
                   </Link>
@@ -2168,12 +2171,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                           href={`${basePath}/app/services/${svc.slug}`}
                           title={svc.title}
                           aria-label={svc.title}
-                          className={classNames(
-                            "inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border bg-white shadow-[0_1px_0_rgba(0,0,0,0.02)] transition",
-                            pathname.startsWith(`${basePath}/app/services/${svc.slug}`)
-                              ? "border-brand-blue/25 ring-2 ring-brand-blue/20"
-                              : "border-zinc-200 hover:border-zinc-300 hover:bg-zinc-50",
-                          )}
+                          className={sidebarIconButtonClass(pathname.startsWith(`${basePath}/app/services/${svc.slug}`))}
                         >
                           <span className={sidebarIconToneClassForSlug(svc.slug)} aria-hidden>
                             <IconServiceGlyph slug={svc.slug} />
@@ -2196,12 +2194,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                               href={`${basePath}/app/services/${svc.slug}`}
                               title={svc.title}
                               aria-label={svc.title}
-                              className={classNames(
-                                "inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border bg-white shadow-[0_1px_0_rgba(0,0,0,0.02)] transition",
-                                pathname.startsWith(`${basePath}/app/services/${svc.slug}`)
-                                  ? "border-brand-blue/25 ring-2 ring-brand-blue/20"
-                                  : "border-zinc-200 hover:border-zinc-300 hover:bg-zinc-50",
-                              )}
+                              className={sidebarIconButtonClass(pathname.startsWith(`${basePath}/app/services/${svc.slug}`))}
                             >
                               <span className={sidebarIconToneClassForSlug(svc.slug)} aria-hidden>
                                 <IconServiceGlyph slug={svc.slug} />
@@ -2216,12 +2209,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                                 href={`${basePath}/app/people`}
                                 title="People"
                                 aria-label="People"
-                                className={classNames(
-                                  "inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border bg-white text-zinc-700 shadow-[0_1px_0_rgba(0,0,0,0.02)] transition",
-                                  pathname.startsWith(`${basePath}/app/people`)
-                                    ? "border-brand-blue/25 ring-2 ring-brand-blue/20 text-brand-blue"
-                                    : "border-zinc-200 hover:border-zinc-300 hover:bg-zinc-50",
-                                )}
+                                className={sidebarIconButtonClass(pathname.startsWith(`${basePath}/app/people`))}
                               >
                                 <IconPeopleGlyph />
                               </Link>,
@@ -2237,12 +2225,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                             href={`${basePath}/app/services/${svc.slug}`}
                             title={svc.title}
                             aria-label={svc.title}
-                            className={classNames(
-                              "inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border bg-white shadow-[0_1px_0_rgba(0,0,0,0.02)] transition",
-                              pathname.startsWith(`${basePath}/app/services/${svc.slug}`)
-                                ? "border-brand-blue/25 ring-2 ring-brand-blue/20"
-                                : "border-zinc-200 hover:border-zinc-300 hover:bg-zinc-50",
-                            )}
+                            className={sidebarIconButtonClass(pathname.startsWith(`${basePath}/app/services/${svc.slug}`))}
                           >
                             <span className={sidebarIconToneClassForSlug(svc.slug)} aria-hidden>
                               <IconServiceGlyph slug={svc.slug} />
@@ -2260,11 +2243,11 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                   <Link
                     href={`${basePath}/app/services`}
                     className={classNames(
-                      "flex items-center gap-3 rounded-2xl px-3 py-2 text-sm font-semibold",
+                      "group flex items-center gap-3 rounded-2xl px-3 py-2 text-sm font-semibold transition-colors",
                       pathname === `${basePath}/app/services` ? "bg-zinc-100 text-zinc-900" : "text-zinc-700 hover:bg-zinc-50",
                     )}
                   >
-                    <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl bg-zinc-100 text-zinc-700" aria-hidden>
+                    <span className={sidebarIconChipClass(pathname === `${basePath}/app/services`)} aria-hidden>
                       <IconEyeGlyph />
                     </span>
                     <span className="truncate">See all</span>
@@ -2325,12 +2308,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                     href={`${basePath}/app/settings`}
                     title="General"
                     aria-label="General"
-                    className={classNames(
-                      "inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border bg-white text-zinc-700 shadow-[0_1px_0_rgba(0,0,0,0.02)] transition",
-                      pathname.startsWith(`${basePath}/app/settings`)
-                        ? "border-brand-blue/25 ring-2 ring-brand-blue/20 text-brand-blue"
-                        : "border-zinc-200 hover:border-zinc-300 hover:bg-zinc-50",
-                    )}
+                    className={sidebarIconButtonClass(pathname === `${basePath}/app/settings` || pathname.startsWith(`${basePath}/app/settings/appearance`) || pathname.startsWith(`${basePath}/app/settings/integrations`) || pathname.startsWith(`${basePath}/app/settings/business`) ? pathname === `${basePath}/app/settings` : false)}
                   >
                     <IconSettingsGlyph />
                   </Link>
@@ -2340,12 +2318,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                       href={`${basePath}/app/profile`}
                       title="Profile"
                       aria-label="Profile"
-                      className={classNames(
-                        "inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border bg-white text-zinc-700 shadow-[0_1px_0_rgba(0,0,0,0.02)] transition",
-                        pathname.startsWith(`${basePath}/app/profile`)
-                          ? "border-brand-blue/25 ring-2 ring-brand-blue/20 text-brand-blue"
-                          : "border-zinc-200 hover:border-zinc-300 hover:bg-zinc-50",
-                      )}
+                      className={sidebarIconButtonClass(pathname.startsWith(`${basePath}/app/profile`))}
                     >
                       <IconProfileGlyph />
                     </Link>
@@ -2356,12 +2329,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                       href={`${basePath}/app/billing`}
                       title="Billing"
                       aria-label="Billing"
-                      className={classNames(
-                        "inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border bg-white text-zinc-700 shadow-[0_1px_0_rgba(0,0,0,0.02)] transition",
-                        pathname.startsWith(`${basePath}/app/billing`)
-                          ? "border-brand-blue/25 ring-2 ring-brand-blue/20 text-brand-blue"
-                          : "border-zinc-200 hover:border-zinc-300 hover:bg-zinc-50",
-                      )}
+                      className={sidebarIconButtonClass(pathname.startsWith(`${basePath}/app/billing`))}
                     >
                       <IconBillingGlyph />
                     </Link>
@@ -2371,12 +2339,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                     href={`${basePath}/app/settings/appearance`}
                     title="Appearance"
                     aria-label="Appearance"
-                    className={classNames(
-                      "inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border bg-white text-zinc-700 shadow-[0_1px_0_rgba(0,0,0,0.02)] transition",
-                      pathname.startsWith(`${basePath}/app/settings/appearance`)
-                        ? "border-brand-blue/25 ring-2 ring-brand-blue/20 text-brand-blue"
-                        : "border-zinc-200 hover:border-zinc-300 hover:bg-zinc-50",
-                    )}
+                    className={sidebarIconButtonClass(pathname.startsWith(`${basePath}/app/settings/appearance`))}
                   >
                     <IconEyeGlyph />
                   </Link>
@@ -2385,12 +2348,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                     href={`${basePath}/app/settings/integrations`}
                     title="Integrations"
                     aria-label="Integrations"
-                    className={classNames(
-                      "inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border bg-white text-zinc-700 shadow-[0_1px_0_rgba(0,0,0,0.02)] transition",
-                      pathname.startsWith(`${basePath}/app/settings/integrations`)
-                        ? "border-brand-blue/25 ring-2 ring-brand-blue/20 text-brand-blue"
-                        : "border-zinc-200 hover:border-zinc-300 hover:bg-zinc-50",
-                    )}
+                    className={sidebarIconButtonClass(pathname.startsWith(`${basePath}/app/settings/integrations`))}
                   >
                     <IconApiKeysGlyph />
                   </Link>
@@ -2399,12 +2357,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                     href={`${basePath}/app/settings/business`}
                     title="Business"
                     aria-label="Business"
-                    className={classNames(
-                      "inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border bg-white text-zinc-700 shadow-[0_1px_0_rgba(0,0,0,0.02)] transition",
-                      pathname.startsWith(`${basePath}/app/settings/business`)
-                        ? "border-brand-blue/25 ring-2 ring-brand-blue/20 text-brand-blue"
-                        : "border-zinc-200 hover:border-zinc-300 hover:bg-zinc-50",
-                    )}
+                    className={sidebarIconButtonClass(pathname.startsWith(`${basePath}/app/settings/business`))}
                   >
                     <IconBusinessGlyph />
                   </Link>
@@ -2416,11 +2369,11 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                   <Link
                     href={`${basePath}/app/settings`}
                     className={classNames(
-                      "flex items-center gap-3 rounded-2xl px-3 py-2 text-sm font-semibold",
-                      pathname.startsWith(`${basePath}/app/settings`) ? "bg-zinc-100 text-zinc-900" : "text-zinc-700 hover:bg-zinc-50",
+                      "group flex items-center gap-3 rounded-2xl px-3 py-2 text-sm font-semibold transition-colors",
+                      pathname === `${basePath}/app/settings` ? "bg-zinc-100 text-zinc-900" : "text-zinc-700 hover:bg-zinc-50",
                     )}
                   >
-                    <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl bg-zinc-100 text-zinc-700" aria-hidden>
+                    <span className={sidebarIconChipClass(pathname === `${basePath}/app/settings`)} aria-hidden>
                       <IconSettingsGlyph />
                     </span>
                     <span className="truncate">General</span>
@@ -2429,11 +2382,11 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                     <Link
                       href={`${basePath}/app/profile`}
                       className={classNames(
-                        "flex items-center gap-3 rounded-2xl px-3 py-2 text-sm font-semibold",
+                        "group flex items-center gap-3 rounded-2xl px-3 py-2 text-sm font-semibold transition-colors",
                         pathname.startsWith(`${basePath}/app/profile`) ? "bg-zinc-100 text-zinc-900" : "text-zinc-700 hover:bg-zinc-50",
                       )}
                     >
-                      <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl bg-zinc-100 text-zinc-700" aria-hidden>
+                      <span className={sidebarIconChipClass(pathname.startsWith(`${basePath}/app/profile`))} aria-hidden>
                         <IconProfileGlyph />
                       </span>
                       <span className="truncate">Profile</span>
@@ -2443,11 +2396,11 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                     <Link
                       href={`${basePath}/app/billing`}
                       className={classNames(
-                        "flex items-center gap-3 rounded-2xl px-3 py-2 text-sm font-semibold",
+                        "group flex items-center gap-3 rounded-2xl px-3 py-2 text-sm font-semibold transition-colors",
                         pathname.startsWith(`${basePath}/app/billing`) ? "bg-zinc-100 text-zinc-900" : "text-zinc-700 hover:bg-zinc-50",
                       )}
                     >
-                      <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl bg-zinc-100 text-zinc-700" aria-hidden>
+                      <span className={sidebarIconChipClass(pathname.startsWith(`${basePath}/app/billing`))} aria-hidden>
                         <IconBillingGlyph />
                       </span>
                       <span className="truncate">Billing</span>
@@ -2457,13 +2410,13 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                   <Link
                     href={`${basePath}/app/settings/appearance`}
                     className={classNames(
-                      "flex items-center gap-3 rounded-2xl px-3 py-2 text-sm font-semibold",
+                      "group flex items-center gap-3 rounded-2xl px-3 py-2 text-sm font-semibold transition-colors",
                       pathname.startsWith(`${basePath}/app/settings/appearance`)
                         ? "bg-zinc-100 text-zinc-900"
                         : "text-zinc-700 hover:bg-zinc-50",
                     )}
                   >
-                    <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl bg-zinc-100 text-zinc-700" aria-hidden>
+                    <span className={sidebarIconChipClass(pathname.startsWith(`${basePath}/app/settings/appearance`))} aria-hidden>
                       <IconEyeGlyph />
                     </span>
                     <span className="truncate">Appearance</span>
@@ -2472,13 +2425,13 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                   <Link
                     href={`${basePath}/app/settings/integrations`}
                     className={classNames(
-                      "flex items-center gap-3 rounded-2xl px-3 py-2 text-sm font-semibold",
+                      "group flex items-center gap-3 rounded-2xl px-3 py-2 text-sm font-semibold transition-colors",
                       pathname.startsWith(`${basePath}/app/settings/integrations`)
                         ? "bg-zinc-100 text-zinc-900"
                         : "text-zinc-700 hover:bg-zinc-50",
                     )}
                   >
-                    <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl bg-zinc-100 text-zinc-700" aria-hidden>
+                    <span className={sidebarIconChipClass(pathname.startsWith(`${basePath}/app/settings/integrations`))} aria-hidden>
                       <IconApiKeysGlyph />
                     </span>
                     <span className="truncate">Integrations</span>
@@ -2487,13 +2440,13 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                   <Link
                     href={`${basePath}/app/settings/business`}
                     className={classNames(
-                      "flex items-center gap-3 rounded-2xl px-3 py-2 text-sm font-semibold",
+                      "group flex items-center gap-3 rounded-2xl px-3 py-2 text-sm font-semibold transition-colors",
                       pathname.startsWith(`${basePath}/app/settings/business`)
                         ? "bg-zinc-100 text-zinc-900"
                         : "text-zinc-700 hover:bg-zinc-50",
                     )}
                   >
-                    <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl bg-zinc-100 text-zinc-700" aria-hidden>
+                    <span className={sidebarIconChipClass(pathname.startsWith(`${basePath}/app/settings/business`))} aria-hidden>
                       <IconBusinessGlyph />
                     </span>
                     <span className="truncate">Business</span>
@@ -2550,7 +2503,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                     `/api/portal/ads/click?campaignId=${encodeURIComponent(sidebarCampaign.id)}` +
                     `&placement=SIDEBAR_BANNER` +
                     `&path=${encodeURIComponent(pathname || "")}` +
-                    `&to=${encodeURIComponent(sidebarCampaign?.creative?.linkUrl || `${basePath}/app/settings?tab=billing`)}`
+                    `&to=${encodeURIComponent(sidebarCampaign?.creative?.linkUrl || `${basePath}/app/billing`)}`
                   }
                   className="mt-2 inline-flex rounded-xl bg-brand-ink px-3 py-2 text-xs font-semibold text-white hover:opacity-95"
                 >
@@ -2646,7 +2599,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                         `/api/portal/ads/click?campaignId=${encodeURIComponent(topBannerCampaign.id)}` +
                         `&placement=TOP_BANNER` +
                         `&path=${encodeURIComponent(pathname || "")}` +
-                        `&to=${encodeURIComponent(topBannerCampaign?.creative?.linkUrl || `${basePath}/app/settings?tab=billing`)}`
+                        `&to=${encodeURIComponent(topBannerCampaign?.creative?.linkUrl || `${basePath}/app/billing`)}`
                       }
                       className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95"
                     >
@@ -3124,7 +3077,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                       `/api/portal/ads/click?campaignId=${encodeURIComponent(popupCampaign.id)}` +
                       `&placement=POPUP_CARD` +
                       `&path=${encodeURIComponent(pathname || "")}` +
-                      `&to=${encodeURIComponent(popupCampaign?.creative?.linkUrl || `${basePath}/app/settings?tab=billing`)}`
+                      `&to=${encodeURIComponent(popupCampaign?.creative?.linkUrl || `${basePath}/app/billing`)}`
                     }
                     className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95"
                   >
