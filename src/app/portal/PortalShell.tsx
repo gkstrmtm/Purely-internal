@@ -11,12 +11,14 @@ import {
   IconChevron,
   IconAiChatGlyph,
   IconCalendar,
+  IconBillingGlyph,
   IconDashboardGlyph,
   IconHamburger,
   IconHelpCircle,
   IconInboxGlyph,
   IconLock,
   IconPeopleGlyph,
+  IconProfileGlyph,
   IconServicesGlyph,
   IconServiceGlyph,
   IconSettingsGlyph,
@@ -842,7 +844,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
     return base;
   }, [portalMe, basePath]);
 
-  const activeTopKey = useMemo<"pura" | "dashboard" | "services" | "settings">(() => {
+  const derivedTopKey = useMemo<"pura" | "dashboard" | "services" | "settings">(() => {
     if (isAiChat) return "pura";
     if (pathname === `${basePath}/app` || pathname === `${basePath}/app/`) return "dashboard";
     if (
@@ -853,6 +855,23 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
     }
     return "settings";
   }, [basePath, isAiChat, pathname]);
+
+  const [sidebarModeOverride, setSidebarModeOverride] = useState<null | "pura" | "dashboard" | "services" | "settings">(null);
+  useEffect(() => {
+    // Any real navigation resets the manual sidebar mode.
+    setSidebarModeOverride(null);
+  }, [pathname]);
+
+  const activeTopKey = sidebarModeOverride ?? derivedTopKey;
+
+  const activeServiceSlug = useMemo(() => {
+    if (typeof pathname !== "string") return null;
+    const prefix = `${basePath}/app/services/`;
+    if (!pathname.startsWith(prefix)) return null;
+    const rest = pathname.slice(prefix.length);
+    const slug = rest.split("/").filter(Boolean)[0] || "";
+    return slug || null;
+  }, [basePath, pathname]);
 
   function canViewServiceKey(key: PortalServiceKey) {
     if (!portalMe || portalMe.ok !== true) return true;
@@ -905,6 +924,59 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
       );
     }
     return pathname === href || pathname.startsWith(href + "/");
+  }
+
+  function renderSidebarServiceLink(s: PortalService) {
+    const lockBadge = serviceLockBadge(s.slug);
+    const unlocked = serviceUnlocked(s);
+    const active = pathname === `${basePath}/app/services/${s.slug}` || pathname.startsWith(`${basePath}/app/services/${s.slug}/`);
+
+    return (
+      <Link
+        key={s.slug}
+        href={`${basePath}/app/services/${s.slug}`}
+        className={classNames(
+          "flex items-center gap-2 rounded-2xl px-2.5 py-1.5 text-[13px] font-medium",
+          active ? "bg-zinc-100 text-zinc-900" : "text-zinc-700 hover:bg-zinc-50",
+        )}
+      >
+        <span className="inline-flex h-8 w-8 items-center justify-center rounded-2xl border border-zinc-200 bg-white">
+          <span className={sidebarIconToneClassForSlug(s.slug)}>
+            <IconServiceGlyph slug={s.slug} />
+          </span>
+        </span>
+
+        <span className="flex min-w-0 flex-1 items-center justify-between gap-2">
+          <span className="truncate">{s.title}</span>
+          {!unlocked ? (
+            <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-zinc-500">
+              <IconLock /> {lockBadge?.label || "Locked"}
+            </span>
+          ) : null}
+        </span>
+      </Link>
+    );
+  }
+
+  function renderPeopleLink() {
+    const active = pathname === `${basePath}/app/people` || pathname.startsWith(`${basePath}/app/people/`);
+    return (
+      <Link
+        key="__people"
+        href={`${basePath}/app/people`}
+        className={classNames(
+          "flex items-center gap-2 rounded-2xl px-2.5 py-1.5 text-[13px] font-medium",
+          active ? "bg-zinc-100 text-zinc-900" : "text-zinc-700 hover:bg-zinc-50",
+        )}
+      >
+        <span className="inline-flex h-8 w-8 items-center justify-center rounded-2xl border border-zinc-200 bg-white">
+          <span className={sidebarIconToneClassForCategory("communication")}>
+            <IconPeopleGlyph />
+          </span>
+        </span>
+        <span className="min-w-0 flex-1 truncate">People</span>
+      </Link>
+    );
   }
 
   function serviceUnlocked(service: Pick<PortalService, "slug" | "included">) {
@@ -1236,6 +1308,29 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
         `}</style>
       ) : null}
 
+      {isAiChat ? (
+        <div className="pointer-events-none fixed right-4 top-4 z-30 hidden lg:flex flex-col gap-2">
+          <Link
+            href={toPurelyHostedUrl("/book-a-call")}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="pointer-events-auto inline-flex h-11 w-11 items-center justify-center rounded-2xl bg-white/90 text-zinc-700 shadow-sm backdrop-blur transition-transform hover:scale-110 hover:text-zinc-900 focus-visible:outline-none"
+            aria-label="Book a call"
+            title="Book a call"
+          >
+            <IconCalendar size={22} />
+          </Link>
+          <Link
+            href={`${basePath}/tutorials/getting-started`}
+            className="pointer-events-auto inline-flex h-11 w-11 items-center justify-center rounded-2xl bg-white/90 text-zinc-700 shadow-sm backdrop-blur transition-transform hover:scale-110 hover:text-zinc-900 focus-visible:outline-none"
+            aria-label="Help"
+            title="Help"
+          >
+            <IconHelpCircle size={22} />
+          </Link>
+        </div>
+      ) : null}
+
       {showGettingStartedHint ? (
         <div
           className="pointer-events-none fixed inset-0 z-40 flex items-center justify-center px-4 py-6"
@@ -1489,22 +1584,52 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
           className={classNames(
             "hidden shrink-0 bg-white overflow-hidden transition-[width] duration-200 ease-out sm:flex sm:flex-col sm:sticky sm:top-0 sm:h-full",
             collapsed ? "w-19" : "w-70",
+            activeTopKey === "pura" ? "border-r border-zinc-200 shadow-[2px_0_12px_rgba(0,0,0,0.06)]" : "border-r border-zinc-200",
           )}
         >
           <div className={classNames("shrink-0 p-3")}
           >
             <div className="flex items-center gap-2">
               {!collapsed ? (
-                <div className="flex min-w-0 flex-1 items-center gap-1">
+                <div className="grid min-w-0 flex-1 grid-cols-4 gap-1">
                   {navItems.map((item: any) => {
-                    const active = isActive(item.href);
+                    const key = item.key as "pura" | "dashboard" | "services" | "settings";
+                    const active = activeTopKey === key;
+                    const isSidebarOnly = key === "services" || key === "settings";
+
+                    if (isSidebarOnly) {
+                      return (
+                        <button
+                          key={item.href}
+                          type="button"
+                          title={item.label}
+                          onClick={() => setSidebarModeOverride(key)}
+                          className={classNames(
+                            "flex flex-col items-center justify-center rounded-2xl px-1.5 py-2 text-[11px] font-semibold",
+                            active ? "bg-zinc-100 text-zinc-900" : "text-zinc-700 hover:bg-zinc-50",
+                          )}
+                        >
+                          <span
+                            className={classNames(
+                              "inline-flex h-8 w-8 items-center justify-center rounded-2xl",
+                              active ? "text-(--color-brand-blue)" : "text-zinc-700",
+                            )}
+                            aria-hidden
+                          >
+                            {item.iconGlyph}
+                          </span>
+                          {active ? <span className="mt-0.5 leading-none">{item.label}</span> : <span className="sr-only">{item.label}</span>}
+                        </button>
+                      );
+                    }
+
                     return (
                       <Link
                         key={item.href}
                         href={item.href}
                         title={item.label}
                         className={classNames(
-                          "inline-flex items-center gap-2 rounded-2xl px-2.5 py-2 text-sm font-semibold",
+                          "flex flex-col items-center justify-center rounded-2xl px-1.5 py-2 text-[11px] font-semibold",
                           active ? "bg-zinc-100 text-zinc-900" : "text-zinc-700 hover:bg-zinc-50",
                         )}
                       >
@@ -1517,7 +1642,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                         >
                           {item.iconGlyph}
                         </span>
-                        {active ? <span className="truncate text-xs">{item.label}</span> : null}
+                        {active ? <span className="mt-0.5 leading-none">{item.label}</span> : <span className="sr-only">{item.label}</span>}
                       </Link>
                     );
                   })}
@@ -1525,19 +1650,36 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
               ) : (
                 <div className="flex min-w-0 flex-1 flex-col items-center gap-1">
                   {navItems.map((item: any) => {
-                    const active = isActive(item.href);
+                    const key = item.key as "pura" | "dashboard" | "services" | "settings";
+                    const active = activeTopKey === key;
+                    const isSidebarOnly = key === "services" || key === "settings";
                     return (
-                      <Link
-                        key={item.href}
-                        href={item.href}
-                        title={item.label}
-                        className={classNames(
-                          "inline-flex h-10 w-10 items-center justify-center rounded-2xl",
-                          active ? "bg-zinc-100 text-(--color-brand-blue)" : "text-zinc-700 hover:bg-zinc-50",
-                        )}
-                      >
-                        {item.iconGlyph}
-                      </Link>
+                      isSidebarOnly ? (
+                        <button
+                          key={item.href}
+                          type="button"
+                          title={item.label}
+                          onClick={() => setSidebarModeOverride(key)}
+                          className={classNames(
+                            "inline-flex h-10 w-10 items-center justify-center rounded-2xl",
+                            active ? "bg-zinc-100 text-(--color-brand-blue)" : "text-zinc-700 hover:bg-zinc-50",
+                          )}
+                        >
+                          {item.iconGlyph}
+                        </button>
+                      ) : (
+                        <Link
+                          key={item.href}
+                          href={item.href}
+                          title={item.label}
+                          className={classNames(
+                            "inline-flex h-10 w-10 items-center justify-center rounded-2xl",
+                            active ? "bg-zinc-100 text-(--color-brand-blue)" : "text-zinc-700 hover:bg-zinc-50",
+                          )}
+                        >
+                          {item.iconGlyph}
+                        </Link>
+                      )
                     );
                   })}
                 </div>
@@ -1545,29 +1687,6 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
 
               <div className={classNames("ml-auto flex items-center gap-1", collapsed && "ml-0")}
               >
-                {isAiChat && !collapsed ? (
-                  <>
-                    <Link
-                      href={toPurelyHostedUrl("/book-a-call")}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex h-10 w-10 items-center justify-center rounded-2xl bg-transparent text-zinc-700 transition-colors hover:bg-zinc-50 hover:text-zinc-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--color-brand-blue)"
-                      aria-label="Book a call"
-                      title="Book a call"
-                    >
-                      <IconCalendar size={20} />
-                    </Link>
-                    <Link
-                      href={`${basePath}/tutorials/getting-started`}
-                      className="inline-flex h-10 w-10 items-center justify-center rounded-2xl bg-transparent text-zinc-700 transition-colors hover:bg-zinc-50 hover:text-zinc-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--color-brand-blue)"
-                      aria-label="Help"
-                      title="Help"
-                    >
-                      <IconHelpCircle size={20} />
-                    </Link>
-                  </>
-                ) : null}
-
                 <button
                   type="button"
                   onClick={() => setCollapsed((v) => !v)}
@@ -1589,8 +1708,8 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
 
           <div
             className={classNames(
-              "min-h-0 flex-1 overscroll-y-contain p-2",
-              activeTopKey === "pura" ? "overflow-hidden" : "overflow-y-auto",
+              "min-h-0 flex-1 overscroll-y-contain",
+              activeTopKey === "pura" ? "overflow-hidden p-0" : "overflow-y-auto p-2",
             )}
           >
             {activeTopKey === "pura" ? (
@@ -1618,61 +1737,46 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                     </span>
                     <span className="truncate">See all</span>
                   </Link>
-
-                  {canViewServiceKey("people") ? (
-                    <Link
-                      href={`${basePath}/app/people`}
-                      className={classNames(
-                        "flex items-center gap-3 rounded-2xl px-3 py-2 text-sm font-semibold",
-                        pathname.startsWith(`${basePath}/app/people`) ? "bg-zinc-100 text-zinc-900" : "text-zinc-700 hover:bg-zinc-50",
-                      )}
-                    >
-                      <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl bg-zinc-100 text-zinc-700" aria-hidden>
-                        <IconPeopleGlyph />
-                      </span>
-                      <span className="truncate">People</span>
-                    </Link>
-                  ) : null}
                 </div>
 
+                {activeServiceSlug ? (
+                  <div className="mt-4">
+                    <div className="px-3 text-[10px] font-semibold uppercase tracking-wide text-zinc-500">Current</div>
+                    <div className="mt-1">
+                      {(() => {
+                        const svc = visibleSidebarServices.find((x) => x.slug === activeServiceSlug);
+                        return svc ? renderSidebarServiceLink(svc) : null;
+                      })()}
+                    </div>
+                  </div>
+                ) : null}
+
                 <div className="mt-4">
-                  <div className="px-3 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Services</div>
                   <div className="mt-2 space-y-2">
                     {sidebarServiceGroups.map((group) => (
                       <div key={group.key}>
                         <div className="px-3 text-[10px] font-semibold uppercase tracking-wide text-zinc-500">{group.title}</div>
                         <div className="mt-1 space-y-1">
-                          {group.services.map((s) => {
-                            const lockBadge = serviceLockBadge(s.slug);
-                            const unlocked = serviceUnlocked(s);
-                            return (
-                              <Link
-                                key={s.slug}
-                                href={`${basePath}/app/services/${s.slug}`}
-                                className={classNames(
-                                  "flex items-center gap-3 rounded-2xl px-3 py-1.5 text-sm font-medium",
-                                  pathname === `${basePath}/app/services/${s.slug}` || pathname.startsWith(`${basePath}/app/services/${s.slug}/`)
-                                    ? "bg-zinc-100 text-zinc-900"
-                                    : "text-zinc-700 hover:bg-zinc-50",
-                                )}
-                              >
-                                <span className="inline-flex h-8 w-8 items-center justify-center rounded-2xl border border-zinc-200 bg-white">
-                                  <span className={sidebarIconToneClassForSlug(s.slug)}>
-                                    <IconServiceGlyph slug={s.slug} />
-                                  </span>
-                                </span>
-
-                                <span className="flex min-w-0 flex-1 items-center justify-between gap-2">
-                                  <span className="truncate">{s.title}</span>
-                                  {!unlocked ? (
-                                    <span className="inline-flex items-center gap-1 text-xs font-semibold text-zinc-500">
-                                      <IconLock /> {lockBadge?.label || "Locked"}
-                                    </span>
-                                  ) : null}
-                                </span>
-                              </Link>
-                            );
-                          })}
+                          {group.key === "communication" ? (
+                            <>
+                              {group.services
+                                .filter((s) => s.slug !== activeServiceSlug)
+                                .flatMap((s) => {
+                                  if (s.slug === "inbox") {
+                                    const items = [renderSidebarServiceLink(s)];
+                                    if (canViewServiceKey("people")) items.push(renderPeopleLink());
+                                    return items;
+                                  }
+                                  return [renderSidebarServiceLink(s)];
+                                })}
+                            </>
+                          ) : (
+                            <>
+                              {group.services
+                                .filter((s) => s.slug !== activeServiceSlug)
+                                .map((s) => renderSidebarServiceLink(s))}
+                            </>
+                          )}
                         </div>
                       </div>
                     ))}
@@ -1695,7 +1799,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                     <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl bg-zinc-100 text-zinc-700" aria-hidden>
                       <IconSettingsGlyph />
                     </span>
-                    <span className="truncate">Settings</span>
+                    <span className="truncate">General</span>
                   </Link>
                   {canViewServiceKey("profile") ? (
                     <Link
@@ -1706,7 +1810,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                       )}
                     >
                       <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl bg-zinc-100 text-zinc-700" aria-hidden>
-                        <IconLock />
+                        <IconProfileGlyph />
                       </span>
                       <span className="truncate">Profile</span>
                     </Link>
@@ -1720,7 +1824,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                       )}
                     >
                       <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl bg-zinc-100 text-zinc-700" aria-hidden>
-                        <IconCalendar size={18} />
+                        <IconBillingGlyph />
                       </span>
                       <span className="truncate">Billing</span>
                     </Link>
