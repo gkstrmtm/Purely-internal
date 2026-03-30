@@ -1163,11 +1163,12 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
     if (activeTopKey === "dashboard") return "dashboard";
     if (activeTopKey === "settings") return "settings";
     if (activeTopKey === "services") {
+      if (pathname === `${basePath}/app/people` || pathname.startsWith(`${basePath}/app/people/`)) return "people";
       if (activeServiceSlug) return (PORTAL_SERVICE_TITLE_BY_SLUG.get(activeServiceSlug) || "services").toLowerCase();
       return "services";
     }
     return "";
-  }, [activeServiceSlug, activeTopKey]);
+  }, [activeServiceSlug, activeTopKey, basePath, pathname]);
 
   const dashboardShortcutCandidates = PORTAL_SERVICES.filter((s) => !s.hidden)
     .filter((s) => canViewServiceSlug(s.slug))
@@ -1205,7 +1206,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
       <Link
         href={`${basePath}/app/services/${s.slug}`}
         className={classNames(
-          "group flex items-center gap-2 rounded-2xl px-2.5 py-1.5 text-[13px] font-medium transition-colors",
+          "group flex items-center gap-2 rounded-2xl px-2.5 py-1.5 text-[13px] font-medium transition-all duration-150 hover:-translate-y-0.5",
           active ? "bg-zinc-100 text-zinc-900" : "text-zinc-700 hover:bg-zinc-50",
         )}
       >
@@ -1234,7 +1235,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
         key="__people"
         href={`${basePath}/app/people`}
         className={classNames(
-          "group flex items-center gap-2 rounded-2xl px-2.5 py-1.5 text-[13px] font-medium transition-colors",
+          "group flex items-center gap-2 rounded-2xl px-2.5 py-1.5 text-[13px] font-medium transition-all duration-150 hover:-translate-y-0.5",
           active ? "bg-zinc-100 text-zinc-900" : "text-zinc-700 hover:bg-zinc-50",
         )}
       >
@@ -2014,7 +2015,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                           void saveDashboardQuickAccess(next);
                         }}
                         className={classNames(
-                          "group flex w-full items-center gap-2 rounded-2xl px-2.5 py-1.5 text-[13px] font-medium transition-colors",
+                          "group flex w-full items-center gap-2 rounded-2xl px-2.5 py-1.5 text-[13px] font-medium transition-all duration-150 hover:-translate-y-0.5",
                           dashboardQuickAccessEffective.includes(DASHBOARD_SALES_SHORTCUT_SLUG)
                             ? "bg-zinc-100 text-zinc-900"
                             : "text-zinc-700 hover:bg-zinc-50",
@@ -2061,7 +2062,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                               void saveDashboardQuickAccess(next);
                             }}
                             className={classNames(
-                              "group flex w-full items-center gap-2 rounded-2xl px-2.5 py-1.5 text-[13px] font-medium transition-colors",
+                              "group flex w-full items-center gap-2 rounded-2xl px-2.5 py-1.5 text-[13px] font-medium transition-all duration-150 hover:-translate-y-0.5",
                               selected ? "bg-zinc-100 text-zinc-900" : "text-zinc-700 hover:bg-zinc-50",
                             )}
                           >
@@ -2097,7 +2098,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                                   key="shortcut_sales_dashboard"
                                   href={`${basePath}/app/services/reporting/sales`}
                                   className={classNames(
-                                    "group flex items-center gap-3 rounded-2xl px-3 py-2 text-sm font-semibold transition-colors",
+                                    "group flex items-center gap-3 rounded-2xl px-3 py-2 text-sm font-semibold transition-all duration-150 hover:-translate-y-0.5",
                                     pathname === `${basePath}/app/services/reporting/sales`
                                       ? "bg-zinc-100 text-zinc-900"
                                       : "text-zinc-700 hover:bg-zinc-50",
@@ -2128,7 +2129,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                     <button
                       type="button"
                       onClick={() => void refreshDashboardAnalysis("manual_refresh")}
-                      className="rounded-xl px-2 py-1 text-[11px] font-semibold text-zinc-600 hover:bg-zinc-50 hover:text-zinc-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--color-brand-blue)"
+                      className="rounded-xl px-2 py-1 text-[11px] font-semibold text-zinc-600 transition-all duration-150 hover:-translate-y-0.5 hover:bg-zinc-50 hover:text-zinc-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--color-brand-blue)"
                     >
                       {dashboardAnalysisLoading ? "Refreshing…" : "Refresh"}
                     </button>
@@ -2383,7 +2384,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                   <Link
                     href={`${basePath}/app/settings`}
                     className={classNames(
-                      "group flex items-center gap-3 rounded-2xl px-3 py-2 text-sm font-semibold transition-colors",
+                      "group flex items-center gap-3 rounded-2xl px-3 py-2 text-sm font-semibold transition-all duration-150 hover:-translate-y-0.5",
                       pathname === `${basePath}/app/settings` ? "bg-zinc-100 text-zinc-900" : "text-zinc-700 hover:bg-zinc-50",
                     )}
                   >
@@ -2396,7 +2397,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                     <Link
                       href={`${basePath}/app/profile`}
                       className={classNames(
-                        "group flex items-center gap-3 rounded-2xl px-3 py-2 text-sm font-semibold transition-colors",
+                        "group flex items-center gap-3 rounded-2xl px-3 py-2 text-sm font-semibold transition-all duration-150 hover:-translate-y-0.5",
                         pathname.startsWith(`${basePath}/app/profile`) ? "bg-zinc-100 text-zinc-900" : "text-zinc-700 hover:bg-zinc-50",
                       )}
                     >
@@ -2410,7 +2411,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                     <Link
                       href={`${basePath}/app/billing`}
                       className={classNames(
-                        "group flex items-center gap-3 rounded-2xl px-3 py-2 text-sm font-semibold transition-colors",
+                        "group flex items-center gap-3 rounded-2xl px-3 py-2 text-sm font-semibold transition-all duration-150 hover:-translate-y-0.5",
                         pathname.startsWith(`${basePath}/app/billing`) ? "bg-zinc-100 text-zinc-900" : "text-zinc-700 hover:bg-zinc-50",
                       )}
                     >
@@ -2424,7 +2425,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                   <Link
                     href={`${basePath}/app/settings/appearance`}
                     className={classNames(
-                      "group flex items-center gap-3 rounded-2xl px-3 py-2 text-sm font-semibold transition-colors",
+                      "group flex items-center gap-3 rounded-2xl px-3 py-2 text-sm font-semibold transition-all duration-150 hover:-translate-y-0.5",
                       pathname.startsWith(`${basePath}/app/settings/appearance`)
                         ? "bg-zinc-100 text-zinc-900"
                         : "text-zinc-700 hover:bg-zinc-50",
@@ -2439,7 +2440,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                   <Link
                     href={`${basePath}/app/settings/integrations`}
                     className={classNames(
-                      "group flex items-center gap-3 rounded-2xl px-3 py-2 text-sm font-semibold transition-colors",
+                      "group flex items-center gap-3 rounded-2xl px-3 py-2 text-sm font-semibold transition-all duration-150 hover:-translate-y-0.5",
                       pathname.startsWith(`${basePath}/app/settings/integrations`)
                         ? "bg-zinc-100 text-zinc-900"
                         : "text-zinc-700 hover:bg-zinc-50",
@@ -2454,7 +2455,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                   <Link
                     href={`${basePath}/app/settings/business`}
                     className={classNames(
-                      "group flex items-center gap-3 rounded-2xl px-3 py-2 text-sm font-semibold transition-colors",
+                      "group flex items-center gap-3 rounded-2xl px-3 py-2 text-sm font-semibold transition-all duration-150 hover:-translate-y-0.5",
                       pathname.startsWith(`${basePath}/app/settings/business`)
                         ? "bg-zinc-100 text-zinc-900"
                         : "text-zinc-700 hover:bg-zinc-50",

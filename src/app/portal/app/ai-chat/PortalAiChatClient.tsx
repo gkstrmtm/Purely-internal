@@ -1906,9 +1906,15 @@ export function PortalAiChatClient() {
   );
 
   const showWelcomeComposer = !messagesLoading && messages.length === 0;
+  const welcomePromptChips = [
+    "Summarize the highest-priority leads I should follow up with today.",
+    "Draft a friendly message for contacts who missed our last call.",
+    "Plan three marketing tasks I can finish this week.",
+    "Review what Pura can help automate next for this business.",
+  ];
 
   const composerControlButtonClass =
-    "inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50";
+    "inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-zinc-200 bg-white text-zinc-700 transition-all duration-150 hover:-translate-y-0.5 hover:border-zinc-300 hover:bg-zinc-50";
 
   const composerTextareaClass =
     "min-h-11 flex-1 resize-none rounded-3xl border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-900 placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-[rgba(29,78,216,0.25)]";
@@ -1990,7 +1996,7 @@ export function PortalAiChatClient() {
             requestAnimationFrame(() => resizeInput());
           }}
           rows={1}
-          placeholder={uploading ? "Uploading…" : showWelcomeComposer ? "Ask a question, assign tasks, and more!" : "Message"}
+          placeholder={uploading ? "Uploading…" : showWelcomeComposer ? "Tell Pura what you want handled." : "Message"}
           className={composerTextareaClass}
           onKeyDown={(e) => {
             if (e.key === "Enter" && !e.shiftKey) {
@@ -2004,7 +2010,7 @@ export function PortalAiChatClient() {
         <button
           type="button"
           className={classNames(
-            "group inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-brand-blue text-white hover:opacity-95",
+            "group inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-brand-blue text-white transition-transform duration-150 hover:-translate-y-0.5 hover:opacity-95",
             showWelcomeComposer ? "shadow-none" : "",
             (!input.trim() && !pendingAttachments.length) || sending ? "opacity-60" : "",
           )}
@@ -2394,10 +2400,29 @@ export function PortalAiChatClient() {
                 <div className="w-full max-w-2xl">
                   <div className="mb-6 text-center">
                     <div className="text-3xl font-semibold tracking-tight text-zinc-900">Let Pura work for you</div>
-                    <div className="mt-2 text-sm text-zinc-500">Ask a question, assign tasks, and more!</div>
+                    <div className="mt-2 text-sm text-zinc-500">Start with a question, a task, or the next workflow you want off your plate.</div>
                   </div>
                   <div className="rounded-3xl bg-white p-3 shadow-[0_18px_50px_rgba(0,0,0,0.08)]">
                     {composerInner}
+                  </div>
+                  <div className="mt-4 flex flex-wrap justify-center gap-2">
+                    {welcomePromptChips.map((prompt) => (
+                      <button
+                        key={prompt}
+                        type="button"
+                        className="rounded-full border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 transition-all duration-150 hover:-translate-y-0.5 hover:border-zinc-300 hover:bg-zinc-50"
+                        onClick={() => {
+                          setInput(prompt);
+                          requestAnimationFrame(() => {
+                            resizeInput();
+                            inputRef.current?.focus();
+                            inputRef.current?.setSelectionRange(prompt.length, prompt.length);
+                          });
+                        }}
+                      >
+                        {prompt}
+                      </button>
+                    ))}
                   </div>
                 </div>
               </div>

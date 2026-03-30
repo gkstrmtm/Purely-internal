@@ -17,13 +17,13 @@ function PortalPublicNav({ signInHref, getStartedHref }: { signInHref: string; g
     <nav className="flex flex-nowrap items-center gap-2 overflow-x-auto whitespace-nowrap text-sm sm:text-base">
       <Link
         href={signInHref}
-        className="rounded-xl px-3 py-2 font-medium text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900"
+        className="rounded-xl px-3 py-2 font-medium text-zinc-600 transition-all duration-150 hover:-translate-y-0.5 hover:bg-zinc-100 hover:text-zinc-900"
       >
         Sign in
       </Link>
       <Link
         href={getStartedHref}
-        className="rounded-xl bg-brand-ink px-3 py-2 font-semibold text-white hover:opacity-95"
+        className="rounded-xl bg-brand-ink px-3 py-2 font-semibold text-white transition-transform duration-150 hover:-translate-y-0.5 hover:opacity-95"
       >
         Get started
       </Link>

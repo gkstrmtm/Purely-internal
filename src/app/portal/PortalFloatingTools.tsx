@@ -898,7 +898,7 @@ export function PortalFloatingTools() {
         </div>
       ) : null}
 
-      <div className="fixed bottom-[calc(var(--pa-portal-embed-footer-offset,0px)+1rem)] right-4 z-11000">
+      <div className="fixed bottom-[calc(var(--pa-portal-embed-footer-offset,0px)+1rem)] right-4 z-11000 flex justify-end">
         {minimized ? (
           compactDock ? (
             <div className="group flex items-center justify-end gap-2">
@@ -929,7 +929,15 @@ export function PortalFloatingTools() {
               </button>
             </div>
           ) : (
-            <div className="flex items-center gap-2">
+            <div className="group flex items-center justify-end gap-2">
+              <button
+                type="button"
+                className="pointer-events-none rounded-full border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-700 opacity-0 shadow-lg transition-all duration-150 group-hover:pointer-events-auto group-hover:opacity-100"
+                onClick={() => setCompactDock(true)}
+                aria-label="Hide tools"
+              >
+                Hide
+              </button>
               <button
                 type="button"
                 className="flex items-center gap-2 rounded-full border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 shadow-lg ring-1 ring-[rgba(29,78,216,0.14)] transition-all duration-150 hover:-translate-y-0.5 hover:bg-zinc-50"
@@ -948,27 +956,6 @@ export function PortalFloatingTools() {
                 </span>
                 <span className="text-sm font-semibold text-zinc-900">Chat and Report</span>
               </button>
-              <div className="group flex items-center justify-end gap-2">
-                <button
-                  type="button"
-                  className="pointer-events-none rounded-full border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-700 opacity-0 shadow-lg transition-all duration-150 group-hover:pointer-events-auto group-hover:translate-x-0 group-hover:opacity-100"
-                  onClick={() => setCompactDock(true)}
-                  aria-label="Hide tools"
-                >
-                  Hide
-                </button>
-                <button
-                  type="button"
-                  className="grid h-11 w-11 place-items-center rounded-full border border-zinc-200 bg-white text-zinc-700 shadow-lg ring-1 ring-[rgba(29,78,216,0.14)] transition-all duration-150 hover:-translate-y-0.5 hover:scale-105 hover:bg-zinc-50"
-                  onClick={() => setCompactDock(true)}
-                  aria-label="Collapse tools to icon"
-                  title="Hide"
-                >
-                  <span className="rotate-180">
-                    <IconChevron />
-                  </span>
-                </button>
-              </div>
             </div>
           )
         ) : (

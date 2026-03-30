@@ -30,7 +30,7 @@ export function PortalHeaderCta({ canOpenPortalApp }: { canOpenPortalApp: boolea
   }
 
   return (
-    <Link href={appHref} className="rounded-xl bg-brand-ink px-3 py-2 text-sm font-semibold text-white hover:opacity-95">
+    <Link href={appHref} className="rounded-xl bg-brand-ink px-3 py-2 text-sm font-semibold text-white transition-transform duration-150 hover:-translate-y-0.5 hover:opacity-95">
       Open portal
     </Link>
   );
