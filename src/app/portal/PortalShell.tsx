@@ -2022,7 +2022,9 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                         )}
                       >
                         <span className={sidebarIconChipClass(dashboardQuickAccessEffective.includes(DASHBOARD_SALES_SHORTCUT_SLUG))} aria-hidden>
-                          <IconSalesDashboardGlyph size={18} />
+                          <span className={sidebarIconToneClassForSlug("reporting")}>
+                            <IconSalesDashboardGlyph size={18} />
+                          </span>
                         </span>
                         <span className="min-w-0 flex-1 truncate">Sales dashboard</span>
                         <span
@@ -2098,14 +2100,16 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                                   key="shortcut_sales_dashboard"
                                   href={`${basePath}/app/services/reporting/sales`}
                                   className={classNames(
-                                    "group flex items-center gap-3 rounded-2xl px-3 py-2 text-sm font-semibold transition-all duration-150 hover:-translate-y-0.5",
+                                    "group flex items-center gap-2 rounded-2xl px-2.5 py-1.5 text-[13px] font-medium transition-all duration-150 hover:-translate-y-0.5",
                                     pathname === `${basePath}/app/services/reporting/sales`
                                       ? "bg-zinc-100 text-zinc-900"
                                       : "text-zinc-700 hover:bg-zinc-50",
                                   )}
                                 >
                                   <span className={sidebarIconChipClass(pathname === `${basePath}/app/services/reporting/sales`)} aria-hidden>
-                                    <IconSalesDashboardGlyph size={18} />
+                                    <span className={sidebarIconToneClassForSlug("reporting")}>
+                                      <IconSalesDashboardGlyph size={18} />
+                                    </span>
                                   </span>
                                   <span className="truncate">Sales dashboard</span>
                                 </Link>

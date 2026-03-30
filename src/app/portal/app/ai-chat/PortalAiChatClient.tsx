@@ -9,6 +9,7 @@ import { AppConfirmModal, AppModal } from "@/components/AppModal";
 import { useToast } from "@/components/ToastProvider";
 import { PortalMediaPickerModal, type PortalMediaPickItem } from "@/components/PortalMediaPickerModal";
 import { IconSchedule, IconSend, IconSendHover } from "@/app/portal/PortalIcons";
+import { PORTAL_SERVICES } from "@/app/portal/services/catalog";
 import { useSetPortalSidebarOverride } from "@/app/portal/PortalSidebarOverride";
 import { usePuraCanvasUiBridgeClient, type PuraCanvasUiAction } from "@/lib/puraCanvasUiBridge.client";
 
@@ -107,6 +108,77 @@ type Message = {
   sendAt: string | null;
   sentAt: string | null;
 };
+
+type PromptChipDefinition = {
+  id: string;
+  prompt: string;
+  slugs?: string[];
+  keywords?: string[];
+};
+
+const WELCOME_PROMPT_LIBRARY: PromptChipDefinition[] = [
+  { id: "leads-priority", prompt: "Summarize the highest-priority leads I should follow up with today.", slugs: ["lead-scraping", "crm", "inbox", "ai-receptionist"], keywords: ["lead", "follow up", "priority"] },
+  { id: "marketing-week", prompt: "Plan three marketing tasks I can finish this week.", slugs: ["blogs", "newsletter", "funnel-builder", "media-library"], keywords: ["marketing", "campaign", "content"] },
+  { id: "automation-next", prompt: "Review what Pura can help automate next for this business.", slugs: ["automations", "tasks", "booking", "nurture-campaigns"], keywords: ["automate", "workflow", "system"] },
+  { id: "missed-calls", prompt: "Help me tighten our missed-call follow-up flow.", slugs: ["ai-receptionist", "missed-call-textback", "booking"], keywords: ["call", "missed", "text back"] },
+  { id: "newsletter-ideas", prompt: "Give me three newsletter ideas I can send this month.", slugs: ["newsletter", "blogs"], keywords: ["newsletter", "email", "audience"] },
+  { id: "booking-gaps", prompt: "Find weak spots in our booking flow and suggest fixes.", slugs: ["booking", "funnel-builder", "ai-receptionist"], keywords: ["book", "booking", "appointment"] },
+  { id: "task-cleanup", prompt: "Turn my open work into a clean action plan for today.", slugs: ["tasks", "automations"], keywords: ["task", "todo", "plan"] },
+  { id: "blog-seo", prompt: "Map out blog topics that could bring in better search traffic.", slugs: ["blogs", "funnel-builder"], keywords: ["blog", "seo", "search"] },
+  { id: "review-request", prompt: "Draft a smarter review request flow for recent customers.", slugs: ["reviews", "automations", "inbox"], keywords: ["review", "reputation", "customer"] },
+  { id: "nurture-refresh", prompt: "Refresh our nurture campaign so it feels more personal.", slugs: ["nurture-campaigns", "newsletter", "inbox"], keywords: ["nurture", "sequence", "personal"] },
+  { id: "reporting-summary", prompt: "Show me what the reporting data is saying we should fix first.", slugs: ["reporting", "automations", "booking"], keywords: ["report", "reporting", "numbers"] },
+  { id: "inbox-backlog", prompt: "Help me clear the inbox backlog with the fastest wins first.", slugs: ["inbox", "tasks", "ai-receptionist"], keywords: ["inbox", "reply", "backlog"] },
+  { id: "outbound-script", prompt: "Write a tighter outbound script for leads that went cold.", slugs: ["ai-outbound-calls", "lead-scraping", "inbox"], keywords: ["outbound", "cold", "script"] },
+  { id: "lead-list", prompt: "Suggest the best kind of leads to scrape next and why.", slugs: ["lead-scraping", "ai-outbound-calls", "reporting"], keywords: ["lead", "scrape", "prospect"] },
+  { id: "media-reuse", prompt: "Find ways we can reuse our existing media across more campaigns.", slugs: ["media-library", "newsletter", "blogs", "funnel-builder"], keywords: ["media", "asset", "creative"] },
+  { id: "funnel-conversion", prompt: "Audit our funnel and give me three conversion improvements.", slugs: ["funnel-builder", "booking", "reporting"], keywords: ["funnel", "conversion", "landing page"] },
+  { id: "appointment-reminders", prompt: "Draft a reminder sequence to reduce appointment no-shows.", slugs: ["booking", "follow-up", "automations"], keywords: ["reminder", "no-show", "appointment"] },
+  { id: "team-focus", prompt: "Tell me where my team should focus first this week.", slugs: ["tasks", "reporting", "automations"], keywords: ["team", "focus", "week"] },
+  { id: "followup-rewrite", prompt: "Rewrite our follow-up messaging so it gets more replies.", slugs: ["follow-up", "inbox", "newsletter"], keywords: ["follow-up", "reply", "message"] },
+  { id: "automation-builder", prompt: "Design an automation that saves the team the most manual work.", slugs: ["automations", "tasks", "inbox"], keywords: ["automation", "manual", "save time"] },
+  { id: "receptionist-script", prompt: "Improve our AI receptionist script for higher-quality leads.", slugs: ["ai-receptionist", "booking"], keywords: ["receptionist", "caller", "lead quality"] },
+  { id: "sales-story", prompt: "Explain our sales performance in plain English and what to do next.", slugs: ["reporting", "inbox", "booking"], keywords: ["sales", "pipeline", "performance"] },
+  { id: "content-calendar", prompt: "Build a simple content calendar around our best offers.", slugs: ["blogs", "newsletter", "media-library"], keywords: ["content", "calendar", "offer"] },
+  { id: "new-offer", prompt: "Help me turn one service into a stronger offer people actually respond to.", slugs: ["funnel-builder", "booking", "reporting"], keywords: ["offer", "service", "respond"] },
+  { id: "reactivation", prompt: "Create a reactivation plan for leads we have not touched in a while.", slugs: ["nurture-campaigns", "inbox", "ai-outbound-calls"], keywords: ["reactivation", "old leads", "win back"] },
+  { id: "reviews-replies", prompt: "Help me turn new reviews into follow-up opportunities.", slugs: ["reviews", "inbox", "tasks"], keywords: ["review", "reply", "opportunity"] },
+  { id: "default-systems", prompt: "What are the next three systems I should tighten up in the business?", keywords: ["systems", "business", "next"] },
+  { id: "default-team", prompt: "What should I delegate, automate, and personally handle this week?", keywords: ["delegate", "automate", "week"] },
+];
+
+function seededHash(input: string) {
+  let hash = 2166136261;
+  for (let idx = 0; idx < input.length; idx += 1) {
+    hash ^= input.charCodeAt(idx);
+    hash = Math.imul(hash, 16777619);
+  }
+  return hash >>> 0;
+}
+
+function inferPromptServiceWeights(threads: Thread[], serviceUsageCounts: Record<string, number>) {
+  const weights: Record<string, number> = {};
+  for (const [slug, count] of Object.entries(serviceUsageCounts)) {
+    const numeric = Number(count);
+    if (Number.isFinite(numeric) && numeric > 0) weights[slug] = (weights[slug] || 0) + numeric * 2;
+  }
+
+  const threadHaystack = threads
+    .slice(0, 18)
+    .map((thread) => `${thread.title || ""}`.toLowerCase())
+    .join(" \n ");
+
+  for (const service of PORTAL_SERVICES) {
+    const title = service.title.toLowerCase();
+    const slugWords = service.slug.replace(/[-/]/g, " ").toLowerCase();
+    let score = 0;
+    if (threadHaystack.includes(title)) score += 3;
+    if (threadHaystack.includes(slugWords)) score += 2;
+    if (score > 0) weights[service.slug] = (weights[service.slug] || 0) + score;
+  }
+
+  return weights;
+}
 
 function classNames(...xs: Array<string | false | null | undefined>) {
   return xs.filter(Boolean).join(" ");
@@ -620,6 +692,8 @@ export function PortalAiChatClient() {
 
   const [messages, setMessages] = useState<Message[]>([]);
   const [messagesLoading, setMessagesLoading] = useState(false);
+  const [serviceUsageCounts, setServiceUsageCounts] = useState<Record<string, number>>({});
+  const [welcomePromptSeed, setWelcomePromptSeed] = useState(() => `${Date.now()}-${Math.random()}`);
 
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
@@ -831,6 +905,22 @@ export function PortalAiChatClient() {
   useEffect(() => {
     void loadThreads();
   }, [loadThreads]);
+
+  useEffect(() => {
+    if (messagesLoading || messages.length > 0) return;
+    try {
+      const raw = window.localStorage.getItem("pa.portal.serviceUsageCounts");
+      const parsed = raw ? (JSON.parse(raw) as Record<string, unknown>) : {};
+      const next: Record<string, number> = {};
+      for (const [slug, value] of Object.entries(parsed || {})) {
+        const numeric = typeof value === "number" ? value : typeof value === "string" ? Number(value) : NaN;
+        if (Number.isFinite(numeric) && numeric > 0) next[slug] = Math.max(0, Math.floor(numeric));
+      }
+      setServiceUsageCounts(next);
+    } catch {
+      setServiceUsageCounts({});
+    }
+  }, [activeThreadId, messages.length, messagesLoading]);
 
   useEffect(() => {
     if (!activeThreadId) return;
@@ -1906,12 +1996,50 @@ export function PortalAiChatClient() {
   );
 
   const showWelcomeComposer = !messagesLoading && messages.length === 0;
-  const welcomePromptChips = [
-    "Summarize the highest-priority leads I should follow up with today.",
-    "Draft a friendly message for contacts who missed our last call.",
-    "Plan three marketing tasks I can finish this week.",
-    "Review what Pura can help automate next for this business.",
-  ];
+
+  useEffect(() => {
+    if (!showWelcomeComposer) return;
+    setWelcomePromptSeed(`${Date.now()}-${Math.random()}-${activeThreadId || "new"}`);
+  }, [activeThreadId, showWelcomeComposer]);
+
+  const welcomePromptChips = useMemo(() => {
+    const serviceWeights = inferPromptServiceWeights(threads, serviceUsageCounts);
+    const threadText = threads
+      .slice(0, 18)
+      .map((thread) => `${thread.title || ""}`.toLowerCase())
+      .join(" \n ");
+
+    const ranked = WELCOME_PROMPT_LIBRARY.map((item) => {
+      let score = 0;
+      for (const slug of item.slugs || []) score += serviceWeights[slug] || 0;
+      for (const keyword of item.keywords || []) {
+        if (threadText.includes(keyword.toLowerCase())) score += 2;
+      }
+      const jitter = (seededHash(`${welcomePromptSeed}:${item.id}`) % 1000) / 1000;
+      return { item, score, jitter };
+    }).sort((a, b) => (b.score !== a.score ? b.score - a.score : b.jitter - a.jitter));
+
+    const selected: string[] = [];
+    for (const entry of ranked) {
+      if (selected.length >= 3) break;
+      if (selected.includes(entry.item.prompt)) continue;
+      if (selected.length < 3 && (entry.score > 0 || entry.jitter > 0)) {
+        selected.push(entry.item.prompt);
+      }
+    }
+
+    if (selected.length < 3) {
+      const fallback = [...WELCOME_PROMPT_LIBRARY]
+        .sort((a, b) => seededHash(`${welcomePromptSeed}:${a.id}`) - seededHash(`${welcomePromptSeed}:${b.id}`))
+        .map((item) => item.prompt);
+      for (const prompt of fallback) {
+        if (selected.length >= 3) break;
+        if (!selected.includes(prompt)) selected.push(prompt);
+      }
+    }
+
+    return selected.slice(0, 3);
+  }, [serviceUsageCounts, threads, welcomePromptSeed]);
 
   const composerControlButtonClass =
     "inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-zinc-200 bg-white text-zinc-700 transition-all duration-150 hover:-translate-y-0.5 hover:border-zinc-300 hover:bg-zinc-50";
@@ -2402,10 +2530,7 @@ export function PortalAiChatClient() {
                     <div className="text-3xl font-semibold tracking-tight text-zinc-900">Let Pura work for you</div>
                     <div className="mt-2 text-sm text-zinc-500">Start with a question, a task, or the next workflow you want off your plate.</div>
                   </div>
-                  <div className="rounded-3xl bg-white p-3 shadow-[0_18px_50px_rgba(0,0,0,0.08)]">
-                    {composerInner}
-                  </div>
-                  <div className="mt-4 flex flex-wrap justify-center gap-2">
+                  <div className="mb-4 flex flex-wrap justify-center gap-2">
                     {welcomePromptChips.map((prompt) => (
                       <button
                         key={prompt}
@@ -2423,6 +2548,9 @@ export function PortalAiChatClient() {
                         {prompt}
                       </button>
                     ))}
+                  </div>
+                  <div className="rounded-3xl bg-white p-3 shadow-[0_18px_50px_rgba(0,0,0,0.08)]">
+                    {composerInner}
                   </div>
                 </div>
               </div>

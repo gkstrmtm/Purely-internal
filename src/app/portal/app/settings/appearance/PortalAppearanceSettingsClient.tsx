@@ -179,7 +179,6 @@ export function PortalAppearanceSettingsClient() {
       ...voiceLibraryVoices.map((voice) => ({
         value: voice.id,
         label: voice.category ? `${voice.name} · ${voice.category}` : voice.name,
-        searchText: `${voice.name} ${voice.category || ""} ${voice.description || ""}`,
       })),
     ],
     [voiceLibraryVoices],
@@ -331,14 +330,25 @@ export function PortalAppearanceSettingsClient() {
           <div>
             <label className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Voice</label>
             <div className="mt-2">
-              <PortalListboxDropdown
-                className="z-30"
+              <select
                 value={selectedVoiceId}
-                options={voiceOptions}
-                onChange={(value) => setSelectedVoiceId(value)}
+                onChange={(e) => setSelectedVoiceId(e.target.value)}
                 disabled={loading || !voiceAgentApiKeyConfigured || voiceLibraryLoading}
-                placeholder={voiceLibraryLoading ? "Loading voices…" : "Choose a voice"}
-              />
+                className={classNames(
+                  "flex w-full items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 outline-none transition-all duration-150 focus:border-brand-blue focus:ring-2 focus:ring-[rgba(29,78,216,0.18)]",
+                  loading || !voiceAgentApiKeyConfigured || voiceLibraryLoading ? "cursor-not-allowed opacity-60" : "hover:border-zinc-300 hover:bg-zinc-50",
+                )}
+                aria-label="Pura dictation voice"
+              >
+                {voiceLibraryLoading ? <option value="">Loading voices…</option> : null}
+                {!voiceLibraryLoading
+                  ? voiceOptions.map((option) => (
+                      <option key={option.value || "default"} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))
+                  : null}
+              </select>
             </div>
             <div className="mt-2 text-xs text-zinc-500">
               {selectedVoiceMeta
