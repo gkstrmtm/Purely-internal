@@ -483,6 +483,11 @@ export function PortalAiChatClient() {
 
   useEffect(() => {
     window.localStorage.setItem("puraCanvasOpen", String(canvasOpen));
+    try {
+      window.dispatchEvent(new CustomEvent("puraCanvasOpenChanged", { detail: { open: canvasOpen } }));
+    } catch {
+      // ignore
+    }
   }, [canvasOpen]);
 
   const [ambiguousContacts, setAmbiguousContacts] = useState<AmbiguousContact[] | null>(null);
@@ -2433,7 +2438,7 @@ export function PortalAiChatClient() {
             ) : null}
           {!canvasOpen && Boolean(canvasUrl) && (
             <button
-              className="absolute right-0 top-2 z-20 inline-flex items-center gap-1 rounded-l-2xl border border-brand-blue/20 bg-brand-blue px-3 py-2 text-xs font-bold text-white hover:opacity-95"
+              className="absolute right-0 top-32 z-20 inline-flex items-center gap-1 rounded-l-2xl border border-brand-blue/20 bg-brand-blue px-3 py-2 text-xs font-bold text-white hover:opacity-95"
               style={{ height: 40 }}
               title="Open canvas"
               onClick={() => openLatestCanvas({ modal: false })}

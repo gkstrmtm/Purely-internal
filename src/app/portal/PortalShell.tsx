@@ -15,6 +15,10 @@ import {
   IconCalendar,
   IconBillingGlyph,
   IconDashboardGlyph,
+  IconSalesDashboardGlyph,
+  IconEyeGlyph,
+  IconApiKeysGlyph,
+  IconBusinessGlyph,
   IconHamburger,
   IconHelpCircle,
   IconInboxGlyph,
@@ -177,6 +181,38 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
     pathname.includes("/edit");
 
   const isAiChat = typeof pathname === "string" && pathname.startsWith(`${basePath}/app/ai-chat`);
+
+  const [puraCanvasOpen, setPuraCanvasOpen] = useState(false);
+  useEffect(() => {
+    if (!isAiChat) return;
+
+    const read = () => {
+      try {
+        const raw = window.localStorage.getItem("puraCanvasOpen");
+        const open = raw === null ? true : raw === "true";
+        setPuraCanvasOpen(open);
+      } catch {
+        // ignore
+      }
+    };
+
+    read();
+    const onChanged = (e: Event) => {
+      const ev = e as CustomEvent<{ open?: boolean }>;
+      if (typeof ev?.detail?.open === "boolean") {
+        setPuraCanvasOpen(ev.detail.open);
+      } else {
+        read();
+      }
+    };
+
+    window.addEventListener("puraCanvasOpenChanged", onChanged as any);
+    window.addEventListener("focus", read);
+    return () => {
+      window.removeEventListener("puraCanvasOpenChanged", onChanged as any);
+      window.removeEventListener("focus", read);
+    };
+  }, [isAiChat]);
 
   const isAutomationsEditor =
     typeof pathname === "string" &&
@@ -1495,7 +1531,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
         `}</style>
       ) : null}
 
-      {isAiChat ? (
+      {isAiChat && !puraCanvasOpen ? (
         <div className="pointer-events-none fixed right-4 top-4 z-30 hidden lg:flex flex-col gap-2">
           <Link
             href={toPurelyHostedUrl("/book-a-call")}
@@ -1776,7 +1812,16 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
         >
           <div className="shrink-0 p-3">
             <div className="relative">
-              <div className="flex items-center justify-end">
+              <div className="flex items-center gap-2">
+                {!collapsed ? (
+                  <div className="min-w-0 flex-1 px-2">
+                    <div className="truncate text-[22px] font-semibold tracking-tight text-brand-ink">{sidebarHeaderLabel}</div>
+                  </div>
+                ) : (
+                  <div className="min-w-0 flex-1 px-2" aria-hidden>
+                    <div className="h-7" />
+                  </div>
+                )}
                 <button
                   type="button"
                   onClick={() => setCollapsed((v) => !v)}
@@ -1794,17 +1839,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                 </button>
               </div>
 
-              {!collapsed ? (
-                <div className="mt-1 px-2 pb-2 pt-0.5">
-                  <div className="truncate text-[22px] font-semibold tracking-tight text-brand-ink">{sidebarHeaderLabel}</div>
-                </div>
-              ) : (
-                <div className="mt-1 px-2 pb-2 pt-0.5">
-                  <div className="h-[28px]" aria-hidden />
-                </div>
-              )}
-
-              <div className={classNames(collapsed ? "mt-1 flex flex-col items-center gap-1" : "grid grid-cols-4 gap-1")}>
+              <div className={classNames(collapsed ? "mt-1 flex flex-col items-center gap-1" : "mt-1 grid grid-cols-4 gap-1")}>
                 {navItems.map((item: any) => {
                   const key = item.key as "pura" | "dashboard" | "services" | "settings";
                   const active = activeTopKey === key;
@@ -1813,7 +1848,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                   const iconClass = classNames(
                     "inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border bg-white text-zinc-700 shadow-[0_1px_0_rgba(0,0,0,0.02)] transition",
                     active
-                      ? "border-(--color-brand-blue)/25 ring-2 ring-(--color-brand-blue)/20 text-(--color-brand-blue)"
+                      ? "border-brand-blue/25 ring-2 ring-brand-blue/20 text-brand-blue"
                       : "border-zinc-200 hover:border-zinc-300 hover:bg-zinc-50",
                   );
 
@@ -1928,17 +1963,15 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                             : "text-zinc-700 hover:bg-zinc-50",
                         )}
                       >
-                        <span className="inline-flex h-8 w-8 items-center justify-center rounded-2xl border border-zinc-200 bg-white text-zinc-700">
-                          <span className="text-[16px] font-black" aria-hidden>
-                            $
-                          </span>
+                        <span className="inline-flex h-8 w-8 items-center justify-center rounded-2xl border border-zinc-200 bg-white text-zinc-700" aria-hidden>
+                          <IconSalesDashboardGlyph size={18} />
                         </span>
                         <span className="min-w-0 flex-1 truncate">Sales dashboard</span>
                         <span
                           className={classNames(
                             "inline-flex h-6 min-w-6 items-center justify-center rounded-full border px-2 text-[11px] font-semibold",
                             dashboardQuickAccessEffective.includes(DASHBOARD_SALES_SHORTCUT_SLUG)
-                              ? "border-(--color-brand-blue)/25 bg-(--color-brand-blue)/10 text-(--color-brand-blue)"
+                              ? "border-brand-blue/25 bg-brand-blue/10 text-brand-blue"
                               : "border-zinc-200 bg-white text-zinc-500",
                           )}
                           aria-hidden
@@ -1985,7 +2018,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                               className={classNames(
                                 "inline-flex h-6 min-w-6 items-center justify-center rounded-full border px-2 text-[11px] font-semibold",
                                 selected
-                                  ? "border-(--color-brand-blue)/25 bg-(--color-brand-blue)/10 text-(--color-brand-blue)"
+                                  ? "border-brand-blue/25 bg-brand-blue/10 text-brand-blue"
                                   : "border-zinc-200 bg-white text-zinc-500",
                               )}
                               aria-hidden
@@ -2014,7 +2047,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                                   )}
                                 >
                                   <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl bg-zinc-100 text-zinc-700" aria-hidden>
-                                    <span className="text-lg font-black">$</span>
+                                    <IconSalesDashboardGlyph size={18} />
                                   </span>
                                   <span className="truncate">Sales dashboard</span>
                                 </Link>
@@ -2043,7 +2076,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                       {dashboardAnalysisLoading ? "Refreshing…" : "Refresh"}
                     </button>
                   </div>
-                  <div className="mt-2 rounded-2xl border border-zinc-200 bg-white p-3 text-xs leading-relaxed text-zinc-700">
+                  <div className="mt-2 rounded-2xl bg-white p-3 text-xs leading-relaxed text-zinc-700">
                     <div className="prose prose-sm max-w-none prose-zinc">
                       <ReactMarkdown
                         remarkPlugins={[remarkGfm]}
@@ -2119,11 +2152,11 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                     className={classNames(
                       "inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border bg-white shadow-[0_1px_0_rgba(0,0,0,0.02)] transition",
                       pathname === `${basePath}/app/services`
-                        ? "border-(--color-brand-blue)/25 ring-2 ring-(--color-brand-blue)/20 text-(--color-brand-blue)"
+                        ? "border-brand-blue/25 ring-2 ring-brand-blue/20 text-brand-blue"
                         : "border-zinc-200 text-zinc-700 hover:border-zinc-300 hover:bg-zinc-50",
                     )}
                   >
-                    <IconServicesGlyph />
+                    <IconEyeGlyph />
                   </Link>
 
                   {activeServiceSlug ? (
@@ -2138,7 +2171,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                           className={classNames(
                             "inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border bg-white shadow-[0_1px_0_rgba(0,0,0,0.02)] transition",
                             pathname.startsWith(`${basePath}/app/services/${svc.slug}`)
-                              ? "border-(--color-brand-blue)/25 ring-2 ring-(--color-brand-blue)/20"
+                              ? "border-brand-blue/25 ring-2 ring-brand-blue/20"
                               : "border-zinc-200 hover:border-zinc-300 hover:bg-zinc-50",
                           )}
                         >
@@ -2166,7 +2199,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                               className={classNames(
                                 "inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border bg-white shadow-[0_1px_0_rgba(0,0,0,0.02)] transition",
                                 pathname.startsWith(`${basePath}/app/services/${svc.slug}`)
-                                  ? "border-(--color-brand-blue)/25 ring-2 ring-(--color-brand-blue)/20"
+                                  ? "border-brand-blue/25 ring-2 ring-brand-blue/20"
                                   : "border-zinc-200 hover:border-zinc-300 hover:bg-zinc-50",
                               )}
                             >
@@ -2186,7 +2219,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                                 className={classNames(
                                   "inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border bg-white text-zinc-700 shadow-[0_1px_0_rgba(0,0,0,0.02)] transition",
                                   pathname.startsWith(`${basePath}/app/people`)
-                                    ? "border-(--color-brand-blue)/25 ring-2 ring-(--color-brand-blue)/20 text-(--color-brand-blue)"
+                                    ? "border-brand-blue/25 ring-2 ring-brand-blue/20 text-brand-blue"
                                     : "border-zinc-200 hover:border-zinc-300 hover:bg-zinc-50",
                                 )}
                               >
@@ -2207,7 +2240,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                             className={classNames(
                               "inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border bg-white shadow-[0_1px_0_rgba(0,0,0,0.02)] transition",
                               pathname.startsWith(`${basePath}/app/services/${svc.slug}`)
-                                ? "border-(--color-brand-blue)/25 ring-2 ring-(--color-brand-blue)/20"
+                                ? "border-brand-blue/25 ring-2 ring-brand-blue/20"
                                 : "border-zinc-200 hover:border-zinc-300 hover:bg-zinc-50",
                             )}
                           >
@@ -2232,7 +2265,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                     )}
                   >
                     <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl bg-zinc-100 text-zinc-700" aria-hidden>
-                      <IconServicesGlyph />
+                      <IconEyeGlyph />
                     </span>
                     <span className="truncate">See all</span>
                   </Link>
@@ -2295,7 +2328,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                     className={classNames(
                       "inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border bg-white text-zinc-700 shadow-[0_1px_0_rgba(0,0,0,0.02)] transition",
                       pathname.startsWith(`${basePath}/app/settings`)
-                        ? "border-(--color-brand-blue)/25 ring-2 ring-(--color-brand-blue)/20 text-(--color-brand-blue)"
+                        ? "border-brand-blue/25 ring-2 ring-brand-blue/20 text-brand-blue"
                         : "border-zinc-200 hover:border-zinc-300 hover:bg-zinc-50",
                     )}
                   >
@@ -2310,7 +2343,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                       className={classNames(
                         "inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border bg-white text-zinc-700 shadow-[0_1px_0_rgba(0,0,0,0.02)] transition",
                         pathname.startsWith(`${basePath}/app/profile`)
-                          ? "border-(--color-brand-blue)/25 ring-2 ring-(--color-brand-blue)/20 text-(--color-brand-blue)"
+                          ? "border-brand-blue/25 ring-2 ring-brand-blue/20 text-brand-blue"
                           : "border-zinc-200 hover:border-zinc-300 hover:bg-zinc-50",
                       )}
                     >
@@ -2326,7 +2359,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                       className={classNames(
                         "inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border bg-white text-zinc-700 shadow-[0_1px_0_rgba(0,0,0,0.02)] transition",
                         pathname.startsWith(`${basePath}/app/billing`)
-                          ? "border-(--color-brand-blue)/25 ring-2 ring-(--color-brand-blue)/20 text-(--color-brand-blue)"
+                          ? "border-brand-blue/25 ring-2 ring-brand-blue/20 text-brand-blue"
                           : "border-zinc-200 hover:border-zinc-300 hover:bg-zinc-50",
                       )}
                     >
@@ -2341,13 +2374,11 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                     className={classNames(
                       "inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border bg-white text-zinc-700 shadow-[0_1px_0_rgba(0,0,0,0.02)] transition",
                       pathname.startsWith(`${basePath}/app/settings/appearance`)
-                        ? "border-(--color-brand-blue)/25 ring-2 ring-(--color-brand-blue)/20 text-(--color-brand-blue)"
+                        ? "border-brand-blue/25 ring-2 ring-brand-blue/20 text-brand-blue"
                         : "border-zinc-200 hover:border-zinc-300 hover:bg-zinc-50",
                     )}
                   >
-                    <span className="text-[14px] font-black" aria-hidden>
-                      A
-                    </span>
+                    <IconEyeGlyph />
                   </Link>
 
                   <Link
@@ -2357,13 +2388,25 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                     className={classNames(
                       "inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border bg-white text-zinc-700 shadow-[0_1px_0_rgba(0,0,0,0.02)] transition",
                       pathname.startsWith(`${basePath}/app/settings/integrations`)
-                        ? "border-(--color-brand-blue)/25 ring-2 ring-(--color-brand-blue)/20 text-(--color-brand-blue)"
+                        ? "border-brand-blue/25 ring-2 ring-brand-blue/20 text-brand-blue"
                         : "border-zinc-200 hover:border-zinc-300 hover:bg-zinc-50",
                     )}
                   >
-                    <span className="text-[14px] font-black" aria-hidden>
-                      &lt;/&gt;
-                    </span>
+                    <IconApiKeysGlyph />
+                  </Link>
+
+                  <Link
+                    href={`${basePath}/app/settings/business`}
+                    title="Business"
+                    aria-label="Business"
+                    className={classNames(
+                      "inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border bg-white text-zinc-700 shadow-[0_1px_0_rgba(0,0,0,0.02)] transition",
+                      pathname.startsWith(`${basePath}/app/settings/business`)
+                        ? "border-brand-blue/25 ring-2 ring-brand-blue/20 text-brand-blue"
+                        : "border-zinc-200 hover:border-zinc-300 hover:bg-zinc-50",
+                    )}
+                  >
+                    <IconBusinessGlyph />
                   </Link>
                 </div>
               ) : (
@@ -2410,10 +2453,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                       <span className="truncate">Billing</span>
                     </Link>
                   ) : null}
-                </div>
 
-                <div className="mt-4 px-3 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Appearance</div>
-                <div className="mt-2 space-y-1">
                   <Link
                     href={`${basePath}/app/settings/appearance`}
                     className={classNames(
@@ -2424,14 +2464,11 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                     )}
                   >
                     <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl bg-zinc-100 text-zinc-700" aria-hidden>
-                      <span className="text-[14px] font-black">A</span>
+                      <IconEyeGlyph />
                     </span>
                     <span className="truncate">Appearance</span>
                   </Link>
-                </div>
 
-                <div className="mt-4 px-3 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Integrations</div>
-                <div className="mt-2 space-y-1">
                   <Link
                     href={`${basePath}/app/settings/integrations`}
                     className={classNames(
@@ -2442,9 +2479,24 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                     )}
                   >
                     <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl bg-zinc-100 text-zinc-700" aria-hidden>
-                      <span className="text-[14px] font-black">&lt;/&gt;</span>
+                      <IconApiKeysGlyph />
                     </span>
-                    <span className="truncate">API keys</span>
+                    <span className="truncate">Integrations</span>
+                  </Link>
+
+                  <Link
+                    href={`${basePath}/app/settings/business`}
+                    className={classNames(
+                      "flex items-center gap-3 rounded-2xl px-3 py-2 text-sm font-semibold",
+                      pathname.startsWith(`${basePath}/app/settings/business`)
+                        ? "bg-zinc-100 text-zinc-900"
+                        : "text-zinc-700 hover:bg-zinc-50",
+                    )}
+                  >
+                    <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl bg-zinc-100 text-zinc-700" aria-hidden>
+                      <IconBusinessGlyph />
+                    </span>
+                    <span className="truncate">Business</span>
                   </Link>
                 </div>
               </div>
