@@ -63,11 +63,11 @@ export async function POST(req: Request) {
 
   const system =
     "You are a crisp analytics assistant for a business automation portal. " +
-    "Write a short weekly brief based ONLY on the provided metrics. " +
+    "Write a short analysis summary based ONLY on the provided metrics. " +
     "No fluff, no hype. Be specific and actionable.";
 
   const user =
-    "Generate a weekly brief. Format:\n" +
+    "Generate an analysis summary. Format:\n" +
     "- Title line\n" +
     "- 3 bullets: what happened\n" +
     "- 3 bullets: what to do next\n" +

@@ -9,13 +9,15 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
+const SALES_SHORTCUT_SLUG = "sales-dashboard";
+
 const putSchema = z
   .object({
     slugs: z.array(z.string()).max(12),
   })
   .strict();
 
-const KNOWN_SERVICE_SLUGS = new Set(PORTAL_SERVICES.map((s) => s.slug));
+const KNOWN_SERVICE_SLUGS = new Set([...PORTAL_SERVICES.map((s) => s.slug), SALES_SHORTCUT_SLUG]);
 
 function normalizeSlugs(raw: string[]) {
   return (Array.isArray(raw) ? raw : [])

@@ -3,7 +3,9 @@
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import { SignOutButton } from "@/components/SignOutButton";
 import { useToast } from "@/components/ToastProvider";
@@ -37,6 +39,8 @@ const DEFAULT_FULL_DEMO_EMAIL = "demo-full@purelyautomation.dev";
 
 const PORTAL_SERVICE_TITLE_BY_SLUG = new Map<string, string>(PORTAL_SERVICES.map((s) => [s.slug, s.title]));
 const PORTAL_SERVICE_BY_SLUG = new Map<string, PortalService>(PORTAL_SERVICES.map((s) => [s.slug, s]));
+
+const DASHBOARD_SALES_SHORTCUT_SLUG = "sales-dashboard";
 
 type Me = {
   user: { email: string; name: string; role: string };
@@ -985,7 +989,8 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
       }
 
       const ordered = [...allowed].sort((a, b) => (counts[b] || 0) - (counts[a] || 0));
-      const computed = (ordered.filter(Boolean).slice(0, 5).length ? ordered.filter(Boolean).slice(0, 5) : allowed.slice(0, 5)).slice(0, 5);
+      const computedServices = (ordered.filter(Boolean).slice(0, 5).length ? ordered.filter(Boolean).slice(0, 5) : allowed.slice(0, 5)).slice(0, 5);
+      const computed = [DASHBOARD_SALES_SHORTCUT_SLUG, ...computedServices.filter((s) => s !== DASHBOARD_SALES_SHORTCUT_SLUG)].slice(0, 6);
       if (mounted) setDashboardQuickAccessFallback(computed);
 
       const res = await fetch("/api/portal/dashboard/quick-access", { cache: "no-store" }).catch(() => null as any);
@@ -1010,7 +1015,11 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
   const dashboardQuickAccessEffective = useMemo(() => {
     const base = (dashboardQuickAccess && dashboardQuickAccess.length ? dashboardQuickAccess : dashboardQuickAccessFallback) || [];
     const unique = Array.from(new Set(base.map((s) => String(s || "").trim()).filter(Boolean)));
-    return unique.slice(0, 5);
+    const withoutSales = unique.filter((s) => s !== DASHBOARD_SALES_SHORTCUT_SLUG);
+    const salesFirst = unique.includes(DASHBOARD_SALES_SHORTCUT_SLUG)
+      ? [DASHBOARD_SALES_SHORTCUT_SLUG, ...withoutSales]
+      : withoutSales;
+    return salesFirst.slice(0, 6);
   }, [dashboardQuickAccess, dashboardQuickAccessFallback]);
 
   const [dashboardAnalysis, setDashboardAnalysis] = useState<null | { text: string; generatedAtIso: string }>(null);
@@ -1765,122 +1774,104 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
             activeTopKey === "pura" ? "border-r border-zinc-200 shadow-[2px_0_12px_rgba(0,0,0,0.06)]" : "border-r border-zinc-200",
           )}
         >
-          <div className={classNames("shrink-0 p-3")}
-          >
-            <div className="flex items-center gap-2">
-              {!collapsed ? (
-                <div className="min-w-0 flex-1">
-                  <div className="px-2 pb-2 pt-0.5">
-                    <div className="truncate text-[22px] font-semibold tracking-tight text-brand-ink">{sidebarHeaderLabel}</div>
-                  </div>
-
-                  <div className="grid min-w-0 grid-cols-4 gap-1">
-                    {navItems.map((item: any) => {
-                      const key = item.key as "pura" | "dashboard" | "services" | "settings";
-                      const active = activeTopKey === key;
-                      const isSidebarOnly = key === "services" || key === "settings";
-
-                      const iconClass = classNames(
-                        "inline-flex h-11 w-11 items-center justify-center rounded-2xl border bg-white text-zinc-700 shadow-[0_1px_0_rgba(0,0,0,0.02)] transition",
-                        active
-                          ? "border-(--color-brand-blue)/25 ring-2 ring-(--color-brand-blue)/20 text-(--color-brand-blue)"
-                          : "border-zinc-200 hover:border-zinc-300 hover:bg-zinc-50",
-                      );
-
-                      if (isSidebarOnly) {
-                        return (
-                          <button
-                            key={item.href}
-                            type="button"
-                            title={item.label}
-                            onClick={() => setSidebarModeOverride(key)}
-                            className="inline-flex items-center justify-center rounded-2xl p-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--color-brand-blue)"
-                            aria-label={item.label}
-                          >
-                            <span className={iconClass} aria-hidden>
-                              {item.iconGlyph}
-                            </span>
-                            <span className="sr-only">{item.label}</span>
-                          </button>
-                        );
-                      }
-
-                      return (
-                        <Link
-                          key={item.href}
-                          href={item.href}
-                          title={item.label}
-                          className="inline-flex items-center justify-center rounded-2xl p-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--color-brand-blue)"
-                          aria-label={item.label}
-                        >
-                          <span className={iconClass} aria-hidden>
-                            {item.iconGlyph}
-                          </span>
-                          <span className="sr-only">{item.label}</span>
-                        </Link>
-                      );
-                    })}
-                  </div>
-                </div>
-              ) : (
-                <div className="flex min-w-0 flex-1 flex-col items-center gap-1">
-                  {navItems.map((item: any) => {
-                    const key = item.key as "pura" | "dashboard" | "services" | "settings";
-                    const active = activeTopKey === key;
-                    const isSidebarOnly = key === "services" || key === "settings";
-                    return (
-                      isSidebarOnly ? (
-                        <button
-                          key={item.href}
-                          type="button"
-                          title={item.label}
-                          onClick={() => setSidebarModeOverride(key)}
-                          className={classNames(
-                            "inline-flex h-11 w-11 items-center justify-center rounded-2xl border bg-white shadow-[0_1px_0_rgba(0,0,0,0.02)] transition",
-                            active
-                              ? "border-(--color-brand-blue)/25 ring-2 ring-(--color-brand-blue)/20 text-(--color-brand-blue)"
-                              : "border-zinc-200 text-zinc-700 hover:border-zinc-300 hover:bg-zinc-50",
-                          )}
-                        >
-                          {item.iconGlyph}
-                        </button>
-                      ) : (
-                        <Link
-                          key={item.href}
-                          href={item.href}
-                          title={item.label}
-                          className={classNames(
-                            "inline-flex h-11 w-11 items-center justify-center rounded-2xl border bg-white shadow-[0_1px_0_rgba(0,0,0,0.02)] transition",
-                            active
-                              ? "border-(--color-brand-blue)/25 ring-2 ring-(--color-brand-blue)/20 text-(--color-brand-blue)"
-                              : "border-zinc-200 text-zinc-700 hover:border-zinc-300 hover:bg-zinc-50",
-                          )}
-                        >
-                          {item.iconGlyph}
-                        </Link>
-                      )
-                    );
-                  })}
-                </div>
-              )}
-
-              <div className={classNames("ml-auto flex items-center gap-1", collapsed && "ml-0")}
-              >
+          <div className="shrink-0 p-3">
+            <div className="relative">
+              <div className="flex items-center justify-end">
                 <button
                   type="button"
                   onClick={() => setCollapsed((v) => !v)}
-                  className={classNames(
-                    "inline-flex h-10 w-10 items-center justify-center rounded-2xl bg-transparent text-zinc-700 transition-colors hover:bg-zinc-50 hover:text-zinc-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--color-brand-blue)",
-                  )}
+                  className="inline-flex h-10 w-10 items-center justify-center rounded-2xl bg-transparent text-zinc-700 transition-colors hover:bg-zinc-50 hover:text-zinc-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--color-brand-blue)"
                   aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
                   title={collapsed ? "Expand" : "Collapse"}
                 >
-                  {collapsed ? <IconHamburger /> : (
+                  {collapsed ? (
+                    <IconHamburger />
+                  ) : (
                     <span className="rotate-180">
                       <IconChevron />
                     </span>
                   )}
                 </button>
+              </div>
+
+              {!collapsed ? (
+                <div className="mt-1 px-2 pb-2 pt-0.5">
+                  <div className="truncate text-[22px] font-semibold tracking-tight text-brand-ink">{sidebarHeaderLabel}</div>
+                </div>
+              ) : (
+                <div className="mt-1 px-2 pb-2 pt-0.5">
+                  <div className="h-[28px]" aria-hidden />
+                </div>
+              )}
+
+              <div className={classNames(collapsed ? "mt-1 flex flex-col items-center gap-1" : "grid grid-cols-4 gap-1")}>
+                {navItems.map((item: any) => {
+                  const key = item.key as "pura" | "dashboard" | "services" | "settings";
+                  const active = activeTopKey === key;
+                  const isSidebarOnly = key === "services" || key === "settings";
+
+                  const iconClass = classNames(
+                    "inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border bg-white text-zinc-700 shadow-[0_1px_0_rgba(0,0,0,0.02)] transition",
+                    active
+                      ? "border-(--color-brand-blue)/25 ring-2 ring-(--color-brand-blue)/20 text-(--color-brand-blue)"
+                      : "border-zinc-200 hover:border-zinc-300 hover:bg-zinc-50",
+                  );
+
+                  const onSidebarOnlyClick = () => {
+                    if (key === "settings") {
+                      setCollapsed(false);
+                      setSidebarModeOverride("settings");
+                      return;
+                    }
+                    // Services should respect the user's collapsed preference.
+                    setSidebarModeOverride("services");
+                  };
+
+                  if (isSidebarOnly) {
+                    return (
+                      <button
+                        key={item.href}
+                        type="button"
+                        title={item.label}
+                        onClick={onSidebarOnlyClick}
+                        className={classNames(
+                          "inline-flex items-center justify-center rounded-2xl p-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--color-brand-blue)",
+                          collapsed && "p-0",
+                        )}
+                        aria-label={item.label}
+                      >
+                        <span className={iconClass} aria-hidden>
+                          {item.iconGlyph}
+                        </span>
+                        <span className="sr-only">{item.label}</span>
+                      </button>
+                    );
+                  }
+
+                  const onNavigate = () => {
+                    if (key === "pura" || key === "dashboard" || key === "settings") setCollapsed(false);
+                    setSidebarModeOverride(null);
+                  };
+
+                  return (
+                    <Link
+                      key={item.href}
+                      href={item.href}
+                      title={item.label}
+                      onClick={onNavigate as any}
+                      className={classNames(
+                        "inline-flex items-center justify-center rounded-2xl p-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--color-brand-blue)",
+                        collapsed && "p-0",
+                      )}
+                      aria-label={item.label}
+                    >
+                      <span className={iconClass} aria-hidden>
+                        {item.iconGlyph}
+                      </span>
+                      <span className="sr-only">{item.label}</span>
+                    </Link>
+                  );
+                })}
               </div>
             </div>
           </div>
@@ -1903,35 +1894,59 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
 
             {activeTopKey === "dashboard" ? (
               <div className={classNames(collapsed && "hidden")}>
-                <div className="space-y-1">
-                  <Link
-                    href={`${basePath}/app/services/reporting/sales`}
-                    className={classNames(
-                      "flex items-center gap-3 rounded-2xl px-3 py-2 text-sm font-semibold",
-                      pathname === `${basePath}/app/services/reporting/sales`
-                        ? "bg-zinc-100 text-zinc-900"
-                        : "text-zinc-700 hover:bg-zinc-50",
-                    )}
-                  >
-                    <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl bg-zinc-100 text-zinc-700" aria-hidden>
-                      <IconDashboardGlyph />
-                    </span>
-                    <span className="truncate">Sales dashboard</span>
-                  </Link>
-                </div>
-
                 <div className="mt-4">
                   <div className="flex items-center justify-between px-3">
                     <div className="text-[10px] font-semibold uppercase tracking-wide text-zinc-500">Shortcuts</div>
-                    {dashboardEditMode ? (
-                      <div className="text-[11px] font-semibold text-zinc-500">Select up to 5</div>
-                    ) : (
-                      <div className="text-[11px] text-zinc-500">Edit dashboard to customize</div>
-                    )}
                   </div>
 
                   {dashboardEditMode ? (
                     <div className="mt-2 space-y-1">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const cur = dashboardQuickAccessEffective;
+                          const selected = cur.includes(DASHBOARD_SALES_SHORTCUT_SLUG);
+                          if (selected) {
+                            const next = cur.filter((x) => x !== DASHBOARD_SALES_SHORTCUT_SLUG);
+                            setDashboardQuickAccess(next);
+                            void saveDashboardQuickAccess(next);
+                            return;
+                          }
+
+                          if (cur.length >= 6) {
+                            toast?.push({ kind: "error", message: "Pick up to 6 shortcuts" });
+                            return;
+                          }
+                          const next = [DASHBOARD_SALES_SHORTCUT_SLUG, ...cur.filter((x) => x !== DASHBOARD_SALES_SHORTCUT_SLUG)];
+                          setDashboardQuickAccess(next);
+                          void saveDashboardQuickAccess(next);
+                        }}
+                        className={classNames(
+                          "flex w-full items-center gap-2 rounded-2xl px-2.5 py-1.5 text-[13px] font-medium",
+                          dashboardQuickAccessEffective.includes(DASHBOARD_SALES_SHORTCUT_SLUG)
+                            ? "bg-zinc-100 text-zinc-900"
+                            : "text-zinc-700 hover:bg-zinc-50",
+                        )}
+                      >
+                        <span className="inline-flex h-8 w-8 items-center justify-center rounded-2xl border border-zinc-200 bg-white text-zinc-700">
+                          <span className="text-[16px] font-black" aria-hidden>
+                            $
+                          </span>
+                        </span>
+                        <span className="min-w-0 flex-1 truncate">Sales dashboard</span>
+                        <span
+                          className={classNames(
+                            "inline-flex h-6 min-w-6 items-center justify-center rounded-full border px-2 text-[11px] font-semibold",
+                            dashboardQuickAccessEffective.includes(DASHBOARD_SALES_SHORTCUT_SLUG)
+                              ? "border-(--color-brand-blue)/25 bg-(--color-brand-blue)/10 text-(--color-brand-blue)"
+                              : "border-zinc-200 bg-white text-zinc-500",
+                          )}
+                          aria-hidden
+                        >
+                          {dashboardQuickAccessEffective.includes(DASHBOARD_SALES_SHORTCUT_SLUG) ? "✓" : "+"}
+                        </span>
+                      </button>
+
                       {dashboardShortcutCandidates.map((svc) => {
                         const selected = dashboardQuickAccessEffective.includes(svc.slug);
                         return (
@@ -1947,8 +1962,8 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                                 return;
                               }
 
-                              if (cur.length >= 5) {
-                                toast?.push({ kind: "error", message: "Pick up to 5 shortcuts" });
+                              if (cur.length >= 6) {
+                                toast?.push({ kind: "error", message: "Pick up to 6 shortcuts" });
                                 return;
                               }
                               const next = [...cur, svc.slug];
@@ -1985,10 +2000,30 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                     <div className="mt-2">
                       {dashboardQuickAccessEffective.length ? (
                         <div className="space-y-1">
-                          {dashboardQuickAccessEffective
-                            .map((slug) => PORTAL_SERVICE_BY_SLUG.get(slug) || null)
-                            .filter(Boolean)
-                            .map((svc) => renderSidebarServiceLink(svc as PortalService))}
+                          {dashboardQuickAccessEffective.map((slug) => {
+                            if (slug === DASHBOARD_SALES_SHORTCUT_SLUG) {
+                              return (
+                                <Link
+                                  key="shortcut_sales_dashboard"
+                                  href={`${basePath}/app/services/reporting/sales`}
+                                  className={classNames(
+                                    "flex items-center gap-3 rounded-2xl px-3 py-2 text-sm font-semibold",
+                                    pathname === `${basePath}/app/services/reporting/sales`
+                                      ? "bg-zinc-100 text-zinc-900"
+                                      : "text-zinc-700 hover:bg-zinc-50",
+                                  )}
+                                >
+                                  <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl bg-zinc-100 text-zinc-700" aria-hidden>
+                                    <span className="text-lg font-black">$</span>
+                                  </span>
+                                  <span className="truncate">Sales dashboard</span>
+                                </Link>
+                              );
+                            }
+
+                            const svc = PORTAL_SERVICE_BY_SLUG.get(slug) || null;
+                            return svc ? renderSidebarServiceLink(svc as PortalService) : null;
+                          })}
                         </div>
                       ) : (
                         <div className="px-3 py-2 text-sm text-zinc-500">No shortcuts yet.</div>
@@ -1999,7 +2034,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
 
                 <div className="mt-5">
                   <div className="flex items-center justify-between px-3">
-                    <div className="text-[10px] font-semibold uppercase tracking-wide text-zinc-500">Weekly brief</div>
+                    <div className="text-[10px] font-semibold uppercase tracking-wide text-zinc-500">Analysis</div>
                     <button
                       type="button"
                       onClick={() => void refreshDashboardAnalysis("manual_refresh")}
@@ -2008,12 +2043,64 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                       {dashboardAnalysisLoading ? "Refreshing…" : "Refresh"}
                     </button>
                   </div>
-                  <div className="mt-2 rounded-2xl border border-zinc-200 bg-white p-3 text-xs leading-relaxed text-zinc-700 whitespace-pre-wrap">
-                    {dashboardAnalysis?.text
-                      ? dashboardAnalysis.text
-                      : dashboardAnalysisLoading
-                        ? "Generating your weekly brief…"
-                        : "Generating your weekly brief…"}
+                  <div className="mt-2 rounded-2xl border border-zinc-200 bg-white p-3 text-xs leading-relaxed text-zinc-700">
+                    <div className="prose prose-sm max-w-none prose-zinc">
+                      <ReactMarkdown
+                        remarkPlugins={[remarkGfm]}
+                        components={{
+                          a({ href, children }: { href?: string; children?: ReactNode }) {
+                            const raw = String(href || "").trim();
+                            const safe = /^https?:\/\//i.test(raw) || raw.startsWith("/") ? raw : "";
+                            const external = /^https?:\/\//i.test(safe);
+                            return safe ? (
+                              <a
+                                href={safe}
+                                target={external ? "_blank" : undefined}
+                                rel={external ? "noreferrer noopener" : undefined}
+                                className="font-semibold underline underline-offset-2 text-brand-blue"
+                              >
+                                {children}
+                              </a>
+                            ) : (
+                              <span>{children}</span>
+                            );
+                          },
+                          p({ children }: { children?: ReactNode }) {
+                            return <p className="my-2 first:mt-0 last:mb-0">{children}</p>;
+                          },
+                          ul({ children }: { children?: ReactNode }) {
+                            return <ul className="my-2 list-disc pl-5">{children}</ul>;
+                          },
+                          ol({ children }: { children?: ReactNode }) {
+                            return <ol className="my-2 list-decimal pl-5">{children}</ol>;
+                          },
+                          li({ children }: { children?: ReactNode }) {
+                            return <li className="my-1">{children}</li>;
+                          },
+                          h1({ children }: { children?: ReactNode }) {
+                            return <h1 className="my-2 text-base font-semibold">{children}</h1>;
+                          },
+                          h2({ children }: { children?: ReactNode }) {
+                            return <h2 className="my-2 text-sm font-semibold">{children}</h2>;
+                          },
+                          h3({ children }: { children?: ReactNode }) {
+                            return <h3 className="my-2 text-sm font-semibold">{children}</h3>;
+                          },
+                          code({ children }: { children?: ReactNode }) {
+                            return <code className="rounded bg-zinc-100 px-1 py-0.5 text-[12px]">{children}</code>;
+                          },
+                          pre({ children }: { children?: ReactNode }) {
+                            return <pre className="my-2 overflow-x-auto rounded-2xl bg-zinc-100 p-3 text-[12px]">{children}</pre>;
+                          },
+                        }}
+                      >
+                        {dashboardAnalysis?.text
+                          ? dashboardAnalysis.text
+                          : dashboardAnalysisLoading
+                            ? "Generating analysis…"
+                            : "Generating analysis…"}
+                      </ReactMarkdown>
+                    </div>
                     {dashboardAnalysis?.generatedAtIso ? (
                       <div className="mt-2 text-[11px] text-zinc-500">Updated {new Date(dashboardAnalysis.generatedAtIso).toLocaleString()}</div>
                     ) : null}
@@ -2023,7 +2110,119 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
             ) : null}
 
             {activeTopKey === "services" ? (
-              <div className={classNames(collapsed && "hidden")}>
+              collapsed ? (
+                <div className="flex flex-col items-center gap-1 py-1">
+                  <Link
+                    href={`${basePath}/app/services`}
+                    title="See all"
+                    aria-label="See all"
+                    className={classNames(
+                      "inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border bg-white shadow-[0_1px_0_rgba(0,0,0,0.02)] transition",
+                      pathname === `${basePath}/app/services`
+                        ? "border-(--color-brand-blue)/25 ring-2 ring-(--color-brand-blue)/20 text-(--color-brand-blue)"
+                        : "border-zinc-200 text-zinc-700 hover:border-zinc-300 hover:bg-zinc-50",
+                    )}
+                  >
+                    <IconServicesGlyph />
+                  </Link>
+
+                  {activeServiceSlug ? (
+                    (() => {
+                      const svc = visibleSidebarServices.find((x) => x.slug === activeServiceSlug);
+                      if (!svc) return null;
+                      return (
+                        <Link
+                          href={`${basePath}/app/services/${svc.slug}`}
+                          title={svc.title}
+                          aria-label={svc.title}
+                          className={classNames(
+                            "inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border bg-white shadow-[0_1px_0_rgba(0,0,0,0.02)] transition",
+                            pathname.startsWith(`${basePath}/app/services/${svc.slug}`)
+                              ? "border-(--color-brand-blue)/25 ring-2 ring-(--color-brand-blue)/20"
+                              : "border-zinc-200 hover:border-zinc-300 hover:bg-zinc-50",
+                          )}
+                        >
+                          <span className={sidebarIconToneClassForSlug(svc.slug)} aria-hidden>
+                            <IconServiceGlyph slug={svc.slug} />
+                          </span>
+                        </Link>
+                      );
+                    })()
+                  ) : null}
+
+                  <div className="mt-2 flex min-h-0 w-full flex-1 flex-col items-center gap-1 overflow-y-auto overscroll-y-contain">
+                    {sidebarServiceGroups.flatMap((group) => {
+                      const items = group.services.filter((s) => s.slug !== activeServiceSlug);
+                      return items.flatMap((svc) => {
+                        const out: React.ReactNode[] = [];
+
+                        if (group.key === "communication" && svc.slug === "inbox") {
+                          out.push(
+                            <Link
+                              key={`svc_${svc.slug}`}
+                              href={`${basePath}/app/services/${svc.slug}`}
+                              title={svc.title}
+                              aria-label={svc.title}
+                              className={classNames(
+                                "inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border bg-white shadow-[0_1px_0_rgba(0,0,0,0.02)] transition",
+                                pathname.startsWith(`${basePath}/app/services/${svc.slug}`)
+                                  ? "border-(--color-brand-blue)/25 ring-2 ring-(--color-brand-blue)/20"
+                                  : "border-zinc-200 hover:border-zinc-300 hover:bg-zinc-50",
+                              )}
+                            >
+                              <span className={sidebarIconToneClassForSlug(svc.slug)} aria-hidden>
+                                <IconServiceGlyph slug={svc.slug} />
+                              </span>
+                            </Link>,
+                          );
+
+                          if (canViewServiceKey("people")) {
+                            out.push(
+                              <Link
+                                key="svc_people"
+                                href={`${basePath}/app/people`}
+                                title="People"
+                                aria-label="People"
+                                className={classNames(
+                                  "inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border bg-white text-zinc-700 shadow-[0_1px_0_rgba(0,0,0,0.02)] transition",
+                                  pathname.startsWith(`${basePath}/app/people`)
+                                    ? "border-(--color-brand-blue)/25 ring-2 ring-(--color-brand-blue)/20 text-(--color-brand-blue)"
+                                    : "border-zinc-200 hover:border-zinc-300 hover:bg-zinc-50",
+                                )}
+                              >
+                                <IconPeopleGlyph />
+                              </Link>,
+                            );
+                          }
+
+                          return out;
+                        }
+
+                        out.push(
+                          <Link
+                            key={`svc_${svc.slug}`}
+                            href={`${basePath}/app/services/${svc.slug}`}
+                            title={svc.title}
+                            aria-label={svc.title}
+                            className={classNames(
+                              "inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border bg-white shadow-[0_1px_0_rgba(0,0,0,0.02)] transition",
+                              pathname.startsWith(`${basePath}/app/services/${svc.slug}`)
+                                ? "border-(--color-brand-blue)/25 ring-2 ring-(--color-brand-blue)/20"
+                                : "border-zinc-200 hover:border-zinc-300 hover:bg-zinc-50",
+                            )}
+                          >
+                            <span className={sidebarIconToneClassForSlug(svc.slug)} aria-hidden>
+                              <IconServiceGlyph slug={svc.slug} />
+                            </span>
+                          </Link>,
+                        );
+                        return out;
+                      });
+                    })}
+                  </div>
+                </div>
+              ) : (
+              <div>
                 <div className="space-y-1">
                   <Link
                     href={`${basePath}/app/services`}
@@ -2083,10 +2282,92 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                   </div>
                 </div>
               </div>
+              )
             ) : null}
 
             {activeTopKey === "settings" ? (
-              <div className={classNames(collapsed && "hidden")}>
+              collapsed ? (
+                <div className="flex flex-col items-center gap-1 py-1">
+                  <Link
+                    href={`${basePath}/app/settings`}
+                    title="General"
+                    aria-label="General"
+                    className={classNames(
+                      "inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border bg-white text-zinc-700 shadow-[0_1px_0_rgba(0,0,0,0.02)] transition",
+                      pathname.startsWith(`${basePath}/app/settings`)
+                        ? "border-(--color-brand-blue)/25 ring-2 ring-(--color-brand-blue)/20 text-(--color-brand-blue)"
+                        : "border-zinc-200 hover:border-zinc-300 hover:bg-zinc-50",
+                    )}
+                  >
+                    <IconSettingsGlyph />
+                  </Link>
+
+                  {canViewServiceKey("profile") ? (
+                    <Link
+                      href={`${basePath}/app/profile`}
+                      title="Profile"
+                      aria-label="Profile"
+                      className={classNames(
+                        "inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border bg-white text-zinc-700 shadow-[0_1px_0_rgba(0,0,0,0.02)] transition",
+                        pathname.startsWith(`${basePath}/app/profile`)
+                          ? "border-(--color-brand-blue)/25 ring-2 ring-(--color-brand-blue)/20 text-(--color-brand-blue)"
+                          : "border-zinc-200 hover:border-zinc-300 hover:bg-zinc-50",
+                      )}
+                    >
+                      <IconProfileGlyph />
+                    </Link>
+                  ) : null}
+
+                  {canViewServiceKey("billing") ? (
+                    <Link
+                      href={`${basePath}/app/billing`}
+                      title="Billing"
+                      aria-label="Billing"
+                      className={classNames(
+                        "inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border bg-white text-zinc-700 shadow-[0_1px_0_rgba(0,0,0,0.02)] transition",
+                        pathname.startsWith(`${basePath}/app/billing`)
+                          ? "border-(--color-brand-blue)/25 ring-2 ring-(--color-brand-blue)/20 text-(--color-brand-blue)"
+                          : "border-zinc-200 hover:border-zinc-300 hover:bg-zinc-50",
+                      )}
+                    >
+                      <IconBillingGlyph />
+                    </Link>
+                  ) : null}
+
+                  <Link
+                    href={`${basePath}/app/settings/appearance`}
+                    title="Appearance"
+                    aria-label="Appearance"
+                    className={classNames(
+                      "inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border bg-white text-zinc-700 shadow-[0_1px_0_rgba(0,0,0,0.02)] transition",
+                      pathname.startsWith(`${basePath}/app/settings/appearance`)
+                        ? "border-(--color-brand-blue)/25 ring-2 ring-(--color-brand-blue)/20 text-(--color-brand-blue)"
+                        : "border-zinc-200 hover:border-zinc-300 hover:bg-zinc-50",
+                    )}
+                  >
+                    <span className="text-[14px] font-black" aria-hidden>
+                      A
+                    </span>
+                  </Link>
+
+                  <Link
+                    href={`${basePath}/app/settings/integrations`}
+                    title="Integrations"
+                    aria-label="Integrations"
+                    className={classNames(
+                      "inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border bg-white text-zinc-700 shadow-[0_1px_0_rgba(0,0,0,0.02)] transition",
+                      pathname.startsWith(`${basePath}/app/settings/integrations`)
+                        ? "border-(--color-brand-blue)/25 ring-2 ring-(--color-brand-blue)/20 text-(--color-brand-blue)"
+                        : "border-zinc-200 hover:border-zinc-300 hover:bg-zinc-50",
+                    )}
+                  >
+                    <span className="text-[14px] font-black" aria-hidden>
+                      &lt;/&gt;
+                    </span>
+                  </Link>
+                </div>
+              ) : (
+              <div>
                 <div className="px-3 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Settings</div>
                 <div className="mt-2 space-y-1">
                   <Link
@@ -2130,14 +2411,46 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                     </Link>
                   ) : null}
                 </div>
+
+                <div className="mt-4 px-3 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Appearance</div>
+                <div className="mt-2 space-y-1">
+                  <Link
+                    href={`${basePath}/app/settings/appearance`}
+                    className={classNames(
+                      "flex items-center gap-3 rounded-2xl px-3 py-2 text-sm font-semibold",
+                      pathname.startsWith(`${basePath}/app/settings/appearance`)
+                        ? "bg-zinc-100 text-zinc-900"
+                        : "text-zinc-700 hover:bg-zinc-50",
+                    )}
+                  >
+                    <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl bg-zinc-100 text-zinc-700" aria-hidden>
+                      <span className="text-[14px] font-black">A</span>
+                    </span>
+                    <span className="truncate">Appearance</span>
+                  </Link>
+                </div>
+
+                <div className="mt-4 px-3 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Integrations</div>
+                <div className="mt-2 space-y-1">
+                  <Link
+                    href={`${basePath}/app/settings/integrations`}
+                    className={classNames(
+                      "flex items-center gap-3 rounded-2xl px-3 py-2 text-sm font-semibold",
+                      pathname.startsWith(`${basePath}/app/settings/integrations`)
+                        ? "bg-zinc-100 text-zinc-900"
+                        : "text-zinc-700 hover:bg-zinc-50",
+                    )}
+                  >
+                    <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl bg-zinc-100 text-zinc-700" aria-hidden>
+                      <span className="text-[14px] font-black">&lt;/&gt;</span>
+                    </span>
+                    <span className="truncate">API keys</span>
+                  </Link>
+                </div>
               </div>
+              )
             ) : null}
 
-            {activeTopKey === "dashboard" ? (
-              <div className={classNames("p-3 text-sm text-zinc-500", collapsed && "hidden")}>
-                Select a section above.
-              </div>
-            ) : null}
           </div>
 
           <div className={classNames("shrink-0 border-t border-zinc-200 bg-white p-3 z-20", collapsed && "px-2")}>
