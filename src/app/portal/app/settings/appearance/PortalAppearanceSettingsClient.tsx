@@ -130,7 +130,7 @@ export function PortalAppearanceSettingsClient() {
   }, [pageOptions, portalBase, syncFloatingToolsPreference, toast]);
 
   const loadVoiceLibrary = useCallback(async () => {
-    if (!voiceAgentApiKeyConfigured || voiceLibraryLoading) return;
+    if (!voiceAgentApiKeyConfigured) return;
     setVoiceLibraryLoading(true);
     try {
       const res = await fetch("/api/portal/voice-agent/voices", { cache: "no-store" }).catch(() => null as any);
@@ -153,7 +153,7 @@ export function PortalAppearanceSettingsClient() {
     } finally {
       setVoiceLibraryLoading(false);
     }
-  }, [voiceAgentApiKeyConfigured, voiceLibraryLoading]);
+  }, [voiceAgentApiKeyConfigured]);
 
   useEffect(() => {
     void loadProfile();

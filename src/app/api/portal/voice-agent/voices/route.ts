@@ -53,7 +53,7 @@ export async function GET() {
     );
   }
 
-  const ownerId = auth.session.user.id;
+  const ownerId = ((auth as any).access?.ownerId as string | undefined) || auth.session.user.id;
   const apiKey = ((await getProfileVoiceAgentApiKey(ownerId).catch(() => null)) || "").trim();
   if (!apiKey) {
     return NextResponse.json(

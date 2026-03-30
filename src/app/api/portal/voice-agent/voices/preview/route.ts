@@ -64,7 +64,7 @@ export async function POST(req: Request) {
   const parsed = postSchema.safeParse(await req.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ ok: false, error: "Invalid input" }, { status: 400 });
 
-  const ownerId = auth.session.user.id;
+  const ownerId = ((auth as any).access?.ownerId as string | undefined) || auth.session.user.id;
   const apiKey = ((await getProfileVoiceAgentApiKey(ownerId).catch(() => null)) || "").trim();
   if (!apiKey) {
     return NextResponse.json(
