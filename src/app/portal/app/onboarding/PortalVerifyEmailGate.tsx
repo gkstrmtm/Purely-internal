@@ -77,7 +77,7 @@ export function PortalVerifyEmailGate(props: Props) {
             type="button"
             onClick={() => void resend()}
             disabled={sending}
-            className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-5 py-3 text-sm font-semibold text-white hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-60"
+            className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-5 py-3 text-sm font-semibold text-white transition-transform duration-150 hover:-translate-y-0.5 hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-60"
           >
             {sending ? "Sending…" : "Resend verification email"}
           </button>

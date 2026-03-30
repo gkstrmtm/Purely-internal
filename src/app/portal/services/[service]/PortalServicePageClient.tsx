@@ -407,13 +407,13 @@ export function PortalServicePageClient({ slug }: { slug: string }) {
               <div className="mt-5 flex flex-col gap-3 sm:flex-row">
                 <Link
                   href="/portal/app/onboarding"
-                  className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-5 py-3 text-sm font-semibold text-white hover:opacity-95"
+                  className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-5 py-3 text-sm font-semibold text-white transition-transform duration-150 hover:-translate-y-0.5 hover:opacity-95"
                 >
                   Complete onboarding
                 </Link>
                 <Link
                   href="/portal/app/billing"
-                  className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-5 py-3 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+                  className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-5 py-3 text-sm font-semibold text-brand-ink transition-all duration-150 hover:-translate-y-0.5 hover:border-zinc-300 hover:bg-zinc-50"
                 >
                   Billing
                 </Link>

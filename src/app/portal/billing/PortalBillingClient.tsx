@@ -164,7 +164,7 @@ function UpdateCardForm({
       <button
         type="submit"
         disabled={!stripe || !elements || busy}
-        className="mt-4 w-full rounded-2xl bg-(--color-brand-blue) px-5 py-3 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
+        className="mt-4 w-full rounded-2xl bg-(--color-brand-blue) px-5 py-3 text-sm font-semibold text-white transition-transform duration-150 hover:-translate-y-0.5 hover:opacity-95 disabled:opacity-60"
       >
         {busy ? "Saving…" : "Save payment method"}
       </button>
@@ -1315,7 +1315,7 @@ export function PortalBillingClient({
               <button
                 type="button"
                 onClick={() => setPurchaseModal(null)}
-                className="rounded-2xl border border-zinc-200 bg-white px-5 py-3 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+                className="rounded-2xl border border-zinc-200 bg-white px-5 py-3 text-sm font-semibold text-brand-ink transition-all duration-150 hover:-translate-y-0.5 hover:border-zinc-300 hover:bg-zinc-50"
               >
                 Not now
               </button>
@@ -1326,7 +1326,7 @@ export function PortalBillingClient({
                   const mod = purchaseModal.module;
                   await purchaseModule(mod);
                 }}
-                className="rounded-2xl bg-(--color-brand-blue) px-5 py-3 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
+                className="rounded-2xl bg-(--color-brand-blue) px-5 py-3 text-sm font-semibold text-white transition-transform duration-150 hover:-translate-y-0.5 hover:opacity-95 disabled:opacity-60"
               >
                 {actionBusy?.startsWith("module:") ? "Opening…" : "Buy & enable"}
               </button>
@@ -1567,14 +1567,14 @@ export function PortalBillingClient({
                     type="button"
                     onClick={() => setBillingDraft(createBillingInfoDraft(billingInfo))}
                     disabled={billingInfoSaving || !billingInfoDirty}
-                    className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50 disabled:opacity-60"
+                    className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink transition-all duration-150 hover:-translate-y-0.5 hover:border-zinc-300 hover:bg-zinc-50 disabled:opacity-60"
                   >
                     Reset
                   </button>
                   <button
                     type="submit"
                     disabled={billingInfoSaving || !billingInfoDirty}
-                    className="rounded-2xl bg-brand-blue px-4 py-2 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
+                    className="rounded-2xl bg-brand-blue px-4 py-2 text-sm font-semibold text-white transition-transform duration-150 hover:-translate-y-0.5 hover:opacity-95 disabled:opacity-60"
                   >
                     {billingInfoSaving ? "Saving…" : billingInfoDirty ? "Save" : "Saved"}
                   </button>
@@ -1615,7 +1615,7 @@ export function PortalBillingClient({
                       <div className="flex flex-wrap gap-2">
                         <button
                           type="button"
-                          className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50 disabled:opacity-60"
+                          className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-brand-ink transition-all duration-150 hover:-translate-y-0.5 hover:border-zinc-300 hover:bg-zinc-50 disabled:opacity-60"
                           disabled={busy}
                           onClick={() =>
                             setCancelModal({
@@ -1632,7 +1632,7 @@ export function PortalBillingClient({
                         </button>
                         <button
                           type="button"
-                          className="rounded-2xl border border-red-200 bg-white px-3 py-2 text-sm font-semibold text-red-700 hover:bg-red-50 disabled:opacity-60"
+                          className="rounded-2xl border border-red-200 bg-white px-3 py-2 text-sm font-semibold text-red-700 transition-all duration-150 hover:-translate-y-0.5 hover:bg-red-50 disabled:opacity-60"
                           disabled={busy}
                           onClick={() =>
                             setCancelModal({
@@ -1729,7 +1729,7 @@ export function PortalBillingClient({
             {purchaseAvailable ? (
               <button
                 type="button"
-                className="mt-3 inline-flex items-center justify-center rounded-2xl bg-(--color-brand-blue) px-3 py-2 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
+                className="mt-3 inline-flex items-center justify-center rounded-2xl bg-(--color-brand-blue) px-3 py-2 text-sm font-semibold text-white transition-transform duration-150 hover:-translate-y-0.5 hover:opacity-95 disabled:opacity-60"
                 disabled={actionBusy !== null}
                 onClick={() => setBuyCreditsOpen(true)}
               >
@@ -1767,7 +1767,7 @@ export function PortalBillingClient({
             />
             <button
               type="button"
-              className="inline-flex items-center justify-center gap-2 rounded-2xl bg-(--color-brand-blue) px-4 py-2 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
+              className="inline-flex items-center justify-center gap-2 rounded-2xl bg-(--color-brand-blue) px-4 py-2 text-sm font-semibold text-white transition-transform duration-150 hover:-translate-y-0.5 hover:opacity-95 disabled:opacity-60"
               disabled={referralLoading}
               onClick={async () => {
                 // Always rotate to a fresh link on copy.
@@ -1841,7 +1841,7 @@ export function PortalBillingClient({
                   type="button"
                   disabled={actionBusy !== null}
                   onClick={() => setServicesAdvancedOpen((v) => !v)}
-                  className="shrink-0 rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50 disabled:opacity-60"
+                  className="shrink-0 rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-brand-ink transition-all duration-150 hover:-translate-y-0.5 hover:border-zinc-300 hover:bg-zinc-50 disabled:opacity-60"
                 >
                   {servicesAdvancedOpen ? "Hide advanced" : "Advanced"}
                 </button>
@@ -1922,7 +1922,7 @@ export function PortalBillingClient({
                                 type="button"
                                 disabled={actionBusy !== null}
                                 onClick={() => openPurchaseModal(s.entitlementKey as any, s.title)}
-                                className="hidden rounded-2xl bg-brand-ink px-3 py-1.5 text-xs font-semibold text-white hover:opacity-95 disabled:opacity-60 sm:inline-flex"
+                                className="hidden rounded-2xl bg-brand-ink px-3 py-1.5 text-xs font-semibold text-white transition-transform duration-150 hover:-translate-y-0.5 hover:opacity-95 disabled:opacity-60 sm:inline-flex"
                               >
                                 Enable
                               </button>
@@ -1934,7 +1934,7 @@ export function PortalBillingClient({
                               type="button"
                               disabled={busy || actionBusy !== null}
                               onClick={() => void setServiceLifecycle(s.slug, "resume")}
-                              className="hidden rounded-2xl bg-brand-ink px-3 py-1.5 text-xs font-semibold text-white hover:opacity-95 disabled:opacity-60 sm:inline-flex"
+                              className="hidden rounded-2xl bg-brand-ink px-3 py-1.5 text-xs font-semibold text-white transition-transform duration-150 hover:-translate-y-0.5 hover:opacity-95 disabled:opacity-60 sm:inline-flex"
                             >
                               Resume
                             </button>
@@ -1951,7 +1951,7 @@ export function PortalBillingClient({
                               e.stopPropagation();
                               toggleServiceMenu(s.slug, e.currentTarget);
                             }}
-                            className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50 disabled:opacity-60"
+                            className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-zinc-200 bg-white text-zinc-700 transition-all duration-150 hover:-translate-y-0.5 hover:border-zinc-300 hover:bg-zinc-50 disabled:opacity-60"
                             aria-label="Service actions"
                           >
                             ⋯
@@ -2075,7 +2075,7 @@ export function PortalBillingClient({
                       onClick={() => {
                         void setCreditsOnlyLifecycle("resume");
                       }}
-                      className="rounded-2xl bg-(--color-brand-blue) px-4 py-2 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
+                      className="rounded-2xl bg-(--color-brand-blue) px-4 py-2 text-sm font-semibold text-white transition-transform duration-150 hover:-translate-y-0.5 hover:opacity-95 disabled:opacity-60"
                     >
                       {actionBusy === "credits-only:resume" ? "Resuming…" : "Resume services"}
                     </button>
@@ -2084,7 +2084,7 @@ export function PortalBillingClient({
                       type="button"
                       disabled={actionBusy !== null}
                       onClick={() => setCreditsOnlyCancelModal({ typed: "", ack: false })}
-                      className="rounded-2xl border border-red-200 bg-white px-4 py-2 text-sm font-semibold text-red-700 hover:bg-red-50 disabled:opacity-60"
+                      className="rounded-2xl border border-red-200 bg-white px-4 py-2 text-sm font-semibold text-red-700 transition-all duration-150 hover:-translate-y-0.5 hover:bg-red-50 disabled:opacity-60"
                     >
                       {actionBusy === "credits-only:cancel" ? "Canceling…" : "Cancel (disable services)"}
                     </button>
@@ -2135,14 +2135,14 @@ export function PortalBillingClient({
                   <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:justify-end">
                     <button
                       type="button"
-                      className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+                      className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink transition-all duration-150 hover:-translate-y-0.5 hover:border-zinc-300 hover:bg-zinc-50"
                       onClick={() => setCancelModal(null)}
                     >
                       Keep it
                     </button>
                     <button
                       type="button"
-                      className="rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95"
+                      className="rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white transition-transform duration-150 hover:-translate-y-0.5 hover:opacity-95"
                       onClick={() => setCancelModal({ ...cancelModal, step: 2 })}
                     >
                       Continue
@@ -2176,14 +2176,14 @@ export function PortalBillingClient({
                   <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:justify-end">
                     <button
                       type="button"
-                      className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+                      className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink transition-all duration-150 hover:-translate-y-0.5 hover:border-zinc-300 hover:bg-zinc-50"
                       onClick={() => setCancelModal(null)}
                     >
                       Go back
                     </button>
                     <button
                       type="button"
-                      className="rounded-2xl border border-red-200 bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-60"
+                      className="rounded-2xl border border-red-200 bg-red-600 px-4 py-2 text-sm font-semibold text-white transition-transform duration-150 hover:-translate-y-0.5 hover:bg-red-700 disabled:opacity-60"
                       disabled={cancelModal.typed.trim().toUpperCase() !== "CANCEL" || !cancelModal.ack || actionBusy !== null}
                       onClick={async () => {
                         const { subscriptionId, immediate } = cancelModal;
@@ -2242,14 +2242,14 @@ export function PortalBillingClient({
               <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:justify-end">
                 <button
                   type="button"
-                  className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+                  className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink transition-all duration-150 hover:-translate-y-0.5 hover:border-zinc-300 hover:bg-zinc-50"
                   onClick={() => setCreditsOnlyCancelModal(null)}
                 >
                   Go back
                 </button>
                 <button
                   type="button"
-                  className="rounded-2xl border border-red-200 bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-60"
+                  className="rounded-2xl border border-red-200 bg-red-600 px-4 py-2 text-sm font-semibold text-white transition-transform duration-150 hover:-translate-y-0.5 hover:bg-red-700 disabled:opacity-60"
                   disabled={creditsOnlyCancelModal.typed.trim().toUpperCase() !== "CANCEL" || !creditsOnlyCancelModal.ack || actionBusy !== null}
                   onClick={async () => {
                     setCreditsOnlyCancelModal(null);
@@ -2305,7 +2305,7 @@ export function PortalBillingClient({
                   <div className="mt-1 text-xs text-zinc-500">{c.desc}</div>
                   <button
                     type="button"
-                    className="mt-3 w-full rounded-2xl bg-brand-ink px-3 py-2 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
+                    className="mt-3 w-full rounded-2xl bg-brand-ink px-3 py-2 text-sm font-semibold text-white transition-transform duration-150 hover:-translate-y-0.5 hover:opacity-95 disabled:opacity-60"
                     disabled={Boolean(owned(c.serviceSlug)) || actionBusy !== null}
                     onClick={() => void purchaseModule(c.module as any)}
                   >

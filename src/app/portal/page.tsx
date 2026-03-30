@@ -68,13 +68,13 @@ export default async function PortalDashboardPage() {
               <div className="mt-7 flex flex-col gap-3 sm:flex-row">
                 <Link
                   href={getStartedHref}
-                  className="inline-flex items-center justify-center rounded-2xl bg-white px-6 py-3 text-base font-semibold text-[color:var(--color-brand-blue)] hover:bg-zinc-50"
+                  className="inline-flex items-center justify-center rounded-2xl bg-white px-6 py-3 text-base font-semibold text-[color:var(--color-brand-blue)] transition-all duration-150 hover:-translate-y-0.5 hover:bg-zinc-50"
                 >
                   Get Started
                 </Link>
                 <Link
                   href={signInHref}
-                  className="inline-flex items-center justify-center rounded-2xl bg-[color:var(--color-brand-pink)] px-6 py-3 text-base font-semibold text-white hover:opacity-95"
+                  className="inline-flex items-center justify-center rounded-2xl bg-[color:var(--color-brand-pink)] px-6 py-3 text-base font-semibold text-white transition-transform duration-150 hover:-translate-y-0.5 hover:opacity-95"
                 >
                   Sign In
                 </Link>
@@ -405,13 +405,13 @@ export default async function PortalDashboardPage() {
             <div className="flex w-full flex-col gap-3 sm:w-auto sm:flex-row">
               <Link
                 href={getStartedHref}
-                className="inline-flex w-full items-center justify-center rounded-2xl bg-linear-to-r from-[color:var(--color-brand-blue)] via-violet-500 to-[color:var(--color-brand-pink)] px-6 py-3 text-sm font-semibold text-white shadow-sm hover:opacity-90 sm:w-auto"
+                className="inline-flex w-full items-center justify-center rounded-2xl bg-linear-to-r from-[color:var(--color-brand-blue)] via-violet-500 to-[color:var(--color-brand-pink)] px-6 py-3 text-sm font-semibold text-white shadow-sm transition-transform duration-150 hover:-translate-y-0.5 hover:opacity-90 sm:w-auto"
               >
                 Start free
               </Link>
               <Link
                 href={signInHref}
-                className="inline-flex w-full items-center justify-center rounded-2xl border border-white/35 bg-white/10 px-6 py-3 text-sm font-semibold text-white hover:bg-white/15 sm:w-auto"
+                className="inline-flex w-full items-center justify-center rounded-2xl border border-white/35 bg-white/10 px-6 py-3 text-sm font-semibold text-white transition-all duration-150 hover:-translate-y-0.5 hover:bg-white/15 sm:w-auto"
               >
                 Sign in
               </Link>
