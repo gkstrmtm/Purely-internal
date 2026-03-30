@@ -3,6 +3,11 @@ import { requireClientSession } from "@/lib/apiAuth";
 import { ensurePortalTasksSchema } from "@/lib/portalTasksSchema";
 import { hasPortalServiceCapability, type PortalServiceCapability } from "@/lib/portalPermissions";
 import type { PortalServiceKey } from "@/lib/portalPermissions.shared";
+import {
+  authenticatePortalApiKeyForAnyService,
+  authenticatePortalApiKeyForService,
+  sessionUserFromApiKeyContext,
+} from "@/lib/portalApiKeys.server";
 import { PORTAL_SERVICES } from "@/app/portal/services/catalog";
 import { resolveEntitlements } from "@/lib/entitlements";
 import { isStripeConfigured } from "@/lib/stripeFetch";
@@ -135,6 +140,48 @@ export async function requireClientSessionForService(
   service: PortalServiceKey,
   capability: PortalServiceCapability = "view",
 ) {
+  const apiKeyAuth = await authenticatePortalApiKeyForService({ service, capability });
+  if (apiKeyAuth.present) {
+    if (!apiKeyAuth.ok) {
+      return {
+        ok: false as const,
+        status: apiKeyAuth.status,
+        session: null,
+      };
+    }
+
+    const ownerId = apiKeyAuth.context.ownerId;
+    const session = { user: sessionUserFromApiKeyContext(apiKeyAuth.context) };
+
+    if (service !== "billing" && service !== "profile") {
+      if (await isCreditsCanceledForOwner(ownerId).catch(() => false)) {
+        return { ok: false as const, status: 403 as const, session };
+      }
+    }
+
+    if (await isServiceLifecycleDisabled(ownerId, service).catch(() => false)) {
+      return { ok: false as const, status: 403 as const, session };
+    }
+
+    if (
+      !(await isServiceUnlockedForOwner({
+        ownerId,
+        serviceKey: service,
+        sessionEmail: apiKeyAuth.context.ownerEmail,
+        portalVariant: apiKeyAuth.context.portalVariant,
+      }).catch(() => false))
+    ) {
+      return { ok: false as const, status: 403 as const, session };
+    }
+
+    return {
+      ok: true as const,
+      status: 200 as const,
+      session,
+      access: { ownerId, memberId: ownerId, memberRole: "OWNER" as const },
+    };
+  }
+
   const auth = await requireClientSession();
   if (!auth.ok) return auth;
 
@@ -216,6 +263,45 @@ export async function requireClientSessionForAnyService(
   services: PortalServiceKey[],
   capability: PortalServiceCapability = "view",
 ) {
+  const apiKeyAuth = await authenticatePortalApiKeyForAnyService({ services, capability }).catch(
+    () => ({ present: false } as const),
+  );
+  if (apiKeyAuth.present) {
+    if (!apiKeyAuth.ok) {
+      return {
+        ok: false as const,
+        status: apiKeyAuth.status,
+        session: null,
+      };
+    }
+
+    const ownerId = apiKeyAuth.context.ownerId;
+    const session = { user: sessionUserFromApiKeyContext(apiKeyAuth.context) };
+    const anyUnlocked = await (async () => {
+      for (const s of services) {
+        const ok = await isServiceUnlockedForOwner({
+          ownerId,
+          serviceKey: s,
+          sessionEmail: apiKeyAuth.context.ownerEmail,
+          portalVariant: apiKeyAuth.context.portalVariant,
+        }).catch(() => false);
+        if (ok) return true;
+      }
+      return false;
+    })();
+
+    if (!anyUnlocked) {
+      return { ok: false as const, status: 403 as const, session };
+    }
+
+    return {
+      ok: true as const,
+      status: 200 as const,
+      session,
+      access: { ownerId, memberId: ownerId, memberRole: "OWNER" as const },
+    };
+  }
+
   const auth = await requireClientSession();
   if (!auth.ok) return auth;
 

@@ -2262,8 +2262,8 @@ function detectDeterministicActionsFromText(opts: {
   return [];
 }
 
-export async function GET(_req: Request, ctx: { params: Promise<{ threadId: string }> }) {
-  const auth = await requireClientSession();
+export async function GET(req: Request, ctx: { params: Promise<{ threadId: string }> }) {
+  const auth = await requireClientSession(req, { apiKeyPermission: "pura.chat" });
   if (!auth.ok) {
     return NextResponse.json(
       { ok: false, error: auth.status === 401 ? "Unauthorized" : "Forbidden" },
@@ -2311,7 +2311,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ threadId: stri
 }
 
 async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId: string }> }) {
-  const auth = await requireClientSession();
+  const auth = await requireClientSession(req, { apiKeyPermission: "pura.chat" });
   if (!auth.ok) {
     return NextResponse.json(
       { ok: false, error: auth.status === 401 ? "Unauthorized" : "Forbidden" },

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
+import { requireClientSession } from "@/lib/apiAuth";
 import { prisma } from "@/lib/db";
-import { requireClientSessionForService } from "@/lib/portalAccess";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -45,8 +45,8 @@ function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
 }
 
-export async function GET() {
-  const auth = await requireClientSessionForService("profile");
+export async function GET(req: Request) {
+  const auth = await requireClientSession(req, { apiKeyPermission: "pura.chat" });
   if (!auth.ok) {
     return NextResponse.json(
       { ok: false, error: auth.status === 401 ? "Unauthorized" : "Forbidden" },

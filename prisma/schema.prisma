@@ -243,6 +243,8 @@ model User {
 
   salesReportingSettings    SalesReportingSettings?
   salesReportingCredentials SalesReportingCredential[]
+  portalApiKeys             PortalApiKey[]
+  portalApiKeySpends        PortalApiKeySpend[]
 
   portalReferralsSent       PortalReferral[]              @relation("PortalReferralInviter")
   portalReferralReceived    PortalReferral?               @relation("PortalReferralInvited")
@@ -377,6 +379,67 @@ model SalesReportingCredential {
 
   @@unique([userId, provider])
   @@index([userId, provider])
+}
+
+enum PortalApiKeyKind {
+  FULL_ACCESS
+  SCOPED
+}
+
+enum PortalApiKeyStatus {
+  ACTIVE
+  REVOKED
+}
+
+model PortalApiKey {
+  id String @id @default(cuid())
+
+  ownerId String
+  owner   User   @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+
+  name    String
+  keyKind PortalApiKeyKind   @default(SCOPED)
+  status  PortalApiKeyStatus @default(ACTIVE)
+
+  keyHash          String @unique
+  secretCiphertext String
+  secretIv         String
+  secretAuthTag    String
+  maskedKey        String
+
+  permissionsJson Json?
+
+  creditLimit Int?
+  creditsUsed Int @default(0)
+
+  lastUsedAt DateTime?
+  revealedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  spends PortalApiKeySpend[]
+
+  @@index([ownerId, keyKind, status])
+  @@index([ownerId, createdAt])
+}
+
+model PortalApiKeySpend {
+  id String @id @default(cuid())
+
+  apiKeyId String
+  ownerId  String
+
+  idempotencyKey String
+  credits        Int @default(0)
+
+  createdAt DateTime @default(now())
+
+  apiKey PortalApiKey @relation(fields: [apiKeyId], references: [id], onDelete: Cascade)
+  owner  User         @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+
+  @@unique([apiKeyId, idempotencyKey])
+  @@index([ownerId, createdAt])
 }
 
 model AdsAudienceProfile {

@@ -2,6 +2,11 @@ import { getServerSession } from "next-auth";
 
 import { authOptions } from "@/lib/auth";
 import { getPortalUser } from "@/lib/portalAuth";
+import {
+  authenticatePortalApiKeyForPermission,
+  sessionUserFromApiKeyContext,
+  type PortalApiKeyPermission,
+} from "@/lib/portalApiKeys.server";
 
 export async function requireManagerSession() {
   const session = await getServerSession(authOptions);
@@ -27,7 +32,32 @@ export async function requireStaffSession() {
   return { ok: true as const, status: 200 as const, session };
 }
 
-export async function requireClientSession() {
+export async function requireClientSession(
+  req?: Request,
+  opts?: { apiKeyPermission?: PortalApiKeyPermission },
+) {
+  if (opts?.apiKeyPermission) {
+    const apiKeyAuth = await authenticatePortalApiKeyForPermission({
+      req,
+      permission: opts.apiKeyPermission,
+      capability: "view",
+    });
+
+    if (apiKeyAuth.present) {
+      if (!apiKeyAuth.ok) {
+        return { ok: false as const, status: apiKeyAuth.status, session: null };
+      }
+
+      return {
+        ok: true as const,
+        status: 200 as const,
+        session: {
+          user: sessionUserFromApiKeyContext(apiKeyAuth.context),
+        },
+      };
+    }
+  }
+
   const user = await getPortalUser();
   if (!user) return { ok: false as const, status: 401 as const, session: null };
   if (user.role !== "CLIENT" && user.role !== "ADMIN") {

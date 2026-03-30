@@ -17,7 +17,7 @@ const PatchThreadSchema = z
   .strict();
 
 export async function PATCH(req: Request, ctx: { params: Promise<{ threadId: string }> }) {
-  const auth = await requireClientSession();
+  const auth = await requireClientSession(req, { apiKeyPermission: "pura.chat" });
   if (!auth.ok) {
     return NextResponse.json(
       { ok: false, error: auth.status === 401 ? "Unauthorized" : "Forbidden" },
@@ -87,8 +87,8 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ threadId: str
   return NextResponse.json({ ok: true, thread });
 }
 
-export async function DELETE(_req: Request, ctx: { params: Promise<{ threadId: string }> }) {
-  const auth = await requireClientSession();
+export async function DELETE(req: Request, ctx: { params: Promise<{ threadId: string }> }) {
+  const auth = await requireClientSession(req, { apiKeyPermission: "pura.chat" });
   if (!auth.ok) {
     return NextResponse.json(
       { ok: false, error: auth.status === 401 ? "Unauthorized" : "Forbidden" },

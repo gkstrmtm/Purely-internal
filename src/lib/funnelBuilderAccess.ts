@@ -1,10 +1,27 @@
 import { prisma } from "@/lib/db";
 import { getPortalUser } from "@/lib/portalAuth";
+import { authenticatePortalApiKeyForFunnelBuilder, sessionUserFromApiKeyContext } from "@/lib/portalApiKeys.server";
 import { headers } from "next/headers";
 
 import { normalizePortalVariant, PORTAL_VARIANT_HEADER } from "@/lib/portalVariant";
 
-export async function requireFunnelBuilderSession() {
+export async function requireFunnelBuilderSession(req?: Request) {
+  const apiKeyAuth = await authenticatePortalApiKeyForFunnelBuilder(req);
+  if (apiKeyAuth.present) {
+    if (!apiKeyAuth.ok) {
+      return { ok: false as const, status: apiKeyAuth.status, session: null };
+    }
+
+    return {
+      ok: true as const,
+      status: 200 as const,
+      variant: apiKeyAuth.context.portalVariant,
+      session: {
+        user: sessionUserFromApiKeyContext(apiKeyAuth.context),
+      },
+    };
+  }
+
   const user = await getPortalUser({ variant: "auto" });
   if (!user) return { ok: false as const, status: 401 as const, session: null };
 

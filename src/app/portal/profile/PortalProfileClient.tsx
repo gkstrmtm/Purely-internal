@@ -7,6 +7,12 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useToast } from "@/components/ToastProvider";
 import { PortalListboxDropdown } from "@/components/PortalListboxDropdown";
 import { AppModal } from "@/components/AppModal";
+import {
+  PORTAL_API_KEY_PERMISSION_OPTIONS,
+  type PortalApiKeyPermission,
+  type PortalApiKeysPayload,
+  type PortalApiKeySummary,
+} from "@/lib/portalApiKeys.shared";
 
 import { BusinessProfileForm } from "./BusinessProfileForm";
 import { formatPhoneForDisplay, normalizePhoneStrict } from "@/lib/phone";
@@ -17,7 +23,7 @@ import {
   type SalesReportingProviderKey,
 } from "@/lib/salesReportingProviders";
 import { SuggestedSetupSection } from "./SuggestedSetupSection";
-import { IconChevron, IconCopy } from "@/app/portal/PortalIcons";
+import { IconChevron, IconCopy, IconEyeGlyph } from "@/app/portal/PortalIcons";
 
 type Me = {
   ok?: boolean;
@@ -112,35 +118,7 @@ type Mailbox = {
   canChange: boolean;
 };
 
-type ApiKeyPermission = "pura.chat" | "contacts.write" | "inbox.send" | "services.run" | "reporting.read";
-
-type PortalApiKeyRecord = {
-  id: string;
-  name: string;
-  value: string;
-  permissions: ApiKeyPermission[];
-  creditLimit: number | null;
-  createdLabel: string;
-  lastUsedLabel: string | null;
-};
-
-const API_KEY_PERMISSION_OPTIONS: Array<{
-  value: ApiKeyPermission;
-  label: string;
-  description: string;
-}> = [
-  { value: "pura.chat", label: "Pura chat", description: "Create threads, send messages, and use Pura in your own software." },
-  { value: "contacts.write", label: "Contacts", description: "Create and update contacts, tags, and lead data." },
-  { value: "inbox.send", label: "Inbox", description: "Send email or SMS through your portal inbox workflows." },
-  { value: "services.run", label: "Services", description: "Trigger service actions and automation flows." },
-  { value: "reporting.read", label: "Reporting", description: "Read dashboard and reporting data." },
-];
-
-function generateClientApiKey(scope: "full" | "scoped" = "scoped") {
-  const partA = Math.random().toString(36).slice(2, 10);
-  const partB = Math.random().toString(36).slice(2, 10);
-  return `pa_live_${scope}_${partA}${partB}`;
-}
+type PortalApiKeysResponse = PortalApiKeysPayload | { ok: false; error?: string };
 
 function classNames(...xs: Array<string | false | null | undefined>) {
   return xs.filter(Boolean).join(" ");
@@ -198,6 +176,31 @@ function CopyRow({ label, value }: { label: string; value: string | null | undef
   );
 }
 
+function formatApiKeyTimestamp(value: string | null | undefined) {
+  if (!value) return "Never used";
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) return "Never used";
+  return date.toLocaleString();
+}
+
+function ToggleChip({ checked }: { checked: boolean }) {
+  return (
+    <span
+      className={classNames(
+        "relative inline-flex h-6 w-11 items-center rounded-full transition-colors duration-150",
+        checked ? "bg-brand-blue" : "bg-zinc-300",
+      )}
+    >
+      <span
+        className={classNames(
+          "inline-block h-5 w-5 rounded-full bg-white transition-transform duration-150",
+          checked ? "translate-x-5" : "translate-x-0.5",
+        )}
+      />
+    </span>
+  );
+}
+
 type PortalProfileClientMode = "all" | "profile" | "integrations" | "business";
 
 export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boolean; mode?: PortalProfileClientMode } = {}) {
@@ -246,12 +249,18 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
   const [stripeNote, setStripeNote] = useState<string | null>(null);
   const [twilioExpanded, setTwilioExpanded] = useState(false);
   const [salesReportingExpanded, setSalesReportingExpanded] = useState(false);
-
-  const [fullAccessApiKey, setFullAccessApiKey] = useState("");
-  const [apiKeys, setApiKeys] = useState<PortalApiKeyRecord[]>([]);
+  const [apiKeysExpanded, setApiKeysExpanded] = useState(false);
+  const [apiKeysState, setApiKeysState] = useState<PortalApiKeysPayload | null>(null);
+  const [apiKeysLoaded, setApiKeysLoaded] = useState(false);
+  const [apiKeysError, setApiKeysError] = useState<string | null>(null);
+  const [revealedApiKeyValues, setRevealedApiKeyValues] = useState<Record<string, string>>({});
+  const [revealingApiKeyId, setRevealingApiKeyId] = useState<string | null>(null);
+  const [savingApiKey, setSavingApiKey] = useState(false);
+  const [deletingApiKeyId, setDeletingApiKeyId] = useState<string | null>(null);
   const [apiKeyModalOpen, setApiKeyModalOpen] = useState(false);
+  const [editingApiKeyId, setEditingApiKeyId] = useState<string | null>(null);
   const [newApiKeyName, setNewApiKeyName] = useState("");
-  const [newApiKeyPermissions, setNewApiKeyPermissions] = useState<ApiKeyPermission[]>(["pura.chat", "services.run"]);
+  const [newApiKeyPermissions, setNewApiKeyPermissions] = useState<PortalApiKeyPermission[]>(["pura.chat", "people"]);
   const [newApiKeyCreditLimitEnabled, setNewApiKeyCreditLimitEnabled] = useState(false);
   const [newApiKeyCreditLimit, setNewApiKeyCreditLimit] = useState("");
 
@@ -312,29 +321,8 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
   }, [mailboxError, toast]);
 
   useEffect(() => {
-    if (fullAccessApiKey) return;
-    setFullAccessApiKey(generateClientApiKey("full"));
-    setApiKeys([
-      {
-        id: "api-key-sync",
-        name: "CRM sync",
-        value: generateClientApiKey("scoped"),
-        permissions: ["contacts.write", "pura.chat"],
-        creditLimit: 2500,
-        createdLabel: "Today",
-        lastUsedLabel: "2 hours ago",
-      },
-      {
-        id: "api-key-reporting",
-        name: "Reporting dashboard",
-        value: generateClientApiKey("scoped"),
-        permissions: ["reporting.read"],
-        creditLimit: null,
-        createdLabel: "Today",
-        lastUsedLabel: "Never used",
-      },
-    ]);
-  }, [fullAccessApiKey]);
+    if (apiKeysError) toast.error(apiKeysError);
+  }, [apiKeysError, toast]);
 
   useEffect(() => {
     if (!phoneValidation.ok) toast.error(phoneValidation.error);
@@ -632,6 +620,8 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
       setMailboxLoading(false);
     })();
 
+    void loadApiKeys();
+
     return () => {
       mounted = false;
     };
@@ -707,31 +697,23 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
     if (json?.ok) setSalesStatus(json);
   }
 
-  async function setActiveProvider(next: SalesReportingProviderKey | null) {
-    if (!canEditProfile) {
-      setStripeError("You have view-only access.");
+  async function loadApiKeys() {
+    setApiKeysError(null);
+    const res = await fetch("/api/portal/integrations/api-keys", { cache: "no-store" }).catch(() => null as any);
+    setApiKeysLoaded(true);
+    if (!res?.ok) {
+      const json = ((await res?.json().catch(() => null)) as PortalApiKeysResponse | null) ?? null;
+      setApiKeysState(null);
+      setApiKeysError(json && "error" in json ? json.error ?? "Unable to load API keys" : "Unable to load API keys");
       return;
     }
-
-    setStripeSaving(true);
-    setStripeError(null);
-    setStripeNote(null);
-
-    const res = await fetch("/api/portal/integrations/sales-reporting", {
-      method: "PUT",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ action: "setActive", provider: next }),
-    }).catch(() => null as any);
-
-    const json = (res ? ((await res.json().catch(() => null)) as any) : null) as { ok?: boolean; error?: string } | null;
-    setStripeSaving(false);
-
-    if (!res?.ok || !json?.ok) {
-      setStripeError(json?.error ?? "Unable to update");
+    const json = ((await res.json().catch(() => null)) as PortalApiKeysResponse | null) ?? null;
+    if (!json?.ok) {
+      setApiKeysState(null);
+      setApiKeysError((json as any)?.error ?? "Unable to load API keys");
       return;
     }
-
-    await refreshSalesStatus();
+    setApiKeysState(json);
   }
 
   async function connectSelectedProvider() {
@@ -830,39 +812,103 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
   }
 
   function resetApiKeyComposer() {
+    setEditingApiKeyId(null);
     setNewApiKeyName("");
-    setNewApiKeyPermissions(["pura.chat", "services.run"]);
+    setNewApiKeyPermissions(["pura.chat", "people"]);
     setNewApiKeyCreditLimitEnabled(false);
     setNewApiKeyCreditLimit("");
   }
 
-  function toggleApiKeyPermission(permission: ApiKeyPermission) {
+  function startEditingApiKey(apiKey: PortalApiKeySummary) {
+    setEditingApiKeyId(apiKey.id);
+    setNewApiKeyName(apiKey.name);
+    setNewApiKeyPermissions(apiKey.permissions);
+    setNewApiKeyCreditLimitEnabled(apiKey.creditLimit !== null);
+    setNewApiKeyCreditLimit(apiKey.creditLimit !== null ? String(apiKey.creditLimit) : "");
+    setApiKeyModalOpen(true);
+  }
+
+  function toggleApiKeyPermission(permission: PortalApiKeyPermission) {
     setNewApiKeyPermissions((current) =>
       current.includes(permission) ? current.filter((entry) => entry !== permission) : [...current, permission],
     );
   }
 
-  function createApiKey() {
+  async function createApiKey() {
     if (!canCreateApiKey) return;
+    setSavingApiKey(true);
     const creditLimit = newApiKeyCreditLimitEnabled ? Number(newApiKeyCreditLimit) : null;
-    const nextKey: PortalApiKeyRecord = {
-      id: `api-key-${Date.now()}`,
-      name: newApiKeyName.trim(),
-      value: generateClientApiKey("scoped"),
-      permissions: [...newApiKeyPermissions],
-      creditLimit: Number.isFinite(creditLimit) ? creditLimit : null,
-      createdLabel: "Just now",
-      lastUsedLabel: "Never used",
-    };
-    setApiKeys((current) => [nextKey, ...current]);
+    const res = await fetch(
+      editingApiKeyId ? `/api/portal/integrations/api-keys/${encodeURIComponent(editingApiKeyId)}` : "/api/portal/integrations/api-keys",
+      {
+        method: editingApiKeyId ? "PATCH" : "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          name: newApiKeyName.trim(),
+          permissions: newApiKeyPermissions,
+          creditLimit: Number.isFinite(creditLimit) ? creditLimit : null,
+        }),
+      },
+    ).catch(() => null as any);
+
+    const json = (res ? ((await res.json().catch(() => null)) as any) : null) ?? null;
+    setSavingApiKey(false);
+    if (!res?.ok || !json?.ok) {
+      setApiKeysError(json?.error ?? (editingApiKeyId ? "Unable to update API key" : "Unable to create API key"));
+      return;
+    }
+
+    if (!editingApiKeyId && json?.key?.id && typeof json?.value === "string") {
+      setRevealedApiKeyValues((current) => ({ ...current, [json.key.id]: json.value }));
+    }
+
     setApiKeyModalOpen(false);
     resetApiKeyComposer();
-    toast.success("API key created");
+    await loadApiKeys();
+    toast.success(editingApiKeyId ? "API key updated" : "API key created");
   }
 
-  function deleteApiKey(keyId: string) {
-    setApiKeys((current) => current.filter((entry) => entry.id !== keyId));
+  async function deleteApiKey(keyId: string) {
+    setDeletingApiKeyId(keyId);
+    const res = await fetch(`/api/portal/integrations/api-keys/${encodeURIComponent(keyId)}`, {
+      method: "DELETE",
+    }).catch(() => null as any);
+    const json = (res ? ((await res.json().catch(() => null)) as any) : null) ?? null;
+    setDeletingApiKeyId(null);
+    if (!res?.ok || !json?.ok) {
+      setApiKeysError(json?.error ?? "Unable to delete API key");
+      return;
+    }
+    setRevealedApiKeyValues((current) => {
+      const next = { ...current };
+      delete next[keyId];
+      return next;
+    });
+    await loadApiKeys();
     toast.success("API key deleted");
+  }
+
+  async function revealApiKey(keyId: string) {
+    if (revealedApiKeyValues[keyId]) {
+      setRevealedApiKeyValues((current) => {
+        const next = { ...current };
+        delete next[keyId];
+        return next;
+      });
+      return;
+    }
+
+    setRevealingApiKeyId(keyId);
+    const res = await fetch(`/api/portal/integrations/api-keys/${encodeURIComponent(keyId)}/reveal`, {
+      method: "POST",
+    }).catch(() => null as any);
+    const json = (res ? ((await res.json().catch(() => null)) as any) : null) ?? null;
+    setRevealingApiKeyId(null);
+    if (!res?.ok || !json?.ok || typeof json?.value !== "string") {
+      setApiKeysError(json?.error ?? "Unable to reveal API key");
+      return;
+    }
+    setRevealedApiKeyValues((current) => ({ ...current, [keyId]: json.value }));
   }
 
   // Stripe connect/disconnect is handled via connectSelectedProvider/disconnectSelectedProvider.
@@ -959,6 +1005,9 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
     salesProvider,
     stripeSecretKey,
   ]);
+
+  const fullAccessApiKey = apiKeysState?.fullAccessKey ?? null;
+  const scopedApiKeys = apiKeysState?.scopedKeys ?? [];
 
   const canCreateApiKey = useMemo(() => {
     if (newApiKeyName.trim().length < 2) return false;
@@ -1426,11 +1475,7 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
                     variant={sectionVariant}
                   >
                     <div className="space-y-3">
-                      <div className="flex items-center justify-between gap-3 rounded-2xl border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-700">
-                        <div>
-                          <div className="font-semibold text-zinc-900">Custom domains</div>
-                          <div className="mt-1 text-xs text-zinc-500">Add a new domain only when you need one.</div>
-                        </div>
+                      <div className="flex items-center justify-start">
                         <button
                           type="button"
                           onClick={() => setDomainComposerOpen((current) => !current)}
@@ -1646,6 +1691,14 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
                             <div className="min-w-0">
                               <div className="text-sm font-semibold text-zinc-900">Twilio connection</div>
                               <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-zinc-500">
+                                <span
+                                  className={classNames(
+                                    "inline-flex w-fit items-center rounded-full px-3 py-1 text-xs font-semibold",
+                                    twilioMasked?.configured ? "bg-emerald-100 text-emerald-700" : "bg-zinc-100 text-zinc-700",
+                                  )}
+                                >
+                                  {twilioMasked?.configured ? "Ready" : "Setup needed"}
+                                </span>
                                 <span>
                                   Status: <span className="font-semibold text-zinc-900">{twilioMasked?.configured ? "Connected" : "Not connected"}</span>
                                 </span>
@@ -1846,14 +1899,6 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
                             >
                               Open sales dashboard →
                             </Link>
-                            <button
-                              type="button"
-                              onClick={() => void disconnectSelectedProvider()}
-                              disabled={!canEditProfile || stripeSaving || !selectedSalesConfigured}
-                              className="inline-flex items-center justify-center rounded-2xl bg-red-600 px-4 py-2 text-sm font-semibold text-white transition-transform duration-150 hover:-translate-y-0.5 hover:bg-red-700 disabled:opacity-60"
-                            >
-                              Disconnect
-                            </button>
                           </div>
                         </div>
 
@@ -2103,18 +2148,28 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
                             </div>
 
                             <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                              <button
-                                type="button"
-                                onClick={() => void connectSelectedProvider()}
-                                disabled={!canEditProfile || stripeSaving || !(salesStatus?.ok === true && salesStatus.encryptionConfigured) || !salesProviderDirty || !salesProviderFormReady}
-                                className="inline-flex items-center justify-center rounded-2xl bg-(--color-brand-blue) px-4 py-2 text-sm font-semibold text-white transition-transform duration-150 hover:-translate-y-0.5 hover:opacity-95 disabled:opacity-60"
-                              >
-                                {stripeSaving
-                                  ? "Saving…"
-                                  : salesProvider === activeSalesProvider && selectedSalesConfigured
-                                    ? `Replace ${providerLabel(salesProvider)}`
-                                    : `Connect ${providerLabel(salesProvider)}`}
-                              </button>
+                              <div className="flex flex-wrap items-center gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => void connectSelectedProvider()}
+                                  disabled={!canEditProfile || stripeSaving || !(salesStatus?.ok === true && salesStatus.encryptionConfigured) || !salesProviderDirty || !salesProviderFormReady}
+                                  className="inline-flex items-center justify-center rounded-2xl bg-(--color-brand-blue) px-4 py-2 text-sm font-semibold text-white transition-transform duration-150 hover:-translate-y-0.5 hover:opacity-95 disabled:opacity-60"
+                                >
+                                  {stripeSaving
+                                    ? "Saving…"
+                                    : salesProvider === activeSalesProvider && selectedSalesConfigured
+                                      ? `Replace ${providerLabel(salesProvider)}`
+                                      : `Connect ${providerLabel(salesProvider)}`}
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => void disconnectSelectedProvider()}
+                                  disabled={!canEditProfile || stripeSaving || !selectedSalesConfigured}
+                                  className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink transition-all duration-150 hover:-translate-y-0.5 hover:border-zinc-300 hover:bg-zinc-50 disabled:opacity-60"
+                                >
+                                  Disconnect
+                                </button>
+                              </div>
                               {!salesProviderDirty ? <div className="text-xs text-zinc-500">Make a change to save this provider.</div> : null}
                             </div>
                           </div>
@@ -2129,50 +2184,110 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
                 <div ref={apiKeysRef} className="scroll-mt-24">
                   <PortalSettingsSection
                     title="API keys"
-                    description="Manage the keys your own software will use to talk to the portal and Pura. This is the UI layer for now; deeper behavior comes next."
+                    description="Create account-specific keys, reveal them only when needed, and control limits and permissions per integration."
                     accent="blue"
                     collapsible={false}
                     dotClassName="hidden"
                     variant={sectionVariant}
                   >
                     <div className="space-y-4">
-                      <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+                      {apiKeysError ? (
+                        <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">{apiKeysError}</div>
+                      ) : null}
+
+                      <div className="rounded-2xl border border-zinc-200 bg-white p-4">
                         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                          <div>
-                            <div className="text-sm font-semibold text-zinc-900">Full access API key</div>
-                            <div className="mt-1 text-xs text-zinc-500">Use this for trusted internal integrations that need full portal + Pura access.</div>
-                          </div>
                           <button
                             type="button"
-                            onClick={() => void copyText(fullAccessApiKey)}
-                            disabled={!fullAccessApiKey}
-                            className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink transition-all duration-150 hover:-translate-y-0.5 hover:border-zinc-300 hover:bg-zinc-50 disabled:opacity-60"
+                            onClick={() => setApiKeysExpanded((current) => !current)}
+                            className="flex min-w-0 flex-1 items-center justify-between gap-3 rounded-2xl text-left transition-all duration-150 hover:-translate-y-0.5"
                           >
-                            Copy full access key
+                            <div className="min-w-0">
+                              <div className="text-sm font-semibold text-zinc-900">API keys overview</div>
+                              <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-zinc-500">
+                                <span>
+                                  Keys: <span className="font-semibold text-zinc-900">{apiKeysState?.totalKeyCount ?? 0}</span>
+                                </span>
+                                <span>•</span>
+                                <span>
+                                  Credits used: <span className="font-semibold text-zinc-900">{(apiKeysState?.totalCreditsUsed ?? 0).toLocaleString()}</span>
+                                </span>
+                              </div>
+                            </div>
+                            <span
+                              className={classNames(
+                                "inline-flex h-8 w-8 items-center justify-center rounded-full border border-zinc-200 bg-white text-zinc-600 transition-transform duration-150",
+                                apiKeysExpanded ? "-rotate-90" : "rotate-90",
+                              )}
+                              aria-hidden
+                            >
+                              <IconChevron />
+                            </span>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              resetApiKeyComposer();
+                              setApiKeyModalOpen(true);
+                            }}
+                            className="inline-flex items-center justify-center rounded-2xl bg-(--color-brand-blue) px-4 py-2 text-sm font-semibold text-white transition-transform duration-150 hover:-translate-y-0.5 hover:opacity-95"
+                          >
+                            Create API key
                           </button>
                         </div>
-                        <div className="mt-3 break-all rounded-2xl border border-zinc-200 bg-white px-4 py-3 font-mono text-xs text-zinc-800">
-                          {fullAccessApiKey || "Generating full access key…"}
-                        </div>
-                      </div>
 
-                      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                        <div>
-                          <div className="text-sm font-semibold text-zinc-900">Scoped API keys</div>
-                          <div className="mt-1 text-xs text-zinc-500">Create limited keys for external apps, team tools, or client-specific integrations.</div>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => setApiKeyModalOpen(true)}
-                          className="inline-flex items-center justify-center rounded-2xl bg-(--color-brand-blue) px-4 py-2 text-sm font-semibold text-white transition-transform duration-150 hover:-translate-y-0.5 hover:opacity-95"
-                        >
-                          Create API key
-                        </button>
-                      </div>
+                        {apiKeysExpanded ? (
+                          <div className="mt-4 space-y-3 border-t border-zinc-100 pt-4">
+                            {!apiKeysLoaded ? (
+                              <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">Loading API keys…</div>
+                            ) : null}
 
-                      {apiKeys.length ? (
+                            {fullAccessApiKey ? (
+                              <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+                                <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                                  <div className="min-w-0 flex-1">
+                                    <div className="flex flex-wrap items-center gap-2">
+                                      <div className="text-sm font-semibold text-zinc-900">Full access API key</div>
+                                      <span className="inline-flex items-center rounded-full bg-emerald-100 px-2.5 py-1 text-[11px] font-semibold text-emerald-700">
+                                        Full access
+                                      </span>
+                                    </div>
+                                    <div className="mt-2 text-xs text-zinc-500">Use this only for trusted internal integrations that need full portal and Pura access.</div>
+                                    <div className="mt-3 break-all rounded-2xl border border-zinc-200 bg-white px-4 py-3 font-mono text-xs text-zinc-800">
+                                      {revealedApiKeyValues[fullAccessApiKey.id] ?? fullAccessApiKey.maskedValue}
+                                    </div>
+                                    <div className="mt-3 text-xs text-zinc-500">Last used {formatApiKeyTimestamp(fullAccessApiKey.lastUsedAtIso)}</div>
+                                  </div>
+                                  <div className="flex flex-wrap items-center gap-2">
+                                    <button
+                                      type="button"
+                                      onClick={() => void revealApiKey(fullAccessApiKey.id)}
+                                      className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-brand-ink transition-all duration-150 hover:-translate-y-0.5 hover:border-zinc-300 hover:bg-zinc-50"
+                                    >
+                                      <IconEyeGlyph size={16} className="mr-2" />
+                                      {revealingApiKeyId === fullAccessApiKey.id
+                                        ? "Loading…"
+                                        : revealedApiKeyValues[fullAccessApiKey.id]
+                                          ? "Hide"
+                                          : "Reveal"}
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => void copyText(revealedApiKeyValues[fullAccessApiKey.id] ?? fullAccessApiKey.maskedValue)}
+                                      className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-brand-ink transition-all duration-150 hover:-translate-y-0.5 hover:border-zinc-300 hover:bg-zinc-50"
+                                    >
+                                      <IconCopy size={16} className="mr-2" />
+                                      Copy
+                                    </button>
+                                  </div>
+                                </div>
+                              </div>
+                            ) : null}
+
+                            {scopedApiKeys.length ? (
                         <div className="space-y-3">
-                          {apiKeys.map((apiKey) => (
+                          {scopedApiKeys.map((apiKey) => (
                             <div key={apiKey.id} className="rounded-2xl border border-zinc-200 bg-white p-4">
                               <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                                 <div className="min-w-0 flex-1">
@@ -2180,20 +2295,20 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
                                     <div className="text-sm font-semibold text-zinc-900">{apiKey.name}</div>
                                     {apiKey.creditLimit !== null ? (
                                       <span className="inline-flex items-center rounded-full bg-amber-100 px-2.5 py-1 text-[11px] font-semibold text-amber-800">
-                                        Credit limit: {apiKey.creditLimit.toLocaleString()}
+                                        Limit {apiKey.creditLimit.toLocaleString()} · Used {apiKey.creditsUsed.toLocaleString()}
                                       </span>
                                     ) : (
                                       <span className="inline-flex items-center rounded-full bg-zinc-100 px-2.5 py-1 text-[11px] font-semibold text-zinc-700">
-                                        No credit limit
+                                        No credit limit · Used {apiKey.creditsUsed.toLocaleString()}
                                       </span>
                                     )}
                                   </div>
                                   <div className="mt-2 break-all rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 font-mono text-xs text-zinc-800">
-                                    {apiKey.value}
+                                    {revealedApiKeyValues[apiKey.id] ?? apiKey.maskedValue}
                                   </div>
                                   <div className="mt-3 flex flex-wrap gap-2">
                                     {apiKey.permissions.map((permission) => {
-                                      const option = API_KEY_PERMISSION_OPTIONS.find((entry) => entry.value === permission);
+                                      const option = PORTAL_API_KEY_PERMISSION_OPTIONS.find((entry) => entry.value === permission);
                                       return (
                                         <span key={permission} className="inline-flex items-center rounded-full bg-brand-blue/10 px-3 py-1 text-[11px] font-semibold text-brand-blue">
                                           {option?.label ?? permission}
@@ -2202,33 +2317,53 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
                                     })}
                                   </div>
                                   <div className="mt-3 text-xs text-zinc-500">
-                                    Created {apiKey.createdLabel} · Last used {apiKey.lastUsedLabel ?? "Never used"}
+                                    Created {formatApiKeyTimestamp(apiKey.createdAtIso)} · Last used {formatApiKeyTimestamp(apiKey.lastUsedAtIso)}
                                   </div>
                                 </div>
 
                                 <div className="flex flex-wrap items-center gap-2">
                                   <button
                                     type="button"
-                                    onClick={() => void copyText(apiKey.value)}
+                                    onClick={() => void revealApiKey(apiKey.id)}
                                     className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink transition-all duration-150 hover:-translate-y-0.5 hover:border-zinc-300 hover:bg-zinc-50"
                                   >
+                                    <IconEyeGlyph size={16} className="mr-2" />
+                                    {revealingApiKeyId === apiKey.id ? "Loading…" : revealedApiKeyValues[apiKey.id] ? "Hide" : "Reveal"}
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => void copyText(revealedApiKeyValues[apiKey.id] ?? apiKey.maskedValue)}
+                                    className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink transition-all duration-150 hover:-translate-y-0.5 hover:border-zinc-300 hover:bg-zinc-50"
+                                  >
+                                    <IconCopy size={16} className="mr-2" />
                                     Copy
                                   </button>
                                   <button
                                     type="button"
-                                    onClick={() => deleteApiKey(apiKey.id)}
+                                    onClick={() => startEditingApiKey(apiKey)}
+                                    className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink transition-all duration-150 hover:-translate-y-0.5 hover:border-zinc-300 hover:bg-zinc-50"
+                                  >
+                                    Edit
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => void deleteApiKey(apiKey.id)}
+                                    disabled={deletingApiKeyId === apiKey.id}
                                     className="inline-flex items-center justify-center rounded-2xl bg-red-600 px-4 py-2 text-sm font-semibold text-white transition-transform duration-150 hover:-translate-y-0.5 hover:bg-red-700"
                                   >
-                                    Delete
+                                    {deletingApiKeyId === apiKey.id ? "Deleting…" : "Delete"}
                                   </button>
                                 </div>
                               </div>
                             </div>
                           ))}
                         </div>
-                      ) : (
-                        <div className="rounded-2xl border border-zinc-200 bg-white p-4 text-sm text-zinc-600">No scoped API keys yet.</div>
-                      )}
+                            ) : apiKeysLoaded ? (
+                              <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">No scoped API keys yet.</div>
+                            ) : null}
+                          </div>
+                        ) : null}
+                      </div>
                     </div>
                   </PortalSettingsSection>
                 </div>
@@ -2323,13 +2458,15 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
 
           <AppModal
             open={apiKeyModalOpen}
-            title="Create API key"
+            title={editingApiKeyId ? "Edit API key" : "Create API key"}
             description="Create a scoped key for your own software to access the portal and Pura with only the permissions it needs."
             onClose={() => {
               setApiKeyModalOpen(false);
               resetApiKeyComposer();
             }}
             widthClassName="w-[min(760px,calc(100vw-32px))]"
+            hideHeaderDivider
+            hideFooterDivider
             footer={
               <div className="flex flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-end">
                 <button
@@ -2344,11 +2481,11 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
                 </button>
                 <button
                   type="button"
-                  onClick={createApiKey}
-                  disabled={!canCreateApiKey}
+                  onClick={() => void createApiKey()}
+                  disabled={!canCreateApiKey || savingApiKey}
                   className="rounded-2xl bg-(--color-brand-blue) px-4 py-2 text-sm font-semibold text-white transition-transform duration-150 hover:-translate-y-0.5 hover:opacity-95 disabled:opacity-60"
                 >
-                  Create key
+                  {savingApiKey ? "Saving…" : editingApiKeyId ? "Save changes" : "Create key"}
                 </button>
               </div>
             }
@@ -2367,36 +2504,38 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
               <div>
                 <div className="text-xs font-semibold text-zinc-700">Permissions</div>
                 <div className="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2">
-                  {API_KEY_PERMISSION_OPTIONS.map((option) => {
+                  {PORTAL_API_KEY_PERMISSION_OPTIONS.map((option) => {
                     const checked = newApiKeyPermissions.includes(option.value);
                     return (
-                      <label key={option.value} className="flex gap-3 rounded-2xl border border-zinc-200 bg-white p-4">
-                        <input
-                          type="checkbox"
-                          checked={checked}
-                          onChange={() => toggleApiKeyPermission(option.value)}
-                          className="mt-0.5 h-4 w-4 rounded border-zinc-300 text-brand-blue focus:ring-brand-blue"
-                        />
+                      <button
+                        key={option.value}
+                        type="button"
+                        onClick={() => toggleApiKeyPermission(option.value)}
+                        className={classNames(
+                          "flex items-start justify-between gap-3 rounded-2xl border bg-white p-4 text-left transition-all duration-150 hover:-translate-y-0.5",
+                          checked ? "border-brand-blue bg-brand-blue/5" : "border-zinc-200",
+                        )}
+                      >
                         <span className="min-w-0">
                           <span className="block text-sm font-semibold text-zinc-900">{option.label}</span>
                           <span className="mt-1 block text-xs text-zinc-500">{option.description}</span>
                         </span>
-                      </label>
+                        <ToggleChip checked={checked} />
+                      </button>
                     );
                   })}
                 </div>
               </div>
 
               <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
-                <label className="flex items-center gap-3 text-sm font-semibold text-zinc-900">
-                  <input
-                    type="checkbox"
-                    checked={newApiKeyCreditLimitEnabled}
-                    onChange={(e) => setNewApiKeyCreditLimitEnabled(e.target.checked)}
-                    className="h-4 w-4 rounded border-zinc-300 text-brand-blue focus:ring-brand-blue"
-                  />
-                  Set a credit limit for this key
-                </label>
+                <button
+                  type="button"
+                  onClick={() => setNewApiKeyCreditLimitEnabled((current) => !current)}
+                  className="flex w-full items-center justify-between gap-3 text-left text-sm font-semibold text-zinc-900"
+                >
+                  <span>Set a credit limit for this key</span>
+                  <ToggleChip checked={newApiKeyCreditLimitEnabled} />
+                </button>
                 {newApiKeyCreditLimitEnabled ? (
                   <div className="mt-3">
                     <label className="text-xs font-semibold text-zinc-700">Credit limit</label>

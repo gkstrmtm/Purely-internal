@@ -13,8 +13,8 @@ const CreateThreadSchema = z.object({
   title: z.string().trim().min(1).max(120).optional(),
 });
 
-export async function GET() {
-  const auth = await requireClientSession();
+export async function GET(req: Request) {
+  const auth = await requireClientSession(req, { apiKeyPermission: "pura.chat" });
   if (!auth.ok) {
     return NextResponse.json(
       { ok: false, error: auth.status === 401 ? "Unauthorized" : "Forbidden" },
@@ -82,7 +82,7 @@ export async function GET() {
 }
 
 export async function POST(req: Request) {
-  const auth = await requireClientSession();
+  const auth = await requireClientSession(req, { apiKeyPermission: "pura.chat" });
   if (!auth.ok) {
     return NextResponse.json(
       { ok: false, error: auth.status === 401 ? "Unauthorized" : "Forbidden" },

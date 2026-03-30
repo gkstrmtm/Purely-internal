@@ -1,6 +1,7 @@
 import crypto from "crypto";
 
 import { prisma } from "@/lib/db";
+import { applyPortalApiKeyCreditUsageTx } from "@/lib/portalApiKeys.server";
 import { ensureCreditsBalance, getCreditsState, isCreditsCanceledForOwner, type CreditsState } from "@/lib/credits";
 
 type MeterState = {
@@ -167,6 +168,13 @@ export async function recordThresholdMeterUsage(opts: {
 
     const overdraft = required > 0 && state.balance < required;
     const nextBalance = overdraft ? 0 : Math.max(0, state.balance - required);
+
+    if (required > 0 && !overdraft) {
+      const apiKeyUsage = await applyPortalApiKeyCreditUsageTx(tx, { ownerId, amount: required });
+      if (!apiKeyUsage.ok) {
+        return { ok: false as const, state, error: "API key credit limit reached" };
+      }
+    }
 
     const nextMeters = {
       ...meters,

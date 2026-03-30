@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
-import { requireClientSessionForService } from "@/lib/portalAccess";
+import { requireClientSession } from "@/lib/apiAuth";
 import { getElevenLabsConvaiConversationToken } from "@/lib/portalElevenLabsConvaiAuth.server";
 
 export const dynamic = "force-dynamic";
@@ -12,7 +12,7 @@ const bodySchema = z.object({
 });
 
 export async function POST(req: Request) {
-  const auth = await requireClientSessionForService("profile");
+  const auth = await requireClientSession(req, { apiKeyPermission: "pura.chat" });
   if (!auth.ok) {
     return NextResponse.json(
       { ok: false, error: auth.status === 401 ? "Unauthorized" : "Forbidden" },

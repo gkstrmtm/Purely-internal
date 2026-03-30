@@ -16,7 +16,7 @@ const ChoicePostSchema = z.object({
 });
 
 export async function POST(req: Request, ctx: { params: Promise<{ threadId: string }> }) {
-  const auth = await requireClientSession();
+  const auth = await requireClientSession(req, { apiKeyPermission: "pura.chat" });
   if (!auth.ok) {
     return NextResponse.json({ ok: false, error: auth.status === 401 ? "Unauthorized" : "Forbidden" }, { status: auth.status });
   }

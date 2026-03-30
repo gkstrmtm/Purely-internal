@@ -10,7 +10,7 @@ const MAX_FILES = 10;
 const MAX_BYTES = 10 * 1024 * 1024; // 10MB per file
 
 export async function POST(req: Request) {
-  const auth = await requireClientSession();
+  const auth = await requireClientSession(req, { apiKeyPermission: "pura.chat" });
   if (!auth.ok) {
     return NextResponse.json(
       { ok: false, error: auth.status === 401 ? "Unauthorized" : "Forbidden" },

@@ -1,6 +1,7 @@
 import crypto from "crypto";
 
 import { prisma } from "@/lib/db";
+import { applyPortalApiKeyCreditUsageTx } from "@/lib/portalApiKeys.server";
 import { creditsPerTopUpPackage } from "@/lib/creditsTopup";
 import { getOrCreateStripeCustomerId, isStripeConfigured, stripeGet, stripePost } from "@/lib/stripeFetch";
 
@@ -264,6 +265,18 @@ export async function consumeCreditsOnce(
       return { ok: false as const, state: prevState, chargedAmount: 0 as const, alreadyConsumed: false };
     }
 
+    const apiKeyUsage = await applyPortalApiKeyCreditUsageTx(tx, {
+      ownerId,
+      amount: need,
+      idempotencyKey: key,
+    });
+    if (!apiKeyUsage.ok) {
+      return { ok: false as const, state: prevState, chargedAmount: 0 as const, alreadyConsumed: false };
+    }
+    if (apiKeyUsage.alreadyRecorded) {
+      return { ok: true as const, state: prevState, chargedAmount: need, alreadyConsumed: true };
+    }
+
     const nextState: CreditsState = { balance: prevState.balance - need, autoTopUp: prevState.autoTopUp };
     const nextLedger: CreditsSpendLedgerEntry[] = [
       { id: key, amount: need, atIso: new Date().toISOString() },
@@ -377,6 +390,11 @@ export async function consumeCredits(
 
     const prev = parseCreditsJson(row?.dataJson);
     if (prev.balance < need) {
+      return { ok: false as const, state: prev };
+    }
+
+    const apiKeyUsage = await applyPortalApiKeyCreditUsageTx(tx, { ownerId, amount: need });
+    if (!apiKeyUsage.ok) {
       return { ok: false as const, state: prev };
     }
 
