@@ -18,9 +18,26 @@ function normalizeHost(raw: unknown): string | null {
 }
 
 async function resolveFromCreditCustomDomain(cleanHost: string): Promise<ResolvedCustomDomain | null> {
-  const primary = await prisma.creditCustomDomain
-    .findFirst({ where: { domain: cleanHost }, select: { ownerId: true, domain: true, status: true } })
+  // A domain can accidentally be saved by multiple owners in some environments.
+  // Prefer the VERIFIED row (most recently verified) to avoid routing a live domain
+  // to the wrong owner (which manifests as a public 404 even though previews work).
+  const verified = await prisma.creditCustomDomain
+    .findFirst({
+      where: { domain: cleanHost, status: "VERIFIED" },
+      orderBy: [{ verifiedAt: "desc" }, { updatedAt: "desc" }],
+      select: { ownerId: true, domain: true, status: true },
+    })
     .catch(() => null);
+
+  const primary =
+    verified ||
+    (await prisma.creditCustomDomain
+      .findFirst({
+        where: { domain: cleanHost },
+        orderBy: [{ updatedAt: "desc" }, { createdAt: "desc" }],
+        select: { ownerId: true, domain: true, status: true },
+      })
+      .catch(() => null));
 
   if (primary) {
     return {
