@@ -67,7 +67,7 @@ export function PortalHelpLink() {
       rel="noreferrer"
       aria-label="Help"
       title="Help"
-      className="group relative inline-flex h-10 w-10 items-center justify-center rounded-xl bg-white text-zinc-700 transition-all duration-150 hover:scale-[1.04] hover:bg-zinc-50 hover:text-zinc-900 hover:shadow-sm hover:ring-1 hover:ring-zinc-200/60 focus:outline-none focus-visible:ring-2 focus-visible:ring-zinc-400/40"
+      className="group relative inline-flex h-10 w-10 items-center justify-center rounded-xl bg-transparent text-zinc-700 transition-transform duration-150 hover:scale-110 hover:text-zinc-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-zinc-400/40"
     >
       <IconHelpCircle size={18} />
 

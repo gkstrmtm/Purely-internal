@@ -157,6 +157,10 @@ export function SettingsTabsClient({ generalOnly = false }: { generalOnly?: bool
       {tab === "general" ? (
         <GeneralTab
           onGoBilling={(where) => goTab("billing", { focus: where })}
+          onGoServices={() => {
+            const base = typeof window !== "undefined" && window.location.pathname.startsWith("/credit") ? "/credit" : "/portal";
+            router.push(`${base}/app/services`);
+          }}
           toast={toast}
         />
       ) : null}
@@ -178,9 +182,11 @@ export function SettingsTabsClient({ generalOnly = false }: { generalOnly?: bool
 
 function GeneralTab({
   onGoBilling,
+  onGoServices,
   toast,
 }: {
   onGoBilling: (focus: string | null) => void;
+  onGoServices: () => void;
   toast: ReturnType<typeof useToast>;
 }) {
   const [profile, setProfile] = useState<ProfileRes | null>(null);
@@ -525,7 +531,7 @@ function GeneralTab({
                 type="button"
                 className={classNames(
                   "inline-flex w-full items-center justify-center rounded-2xl px-5 py-3 text-sm font-semibold text-white disabled:opacity-60",
-                  canSave ? "bg-brand-ink hover:opacity-95" : "bg-zinc-400",
+                  canSave ? "bg-brand-blue hover:opacity-95" : "bg-zinc-400",
                 )}
                 disabled={!canSave || saving}
                 onClick={() => {
@@ -645,7 +651,7 @@ function GeneralTab({
             <button
               type="button"
               className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2.5 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
-              onClick={() => onGoBilling("services")}
+                onClick={onGoServices}
             >
               See all services
             </button>

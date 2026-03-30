@@ -125,6 +125,28 @@ type FunnelBuilderDomain = {
   rootFunnelSlug?: string | null;
 };
 
+function deriveDnsHostLabel(domain: string): string {
+  const s = String(domain || "").trim().toLowerCase();
+  if (!s) return "@";
+  if (s.startsWith("www.")) return "www";
+
+  const parts = s.split(".").filter(Boolean);
+  if (parts.length <= 2) return "@";
+  return parts.slice(0, -2).join(".") || "@";
+}
+
+function isLikelyApexDomain(domain: string): boolean {
+  const s = String(domain || "").trim().toLowerCase();
+  if (!s) return true;
+  if (s.startsWith("www.")) return false;
+  const parts = s.split(".").filter(Boolean);
+  return parts.length <= 2;
+}
+
+function customDomainTargetHost(): string {
+  return String(process.env.NEXT_PUBLIC_CUSTOM_DOMAIN_TARGET_HOST || "").trim() || "cname.vercel-dns.com";
+}
+
 function CopyRow({ label, value }: { label: string; value: string | null | undefined }) {
   const v = value && value.trim() ? value : null;
   return (
@@ -182,6 +204,9 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
   const [salesStatusLoaded, setSalesStatusLoaded] = useState(false);
   const [funnelDomains, setFunnelDomains] = useState<FunnelBuilderDomain[]>([]);
   const [funnelDomainsLoaded, setFunnelDomainsLoaded] = useState(false);
+  const [domainInput, setDomainInput] = useState("");
+  const [domainBusy, setDomainBusy] = useState(false);
+  const [domainVerifyBusy, setDomainVerifyBusy] = useState<Record<string, boolean>>({});
   const [salesProvider, setSalesProvider] = useState<SalesReportingProviderKey>("stripe");
   const [stripeSecretKey, setStripeSecretKey] = useState<string>("");
   const [stripeSaving, setStripeSaving] = useState(false);
@@ -255,6 +280,8 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
 
   const [passwordModalOpen, setPasswordModalOpen] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(false);
+
+  const platformTargetHost = useMemo(() => customDomainTargetHost(), []);
 
   const showSuggestedSetup = mode === "all" || mode === "profile";
   const showContactSection = mode === "all" || mode === "profile";
@@ -453,6 +480,18 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
     let mounted = true;
     if (!portalMe || portalMe.ok !== true) return;
 
+    const loadDomains = async () => {
+      const res = await fetch("/api/portal/funnel-builder/domains", { cache: "no-store" }).catch(() => null as any);
+      if (!mounted) return;
+      setFunnelDomainsLoaded(true);
+      if (!res?.ok) {
+        setFunnelDomains([]);
+        return;
+      }
+      const json = (await res.json().catch(() => null)) as { ok?: boolean; domains?: FunnelBuilderDomain[] } | null;
+      setFunnelDomains(json?.ok === true && Array.isArray(json.domains) ? json.domains : []);
+    };
+
     (async () => {
       if (!canViewWebhooks) {
         if (mounted) setWebhooks(null);
@@ -481,17 +520,7 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
       }
     })();
 
-    (async () => {
-      const res = await fetch("/api/portal/funnel-builder/domains", { cache: "no-store" }).catch(() => null as any);
-      if (!mounted) return;
-      setFunnelDomainsLoaded(true);
-      if (!res?.ok) {
-        setFunnelDomains([]);
-        return;
-      }
-      const json = (await res.json().catch(() => null)) as { ok?: boolean; domains?: FunnelBuilderDomain[] } | null;
-      setFunnelDomains(json?.ok === true && Array.isArray(json.domains) ? json.domains : []);
-    })();
+    void loadDomains();
 
     (async () => {
       const res = await fetch("/api/portal/integrations/sales-reporting", { cache: "no-store" }).catch(() => null as any);
@@ -534,6 +563,67 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
       mounted = false;
     };
   }, [portalMe, canViewWebhooks, canViewTwilio]);
+
+  async function reloadDomains() {
+    setFunnelDomainsLoaded(false);
+    const res = await fetch("/api/portal/funnel-builder/domains", { cache: "no-store" }).catch(() => null as any);
+    setFunnelDomainsLoaded(true);
+    if (!res?.ok) {
+      setFunnelDomains([]);
+      return;
+    }
+    const json = (await res.json().catch(() => null)) as { ok?: boolean; domains?: FunnelBuilderDomain[] } | null;
+    setFunnelDomains(json?.ok === true && Array.isArray(json.domains) ? json.domains : []);
+  }
+
+  async function copyText(value: string) {
+    const text = String(value || "").trim();
+    if (!text) return;
+    try {
+      await navigator.clipboard.writeText(text);
+      toast.success("Copied");
+    } catch {
+      toast.error("Unable to copy");
+    }
+  }
+
+  async function addDomain() {
+    const next = domainInput.trim();
+    if (!next || domainBusy) return;
+    setDomainBusy(true);
+    const res = await fetch("/api/portal/funnel-builder/domains", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ domain: next }),
+    }).catch(() => null as any);
+    const json = (res ? ((await res.json().catch(() => null)) as { ok?: boolean; error?: string } | null) : null) ?? null;
+    setDomainBusy(false);
+    if (!res?.ok || !json?.ok) {
+      toast.error(json?.error || "Unable to add domain");
+      return;
+    }
+    setDomainInput("");
+    toast.success("Domain added");
+    await reloadDomains();
+  }
+
+  async function verifyDomain(domain: FunnelBuilderDomain) {
+    if (!domain?.id || domainVerifyBusy[domain.id]) return;
+    setDomainVerifyBusy((current) => ({ ...current, [domain.id]: true }));
+    const res = await fetch(`/api/portal/funnel-builder/domains/${encodeURIComponent(domain.id)}/verify`, {
+      method: "POST",
+      cache: "no-store",
+    }).catch(() => null as any);
+    const json = (res ? ((await res.json().catch(() => null)) as { ok?: boolean; verified?: boolean; error?: string } | null) : null) ?? null;
+    setDomainVerifyBusy((current) => ({ ...current, [domain.id]: false }));
+    if (!res?.ok || !json?.ok) {
+      toast.error(json?.error || "Unable to verify domain");
+      return;
+    }
+    if (json.verified) toast.success(`${domain.domain} is ready.`);
+    else if (json.error) toast.error(json.error);
+    await reloadDomains();
+  }
 
   async function refreshSalesStatus() {
     const res = await fetch("/api/portal/integrations/sales-reporting", { cache: "no-store" }).catch(() => null as any);
@@ -1135,11 +1225,6 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
                         </div>
                         <div className="mt-2 text-xs text-zinc-500">SMS webhooks are configured automatically when you connect Twilio.</div>
                       </div>
-                      {webhooks?.baseUrl ? (
-                        <div className="text-xs text-zinc-500">
-                          Webhook base: <span className="font-mono">{webhooks.baseUrl}</span>
-                        </div>
-                      ) : null}
                     </div>
                   </PortalSettingsSection>
                 </div>
@@ -1250,7 +1335,7 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
                 <div className="scroll-mt-24">
                   <PortalSettingsSection
                     title="Domains & DNS"
-                    description="Track your custom domains and see which ones are ready to go live."
+                    description="Add domains, copy the exact DNS records, and verify them right here."
                     accent="blue"
                     collapsible={false}
                     dotClassName="hidden"
@@ -1258,16 +1343,33 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
                   >
                     <div className="space-y-3">
                       <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-700">
-                        <div className="font-semibold text-zinc-900">Custom domain status</div>
-                        <div className="mt-1">Domains are managed in Funnel Builder. Once DNS is pointed correctly, run verification there to issue SSL and publish safely.</div>
+                        <div className="font-semibold text-zinc-900">Add a custom domain</div>
+                        <div className="mt-1">Enter the domain you want to use, then copy the records below into your DNS provider and run verification.</div>
+                        <div className="mt-4 flex flex-col gap-2 sm:flex-row">
+                          <input
+                            value={domainInput}
+                            onChange={(e) => setDomainInput(e.target.value)}
+                            placeholder="example.com"
+                            className="min-w-0 flex-1 rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-900 outline-none focus:border-zinc-300"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => void addDomain()}
+                            disabled={domainBusy || !domainInput.trim()}
+                            className="inline-flex items-center justify-center rounded-2xl bg-brand-blue px-4 py-3 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
+                          >
+                            {domainBusy ? "Adding…" : "Add domain"}
+                          </button>
+                        </div>
                       </div>
 
                       {!funnelDomainsLoaded ? (
                         <div className="rounded-2xl border border-zinc-200 bg-white p-4 text-sm text-zinc-600">Loading domains…</div>
                       ) : funnelDomains.length ? (
-                        <div className="space-y-2">
+                        <div className="space-y-3">
                           {funnelDomains.map((domain) => {
                             const verified = String(domain.status || "").toUpperCase() === "VERIFIED";
+                            const apex = isLikelyApexDomain(domain.domain);
                             return (
                               <div key={domain.id} className="rounded-2xl border border-zinc-200 bg-white p-4">
                                 <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -1286,13 +1388,97 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
                                   </span>
                                 </div>
 
-                                <div className="mt-3 grid gap-2 text-xs text-zinc-600 sm:grid-cols-2">
+                                <div className="mt-4 overflow-auto rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
+                                  <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">DNS records to add</div>
+                                  <table className="mt-3 w-full min-w-130 border-separate border-spacing-0">
+                                    <thead>
+                                      <tr>
+                                        <th className="border-b border-zinc-200 pb-2 text-left text-xs font-semibold text-zinc-600">Type</th>
+                                        <th className="border-b border-zinc-200 pb-2 text-left text-xs font-semibold text-zinc-600">Host / Name</th>
+                                        <th className="border-b border-zinc-200 pb-2 text-left text-xs font-semibold text-zinc-600">Value</th>
+                                      </tr>
+                                    </thead>
+                                    <tbody>
+                                      {apex ? (
+                                        <>
+                                          <tr>
+                                            <td className="border-b border-zinc-100 py-2 text-xs font-semibold text-zinc-900">ALIAS / ANAME</td>
+                                            <td className="border-b border-zinc-100 py-2 text-xs">
+                                              <button type="button" onClick={() => void copyText("@")} className="inline-flex items-center gap-2 font-mono text-zinc-800 hover:text-brand-blue">
+                                                @ <IconCopy size={14} />
+                                              </button>
+                                            </td>
+                                            <td className="border-b border-zinc-100 py-2 text-xs">
+                                              <button type="button" onClick={() => void copyText(platformTargetHost)} className="inline-flex items-center gap-2 font-mono text-zinc-800 hover:text-brand-blue">
+                                                {platformTargetHost} <IconCopy size={14} />
+                                              </button>
+                                            </td>
+                                          </tr>
+                                          <tr>
+                                            <td className="border-b border-zinc-100 py-2 text-xs font-semibold text-zinc-900">A</td>
+                                            <td className="border-b border-zinc-100 py-2 text-xs">
+                                              <button type="button" onClick={() => void copyText("@")} className="inline-flex items-center gap-2 font-mono text-zinc-800 hover:text-brand-blue">
+                                                @ <IconCopy size={14} />
+                                              </button>
+                                            </td>
+                                            <td className="border-b border-zinc-100 py-2 text-xs">
+                                              <button type="button" onClick={() => void copyText("76.76.21.21")} className="inline-flex items-center gap-2 font-mono text-zinc-800 hover:text-brand-blue">
+                                                76.76.21.21 <IconCopy size={14} />
+                                              </button>
+                                            </td>
+                                          </tr>
+                                          <tr>
+                                            <td className="border-b border-zinc-100 py-2 text-xs font-semibold text-zinc-900">CNAME</td>
+                                            <td className="border-b border-zinc-100 py-2 text-xs">
+                                              <button type="button" onClick={() => void copyText("www")} className="inline-flex items-center gap-2 font-mono text-zinc-800 hover:text-brand-blue">
+                                                www <IconCopy size={14} />
+                                              </button>
+                                            </td>
+                                            <td className="border-b border-zinc-100 py-2 text-xs">
+                                              <button type="button" onClick={() => void copyText(platformTargetHost)} className="inline-flex items-center gap-2 font-mono text-zinc-800 hover:text-brand-blue">
+                                                {platformTargetHost} <IconCopy size={14} />
+                                              </button>
+                                            </td>
+                                          </tr>
+                                        </>
+                                      ) : (
+                                        <tr>
+                                          <td className="border-b border-zinc-100 py-2 text-xs font-semibold text-zinc-900">CNAME</td>
+                                          <td className="border-b border-zinc-100 py-2 text-xs">
+                                            <button type="button" onClick={() => void copyText(deriveDnsHostLabel(domain.domain))} className="inline-flex items-center gap-2 font-mono text-zinc-800 hover:text-brand-blue">
+                                              {deriveDnsHostLabel(domain.domain)} <IconCopy size={14} />
+                                            </button>
+                                          </td>
+                                          <td className="border-b border-zinc-100 py-2 text-xs">
+                                            <button type="button" onClick={() => void copyText(platformTargetHost)} className="inline-flex items-center gap-2 font-mono text-zinc-800 hover:text-brand-blue">
+                                              {platformTargetHost} <IconCopy size={14} />
+                                            </button>
+                                          </td>
+                                        </tr>
+                                      )}
+                                    </tbody>
+                                  </table>
+                                  <div className="mt-3 text-xs text-zinc-600">Use these exact values in your DNS provider, then click verify.</div>
+                                </div>
+
+                                <div className="mt-4 grid gap-2 text-xs text-zinc-600 sm:grid-cols-2">
                                   <div className="rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2">
                                     Root behavior: <span className="font-semibold text-zinc-900">{domain.rootMode || "DIRECTORY"}</span>
                                   </div>
                                   <div className="rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2">
                                     Root funnel: <span className="font-semibold text-zinc-900">{domain.rootFunnelSlug || "None selected"}</span>
                                   </div>
+                                </div>
+
+                                <div className="mt-4 flex flex-wrap gap-2">
+                                  <button
+                                    type="button"
+                                    onClick={() => void verifyDomain(domain)}
+                                    disabled={Boolean(domainVerifyBusy[domain.id])}
+                                    className="inline-flex items-center justify-center rounded-2xl bg-brand-blue px-4 py-2 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
+                                  >
+                                    {domainVerifyBusy[domain.id] ? "Verifying…" : verified ? "Re-check DNS" : "Verify DNS"}
+                                  </button>
                                 </div>
                               </div>
                             );
@@ -1301,21 +1487,6 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
                       ) : (
                         <div className="rounded-2xl border border-zinc-200 bg-white p-4 text-sm text-zinc-600">No custom domains have been added yet.</div>
                       )}
-
-                      <div className="flex flex-wrap gap-2">
-                        <Link
-                          href={`${portalBase}/app/services/funnel-builder`}
-                          className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95"
-                        >
-                          Open Funnel Builder
-                        </Link>
-                        <Link
-                          href={`${portalBase}/tutorials`}
-                          className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
-                        >
-                          DNS help
-                        </Link>
-                      </div>
                     </div>
                   </PortalSettingsSection>
                 </div>
@@ -1348,31 +1519,8 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
 
                       <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-700">
                         <div className="font-semibold text-zinc-900">Connect a payment processor</div>
-                        <div className="mt-1">Whichever one you connect becomes the active provider for your Sales dashboard and widget.</div>
+                        <div className="mt-1">Connect the provider you want available in Sales reporting.</div>
                       </div>
-
-                      {salesStatusLoaded && salesStatus?.ok === true ? (
-                        (() => {
-                          const connectedOptions = SALES_REPORTING_PROVIDER_OPTIONS.filter((o) => salesStatus.providers[o.value]?.configured);
-                          if (connectedOptions.length === 0) return null;
-                          const active = salesStatus.activeProvider ?? connectedOptions[0].value;
-                          return (
-                            <div className="rounded-2xl border border-zinc-200 bg-white p-4">
-                              <div className="text-xs font-semibold text-zinc-600">Active provider</div>
-                              <div className="mt-2">
-                                <PortalListboxDropdown
-                                  value={active}
-                                  options={connectedOptions}
-                                  onChange={(v) => void setActiveProvider(v)}
-                                  disabled={!canEditProfile || stripeSaving}
-                                  portal={false}
-                                />
-                              </div>
-                              <div className="mt-2 text-xs text-zinc-500">Your Sales dashboard uses the active provider.</div>
-                            </div>
-                          );
-                        })()
-                      ) : null}
 
                       {!canEditProfile ? (
                         <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">You have view-only access.</div>

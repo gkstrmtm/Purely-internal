@@ -105,6 +105,18 @@ function buildBillingInfoPayload(draft: BillingInfoDraft) {
   return payload;
 }
 
+function billingDraftSignature(draft: BillingInfoDraft) {
+  return JSON.stringify({
+    billingEmail: draft.billingEmail.trim(),
+    billingName: draft.billingName.trim(),
+    billingPhone: draft.billingPhone.trim(),
+    billingAddress: draft.billingAddress.trim(),
+    billingCity: draft.billingCity.trim(),
+    billingState: draft.billingState.trim(),
+    billingPostalCode: draft.billingPostalCode.trim(),
+  });
+}
+
 function UpdateCardForm({
   onSuccess,
   onError,
@@ -426,13 +438,17 @@ export function PortalBillingClient({
     void loadBillingInfo();
   }, [loadBillingInfo]);
 
+  const billingInfoDirty = useMemo(
+    () => billingDraftSignature(billingDraft) !== billingDraftSignature(createBillingInfoDraft(billingInfo)),
+    [billingDraft, billingInfo],
+  );
+
   const saveBillingInfo = useCallback(async () => {
-    if (billingInfoSaving) return;
+    if (billingInfoSaving || !billingInfoDirty) return;
     setBillingInfoSaving(true);
     try {
       const payload = buildBillingInfoPayload(billingDraft);
       if (!Object.keys(payload).length) {
-        toast.success("No changes to save.");
         return;
       }
 
@@ -451,7 +467,7 @@ export function PortalBillingClient({
     } finally {
       setBillingInfoSaving(false);
     }
-  }, [billingDraft, billingInfoSaving, loadBillingInfo, toast]);
+  }, [billingDraft, billingInfoDirty, billingInfoSaving, loadBillingInfo, toast]);
 
   const openUpdateCard = useCallback(async () => {
     if (!stripePromise) {
@@ -1550,17 +1566,17 @@ export function PortalBillingClient({
                   <button
                     type="button"
                     onClick={() => setBillingDraft(createBillingInfoDraft(billingInfo))}
-                    disabled={billingInfoSaving}
+                    disabled={billingInfoSaving || !billingInfoDirty}
                     className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50 disabled:opacity-60"
                   >
                     Reset
                   </button>
                   <button
                     type="submit"
-                    disabled={billingInfoSaving}
-                    className="rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
+                    disabled={billingInfoSaving || !billingInfoDirty}
+                    className="rounded-2xl bg-brand-blue px-4 py-2 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
                   >
-                    {billingInfoSaving ? "Saving…" : "Save changes"}
+                    {billingInfoSaving ? "Saving…" : billingInfoDirty ? "Save" : "Saved"}
                   </button>
                 </div>
               </form>

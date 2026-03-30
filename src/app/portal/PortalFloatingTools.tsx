@@ -278,7 +278,9 @@ function classNames(...xs: Array<string | false | null | undefined>) {
 
 export function PortalFloatingTools() {
   const [minimized, setMinimized] = useState(true);
-  const [hidden, setHidden] = useState(false);
+  const [compactDock, setCompactDock] = useState(false);
+  const [forceHidden, setForceHidden] = useState(false);
+  const [profileHidden, setProfileHidden] = useState(false);
   const [version, setVersion] = useState<VersionPayload | null>(null);
   const [reportOpen, setReportOpen] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
@@ -312,20 +314,53 @@ export function PortalFloatingTools() {
     if (typeof window === "undefined") return;
     const root = document.documentElement;
     const readHidden = () => root.getAttribute("data-pa-hide-floating-tools") === "1";
-    setHidden(readHidden());
+    const readPrefHidden = () => root.getAttribute("data-pa-hide-floating-tools-pref") === "1";
+    setForceHidden(readHidden());
+    setProfileHidden(readPrefHidden());
 
     const mo = new MutationObserver(() => {
-      setHidden(readHidden());
+      setForceHidden(readHidden());
+      setProfileHidden(readPrefHidden());
     });
-    mo.observe(root, { attributes: true, attributeFilter: ["data-pa-hide-floating-tools"] });
+    mo.observe(root, { attributes: true, attributeFilter: ["data-pa-hide-floating-tools", "data-pa-hide-floating-tools-pref"] });
     return () => mo.disconnect();
   }, []);
+
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      const res = await fetch("/api/portal/profile", { cache: "no-store" }).catch(() => null as any);
+      if (!mounted || !res?.ok) return;
+      const json = (await res.json().catch(() => null)) as { user?: { hideFloatingTools?: boolean } | null } | null;
+      const nextHidden = Boolean(json?.user?.hideFloatingTools);
+      setProfileHidden(nextHidden);
+      if (typeof document !== "undefined") {
+        if (nextHidden) document.documentElement.setAttribute("data-pa-hide-floating-tools-pref", "1");
+        else document.documentElement.removeAttribute("data-pa-hide-floating-tools-pref");
+      }
+    })();
+
+    const onPrefChanged = (event: Event) => {
+      const detail = (event as CustomEvent<{ hidden?: boolean }>).detail;
+      const nextHidden = Boolean(detail?.hidden);
+      setProfileHidden(nextHidden);
+    };
+
+    window.addEventListener("pa.portal.floating-tools-pref", onPrefChanged as EventListener);
+    return () => {
+      mounted = false;
+      window.removeEventListener("pa.portal.floating-tools-pref", onPrefChanged as EventListener);
+    };
+  }, []);
+
+  const hidden = forceHidden || profileHidden;
 
   useEffect(() => {
     if (!hidden) return;
     setReportOpen(false);
     setChatOpen(false);
     setMinimized(true);
+    setCompactDock(false);
   }, [hidden]);
 
   function scheduleChatScrollToBottom(force = false) {
@@ -362,12 +397,20 @@ export function PortalFloatingTools() {
     const saved = window.localStorage.getItem("pa_portal_floating_tools_minimized");
     if (saved === "0") setMinimized(false);
     else setMinimized(true);
+
+    const savedDock = window.localStorage.getItem("pa_portal_floating_tools_dock");
+    setCompactDock(savedDock === "icon");
   }, []);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
     window.localStorage.setItem("pa_portal_floating_tools_minimized", minimized ? "1" : "0");
   }, [minimized]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem("pa_portal_floating_tools_dock", compactDock ? "icon" : "pill");
+  }, [compactDock]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -453,6 +496,7 @@ export function PortalFloatingTools() {
 
   function persistMinimized(next: boolean) {
     setMinimized(next);
+    if (!next) setCompactDock(false);
   }
 
   async function submit() {
@@ -562,13 +606,13 @@ export function PortalFloatingTools() {
   return (
     <>
       {note ? (
-        <div className="fixed bottom-[calc(var(--pa-portal-embed-footer-offset,0px)+6rem)] right-4 z-[11003] max-w-sm rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-800 shadow-lg ring-1 ring-[rgba(29,78,216,0.14)]">
+        <div className="fixed bottom-[calc(var(--pa-portal-embed-footer-offset,0px)+6rem)] right-4 z-11003 max-w-sm rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-800 shadow-lg ring-1 ring-[rgba(29,78,216,0.14)]">
           {note}
         </div>
       ) : null}
 
       {reportOpen ? (
-        <div className="fixed inset-0 z-[11002]">
+        <div className="fixed inset-0 z-11002">
           <button
             type="button"
             className="absolute inset-0 bg-black/30"
@@ -598,7 +642,7 @@ export function PortalFloatingTools() {
 
             <div className="mt-4">
               <textarea
-                className="min-h-30 w-full rounded-2xl border border-zinc-200 bg-white p-3 text-sm text-zinc-900 outline-none focus:border-[color:var(--color-brand-blue)]"
+                className="min-h-30 w-full rounded-2xl border border-zinc-200 bg-white p-3 text-sm text-zinc-900 outline-none focus:border-(--color-brand-blue)"
                 placeholder="What happened? What did you expect?"
                 value={message}
                 onChange={(e) => setMessage(e.target.value)}
@@ -625,7 +669,7 @@ export function PortalFloatingTools() {
       {chatOpen ? (
         <div
           ref={chatPanelRef}
-          className="fixed bottom-[calc(var(--pa-portal-embed-footer-offset,0px)+1.5rem)] right-4 z-[11001] w-[min(520px,calc(100vw-2rem))] overflow-hidden rounded-3xl border border-zinc-200 bg-white p-5 shadow-2xl"
+          className="fixed bottom-[calc(var(--pa-portal-embed-footer-offset,0px)+1.5rem)] right-4 z-11001 w-[min(520px,calc(100vw-2rem))] overflow-hidden rounded-3xl border border-zinc-200 bg-white p-5 shadow-2xl"
         >
             <div className="mb-3 h-1.5 w-16 rounded-full bg-[linear-gradient(90deg,rgba(29,78,216,0.9),rgba(251,113,133,0.35))]" />
             <div className="flex items-start justify-between gap-3">
@@ -673,7 +717,7 @@ export function PortalFloatingTools() {
                 value={chatInput}
                 onChange={(e) => setChatInput(e.target.value)}
                 placeholder="Describe the issue…"
-                className="h-11 flex-1 rounded-2xl border border-zinc-200 bg-white px-4 text-sm text-zinc-900 outline-none focus:border-[color:var(--color-brand-blue)]"
+                className="h-11 flex-1 rounded-2xl border border-zinc-200 bg-white px-4 text-sm text-zinc-900 outline-none focus:border-(--color-brand-blue)"
                 onKeyDown={(e) => {
                   if (e.key === "Enter") void sendSupportChat();
                 }}
@@ -681,7 +725,7 @@ export function PortalFloatingTools() {
               />
               <button
                 type="button"
-                className="h-11 rounded-2xl bg-linear-to-r from-[color:var(--color-brand-blue)] to-[color:var(--color-brand-pink)] px-4 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
+                className="h-11 rounded-2xl bg-linear-to-r from-(--color-brand-blue) to-(--color-brand-pink) px-4 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
                 onClick={() => void sendSupportChat()}
                 disabled={chatSending}
               >
@@ -693,26 +737,67 @@ export function PortalFloatingTools() {
         </div>
       ) : null}
 
-      <div className="fixed bottom-[calc(var(--pa-portal-embed-footer-offset,0px)+1rem)] right-4 z-[11000]">
+      <div className="fixed bottom-[calc(var(--pa-portal-embed-footer-offset,0px)+1rem)] right-4 z-11000">
         {minimized ? (
-          <button
-            type="button"
-            className="flex items-center gap-2 rounded-full border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 shadow-lg ring-1 ring-[rgba(29,78,216,0.14)] hover:bg-zinc-50"
-            onClick={() => persistMinimized(false)}
-            aria-label="Open tools"
-          >
-            <span className="grid h-8 w-8 place-items-center rounded-full bg-[linear-gradient(90deg,rgba(29,78,216,0.95),rgba(251,113,133,0.55))] text-white">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                <path
-                  d="M7 18.4 4.6 20c-.4.3-1 .1-1-.4V6.4C3.6 5.1 4.7 4 6 4h12c1.3 0 2.4 1.1 2.4 2.4v7.2c0 1.3-1.1 2.4-2.4 2.4H8.8c-.2 0-.4 0-.6.2Z"
-                  stroke="currentColor"
-                  strokeWidth="1.8"
-                  strokeLinejoin="round"
-                />
-              </svg>
-            </span>
-            <span className="text-sm font-semibold text-zinc-900">Chat and Report</span>
-          </button>
+          compactDock ? (
+            <div className="group flex items-center justify-end gap-2">
+              <button
+                type="button"
+                className="pointer-events-none rounded-full border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-700 opacity-0 shadow-lg transition-all duration-150 group-hover:pointer-events-auto group-hover:translate-x-0 group-hover:opacity-100"
+                onClick={() => setCompactDock(false)}
+                aria-label="Expand tools"
+              >
+                Show tools →
+              </button>
+              <button
+                type="button"
+                className="grid h-11 w-11 place-items-center rounded-full border border-zinc-200 bg-white text-zinc-800 shadow-lg ring-1 ring-[rgba(29,78,216,0.14)] transition-transform duration-150 hover:scale-105 hover:bg-zinc-50"
+                onClick={() => persistMinimized(false)}
+                aria-label="Open chat and report tools"
+              >
+                <span className="grid h-8 w-8 place-items-center rounded-full bg-[linear-gradient(90deg,rgba(29,78,216,0.95),rgba(251,113,133,0.55))] text-white">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                    <path
+                      d="M7 18.4 4.6 20c-.4.3-1 .1-1-.4V6.4C3.6 5.1 4.7 4 6 4h12c1.3 0 2.4 1.1 2.4 2.4v7.2c0 1.3-1.1 2.4-2.4 2.4H8.8c-.2 0-.4 0-.6.2Z"
+                      stroke="currentColor"
+                      strokeWidth="1.8"
+                      strokeLinejoin="round"
+                    />
+                  </svg>
+                </span>
+              </button>
+            </div>
+          ) : (
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                className="flex items-center gap-2 rounded-full border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 shadow-lg ring-1 ring-[rgba(29,78,216,0.14)] hover:bg-zinc-50"
+                onClick={() => persistMinimized(false)}
+                aria-label="Open tools"
+              >
+                <span className="grid h-8 w-8 place-items-center rounded-full bg-[linear-gradient(90deg,rgba(29,78,216,0.95),rgba(251,113,133,0.55))] text-white">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                    <path
+                      d="M7 18.4 4.6 20c-.4.3-1 .1-1-.4V6.4C3.6 5.1 4.7 4 6 4h12c1.3 0 2.4 1.1 2.4 2.4v7.2c0 1.3-1.1 2.4-2.4 2.4H8.8c-.2 0-.4 0-.6.2Z"
+                      stroke="currentColor"
+                      strokeWidth="1.8"
+                      strokeLinejoin="round"
+                    />
+                  </svg>
+                </span>
+                <span className="text-sm font-semibold text-zinc-900">Chat and Report</span>
+              </button>
+              <button
+                type="button"
+                className="grid h-11 w-11 place-items-center rounded-full border border-zinc-200 bg-white text-zinc-700 shadow-lg ring-1 ring-[rgba(29,78,216,0.14)] transition-transform duration-150 hover:scale-105 hover:bg-zinc-50"
+                onClick={() => setCompactDock(true)}
+                aria-label="Collapse tools to icon"
+                title="Collapse to icon"
+              >
+                <span className="text-base">↘</span>
+              </button>
+            </div>
+          )
         ) : (
           <div
             ref={toolsCardRef}
@@ -739,7 +824,7 @@ export function PortalFloatingTools() {
                 type="button"
                 className={classNames(
                   "rounded-2xl px-3 py-2 text-sm font-semibold",
-                  "bg-[color:var(--color-brand-blue)] text-white hover:opacity-95",
+                  "bg-(--color-brand-blue) text-white hover:opacity-95",
                 )}
                 onClick={() => setReportOpen(true)}
               >
@@ -750,7 +835,7 @@ export function PortalFloatingTools() {
                 type="button"
                 className={classNames(
                   "rounded-2xl px-3 py-2 text-sm font-semibold",
-                  "bg-linear-to-r from-[color:var(--color-brand-blue)] to-[color:var(--color-brand-pink)] text-white hover:opacity-95",
+                  "bg-linear-to-r from-(--color-brand-blue) to-(--color-brand-pink) text-white hover:opacity-95",
                 )}
                 onClick={() => setChatOpen(true)}
               >

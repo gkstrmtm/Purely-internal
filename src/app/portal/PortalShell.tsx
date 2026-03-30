@@ -1279,7 +1279,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
   if (isFunnelBuilderEditor || isAutomationsEditor) {
     return (
       <div
-        className="h-[calc(100dvh-var(--pa-portal-topbar-height,0px))] overflow-hidden bg-brand-mist text-brand-ink"
+        className="h-[calc(100dvh-var(--pa-portal-topbar-height,0px))] overflow-hidden bg-brand-mist text-brand-ink transition-[height] duration-250 ease-out"
         style={{
           ["--pa-modal-safe-bottom" as any]: isAutomationsEditor
             ? `calc(env(safe-area-inset-bottom) + ${floatingToolsReserve})`
@@ -1321,6 +1321,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
         <style>{`
           /* Embedded portal mode owns its own chrome; hide the /portal layout topbar. */
           .pa-portal-topbar { display: none !important; }
+          :root { --pa-portal-topbar-height: 0px !important; }
         `}</style>
 
         <div
@@ -1553,18 +1554,11 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
 
   return (
     <div
-      className="h-[calc(100dvh-var(--pa-portal-topbar-height,0px))] overflow-hidden bg-brand-mist text-brand-ink"
+      className="h-[calc(100dvh-var(--pa-portal-topbar-height,0px))] overflow-hidden bg-brand-mist text-brand-ink transition-[height] duration-250 ease-out"
       style={{
         ["--pa-modal-safe-bottom" as any]: `calc(env(safe-area-inset-bottom) + ${floatingToolsReserve})`,
       }}
     >
-      {isAiChat ? (
-        <style>{`
-          .pa-portal-topbar { display: none !important; }
-          :root { --pa-portal-topbar-height: 0px !important; }
-        `}</style>
-      ) : null}
-
       {isAiChat && !puraCanvasOpen ? (
         <div className="pointer-events-none fixed right-4 top-4 z-30 hidden lg:flex flex-col gap-2">
           <Link
@@ -1838,7 +1832,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
         <aside
           style={{ top: "var(--pa-portal-topbar-height,0px)" }}
           className={classNames(
-            "hidden shrink-0 overflow-hidden bg-white transition-[width] duration-200 ease-out sm:flex sm:h-[calc(100dvh-var(--pa-portal-topbar-height,0px))] sm:flex-col sm:sticky",
+            "hidden shrink-0 overflow-hidden bg-white transition-[width,height,top] duration-250 ease-out sm:flex sm:h-[calc(100dvh-var(--pa-portal-topbar-height,0px))] sm:flex-col sm:sticky",
             collapsed ? "w-19" : "w-70",
             activeTopKey === "pura" ? "border-r border-zinc-200 shadow-[2px_0_12px_rgba(0,0,0,0.06)]" : "border-r border-zinc-200",
           )}

@@ -12,6 +12,8 @@ type ProfileResponse = {
   user?: {
     voiceId?: string | null;
     defaultLoginPath?: string | null;
+    themeMode?: "device" | "light" | "dark" | null;
+    hideFloatingTools?: boolean;
     voiceAgentApiKeyConfigured?: boolean;
   } | null;
 };
@@ -29,7 +31,7 @@ type VoiceLibraryResponse = {
   voices?: VoiceLibraryVoice[];
 };
 
-const DEFAULT_VOICE_PREVIEW_TEXT = "Hi there — this is the current PURA dictation voice preview.";
+const DEFAULT_VOICE_PREVIEW_TEXT = "Hi there — this is the current Pura dictation voice preview.";
 
 function classNames(...xs: Array<string | false | null | undefined>) {
   return xs.filter(Boolean).join(" ");
@@ -43,7 +45,7 @@ export function PortalAppearanceSettingsClient() {
   const pageOptions = useMemo(
     () => [
       { value: `${portalBase}/app`, label: "Dashboard" },
-      { value: `${portalBase}/app/ai-chat`, label: "PURA" },
+      { value: `${portalBase}/app/ai-chat`, label: "Pura" },
       { value: `${portalBase}/app/services`, label: "Services" },
       { value: `${portalBase}/app/profile`, label: "Profile" },
       { value: `${portalBase}/app/billing`, label: "Billing" },
@@ -63,9 +65,41 @@ export function PortalAppearanceSettingsClient() {
   const [savedVoiceId, setSavedVoiceId] = useState("");
   const [defaultLoginPath, setDefaultLoginPath] = useState(`${portalBase}/app`);
   const [savedDefaultLoginPath, setSavedDefaultLoginPath] = useState(`${portalBase}/app`);
+  const [themeMode, setThemeMode] = useState<"device" | "light" | "dark">("device");
+  const [savedThemeMode, setSavedThemeMode] = useState<"device" | "light" | "dark">("device");
+  const [hideFloatingTools, setHideFloatingTools] = useState(false);
+  const [savedHideFloatingTools, setSavedHideFloatingTools] = useState(false);
 
   const voicePreviewAudioRef = useRef<HTMLAudioElement | null>(null);
   const voicePreviewUrlRef = useRef<string | null>(null);
+
+  const themeOptions = useMemo(
+    () => [
+      { value: "device", label: "Use device setting" },
+      { value: "light", label: "Light" },
+      { value: "dark", label: "Dark" },
+    ],
+    [],
+  );
+
+  const widgetOptions = useMemo(
+    () => [
+      { value: "shown", label: "Show chat and report widget" },
+      { value: "hidden", label: "Hide chat and report widget" },
+    ],
+    [],
+  );
+
+  const syncFloatingToolsPreference = useCallback((nextHidden: boolean) => {
+    if (typeof document !== "undefined") {
+      if (nextHidden) document.documentElement.setAttribute("data-pa-hide-floating-tools-pref", "1");
+      else document.documentElement.removeAttribute("data-pa-hide-floating-tools-pref");
+    }
+
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("pa.portal.floating-tools-pref", { detail: { hidden: nextHidden } }));
+    }
+  }, []);
 
   const loadProfile = useCallback(async () => {
     setLoading(true);
@@ -84,8 +118,15 @@ export function PortalAppearanceSettingsClient() {
     setSavedVoiceId(nextVoiceId);
     setDefaultLoginPath(nextDefaultLoginPath || `${portalBase}/app`);
     setSavedDefaultLoginPath(nextDefaultLoginPath || `${portalBase}/app`);
+    const nextThemeMode = json.user.themeMode === "light" || json.user.themeMode === "dark" ? json.user.themeMode : "device";
+    const nextHideFloatingTools = Boolean(json.user.hideFloatingTools);
+    setThemeMode(nextThemeMode);
+    setSavedThemeMode(nextThemeMode);
+    setHideFloatingTools(nextHideFloatingTools);
+    setSavedHideFloatingTools(nextHideFloatingTools);
+    syncFloatingToolsPreference(nextHideFloatingTools);
     setLoading(false);
-  }, [pageOptions, portalBase, toast]);
+  }, [pageOptions, portalBase, syncFloatingToolsPreference, toast]);
 
   const loadVoiceLibrary = useCallback(async () => {
     if (!voiceAgentApiKeyConfigured || voiceLibraryLoading) return;
@@ -149,7 +190,11 @@ export function PortalAppearanceSettingsClient() {
     [selectedVoiceId, voiceLibraryVoices],
   );
 
-  const dirty = selectedVoiceId !== savedVoiceId || defaultLoginPath !== savedDefaultLoginPath;
+  const dirty =
+    selectedVoiceId !== savedVoiceId ||
+    defaultLoginPath !== savedDefaultLoginPath ||
+    themeMode !== savedThemeMode ||
+    hideFloatingTools !== savedHideFloatingTools;
 
   async function savePreferences() {
     if (saving || !dirty) return;
@@ -160,6 +205,8 @@ export function PortalAppearanceSettingsClient() {
       body: JSON.stringify({
         voiceId: selectedVoiceId || "",
         defaultLoginPath,
+        themeMode,
+        hideFloatingTools,
       }),
     }).catch(() => null as any);
 
@@ -172,10 +219,17 @@ export function PortalAppearanceSettingsClient() {
 
     const nextVoiceId = String(json.user.voiceId || "").trim();
     const nextDefaultLoginPath = String(json.user.defaultLoginPath || defaultLoginPath).trim() || defaultLoginPath;
+    const nextThemeMode = json.user.themeMode === "light" || json.user.themeMode === "dark" ? json.user.themeMode : "device";
+    const nextHideFloatingTools = Boolean(json.user.hideFloatingTools);
     setSelectedVoiceId(nextVoiceId);
     setSavedVoiceId(nextVoiceId);
     setDefaultLoginPath(nextDefaultLoginPath);
     setSavedDefaultLoginPath(nextDefaultLoginPath);
+    setThemeMode(nextThemeMode);
+    setSavedThemeMode(nextThemeMode);
+    setHideFloatingTools(nextHideFloatingTools);
+    setSavedHideFloatingTools(nextHideFloatingTools);
+    syncFloatingToolsPreference(nextHideFloatingTools);
     toast.success("Appearance settings saved");
   }
 
@@ -233,23 +287,24 @@ export function PortalAppearanceSettingsClient() {
         <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <div>
             <h2 className="text-lg font-semibold text-brand-ink">Theme</h2>
-            <p className="mt-1 text-sm text-zinc-600">Dark mode is queued up next. This button is a placeholder for now.</p>
+            <p className="mt-1 text-sm text-zinc-600">Pick the mode you want ready once the full theme rollout lands.</p>
           </div>
-          <button
-            type="button"
-            onClick={() => toast.push({ kind: "info", message: "Dark mode is coming soon." })}
-            className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-zinc-100 px-4 py-2 text-sm font-semibold text-zinc-600 hover:bg-zinc-200"
-          >
-            Dark mode
-          </button>
+          <div className="w-full max-w-xs">
+            <PortalListboxDropdown
+              value={themeMode}
+              options={themeOptions}
+              onChange={(value) => setThemeMode(value as "device" | "light" | "dark")}
+              disabled={loading}
+            />
+          </div>
         </div>
       </div>
 
       <div className="rounded-3xl border border-zinc-200 bg-white p-6">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <div>
-            <h2 className="text-lg font-semibold text-brand-ink">PURA dictation voice</h2>
-            <p className="mt-1 text-sm text-zinc-600">Choose the voice PURA uses when it reads dictated content back to you.</p>
+            <h2 className="text-lg font-semibold text-brand-ink">Pura dictation voice</h2>
+            <p className="mt-1 text-sm text-zinc-600">Choose the voice Pura uses when it reads dictated content back to you.</p>
           </div>
           {selectedVoiceId ? (
             <button
@@ -258,7 +313,7 @@ export function PortalAppearanceSettingsClient() {
               disabled={voicePreviewBusy}
               className={classNames(
                 "inline-flex items-center justify-center rounded-2xl px-4 py-2 text-sm font-semibold text-white",
-                voicePreviewBusy ? "bg-zinc-400" : "bg-brand-ink hover:opacity-95",
+                voicePreviewBusy ? "bg-zinc-400" : "bg-brand-blue hover:opacity-95",
               )}
             >
               {voicePreviewBusy ? "Loading preview…" : "Preview voice"}
@@ -282,20 +337,13 @@ export function PortalAppearanceSettingsClient() {
                 onChange={(value) => setSelectedVoiceId(value)}
                 disabled={loading || !voiceAgentApiKeyConfigured || voiceLibraryLoading}
                 placeholder={voiceLibraryLoading ? "Loading voices…" : "Choose a voice"}
-                portal={false}
               />
             </div>
             <div className="mt-2 text-xs text-zinc-500">
               {selectedVoiceMeta
                 ? selectedVoiceMeta.description || `Selected voice: ${selectedVoiceMeta.name}`
-                : "Leave this on service default if you want PURA to fall back automatically."}
+                : "Use service default to keep the current fallback voice."}
             </div>
-          </div>
-
-          <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-700">
-            <div className="font-semibold text-zinc-900">How it works</div>
-            <div className="mt-2">Your PURA dictation voice now overrides the receptionist voice for dictation playback only.</div>
-            <div className="mt-2 text-xs text-zinc-500">Voice previews use your ElevenLabs voice library and your saved API key.</div>
           </div>
         </div>
 
@@ -304,29 +352,41 @@ export function PortalAppearanceSettingsClient() {
 
       <div className="rounded-3xl border border-zinc-200 bg-white p-6">
         <h2 className="text-lg font-semibold text-brand-ink">Default page on login</h2>
-        <p className="mt-1 text-sm text-zinc-600">Pick where you land after signing in when there is no explicit redirect in the URL.</p>
+        <p className="mt-1 text-sm text-zinc-600">Choose where you land after sign-in when nothing else is redirecting you.</p>
         <div className="mt-4 max-w-md">
           <PortalListboxDropdown
             value={defaultLoginPath}
             options={pageOptions}
             onChange={(value) => setDefaultLoginPath(value)}
             disabled={loading}
-            portal={false}
           />
         </div>
       </div>
 
-      <div className="flex items-center justify-end">
+      <div className="rounded-3xl border border-zinc-200 bg-white p-6">
+        <h2 className="text-lg font-semibold text-brand-ink">Chat and report widget</h2>
+        <p className="mt-1 text-sm text-zinc-600">Keep the support widget available in the corner, or hide it completely.</p>
+        <div className="mt-4 max-w-sm">
+          <PortalListboxDropdown
+            value={hideFloatingTools ? "hidden" : "shown"}
+            options={widgetOptions}
+            onChange={(value) => setHideFloatingTools(value === "hidden")}
+            disabled={loading}
+          />
+        </div>
+      </div>
+
+      <div className="flex items-center justify-start">
         <button
           type="button"
           onClick={() => void savePreferences()}
           disabled={loading || saving || !dirty}
           className={classNames(
             "inline-flex items-center justify-center rounded-2xl px-5 py-3 text-sm font-semibold text-white",
-            loading || saving || !dirty ? "bg-zinc-400" : "bg-brand-ink hover:opacity-95",
+            loading || saving || !dirty ? "bg-zinc-400" : "bg-brand-blue hover:opacity-95",
           )}
         >
-          {saving ? "Saving…" : dirty ? "Save appearance settings" : "Saved"}
+          {saving ? "Saving…" : dirty ? "Save" : "Saved"}
         </button>
       </div>
     </div>

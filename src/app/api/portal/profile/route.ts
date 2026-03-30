@@ -39,7 +39,22 @@ function normalizeDefaultLoginPath(input: unknown): string | null {
   return path;
 }
 
-async function getProfilePreferences(userId: string): Promise<{ voiceId: string | null; defaultLoginPath: string | null }> {
+function normalizeThemeMode(input: unknown): "device" | "light" | "dark" {
+  const mode = typeof input === "string" ? input.trim().toLowerCase() : "";
+  if (mode === "light" || mode === "dark") return mode;
+  return "device";
+}
+
+function normalizeHideFloatingTools(input: unknown): boolean {
+  return input === true;
+}
+
+async function getProfilePreferences(userId: string): Promise<{
+  voiceId: string | null;
+  defaultLoginPath: string | null;
+  themeMode: "device" | "light" | "dark";
+  hideFloatingTools: boolean;
+}> {
   const row = await prisma.portalServiceSetup.findUnique({
     where: { ownerId_serviceSlug: { ownerId: userId, serviceSlug: PROFILE_EXTRAS_SERVICE_SLUG } },
     select: { dataJson: true },
@@ -49,10 +64,20 @@ async function getProfilePreferences(userId: string): Promise<{ voiceId: string 
   return {
     voiceId: normalizeVoiceId(rec.voiceId),
     defaultLoginPath: normalizeDefaultLoginPath(rec.defaultLoginPath),
+    themeMode: normalizeThemeMode(rec.themeMode),
+    hideFloatingTools: normalizeHideFloatingTools(rec.hideFloatingTools),
   };
 }
 
-async function setProfilePreferences(userId: string, input: { voiceId?: string | null; defaultLoginPath?: string | null }) {
+async function setProfilePreferences(
+  userId: string,
+  input: {
+    voiceId?: string | null;
+    defaultLoginPath?: string | null;
+    themeMode?: "device" | "light" | "dark";
+    hideFloatingTools?: boolean;
+  },
+) {
   const existing = await prisma.portalServiceSetup.findUnique({
     where: { ownerId_serviceSlug: { ownerId: userId, serviceSlug: PROFILE_EXTRAS_SERVICE_SLUG } },
     select: { dataJson: true },
@@ -71,6 +96,15 @@ async function setProfilePreferences(userId: string, input: { voiceId?: string |
     const defaultLoginPath = normalizeDefaultLoginPath(input.defaultLoginPath);
     if (defaultLoginPath) next.defaultLoginPath = defaultLoginPath;
     else delete next.defaultLoginPath;
+  }
+
+  if (input.themeMode !== undefined) {
+    next.themeMode = normalizeThemeMode(input.themeMode);
+  }
+
+  if (input.hideFloatingTools !== undefined) {
+    if (normalizeHideFloatingTools(input.hideFloatingTools)) next.hideFloatingTools = true;
+    else delete next.hideFloatingTools;
   }
 
   await prisma.portalServiceSetup.upsert({
@@ -344,9 +378,11 @@ const updateSchema = z
     voiceAgentApiKey: z.string().trim().max(400).optional(),
     voiceId: z.string().trim().max(200).optional(),
     defaultLoginPath: z.string().trim().max(240).optional(),
+    themeMode: z.enum(["device", "light", "dark"]).optional(),
+    hideFloatingTools: z.boolean().optional(),
     currentPassword: z.string().min(6).optional(),
   })
-  .refine((v) => Boolean(v.name || v.email || v.phone || v.city !== undefined || v.state !== undefined || v.voiceAgentId !== undefined || v.voiceAgentApiKey !== undefined || v.voiceId !== undefined || v.defaultLoginPath !== undefined), {
+  .refine((v) => Boolean(v.name || v.email || v.phone || v.city !== undefined || v.state !== undefined || v.voiceAgentId !== undefined || v.voiceAgentApiKey !== undefined || v.voiceId !== undefined || v.defaultLoginPath !== undefined || v.themeMode !== undefined || v.hideFloatingTools !== undefined), {
     message: "Provide at least one field to update",
     path: ["name"],
   })
@@ -376,7 +412,7 @@ export async function GET() {
     getProfileVoiceAgentId(userId),
     getProfileVoiceAgentApiKey(userId),
     getOwnerCityState(ownerId).catch(() => ({ city: "", state: "" })),
-    getProfilePreferences(userId).catch(() => ({ voiceId: null, defaultLoginPath: null })),
+    getProfilePreferences(userId).catch(() => ({ voiceId: null, defaultLoginPath: null, themeMode: "device", hideFloatingTools: false })),
   ]);
 
   return NextResponse.json({
@@ -389,6 +425,8 @@ export async function GET() {
           voiceAgentApiKeyConfigured: Boolean(voiceAgentApiKey && voiceAgentApiKey.trim()),
           voiceId: preferences.voiceId,
           defaultLoginPath: preferences.defaultLoginPath,
+          themeMode: preferences.themeMode,
+          hideFloatingTools: preferences.hideFloatingTools,
           city: cityState.city || null,
           state: cityState.state || null,
         }
@@ -436,7 +474,11 @@ export async function PUT(req: Request) {
   const voiceAgentApiKeyProvided = parsed.data.voiceAgentApiKey !== undefined;
   const nextVoiceAgentApiKey =
     typeof parsed.data.voiceAgentApiKey === "string" ? parsed.data.voiceAgentApiKey.trim().slice(0, 400) : null;
-  const preferencesProvided = parsed.data.voiceId !== undefined || parsed.data.defaultLoginPath !== undefined;
+  const preferencesProvided =
+    parsed.data.voiceId !== undefined ||
+    parsed.data.defaultLoginPath !== undefined ||
+    parsed.data.themeMode !== undefined ||
+    parsed.data.hideFloatingTools !== undefined;
   if (phoneProvided) {
     const parsedPhone = normalizePhoneStrict(parsed.data.phone ?? "");
     if (!parsedPhone.ok) {
@@ -470,9 +512,11 @@ export async function PUT(req: Request) {
       await setProfilePreferences(userId, {
         voiceId: parsed.data.voiceId ?? null,
         defaultLoginPath: parsed.data.defaultLoginPath ?? null,
+        themeMode: parsed.data.themeMode,
+        hideFloatingTools: parsed.data.hideFloatingTools,
       }).catch(() => null);
     }
-    const preferences = await getProfilePreferences(userId).catch(() => ({ voiceId: null, defaultLoginPath: null }));
+    const preferences = await getProfilePreferences(userId).catch(() => ({ voiceId: null, defaultLoginPath: null, themeMode: "device", hideFloatingTools: false }));
     const cityState = await getOwnerCityState(ownerId).catch(() => ({ city: "", state: "" }));
     return NextResponse.json({
       ok: true,
@@ -487,6 +531,8 @@ export async function PUT(req: Request) {
         voiceAgentApiKeyConfigured: Boolean((await getProfileVoiceAgentApiKey(userId).catch(() => null))?.trim()),
         voiceId: preferences.voiceId,
         defaultLoginPath: preferences.defaultLoginPath,
+        themeMode: preferences.themeMode,
+        hideFloatingTools: preferences.hideFloatingTools,
         city: cityState.city || null,
         state: cityState.state || null,
       },
@@ -560,10 +606,12 @@ export async function PUT(req: Request) {
     await setProfilePreferences(userId, {
       voiceId: parsed.data.voiceId ?? null,
       defaultLoginPath: parsed.data.defaultLoginPath ?? null,
+      themeMode: parsed.data.themeMode,
+      hideFloatingTools: parsed.data.hideFloatingTools,
     }).catch(() => null);
   }
 
-  const preferences = await getProfilePreferences(userId).catch(() => ({ voiceId: null, defaultLoginPath: null }));
+  const preferences = await getProfilePreferences(userId).catch(() => ({ voiceId: null, defaultLoginPath: null, themeMode: "device", hideFloatingTools: false }));
 
   const user = await prisma.user.findUnique({
     where: { id: userId },
@@ -582,6 +630,8 @@ export async function PUT(req: Request) {
           voiceAgentApiKeyConfigured,
           voiceId: preferences.voiceId,
           defaultLoginPath: preferences.defaultLoginPath,
+          themeMode: preferences.themeMode,
+          hideFloatingTools: preferences.hideFloatingTools,
           city: cityState.city || null,
           state: cityState.state || null,
         }
