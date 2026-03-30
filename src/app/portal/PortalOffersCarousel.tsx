@@ -170,7 +170,7 @@ export function PortalOffersCarousel() {
 
         <Link
           href="/services"
-          className="hidden rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-900 hover:bg-zinc-50 sm:inline-flex"
+          className="hidden rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-900 transition-all duration-150 hover:-translate-y-0.5 hover:border-zinc-300 hover:bg-zinc-50 sm:inline-flex"
         >
           View all
         </Link>
@@ -193,12 +193,12 @@ export function PortalOffersCarousel() {
             key={`${o.title}-${i}`}
             data-carousel-card="true"
             href={o.href}
-            className={`block min-w-[85%] snap-start rounded-3xl border p-6 sm:min-w-[360px] ${toneClasses[o.tone]}`}
+            className={`block min-w-[85%] snap-start rounded-3xl border p-6 sm:min-w-90 ${toneClasses[o.tone]}`}
           >
             <div className={`text-lg font-semibold ${toneTitle[o.tone]}`}>{o.title}</div>
             <div className="mt-2 text-sm text-zinc-700">{o.description}</div>
-            <div className="mt-5 h-1 w-16 rounded-full bg-[color:var(--color-brand-pink)] opacity-60" />
-            <div className="mt-4 text-sm font-semibold text-[color:var(--color-brand-blue)]">Learn more →</div>
+            <div className="mt-5 h-1 w-16 rounded-full bg-(--color-brand-pink) opacity-60" />
+            <div className="mt-4 text-sm font-semibold text-(--color-brand-blue)">Learn more →</div>
           </Link>
         ))}
       </div>
@@ -213,7 +213,7 @@ export function PortalOffersCarousel() {
               aria-label={`Go to slide ${i + 1}`}
               className={`h-2.5 w-2.5 rounded-full transition ${
                 isActive
-                  ? "bg-[color:var(--color-brand-blue)]"
+                  ? "bg-(--color-brand-blue)"
                   : "bg-zinc-300 hover:bg-zinc-400"
               }`}
               onClick={() => {

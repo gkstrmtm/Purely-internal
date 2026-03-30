@@ -27,6 +27,12 @@ function activeDashboardBreakpoint(width: number): DashboardBreakpointKey {
   return "xxs";
 }
 
+const dashboardPrimaryButtonClass =
+  "inline-flex items-center justify-center rounded-2xl bg-brand-ink px-4 py-2 text-xs font-semibold text-white transition-transform duration-150 hover:-translate-y-0.5 hover:opacity-95";
+
+const dashboardSecondaryButtonClass =
+  "inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-xs font-semibold text-brand-ink transition-all duration-150 hover:-translate-y-0.5 hover:border-zinc-300 hover:bg-zinc-50";
+
 type ModuleKey = "blog" | "booking" | "crm" | "leadOutbound";
 
 type MeResponse = {
@@ -938,7 +944,7 @@ export function PortalDashboardClient() {
                 {me.billing.configured ? "Manage your plan and payment method." : "View billing, credits, and top-ups."}
               </div>
               <button
-                className="rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
+                className="rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white transition-transform duration-150 hover:-translate-y-0.5 hover:opacity-95 disabled:opacity-60"
                 onClick={manageBilling}
               >
                 {me.billing.configured ? "Manage" : "Billing"}
@@ -969,13 +975,13 @@ export function PortalDashboardClient() {
                 <div className="flex flex-col gap-2 sm:flex-row">
                   <Link
                     href="/portal/app/profile"
-                    className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-4 py-2 text-xs font-semibold text-white hover:opacity-95"
+                    className={dashboardPrimaryButtonClass}
                   >
                     Connect
                   </Link>
                   <Link
                     href="/portal/app/services/reporting/sales?from=dashboard"
-                    className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-xs font-semibold text-brand-ink hover:bg-zinc-50"
+                    className={dashboardSecondaryButtonClass}
                   >
                     Open sales dashboard
                   </Link>
@@ -995,7 +1001,7 @@ export function PortalDashboardClient() {
                 <div className="mt-4 flex flex-col gap-2 sm:flex-row">
                   <Link
                     href="/portal/app/services/reporting/sales?from=dashboard"
-                    className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-4 py-2 text-xs font-semibold text-white hover:opacity-95"
+                    className={dashboardPrimaryButtonClass}
                   >
                     View details
                   </Link>
@@ -1010,7 +1016,7 @@ export function PortalDashboardClient() {
                 <div className="flex flex-col gap-2 sm:flex-row">
                   <Link
                     href="/portal/app/services/reporting/sales?from=dashboard"
-                    className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-xs font-semibold text-brand-ink hover:bg-zinc-50"
+                    className={dashboardSecondaryButtonClass}
                   >
                     Open sales dashboard
                   </Link>
@@ -1040,7 +1046,7 @@ export function PortalDashboardClient() {
                     </div>
                     {!m.enabled ? (
                       <button
-                        className="shrink-0 rounded-2xl bg-brand-ink px-3 py-2 text-xs font-semibold text-white hover:opacity-95 disabled:opacity-60"
+                        className="shrink-0 rounded-2xl bg-brand-ink px-3 py-2 text-xs font-semibold text-white transition-transform duration-150 hover:-translate-y-0.5 hover:opacity-95 disabled:opacity-60"
                         onClick={() => upgrade(m.key)}
                       >
                         Upgrade
@@ -1062,27 +1068,27 @@ export function PortalDashboardClient() {
               <div className="flex flex-col gap-2 sm:flex-row">
                 <Link
                   href="/portal/app/onboarding"
-                  className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-4 py-2 text-xs font-semibold text-white hover:opacity-95"
+                  className={dashboardPrimaryButtonClass}
                 >
                   Open setup checklist
                 </Link>
                 {me.entitlements.blog ? (
                   <Link
                     href="/portal/app/services/blogs"
-                    className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-xs font-semibold text-brand-ink hover:bg-zinc-50"
+                    className={dashboardSecondaryButtonClass}
                   >
                     Open blogs
                   </Link>
                 ) : null}
                 <Link
                   href="/portal/app/billing"
-                  className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-xs font-semibold text-brand-ink hover:bg-zinc-50"
+                  className={dashboardSecondaryButtonClass}
                 >
                   Billing
                 </Link>
                 <Link
                   href="/portal/app/services/reporting"
-                  className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-xs font-semibold text-brand-ink hover:bg-zinc-50"
+                  className={dashboardSecondaryButtonClass}
                 >
                   Reporting
                 </Link>

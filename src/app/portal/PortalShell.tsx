@@ -104,6 +104,15 @@ function sidebarIconChipClass(active: boolean) {
   );
 }
 
+const portalPrimaryActionClass =
+  "transition-transform duration-150 hover:-translate-y-0.5 hover:opacity-95";
+
+const portalSecondaryActionClass =
+  "transition-all duration-150 hover:-translate-y-0.5 hover:border-zinc-300 hover:bg-zinc-50";
+
+const portalIconActionClass =
+  "transition-all duration-150 hover:-translate-y-0.5 hover:scale-105 hover:bg-zinc-50 hover:text-zinc-900";
+
 export function PortalShell({ children }: { children: React.ReactNode }) {
   usePortalActiveTimeTracker();
   usePuraCanvasUiBridgeResponder();
@@ -1441,7 +1450,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                                 "flex items-center gap-3 rounded-2xl px-3 py-2 text-sm font-medium",
                                 pathname.startsWith(`${basePath}/app/services/${s.slug}`)
                                   ? "bg-zinc-100 text-zinc-900"
-                                  : "text-zinc-700 hover:bg-zinc-50",
+                                  : `text-zinc-700 ${portalSecondaryActionClass}`,
                               )}
                             >
                               <span className={sidebarIconToneClassForSlug(s.slug)}>
@@ -1533,7 +1542,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                     href={t.href}
                     className={classNames(
                       "flex flex-col items-center justify-center gap-1 rounded-2xl px-2 py-2 text-[11px] font-semibold",
-                      active ? "bg-zinc-100 text-zinc-900" : "text-zinc-600 hover:bg-zinc-50",
+                      active ? "bg-zinc-100 text-zinc-900" : `text-zinc-600 ${portalSecondaryActionClass}`,
                     )}
                   >
                     <span className={classNames(tone)}>
@@ -1605,14 +1614,20 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
             <div className="mt-4 flex flex-wrap gap-2">
               <Link
                 href={`${basePath}/tutorials/getting-started`}
-                className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95"
+                className={classNames(
+                  "inline-flex items-center justify-center rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white",
+                  portalPrimaryActionClass,
+                )}
                 onClick={dismissGettingStartedHint}
               >
                 Open getting started
               </Link>
               <button
                 type="button"
-                className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
+                className={classNames(
+                  "inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800",
+                  portalSecondaryActionClass,
+                )}
                 onClick={dismissGettingStartedHint}
               >
                 Maybe later
@@ -1661,7 +1676,10 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
               <button
                 type="button"
                 onClick={() => setMobileOpen(false)}
-                className="ml-auto inline-flex items-center justify-center rounded-xl border border-zinc-200 bg-white p-2 text-zinc-700 hover:bg-zinc-50"
+                className={classNames(
+                  "ml-auto inline-flex items-center justify-center rounded-xl border border-zinc-200 bg-white p-2 text-zinc-700",
+                  portalIconActionClass,
+                )}
                 aria-label="Close menu"
               >
                 <span className="rotate-180">
@@ -1680,7 +1698,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                       "flex items-center gap-3 rounded-2xl px-3 py-2 text-sm font-semibold",
                       isActive(item.href)
                         ? "bg-[rgba(29,78,216,0.10)] text-zinc-900"
-                        : "text-zinc-700 hover:bg-zinc-50",
+                        : `text-zinc-700 ${portalSecondaryActionClass}`,
                     )}
                   >
                     <span
@@ -1710,7 +1728,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                         "flex items-center gap-3 rounded-2xl px-3 py-2 text-sm font-semibold",
                         pathname.startsWith(`${basePath}/app/people`)
                           ? "bg-zinc-100 text-zinc-900"
-                          : "text-zinc-700 hover:bg-zinc-50",
+                          : `text-zinc-700 ${portalSecondaryActionClass}`,
                       )}
                       onClick={() => setMobileOpen(false)}
                     >
@@ -1738,7 +1756,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                                 "flex items-center gap-3 rounded-2xl px-3 py-2 text-sm font-medium",
                                 pathname.startsWith(`${basePath}/app/services/${s.slug}`)
                                   ? "bg-zinc-100 text-zinc-900"
-                                  : "text-zinc-700 hover:bg-zinc-50",
+                                  : `text-zinc-700 ${portalSecondaryActionClass}`,
                               )}
                             >
                               <span className="inline-flex h-9 w-9 items-center justify-center rounded-2xl border border-zinc-200 bg-white">
@@ -1772,7 +1790,10 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                     <div className="mb-2 flex justify-end">
                       <button
                         type="button"
-                        className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50"
+                        className={classNames(
+                          "inline-flex h-8 w-8 items-center justify-center rounded-full border border-zinc-200 bg-white text-zinc-700",
+                          portalIconActionClass,
+                        )}
                         aria-label="Dismiss"
                         onClick={() => {
                           dismissCampaign({

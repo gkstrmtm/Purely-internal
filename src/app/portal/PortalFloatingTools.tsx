@@ -276,6 +276,15 @@ function classNames(...xs: Array<string | false | null | undefined>) {
   return xs.filter(Boolean).join(" ");
 }
 
+const floatingToolsSecondaryButtonClass =
+  "rounded-2xl border border-transparent bg-white px-3 py-2 text-xs font-semibold text-zinc-500 transition-all duration-150 hover:-translate-y-0.5 hover:border-zinc-200 hover:bg-zinc-50 hover:text-zinc-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(29,78,216,0.25)]";
+
+const floatingToolsPrimaryButtonClass =
+  "rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white transition-transform duration-150 hover:-translate-y-0.5 hover:opacity-95 disabled:opacity-60";
+
+const floatingToolsGradientButtonClass =
+  "rounded-2xl bg-linear-to-r from-(--color-brand-blue) to-(--color-brand-pink) px-4 text-sm font-semibold text-white transition-transform duration-150 hover:-translate-y-0.5 hover:opacity-95 disabled:opacity-60";
+
 export function PortalFloatingTools() {
   const [minimized, setMinimized] = useState(true);
   const [compactDock, setCompactDock] = useState(false);
@@ -632,7 +641,7 @@ export function PortalFloatingTools() {
               </div>
               <button
                 type="button"
-                className="rounded-2xl border border-transparent bg-white px-3 py-2 text-xs font-semibold text-zinc-500 hover:border-zinc-200 hover:bg-zinc-50 hover:text-zinc-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(29,78,216,0.25)] disabled:opacity-60"
+                className={classNames(floatingToolsSecondaryButtonClass, "disabled:opacity-60")}
                 onClick={() => setReportOpen(false)}
                 disabled={sending}
               >
@@ -655,7 +664,7 @@ export function PortalFloatingTools() {
               <div className="text-xs text-zinc-500">We’ll notify the team by email.</div>
               <button
                 type="button"
-                className="rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
+                className={floatingToolsPrimaryButtonClass}
                 onClick={() => void submit()}
                 disabled={sending}
               >
@@ -679,7 +688,7 @@ export function PortalFloatingTools() {
               </div>
               <button
                 type="button"
-                className="rounded-2xl border border-transparent bg-white px-3 py-2 text-xs font-semibold text-zinc-500 hover:border-zinc-200 hover:bg-zinc-50 hover:text-zinc-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(29,78,216,0.25)]"
+                className={floatingToolsSecondaryButtonClass}
                 onClick={() => setChatOpen(false)}
               >
                 ×
@@ -725,7 +734,7 @@ export function PortalFloatingTools() {
               />
               <button
                 type="button"
-                className="h-11 rounded-2xl bg-linear-to-r from-(--color-brand-blue) to-(--color-brand-pink) px-4 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
+                className={classNames("h-11", floatingToolsGradientButtonClass)}
                 onClick={() => void sendSupportChat()}
                 disabled={chatSending}
               >
@@ -751,7 +760,7 @@ export function PortalFloatingTools() {
               </button>
               <button
                 type="button"
-                className="grid h-11 w-11 place-items-center rounded-full border border-zinc-200 bg-white text-zinc-800 shadow-lg ring-1 ring-[rgba(29,78,216,0.14)] transition-transform duration-150 hover:scale-105 hover:bg-zinc-50"
+                className="grid h-11 w-11 place-items-center rounded-full border border-zinc-200 bg-white text-zinc-800 shadow-lg ring-1 ring-[rgba(29,78,216,0.14)] transition-all duration-150 hover:-translate-y-0.5 hover:scale-105 hover:bg-zinc-50"
                 onClick={() => persistMinimized(false)}
                 aria-label="Open chat and report tools"
               >
@@ -771,7 +780,7 @@ export function PortalFloatingTools() {
             <div className="flex items-center gap-2">
               <button
                 type="button"
-                className="flex items-center gap-2 rounded-full border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 shadow-lg ring-1 ring-[rgba(29,78,216,0.14)] hover:bg-zinc-50"
+                className="flex items-center gap-2 rounded-full border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 shadow-lg ring-1 ring-[rgba(29,78,216,0.14)] transition-all duration-150 hover:-translate-y-0.5 hover:bg-zinc-50"
                 onClick={() => persistMinimized(false)}
                 aria-label="Open tools"
               >
@@ -789,7 +798,7 @@ export function PortalFloatingTools() {
               </button>
               <button
                 type="button"
-                className="grid h-11 w-11 place-items-center rounded-full border border-zinc-200 bg-white text-zinc-700 shadow-lg ring-1 ring-[rgba(29,78,216,0.14)] transition-transform duration-150 hover:scale-105 hover:bg-zinc-50"
+                className="grid h-11 w-11 place-items-center rounded-full border border-zinc-200 bg-white text-zinc-700 shadow-lg ring-1 ring-[rgba(29,78,216,0.14)] transition-all duration-150 hover:-translate-y-0.5 hover:scale-105 hover:bg-zinc-50"
                 onClick={() => setCompactDock(true)}
                 aria-label="Collapse tools to icon"
                 title="Collapse to icon"
@@ -811,7 +820,7 @@ export function PortalFloatingTools() {
               </div>
               <button
                 type="button"
-                className="rounded-full border border-transparent bg-white px-2 py-1 text-xs font-semibold text-zinc-500 hover:border-zinc-200 hover:bg-zinc-50 hover:text-zinc-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(29,78,216,0.25)]"
+                className="rounded-full border border-transparent bg-white px-2 py-1 text-xs font-semibold text-zinc-500 transition-all duration-150 hover:-translate-y-0.5 hover:border-zinc-200 hover:bg-zinc-50 hover:text-zinc-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(29,78,216,0.25)]"
                 onClick={() => persistMinimized(true)}
                 aria-label="Minimize"
               >
@@ -824,7 +833,7 @@ export function PortalFloatingTools() {
                 type="button"
                 className={classNames(
                   "rounded-2xl px-3 py-2 text-sm font-semibold",
-                  "bg-(--color-brand-blue) text-white hover:opacity-95",
+                  "bg-(--color-brand-blue) text-white transition-transform duration-150 hover:-translate-y-0.5 hover:opacity-95",
                 )}
                 onClick={() => setReportOpen(true)}
               >
@@ -835,7 +844,7 @@ export function PortalFloatingTools() {
                 type="button"
                 className={classNames(
                   "rounded-2xl px-3 py-2 text-sm font-semibold",
-                  "bg-linear-to-r from-(--color-brand-blue) to-(--color-brand-pink) text-white hover:opacity-95",
+                  "bg-linear-to-r from-(--color-brand-blue) to-(--color-brand-pink) text-white transition-transform duration-150 hover:-translate-y-0.5 hover:opacity-95",
                 )}
                 onClick={() => setChatOpen(true)}
               >
