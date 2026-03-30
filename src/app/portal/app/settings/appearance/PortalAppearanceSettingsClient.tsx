@@ -323,7 +323,7 @@ export function PortalAppearanceSettingsClient() {
 
         {!voiceAgentApiKeyConfigured ? (
           <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
-            Add your voice agent API key in Profile before picking a PURA dictation voice.
+            Add your voice agent API key in Profile before picking a Pura dictation voice.
           </div>
         ) : null}
 
@@ -332,6 +332,7 @@ export function PortalAppearanceSettingsClient() {
             <label className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Voice</label>
             <div className="mt-2">
               <PortalListboxDropdown
+                className="z-30"
                 value={selectedVoiceId}
                 options={voiceOptions}
                 onChange={(value) => setSelectedVoiceId(value)}

@@ -1,6 +1,9 @@
 "use client";
 
+import { usePathname } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
+
+import { IconChevron, IconSend, IconSendHover } from "@/app/portal/PortalIcons";
 
 type VersionPayload = {
   ok?: boolean;
@@ -13,8 +16,7 @@ type VersionPayload = {
 
 type BugReportResponse = { ok?: boolean; reportId?: string; emailed?: boolean; error?: string };
 
-type SupportChatMessage = { role: "assistant" | "user"; text: string };
-type SupportChatResponse = { ok?: boolean; reply?: string; error?: string };
+type SupportChatMessage = { id: string; role: "assistant" | "user"; text: string };
 
 function isSafeHref(href: string) {
   const raw = String(href || "").trim();
@@ -276,6 +278,45 @@ function classNames(...xs: Array<string | false | null | undefined>) {
   return xs.filter(Boolean).join(" ");
 }
 
+function newClientId() {
+  try {
+    if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID();
+  } catch {
+    // ignore
+  }
+  return `${Date.now().toString(16)}-${Math.random().toString(16).slice(2)}`;
+}
+
+function ThinkingDots() {
+  return (
+    <div className="inline-flex items-center gap-1" aria-label="Thinking">
+      <span className="inline-block h-2 w-2 rounded-full bg-zinc-400/80 animate-bounce" style={{ animationDelay: "0ms" }} />
+      <span className="inline-block h-2 w-2 rounded-full bg-zinc-400/80 animate-bounce" style={{ animationDelay: "100ms" }} />
+      <span className="inline-block h-2 w-2 rounded-full bg-zinc-400/80 animate-bounce" style={{ animationDelay: "200ms" }} />
+    </div>
+  );
+}
+
+function IconContinueWithPura({ size = 18 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden>
+      <path
+        d="M12 13.5V7.5M9 10.5H15M9.9 19.2L11.36 21.1467C11.5771 21.4362 11.6857 21.5809 11.8188 21.6327C11.9353 21.678 12.0647 21.678 12.1812 21.6327C12.3143 21.5809 12.4229 21.4362 12.64 21.1467L14.1 19.2C14.3931 18.8091 14.5397 18.6137 14.7185 18.4645C14.9569 18.2656 15.2383 18.1248 15.5405 18.0535C15.7671 18 16.0114 18 16.5 18C17.8978 18 18.5967 18 19.1481 17.7716C19.8831 17.4672 20.4672 16.8831 20.7716 16.1481C21 15.5967 21 14.8978 21 13.5V7.8C21 6.11984 21 5.27976 20.673 4.63803C20.3854 4.07354 19.9265 3.6146 19.362 3.32698C18.7202 3 17.8802 3 16.2 3H7.8C6.11984 3 5.27976 3 4.63803 3.32698C4.07354 3.6146 3.6146 4.07354 3.32698 4.63803C3 5.27976 3 6.11984 3 7.8V13.5C3 14.8978 3 15.5967 3.22836 16.1481C3.53284 16.8831 4.11687 17.4672 4.85195 17.7716C5.40326 18 6.10218 18 7.5 18C7.98858 18 8.23287 18 8.45951 18.0535C8.76169 18.1248 9.04312 18.2656 9.2815 18.4645C9.46028 18.6137 9.60685 18.8091 9.9 19.2Z"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+const defaultWidgetWelcomeMessage = (): SupportChatMessage => ({
+  id: "widget-welcome",
+  role: "assistant",
+  text: "Ask a question, assign tasks, and more!",
+});
+
 const floatingToolsSecondaryButtonClass =
   "rounded-2xl border border-transparent bg-white px-3 py-2 text-xs font-semibold text-zinc-500 transition-all duration-150 hover:-translate-y-0.5 hover:border-zinc-200 hover:bg-zinc-50 hover:text-zinc-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(29,78,216,0.25)]";
 
@@ -286,6 +327,8 @@ const floatingToolsGradientButtonClass =
   "rounded-2xl bg-linear-to-r from-(--color-brand-blue) to-(--color-brand-pink) px-4 text-sm font-semibold text-white transition-transform duration-150 hover:-translate-y-0.5 hover:opacity-95 disabled:opacity-60";
 
 export function PortalFloatingTools() {
+  const pathname = usePathname() || "";
+  const portalBase = pathname.startsWith("/credit") ? "/credit" : "/portal";
   const [minimized, setMinimized] = useState(true);
   const [compactDock, setCompactDock] = useState(false);
   const [forceHidden, setForceHidden] = useState(false);
@@ -293,12 +336,8 @@ export function PortalFloatingTools() {
   const [version, setVersion] = useState<VersionPayload | null>(null);
   const [reportOpen, setReportOpen] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
-  const [chatMessages, setChatMessages] = useState<SupportChatMessage[]>([
-    {
-      role: "assistant",
-      text: "Tell me what you’re trying to do in the portal and what went wrong. If it’s urgent, use Report bug.",
-    },
-  ]);
+  const [chatThreadId, setChatThreadId] = useState<string | null>(null);
+  const [chatMessages, setChatMessages] = useState<SupportChatMessage[]>([defaultWidgetWelcomeMessage()]);
   const [chatInput, setChatInput] = useState("");
   const [chatSending, setChatSending] = useState(false);
   const [message, setMessage] = useState("");
@@ -318,6 +357,15 @@ export function PortalFloatingTools() {
   useEffect(() => {
     chatMessagesRef.current = chatMessages;
   }, [chatMessages]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const savedThreadId = window.localStorage.getItem("pa_portal_floating_tools_thread_id");
+    if (savedThreadId) {
+      setChatThreadId(savedThreadId);
+      void loadPuraThreadMessages(savedThreadId);
+    }
+  }, []);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -508,6 +556,46 @@ export function PortalFloatingTools() {
     if (!next) setCompactDock(false);
   }
 
+  function persistWidgetThreadId(nextThreadId: string | null) {
+    setChatThreadId(nextThreadId);
+    if (typeof window === "undefined") return;
+    if (nextThreadId) window.localStorage.setItem("pa_portal_floating_tools_thread_id", nextThreadId);
+    else window.localStorage.removeItem("pa_portal_floating_tools_thread_id");
+  }
+
+  async function loadPuraThreadMessages(threadId: string) {
+    const res = await fetch(`/api/portal/ai-chat/threads/${encodeURIComponent(threadId)}/messages`, {
+      cache: "no-store",
+    }).catch(() => null as any);
+
+    if (!res?.ok) {
+      persistWidgetThreadId(null);
+      setChatMessages([defaultWidgetWelcomeMessage()]);
+      return;
+    }
+
+    const json = (await res.json().catch(() => null)) as { ok?: boolean; messages?: Array<{ id: string; role: string; text: string }> } | null;
+    if (!json?.ok) {
+      persistWidgetThreadId(null);
+      setChatMessages([defaultWidgetWelcomeMessage()]);
+      return;
+    }
+
+    const nextMessages = Array.isArray(json.messages)
+      ? json.messages
+          .filter((message) => message && (message.role === "assistant" || message.role === "user"))
+          .map((message) => ({ id: String(message.id), role: message.role as "assistant" | "user", text: String(message.text || "") }))
+      : [];
+
+    setChatMessages(nextMessages.length ? nextMessages : [defaultWidgetWelcomeMessage()]);
+  }
+
+  function continueWithPura() {
+    if (typeof window === "undefined") return;
+    const target = chatThreadId ? `${portalBase}/app/ai-chat?thread=${encodeURIComponent(chatThreadId)}` : `${portalBase}/app/ai-chat`;
+    window.location.href = target;
+  }
+
   async function submit() {
     const text = message.trim();
     if (!text) {
@@ -566,48 +654,86 @@ export function PortalFloatingTools() {
 
     setChatInput("");
     setChatSending(true);
-    const nextRecentMessages: SupportChatMessage[] = [...chatMessagesRef.current, { role: "user" as const, text }].slice(-12);
-    setChatMessages(nextRecentMessages);
+    let threadIdForSend = chatThreadId;
+    let createdThreadId: string | null = null;
+
+    if (!threadIdForSend) {
+      const created = await fetch("/api/portal/ai-chat/threads", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({}),
+      }).catch(() => null as any);
+
+      const createdJson = (created ? ((await created.json().catch(() => null)) as { ok?: boolean; thread?: { id?: string } | null; error?: string } | null) : null) ?? null;
+      if (!created?.ok || !createdJson?.ok || !createdJson.thread?.id) {
+        setChatMessages((current) => [
+          ...current,
+          { id: `widget-error-${newClientId()}`, role: "assistant", text: createdJson?.error || "Chat is unavailable right now. Please use Report bug." },
+        ]);
+        setChatSending(false);
+        scheduleChatScrollToBottom(true);
+        return;
+      }
+
+      createdThreadId = String(createdJson.thread.id);
+      threadIdForSend = createdThreadId;
+      persistWidgetThreadId(createdThreadId);
+    }
+
+    const optimisticUserId = `optimistic-user-${newClientId()}`;
+    const optimisticAssistantId = `optimistic-assistant-${newClientId()}`;
+    setChatMessages((current) => [
+      ...current,
+      { id: optimisticUserId, role: "user", text },
+      { id: optimisticAssistantId, role: "assistant", text: "" },
+    ]);
     shouldAutoScrollRef.current = true;
     scheduleChatScrollToBottom(true);
 
-    const payload = {
-      message: text,
-      url: typeof window !== "undefined" ? window.location.href : undefined,
-      meta: {
-        buildSha: version?.buildSha ?? null,
-        commitRef: version?.commitRef ?? null,
-        deploymentId: version?.deploymentId ?? null,
-        nodeEnv: version?.nodeEnv ?? null,
-        clientTime: new Date().toISOString(),
-      },
-      context: {
-        recentMessages: nextRecentMessages.slice(-10),
-      },
-    };
-
-    const res = await fetch("/api/portal/support-chat", {
+    const res = await fetch(`/api/portal/ai-chat/threads/${encodeURIComponent(threadIdForSend)}/messages`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify(payload),
+      body: JSON.stringify({
+        text,
+        url: typeof window !== "undefined" ? window.location.href : undefined,
+      }),
     }).catch(() => null as any);
 
     if (!res?.ok) {
-      setChatMessages((cur) => [...cur, { role: "assistant", text: "Chat is unavailable right now. Please use Report bug." }]);
+      setChatMessages((current) => {
+        const cleaned = current.filter((message) => message.id !== optimisticUserId && message.id !== optimisticAssistantId);
+        return [...cleaned, { id: `widget-error-${newClientId()}`, role: "assistant", text: "Chat is unavailable right now. Please use Report bug." }];
+      });
       setChatSending(false);
       scheduleChatScrollToBottom(true);
       return;
     }
 
-    const json = (await res.json().catch(() => ({}))) as SupportChatResponse;
-    if (!json?.ok || !json.reply) {
-      setChatMessages((cur) => [...cur, { role: "assistant", text: json?.error ?? "Chat failed. Please use Report bug." }]);
+    const json = (await res.json().catch(() => ({}))) as {
+      ok?: boolean;
+      error?: string;
+      userMessage?: { id: string; role: "user"; text: string };
+      assistantMessage?: { id: string; role: "assistant"; text: string };
+    };
+    if (!json?.ok) {
+      setChatMessages((current) => {
+        const cleaned = current.filter((message) => message.id !== optimisticUserId && message.id !== optimisticAssistantId);
+        return [...cleaned, { id: `widget-error-${newClientId()}`, role: "assistant", text: json?.error ?? "Chat failed. Please use Report bug." }];
+      });
       setChatSending(false);
       scheduleChatScrollToBottom(true);
       return;
     }
 
-    setChatMessages((cur) => [...cur, { role: "assistant", text: json.reply ?? "" }]);
+    if (createdThreadId) persistWidgetThreadId(createdThreadId);
+
+    setChatMessages((current) => {
+      const cleaned = current.filter((message) => message.id !== optimisticUserId && message.id !== optimisticAssistantId);
+      const next = [...cleaned];
+      if (json.userMessage) next.push({ id: String(json.userMessage.id), role: "user", text: String(json.userMessage.text || "") });
+      if (json.assistantMessage) next.push({ id: String(json.assistantMessage.id), role: "assistant", text: String(json.assistantMessage.text || "") });
+      return next;
+    });
     setChatSending(false);
     scheduleChatScrollToBottom(true);
   }
@@ -686,13 +812,29 @@ export function PortalFloatingTools() {
                 <div className="text-sm font-semibold text-zinc-900">Chat</div>
                 <div className="mt-1 text-xs text-zinc-500">{versionLabel}</div>
               </div>
-              <button
-                type="button"
-                className={floatingToolsSecondaryButtonClass}
-                onClick={() => setChatOpen(false)}
-              >
-                ×
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  className="group inline-flex items-center rounded-2xl bg-transparent text-sm font-semibold text-zinc-700 transition-transform duration-150 hover:-translate-y-0.5 hover:text-zinc-900"
+                  onClick={continueWithPura}
+                  aria-label="Continue with Pura"
+                  title="Continue with Pura"
+                >
+                  <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl text-zinc-700 transition-all duration-150 group-hover:scale-110 group-hover:bg-zinc-50 group-hover:text-zinc-900">
+                    <IconContinueWithPura />
+                  </span>
+                  <span className="ml-2 max-w-0 overflow-hidden whitespace-nowrap text-sm font-semibold opacity-0 transition-[max-width,opacity] duration-200 group-hover:max-w-40 group-hover:opacity-100">
+                    Continue with Pura
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  className={floatingToolsSecondaryButtonClass}
+                  onClick={() => setChatOpen(false)}
+                >
+                  ×
+                </button>
+              </div>
             </div>
 
             <div
@@ -707,7 +849,7 @@ export function PortalFloatingTools() {
             >
               {chatMessages.map((m, idx) => (
                 <div
-                  key={idx}
+                  key={m.id || idx}
                   className={
                     "rounded-2xl px-3 py-2 text-sm leading-relaxed " +
                     (m.role === "user"
@@ -715,7 +857,7 @@ export function PortalFloatingTools() {
                       : "mr-10 border border-zinc-200 bg-white text-zinc-800")
                   }
                 >
-                  {m.role === "assistant" ? renderMarkdownish(m.text) : m.text}
+                  {m.role === "assistant" && m.id.startsWith("optimistic-assistant-") ? <ThinkingDots /> : m.role === "assistant" ? renderMarkdownish(m.text) : m.text}
                 </div>
               ))}
               <div ref={chatEndRef} />
@@ -725,7 +867,7 @@ export function PortalFloatingTools() {
               <input
                 value={chatInput}
                 onChange={(e) => setChatInput(e.target.value)}
-                placeholder="Describe the issue…"
+                placeholder="Ask a question, assign tasks, and more!"
                 className="h-11 flex-1 rounded-2xl border border-zinc-200 bg-white px-4 text-sm text-zinc-900 outline-none focus:border-(--color-brand-blue)"
                 onKeyDown={(e) => {
                   if (e.key === "Enter") void sendSupportChat();
@@ -734,15 +876,25 @@ export function PortalFloatingTools() {
               />
               <button
                 type="button"
-                className={classNames("h-11", floatingToolsGradientButtonClass)}
+                className={classNames(
+                  "group inline-flex h-11 w-11 items-center justify-center rounded-2xl",
+                  floatingToolsGradientButtonClass,
+                  (!chatInput.trim() || chatSending) && "opacity-60",
+                )}
                 onClick={() => void sendSupportChat()}
-                disabled={chatSending}
+                disabled={!chatInput.trim() || chatSending}
+                aria-label="Send"
               >
-                {chatSending ? "Sending…" : "Send"}
+                <span className="group-hover:hidden">
+                  <IconSend />
+                </span>
+                <span className="hidden group-hover:inline">
+                  <IconSendHover />
+                </span>
               </button>
             </div>
 
-            <div className="mt-2 text-xs text-zinc-500">If it looks like a bug, use Report bug so we get the details.</div>
+            <div className="mt-2 text-xs text-zinc-500">Continue in Pura anytime, or use Report bug if something is broken.</div>
         </div>
       ) : null}
 
@@ -756,7 +908,7 @@ export function PortalFloatingTools() {
                 onClick={() => setCompactDock(false)}
                 aria-label="Expand tools"
               >
-                Show tools →
+                Show
               </button>
               <button
                 type="button"
@@ -796,15 +948,27 @@ export function PortalFloatingTools() {
                 </span>
                 <span className="text-sm font-semibold text-zinc-900">Chat and Report</span>
               </button>
-              <button
-                type="button"
-                className="grid h-11 w-11 place-items-center rounded-full border border-zinc-200 bg-white text-zinc-700 shadow-lg ring-1 ring-[rgba(29,78,216,0.14)] transition-all duration-150 hover:-translate-y-0.5 hover:scale-105 hover:bg-zinc-50"
-                onClick={() => setCompactDock(true)}
-                aria-label="Collapse tools to icon"
-                title="Collapse to icon"
-              >
-                <span className="text-base">↘</span>
-              </button>
+              <div className="group flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  className="pointer-events-none rounded-full border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-700 opacity-0 shadow-lg transition-all duration-150 group-hover:pointer-events-auto group-hover:translate-x-0 group-hover:opacity-100"
+                  onClick={() => setCompactDock(true)}
+                  aria-label="Hide tools"
+                >
+                  Hide
+                </button>
+                <button
+                  type="button"
+                  className="grid h-11 w-11 place-items-center rounded-full border border-zinc-200 bg-white text-zinc-700 shadow-lg ring-1 ring-[rgba(29,78,216,0.14)] transition-all duration-150 hover:-translate-y-0.5 hover:scale-105 hover:bg-zinc-50"
+                  onClick={() => setCompactDock(true)}
+                  aria-label="Collapse tools to icon"
+                  title="Hide"
+                >
+                  <span className="rotate-180">
+                    <IconChevron />
+                  </span>
+                </button>
+              </div>
             </div>
           )
         ) : (

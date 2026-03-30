@@ -244,6 +244,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
     pathname.includes("/editor");
   const [collapsed, setCollapsed] = useState(false);
   const collapsedBeforeCanvasOpenRef = useRef<boolean | null>(null);
+  const prevPuraCanvasOpenRef = useRef(false);
   const [mobileOpen, setMobileOpen] = useState(false);
 
   const sidebarOverride = usePortalSidebarOverride();
@@ -634,18 +635,20 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (!isAiChat) {
       collapsedBeforeCanvasOpenRef.current = null;
+      prevPuraCanvasOpenRef.current = false;
       return;
     }
 
-    if (puraCanvasOpen) {
-      if (collapsedBeforeCanvasOpenRef.current === null) {
-        collapsedBeforeCanvasOpenRef.current = collapsed;
-      }
+    const wasCanvasOpen = prevPuraCanvasOpenRef.current;
+    prevPuraCanvasOpenRef.current = puraCanvasOpen;
+
+    if (puraCanvasOpen && !wasCanvasOpen) {
+      collapsedBeforeCanvasOpenRef.current = collapsed;
       if (!collapsed) setCollapsed(true);
       return;
     }
 
-    if (collapsedBeforeCanvasOpenRef.current !== null) {
+    if (!puraCanvasOpen && wasCanvasOpen && collapsedBeforeCanvasOpenRef.current !== null) {
       setCollapsed(collapsedBeforeCanvasOpenRef.current);
       collapsedBeforeCanvasOpenRef.current = null;
     }
@@ -674,7 +677,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
   }, [variant]);
 
   const isFullDemo = (me?.user.email ?? "").toLowerCase().trim() === DEFAULT_FULL_DEMO_EMAIL;
-  const signedInLabel = (me?.user.businessName ?? "").trim() || me?.user.email || "";
+  const signedInLabel = (me?.user.email ?? "").trim();
   const knownServiceKeys = useMemo(() => new Set<string>(PORTAL_SERVICE_KEYS as unknown as string[]), []);
 
   const canViewServiceKey = useCallback(
@@ -1873,17 +1876,28 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                 <button
                   type="button"
                   onClick={() => setCollapsed((v) => !v)}
-                  className="inline-flex h-10 w-10 items-center justify-center rounded-2xl bg-transparent text-zinc-700 transition-colors hover:bg-zinc-50 hover:text-zinc-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--color-brand-blue)"
+                  className="group inline-flex h-10 w-10 items-center justify-center rounded-2xl bg-transparent text-zinc-700 transition-all duration-200 hover:-translate-y-0.5 hover:bg-zinc-50 hover:text-zinc-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--color-brand-blue)"
                   aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
                   title={collapsed ? "Expand" : "Collapse"}
                 >
-                  {collapsed ? (
-                    <IconHamburger />
-                  ) : (
-                    <span className="rotate-180">
+                  <span className="relative inline-flex h-5 w-5 items-center justify-center overflow-hidden" aria-hidden>
+                    <span
+                      className={classNames(
+                        "absolute inset-0 flex items-center justify-center transition-all duration-200",
+                        collapsed ? "translate-x-0 rotate-0 opacity-100" : "-translate-x-1 rotate-180 opacity-0",
+                      )}
+                    >
                       <IconChevron />
                     </span>
-                  )}
+                    <span
+                      className={classNames(
+                        "absolute inset-0 flex items-center justify-center transition-all duration-200",
+                        collapsed ? "translate-x-1 -rotate-180 opacity-0" : "translate-x-0 rotate-180 opacity-100",
+                      )}
+                    >
+                      <IconChevron />
+                    </span>
+                  </span>
                 </button>
               </div>
 
@@ -2197,29 +2211,9 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                     <IconEyeGlyph />
                   </Link>
 
-                  {activeServiceSlug ? (
-                    (() => {
-                      const svc = visibleSidebarServices.find((x) => x.slug === activeServiceSlug);
-                      if (!svc) return null;
-                      return (
-                        <Link
-                          href={`${basePath}/app/services/${svc.slug}`}
-                          title={svc.title}
-                          aria-label={svc.title}
-                          className={sidebarIconButtonClass(pathname.startsWith(`${basePath}/app/services/${svc.slug}`))}
-                        >
-                          <span className={sidebarIconToneClassForSlug(svc.slug)} aria-hidden>
-                            <IconServiceGlyph slug={svc.slug} />
-                          </span>
-                        </Link>
-                      );
-                    })()
-                  ) : null}
-
                   <div className="mt-2 flex min-h-0 w-full flex-1 flex-col items-center gap-1 overflow-y-auto overscroll-y-contain">
                     {sidebarServiceGroups.flatMap((group) => {
-                      const items = group.services.filter((s) => s.slug !== activeServiceSlug);
-                      return items.flatMap((svc) => {
+                      return group.services.flatMap((svc) => {
                         const out: React.ReactNode[] = [];
 
                         if (group.key === "communication" && svc.slug === "inbox") {
@@ -2289,18 +2283,6 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                   </Link>
                 </div>
 
-                {activeServiceSlug ? (
-                  <div className="mt-4">
-                    <div className="px-3 text-[10px] font-semibold uppercase tracking-wide text-zinc-500">Current</div>
-                    <div className="mt-1">
-                      {(() => {
-                        const svc = visibleSidebarServices.find((x) => x.slug === activeServiceSlug);
-                        return svc ? renderSidebarServiceLink(svc) : null;
-                      })()}
-                    </div>
-                  </div>
-                ) : null}
-
                 <div className="mt-4">
                   <div className="mt-2 space-y-2">
                     {sidebarServiceGroups.map((group) => (
@@ -2310,7 +2292,6 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                           {group.key === "communication" ? (
                             <>
                               {group.services
-                                .filter((s) => s.slug !== activeServiceSlug)
                                 .flatMap((s) => {
                                   if (s.slug === "inbox") {
                                     const items = [renderSidebarServiceLink(s)];
@@ -2322,9 +2303,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                             </>
                           ) : (
                             <>
-                              {group.services
-                                .filter((s) => s.slug !== activeServiceSlug)
-                                .map((s) => renderSidebarServiceLink(s))}
+                              {group.services.map((s) => renderSidebarServiceLink(s))}
                             </>
                           )}
                         </div>

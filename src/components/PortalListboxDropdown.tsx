@@ -103,7 +103,7 @@ export function PortalListboxDropdown<T extends string>(props: {
         className="overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-lg"
         style={{
           position: portal ? "fixed" : ("static" as any),
-          zIndex: 100000,
+          zIndex: 120100,
           left: portal ? (menuRect?.left ?? 0) : undefined,
           top: portal ? (menuRect?.top ?? 0) : undefined,
           width: portal ? (menuRect?.width ?? 0) : undefined,
@@ -220,7 +220,7 @@ export function PortalListboxDropdown<T extends string>(props: {
   }, [open, options.length]);
 
   return (
-    <div ref={rootRef} className={"relative " + (className || "")}> 
+    <div ref={rootRef} className={"relative z-120000 " + (className || "")}> 
       <button
         ref={buttonRef}
         type="button"
@@ -231,6 +231,9 @@ export function PortalListboxDropdown<T extends string>(props: {
             "flex w-full items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50") +
           (disabled ? " cursor-not-allowed opacity-60" : "")
         }
+        onMouseDown={(e) => {
+          e.stopPropagation();
+        }}
         onClick={() => {
           if (disabled) return;
           setOpen((v) => {

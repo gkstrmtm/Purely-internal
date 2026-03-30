@@ -1,5 +1,6 @@
 "use client";
 
+import { useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -452,6 +453,7 @@ function MessageBubble({
 }
 
 export function PortalAiChatClient() {
+  const searchParams = useSearchParams();
   // Threads sidebar is resize-only (no close control).
   const [canvasOpen, setCanvasOpen] = useState(() => {
     if (typeof window !== "undefined") {
@@ -727,6 +729,7 @@ export function PortalAiChatClient() {
   const sendInFlightRef = useRef(false);
 
   const activeThread = useMemo(() => threads.find((t) => t.id === activeThreadId) || null, [threads, activeThreadId]);
+  const requestedThreadId = (searchParams?.get("thread") || "").trim() || null;
 
   useEffect(() => {
     const root = document.documentElement;
@@ -833,6 +836,13 @@ export function PortalAiChatClient() {
     if (!activeThreadId) return;
     void loadMessages(activeThreadId);
   }, [activeThreadId, loadMessages]);
+
+  useEffect(() => {
+    if (!requestedThreadId || threadsLoading) return;
+    if (!threads.some((thread) => thread.id === requestedThreadId)) return;
+    if (activeThreadId === requestedThreadId) return;
+    selectThread(requestedThreadId);
+  }, [activeThreadId, requestedThreadId, selectThread, threads, threadsLoading]);
 
   const createThread = useCallback(() => {
     // "New chat" is a local-only draft until the user sends the first message.
@@ -1980,7 +1990,7 @@ export function PortalAiChatClient() {
             requestAnimationFrame(() => resizeInput());
           }}
           rows={1}
-          placeholder={uploading ? "Uploading…" : showWelcomeComposer ? "Ask Pura anything" : "Message"}
+          placeholder={uploading ? "Uploading…" : showWelcomeComposer ? "Ask a question, assign tasks, and more!" : "Message"}
           className={composerTextareaClass}
           onKeyDown={(e) => {
             if (e.key === "Enter" && !e.shiftKey) {
@@ -2384,7 +2394,7 @@ export function PortalAiChatClient() {
                 <div className="w-full max-w-2xl">
                   <div className="mb-6 text-center">
                     <div className="text-3xl font-semibold tracking-tight text-zinc-900">Let Pura work for you</div>
-                    <div className="mt-2 text-sm text-zinc-500">Ask a question, schedule follow-ups, or attach a file.</div>
+                    <div className="mt-2 text-sm text-zinc-500">Ask a question, assign tasks, and more!</div>
                   </div>
                   <div className="rounded-3xl bg-white p-3 shadow-[0_18px_50px_rgba(0,0,0,0.08)]">
                     {composerInner}
