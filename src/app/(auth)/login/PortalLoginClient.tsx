@@ -63,8 +63,11 @@ export default function PortalLoginClient() {
       return;
     }
 
+    const json = (await res.json().catch(() => null)) as { ok?: boolean; defaultFrom?: string | null } | null;
+    const preferredFrom = safeInternalPath(json?.defaultFrom, defaultFrom);
+
     // Hard navigation ensures the new session cookie is applied for the next request.
-    window.location.assign(from);
+    window.location.assign(fromRaw ? from : preferredFrom);
   }
 
   return (

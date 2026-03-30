@@ -89,7 +89,7 @@ export async function POST(req: Request) {
     maxAge: 60 * 60 * 24 * 30,
   });
 
-  const res = NextResponse.json({ ok: true });
+  const res = NextResponse.json({ ok: true, defaultFrom: "/credit/app" });
   res.cookies.set({
     name: CREDIT_PORTAL_SESSION_COOKIE_NAME,
     value: token,

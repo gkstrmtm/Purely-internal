@@ -13,6 +13,7 @@ import { listMissedCallTextBackEvents, type MissedCallTextBackEvent } from "@/li
 import { sumHoursSavedSeconds } from "@/lib/hoursSaved";
 import { sendVerifyEmail } from "@/lib/portalEmailVerification.server";
 import { dbHasPublicColumn } from "@/lib/dbSchemaCompat";
+import { getPortalBusinessProfile } from "@/lib/portalBusinessProfile.server";
 
 function safeDate(value: unknown): Date | null {
   if (typeof value !== "string" || !value.trim()) return null;
@@ -293,12 +294,22 @@ export async function GET(req: Request) {
         .catch(() => null);
 
   const metrics = metricsOwnerId ? await computeHoursSaved(metricsOwnerId) : { hoursSavedThisWeek: 0, hoursSavedAllTime: 0 };
+  const businessName =
+    app === "portal" && ownerIdForEntitlements
+      ? await getPortalBusinessProfile({ ownerId: ownerIdForEntitlements })
+          .then((result) => {
+            const raw = result.json && typeof result.json === "object" ? (result.json as any)?.profile?.businessName : "";
+            return typeof raw === "string" ? raw.trim() : "";
+          })
+          .catch(() => "")
+      : "";
 
   return NextResponse.json({
     user: {
       email: user.email,
       name: user.name,
       role: user.role,
+      businessName: businessName || null,
     },
     entitlements,
     metrics,

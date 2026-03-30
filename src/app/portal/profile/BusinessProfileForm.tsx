@@ -947,7 +947,7 @@ export function BusinessProfileForm({
             type="button"
             onClick={save}
             disabled={!canSave || saving || !dirty}
-            className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-5 py-3 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
+            className="inline-flex items-center justify-center rounded-2xl bg-brand-blue px-5 py-3 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
           >
             {saving ? "Saving…" : dirty ? "Save" : "Saved"}
           </button>

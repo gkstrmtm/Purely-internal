@@ -8,7 +8,7 @@ export default async function PortalAppBillingPage() {
     <div className="mx-auto w-full max-w-6xl">
       <h1 className="text-2xl font-bold text-brand-ink sm:text-3xl">Billing</h1>
       <div className="mt-6">
-        <PortalBillingClient embedded />
+        <PortalBillingClient embedded hideMonthlyBreakdown />
       </div>
     </div>
   );

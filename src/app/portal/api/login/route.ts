@@ -9,6 +9,16 @@ import { CREDIT_PORTAL_SESSION_COOKIE_NAME, PORTAL_SESSION_COOKIE_NAME } from "@
 import { resolvePortalOwnerIdForLogin } from "@/lib/portalAccounts";
 import { normalizePortalVariant, PORTAL_VARIANT_HEADER, type PortalVariant } from "@/lib/portalVariant";
 
+const PROFILE_EXTRAS_SERVICE_SLUG = "profile";
+
+function normalizeDefaultLoginPath(input: unknown): string | null {
+  const path = typeof input === "string" ? input.trim().slice(0, 240) : "";
+  if (!path) return null;
+  if (!path.startsWith("/") || path.startsWith("//")) return null;
+  if (!/^\/(portal|credit)\/app(?:\/.*)?$/i.test(path)) return null;
+  return path;
+}
+
 const bodySchema = z.object({
   email: z.string().email(),
   password: z.string().min(6),
@@ -134,6 +144,11 @@ export async function POST(req: Request) {
 
   // Multi-user portal accounts: session uid is the account ownerId.
   const ownerId = await resolvePortalOwnerIdForLogin(user.id).catch(() => user.id);
+  const profileSetup = await prisma.portalServiceSetup.findUnique({
+    where: { ownerId_serviceSlug: { ownerId: user.id, serviceSlug: PROFILE_EXTRAS_SERVICE_SLUG } },
+    select: { dataJson: true },
+  }).catch(() => null);
+  const defaultFrom = normalizeDefaultLoginPath((profileSetup?.dataJson as any)?.defaultLoginPath);
 
   const token = await encode({
     secret,
@@ -147,7 +162,7 @@ export async function POST(req: Request) {
     maxAge: 60 * 60 * 24 * 30,
   });
 
-  const res = NextResponse.json(wantsToken ? { ok: true, token } : { ok: true });
+  const res = NextResponse.json(wantsToken ? { ok: true, token, defaultFrom } : { ok: true, defaultFrom });
   res.cookies.set({
     name: portalVariantToCookieName[variant],
     value: token,

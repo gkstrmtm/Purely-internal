@@ -6,6 +6,7 @@ import { getPortalUser } from "@/lib/portalAuth";
 import { PortalHeaderCta } from "@/app/portal/PortalHeaderCta";
 import { PortalHelpLink } from "@/app/portal/PortalHelpLink";
 import { PortalTopbarHeightClient } from "@/app/portal/PortalTopbarHeightClient";
+import { getPortalBusinessProfile } from "@/lib/portalBusinessProfile.server";
 import { normalizePortalVariant, PORTAL_VARIANT_HEADER } from "@/lib/portalVariant";
 
 export const metadata: Metadata = {
@@ -49,9 +50,17 @@ export default async function PortalLayout({
 
   const user = await getPortalUser();
   const canOpenPortalApp = user?.role === "CLIENT" || user?.role === "ADMIN";
+  const businessName = user?.id
+    ? await getPortalBusinessProfile({ ownerId: user.id })
+        .then((result) => {
+          const raw = result.json && typeof result.json === "object" ? (result.json as any)?.profile?.businessName : "";
+          return typeof raw === "string" ? raw.trim() : "";
+        })
+        .catch(() => "")
+    : "";
 
   return (
-    <div className="min-h-[100dvh] overflow-x-hidden bg-brand-mist text-brand-ink flex flex-col">
+    <div className="flex min-h-dvh flex-col overflow-x-hidden bg-brand-mist text-brand-ink">
       <header className="pa-portal-topbar sticky top-0 z-10 border-b border-zinc-200 bg-white/80 backdrop-blur">
         <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-4 py-4 sm:gap-6 sm:px-6">
           <Link href={homeHref} className="flex shrink-0 items-center gap-3">
@@ -68,9 +77,7 @@ export default async function PortalLayout({
           <div className="flex flex-wrap items-center justify-end gap-2 sm:flex-nowrap sm:gap-3">
             {user ? (
               <>
-                <div className="hidden text-sm text-zinc-600 sm:block">
-                  {user.email}
-                </div>
+                <div className="hidden text-sm text-zinc-600 sm:block">{businessName || user.email}</div>
                 <PortalHeaderCta canOpenPortalApp={canOpenPortalApp} />
                 <PortalHelpLink />
               </>

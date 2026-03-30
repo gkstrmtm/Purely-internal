@@ -163,7 +163,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ threadId: stri
     );
   }
 
-  let voiceId = (receptionist.voiceId || profileVoiceId || "").trim();
+  let voiceId = (profileVoiceId || receptionist.voiceId || "").trim();
   if (!voiceId) {
     const voices = await listElevenLabsVoices({ apiKey });
     if (!voices.ok) {

@@ -1,0 +1,334 @@
+"use client";
+
+import { usePathname } from "next/navigation";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+
+import { PortalListboxDropdown } from "@/components/PortalListboxDropdown";
+import { useToast } from "@/components/ToastProvider";
+
+type ProfileResponse = {
+  ok?: boolean;
+  error?: string;
+  user?: {
+    voiceId?: string | null;
+    defaultLoginPath?: string | null;
+    voiceAgentApiKeyConfigured?: boolean;
+  } | null;
+};
+
+type VoiceLibraryVoice = {
+  id: string;
+  name: string;
+  category?: string;
+  description?: string;
+};
+
+type VoiceLibraryResponse = {
+  ok?: boolean;
+  error?: string;
+  voices?: VoiceLibraryVoice[];
+};
+
+const DEFAULT_VOICE_PREVIEW_TEXT = "Hi there — this is the current PURA dictation voice preview.";
+
+function classNames(...xs: Array<string | false | null | undefined>) {
+  return xs.filter(Boolean).join(" ");
+}
+
+export function PortalAppearanceSettingsClient() {
+  const pathname = usePathname() || "";
+  const toast = useToast();
+  const portalBase = pathname.startsWith("/credit") ? "/credit" : "/portal";
+
+  const pageOptions = useMemo(
+    () => [
+      { value: `${portalBase}/app`, label: "Dashboard" },
+      { value: `${portalBase}/app/ai-chat`, label: "PURA" },
+      { value: `${portalBase}/app/services`, label: "Services" },
+      { value: `${portalBase}/app/profile`, label: "Profile" },
+      { value: `${portalBase}/app/billing`, label: "Billing" },
+      { value: `${portalBase}/app/settings/appearance`, label: "Appearance" },
+    ],
+    [portalBase],
+  );
+
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [voiceLibraryLoading, setVoiceLibraryLoading] = useState(false);
+  const [voicePreviewBusy, setVoicePreviewBusy] = useState(false);
+  const [voicePreviewShowControls, setVoicePreviewShowControls] = useState(false);
+  const [voiceAgentApiKeyConfigured, setVoiceAgentApiKeyConfigured] = useState(false);
+  const [voiceLibraryVoices, setVoiceLibraryVoices] = useState<VoiceLibraryVoice[]>([]);
+  const [selectedVoiceId, setSelectedVoiceId] = useState("");
+  const [savedVoiceId, setSavedVoiceId] = useState("");
+  const [defaultLoginPath, setDefaultLoginPath] = useState(`${portalBase}/app`);
+  const [savedDefaultLoginPath, setSavedDefaultLoginPath] = useState(`${portalBase}/app`);
+
+  const voicePreviewAudioRef = useRef<HTMLAudioElement | null>(null);
+  const voicePreviewUrlRef = useRef<string | null>(null);
+
+  const loadProfile = useCallback(async () => {
+    setLoading(true);
+    const res = await fetch("/api/portal/profile", { cache: "no-store" }).catch(() => null as any);
+    const json = (res ? ((await res.json().catch(() => null)) as ProfileResponse | null) : null) ?? null;
+    if (!res?.ok || !json?.user) {
+      toast.error(json?.error || "Unable to load appearance settings");
+      setLoading(false);
+      return;
+    }
+
+    const nextVoiceId = String(json.user.voiceId || "").trim();
+    const nextDefaultLoginPath = String(json.user.defaultLoginPath || pageOptions[0]?.value || `${portalBase}/app`).trim();
+    setVoiceAgentApiKeyConfigured(Boolean(json.user.voiceAgentApiKeyConfigured));
+    setSelectedVoiceId(nextVoiceId);
+    setSavedVoiceId(nextVoiceId);
+    setDefaultLoginPath(nextDefaultLoginPath || `${portalBase}/app`);
+    setSavedDefaultLoginPath(nextDefaultLoginPath || `${portalBase}/app`);
+    setLoading(false);
+  }, [pageOptions, portalBase, toast]);
+
+  const loadVoiceLibrary = useCallback(async () => {
+    if (!voiceAgentApiKeyConfigured || voiceLibraryLoading) return;
+    setVoiceLibraryLoading(true);
+    try {
+      const res = await fetch("/api/portal/voice-agent/voices", { cache: "no-store" }).catch(() => null as any);
+      const json = (res ? ((await res.json().catch(() => null)) as VoiceLibraryResponse | null) : null) ?? null;
+      if (!res?.ok || json?.ok !== true || !Array.isArray(json?.voices)) {
+        setVoiceLibraryVoices([]);
+        return;
+      }
+      setVoiceLibraryVoices(
+        json.voices
+          .map((voice) => ({
+            id: String(voice.id || "").trim(),
+            name: String(voice.name || "").trim(),
+            category: String(voice.category || "").trim() || undefined,
+            description: String(voice.description || "").trim() || undefined,
+          }))
+          .filter((voice) => voice.id && voice.name)
+          .slice(0, 200),
+      );
+    } finally {
+      setVoiceLibraryLoading(false);
+    }
+  }, [voiceAgentApiKeyConfigured, voiceLibraryLoading]);
+
+  useEffect(() => {
+    void loadProfile();
+  }, [loadProfile]);
+
+  useEffect(() => {
+    if (!voiceAgentApiKeyConfigured) {
+      setVoiceLibraryVoices([]);
+      return;
+    }
+    void loadVoiceLibrary();
+  }, [loadVoiceLibrary, voiceAgentApiKeyConfigured]);
+
+  useEffect(() => {
+    return () => {
+      const prev = voicePreviewUrlRef.current;
+      if (prev) URL.revokeObjectURL(prev);
+    };
+  }, []);
+
+  const voiceOptions = useMemo(
+    () => [
+      { value: "", label: "Use service default" },
+      ...voiceLibraryVoices.map((voice) => ({
+        value: voice.id,
+        label: voice.category ? `${voice.name} · ${voice.category}` : voice.name,
+        searchText: `${voice.name} ${voice.category || ""} ${voice.description || ""}`,
+      })),
+    ],
+    [voiceLibraryVoices],
+  );
+
+  const selectedVoiceMeta = useMemo(
+    () => voiceLibraryVoices.find((voice) => voice.id === selectedVoiceId) || null,
+    [selectedVoiceId, voiceLibraryVoices],
+  );
+
+  const dirty = selectedVoiceId !== savedVoiceId || defaultLoginPath !== savedDefaultLoginPath;
+
+  async function savePreferences() {
+    if (saving || !dirty) return;
+    setSaving(true);
+    const res = await fetch("/api/portal/profile", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        voiceId: selectedVoiceId || "",
+        defaultLoginPath,
+      }),
+    }).catch(() => null as any);
+
+    const json = (res ? ((await res.json().catch(() => null)) as ProfileResponse | null) : null) ?? null;
+    setSaving(false);
+    if (!res?.ok || json?.ok !== true || !json.user) {
+      toast.error(json?.error || "Unable to save appearance settings");
+      return;
+    }
+
+    const nextVoiceId = String(json.user.voiceId || "").trim();
+    const nextDefaultLoginPath = String(json.user.defaultLoginPath || defaultLoginPath).trim() || defaultLoginPath;
+    setSelectedVoiceId(nextVoiceId);
+    setSavedVoiceId(nextVoiceId);
+    setDefaultLoginPath(nextDefaultLoginPath);
+    setSavedDefaultLoginPath(nextDefaultLoginPath);
+    toast.success("Appearance settings saved");
+  }
+
+  async function playVoicePreview() {
+    if (!selectedVoiceId) {
+      toast.error("Pick a voice first");
+      return;
+    }
+    if (voicePreviewBusy) return;
+
+    setVoicePreviewBusy(true);
+    setVoicePreviewShowControls(false);
+    try {
+      const res = await fetch("/api/portal/voice-agent/voices/preview", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ voiceId: selectedVoiceId, text: DEFAULT_VOICE_PREVIEW_TEXT }),
+      });
+
+      if (!res.ok) {
+        const json = (await res.json().catch(() => null)) as { error?: string } | null;
+        throw new Error(json?.error || "Voice preview failed");
+      }
+
+      const blob = await res.blob().catch(() => null);
+      if (!blob) throw new Error("Voice preview failed");
+
+      const prev = voicePreviewUrlRef.current;
+      if (prev) {
+        URL.revokeObjectURL(prev);
+        voicePreviewUrlRef.current = null;
+      }
+
+      const url = URL.createObjectURL(blob);
+      voicePreviewUrlRef.current = url;
+      const audio = voicePreviewAudioRef.current;
+      if (audio) {
+        audio.src = url;
+        try {
+          await audio.play();
+        } catch {
+          setVoicePreviewShowControls(true);
+        }
+      }
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Voice preview failed");
+    } finally {
+      setVoicePreviewBusy(false);
+    }
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="rounded-3xl border border-zinc-200 bg-white p-6">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <h2 className="text-lg font-semibold text-brand-ink">Theme</h2>
+            <p className="mt-1 text-sm text-zinc-600">Dark mode is queued up next. This button is a placeholder for now.</p>
+          </div>
+          <button
+            type="button"
+            onClick={() => toast.push({ kind: "info", message: "Dark mode is coming soon." })}
+            className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-zinc-100 px-4 py-2 text-sm font-semibold text-zinc-600 hover:bg-zinc-200"
+          >
+            Dark mode
+          </button>
+        </div>
+      </div>
+
+      <div className="rounded-3xl border border-zinc-200 bg-white p-6">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <h2 className="text-lg font-semibold text-brand-ink">PURA dictation voice</h2>
+            <p className="mt-1 text-sm text-zinc-600">Choose the voice PURA uses when it reads dictated content back to you.</p>
+          </div>
+          {selectedVoiceId ? (
+            <button
+              type="button"
+              onClick={() => void playVoicePreview()}
+              disabled={voicePreviewBusy}
+              className={classNames(
+                "inline-flex items-center justify-center rounded-2xl px-4 py-2 text-sm font-semibold text-white",
+                voicePreviewBusy ? "bg-zinc-400" : "bg-brand-ink hover:opacity-95",
+              )}
+            >
+              {voicePreviewBusy ? "Loading preview…" : "Preview voice"}
+            </button>
+          ) : null}
+        </div>
+
+        {!voiceAgentApiKeyConfigured ? (
+          <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+            Add your voice agent API key in Profile before picking a PURA dictation voice.
+          </div>
+        ) : null}
+
+        <div className="mt-4 grid gap-4 lg:grid-cols-[minmax(0,1fr)_280px]">
+          <div>
+            <label className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Voice</label>
+            <div className="mt-2">
+              <PortalListboxDropdown
+                value={selectedVoiceId}
+                options={voiceOptions}
+                onChange={(value) => setSelectedVoiceId(value)}
+                disabled={loading || !voiceAgentApiKeyConfigured || voiceLibraryLoading}
+                placeholder={voiceLibraryLoading ? "Loading voices…" : "Choose a voice"}
+                portal={false}
+              />
+            </div>
+            <div className="mt-2 text-xs text-zinc-500">
+              {selectedVoiceMeta
+                ? selectedVoiceMeta.description || `Selected voice: ${selectedVoiceMeta.name}`
+                : "Leave this on service default if you want PURA to fall back automatically."}
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-700">
+            <div className="font-semibold text-zinc-900">How it works</div>
+            <div className="mt-2">Your PURA dictation voice now overrides the receptionist voice for dictation playback only.</div>
+            <div className="mt-2 text-xs text-zinc-500">Voice previews use your ElevenLabs voice library and your saved API key.</div>
+          </div>
+        </div>
+
+        <audio ref={voicePreviewAudioRef} className={voicePreviewShowControls ? "mt-4 w-full" : "sr-only"} controls={voicePreviewShowControls} />
+      </div>
+
+      <div className="rounded-3xl border border-zinc-200 bg-white p-6">
+        <h2 className="text-lg font-semibold text-brand-ink">Default page on login</h2>
+        <p className="mt-1 text-sm text-zinc-600">Pick where you land after signing in when there is no explicit redirect in the URL.</p>
+        <div className="mt-4 max-w-md">
+          <PortalListboxDropdown
+            value={defaultLoginPath}
+            options={pageOptions}
+            onChange={(value) => setDefaultLoginPath(value)}
+            disabled={loading}
+            portal={false}
+          />
+        </div>
+      </div>
+
+      <div className="flex items-center justify-end">
+        <button
+          type="button"
+          onClick={() => void savePreferences()}
+          disabled={loading || saving || !dirty}
+          className={classNames(
+            "inline-flex items-center justify-center rounded-2xl px-5 py-3 text-sm font-semibold text-white",
+            loading || saving || !dirty ? "bg-zinc-400" : "bg-brand-ink hover:opacity-95",
+          )}
+        >
+          {saving ? "Saving…" : dirty ? "Save appearance settings" : "Saved"}
+        </button>
+      </div>
+    </div>
+  );
+}

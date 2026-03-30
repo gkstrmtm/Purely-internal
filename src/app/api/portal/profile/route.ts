@@ -26,6 +26,69 @@ function normalizeCityState(input: { city?: unknown; state?: unknown }): { city:
   return { city, state };
 }
 
+function normalizeVoiceId(input: unknown): string | null {
+  const voiceId = typeof input === "string" ? input.trim().slice(0, 200) : "";
+  return voiceId || null;
+}
+
+function normalizeDefaultLoginPath(input: unknown): string | null {
+  const path = typeof input === "string" ? input.trim().slice(0, 240) : "";
+  if (!path) return null;
+  if (!path.startsWith("/") || path.startsWith("//")) return null;
+  if (!/^\/(portal|credit)\/app(?:\/.*)?$/i.test(path)) return null;
+  return path;
+}
+
+async function getProfilePreferences(userId: string): Promise<{ voiceId: string | null; defaultLoginPath: string | null }> {
+  const row = await prisma.portalServiceSetup.findUnique({
+    where: { ownerId_serviceSlug: { ownerId: userId, serviceSlug: PROFILE_EXTRAS_SERVICE_SLUG } },
+    select: { dataJson: true },
+  });
+
+  const rec = asProfileRec(row?.dataJson);
+  return {
+    voiceId: normalizeVoiceId(rec.voiceId),
+    defaultLoginPath: normalizeDefaultLoginPath(rec.defaultLoginPath),
+  };
+}
+
+async function setProfilePreferences(userId: string, input: { voiceId?: string | null; defaultLoginPath?: string | null }) {
+  const existing = await prisma.portalServiceSetup.findUnique({
+    where: { ownerId_serviceSlug: { ownerId: userId, serviceSlug: PROFILE_EXTRAS_SERVICE_SLUG } },
+    select: { dataJson: true },
+  });
+
+  const base = asProfileRec(existing?.dataJson);
+  const next: Record<string, unknown> = { ...base, version: 1 };
+
+  if (input.voiceId !== undefined) {
+    const voiceId = normalizeVoiceId(input.voiceId);
+    if (voiceId) next.voiceId = voiceId;
+    else delete next.voiceId;
+  }
+
+  if (input.defaultLoginPath !== undefined) {
+    const defaultLoginPath = normalizeDefaultLoginPath(input.defaultLoginPath);
+    if (defaultLoginPath) next.defaultLoginPath = defaultLoginPath;
+    else delete next.defaultLoginPath;
+  }
+
+  await prisma.portalServiceSetup.upsert({
+    where: { ownerId_serviceSlug: { ownerId: userId, serviceSlug: PROFILE_EXTRAS_SERVICE_SLUG } },
+    create: {
+      ownerId: userId,
+      serviceSlug: PROFILE_EXTRAS_SERVICE_SLUG,
+      status: "COMPLETE",
+      dataJson: next as any,
+    },
+    update: {
+      status: "COMPLETE",
+      dataJson: next as any,
+    },
+    select: { id: true },
+  });
+}
+
 async function getOwnerCityState(ownerId: string): Promise<{ city: string; state: string }> {
   const row = await prisma.portalServiceSetup.findUnique({
     where: { ownerId_serviceSlug: { ownerId, serviceSlug: PROFILE_EXTRAS_SERVICE_SLUG } },
@@ -279,9 +342,11 @@ const updateSchema = z
     state: z.string().trim().max(40).optional(),
     voiceAgentId: z.string().trim().max(120).optional(),
     voiceAgentApiKey: z.string().trim().max(400).optional(),
+    voiceId: z.string().trim().max(200).optional(),
+    defaultLoginPath: z.string().trim().max(240).optional(),
     currentPassword: z.string().min(6).optional(),
   })
-  .refine((v) => Boolean(v.name || v.email || v.phone || v.city !== undefined || v.state !== undefined || v.voiceAgentId !== undefined || v.voiceAgentApiKey !== undefined), {
+  .refine((v) => Boolean(v.name || v.email || v.phone || v.city !== undefined || v.state !== undefined || v.voiceAgentId !== undefined || v.voiceAgentApiKey !== undefined || v.voiceId !== undefined || v.defaultLoginPath !== undefined), {
     message: "Provide at least one field to update",
     path: ["name"],
   })
@@ -306,11 +371,12 @@ export async function GET() {
     select: { id: true, name: true, email: true, role: true, updatedAt: true },
   });
 
-  const [phone, voiceAgentId, voiceAgentApiKey, cityState] = await Promise.all([
+  const [phone, voiceAgentId, voiceAgentApiKey, cityState, preferences] = await Promise.all([
     getProfilePhone(userId),
     getProfileVoiceAgentId(userId),
     getProfileVoiceAgentApiKey(userId),
     getOwnerCityState(ownerId).catch(() => ({ city: "", state: "" })),
+    getProfilePreferences(userId).catch(() => ({ voiceId: null, defaultLoginPath: null })),
   ]);
 
   return NextResponse.json({
@@ -321,6 +387,8 @@ export async function GET() {
           phone,
           voiceAgentId,
           voiceAgentApiKeyConfigured: Boolean(voiceAgentApiKey && voiceAgentApiKey.trim()),
+          voiceId: preferences.voiceId,
+          defaultLoginPath: preferences.defaultLoginPath,
           city: cityState.city || null,
           state: cityState.state || null,
         }
@@ -368,6 +436,7 @@ export async function PUT(req: Request) {
   const voiceAgentApiKeyProvided = parsed.data.voiceAgentApiKey !== undefined;
   const nextVoiceAgentApiKey =
     typeof parsed.data.voiceAgentApiKey === "string" ? parsed.data.voiceAgentApiKey.trim().slice(0, 400) : null;
+  const preferencesProvided = parsed.data.voiceId !== undefined || parsed.data.defaultLoginPath !== undefined;
   if (phoneProvided) {
     const parsedPhone = normalizePhoneStrict(parsed.data.phone ?? "");
     if (!parsedPhone.ok) {
@@ -384,6 +453,10 @@ export async function PUT(req: Request) {
       voiceAgentApiKeyProvided,
   );
 
+  if (parsed.data.defaultLoginPath !== undefined && parsed.data.defaultLoginPath && !normalizeDefaultLoginPath(parsed.data.defaultLoginPath)) {
+    return NextResponse.json({ error: "Pick a valid default login page." }, { status: 400 });
+  }
+
   const shouldEnforcePhone = Boolean(phoneProvided || voiceAgentProvided || voiceAgentApiKeyProvided);
 
   const current = await prisma.user.findUnique({
@@ -393,6 +466,13 @@ export async function PUT(req: Request) {
   if (!current) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
   if (!touchingContact) {
+    if (preferencesProvided) {
+      await setProfilePreferences(userId, {
+        voiceId: parsed.data.voiceId ?? null,
+        defaultLoginPath: parsed.data.defaultLoginPath ?? null,
+      }).catch(() => null);
+    }
+    const preferences = await getProfilePreferences(userId).catch(() => ({ voiceId: null, defaultLoginPath: null }));
     const cityState = await getOwnerCityState(ownerId).catch(() => ({ city: "", state: "" }));
     return NextResponse.json({
       ok: true,
@@ -405,6 +485,8 @@ export async function PUT(req: Request) {
         phone: await getProfilePhone(userId).catch(() => null),
         voiceAgentId: await getProfileVoiceAgentId(userId).catch(() => null),
         voiceAgentApiKeyConfigured: Boolean((await getProfileVoiceAgentApiKey(userId).catch(() => null))?.trim()),
+        voiceId: preferences.voiceId,
+        defaultLoginPath: preferences.defaultLoginPath,
         city: cityState.city || null,
         state: cityState.state || null,
       },
@@ -474,6 +556,15 @@ export async function PUT(req: Request) {
     ? await setProfileVoiceAgentApiKey(userId, nextVoiceAgentApiKey)
     : Boolean((await getProfileVoiceAgentApiKey(userId))?.trim());
 
+  if (preferencesProvided) {
+    await setProfilePreferences(userId, {
+      voiceId: parsed.data.voiceId ?? null,
+      defaultLoginPath: parsed.data.defaultLoginPath ?? null,
+    }).catch(() => null);
+  }
+
+  const preferences = await getProfilePreferences(userId).catch(() => ({ voiceId: null, defaultLoginPath: null }));
+
   const user = await prisma.user.findUnique({
     where: { id: userId },
     select: { id: true, name: true, email: true, role: true, updatedAt: true },
@@ -489,6 +580,8 @@ export async function PUT(req: Request) {
           phone,
           voiceAgentId,
           voiceAgentApiKeyConfigured,
+          voiceId: preferences.voiceId,
+          defaultLoginPath: preferences.defaultLoginPath,
           city: cityState.city || null,
           state: cityState.state || null,
         }

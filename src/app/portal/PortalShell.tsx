@@ -47,7 +47,7 @@ const PORTAL_SERVICE_BY_SLUG = new Map<string, PortalService>(PORTAL_SERVICES.ma
 const DASHBOARD_SALES_SHORTCUT_SLUG = "sales-dashboard";
 
 type Me = {
-  user: { email: string; name: string; role: string };
+  user: { email: string; name: string; role: string; businessName?: string | null };
   entitlements: Entitlements;
   metrics: { hoursSavedThisWeek: number; hoursSavedAllTime: number };
 };
@@ -234,6 +234,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
     pathname.includes("/app/services/automations/") &&
     pathname.includes("/editor");
   const [collapsed, setCollapsed] = useState(false);
+  const collapsedBeforeCanvasOpenRef = useRef<boolean | null>(null);
   const [mobileOpen, setMobileOpen] = useState(false);
 
   const sidebarOverride = usePortalSidebarOverride();
@@ -622,6 +623,26 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
   }, [collapsed]);
 
   useEffect(() => {
+    if (!isAiChat) {
+      collapsedBeforeCanvasOpenRef.current = null;
+      return;
+    }
+
+    if (puraCanvasOpen) {
+      if (collapsedBeforeCanvasOpenRef.current === null) {
+        collapsedBeforeCanvasOpenRef.current = collapsed;
+      }
+      if (!collapsed) setCollapsed(true);
+      return;
+    }
+
+    if (collapsedBeforeCanvasOpenRef.current !== null) {
+      setCollapsed(collapsedBeforeCanvasOpenRef.current);
+      collapsedBeforeCanvasOpenRef.current = null;
+    }
+  }, [collapsed, isAiChat, puraCanvasOpen]);
+
+  useEffect(() => {
     // Close mobile drawer on navigation.
     setMobileOpen(false);
   }, [pathname]);
@@ -644,6 +665,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
   }, [variant]);
 
   const isFullDemo = (me?.user.email ?? "").toLowerCase().trim() === DEFAULT_FULL_DEMO_EMAIL;
+  const signedInLabel = (me?.user.businessName ?? "").trim() || me?.user.email || "";
   const knownServiceKeys = useMemo(() => new Set<string>(PORTAL_SERVICE_KEYS as unknown as string[]), []);
 
   const canViewServiceKey = useCallback(
@@ -1169,14 +1191,13 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
 
     return (
       <Link
-        key={s.slug}
         href={`${basePath}/app/services/${s.slug}`}
         className={classNames(
           "group flex items-center gap-2 rounded-2xl px-2.5 py-1.5 text-[13px] font-medium transition-colors",
           active ? "bg-zinc-100 text-zinc-900" : "text-zinc-700 hover:bg-zinc-50",
         )}
       >
-        <span className={sidebarIconChipClass(active)}>
+        <span className={sidebarIconChipClass(active)} aria-hidden>
           <span className={sidebarIconToneClassForSlug(s.slug)}>
             <IconServiceGlyph slug={s.slug} />
           </span>
@@ -1201,11 +1222,11 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
         key="__people"
         href={`${basePath}/app/people`}
         className={classNames(
-          "flex items-center gap-2 rounded-2xl px-2.5 py-1.5 text-[13px] font-medium",
+          "group flex items-center gap-2 rounded-2xl px-2.5 py-1.5 text-[13px] font-medium transition-colors",
           active ? "bg-zinc-100 text-zinc-900" : "text-zinc-700 hover:bg-zinc-50",
         )}
       >
-        <span className="inline-flex h-8 w-8 items-center justify-center rounded-2xl border border-zinc-200 bg-white">
+        <span className={sidebarIconChipClass(active)} aria-hidden>
           <span className={sidebarIconToneClassForCategory("communication")}>
             <IconPeopleGlyph />
           </span>
@@ -1806,9 +1827,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
               ) : null}
 
               <div className="text-xs text-zinc-500">Signed in as</div>
-              <div className="mt-1 truncate text-sm font-semibold text-brand-ink">
-                {me?.user.email ?? ""}
-              </div>
+              <div className="mt-1 truncate text-sm font-semibold text-brand-ink">{signedInLabel}</div>
               <div className="mt-3">
                 <SignOutButton />
               </div>
@@ -1817,8 +1836,9 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
         </div>
 
         <aside
+          style={{ top: "var(--pa-portal-topbar-height,0px)" }}
           className={classNames(
-            "hidden shrink-0 bg-white overflow-hidden transition-[width] duration-200 ease-out sm:flex sm:flex-col sm:sticky sm:top-0 sm:h-full",
+            "hidden shrink-0 overflow-hidden bg-white transition-[width] duration-200 ease-out sm:flex sm:h-[calc(100dvh-var(--pa-portal-topbar-height,0px))] sm:flex-col sm:sticky",
             collapsed ? "w-19" : "w-70",
             activeTopKey === "pura" ? "border-r border-zinc-200 shadow-[2px_0_12px_rgba(0,0,0,0.06)]" : "border-r border-zinc-200",
           )}
@@ -2048,7 +2068,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                                   key="shortcut_sales_dashboard"
                                   href={`${basePath}/app/services/reporting/sales`}
                                   className={classNames(
-                                    "flex items-center gap-3 rounded-2xl px-3 py-2 text-sm font-semibold",
+                                    "group flex items-center gap-3 rounded-2xl px-3 py-2 text-sm font-semibold transition-colors",
                                     pathname === `${basePath}/app/services/reporting/sales`
                                       ? "bg-zinc-100 text-zinc-900"
                                       : "text-zinc-700 hover:bg-zinc-50",
@@ -2516,9 +2536,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
               <div className="text-xs text-zinc-500">Signed in as</div>
             ) : null}
             {!collapsed ? (
-              <div className="mt-1 truncate text-sm font-semibold text-brand-ink">
-                {me?.user.email ?? ""}
-              </div>
+              <div className="mt-1 truncate text-sm font-semibold text-brand-ink">{signedInLabel}</div>
             ) : null}
             <div className={classNames("mt-3", collapsed && "mt-0 flex justify-center")}>
               <SignOutButton variant="sidebar" collapsed={collapsed} />
