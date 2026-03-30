@@ -256,13 +256,13 @@ export function PortalServicePageClient({ slug }: { slug: string }) {
           <div className="mt-6 flex flex-col gap-3 sm:flex-row">
             <Link
               href={billingUnlockHref}
-              className="inline-flex items-center justify-center rounded-2xl bg-[color:var(--color-brand-blue)] px-5 py-3 text-sm font-semibold text-white hover:opacity-95"
+              className="inline-flex items-center justify-center rounded-2xl bg-[color:var(--color-brand-blue)] px-5 py-3 text-sm font-semibold text-white transition-transform duration-150 hover:-translate-y-0.5 hover:opacity-95"
             >
               Unlock in Billing
             </Link>
             <Link
               href="/portal/app/services"
-              className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-5 py-3 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+              className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-5 py-3 text-sm font-semibold text-brand-ink transition-all duration-150 hover:-translate-y-0.5 hover:border-zinc-300 hover:bg-zinc-50"
             >
               Back to services
             </Link>
@@ -289,7 +289,7 @@ export function PortalServicePageClient({ slug }: { slug: string }) {
         </div>
         <Link
           href="/portal/app/services"
-          className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+          className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink transition-all duration-150 hover:-translate-y-0.5 hover:border-zinc-300 hover:bg-zinc-50"
         >
           All services
         </Link>
@@ -306,13 +306,13 @@ export function PortalServicePageClient({ slug }: { slug: string }) {
               <div className="mt-5 flex flex-col gap-3 sm:flex-row">
                 <Link
                   href="/portal/app/services/blogs"
-                  className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-5 py-3 text-sm font-semibold text-white hover:opacity-95"
+                  className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-5 py-3 text-sm font-semibold text-white transition-transform duration-150 hover:-translate-y-0.5 hover:opacity-95"
                 >
                   Open Blogs
                 </Link>
                 <Link
                   href="/portal/app/onboarding"
-                  className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-5 py-3 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+                  className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-5 py-3 text-sm font-semibold text-brand-ink transition-all duration-150 hover:-translate-y-0.5 hover:border-zinc-300 hover:bg-zinc-50"
                 >
                   Onboarding
                 </Link>
@@ -326,13 +326,13 @@ export function PortalServicePageClient({ slug }: { slug: string }) {
               <div className="mt-5 flex flex-col gap-3 sm:flex-row">
                 <Link
                   href="/portal/app/services/booking"
-                  className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-5 py-3 text-sm font-semibold text-white hover:opacity-95"
+                  className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-5 py-3 text-sm font-semibold text-white transition-transform duration-150 hover:-translate-y-0.5 hover:opacity-95"
                 >
                   Open Booking
                 </Link>
                 <Link
                   href="/portal/app/onboarding"
-                  className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-5 py-3 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+                  className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-5 py-3 text-sm font-semibold text-brand-ink transition-all duration-150 hover:-translate-y-0.5 hover:border-zinc-300 hover:bg-zinc-50"
                 >
                   Onboarding
                 </Link>
@@ -346,13 +346,13 @@ export function PortalServicePageClient({ slug }: { slug: string }) {
               <div className="mt-5 flex flex-col gap-3 sm:flex-row">
                 <Link
                   href="/portal/app/services/lead-scraping"
-                  className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-5 py-3 text-sm font-semibold text-white hover:opacity-95"
+                  className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-5 py-3 text-sm font-semibold text-white transition-transform duration-150 hover:-translate-y-0.5 hover:opacity-95"
                 >
                   Open Lead Scraping
                 </Link>
                 <Link
                   href="/portal/app/billing"
-                  className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-5 py-3 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+                  className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-5 py-3 text-sm font-semibold text-brand-ink transition-all duration-150 hover:-translate-y-0.5 hover:border-zinc-300 hover:bg-zinc-50"
                 >
                   Billing
                 </Link>
@@ -366,13 +366,13 @@ export function PortalServicePageClient({ slug }: { slug: string }) {
               <div className="mt-5 flex flex-col gap-3 sm:flex-row">
                 <Link
                   href="/portal/app/services/reporting"
-                  className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-5 py-3 text-sm font-semibold text-white hover:opacity-95"
+                  className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-5 py-3 text-sm font-semibold text-white transition-transform duration-150 hover:-translate-y-0.5 hover:opacity-95"
                 >
                   Open Reporting
                 </Link>
                 <Link
                   href="/portal/app/billing"
-                  className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-5 py-3 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+                  className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-5 py-3 text-sm font-semibold text-brand-ink transition-all duration-150 hover:-translate-y-0.5 hover:border-zinc-300 hover:bg-zinc-50"
                 >
                   Billing
                 </Link>
@@ -386,13 +386,13 @@ export function PortalServicePageClient({ slug }: { slug: string }) {
               <div className="mt-5 flex flex-col gap-3 sm:flex-row">
                 <Link
                   href="/portal/app/services/inbox"
-                  className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-5 py-3 text-sm font-semibold text-white hover:opacity-95"
+                  className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-5 py-3 text-sm font-semibold text-white transition-transform duration-150 hover:-translate-y-0.5 hover:opacity-95"
                 >
                   Open Inbox
                 </Link>
                 <Link
                   href="/portal/app/onboarding"
-                  className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-5 py-3 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+                  className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-5 py-3 text-sm font-semibold text-brand-ink transition-all duration-150 hover:-translate-y-0.5 hover:border-zinc-300 hover:bg-zinc-50"
                 >
                   Onboarding
                 </Link>

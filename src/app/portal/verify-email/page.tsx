@@ -58,13 +58,13 @@ function VerifyEmailInner() {
           <div className="mt-6 flex flex-col gap-2">
             <Link
               href="/portal/login"
-              className="rounded-2xl bg-(--color-brand-blue) px-4 py-2 text-center text-sm font-semibold text-white hover:opacity-95"
+              className="rounded-2xl bg-(--color-brand-blue) px-4 py-2 text-center text-sm font-semibold text-white transition-transform duration-150 hover:-translate-y-0.5 hover:opacity-95"
             >
               Sign in
             </Link>
             <Link
               href="/portal"
-              className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-center text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+              className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-center text-sm font-semibold text-brand-ink transition-all duration-150 hover:-translate-y-0.5 hover:border-zinc-300 hover:bg-zinc-50"
             >
               Back to portal
             </Link>

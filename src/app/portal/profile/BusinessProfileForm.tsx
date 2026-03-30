@@ -398,7 +398,7 @@ export function BusinessProfileForm({
               </div>
             </div>
 
-            <label className="inline-flex cursor-pointer items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm font-semibold text-brand-ink hover:bg-zinc-50">
+            <label className="inline-flex cursor-pointer items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm font-semibold text-brand-ink transition-all duration-150 hover:-translate-y-0.5 hover:border-zinc-300 hover:bg-zinc-50">
               {logoBusy ? "Uploading…" : "Upload"}
               <input
                 type="file"
@@ -431,7 +431,7 @@ export function BusinessProfileForm({
 
             <button
               type="button"
-              className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+              className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm font-semibold text-brand-ink transition-all duration-150 hover:-translate-y-0.5 hover:border-zinc-300 hover:bg-zinc-50"
               onClick={() => !readOnly && setLogoPickerOpen(true)}
               disabled={Boolean(readOnly)}
             >
@@ -508,7 +508,7 @@ export function BusinessProfileForm({
             <button
               type="button"
               disabled={Boolean(readOnly)}
-              className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm font-semibold text-brand-ink hover:bg-zinc-50 disabled:opacity-60"
+              className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm font-semibold text-brand-ink transition-all duration-150 hover:-translate-y-0.5 hover:border-zinc-300 hover:bg-zinc-50 disabled:opacity-60"
               onClick={() => {
                 if (readOnly) return;
                 const v = primaryGoalDraft.trim();
@@ -533,7 +533,7 @@ export function BusinessProfileForm({
                   type="button"
                   disabled={Boolean(readOnly)}
                   onClick={() => !readOnly && setPrimaryGoals((xs) => xs.filter((x) => x !== g))}
-                  className="inline-flex items-center gap-2 rounded-2xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-100 disabled:opacity-60"
+                  className="inline-flex items-center gap-2 rounded-2xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs font-semibold text-zinc-800 transition-all duration-150 hover:-translate-y-0.5 hover:bg-zinc-100 disabled:opacity-60"
                   title={readOnly ? undefined : "Remove"}
                 >
                   <span className="max-w-[18rem] truncate">{g}</span>
@@ -582,7 +582,7 @@ export function BusinessProfileForm({
               }}
               extraOptions={[{ value: "default", label: "Default (app font)" }]}
               className="w-full"
-              buttonClassName="flex w-full items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-900 hover:bg-zinc-50"
+              buttonClassName="flex w-full items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-900 transition-all duration-150 hover:-translate-y-0.5 hover:border-zinc-300 hover:bg-zinc-50"
               disabled={Boolean(readOnly)}
             />
           </div>
@@ -708,7 +708,7 @@ export function BusinessProfileForm({
             {!readOnly ? (
               <button
                 type="button"
-                className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-xs font-semibold text-brand-ink hover:bg-zinc-50"
+                className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-xs font-semibold text-brand-ink transition-all duration-150 hover:-translate-y-0.5 hover:border-zinc-300 hover:bg-zinc-50"
                 onClick={() => {
                   setHostedBgHex("");
                   setHostedSurfaceHex("");
@@ -947,7 +947,7 @@ export function BusinessProfileForm({
             type="button"
             onClick={save}
             disabled={!canSave || saving || !dirty}
-            className="inline-flex items-center justify-center rounded-2xl bg-brand-blue px-5 py-3 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
+            className="inline-flex items-center justify-center rounded-2xl bg-brand-blue px-5 py-3 text-sm font-semibold text-white transition-transform duration-150 hover:-translate-y-0.5 hover:opacity-95 disabled:opacity-60"
           >
             {saving ? "Saving…" : dirty ? "Save" : "Saved"}
           </button>

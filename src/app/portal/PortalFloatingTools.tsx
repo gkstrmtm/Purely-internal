@@ -41,6 +41,7 @@ type SupportChatMessage = {
 
 type WidgetSuggestedSetup = {
   key: string;
+  serviceSlug: string;
   title: string;
   actionIds: string[];
   detailLines: string[];
@@ -338,6 +339,7 @@ function inferSuggestedSetupServiceSlug(pathname: string) {
 
 function buildWidgetSuggestedSetup(actions: SuggestedSetupAction[]): WidgetSuggestedSetup | null {
   if (!actions.length) return null;
+  const serviceSlug = String(actions[0]?.serviceSlug || "").trim();
   const serviceLabel = formatServiceSlugLabel(actions[0]?.serviceSlug || "");
   const actionIds = actions.map((action) => action.id);
   const key = actionIds.join("|");
@@ -350,10 +352,30 @@ function buildWidgetSuggestedSetup(actions: SuggestedSetupAction[]): WidgetSugge
 
   return {
     key,
+    serviceSlug,
     title: actions.length === 1 ? actions[0]!.title : `Suggested setup for ${serviceLabel}`,
     actionIds,
     detailLines,
     text: `${intro}\n${bulletLines}\n\nIf you want, I can apply it now.`,
+  };
+}
+
+function buildSuggestedSetupMessage(
+  suggestion: WidgetSuggestedSetup,
+  opts?: { id?: string; status?: SuggestedSetupCardState; error?: string | null; text?: string },
+): SupportChatMessage {
+  return {
+    id: opts?.id || `widget-suggested-setup-${suggestion.key}`,
+    role: "assistant",
+    text: opts?.text ?? suggestion.text,
+    suggestedSetup: {
+      key: suggestion.key,
+      title: suggestion.title,
+      actionIds: suggestion.actionIds,
+      detailLines: suggestion.detailLines,
+      status: opts?.status ?? "ready",
+      error: opts?.error ?? null,
+    },
   };
 }
 
@@ -421,7 +443,7 @@ export function PortalFloatingTools() {
   const chatEndRef = useRef<HTMLDivElement | null>(null);
   const shouldAutoScrollRef = useRef(true);
   const chatScrollRafRef = useRef<number | null>(null);
-  const injectedSuggestionKeyRef = useRef<string | null>(null);
+  const syncingSuggestionKeyRef = useRef<string | null>(null);
 
   const toolsCardRef = useRef<HTMLDivElement | null>(null);
   const chatPanelRef = useRef<HTMLDivElement | null>(null);
@@ -522,7 +544,6 @@ export function PortalFloatingTools() {
     setReportOpen(false);
     setChatOpen(false);
     setMinimized(true);
-    setCompactDock(false);
   }, [hidden]);
 
   function scheduleChatScrollToBottom(force = false) {
@@ -660,6 +681,22 @@ export function PortalFloatingTools() {
     setMinimized(next);
   }
 
+  function stripDefaultWelcome(messages: SupportChatMessage[]) {
+    return messages.filter((message) => message.id !== "widget-welcome");
+  }
+
+  function upsertSuggestedSetupMessage(
+    messages: SupportChatMessage[],
+    suggestion: WidgetSuggestedSetup,
+    opts?: { id?: string; text?: string; status?: SuggestedSetupCardState; error?: string | null },
+  ) {
+    const withoutDefault = stripDefaultWelcome(messages);
+    const filtered = withoutDefault.filter(
+      (message) => message.suggestedSetup?.key !== suggestion.key && !(message.role === "assistant" && message.text === suggestion.text),
+    );
+    return [...filtered, buildSuggestedSetupMessage(suggestion, opts)];
+  }
+
   function setSuggestionCardStatus(key: string, status: SuggestedSetupCardState, error?: string | null) {
     setChatMessages((current) =>
       current.map((message) =>
@@ -677,31 +714,70 @@ export function PortalFloatingTools() {
     );
   }
 
-  function openPageSuggestionInChat() {
-    if (!pageSuggestion) return;
-    injectedSuggestionKeyRef.current = pageSuggestion.key;
+  async function ensurePageSuggestionInThread(suggestion: WidgetSuggestedSetup) {
+    if (syncingSuggestionKeyRef.current === suggestion.key) return chatThreadId;
+    syncingSuggestionKeyRef.current = suggestion.key;
+
+    let threadIdForSuggestion = chatThreadId;
+    if (!threadIdForSuggestion) {
+      const created = await fetch("/api/portal/ai-chat/threads", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({}),
+      }).catch(() => null as any);
+
+      const createdJson = (created ? ((await created.json().catch(() => null)) as { ok?: boolean; thread?: { id?: string } | null } | null) : null) ?? null;
+      if (!created?.ok || !createdJson?.ok || !createdJson.thread?.id) {
+        syncingSuggestionKeyRef.current = null;
+        return null;
+      }
+
+      threadIdForSuggestion = String(createdJson.thread.id);
+      persistWidgetThreadId(threadIdForSuggestion);
+    }
+
+    const res = await fetch(`/api/portal/ai-chat/threads/${encodeURIComponent(threadIdForSuggestion)}/messages`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        url: typeof window !== "undefined" ? window.location.href : undefined,
+        widgetSuggestion: {
+          key: suggestion.key,
+          serviceSlug: suggestion.serviceSlug,
+          title: suggestion.title,
+          actionIds: suggestion.actionIds,
+          detailLines: suggestion.detailLines,
+        },
+      }),
+    }).catch(() => null as any);
+
+    const json = (await res?.json?.().catch(() => null)) as {
+      ok?: boolean;
+      assistantMessage?: { id: string; text: string } | null;
+    } | null;
+
+    if (res?.ok && json?.ok && json.assistantMessage) {
+      const assistantMessage = json.assistantMessage;
+      setChatMessages((current) =>
+        upsertSuggestedSetupMessage(current, suggestion, {
+          id: String(assistantMessage.id || `widget-suggested-setup-${suggestion.key}`),
+          text: String(assistantMessage.text || suggestion.text),
+        }),
+      );
+    }
+
+    syncingSuggestionKeyRef.current = null;
+    return threadIdForSuggestion;
+  }
+
+  function openChatPanel() {
     setReportOpen(false);
     setChatOpen(true);
     setMinimized(false);
-    setChatMessages((current) => {
-      if (current.some((message) => message.suggestedSetup?.key === pageSuggestion.key)) return current;
-      return [
-        ...current,
-        {
-          id: `widget-suggested-setup-${pageSuggestion.key}`,
-          role: "assistant",
-          text: pageSuggestion.text,
-          suggestedSetup: {
-            key: pageSuggestion.key,
-            title: pageSuggestion.title,
-            actionIds: pageSuggestion.actionIds,
-            detailLines: pageSuggestion.detailLines,
-            status: "ready",
-            error: null,
-          },
-        },
-      ];
-    });
+    if (pageSuggestion) {
+      setChatMessages((current) => upsertSuggestedSetupMessage(current, pageSuggestion));
+      void ensurePageSuggestionInThread(pageSuggestion);
+    }
     shouldAutoScrollRef.current = true;
     scheduleChatScrollToBottom(true);
   }
@@ -830,6 +906,11 @@ export function PortalFloatingTools() {
     setChatSending(true);
     let threadIdForSend = chatThreadId;
     let createdThreadId: string | null = null;
+
+    if (pageSuggestion) {
+      const suggestedThreadId = await ensurePageSuggestionInThread(pageSuggestion);
+      if (suggestedThreadId) threadIdForSend = suggestedThreadId;
+    }
 
     if (!threadIdForSend) {
       const created = await fetch("/api/portal/ai-chat/threads", {
@@ -1078,7 +1159,7 @@ export function PortalFloatingTools() {
               <input
                 value={chatInput}
                 onChange={(e) => setChatInput(e.target.value)}
-                placeholder="Ask a question, assign tasks, and more!"
+                placeholder={pageSuggestion ? "Reply to this suggestion…" : "Ask a question, assign tasks, and more!"}
                 className="h-11 flex-1 rounded-2xl border border-zinc-200 bg-white px-4 text-sm text-zinc-900 outline-none focus:border-(--color-brand-blue)"
                 onKeyDown={(e) => {
                   if (e.key === "Enter") void sendSupportChat();
@@ -1150,16 +1231,6 @@ export function PortalFloatingTools() {
               >
                 Hide
               </button>
-              {pageSuggestion ? (
-                <button
-                  type="button"
-                  className="pointer-events-none rounded-full border border-brand-blue/20 bg-brand-blue/10 px-3 py-2 text-xs font-semibold text-brand-blue opacity-0 shadow-lg transition-all duration-150 group-hover:pointer-events-auto group-hover:opacity-100"
-                  onClick={openPageSuggestionInChat}
-                  aria-label="View suggestion"
-                >
-                  Suggestion
-                </button>
-              ) : null}
               <button
                 type="button"
                 className="relative flex items-center gap-2 rounded-full border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 shadow-lg ring-1 ring-[rgba(29,78,216,0.14)] transition-all duration-150 hover:-translate-y-0.5 hover:bg-zinc-50"
@@ -1203,15 +1274,7 @@ export function PortalFloatingTools() {
             </div>
 
             <div className="mt-3 flex items-center justify-between gap-3">
-              {pageSuggestion ? (
-                <button
-                  type="button"
-                  className="rounded-2xl border border-brand-blue/20 bg-brand-blue/10 px-3 py-2 text-sm font-semibold text-brand-blue transition-transform duration-150 hover:-translate-y-0.5 hover:bg-brand-blue/15"
-                  onClick={openPageSuggestionInChat}
-                >
-                  Suggestion
-                </button>
-              ) : <div />}
+              <div />
               <button
                 type="button"
                 className={classNames(
@@ -1226,11 +1289,12 @@ export function PortalFloatingTools() {
               <button
                 type="button"
                 className={classNames(
-                  "rounded-2xl px-3 py-2 text-sm font-semibold",
+                  "relative rounded-2xl px-3 py-2 text-sm font-semibold",
                   "bg-linear-to-r from-(--color-brand-blue) to-(--color-brand-pink) text-white transition-transform duration-150 hover:-translate-y-0.5 hover:opacity-95",
                 )}
-                onClick={() => setChatOpen(true)}
+                onClick={openChatPanel}
               >
+                {pageSuggestion ? <span className="absolute -right-1 -top-1 h-3 w-3 rounded-full bg-white/95 ring-2 ring-brand-pink" /> : null}
                 Chat
               </button>
             </div>

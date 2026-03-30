@@ -1469,7 +1469,7 @@ export function PortalDashboardClient() {
               <>
                 <button
                   type="button"
-                  className="rounded-2xl bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-60"
+                  className="rounded-2xl bg-red-600 px-4 py-2 text-sm font-semibold text-white transition-transform duration-150 hover:-translate-y-0.5 hover:bg-red-700 disabled:opacity-60"
                   onClick={() => void resetDashboard()}
                   disabled={savingLayout}
                 >
@@ -1477,7 +1477,7 @@ export function PortalDashboardClient() {
                 </button>
                 <button
                   type="button"
-                  className="rounded-2xl bg-zinc-700 px-4 py-2 text-sm font-semibold text-white hover:bg-zinc-800 disabled:opacity-60"
+                  className="rounded-2xl bg-zinc-700 px-4 py-2 text-sm font-semibold text-white transition-transform duration-150 hover:-translate-y-0.5 hover:bg-zinc-800 disabled:opacity-60"
                   onClick={cancelEdit}
                   disabled={savingLayout}
                 >
@@ -1485,7 +1485,7 @@ export function PortalDashboardClient() {
                 </button>
                 <button
                   type="button"
-                  className="rounded-2xl bg-(--color-brand-blue) px-4 py-2 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
+                  className="rounded-2xl bg-(--color-brand-blue) px-4 py-2 text-sm font-semibold text-white transition-transform duration-150 hover:-translate-y-0.5 hover:opacity-95 disabled:opacity-60"
                   onClick={() => void doneEdit()}
                   disabled={savingLayout}
                 >
@@ -1529,7 +1529,7 @@ export function PortalDashboardClient() {
                 {editMode && id !== "hoursSaved" && id !== "billing" && id !== "services" ? (
                   <button
                     type="button"
-                    className="absolute right-3 top-3 z-10 rounded-full border border-zinc-200 bg-white px-2 py-1 text-xs font-semibold text-zinc-700 opacity-0 shadow-sm transition-opacity group-hover:opacity-100"
+                    className="absolute right-3 top-3 z-10 rounded-full border border-zinc-200 bg-white px-2 py-1 text-xs font-semibold text-zinc-700 opacity-0 shadow-sm transition-all duration-150 group-hover:-translate-y-0.5 group-hover:opacity-100"
                     onClick={() => void removeWidget(id)}
                   >
                     Remove

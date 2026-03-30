@@ -156,7 +156,7 @@ function CopyRow({ label, value }: { label: string; value: string | null | undef
       <div className="mt-3 flex items-center justify-end">
         <button
           type="button"
-          className="inline-flex items-center gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold hover:bg-zinc-50 disabled:opacity-60"
+          className="inline-flex items-center gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold transition-all duration-150 hover:-translate-y-0.5 hover:border-zinc-300 hover:bg-zinc-50 disabled:opacity-60"
           disabled={!v}
           onClick={async () => v && navigator.clipboard.writeText(v)}
         >
@@ -1016,7 +1016,7 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
         <div>
           <Link
             href={`${portalBase}/app/onboarding`}
-            className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+            className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink transition-all duration-150 hover:-translate-y-0.5 hover:border-zinc-300 hover:bg-zinc-50"
           >
             ← Back to onboarding
           </Link>
@@ -1110,7 +1110,7 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
                 <div className="mt-4 flex flex-col gap-3 sm:flex-row">
                   <button
                     type="button"
-                    className="inline-flex items-center justify-center rounded-2xl bg-brand-blue px-5 py-3 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
+                    className="inline-flex items-center justify-center rounded-2xl bg-brand-blue px-5 py-3 text-sm font-semibold text-white transition-transform duration-150 hover:-translate-y-0.5 hover:opacity-95 disabled:opacity-60"
                     onClick={saveContact}
                     disabled={!canSaveContact || savingContact}
                   >
@@ -1118,7 +1118,7 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
                   </button>
                   <button
                     type="button"
-                    className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-5 py-3 text-sm font-semibold text-brand-ink hover:bg-zinc-50 disabled:opacity-60"
+                    className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-5 py-3 text-sm font-semibold text-brand-ink transition-all duration-150 hover:-translate-y-0.5 hover:border-zinc-300 hover:bg-zinc-50 disabled:opacity-60"
                     onClick={() => setPasswordModalOpen(true)}
                     disabled={!canEditProfile}
                   >
@@ -1138,7 +1138,7 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
               <button
                 type="button"
                 onClick={() => setAdvancedOpen((v) => !v)}
-                className="inline-flex w-full items-center justify-between rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50 sm:w-auto"
+                className="inline-flex w-full items-center justify-between rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink transition-all duration-150 hover:-translate-y-0.5 hover:border-zinc-300 hover:bg-zinc-50 sm:w-auto"
               >
                 <span>Advanced</span>
                 <span
@@ -1315,7 +1315,7 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
                             type="button"
                             onClick={() => void saveTwilio()}
                             disabled={savingTwilio}
-                            className="inline-flex items-center justify-center rounded-2xl bg-(--color-brand-blue) px-4 py-2 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
+                            className="inline-flex items-center justify-center rounded-2xl bg-(--color-brand-blue) px-4 py-2 text-sm font-semibold text-white transition-transform duration-150 hover:-translate-y-0.5 hover:opacity-95 disabled:opacity-60"
                           >
                             {savingTwilio ? "Saving…" : "Save Twilio"}
                           </button>
@@ -1323,7 +1323,7 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
                             type="button"
                             onClick={() => void clearTwilio()}
                             disabled={savingTwilio}
-                            className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50 disabled:opacity-60"
+                            className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink transition-all duration-150 hover:-translate-y-0.5 hover:border-zinc-300 hover:bg-zinc-50 disabled:opacity-60"
                           >
                             Clear
                           </button>
@@ -1353,7 +1353,7 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
                         <button
                           type="button"
                           onClick={() => setDomainComposerOpen((current) => !current)}
-                          className="inline-flex h-10 w-10 items-center justify-center rounded-2xl bg-brand-blue text-lg font-semibold text-white hover:opacity-95"
+                          className="inline-flex h-10 w-10 items-center justify-center rounded-2xl bg-brand-blue text-lg font-semibold text-white transition-transform duration-150 hover:-translate-y-0.5 hover:opacity-95"
                           aria-label={domainComposerOpen ? "Close add domain" : "Open add domain"}
                           title={domainComposerOpen ? "Close" : "Add domain"}
                         >
@@ -1376,7 +1376,7 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
                               type="button"
                               onClick={() => void addDomain()}
                               disabled={domainBusy || !domainInput.trim()}
-                              className="inline-flex items-center justify-center rounded-2xl bg-brand-blue px-4 py-3 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
+                              className="inline-flex items-center justify-center rounded-2xl bg-brand-blue px-4 py-3 text-sm font-semibold text-white transition-transform duration-150 hover:-translate-y-0.5 hover:opacity-95 disabled:opacity-60"
                             >
                               {domainBusy ? "Adding…" : "Add domain"}
                             </button>
@@ -1402,7 +1402,7 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
                                       [domain.id]: !current[domain.id],
                                     }))
                                   }
-                                  className="flex w-full items-center justify-between gap-3 rounded-2xl text-left"
+                                  className="flex w-full items-center justify-between gap-3 rounded-2xl text-left transition-all duration-150 hover:-translate-y-0.5"
                                 >
                                   <div className="min-w-0">
                                     <div className="truncate text-sm font-semibold text-zinc-900">{domain.domain}</div>
@@ -1423,7 +1423,7 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
                                     <span
                                       className={classNames(
                                         "inline-flex h-8 w-8 items-center justify-center rounded-full border border-zinc-200 bg-white text-zinc-600 transition-transform duration-150",
-                                        expanded ? "rotate-180" : "rotate-0",
+                                        expanded ? "-rotate-90" : "rotate-90",
                                       )}
                                       aria-hidden
                                     >
@@ -1450,12 +1450,12 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
                                               <tr>
                                                 <td className="border-b border-zinc-100 py-2 text-xs font-semibold text-zinc-900">ALIAS / ANAME</td>
                                                 <td className="border-b border-zinc-100 py-2 text-xs">
-                                                  <button type="button" onClick={() => void copyText("@")} className="inline-flex items-center gap-2 font-mono text-zinc-800 hover:text-brand-blue">
+                                                  <button type="button" onClick={() => void copyText("@")} className="inline-flex items-center gap-2 rounded-lg px-1 py-0.5 font-mono text-zinc-800 transition-all duration-150 hover:-translate-y-0.5 hover:text-brand-blue">
                                                     @ <IconCopy size={14} />
                                                   </button>
                                                 </td>
                                                 <td className="border-b border-zinc-100 py-2 text-xs">
-                                                  <button type="button" onClick={() => void copyText(platformTargetHost)} className="inline-flex items-center gap-2 font-mono text-zinc-800 hover:text-brand-blue">
+                                                  <button type="button" onClick={() => void copyText(platformTargetHost)} className="inline-flex items-center gap-2 rounded-lg px-1 py-0.5 font-mono text-zinc-800 transition-all duration-150 hover:-translate-y-0.5 hover:text-brand-blue">
                                                     {platformTargetHost} <IconCopy size={14} />
                                                   </button>
                                                 </td>
@@ -1463,12 +1463,12 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
                                               <tr>
                                                 <td className="border-b border-zinc-100 py-2 text-xs font-semibold text-zinc-900">A</td>
                                                 <td className="border-b border-zinc-100 py-2 text-xs">
-                                                  <button type="button" onClick={() => void copyText("@")} className="inline-flex items-center gap-2 font-mono text-zinc-800 hover:text-brand-blue">
+                                                  <button type="button" onClick={() => void copyText("@")} className="inline-flex items-center gap-2 rounded-lg px-1 py-0.5 font-mono text-zinc-800 transition-all duration-150 hover:-translate-y-0.5 hover:text-brand-blue">
                                                     @ <IconCopy size={14} />
                                                   </button>
                                                 </td>
                                                 <td className="border-b border-zinc-100 py-2 text-xs">
-                                                  <button type="button" onClick={() => void copyText("76.76.21.21")} className="inline-flex items-center gap-2 font-mono text-zinc-800 hover:text-brand-blue">
+                                                  <button type="button" onClick={() => void copyText("76.76.21.21")} className="inline-flex items-center gap-2 rounded-lg px-1 py-0.5 font-mono text-zinc-800 transition-all duration-150 hover:-translate-y-0.5 hover:text-brand-blue">
                                                     76.76.21.21 <IconCopy size={14} />
                                                   </button>
                                                 </td>
@@ -1476,12 +1476,12 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
                                               <tr>
                                                 <td className="border-b border-zinc-100 py-2 text-xs font-semibold text-zinc-900">CNAME</td>
                                                 <td className="border-b border-zinc-100 py-2 text-xs">
-                                                  <button type="button" onClick={() => void copyText("www")} className="inline-flex items-center gap-2 font-mono text-zinc-800 hover:text-brand-blue">
+                                                  <button type="button" onClick={() => void copyText("www")} className="inline-flex items-center gap-2 rounded-lg px-1 py-0.5 font-mono text-zinc-800 transition-all duration-150 hover:-translate-y-0.5 hover:text-brand-blue">
                                                     www <IconCopy size={14} />
                                                   </button>
                                                 </td>
                                                 <td className="border-b border-zinc-100 py-2 text-xs">
-                                                  <button type="button" onClick={() => void copyText(platformTargetHost)} className="inline-flex items-center gap-2 font-mono text-zinc-800 hover:text-brand-blue">
+                                                  <button type="button" onClick={() => void copyText(platformTargetHost)} className="inline-flex items-center gap-2 rounded-lg px-1 py-0.5 font-mono text-zinc-800 transition-all duration-150 hover:-translate-y-0.5 hover:text-brand-blue">
                                                     {platformTargetHost} <IconCopy size={14} />
                                                   </button>
                                                 </td>
@@ -1491,12 +1491,12 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
                                             <tr>
                                               <td className="border-b border-zinc-100 py-2 text-xs font-semibold text-zinc-900">CNAME</td>
                                               <td className="border-b border-zinc-100 py-2 text-xs">
-                                                <button type="button" onClick={() => void copyText(deriveDnsHostLabel(domain.domain))} className="inline-flex items-center gap-2 font-mono text-zinc-800 hover:text-brand-blue">
+                                                <button type="button" onClick={() => void copyText(deriveDnsHostLabel(domain.domain))} className="inline-flex items-center gap-2 rounded-lg px-1 py-0.5 font-mono text-zinc-800 transition-all duration-150 hover:-translate-y-0.5 hover:text-brand-blue">
                                                   {deriveDnsHostLabel(domain.domain)} <IconCopy size={14} />
                                                 </button>
                                               </td>
                                               <td className="border-b border-zinc-100 py-2 text-xs">
-                                                <button type="button" onClick={() => void copyText(platformTargetHost)} className="inline-flex items-center gap-2 font-mono text-zinc-800 hover:text-brand-blue">
+                                                <button type="button" onClick={() => void copyText(platformTargetHost)} className="inline-flex items-center gap-2 rounded-lg px-1 py-0.5 font-mono text-zinc-800 transition-all duration-150 hover:-translate-y-0.5 hover:text-brand-blue">
                                                   {platformTargetHost} <IconCopy size={14} />
                                                 </button>
                                               </td>
@@ -1521,7 +1521,7 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
                                         type="button"
                                         onClick={() => void verifyDomain(domain)}
                                         disabled={Boolean(domainVerifyBusy[domain.id])}
-                                        className="inline-flex items-center justify-center rounded-2xl bg-brand-blue px-4 py-2 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
+                                        className="inline-flex items-center justify-center rounded-2xl bg-brand-blue px-4 py-2 text-sm font-semibold text-white transition-transform duration-150 hover:-translate-y-0.5 hover:opacity-95 disabled:opacity-60"
                                       >
                                         {domainVerifyBusy[domain.id] ? "Verifying…" : verified ? "Re-check DNS" : "Verify DNS"}
                                       </button>
@@ -1825,7 +1825,7 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
                               type="button"
                               onClick={() => void connectSelectedProvider()}
                               disabled={!canEditProfile || stripeSaving || !(salesStatus?.ok === true && salesStatus.encryptionConfigured)}
-                              className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
+                              className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white transition-transform duration-150 hover:-translate-y-0.5 hover:opacity-95 disabled:opacity-60"
                             >
                               {stripeSaving
                                 ? "Saving…"
@@ -1837,7 +1837,7 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
                               type="button"
                               onClick={() => void disconnectSelectedProvider()}
                               disabled={!canEditProfile || stripeSaving || !(salesStatus?.ok === true && salesStatus.providers[salesProvider]?.configured)}
-                              className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50 disabled:opacity-60"
+                              className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink transition-all duration-150 hover:-translate-y-0.5 hover:border-zinc-300 hover:bg-zinc-50 disabled:opacity-60"
                             >
                               Disconnect
                             </button>
@@ -1923,7 +1923,7 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
                                 type="button"
                                 onClick={() => void saveMailboxOnce()}
                                 disabled={!canSaveMailbox || mailboxSaving}
-                                className="w-full rounded-2xl bg-brand-ink px-5 py-3 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
+                                className="w-full rounded-2xl bg-brand-ink px-5 py-3 text-sm font-semibold text-white transition-transform duration-150 hover:-translate-y-0.5 hover:opacity-95 disabled:opacity-60"
                               >
                                 {mailboxSaving ? "Saving…" : canSaveMailbox ? "Save" : "Saved"}
                               </button>
@@ -1952,7 +1952,7 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
               <div className="flex flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-end">
                 <button
                   type="button"
-                  className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
+                  className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 transition-all duration-150 hover:-translate-y-0.5 hover:border-zinc-300 hover:bg-zinc-50"
                   onClick={() => setContactPasswordModalOpen(false)}
                   disabled={savingContact}
                 >
@@ -1962,7 +1962,7 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
                   type="button"
                   onClick={() => void doSaveContact({ passwordOverride: contactPasswordDraft })}
                   disabled={contactPasswordDraft.trim().length < 6 || savingContact}
-                  className="rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
+                  className="rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white transition-transform duration-150 hover:-translate-y-0.5 hover:opacity-95 disabled:opacity-60"
                 >
                   {savingContact ? "Saving…" : "Confirm and save"}
                 </button>
@@ -1997,7 +1997,7 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
                 <div className="text-xs text-zinc-600 sm:mr-auto">After updating, sign out/in on other devices.</div>
                 <button
                   type="button"
-                  className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
+                  className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 transition-all duration-150 hover:-translate-y-0.5 hover:border-zinc-300 hover:bg-zinc-50"
                   onClick={() => setPasswordModalOpen(false)}
                 >
                   Cancel
@@ -2006,7 +2006,7 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
                   type="button"
                   onClick={changePassword}
                   disabled={!canSavePassword || savingPassword}
-                  className="rounded-2xl bg-(--color-brand-blue) px-4 py-2 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
+                  className="rounded-2xl bg-(--color-brand-blue) px-4 py-2 text-sm font-semibold text-white transition-transform duration-150 hover:-translate-y-0.5 hover:opacity-95 disabled:opacity-60"
                 >
                   {savingPassword ? "Updating…" : "Update password"}
                 </button>

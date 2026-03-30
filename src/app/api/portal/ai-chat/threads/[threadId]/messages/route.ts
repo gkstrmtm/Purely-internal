@@ -59,6 +59,17 @@ const ChoiceSchema = z
   ])
   .optional();
 
+const WidgetSuggestionSchema = z
+  .object({
+    key: z.string().trim().min(1).max(500),
+    serviceSlug: z.string().trim().min(1).max(120),
+    title: z.string().trim().min(1).max(240),
+    actionIds: z.array(z.string().trim().min(1).max(200)).min(1).max(50),
+    detailLines: z.array(z.string().trim().min(1).max(500)).max(20).optional(),
+  })
+  .strict()
+  .optional();
+
 const SendMessageSchema = z
   .object({
     text: z.string().trim().max(4000).optional(),
@@ -68,6 +79,7 @@ const SendMessageSchema = z
     clientTimeZone: z.string().trim().max(80).optional(),
     confirmToken: z.string().trim().min(1).max(200).optional(),
     choice: ChoiceSchema,
+    widgetSuggestion: WidgetSuggestionSchema,
     redoLastAssistant: z.boolean().optional(),
   })
   .refine(
@@ -76,9 +88,29 @@ const SendMessageSchema = z
       Boolean(String((d as any).confirmToken || "").trim()) ||
       Boolean((d.text || "").trim()) ||
       Boolean((d as any).choice) ||
+      Boolean((d as any).widgetSuggestion) ||
       (Array.isArray(d.attachments) && d.attachments.length > 0),
     { message: "Text or attachments required" },
   );
+
+function buildWidgetSuggestionAssistantText(widgetSuggestion: NonNullable<z.infer<typeof WidgetSuggestionSchema>>) {
+  const serviceLabel = String(widgetSuggestion.serviceSlug || "")
+    .trim()
+    .split("-")
+    .filter(Boolean)
+    .map((part) => (/^(ai|crm|sms)$/i.test(part) ? part.toUpperCase() : `${part.slice(0, 1).toUpperCase()}${part.slice(1)}`))
+    .join(" ");
+  const detailLines = Array.isArray(widgetSuggestion.detailLines)
+    ? widgetSuggestion.detailLines.map((line) => String(line || "").trim()).filter(Boolean).slice(0, 20)
+    : [];
+  return [
+    `I found a suggested setup for ${serviceLabel || "this page"}.`,
+    detailLines.length ? detailLines.map((line) => `- ${line}`).join("\n") : null,
+    "If you want, I can apply it now.",
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+}
 
 function toAbsoluteHttpUrl(raw: string, reqUrl: string): string | null {
   const s = String(raw || "").trim();
@@ -2309,6 +2341,7 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
   }
 
   const now = new Date();
+  let persistedThreadContext = (thread as any).contextJson ?? null;
 
   const ownerTimeZone =
     (await prisma.user.findUnique({ where: { id: ownerId }, select: { timeZone: true } }).catch(() => null))?.timeZone ||
@@ -2452,6 +2485,25 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
 
   const confirmToken = typeof (parsed.data as any).confirmToken === "string" ? String((parsed.data as any).confirmToken).trim().slice(0, 200) : "";
   const choice = (parsed.data as any).choice ?? null;
+  const widgetSuggestion = (parsed.data as any).widgetSuggestion
+    ? {
+        key: String((parsed.data as any).widgetSuggestion.key || "").trim().slice(0, 500),
+        serviceSlug: String((parsed.data as any).widgetSuggestion.serviceSlug || "").trim().slice(0, 120),
+        title: String((parsed.data as any).widgetSuggestion.title || "").trim().slice(0, 240),
+        actionIds: Array.isArray((parsed.data as any).widgetSuggestion.actionIds)
+          ? ((parsed.data as any).widgetSuggestion.actionIds as string[])
+              .map((id) => String(id || "").trim().slice(0, 200))
+              .filter(Boolean)
+              .slice(0, 50)
+          : [],
+        detailLines: Array.isArray((parsed.data as any).widgetSuggestion.detailLines)
+          ? ((parsed.data as any).widgetSuggestion.detailLines as string[])
+              .map((line) => String(line || "").trim().slice(0, 500))
+              .filter(Boolean)
+              .slice(0, 20)
+          : [],
+      }
+    : null;
   const cleanText = (parsed.data.text || "").trim();
   const choiceLabel =
     choice && typeof choice === "object" && typeof (choice as any).label === "string" && String((choice as any).label || "").trim()
@@ -2465,9 +2517,70 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
   const attachments = Array.isArray(parsed.data.attachments) ? parsed.data.attachments : [];
   const imageUrls = imageUrlsFromAttachments(attachments as any[], req.url);
   const isConfirmOnly = Boolean(confirmToken) && !cleanText && !choice && !attachments.length;
+  const isSuggestionOnly = Boolean(widgetSuggestion) && !confirmToken && !cleanText && !choice && !attachments.length;
+
+  if (widgetSuggestion?.key && widgetSuggestion.title && widgetSuggestion.actionIds.length) {
+    const prevCtx =
+      persistedThreadContext && typeof persistedThreadContext === "object" && !Array.isArray(persistedThreadContext)
+        ? (persistedThreadContext as any)
+        : {};
+    const existingWidgetSuggestion =
+      prevCtx.widgetSuggestion && typeof prevCtx.widgetSuggestion === "object" && !Array.isArray(prevCtx.widgetSuggestion)
+        ? (prevCtx.widgetSuggestion as any)
+        : null;
+    const suggestionChanged = String(existingWidgetSuggestion?.key || "") !== widgetSuggestion.key;
+    const nextCtx = {
+      ...prevCtx,
+      widgetSuggestion: {
+        key: widgetSuggestion.key,
+        serviceSlug: widgetSuggestion.serviceSlug,
+        title: widgetSuggestion.title,
+        actionIds: widgetSuggestion.actionIds,
+        detailLines: widgetSuggestion.detailLines,
+        lastSeenAt: now.toISOString(),
+      },
+    };
+
+    if (suggestionChanged) {
+      await (prisma as any).portalAiChatThread.update({ where: { id: threadId }, data: { contextJson: nextCtx } });
+    }
+    persistedThreadContext = nextCtx;
+
+    if (isSuggestionOnly) {
+      if (!suggestionChanged) {
+        await (prisma as any).portalAiChatThread.update({ where: { id: threadId }, data: { lastMessageAt: now } });
+        return NextResponse.json({ ok: true, userMessage: null, assistantMessage: null, assistantActions: [], autoActionMessage: null, canvasUrl: null });
+      }
+
+      const assistantMsg = await (prisma as any).portalAiChatMessage.create({
+        data: {
+          ownerId,
+          threadId,
+          role: "assistant",
+          text: buildWidgetSuggestionAssistantText(widgetSuggestion as any),
+          attachmentsJson: null,
+          createdByUserId: null,
+          sendAt: null,
+          sentAt: now,
+        },
+        select: {
+          id: true,
+          role: true,
+          text: true,
+          attachmentsJson: true,
+          createdAt: true,
+          sendAt: true,
+          sentAt: true,
+        },
+      });
+
+      await (prisma as any).portalAiChatThread.update({ where: { id: threadId }, data: { lastMessageAt: now, contextJson: persistedThreadContext } });
+      return NextResponse.json({ ok: true, userMessage: null, assistantMessage: assistantMsg, assistantActions: [], autoActionMessage: null, canvasUrl: null });
+    }
+  }
 
   if (isConfirmOnly) {
-    const threadContext = (thread as any).contextJson ?? null;
+    const threadContext = persistedThreadContext;
     const pendingConfirm =
       threadContext && typeof threadContext === "object" && !Array.isArray(threadContext)
         ? (threadContext as any).pendingConfirm
@@ -2695,7 +2808,7 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
 
   // 0.5) Agentic planning + deterministic resolution (multi-step, no IDs required).
   // This runs before the legacy action-proposal flow, and it executes immediately for imperative requests.
-  let fallbackThreadContext = (thread as any).contextJson ?? null;
+  let fallbackThreadContext = persistedThreadContext;
   if (isPortalSupportChatConfigured()) {
     try {
       let threadContext = fallbackThreadContext;
