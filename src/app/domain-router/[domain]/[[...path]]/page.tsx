@@ -58,6 +58,8 @@ function normalizeDomain(raw: unknown) {
   s = s.split("/")[0] || "";
   s = s.split("?")[0] || "";
   s = s.split("#")[0] || "";
+  s = s.split(":")[0] || "";
+  s = s.replace(/\.+$/, "");
   if (!s) return null;
 
   if (s.length > 253) return null;
@@ -65,6 +67,30 @@ function normalizeDomain(raw: unknown) {
   if (s.includes("..")) return null;
   if (s.startsWith("-") || s.endsWith("-")) return null;
   return s;
+}
+
+function normalizeHost(raw: unknown): string | null {
+  let s = typeof raw === "string" ? raw.trim().toLowerCase() : "";
+  if (!s) return null;
+  s = s.replace(/^https?:\/\//, "");
+  s = s.split("/")[0] || "";
+  s = s.split("?")[0] || "";
+  s = s.split("#")[0] || "";
+  s = s.split(":")[0] || "";
+  s = s.replace(/\.+$/, "");
+  if (!s) return null;
+  return s;
+}
+
+function addHostVariants(domains: Set<string>, raw: unknown) {
+  const base = normalizeHost(raw);
+  if (!base) return;
+  domains.add(base);
+  if (base.startsWith("www.")) {
+    domains.add(base.slice(4));
+  } else {
+    domains.add(`www.${base}`);
+  }
 }
 
 function readFunnelDomains(settingsJson: unknown): Record<string, string> {
@@ -499,7 +525,7 @@ export async function generateMetadata({
   params: Promise<{ domain: string; path?: string[] }>;
 }): Promise<Metadata> {
   const { domain, path } = await params;
-  const host = decodeURIComponent(String(domain || "")).trim().toLowerCase();
+  const host = normalizeHost(decodeURIComponent(String(domain || "")));
   if (!host) return {};
 
   const mapping = await resolveCustomDomain(host);
@@ -524,7 +550,9 @@ export async function generateMetadata({
     .catch(() => null);
   const settingsJson = settingsRow?.dataJson ?? null;
   const funnelDomains = readFunnelDomains(settingsJson);
-  const allowedDomains = new Set([mapping.matchedDomain, host]);
+  const allowedDomains = new Set<string>();
+  addHostVariants(allowedDomains, mapping.matchedDomain);
+  addHostVariants(allowedDomains, host);
 
   const funnel = await prisma.creditFunnel
     .findFirst({
@@ -581,7 +609,7 @@ export default async function CustomDomainCatchallPage({
 }) {
   const { domain, path } = await params;
   const resolvedSearchParams = searchParams ? await searchParams : undefined;
-  const host = decodeURIComponent(String(domain || "")).trim().toLowerCase();
+  const host = normalizeHost(decodeURIComponent(String(domain || "")));
   if (!host) notFound();
 
   const mapping = await resolveCustomDomain(host);
@@ -605,7 +633,9 @@ export default async function CustomDomainCatchallPage({
     .catch(() => null);
 
   const funnelDomains = readFunnelDomains(settingsRow?.dataJson ?? null);
-  const allowedDomains = new Set([mapping.matchedDomain, host]);
+  const allowedDomains = new Set<string>();
+  addHostVariants(allowedDomains, mapping.matchedDomain);
+  addHostVariants(allowedDomains, host);
 
   const settings = (() => {
     const direct = readDomainSettings(settingsRow?.dataJson ?? null, mapping.matchedDomain);

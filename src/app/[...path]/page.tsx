@@ -26,7 +26,7 @@ export default async function CustomDomainFallbackPage({
   params,
   searchParams,
 }: {
-  params: Promise<{ path?: string[] }>;
+  params: Promise<{ path: string[] }>;
   searchParams?: Promise<{ [key: string]: string | string[] | undefined }>;
 }) {
   const h = await headers();
