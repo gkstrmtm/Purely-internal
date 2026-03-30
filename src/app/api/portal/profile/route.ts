@@ -409,8 +409,8 @@ export async function GET() {
 
   const [phone, voiceAgentId, voiceAgentApiKey, cityState, preferences] = await Promise.all([
     getProfilePhone(userId),
-    getProfileVoiceAgentId(userId),
-    getProfileVoiceAgentApiKey(userId),
+    getProfileVoiceAgentId(ownerId),
+    getProfileVoiceAgentApiKey(ownerId),
     getOwnerCityState(ownerId).catch(() => ({ city: "", state: "" })),
     getProfilePreferences(userId).catch(() => ({ voiceId: null, defaultLoginPath: null, themeMode: "device", hideFloatingTools: false })),
   ]);
@@ -527,8 +527,8 @@ export async function PUT(req: Request) {
         role: current.role,
         updatedAt: current.updatedAt,
         phone: await getProfilePhone(userId).catch(() => null),
-        voiceAgentId: await getProfileVoiceAgentId(userId).catch(() => null),
-        voiceAgentApiKeyConfigured: Boolean((await getProfileVoiceAgentApiKey(userId).catch(() => null))?.trim()),
+        voiceAgentId: await getProfileVoiceAgentId(ownerId).catch(() => null),
+        voiceAgentApiKeyConfigured: Boolean((await getProfileVoiceAgentApiKey(ownerId).catch(() => null))?.trim()),
         voiceId: preferences.voiceId,
         defaultLoginPath: preferences.defaultLoginPath,
         themeMode: preferences.themeMode,
@@ -595,12 +595,12 @@ export async function PUT(req: Request) {
 
   const phone = phoneProvided ? await setProfilePhone(userId, nextPhone) : await getProfilePhone(userId);
   const voiceAgentId = voiceAgentProvided
-    ? await setProfileVoiceAgentId(userId, nextVoiceAgentId)
-    : await getProfileVoiceAgentId(userId);
+    ? await setProfileVoiceAgentId(ownerId, nextVoiceAgentId)
+    : await getProfileVoiceAgentId(ownerId);
 
   const voiceAgentApiKeyConfigured = voiceAgentApiKeyProvided
-    ? await setProfileVoiceAgentApiKey(userId, nextVoiceAgentApiKey)
-    : Boolean((await getProfileVoiceAgentApiKey(userId))?.trim());
+    ? await setProfileVoiceAgentApiKey(ownerId, nextVoiceAgentApiKey)
+    : Boolean((await getProfileVoiceAgentApiKey(ownerId))?.trim());
 
   if (preferencesProvided) {
     await setProfilePreferences(userId, {

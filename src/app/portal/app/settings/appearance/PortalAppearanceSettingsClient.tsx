@@ -336,7 +336,7 @@ export function PortalAppearanceSettingsClient() {
             <PortalListboxDropdown<string>
               value={selectedVoiceId}
               onChange={(voiceId) => setSelectedVoiceId(String(voiceId || "").trim())}
-              disabled={loading || !voiceAgentApiKeyConfigured || voiceLibraryLoading}
+              disabled={loading || voiceLibraryLoading}
               placeholder={voiceLibraryLoading ? "Loading voices…" : "Use service default"}
               options={[
                 { value: "", label: "Use service default", hint: "" },
@@ -349,7 +349,7 @@ export function PortalAppearanceSettingsClient() {
               renderOptionRight={(opt) => {
                 if (!opt.value) return null;
                 const isBusy = voicePreviewBusyVoiceId === opt.value;
-                const canClick = !loading && !saving && !voicePreviewBusy;
+                const canClick = !loading && !saving && !voicePreviewBusy && voiceAgentApiKeyConfigured;
                 return (
                   <span
                     role="button"
