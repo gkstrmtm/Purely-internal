@@ -58,6 +58,7 @@ export function PortalAppearanceSettingsClient() {
   const [saving, setSaving] = useState(false);
   const [voiceLibraryLoading, setVoiceLibraryLoading] = useState(false);
   const [voicePreviewBusy, setVoicePreviewBusy] = useState(false);
+  const [voicePreviewBusyVoiceId, setVoicePreviewBusyVoiceId] = useState<string | null>(null);
   const [voicePreviewShowControls, setVoicePreviewShowControls] = useState(false);
   const [voiceAgentApiKeyConfigured, setVoiceAgentApiKeyConfigured] = useState(false);
   const [voiceLibraryVoices, setVoiceLibraryVoices] = useState<VoiceLibraryVoice[]>([]);
@@ -232,20 +233,22 @@ export function PortalAppearanceSettingsClient() {
     toast.success("Appearance settings saved");
   }
 
-  async function playVoicePreview() {
-    if (!selectedVoiceId) {
+  async function playVoicePreview(voiceIdOverride?: string) {
+    const voiceId = String(voiceIdOverride || selectedVoiceId || "").trim();
+    if (!voiceId) {
       toast.error("Pick a voice first");
       return;
     }
     if (voicePreviewBusy) return;
 
     setVoicePreviewBusy(true);
+    setVoicePreviewBusyVoiceId(voiceId);
     setVoicePreviewShowControls(false);
     try {
       const res = await fetch("/api/portal/voice-agent/voices/preview", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ voiceId: selectedVoiceId, text: DEFAULT_VOICE_PREVIEW_TEXT }),
+        body: JSON.stringify({ voiceId, text: DEFAULT_VOICE_PREVIEW_TEXT }),
       });
 
       if (!res.ok) {
@@ -277,6 +280,7 @@ export function PortalAppearanceSettingsClient() {
       toast.error(error instanceof Error ? error.message : "Voice preview failed");
     } finally {
       setVoicePreviewBusy(false);
+      setVoicePreviewBusyVoiceId(null);
     }
   }
 
@@ -329,27 +333,65 @@ export function PortalAppearanceSettingsClient() {
         <div className="mt-4 grid gap-4 lg:grid-cols-[minmax(0,1fr)_280px]">
           <div>
             <label className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Voice</label>
-            <div className="mt-2">
-              <select
-                value={selectedVoiceId}
-                onChange={(e) => setSelectedVoiceId(e.target.value)}
-                disabled={loading || !voiceAgentApiKeyConfigured || voiceLibraryLoading}
-                className={classNames(
-                  "flex w-full items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 outline-none transition-all duration-150 focus:border-brand-blue focus:ring-2 focus:ring-[rgba(29,78,216,0.18)]",
-                  loading || !voiceAgentApiKeyConfigured || voiceLibraryLoading ? "cursor-not-allowed opacity-60" : "hover:border-zinc-300 hover:bg-zinc-50",
-                )}
-                aria-label="Pura dictation voice"
-              >
-                {voiceLibraryLoading ? <option value="">Loading voices…</option> : null}
-                {!voiceLibraryLoading
-                  ? voiceOptions.map((option) => (
-                      <option key={option.value || "default"} value={option.value}>
-                        {option.label}
-                      </option>
-                    ))
-                  : null}
-              </select>
-            </div>
+            <PortalListboxDropdown<string>
+              value={selectedVoiceId}
+              onChange={(voiceId) => setSelectedVoiceId(String(voiceId || "").trim())}
+              disabled={loading || !voiceAgentApiKeyConfigured || voiceLibraryLoading}
+              placeholder={voiceLibraryLoading ? "Loading voices…" : "Use service default"}
+              options={[
+                { value: "", label: "Use service default", hint: "" },
+                ...voiceLibraryVoices.map((voice) => ({
+                  value: voice.id,
+                  label: voice.category ? `${voice.name} · ${voice.category}` : voice.name,
+                  hint: voice.description || "",
+                })),
+              ]}
+              renderOptionRight={(opt) => {
+                if (!opt.value) return null;
+                const isBusy = voicePreviewBusyVoiceId === opt.value;
+                const canClick = !loading && !saving && !voicePreviewBusy;
+                return (
+                  <span
+                    role="button"
+                    tabIndex={canClick ? 0 : -1}
+                    aria-label={isBusy ? "Generating preview" : "Play preview"}
+                    title={isBusy ? "Generating…" : "Play preview"}
+                    className={classNames(
+                      "inline-flex h-7 w-7 items-center justify-center rounded-lg text-xs font-semibold",
+                      canClick ? "bg-white/15 hover:bg-white/25" : "opacity-60",
+                    )}
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                    }}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      if (!canClick) return;
+                      void playVoicePreview(opt.value);
+                    }}
+                    onKeyDown={(e) => {
+                      if (!canClick) return;
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        void playVoicePreview(opt.value);
+                      }
+                    }}
+                  >
+                    {isBusy ? (
+                      "…"
+                    ) : (
+                      <svg aria-hidden="true" viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor">
+                        <path d="M8 5v14l11-7z" />
+                      </svg>
+                    )}
+                  </span>
+                );
+              }}
+              className="mt-2 z-50"
+              buttonClassName="flex h-10 w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
+            />
             <div className="mt-2 text-xs text-zinc-500">
               {selectedVoiceMeta
                 ? selectedVoiceMeta.description || `Selected voice: ${selectedVoiceMeta.name}`

@@ -2530,12 +2530,12 @@ export function PortalAiChatClient() {
                     <div className="text-3xl font-semibold tracking-tight text-zinc-900">Let Pura work for you</div>
                     <div className="mt-2 text-sm text-zinc-500">Start with a question, a task, or the next workflow you want off your plate.</div>
                   </div>
-                  <div className="mb-4 flex flex-wrap justify-center gap-2">
+                  <div className="mb-4 grid grid-cols-1 gap-3 md:grid-cols-3">
                     {welcomePromptChips.map((prompt) => (
                       <button
                         key={prompt}
                         type="button"
-                        className="rounded-full border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 transition-all duration-150 hover:-translate-y-0.5 hover:border-zinc-300 hover:bg-zinc-50"
+                        className="flex min-h-28 items-start rounded-3xl border border-zinc-200 bg-white p-4 text-left text-sm font-semibold text-zinc-800 shadow-[0_10px_30px_rgba(0,0,0,0.04)] transition-all duration-150 hover:-translate-y-1 hover:border-zinc-300 hover:bg-zinc-50"
                         onClick={() => {
                           setInput(prompt);
                           requestAnimationFrame(() => {
@@ -2545,7 +2545,7 @@ export function PortalAiChatClient() {
                           });
                         }}
                       >
-                        {prompt}
+                        <span className="block leading-relaxed">{prompt}</span>
                       </button>
                     ))}
                   </div>
