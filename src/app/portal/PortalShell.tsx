@@ -36,6 +36,7 @@ import { usePuraCanvasUiBridgeResponder } from "@/lib/puraCanvasUiBridge.client"
 const DEFAULT_FULL_DEMO_EMAIL = "demo-full@purelyautomation.dev";
 
 const PORTAL_SERVICE_TITLE_BY_SLUG = new Map<string, string>(PORTAL_SERVICES.map((s) => [s.slug, s.title]));
+const PORTAL_SERVICE_BY_SLUG = new Map<string, PortalService>(PORTAL_SERVICES.map((s) => [s.slug, s]));
 
 type Me = {
   user: { email: string; name: string; role: string };
@@ -590,6 +591,42 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
   const isFullDemo = (me?.user.email ?? "").toLowerCase().trim() === DEFAULT_FULL_DEMO_EMAIL;
   const knownServiceKeys = useMemo(() => new Set<string>(PORTAL_SERVICE_KEYS as unknown as string[]), []);
 
+  const canViewServiceKey = useCallback(
+    (key: PortalServiceKey) => {
+      if (!portalMe || portalMe.ok !== true) return true;
+      const p = (portalMe.permissions as any)?.[key];
+      return Boolean(p?.view);
+    },
+    [portalMe],
+  );
+
+  const canViewServiceSlug = useCallback(
+    (slug: string) => {
+      switch (slug) {
+        case "inbox":
+          return canViewServiceKey("inbox") || canViewServiceKey("outbox");
+        case "nurture-campaigns":
+          return canViewServiceKey("nurtureCampaigns");
+        case "media-library":
+          return canViewServiceKey("media");
+        case "ai-receptionist":
+          return canViewServiceKey("aiReceptionist");
+        case "ai-outbound-calls":
+          return canViewServiceKey("aiOutboundCalls");
+        case "lead-scraping":
+          return canViewServiceKey("leadScraping");
+        case "missed-call-textback":
+          return canViewServiceKey("missedCallTextback");
+        case "follow-up":
+          return canViewServiceKey("followUp");
+        default:
+          if (!knownServiceKeys.has(slug)) return true;
+          return canViewServiceKey(slug as any);
+      }
+    },
+    [canViewServiceKey, knownServiceKeys],
+  );
+
   const refreshAds = useCallback(
     async (opts: { placement: AdPlacement; reason: "path" | "focus" | "dismiss" }) => {
       const excludeIds = getExcludedCampaignIds(opts.placement);
@@ -864,6 +901,19 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
 
   const activeTopKey = sidebarModeOverride ?? derivedTopKey;
 
+  const [dashboardEditMode, setDashboardEditMode] = useState(false);
+  useEffect(() => {
+    const onEdit = (ev: Event) => {
+      const detail = (ev as any)?.detail;
+      if (typeof detail?.editing === "boolean") setDashboardEditMode(detail.editing);
+    };
+    window.addEventListener("pa.portal.dashboard.edit", onEdit as any);
+    return () => window.removeEventListener("pa.portal.dashboard.edit", onEdit as any);
+  }, []);
+  useEffect(() => {
+    if (activeTopKey !== "dashboard" && dashboardEditMode) setDashboardEditMode(false);
+  }, [activeTopKey, dashboardEditMode]);
+
   const activeServiceSlug = useMemo(() => {
     if (typeof pathname !== "string") return null;
     const prefix = `${basePath}/app/services/`;
@@ -873,35 +923,163 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
     return slug || null;
   }, [basePath, pathname]);
 
-  function canViewServiceKey(key: PortalServiceKey) {
-    if (!portalMe || portalMe.ok !== true) return true;
-    const p = (portalMe.permissions as any)?.[key];
-    return Boolean(p?.view);
-  }
-
-  function canViewServiceSlug(slug: string) {
-    switch (slug) {
-      case "inbox":
-        return canViewServiceKey("inbox") || canViewServiceKey("outbox");
-      case "nurture-campaigns":
-        return canViewServiceKey("nurtureCampaigns");
-      case "media-library":
-        return canViewServiceKey("media");
-      case "ai-receptionist":
-        return canViewServiceKey("aiReceptionist");
-      case "ai-outbound-calls":
-        return canViewServiceKey("aiOutboundCalls");
-      case "lead-scraping":
-        return canViewServiceKey("leadScraping");
-      case "missed-call-textback":
-        return canViewServiceKey("missedCallTextback");
-      case "follow-up":
-        return canViewServiceKey("followUp");
-      default:
-        if (!knownServiceKeys.has(slug)) return true;
-        return canViewServiceKey(slug as any);
+  // Track service usage for “top 5” defaults.
+  useEffect(() => {
+    if (!activeServiceSlug) return;
+    try {
+      const key = "pa.portal.serviceUsageCounts";
+      const raw = window.localStorage.getItem(key);
+      const rec = raw ? (JSON.parse(raw) as Record<string, unknown>) : {};
+      const cur = typeof rec?.[activeServiceSlug] === "number" ? (rec[activeServiceSlug] as number) : 0;
+      const next = { ...(rec || {}), [activeServiceSlug]: Math.min(999999, Math.max(0, Math.floor(cur) + 1)) };
+      window.localStorage.setItem(key, JSON.stringify(next));
+    } catch {
+      // ignore
     }
-  }
+  }, [activeServiceSlug]);
+
+  const [dashboardQuickAccess, setDashboardQuickAccess] = useState<string[] | null>(null);
+  const [dashboardQuickAccessFallback, setDashboardQuickAccessFallback] = useState<string[]>([]);
+
+  const saveDashboardQuickAccess = useCallback(
+    async (slugs: string[]) => {
+      const res = await fetch("/api/portal/dashboard/quick-access", {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ slugs }),
+      }).catch(() => null as any);
+      if (!res?.ok) {
+        const body = (await res?.json().catch(() => ({}))) as { error?: string };
+        toast?.push({ kind: "error", message: body?.error || "Unable to save shortcuts" });
+        return null;
+      }
+      const json = (await res.json().catch(() => null)) as { ok?: boolean; slugs?: string[] } | null;
+      if (!json?.ok) return null;
+      const next = Array.isArray(json.slugs) ? json.slugs : [];
+      setDashboardQuickAccess(next);
+      return next;
+    },
+    [toast],
+  );
+
+  useEffect(() => {
+    if (activeTopKey !== "dashboard" || collapsed) return;
+    let mounted = true;
+    (async () => {
+      const allowed = PORTAL_SERVICES.filter((s) => !s.hidden)
+        .filter((s) => canViewServiceSlug(s.slug))
+        .filter((s) => !s.variants || s.variants.includes(variant))
+        .map((s) => s.slug);
+
+      const counts: Record<string, number> = {};
+      try {
+        const raw = window.localStorage.getItem("pa.portal.serviceUsageCounts");
+        const rec = raw ? (JSON.parse(raw) as Record<string, unknown>) : {};
+        for (const slug of allowed) {
+          const v = rec?.[slug];
+          const n = typeof v === "number" ? v : typeof v === "string" ? Number(v) : NaN;
+          counts[slug] = Number.isFinite(n) ? Math.max(0, Math.floor(n)) : 0;
+        }
+      } catch {
+        // ignore
+      }
+
+      const ordered = [...allowed].sort((a, b) => (counts[b] || 0) - (counts[a] || 0));
+      const computed = (ordered.filter(Boolean).slice(0, 5).length ? ordered.filter(Boolean).slice(0, 5) : allowed.slice(0, 5)).slice(0, 5);
+      if (mounted) setDashboardQuickAccessFallback(computed);
+
+      const res = await fetch("/api/portal/dashboard/quick-access", { cache: "no-store" }).catch(() => null as any);
+      if (!mounted) return;
+      if (!res?.ok) return;
+      const json = (await res.json().catch(() => null)) as { ok?: boolean; slugs?: string[] } | null;
+      if (!mounted || !json?.ok) return;
+
+      const slugs = Array.isArray(json.slugs) ? json.slugs : [];
+      setDashboardQuickAccess(slugs);
+
+      // If not configured yet, persist a sensible “top used” default.
+      if (!slugs.length && computed.length) {
+        void saveDashboardQuickAccess(computed);
+      }
+    })();
+    return () => {
+      mounted = false;
+    };
+  }, [activeTopKey, canViewServiceSlug, collapsed, portalMe, variant, saveDashboardQuickAccess, serviceStatuses]);
+
+  const dashboardQuickAccessEffective = useMemo(() => {
+    const base = (dashboardQuickAccess && dashboardQuickAccess.length ? dashboardQuickAccess : dashboardQuickAccessFallback) || [];
+    const unique = Array.from(new Set(base.map((s) => String(s || "").trim()).filter(Boolean)));
+    return unique.slice(0, 5);
+  }, [dashboardQuickAccess, dashboardQuickAccessFallback]);
+
+  const [dashboardAnalysis, setDashboardAnalysis] = useState<null | { text: string; generatedAtIso: string }>(null);
+  const [dashboardAnalysisLoading, setDashboardAnalysisLoading] = useState(false);
+
+  const refreshDashboardAnalysis = useCallback(
+    async (trigger: string) => {
+      if (dashboardAnalysisLoading) return;
+      setDashboardAnalysisLoading(true);
+      try {
+        const res = await fetch("/api/portal/dashboard/analysis", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ trigger }),
+        }).catch(() => null as any);
+        if (!res?.ok) return;
+        const json = (await res.json().catch(() => null)) as { ok?: boolean; analysis?: any } | null;
+        if (json?.ok) setDashboardAnalysis(json.analysis ?? null);
+      } finally {
+        setDashboardAnalysisLoading(false);
+      }
+    },
+    [dashboardAnalysisLoading],
+  );
+
+  useEffect(() => {
+    if (activeTopKey !== "dashboard" || collapsed) return;
+    let mounted = true;
+    (async () => {
+      const res = await fetch("/api/portal/dashboard/analysis", { cache: "no-store" }).catch(() => null as any);
+      if (!mounted) return;
+      if (!res?.ok) return;
+      const json = (await res.json().catch(() => null)) as { ok?: boolean; analysis?: any } | null;
+      if (!mounted || !json?.ok) return;
+      setDashboardAnalysis(json.analysis ?? null);
+
+      // Lazy weekly refresh if missing or stale.
+      const iso = String(json.analysis?.generatedAtIso || "");
+      const d = iso ? new Date(iso) : null;
+      const stale = !d || !Number.isFinite(d.getTime()) || Date.now() - d.getTime() > 7 * 24 * 60 * 60 * 1000;
+      if (!json.analysis || stale) void refreshDashboardAnalysis("weekly_auto");
+    })();
+    return () => {
+      mounted = false;
+    };
+  }, [activeTopKey, collapsed, refreshDashboardAnalysis]);
+
+  useEffect(() => {
+    const onSaved = () => {
+      if (activeTopKey === "dashboard") void refreshDashboardAnalysis("dashboard_saved_event");
+    };
+    window.addEventListener("pa.portal.dashboard.saved", onSaved as any);
+    return () => window.removeEventListener("pa.portal.dashboard.saved", onSaved as any);
+  }, [activeTopKey, refreshDashboardAnalysis]);
+
+  const sidebarHeaderLabel = useMemo(() => {
+    if (activeTopKey === "pura") return "pura";
+    if (activeTopKey === "dashboard") return "dashboard";
+    if (activeTopKey === "settings") return "settings";
+    if (activeTopKey === "services") {
+      if (activeServiceSlug) return (PORTAL_SERVICE_TITLE_BY_SLUG.get(activeServiceSlug) || "services").toLowerCase();
+      return "services";
+    }
+    return "";
+  }, [activeServiceSlug, activeTopKey]);
+
+  const dashboardShortcutCandidates = PORTAL_SERVICES.filter((s) => !s.hidden)
+    .filter((s) => canViewServiceSlug(s.slug))
+    .filter((s) => !s.variants || s.variants.includes(variant));
 
   function isActive(href: string) {
     if (href === `${basePath}/app`) return pathname === `${basePath}/app`;
@@ -1591,61 +1769,58 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
           >
             <div className="flex items-center gap-2">
               {!collapsed ? (
-                <div className="grid min-w-0 flex-1 grid-cols-4 gap-1">
-                  {navItems.map((item: any) => {
-                    const key = item.key as "pura" | "dashboard" | "services" | "settings";
-                    const active = activeTopKey === key;
-                    const isSidebarOnly = key === "services" || key === "settings";
+                <div className="min-w-0 flex-1">
+                  <div className="px-2 pb-2 pt-0.5">
+                    <div className="truncate text-[22px] font-semibold tracking-tight text-brand-ink">{sidebarHeaderLabel}</div>
+                  </div>
 
-                    if (isSidebarOnly) {
-                      return (
-                        <button
-                          key={item.href}
-                          type="button"
-                          title={item.label}
-                          onClick={() => setSidebarModeOverride(key)}
-                          className={classNames(
-                            "flex flex-col items-center justify-center rounded-2xl px-1.5 py-2 text-[11px] font-semibold",
-                            active ? "bg-zinc-100 text-zinc-900" : "text-zinc-700 hover:bg-zinc-50",
-                          )}
-                        >
-                          <span
-                            className={classNames(
-                              "inline-flex h-8 w-8 items-center justify-center rounded-2xl",
-                              active ? "text-(--color-brand-blue)" : "text-zinc-700",
-                            )}
-                            aria-hidden
+                  <div className="grid min-w-0 grid-cols-4 gap-1">
+                    {navItems.map((item: any) => {
+                      const key = item.key as "pura" | "dashboard" | "services" | "settings";
+                      const active = activeTopKey === key;
+                      const isSidebarOnly = key === "services" || key === "settings";
+
+                      const iconClass = classNames(
+                        "inline-flex h-11 w-11 items-center justify-center rounded-2xl border bg-white text-zinc-700 shadow-[0_1px_0_rgba(0,0,0,0.02)] transition",
+                        active
+                          ? "border-(--color-brand-blue)/25 ring-2 ring-(--color-brand-blue)/20 text-(--color-brand-blue)"
+                          : "border-zinc-200 hover:border-zinc-300 hover:bg-zinc-50",
+                      );
+
+                      if (isSidebarOnly) {
+                        return (
+                          <button
+                            key={item.href}
+                            type="button"
+                            title={item.label}
+                            onClick={() => setSidebarModeOverride(key)}
+                            className="inline-flex items-center justify-center rounded-2xl p-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--color-brand-blue)"
+                            aria-label={item.label}
                           >
+                            <span className={iconClass} aria-hidden>
+                              {item.iconGlyph}
+                            </span>
+                            <span className="sr-only">{item.label}</span>
+                          </button>
+                        );
+                      }
+
+                      return (
+                        <Link
+                          key={item.href}
+                          href={item.href}
+                          title={item.label}
+                          className="inline-flex items-center justify-center rounded-2xl p-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--color-brand-blue)"
+                          aria-label={item.label}
+                        >
+                          <span className={iconClass} aria-hidden>
                             {item.iconGlyph}
                           </span>
-                          {active ? <span className="mt-0.5 leading-none">{item.label}</span> : <span className="sr-only">{item.label}</span>}
-                        </button>
+                          <span className="sr-only">{item.label}</span>
+                        </Link>
                       );
-                    }
-
-                    return (
-                      <Link
-                        key={item.href}
-                        href={item.href}
-                        title={item.label}
-                        className={classNames(
-                          "flex flex-col items-center justify-center rounded-2xl px-1.5 py-2 text-[11px] font-semibold",
-                          active ? "bg-zinc-100 text-zinc-900" : "text-zinc-700 hover:bg-zinc-50",
-                        )}
-                      >
-                        <span
-                          className={classNames(
-                            "inline-flex h-8 w-8 items-center justify-center rounded-2xl",
-                            active ? "text-(--color-brand-blue)" : "text-zinc-700",
-                          )}
-                          aria-hidden
-                        >
-                          {item.iconGlyph}
-                        </span>
-                        {active ? <span className="mt-0.5 leading-none">{item.label}</span> : <span className="sr-only">{item.label}</span>}
-                      </Link>
-                    );
-                  })}
+                    })}
+                  </div>
                 </div>
               ) : (
                 <div className="flex min-w-0 flex-1 flex-col items-center gap-1">
@@ -1661,8 +1836,10 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                           title={item.label}
                           onClick={() => setSidebarModeOverride(key)}
                           className={classNames(
-                            "inline-flex h-10 w-10 items-center justify-center rounded-2xl",
-                            active ? "bg-zinc-100 text-(--color-brand-blue)" : "text-zinc-700 hover:bg-zinc-50",
+                            "inline-flex h-11 w-11 items-center justify-center rounded-2xl border bg-white shadow-[0_1px_0_rgba(0,0,0,0.02)] transition",
+                            active
+                              ? "border-(--color-brand-blue)/25 ring-2 ring-(--color-brand-blue)/20 text-(--color-brand-blue)"
+                              : "border-zinc-200 text-zinc-700 hover:border-zinc-300 hover:bg-zinc-50",
                           )}
                         >
                           {item.iconGlyph}
@@ -1673,8 +1850,10 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                           href={item.href}
                           title={item.label}
                           className={classNames(
-                            "inline-flex h-10 w-10 items-center justify-center rounded-2xl",
-                            active ? "bg-zinc-100 text-(--color-brand-blue)" : "text-zinc-700 hover:bg-zinc-50",
+                            "inline-flex h-11 w-11 items-center justify-center rounded-2xl border bg-white shadow-[0_1px_0_rgba(0,0,0,0.02)] transition",
+                            active
+                              ? "border-(--color-brand-blue)/25 ring-2 ring-(--color-brand-blue)/20 text-(--color-brand-blue)"
+                              : "border-zinc-200 text-zinc-700 hover:border-zinc-300 hover:bg-zinc-50",
                           )}
                         >
                           {item.iconGlyph}
@@ -1719,6 +1898,127 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                 ) : (
                   <div className="p-3 text-sm text-zinc-500">Loading chats…</div>
                 )}
+              </div>
+            ) : null}
+
+            {activeTopKey === "dashboard" ? (
+              <div className={classNames(collapsed && "hidden")}>
+                <div className="space-y-1">
+                  <Link
+                    href={`${basePath}/app/services/reporting/sales`}
+                    className={classNames(
+                      "flex items-center gap-3 rounded-2xl px-3 py-2 text-sm font-semibold",
+                      pathname === `${basePath}/app/services/reporting/sales`
+                        ? "bg-zinc-100 text-zinc-900"
+                        : "text-zinc-700 hover:bg-zinc-50",
+                    )}
+                  >
+                    <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl bg-zinc-100 text-zinc-700" aria-hidden>
+                      <IconDashboardGlyph />
+                    </span>
+                    <span className="truncate">Sales dashboard</span>
+                  </Link>
+                </div>
+
+                <div className="mt-4">
+                  <div className="flex items-center justify-between px-3">
+                    <div className="text-[10px] font-semibold uppercase tracking-wide text-zinc-500">Shortcuts</div>
+                    {dashboardEditMode ? (
+                      <div className="text-[11px] font-semibold text-zinc-500">Select up to 5</div>
+                    ) : (
+                      <div className="text-[11px] text-zinc-500">Edit dashboard to customize</div>
+                    )}
+                  </div>
+
+                  {dashboardEditMode ? (
+                    <div className="mt-2 space-y-1">
+                      {dashboardShortcutCandidates.map((svc) => {
+                        const selected = dashboardQuickAccessEffective.includes(svc.slug);
+                        return (
+                          <button
+                            key={`shortcut_${svc.slug}`}
+                            type="button"
+                            onClick={() => {
+                              const cur = dashboardQuickAccessEffective;
+                              if (selected) {
+                                const next = cur.filter((x) => x !== svc.slug);
+                                setDashboardQuickAccess(next);
+                                void saveDashboardQuickAccess(next);
+                                return;
+                              }
+
+                              if (cur.length >= 5) {
+                                toast?.push({ kind: "error", message: "Pick up to 5 shortcuts" });
+                                return;
+                              }
+                              const next = [...cur, svc.slug];
+                              setDashboardQuickAccess(next);
+                              void saveDashboardQuickAccess(next);
+                            }}
+                            className={classNames(
+                              "flex w-full items-center gap-2 rounded-2xl px-2.5 py-1.5 text-[13px] font-medium",
+                              selected ? "bg-zinc-100 text-zinc-900" : "text-zinc-700 hover:bg-zinc-50",
+                            )}
+                          >
+                            <span className="inline-flex h-8 w-8 items-center justify-center rounded-2xl border border-zinc-200 bg-white">
+                              <span className={sidebarIconToneClassForSlug(svc.slug)}>
+                                <IconServiceGlyph slug={svc.slug} />
+                              </span>
+                            </span>
+                            <span className="min-w-0 flex-1 truncate">{svc.title}</span>
+                            <span
+                              className={classNames(
+                                "inline-flex h-6 min-w-6 items-center justify-center rounded-full border px-2 text-[11px] font-semibold",
+                                selected
+                                  ? "border-(--color-brand-blue)/25 bg-(--color-brand-blue)/10 text-(--color-brand-blue)"
+                                  : "border-zinc-200 bg-white text-zinc-500",
+                              )}
+                              aria-hidden
+                            >
+                              {selected ? "✓" : "+"}
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <div className="mt-2">
+                      {dashboardQuickAccessEffective.length ? (
+                        <div className="space-y-1">
+                          {dashboardQuickAccessEffective
+                            .map((slug) => PORTAL_SERVICE_BY_SLUG.get(slug) || null)
+                            .filter(Boolean)
+                            .map((svc) => renderSidebarServiceLink(svc as PortalService))}
+                        </div>
+                      ) : (
+                        <div className="px-3 py-2 text-sm text-zinc-500">No shortcuts yet.</div>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                <div className="mt-5">
+                  <div className="flex items-center justify-between px-3">
+                    <div className="text-[10px] font-semibold uppercase tracking-wide text-zinc-500">Weekly brief</div>
+                    <button
+                      type="button"
+                      onClick={() => void refreshDashboardAnalysis("manual_refresh")}
+                      className="rounded-xl px-2 py-1 text-[11px] font-semibold text-zinc-600 hover:bg-zinc-50 hover:text-zinc-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--color-brand-blue)"
+                    >
+                      {dashboardAnalysisLoading ? "Refreshing…" : "Refresh"}
+                    </button>
+                  </div>
+                  <div className="mt-2 rounded-2xl border border-zinc-200 bg-white p-3 text-xs leading-relaxed text-zinc-700 whitespace-pre-wrap">
+                    {dashboardAnalysis?.text
+                      ? dashboardAnalysis.text
+                      : dashboardAnalysisLoading
+                        ? "Generating your weekly brief…"
+                        : "Generating your weekly brief…"}
+                    {dashboardAnalysis?.generatedAtIso ? (
+                      <div className="mt-2 text-[11px] text-zinc-500">Updated {new Date(dashboardAnalysis.generatedAtIso).toLocaleString()}</div>
+                    ) : null}
+                  </div>
+                </div>
               </div>
             ) : null}
 

@@ -60,12 +60,64 @@ export type PortalDashboardData = {
   layout: DashboardLayoutItem[];
 };
 
+export type PortalDashboardAnalysis = {
+  text: string;
+  generatedAtIso: string;
+};
+
+export type PortalDashboardMeta = {
+  quickAccessSlugs?: string[];
+  analysis?: PortalDashboardAnalysis;
+};
+
 type StoredDashboardJson =
   | {
       version: 1;
       scopes: Partial<Record<DashboardScope, unknown>>;
+      meta?: unknown;
     }
   | unknown;
+
+function asObjectOrNull(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  return value as Record<string, unknown>;
+}
+
+function parseMeta(raw: unknown): PortalDashboardMeta {
+  const rec = asObjectOrNull(raw);
+  if (!rec) return {};
+
+  const quickAccessSlugs = Array.isArray(rec.quickAccessSlugs)
+    ? (rec.quickAccessSlugs as unknown[])
+        .map((v) => (typeof v === "string" ? v.trim() : ""))
+        .filter(Boolean)
+        .slice(0, 12)
+    : undefined;
+
+  const analysisRec = asObjectOrNull(rec.analysis);
+  const analysisText = typeof analysisRec?.text === "string" ? analysisRec.text.trim() : "";
+  const generatedAtIso = typeof analysisRec?.generatedAtIso === "string" ? analysisRec.generatedAtIso.trim() : "";
+  const analysis = analysisText && generatedAtIso ? ({ text: analysisText, generatedAtIso } satisfies PortalDashboardAnalysis) : undefined;
+
+  return {
+    ...(quickAccessSlugs && quickAccessSlugs.length ? { quickAccessSlugs } : {}),
+    ...(analysis ? { analysis } : {}),
+  };
+}
+
+async function upsertDashboardStored(ownerId: string, nextStored: Record<string, unknown>) {
+  return await prisma.portalServiceSetup.upsert({
+    where: { ownerId_serviceSlug: { ownerId, serviceSlug: SERVICE_SLUG } },
+    create: {
+      ownerId,
+      serviceSlug: SERVICE_SLUG,
+      status: "COMPLETE",
+      dataJson: nextStored as any,
+    },
+    update: { status: "COMPLETE", dataJson: nextStored as any },
+    select: { dataJson: true },
+  });
+}
 
 function normalizeInt(n: unknown, fallback: number) {
   const v = typeof n === "number" ? n : typeof n === "string" ? Number(n) : NaN;
@@ -242,25 +294,84 @@ export async function savePortalDashboardData(
     where: { ownerId_serviceSlug: { ownerId, serviceSlug: SERVICE_SLUG } },
     select: { dataJson: true },
   });
+  const existingObj = asObjectOrNull((existing?.dataJson ?? null) as any) ?? {};
   const byScope = dashboardsByScopeFromStored((existing?.dataJson ?? null) as any);
   const merged: Record<DashboardScope, PortalDashboardData> = {
     default: s === "default" ? next : byScope.default,
     embedded: s === "embedded" ? next : byScope.embedded,
   };
 
-  const row = await prisma.portalServiceSetup.upsert({
-    where: { ownerId_serviceSlug: { ownerId, serviceSlug: SERVICE_SLUG } },
-    create: {
-      ownerId,
-      serviceSlug: SERVICE_SLUG,
-      status: "COMPLETE",
-      dataJson: { version: 1, scopes: merged } as any,
-    },
-    update: { status: "COMPLETE", dataJson: { version: 1, scopes: merged } as any },
-    select: { dataJson: true },
-  });
+  // Preserve any other keys stored under this serviceSlug (meta, etc.) while updating layouts.
+  const nextStored: Record<string, unknown> = {
+    ...existingObj,
+    version: 1,
+    scopes: merged,
+  };
+
+  const row = await upsertDashboardStored(ownerId, nextStored);
   const out = dashboardsByScopeFromStored(row.dataJson as any);
   return out[s];
+}
+
+export async function getPortalDashboardMeta(ownerId: string): Promise<PortalDashboardMeta> {
+  const row = await prisma.portalServiceSetup.findUnique({
+    where: { ownerId_serviceSlug: { ownerId, serviceSlug: SERVICE_SLUG } },
+    select: { dataJson: true },
+  });
+  const obj = asObjectOrNull((row?.dataJson ?? null) as any);
+  if (!obj) return {};
+  return parseMeta(obj.meta);
+}
+
+export async function setPortalDashboardQuickAccess(ownerId: string, slugs: string[]): Promise<PortalDashboardMeta> {
+  const safeSlugs = (Array.isArray(slugs) ? slugs : [])
+    .map((s) => (typeof s === "string" ? s.trim() : ""))
+    .filter(Boolean)
+    .slice(0, 12);
+
+  const existing = await prisma.portalServiceSetup.findUnique({
+    where: { ownerId_serviceSlug: { ownerId, serviceSlug: SERVICE_SLUG } },
+    select: { dataJson: true },
+  });
+  const existingObj = asObjectOrNull((existing?.dataJson ?? null) as any) ?? {};
+  const existingMeta = parseMeta(existingObj.meta);
+
+  const nextMeta: PortalDashboardMeta = {
+    ...existingMeta,
+    quickAccessSlugs: safeSlugs,
+  };
+
+  const nextStored: Record<string, unknown> = {
+    ...existingObj,
+    version: 1,
+    meta: nextMeta as any,
+  };
+
+  await upsertDashboardStored(ownerId, nextStored);
+  return nextMeta;
+}
+
+export async function setPortalDashboardAnalysis(ownerId: string, analysis: PortalDashboardAnalysis | null): Promise<PortalDashboardMeta> {
+  const existing = await prisma.portalServiceSetup.findUnique({
+    where: { ownerId_serviceSlug: { ownerId, serviceSlug: SERVICE_SLUG } },
+    select: { dataJson: true },
+  });
+  const existingObj = asObjectOrNull((existing?.dataJson ?? null) as any) ?? {};
+  const existingMeta = parseMeta(existingObj.meta);
+
+  const nextMeta: PortalDashboardMeta = {
+    ...existingMeta,
+    ...(analysis ? { analysis } : {}),
+  };
+
+  const nextStored: Record<string, unknown> = {
+    ...existingObj,
+    version: 1,
+    meta: nextMeta as any,
+  };
+
+  await upsertDashboardStored(ownerId, nextStored);
+  return nextMeta;
 }
 
 export async function addPortalDashboardWidget(

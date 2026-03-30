@@ -755,12 +755,22 @@ export function PortalDashboardClient() {
   function beginEdit() {
     setEditSnapshot(layouts);
     setEditMode(true);
+    try {
+      window.dispatchEvent(new CustomEvent("pa.portal.dashboard.edit", { detail: { editing: true } }));
+    } catch {
+      // ignore
+    }
   }
 
   function cancelEdit() {
     if (editSnapshot) setLayouts(editSnapshot);
     setEditSnapshot(null);
     setEditMode(false);
+    try {
+      window.dispatchEvent(new CustomEvent("pa.portal.dashboard.edit", { detail: { editing: false } }));
+    } catch {
+      // ignore
+    }
   }
 
   async function doneEdit() {
@@ -768,6 +778,20 @@ export function PortalDashboardClient() {
     if (ok) {
       setEditSnapshot(null);
       setEditMode(false);
+
+      try {
+        window.dispatchEvent(new CustomEvent("pa.portal.dashboard.edit", { detail: { editing: false } }));
+        window.dispatchEvent(new CustomEvent("pa.portal.dashboard.saved"));
+      } catch {
+        // ignore
+      }
+
+      // Kick the weekly analysis refresh immediately after dashboard edits.
+      void fetch("/api/portal/dashboard/analysis", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ trigger: "dashboard_saved" }),
+      }).catch(() => null);
     } else {
       setError("Unable to save dashboard");
       window.setTimeout(() => setError(null), 2500);
