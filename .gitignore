@@ -66,6 +66,9 @@ realupdatedhistory.md
 # local chat transcript at repo root
 /chathistory
 
+# local-only Copilot transcript accidentally created at repo root
+/User: help me design a system for my aut.md
+
 # additional local chat history file (copilot transcript)
 /src/app/api/portal/billing/upgrade-checkout/copilotchat.md
 

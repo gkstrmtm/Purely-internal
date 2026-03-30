@@ -24,6 +24,7 @@ import {
 import { PORTAL_SERVICES, type PortalService } from "@/app/portal/services/catalog";
 import { groupPortalServices, portalServiceCategoryForSlug, type PortalServiceCategory } from "@/app/portal/services/categories";
 import { PortalFloatingTools } from "@/app/portal/PortalFloatingTools";
+import { usePortalSidebarOverride } from "@/app/portal/PortalSidebarOverride";
 import { PORTAL_SERVICE_KEYS, type PortalServiceKey } from "@/lib/portalPermissions.shared";
 import type { Entitlements } from "@/lib/entitlements.shared";
 import { usePortalActiveTimeTracker } from "@/lib/portalActiveTime.client";
@@ -177,15 +178,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
 
-  const prevIsAiChatRef = useRef(false);
-  useEffect(() => {
-    // UX: when entering Pura (AI chat), auto-collapse the portal sidebar.
-    if (isAiChat && !prevIsAiChatRef.current) {
-      setCollapsed(true);
-      setMobileOpen(false);
-    }
-    prevIsAiChatRef.current = isAiChat;
-  }, [isAiChat]);
+  const sidebarOverride = usePortalSidebarOverride();
 
   const [me, setMe] = useState<Me | null>(null);
   const [portalMe, setPortalMe] = useState<PortalMe | null>(null);
@@ -839,14 +832,27 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
     const canSeeSettings = can("profile") || can("billing");
 
     const base = [
-      { href: `${basePath}/app`, label: "Dashboard", iconGlyph: <IconDashboardGlyph /> },
-      { href: `${basePath}/app/services`, label: "Services", iconGlyph: <IconServicesGlyph /> },
-      { href: `${basePath}/app/ai-chat`, label: "Pura", iconGlyph: <IconAiChatGlyph /> },
-      ...(can("people") ? [{ href: `${basePath}/app/people`, label: "People", iconGlyph: <IconPeopleGlyph /> }] : []),
-      ...(canSeeSettings ? [{ href: `${basePath}/app/settings`, label: "Settings", iconGlyph: <IconSettingsGlyph /> }] : []),
+      { href: `${basePath}/app/ai-chat`, label: "Pura", key: "pura", iconGlyph: <IconAiChatGlyph /> },
+      { href: `${basePath}/app`, label: "Dashboard", key: "dashboard", iconGlyph: <IconDashboardGlyph /> },
+      { href: `${basePath}/app/services`, label: "Services", key: "services", iconGlyph: <IconServicesGlyph /> },
+      ...(canSeeSettings
+        ? [{ href: `${basePath}/app/settings`, label: "Settings", key: "settings", iconGlyph: <IconSettingsGlyph /> }]
+        : []),
     ];
     return base;
   }, [portalMe, basePath]);
+
+  const activeTopKey = useMemo<"pura" | "dashboard" | "services" | "settings">(() => {
+    if (isAiChat) return "pura";
+    if (pathname === `${basePath}/app` || pathname === `${basePath}/app/`) return "dashboard";
+    if (
+      typeof pathname === "string" &&
+      (pathname.startsWith(`${basePath}/app/services`) || pathname.startsWith(`${basePath}/app/people`))
+    ) {
+      return "services";
+    }
+    return "settings";
+  }, [basePath, isAiChat, pathname]);
 
   function canViewServiceKey(key: PortalServiceKey) {
     if (!portalMe || portalMe.ok !== true) return true;
@@ -880,6 +886,24 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
 
   function isActive(href: string) {
     if (href === `${basePath}/app`) return pathname === `${basePath}/app`;
+    if (href === `${basePath}/app/services`) {
+      return (
+        pathname === href ||
+        pathname.startsWith(href + "/") ||
+        pathname === `${basePath}/app/people` ||
+        pathname.startsWith(`${basePath}/app/people/`)
+      );
+    }
+    if (href === `${basePath}/app/settings`) {
+      return (
+        pathname === href ||
+        pathname.startsWith(href + "/") ||
+        pathname === `${basePath}/app/profile` ||
+        pathname.startsWith(`${basePath}/app/profile/`) ||
+        pathname === `${basePath}/app/billing` ||
+        pathname.startsWith(`${basePath}/app/billing/`)
+      );
+    }
     return pathname === href || pathname.startsWith(href + "/");
   }
 
@@ -1205,6 +1229,13 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
         ["--pa-modal-safe-bottom" as any]: `calc(env(safe-area-inset-bottom) + ${floatingToolsReserve})`,
       }}
     >
+      {isAiChat ? (
+        <style>{`
+          .pa-portal-topbar { display: none !important; }
+          :root { --pa-portal-topbar-height: 0px !important; }
+        `}</style>
+      ) : null}
+
       {showGettingStartedHint ? (
         <div
           className="pointer-events-none fixed inset-0 z-40 flex items-center justify-center px-4 py-6"
@@ -1324,6 +1355,27 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                 <div className="px-3 text-xs font-semibold uppercase tracking-wide text-zinc-500">
                   Services
                 </div>
+
+                {canViewServiceKey("people") ? (
+                  <div className="mt-2">
+                    <Link
+                      href={`${basePath}/app/people`}
+                      className={classNames(
+                        "flex items-center gap-3 rounded-2xl px-3 py-2 text-sm font-semibold",
+                        pathname.startsWith(`${basePath}/app/people`)
+                          ? "bg-zinc-100 text-zinc-900"
+                          : "text-zinc-700 hover:bg-zinc-50",
+                      )}
+                      onClick={() => setMobileOpen(false)}
+                    >
+                      <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl bg-zinc-100 text-zinc-700" aria-hidden>
+                        <IconPeopleGlyph />
+                      </span>
+                      <span className="truncate">People</span>
+                    </Link>
+                  </div>
+                ) : null}
+
                 <div className="mt-2 space-y-4">
                   {sidebarServiceGroups.map((group) => (
                     <div key={group.key}>
@@ -1435,140 +1487,253 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
 
         <aside
           className={classNames(
-            "hidden shrink-0 border-r border-zinc-200 bg-white overflow-hidden transition-[width] duration-200 ease-out sm:flex sm:flex-col sm:sticky sm:top-0 sm:h-full",
+            "hidden shrink-0 bg-white overflow-hidden transition-[width] duration-200 ease-out sm:flex sm:flex-col sm:sticky sm:top-0 sm:h-full",
             collapsed ? "w-19" : "w-70",
           )}
         >
-          <div className={classNames("shrink-0 flex items-center gap-3 border-b border-zinc-200 p-3", collapsed && "justify-center")}
+          <div className={classNames("shrink-0 p-3")}
           >
-            {!collapsed ? (
-              <Link href={`${basePath}/app`} className="flex items-center gap-3">
-                <Image
-                  src={sidebarLogoSrc}
-                  alt="Purely Automation"
-                  width={120}
-                  height={34}
-                  className="h-6 w-auto max-w-36 object-contain"
-                  priority
-                />
-              </Link>
-            ) : null}
-
-            <button
-              type="button"
-              onClick={() => setCollapsed((v) => !v)}
-              className={classNames(
-                "ml-auto inline-flex items-center justify-center rounded-xl border border-zinc-200 bg-white p-2 text-zinc-700 hover:bg-zinc-50",
-                collapsed && "ml-0",
-              )}
-              aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-            >
-              {collapsed ? <IconHamburger /> : <span className="rotate-180"><IconChevron /></span>}
-            </button>
-          </div>
-
-          <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain p-2">
-            <div className="space-y-1">
-              {navItems.map((item) => (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  className={classNames(
-                    "flex items-center gap-3 rounded-2xl px-3 py-2 text-sm font-semibold",
-                    isActive(item.href)
-                      ? "bg-[rgba(29,78,216,0.10)] text-zinc-900"
-                      : "text-zinc-700 hover:bg-zinc-50",
-                    collapsed && "justify-center px-2",
-                  )}
-                >
-                  <span
-                    className={classNames(
-                      "inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl bg-zinc-100",
-                      isActive(item.href) ? "text-(--color-brand-blue)" : "text-zinc-700",
-                    )}
-                    aria-hidden
-                  >
-                    {item.iconGlyph}
-                  </span>
-                  {!collapsed ? <span className="truncate">{item.label}</span> : null}
-                </Link>
-              ))}
-            </div>
-
-            <div className={classNames("mt-4", collapsed && "px-1")}>
+            <div className="flex items-center gap-2">
               {!collapsed ? (
-                <div className="px-3 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">
-                  Services
-                </div>
-              ) : null}
-              {collapsed ? (
-                <div className="mt-2 space-y-1">
-                  {visibleSidebarServices.map((s) => {
+                <div className="flex min-w-0 flex-1 items-center gap-1">
+                  {navItems.map((item: any) => {
+                    const active = isActive(item.href);
                     return (
                       <Link
-                        key={s.slug}
-                        href={`${basePath}/app/services/${s.slug}`}
+                        key={item.href}
+                        href={item.href}
+                        title={item.label}
                         className={classNames(
-                          "flex items-center gap-3 rounded-2xl px-3 py-1.5 text-sm font-medium",
-                          pathname === `${basePath}/app/services/${s.slug}` || pathname.startsWith(`${basePath}/app/services/${s.slug}/`)
-                            ? "bg-zinc-100 text-zinc-900"
-                            : "text-zinc-700 hover:bg-zinc-50",
-                          "justify-center px-2",
+                          "inline-flex items-center gap-2 rounded-2xl px-2.5 py-2 text-sm font-semibold",
+                          active ? "bg-zinc-100 text-zinc-900" : "text-zinc-700 hover:bg-zinc-50",
                         )}
-                        title={s.title}
                       >
-                        <span className="inline-flex h-8 w-8 items-center justify-center rounded-2xl border border-zinc-200 bg-white">
-                          <span className={sidebarIconToneClassForSlug(s.slug)}>
-                            <IconServiceGlyph slug={s.slug} />
-                          </span>
+                        <span
+                          className={classNames(
+                            "inline-flex h-8 w-8 items-center justify-center rounded-2xl",
+                            active ? "text-(--color-brand-blue)" : "text-zinc-700",
+                          )}
+                          aria-hidden
+                        >
+                          {item.iconGlyph}
                         </span>
+                        {active ? <span className="truncate text-xs">{item.label}</span> : null}
                       </Link>
                     );
                   })}
                 </div>
               ) : (
-                <div className="mt-2 space-y-2">
-                  {sidebarServiceGroups.map((group) => (
-                    <div key={group.key}>
-                      <div className="px-3 text-[10px] font-semibold uppercase tracking-wide text-zinc-500">{group.title}</div>
-                      <div className="mt-1 space-y-1">
-                        {group.services.map((s) => {
-                          const lockBadge = serviceLockBadge(s.slug);
-                          const unlocked = serviceUnlocked(s);
-                          return (
-                            <Link
-                              key={s.slug}
-                              href={`${basePath}/app/services/${s.slug}`}
-                              className={classNames(
-                                "flex items-center gap-3 rounded-2xl px-3 py-1.5 text-sm font-medium",
-                                pathname === `${basePath}/app/services/${s.slug}` || pathname.startsWith(`${basePath}/app/services/${s.slug}/`)
-                                  ? "bg-zinc-100 text-zinc-900"
-                                  : "text-zinc-700 hover:bg-zinc-50",
-                              )}
-                            >
-                              <span className="inline-flex h-8 w-8 items-center justify-center rounded-2xl border border-zinc-200 bg-white">
-                                <span className={sidebarIconToneClassForSlug(s.slug)}>
-                                  <IconServiceGlyph slug={s.slug} />
-                                </span>
-                              </span>
-
-                              <span className="flex min-w-0 flex-1 items-center justify-between gap-2">
-                                <span className="truncate">{s.title}</span>
-                                {!unlocked ? (
-                                  <span className="inline-flex items-center gap-1 text-xs font-semibold text-zinc-500">
-                                    <IconLock /> {lockBadge?.label || "Locked"}
-                                  </span>
-                                ) : null}
-                              </span>
-                            </Link>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  ))}
+                <div className="flex min-w-0 flex-1 flex-col items-center gap-1">
+                  {navItems.map((item: any) => {
+                    const active = isActive(item.href);
+                    return (
+                      <Link
+                        key={item.href}
+                        href={item.href}
+                        title={item.label}
+                        className={classNames(
+                          "inline-flex h-10 w-10 items-center justify-center rounded-2xl",
+                          active ? "bg-zinc-100 text-(--color-brand-blue)" : "text-zinc-700 hover:bg-zinc-50",
+                        )}
+                      >
+                        {item.iconGlyph}
+                      </Link>
+                    );
+                  })}
                 </div>
               )}
+
+              <div className={classNames("ml-auto flex items-center gap-1", collapsed && "ml-0")}
+              >
+                {isAiChat && !collapsed ? (
+                  <>
+                    <Link
+                      href={toPurelyHostedUrl("/book-a-call")}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex h-10 w-10 items-center justify-center rounded-2xl bg-transparent text-zinc-700 transition-colors hover:bg-zinc-50 hover:text-zinc-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--color-brand-blue)"
+                      aria-label="Book a call"
+                      title="Book a call"
+                    >
+                      <IconCalendar size={20} />
+                    </Link>
+                    <Link
+                      href={`${basePath}/tutorials/getting-started`}
+                      className="inline-flex h-10 w-10 items-center justify-center rounded-2xl bg-transparent text-zinc-700 transition-colors hover:bg-zinc-50 hover:text-zinc-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--color-brand-blue)"
+                      aria-label="Help"
+                      title="Help"
+                    >
+                      <IconHelpCircle size={20} />
+                    </Link>
+                  </>
+                ) : null}
+
+                <button
+                  type="button"
+                  onClick={() => setCollapsed((v) => !v)}
+                  className={classNames(
+                    "inline-flex h-10 w-10 items-center justify-center rounded-2xl bg-transparent text-zinc-700 transition-colors hover:bg-zinc-50 hover:text-zinc-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--color-brand-blue)",
+                  )}
+                  aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+                  title={collapsed ? "Expand" : "Collapse"}
+                >
+                  {collapsed ? <IconHamburger /> : (
+                    <span className="rotate-180">
+                      <IconChevron />
+                    </span>
+                  )}
+                </button>
+              </div>
             </div>
+          </div>
+
+          <div
+            className={classNames(
+              "min-h-0 flex-1 overscroll-y-contain p-2",
+              activeTopKey === "pura" ? "overflow-hidden" : "overflow-y-auto",
+            )}
+          >
+            {activeTopKey === "pura" ? (
+              <div className={classNames("h-full", collapsed && "hidden")}>
+                {sidebarOverride?.desktopSidebarContent ? (
+                  sidebarOverride.desktopSidebarContent
+                ) : (
+                  <div className="p-3 text-sm text-zinc-500">Loading chats…</div>
+                )}
+              </div>
+            ) : null}
+
+            {activeTopKey === "services" ? (
+              <div className={classNames(collapsed && "hidden")}>
+                <div className="space-y-1">
+                  <Link
+                    href={`${basePath}/app/services`}
+                    className={classNames(
+                      "flex items-center gap-3 rounded-2xl px-3 py-2 text-sm font-semibold",
+                      pathname === `${basePath}/app/services` ? "bg-zinc-100 text-zinc-900" : "text-zinc-700 hover:bg-zinc-50",
+                    )}
+                  >
+                    <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl bg-zinc-100 text-zinc-700" aria-hidden>
+                      <IconServicesGlyph />
+                    </span>
+                    <span className="truncate">See all</span>
+                  </Link>
+
+                  {canViewServiceKey("people") ? (
+                    <Link
+                      href={`${basePath}/app/people`}
+                      className={classNames(
+                        "flex items-center gap-3 rounded-2xl px-3 py-2 text-sm font-semibold",
+                        pathname.startsWith(`${basePath}/app/people`) ? "bg-zinc-100 text-zinc-900" : "text-zinc-700 hover:bg-zinc-50",
+                      )}
+                    >
+                      <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl bg-zinc-100 text-zinc-700" aria-hidden>
+                        <IconPeopleGlyph />
+                      </span>
+                      <span className="truncate">People</span>
+                    </Link>
+                  ) : null}
+                </div>
+
+                <div className="mt-4">
+                  <div className="px-3 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Services</div>
+                  <div className="mt-2 space-y-2">
+                    {sidebarServiceGroups.map((group) => (
+                      <div key={group.key}>
+                        <div className="px-3 text-[10px] font-semibold uppercase tracking-wide text-zinc-500">{group.title}</div>
+                        <div className="mt-1 space-y-1">
+                          {group.services.map((s) => {
+                            const lockBadge = serviceLockBadge(s.slug);
+                            const unlocked = serviceUnlocked(s);
+                            return (
+                              <Link
+                                key={s.slug}
+                                href={`${basePath}/app/services/${s.slug}`}
+                                className={classNames(
+                                  "flex items-center gap-3 rounded-2xl px-3 py-1.5 text-sm font-medium",
+                                  pathname === `${basePath}/app/services/${s.slug}` || pathname.startsWith(`${basePath}/app/services/${s.slug}/`)
+                                    ? "bg-zinc-100 text-zinc-900"
+                                    : "text-zinc-700 hover:bg-zinc-50",
+                                )}
+                              >
+                                <span className="inline-flex h-8 w-8 items-center justify-center rounded-2xl border border-zinc-200 bg-white">
+                                  <span className={sidebarIconToneClassForSlug(s.slug)}>
+                                    <IconServiceGlyph slug={s.slug} />
+                                  </span>
+                                </span>
+
+                                <span className="flex min-w-0 flex-1 items-center justify-between gap-2">
+                                  <span className="truncate">{s.title}</span>
+                                  {!unlocked ? (
+                                    <span className="inline-flex items-center gap-1 text-xs font-semibold text-zinc-500">
+                                      <IconLock /> {lockBadge?.label || "Locked"}
+                                    </span>
+                                  ) : null}
+                                </span>
+                              </Link>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            ) : null}
+
+            {activeTopKey === "settings" ? (
+              <div className={classNames(collapsed && "hidden")}>
+                <div className="px-3 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Settings</div>
+                <div className="mt-2 space-y-1">
+                  <Link
+                    href={`${basePath}/app/settings`}
+                    className={classNames(
+                      "flex items-center gap-3 rounded-2xl px-3 py-2 text-sm font-semibold",
+                      pathname.startsWith(`${basePath}/app/settings`) ? "bg-zinc-100 text-zinc-900" : "text-zinc-700 hover:bg-zinc-50",
+                    )}
+                  >
+                    <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl bg-zinc-100 text-zinc-700" aria-hidden>
+                      <IconSettingsGlyph />
+                    </span>
+                    <span className="truncate">Settings</span>
+                  </Link>
+                  {canViewServiceKey("profile") ? (
+                    <Link
+                      href={`${basePath}/app/profile`}
+                      className={classNames(
+                        "flex items-center gap-3 rounded-2xl px-3 py-2 text-sm font-semibold",
+                        pathname.startsWith(`${basePath}/app/profile`) ? "bg-zinc-100 text-zinc-900" : "text-zinc-700 hover:bg-zinc-50",
+                      )}
+                    >
+                      <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl bg-zinc-100 text-zinc-700" aria-hidden>
+                        <IconLock />
+                      </span>
+                      <span className="truncate">Profile</span>
+                    </Link>
+                  ) : null}
+                  {canViewServiceKey("billing") ? (
+                    <Link
+                      href={`${basePath}/app/billing`}
+                      className={classNames(
+                        "flex items-center gap-3 rounded-2xl px-3 py-2 text-sm font-semibold",
+                        pathname.startsWith(`${basePath}/app/billing`) ? "bg-zinc-100 text-zinc-900" : "text-zinc-700 hover:bg-zinc-50",
+                      )}
+                    >
+                      <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl bg-zinc-100 text-zinc-700" aria-hidden>
+                        <IconCalendar size={18} />
+                      </span>
+                      <span className="truncate">Billing</span>
+                    </Link>
+                  ) : null}
+                </div>
+              </div>
+            ) : null}
+
+            {activeTopKey === "dashboard" ? (
+              <div className={classNames("p-3 text-sm text-zinc-500", collapsed && "hidden")}>
+                Select a section above.
+              </div>
+            ) : null}
           </div>
 
           <div className={classNames("shrink-0 border-t border-zinc-200 bg-white p-3 z-20", collapsed && "px-2")}>

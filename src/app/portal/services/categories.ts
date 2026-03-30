@@ -23,12 +23,12 @@ export const PORTAL_SERVICE_CATEGORY_ORDER: PortalServiceCategory[] = [
 
 export const PORTAL_SERVICE_CATEGORY_LABELS: Record<PortalServiceCategory, string> = {
   credit: "Credit",
-  communication: "Inbox, SMS, and calls",
-  marketing: "Marketing and reputation",
-  automation: "Automations and booking",
-  leads: "Lead generation",
+  communication: "Communication",
+  marketing: "Marketing",
+  automation: "Automation",
+  leads: "Leads",
   operations: "Operations",
-  analytics: "Reporting",
+  analytics: "Analytics",
   other: "Other",
 };
 

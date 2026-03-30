@@ -8,6 +8,7 @@ import { AppConfirmModal, AppModal } from "@/components/AppModal";
 import { useToast } from "@/components/ToastProvider";
 import { PortalMediaPickerModal, type PortalMediaPickItem } from "@/components/PortalMediaPickerModal";
 import { IconSchedule, IconSend, IconSendHover } from "@/app/portal/PortalIcons";
+import { useSetPortalSidebarOverride } from "@/app/portal/PortalSidebarOverride";
 import { usePuraCanvasUiBridgeClient, type PuraCanvasUiAction } from "@/lib/puraCanvasUiBridge.client";
 
 const SCHEDULED_ACTION_PREFIX = "__PURA_SCHEDULED_ACTION__";
@@ -1686,6 +1687,14 @@ export function PortalAiChatClient() {
     </div>
   );
 
+  const setSidebarOverride = useSetPortalSidebarOverride();
+  useEffect(() => {
+    setSidebarOverride({ desktopSidebarContent: left });
+    return () => setSidebarOverride(null);
+    // NOTE: Intentionally omit `left` to avoid effect loops; we update when the thread list state changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [setSidebarOverride, threadsLoading, threads, activeThreadId]);
+
   const anyMenuOpen = Boolean(attachMenu || threadMenu);
 
   const toLocalInputValue = useCallback((iso: string | null) => {
@@ -2175,24 +2184,7 @@ export function PortalAiChatClient() {
         </div>
       ) : null}
 
-      <div
-        className="hidden h-full shrink-0 border-r border-zinc-200 bg-white shadow-[2px_0_12px_rgba(0,0,0,0.06)] lg:flex relative"
-        style={{ width: sidebarWidth }}
-      >
-        {left}
-
-        <div
-          className="absolute right-0 top-0 hidden h-full w-2 translate-x-1/2 cursor-col-resize bg-transparent hover:bg-zinc-100 lg:block"
-          role="separator"
-          aria-orientation="vertical"
-          onMouseDown={(e) => {
-            e.preventDefault();
-            sidebarDragRef.current = { startX: e.clientX, startWidth: sidebarWidth };
-            setSidebarDragging(true);
-          }}
-          title="Drag to resize sidebar"
-        />
-      </div>
+      {null}
 
       <div ref={canvasContainerRef} className="flex min-w-0 flex-1 bg-white shadow-[inset_12px_0_16px_-16px_rgba(0,0,0,0.22)] relative">
         <div className="flex min-w-0 flex-1 flex-col">
