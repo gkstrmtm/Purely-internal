@@ -890,7 +890,7 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
           onClick={() => setTab("funnels")}
           aria-current={tab === "funnels" ? "page" : undefined}
           className={
-            "flex-1 min-w-[160px] rounded-2xl border px-4 py-2.5 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
+            "flex-1 min-w-[160px] rounded-2xl border px-4 py-2.5 text-sm font-semibold transition-transform duration-150 hover:-translate-y-0.5 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
             (tab === "funnels"
               ? "border-brand-blue bg-brand-blue text-white shadow-sm focus-visible:ring-brand-blue/40"
               : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
@@ -903,7 +903,7 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
           onClick={() => setTab("forms")}
           aria-current={tab === "forms" ? "page" : undefined}
           className={
-            "flex-1 min-w-[160px] rounded-2xl border px-4 py-2.5 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
+            "flex-1 min-w-[160px] rounded-2xl border px-4 py-2.5 text-sm font-semibold transition-transform duration-150 hover:-translate-y-0.5 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
             (tab === "forms"
               ? "border-brand-pink bg-brand-pink text-white shadow-sm focus-visible:ring-brand-pink/40"
               : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
@@ -916,7 +916,7 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
           onClick={() => setTab("settings")}
           aria-current={tab === "settings" ? "page" : undefined}
           className={
-            "flex-1 min-w-[160px] rounded-2xl border px-4 py-2.5 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
+            "flex-1 min-w-[160px] rounded-2xl border px-4 py-2.5 text-sm font-semibold transition-transform duration-150 hover:-translate-y-0.5 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
             (tab === "settings"
               ? "border-brand-ink bg-brand-ink text-white shadow-sm focus-visible:ring-brand-ink/40"
               : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
@@ -932,7 +932,7 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
             <button
               type="button"
               onClick={() => openCreate("funnel")}
-              className="group flex min-h-[160px] flex-col items-center justify-center rounded-3xl border-2 border-dashed border-zinc-300 bg-white p-6 text-left hover:bg-zinc-50"
+              className="group flex min-h-[160px] flex-col items-center justify-center rounded-3xl border-2 border-dashed border-zinc-300 bg-white p-6 text-left transition-transform duration-150 hover:-translate-y-0.5 hover:bg-zinc-50"
             >
               <div className="flex h-10 w-10 items-center justify-center rounded-2xl border border-zinc-200 bg-white text-xl font-bold text-zinc-700">
                 +
@@ -1019,7 +1019,7 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                             e.stopPropagation();
                             setOpenFunnelMenuId((prev) => (prev === f.id ? null : f.id));
                           }}
-                          className="grid h-9 w-9 place-items-center rounded-xl border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50"
+                          className="grid h-9 w-9 place-items-center rounded-xl border border-zinc-200 bg-white text-zinc-700 transition-transform duration-150 hover:-translate-y-0.5 hover:bg-zinc-50"
                         >
                           <DotsIcon className="h-5 w-5" />
                         </button>
@@ -1045,7 +1045,7 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                               <Link
                                 href={`${basePath}/app/services/funnel-builder/funnels/${encodeURIComponent(f.id)}/edit`}
                                 target="_blank"
-                                className="flex w-full items-center rounded-xl px-3 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+                                className="flex w-full items-center rounded-xl px-3 py-2 text-sm font-semibold text-brand-ink transition-transform duration-150 hover:-translate-y-0.5 hover:bg-zinc-50"
                                 onClick={() => setOpenFunnelMenuId(null)}
                                 aria-label="Edit"
                                 title="Edit"
@@ -1059,7 +1059,7 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                               <Link
                                 href={toPurelyHostedUrl(hostedFunnelPath(f.slug, f.id) || `/f/${encodeURIComponent(f.slug)}`)}
                                 target="_blank"
-                                className="flex w-full items-center rounded-xl px-3 py-2 text-sm font-semibold text-[color:var(--color-brand-blue)] hover:bg-zinc-50"
+                                className="flex w-full items-center rounded-xl px-3 py-2 text-sm font-semibold text-[color:var(--color-brand-blue)] transition-transform duration-150 hover:-translate-y-0.5 hover:bg-zinc-50"
                                 onClick={() => setOpenFunnelMenuId(null)}
                               >
                                 Preview
@@ -1069,7 +1069,7 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                                 <Link
                                   href={liveHref}
                                   target="_blank"
-                                  className="flex w-full items-center rounded-xl px-3 py-2 text-sm font-semibold text-[color:var(--color-brand-blue)] hover:bg-zinc-50"
+                                  className="flex w-full items-center rounded-xl px-3 py-2 text-sm font-semibold text-[color:var(--color-brand-blue)] transition-transform duration-150 hover:-translate-y-0.5 hover:bg-zinc-50"
                                   onClick={() => setOpenFunnelMenuId(null)}
                                 >
                                   Live
@@ -1103,7 +1103,7 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                                     })();
                                   }}
                                   className={classNames(
-                                    "flex w-full items-center rounded-xl px-3 py-2 text-left text-sm font-semibold hover:bg-zinc-50",
+                                    "flex w-full items-center rounded-xl px-3 py-2 text-left text-sm font-semibold transition-transform duration-150 hover:-translate-y-0.5 hover:bg-zinc-50",
                                     f.status === "ACTIVE" ? "text-zinc-700" : "text-green-700",
                                     funnelStatusBusy[f.id] ? "opacity-60" : "",
                                   )}
@@ -1127,7 +1127,7 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                                   setOpenFunnelMenuId(null);
                                 }}
                                 className={classNames(
-                                  "flex w-full items-center rounded-xl px-3 py-2 text-left text-sm font-semibold text-red-600 hover:bg-zinc-50",
+                                  "flex w-full items-center rounded-xl px-3 py-2 text-left text-sm font-semibold text-red-600 transition-transform duration-150 hover:-translate-y-0.5 hover:bg-zinc-50",
                                   funnelDeleteBusy[f.id] ? "opacity-60" : "",
                                 )}
                               >
@@ -1158,7 +1158,7 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
             <button
               type="button"
               onClick={() => openCreate("form")}
-              className="group flex min-h-[160px] flex-col items-center justify-center rounded-3xl border-2 border-dashed border-zinc-300 bg-white p-6 text-left hover:bg-zinc-50"
+              className="group flex min-h-[160px] flex-col items-center justify-center rounded-3xl border-2 border-dashed border-zinc-300 bg-white p-6 text-left transition-transform duration-150 hover:-translate-y-0.5 hover:bg-zinc-50"
             >
               <div className="flex h-10 w-10 items-center justify-center rounded-2xl border border-zinc-200 bg-white text-xl font-bold text-zinc-700">
                 +
@@ -1195,7 +1195,7 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                           e.stopPropagation();
                           setOpenFormMenuId((prev) => (prev === f.id ? null : f.id));
                         }}
-                        className="grid h-9 w-9 place-items-center rounded-xl border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50"
+                        className="grid h-9 w-9 place-items-center rounded-xl border border-zinc-200 bg-white text-zinc-700 transition-transform duration-150 hover:-translate-y-0.5 hover:bg-zinc-50"
                       >
                         <DotsIcon className="h-5 w-5" />
                       </button>
@@ -1218,7 +1218,7 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                             <Link
                               href={`${basePath}/app/services/funnel-builder/forms/${encodeURIComponent(f.id)}/edit`}
                               target="_blank"
-                              className="flex w-full items-center rounded-xl px-3 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+                              className="flex w-full items-center rounded-xl px-3 py-2 text-sm font-semibold text-brand-ink transition-transform duration-150 hover:-translate-y-0.5 hover:bg-zinc-50"
                               onClick={() => setOpenFormMenuId(null)}
                               aria-label="Edit"
                               title="Edit"
@@ -1231,7 +1231,7 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                             <Link
                               href={`${basePath}/app/services/funnel-builder/forms/${encodeURIComponent(f.id)}/responses`}
                               target="_blank"
-                              className="flex w-full items-center rounded-xl px-3 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+                              className="flex w-full items-center rounded-xl px-3 py-2 text-sm font-semibold text-brand-ink transition-transform duration-150 hover:-translate-y-0.5 hover:bg-zinc-50"
                               onClick={() => setOpenFormMenuId(null)}
                             >
                               Responses
@@ -1239,7 +1239,7 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                             <Link
                                 href={getFormLiveHref(f.slug, f.id) || toPurelyHostedUrl(`/forms/${encodeURIComponent(f.slug)}`)}
                               target="_blank"
-                              className="flex w-full items-center rounded-xl px-3 py-2 text-sm font-semibold text-[color:var(--color-brand-blue)] hover:bg-zinc-50"
+                              className="flex w-full items-center rounded-xl px-3 py-2 text-sm font-semibold text-[color:var(--color-brand-blue)] transition-transform duration-150 hover:-translate-y-0.5 hover:bg-zinc-50"
                               onClick={() => setOpenFormMenuId(null)}
                             >
                               Preview
@@ -1256,7 +1256,7 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                                 setOpenFormMenuId(null);
                               }}
                               className={classNames(
-                                "flex w-full items-center rounded-xl px-3 py-2 text-left text-sm font-semibold text-red-600 hover:bg-zinc-50",
+                                "flex w-full items-center rounded-xl px-3 py-2 text-left text-sm font-semibold text-red-600 transition-transform duration-150 hover:-translate-y-0.5 hover:bg-zinc-50",
                                 formDeleteBusy[f.id] ? "opacity-60" : "",
                               )}
                             >
@@ -1307,14 +1307,14 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
               <div className="flex flex-wrap items-center gap-2">
                 <Link
                   href={`${basePath}/app/profile`}
-                  className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+                  className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink transition-transform duration-150 hover:-translate-y-0.5 hover:bg-zinc-50"
                 >
                   Stripe settings
                 </Link>
                 {!stripeStatusBusy && !stripeStatus?.configured ? (
                   <Link
                     href={`${basePath}/app/profile`}
-                    className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95"
+                    className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white transition-transform duration-150 hover:-translate-y-0.5 hover:opacity-95"
                   >
                     Connect Stripe
                   </Link>
@@ -1341,7 +1341,7 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                 disabled={domainBusy || !domainSig || !domainDirty}
                 onClick={saveDomain}
                 className={classNames(
-                  "rounded-2xl px-4 py-2 text-sm font-semibold text-white",
+                  "rounded-2xl px-4 py-2 text-sm font-semibold text-white transition-transform duration-150 hover:-translate-y-0.5",
                   domainBusy || !domainSig || !domainDirty ? "bg-zinc-400" : "bg-brand-ink hover:opacity-95",
                 )}
               >
@@ -1370,7 +1370,7 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                             disabled={!!domainVerifyBusy[d.id]}
                             onClick={() => verifyDomain(d)}
                             className={classNames(
-                              "rounded-full border px-3 py-1 text-xs font-semibold",
+                              "rounded-full border px-3 py-1 text-xs font-semibold transition-transform duration-150 hover:-translate-y-0.5",
                               domainVerifyBusy[d.id]
                                 ? "border-zinc-200 bg-zinc-100 text-zinc-500"
                                 : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50",
@@ -1412,7 +1412,7 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                                               <button
                                                 type="button"
                                                 onClick={() => copyText(displayHost)}
-                                                className="rounded-md border border-zinc-200 bg-white p-1.5 text-zinc-600 hover:bg-zinc-50 hover:text-zinc-900"
+                                                className="rounded-md border border-zinc-200 bg-white p-1.5 text-zinc-600 transition-transform duration-150 hover:-translate-y-0.5 hover:bg-zinc-50 hover:text-zinc-900"
                                                 aria-label="Copy host/name"
                                                 title="Copy"
                                               >
@@ -1422,7 +1422,7 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                                                 <button
                                                   type="button"
                                                   onClick={() => copyText(host.full)}
-                                                  className="rounded-md border border-zinc-200 bg-white px-2 py-1 text-[10px] font-semibold text-zinc-600 hover:bg-zinc-50 hover:text-zinc-900"
+                                                  className="rounded-md border border-zinc-200 bg-white px-2 py-1 text-[10px] font-semibold text-zinc-600 transition-transform duration-150 hover:-translate-y-0.5 hover:bg-zinc-50 hover:text-zinc-900"
                                                   aria-label="Copy full host/name"
                                                   title="Copy full host"
                                                 >
@@ -1439,7 +1439,7 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                                             <button
                                               type="button"
                                               onClick={() => copyText(r.value)}
-                                              className="rounded-md border border-zinc-200 bg-white p-1.5 text-zinc-600 hover:bg-zinc-50 hover:text-zinc-900"
+                                              className="rounded-md border border-zinc-200 bg-white p-1.5 text-zinc-600 transition-transform duration-150 hover:-translate-y-0.5 hover:bg-zinc-50 hover:text-zinc-900"
                                               aria-label="Copy value"
                                               title="Copy"
                                             >

@@ -1345,7 +1345,7 @@ export function PortalAiReceptionistClient() {
             onClick={() => setTabWithUrl("activity")}
             aria-current={tab === "activity" ? "page" : undefined}
             className={
-              "flex-1 min-w-[160px] rounded-2xl border px-4 py-2.5 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
+              "flex-1 min-w-[160px] rounded-2xl border px-4 py-2.5 text-sm font-semibold transition-transform duration-150 hover:-translate-y-0.5 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
               (tab === "activity"
                 ? "border-brand-blue bg-brand-blue text-white shadow-sm focus-visible:ring-brand-blue/40"
                 : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
@@ -1358,7 +1358,7 @@ export function PortalAiReceptionistClient() {
             onClick={() => setTabWithUrl("testing")}
             aria-current={tab === "testing" ? "page" : undefined}
             className={
-              "flex-1 min-w-[160px] rounded-2xl border px-4 py-2.5 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
+              "flex-1 min-w-[160px] rounded-2xl border px-4 py-2.5 text-sm font-semibold transition-transform duration-150 hover:-translate-y-0.5 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
               (tab === "testing"
                 ? "border-brand-pink bg-brand-pink text-white shadow-sm focus-visible:ring-brand-pink/40"
                 : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
@@ -1371,7 +1371,7 @@ export function PortalAiReceptionistClient() {
             onClick={() => setTabWithUrl("missed-call-textback")}
             aria-current={tab === "missed-call-textback" ? "page" : undefined}
             className={
-              "flex-1 min-w-[220px] rounded-2xl border px-4 py-2.5 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
+              "flex-1 min-w-[220px] rounded-2xl border px-4 py-2.5 text-sm font-semibold transition-transform duration-150 hover:-translate-y-0.5 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
               (tab === "missed-call-textback"
                 ? "border-brand-blue bg-brand-blue text-white shadow-sm focus-visible:ring-brand-blue/40"
                 : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
@@ -1384,7 +1384,7 @@ export function PortalAiReceptionistClient() {
             onClick={() => setTabWithUrl("settings")}
             aria-current={tab === "settings" ? "page" : undefined}
             className={
-              "flex-1 min-w-[160px] rounded-2xl border px-4 py-2.5 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
+              "flex-1 min-w-[160px] rounded-2xl border px-4 py-2.5 text-sm font-semibold transition-transform duration-150 hover:-translate-y-0.5 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
               (tab === "settings"
                 ? "border-brand-ink bg-brand-ink text-white shadow-sm focus-visible:ring-brand-ink/40"
                 : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
@@ -1437,7 +1437,7 @@ export function PortalAiReceptionistClient() {
                 type="button"
                 onClick={() => setSettingsSubTab("voice")}
                 className={classNames(
-                  "rounded-2xl px-4 py-2 text-xs font-semibold",
+                  "rounded-2xl px-4 py-2 text-xs font-semibold transition-transform duration-150 hover:-translate-y-0.5",
                   settingsSubTab === "voice"
                     ? "bg-[color:var(--color-brand-blue)] text-white shadow-sm hover:opacity-95"
                     : "border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50",
@@ -1449,7 +1449,7 @@ export function PortalAiReceptionistClient() {
                 type="button"
                 onClick={() => setSettingsSubTab("sms")}
                 className={classNames(
-                  "rounded-2xl px-4 py-2 text-xs font-semibold",
+                  "rounded-2xl px-4 py-2 text-xs font-semibold transition-transform duration-150 hover:-translate-y-0.5",
                   settingsSubTab === "sms"
                     ? "bg-[color:var(--color-brand-blue)] text-white shadow-sm hover:opacity-95"
                     : "border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50",
@@ -2375,7 +2375,7 @@ export function PortalAiReceptionistClient() {
             <div className="mt-6 flex items-center justify-end gap-2">
               <button
                 type="button"
-                className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50 disabled:opacity-60"
+                className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink transition-transform duration-150 hover:-translate-y-0.5 hover:bg-zinc-50 disabled:opacity-60"
                 disabled={saving}
                 onClick={() => void load()}
               >
@@ -2383,7 +2383,7 @@ export function PortalAiReceptionistClient() {
               </button>
               <button
                 type="button"
-                className="rounded-2xl bg-[color:var(--color-brand-blue)] px-4 py-2 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
+                className="rounded-2xl bg-[color:var(--color-brand-blue)] px-4 py-2 text-sm font-semibold text-white transition-transform duration-150 hover:-translate-y-0.5 hover:opacity-95 disabled:opacity-60"
                 disabled={saving || !settings || !canSave || !isDirty}
                 onClick={() => settings && void (settingsSubTab === "sms" ? saveSms(settings) : save(settings))}
               >
@@ -2430,7 +2430,7 @@ export function PortalAiReceptionistClient() {
               <button
                 type="button"
                 className={classNames(
-                  "rounded-2xl bg-[color:var(--color-brand-blue)] px-4 py-2 text-xs font-semibold text-white hover:opacity-95",
+                  "rounded-2xl bg-[color:var(--color-brand-blue)] px-4 py-2 text-xs font-semibold text-white transition-transform duration-150 hover:-translate-y-0.5 hover:opacity-95",
                   smsTestBusy ? "opacity-60" : "",
                 )}
                 disabled={smsTestBusy || !smsTestInbound.trim()}
@@ -2491,7 +2491,7 @@ export function PortalAiReceptionistClient() {
                       <button
                         key={id}
                         type="button"
-                        className="rounded-full border border-zinc-200 bg-zinc-50 px-3 py-1 text-xs font-semibold text-zinc-900 hover:bg-zinc-100"
+                        className="rounded-full border border-zinc-200 bg-zinc-50 px-3 py-1 text-xs font-semibold text-zinc-900 transition-transform duration-150 hover:-translate-y-0.5 hover:bg-zinc-100"
                         title="Remove"
                         onClick={() => setSmsTestTagIds((prev) => prev.filter((x) => x !== id))}
                       >
@@ -2769,14 +2769,14 @@ export function PortalAiReceptionistClient() {
             <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:justify-end">
               <button
                 type="button"
-                className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+                className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink transition-transform duration-150 hover:-translate-y-0.5 hover:bg-zinc-50"
                 onClick={() => setConfirmDeleteCallSid(null)}
               >
                 Cancel
               </button>
               <button
                 type="button"
-                className="inline-flex items-center justify-center rounded-2xl bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-60"
+                className="inline-flex items-center justify-center rounded-2xl bg-red-600 px-4 py-2 text-sm font-semibold text-white transition-transform duration-150 hover:-translate-y-0.5 hover:bg-red-700 disabled:opacity-60"
                 disabled={callSyncBusy}
                 onClick={async () => {
                   const sid = confirmDeleteEvent.callSid;

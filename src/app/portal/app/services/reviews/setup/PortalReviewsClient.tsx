@@ -1547,7 +1547,7 @@ export default function PortalReviewsClient() {
                     onChange={(e) => setNewDestUrl(e.target.value)}
                   />
                   <button
-                    className="inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-(--color-brand-blue) px-4 text-sm font-semibold text-white hover:opacity-95"
+                    className="inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-(--color-brand-blue) px-4 text-sm font-semibold text-white transition-transform duration-150 hover:-translate-y-0.5 hover:opacity-95"
                     onClick={addDestination}
                     type="button"
                   >
@@ -1562,7 +1562,7 @@ export default function PortalReviewsClient() {
                 <div className="mt-2 flex items-center justify-end">
                   <button
                     type="button"
-                    className="rounded-xl border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-brand-ink hover:bg-zinc-50"
+                    className="rounded-xl border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-brand-ink transition-transform duration-150 hover:-translate-y-0.5 hover:bg-zinc-50"
                     onClick={() => {
                       setVarPickerTarget({ kind: "default" });
                       setVarPickerOpen(true);
@@ -1600,7 +1600,7 @@ export default function PortalReviewsClient() {
                       href={liveHostedReviewsUrl}
                       target="_blank"
                       rel="noreferrer"
-                      className="inline-flex items-center justify-center rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-brand-ink hover:bg-zinc-50"
+                      className="inline-flex items-center justify-center rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-brand-ink transition-transform duration-150 hover:-translate-y-0.5 hover:bg-zinc-50"
                     >
                       View live page
                     </a>
@@ -1668,7 +1668,7 @@ export default function PortalReviewsClient() {
                   <div className="mt-3 flex items-center justify-end">
                     <button
                       type="button"
-                      className="rounded-xl bg-(--color-brand-blue) px-4 py-2 text-xs font-semibold text-white shadow-sm hover:opacity-95 disabled:opacity-60"
+                      className="rounded-xl bg-(--color-brand-blue) px-4 py-2 text-xs font-semibold text-white shadow-sm transition-transform duration-150 hover:-translate-y-0.5 hover:opacity-95 disabled:opacity-60"
                       disabled={siteDomainBusy}
                       onClick={saveHostedSiteDomain}
                     >

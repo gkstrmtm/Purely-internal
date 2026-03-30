@@ -1644,7 +1644,7 @@ export function PortalBookingClient() {
               onClick={() => setTopTabWithUrl("appointments")}
               aria-current={topTab === "appointments" ? "page" : undefined}
               className={
-                "flex-1 min-w-[160px] rounded-2xl border px-4 py-2.5 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
+                "flex-1 min-w-[160px] rounded-2xl border px-4 py-2.5 text-sm font-semibold transition-transform duration-150 hover:-translate-y-0.5 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
                 (topTab === "appointments"
                   ? "border-brand-blue bg-brand-blue text-white shadow-sm focus-visible:ring-brand-blue/40"
                   : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
@@ -1657,7 +1657,7 @@ export function PortalBookingClient() {
               onClick={() => setTopTabWithUrl("bookings")}
               aria-current={topTab === "bookings" ? "page" : undefined}
               className={
-                "flex-1 min-w-[160px] rounded-2xl border px-4 py-2.5 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
+                "flex-1 min-w-[160px] rounded-2xl border px-4 py-2.5 text-sm font-semibold transition-transform duration-150 hover:-translate-y-0.5 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
                 (topTab === "bookings"
                   ? "border-brand-ink bg-brand-ink text-white shadow-sm focus-visible:ring-brand-ink/40"
                   : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
@@ -1670,7 +1670,7 @@ export function PortalBookingClient() {
               onClick={() => setTopTabWithUrl("reminders")}
               aria-current={topTab === "reminders" ? "page" : undefined}
               className={
-                "flex-1 min-w-[160px] rounded-2xl border px-4 py-2.5 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
+                "flex-1 min-w-[160px] rounded-2xl border px-4 py-2.5 text-sm font-semibold transition-transform duration-150 hover:-translate-y-0.5 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
                 (topTab === "reminders"
                   ? "border-brand-pink bg-brand-pink text-white shadow-sm focus-visible:ring-brand-pink/40"
                   : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
@@ -1683,7 +1683,7 @@ export function PortalBookingClient() {
               onClick={() => setTopTabWithUrl("follow-up")}
               aria-current={topTab === "follow-up" ? "page" : undefined}
               className={
-                "flex-1 min-w-[160px] rounded-2xl border px-4 py-2.5 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
+                "flex-1 min-w-[160px] rounded-2xl border px-4 py-2.5 text-sm font-semibold transition-transform duration-150 hover:-translate-y-0.5 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
                 (topTab === "follow-up"
                   ? "border-brand-blue bg-brand-blue text-white shadow-sm focus-visible:ring-brand-blue/40"
                   : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
@@ -1696,7 +1696,7 @@ export function PortalBookingClient() {
               onClick={() => setTopTabWithUrl("settings")}
               aria-current={topTab === "settings" ? "page" : undefined}
               className={
-                "flex-1 min-w-[160px] rounded-2xl border px-4 py-2.5 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
+                "flex-1 min-w-[160px] rounded-2xl border px-4 py-2.5 text-sm font-semibold transition-transform duration-150 hover:-translate-y-0.5 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
                 (topTab === "settings"
                   ? "border-brand-ink bg-brand-ink text-white shadow-sm focus-visible:ring-brand-ink/40"
                   : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")

@@ -1254,7 +1254,7 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
           onClick={() => setChannel("email")}
           aria-current={tab === "email" ? "page" : undefined}
           className={
-            "flex-1 min-w-35 rounded-2xl border px-4 py-2.5 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
+            "flex-1 min-w-35 rounded-2xl border px-4 py-2.5 text-sm font-semibold transition-transform duration-150 hover:-translate-y-0.5 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
             (tab === "email"
               ? "border-brand-ink bg-brand-ink text-white shadow-sm focus-visible:ring-brand-ink/40"
               : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
@@ -1267,7 +1267,7 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
           onClick={() => setChannel("sms")}
           aria-current={tab === "sms" ? "page" : undefined}
           className={
-            "flex-1 min-w-35 rounded-2xl border px-4 py-2.5 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
+            "flex-1 min-w-35 rounded-2xl border px-4 py-2.5 text-sm font-semibold transition-transform duration-150 hover:-translate-y-0.5 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
             (tab === "sms"
               ? "border-brand-blue bg-brand-blue text-white shadow-sm focus-visible:ring-brand-blue/40"
               : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
@@ -1281,7 +1281,7 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
         <div className="mt-3 flex flex-wrap items-center gap-2">
           <button
             type="button"
-            className="h-11 shrink-0 rounded-full border border-zinc-200 bg-white px-4 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
+            className="h-11 shrink-0 rounded-full border border-zinc-200 bg-white px-4 text-sm font-semibold text-zinc-800 transition-transform duration-150 hover:-translate-y-0.5 hover:bg-zinc-50"
             onClick={() => setEmailBox((prev) => (prev === "sent" ? "inbox" : "sent"))}
             aria-label={emailBox === "sent" ? "Show inbox" : "Show sent"}
           >
@@ -1389,7 +1389,7 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
             <button
               type="button"
               className={classNames(
-                "inline-flex h-11 w-11 items-center justify-center rounded-full border border-zinc-200 bg-white text-zinc-800 hover:bg-zinc-50",
+                "inline-flex h-11 w-11 items-center justify-center rounded-full border border-zinc-200 bg-white text-zinc-800 transition-transform duration-150 hover:-translate-y-0.5 hover:bg-zinc-50",
                 (emailDateFilter !== "any" || emailHasAttachmentsOnly) && "border-brand-ink",
               )}
               onClick={(e) => {
@@ -1416,7 +1416,7 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
         <div className="mt-3 flex flex-wrap items-center gap-2">
           <button
             type="button"
-            className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[#007aff] text-white shadow-sm hover:bg-[#006ae6]"
+            className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[#007aff] text-white shadow-sm transition-transform duration-150 hover:-translate-y-0.5 hover:bg-[#006ae6]"
             onClick={() => {
               setSmsSheetOpen(true);
               setActiveThreadId(null);

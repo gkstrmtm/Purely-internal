@@ -1892,7 +1892,7 @@ export function PortalLeadScrapingClient() {
                 <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
                   <button
                     type="button"
-                    className="inline-flex items-center gap-2 rounded-2xl bg-[linear-gradient(90deg,rgba(29,78,216,0.95),rgba(236,72,153,0.95))] px-4 py-2 text-sm font-semibold text-white hover:opacity-95"
+                    className="inline-flex items-center gap-2 rounded-2xl bg-[linear-gradient(90deg,rgba(29,78,216,0.95),rgba(236,72,153,0.95))] px-4 py-2 text-sm font-semibold text-white transition-transform duration-150 hover:-translate-y-0.5 hover:opacity-95"
                     onClick={() => {
                       if (!settings) return;
                       setOutboundAiDraftError(null);
@@ -2169,8 +2169,8 @@ export function PortalLeadScrapingClient() {
 
   const subTabButtonClass = (active: boolean) =>
     active
-      ? "relative rounded-t-2xl border border-zinc-200 border-b-white bg-white px-4 py-2 text-sm font-semibold text-brand-ink"
-      : "relative rounded-t-2xl border border-zinc-200 bg-zinc-100 px-4 py-2 text-sm font-semibold text-zinc-600 hover:bg-zinc-200";
+      ? "relative rounded-t-2xl border border-zinc-200 border-b-white bg-white px-4 py-2 text-sm font-semibold text-brand-ink transition-transform duration-150 hover:-translate-y-0.5"
+      : "relative rounded-t-2xl border border-zinc-200 bg-zinc-100 px-4 py-2 text-sm font-semibold text-zinc-600 transition-transform duration-150 hover:-translate-y-0.5 hover:bg-zinc-200";
 
   return (
     <div className="mx-auto w-full max-w-6xl px-4 sm:px-6">
@@ -2198,7 +2198,7 @@ export function PortalLeadScrapingClient() {
           onClick={() => setTab("b2b")}
           aria-current={tab === "b2b" ? "page" : undefined}
           className={
-            "flex-1 min-w-55 rounded-2xl border px-4 py-2.5 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
+            "flex-1 min-w-55 rounded-2xl border px-4 py-2.5 text-sm font-semibold transition-transform duration-150 hover:-translate-y-0.5 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
             (tab === "b2b"
               ? "border-(--color-brand-blue) bg-(--color-brand-blue) text-white shadow-sm"
               : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
@@ -2211,7 +2211,7 @@ export function PortalLeadScrapingClient() {
           onClick={() => setTab("b2c")}
           aria-current={tab === "b2c" ? "page" : undefined}
           className={
-            "flex-1 min-w-55 rounded-2xl border px-4 py-2.5 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
+            "flex-1 min-w-55 rounded-2xl border px-4 py-2.5 text-sm font-semibold transition-transform duration-150 hover:-translate-y-0.5 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60 " +
             (tab === "b2c"
               ? "border-(--color-brand-pink) bg-(--color-brand-pink) text-white shadow-sm"
               : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50")
@@ -3157,7 +3157,7 @@ export function PortalLeadScrapingClient() {
                   type="button"
                   onClick={save}
                   disabled={saving || !isDirty}
-                  className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-5 py-3 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
+                  className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-5 py-3 text-sm font-semibold text-white transition-transform duration-150 hover:-translate-y-0.5 hover:opacity-95 disabled:opacity-60"
                 >
                   {saving ? "Saving…" : isDirty ? "Save" : "Saved"}
                 </button>
@@ -3177,7 +3177,7 @@ export function PortalLeadScrapingClient() {
               href={toPurelyHostedUrl("/book-a-call")}
               target="_blank"
               rel="noreferrer"
-              className="mt-5 inline-flex items-center justify-center rounded-2xl bg-(--color-brand-pink) px-5 py-3 text-sm font-semibold text-white shadow-sm hover:opacity-95"
+              className="mt-5 inline-flex items-center justify-center rounded-2xl bg-(--color-brand-pink) px-5 py-3 text-sm font-semibold text-white shadow-sm transition-transform duration-150 hover:-translate-y-0.5 hover:opacity-95"
             >
               Book a call
             </a>
@@ -3199,7 +3199,7 @@ export function PortalLeadScrapingClient() {
               type="button"
               onClick={() => setLeadIndex((i) => Math.max(0, i - 1))}
               disabled={leadIndex <= 0}
-              className="absolute -left-3 top-1/2 z-10 hidden h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full border border-zinc-200 bg-white text-zinc-700 shadow-sm hover:bg-zinc-50 disabled:opacity-40 sm:flex"
+              className="absolute -left-3 top-1/2 z-10 hidden h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full border border-zinc-200 bg-white text-zinc-700 shadow-sm transition-transform duration-150 hover:-translate-y-[55%] hover:bg-zinc-50 disabled:opacity-40 sm:flex"
               aria-label="Previous lead"
             >
               ←
