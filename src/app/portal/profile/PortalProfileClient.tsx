@@ -112,6 +112,36 @@ type Mailbox = {
   canChange: boolean;
 };
 
+type ApiKeyPermission = "pura.chat" | "contacts.write" | "inbox.send" | "services.run" | "reporting.read";
+
+type PortalApiKeyRecord = {
+  id: string;
+  name: string;
+  value: string;
+  permissions: ApiKeyPermission[];
+  creditLimit: number | null;
+  createdLabel: string;
+  lastUsedLabel: string | null;
+};
+
+const API_KEY_PERMISSION_OPTIONS: Array<{
+  value: ApiKeyPermission;
+  label: string;
+  description: string;
+}> = [
+  { value: "pura.chat", label: "Pura chat", description: "Create threads, send messages, and use Pura in your own software." },
+  { value: "contacts.write", label: "Contacts", description: "Create and update contacts, tags, and lead data." },
+  { value: "inbox.send", label: "Inbox", description: "Send email or SMS through your portal inbox workflows." },
+  { value: "services.run", label: "Services", description: "Trigger service actions and automation flows." },
+  { value: "reporting.read", label: "Reporting", description: "Read dashboard and reporting data." },
+];
+
+function generateClientApiKey(scope: "full" | "scoped" = "scoped") {
+  const partA = Math.random().toString(36).slice(2, 10);
+  const partB = Math.random().toString(36).slice(2, 10);
+  return `pa_live_${scope}_${partA}${partB}`;
+}
+
 function classNames(...xs: Array<string | false | null | undefined>) {
   return xs.filter(Boolean).join(" ");
 }
@@ -214,6 +244,16 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
   const [stripeSaving, setStripeSaving] = useState(false);
   const [stripeError, setStripeError] = useState<string | null>(null);
   const [stripeNote, setStripeNote] = useState<string | null>(null);
+  const [twilioExpanded, setTwilioExpanded] = useState(false);
+  const [salesReportingExpanded, setSalesReportingExpanded] = useState(false);
+
+  const [fullAccessApiKey, setFullAccessApiKey] = useState("");
+  const [apiKeys, setApiKeys] = useState<PortalApiKeyRecord[]>([]);
+  const [apiKeyModalOpen, setApiKeyModalOpen] = useState(false);
+  const [newApiKeyName, setNewApiKeyName] = useState("");
+  const [newApiKeyPermissions, setNewApiKeyPermissions] = useState<ApiKeyPermission[]>(["pura.chat", "services.run"]);
+  const [newApiKeyCreditLimitEnabled, setNewApiKeyCreditLimitEnabled] = useState(false);
+  const [newApiKeyCreditLimit, setNewApiKeyCreditLimit] = useState("");
 
   const [authNetLoginId, setAuthNetLoginId] = useState("");
   const [authNetTxKey, setAuthNetTxKey] = useState("");
@@ -272,6 +312,31 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
   }, [mailboxError, toast]);
 
   useEffect(() => {
+    if (fullAccessApiKey) return;
+    setFullAccessApiKey(generateClientApiKey("full"));
+    setApiKeys([
+      {
+        id: "api-key-sync",
+        name: "CRM sync",
+        value: generateClientApiKey("scoped"),
+        permissions: ["contacts.write", "pura.chat"],
+        creditLimit: 2500,
+        createdLabel: "Today",
+        lastUsedLabel: "2 hours ago",
+      },
+      {
+        id: "api-key-reporting",
+        name: "Reporting dashboard",
+        value: generateClientApiKey("scoped"),
+        permissions: ["reporting.read"],
+        creditLimit: null,
+        createdLabel: "Today",
+        lastUsedLabel: "Never used",
+      },
+    ]);
+  }, [fullAccessApiKey]);
+
+  useEffect(() => {
     if (!phoneValidation.ok) toast.error(phoneValidation.error);
   }, [phoneValidation, toast]);
 
@@ -293,23 +358,27 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
 
   type AdvancedScrollTarget =
     | "advanced"
-    | "webhooks"
+    | "domains"
     | "twilio"
     | "salesReporting"
+    | "apiKeys"
     | "businessEmail"
     | "businessInfo";
   const [pendingAdvancedScrollTarget, setPendingAdvancedScrollTarget] = useState<AdvancedScrollTarget | null>(null);
 
   const advancedRef = useRef<HTMLDivElement | null>(null);
-  const webhooksRef = useRef<HTMLDivElement | null>(null);
+  const domainsRef = useRef<HTMLDivElement | null>(null);
   const twilioRef = useRef<HTMLDivElement | null>(null);
   const salesReportingRef = useRef<HTMLDivElement | null>(null);
+  const apiKeysRef = useRef<HTMLDivElement | null>(null);
   const businessEmailRef = useRef<HTMLDivElement | null>(null);
   const businessInfoRef = useRef<HTMLDivElement | null>(null);
 
   const ADVANCED_SCROLL_OFFSET_PX = 96;
 
   function requestAdvancedScroll(target: AdvancedScrollTarget) {
+    if (target === "twilio") setTwilioExpanded(true);
+    if (target === "salesReporting") setSalesReportingExpanded(true);
     setAdvancedOpen(true);
     setPendingAdvancedScrollTarget(target);
   }
@@ -323,12 +392,14 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
     const el =
       pendingAdvancedScrollTarget === "advanced"
         ? advancedRef.current
-        : pendingAdvancedScrollTarget === "webhooks"
-          ? webhooksRef.current
+        : pendingAdvancedScrollTarget === "domains"
+          ? domainsRef.current
           : pendingAdvancedScrollTarget === "twilio"
             ? twilioRef.current
             : pendingAdvancedScrollTarget === "salesReporting"
               ? salesReportingRef.current
+              : pendingAdvancedScrollTarget === "apiKeys"
+                ? apiKeysRef.current
               : pendingAdvancedScrollTarget === "businessEmail"
                 ? businessEmailRef.current
                 : pendingAdvancedScrollTarget === "businessInfo"
@@ -758,6 +829,42 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
     await refreshSalesStatus();
   }
 
+  function resetApiKeyComposer() {
+    setNewApiKeyName("");
+    setNewApiKeyPermissions(["pura.chat", "services.run"]);
+    setNewApiKeyCreditLimitEnabled(false);
+    setNewApiKeyCreditLimit("");
+  }
+
+  function toggleApiKeyPermission(permission: ApiKeyPermission) {
+    setNewApiKeyPermissions((current) =>
+      current.includes(permission) ? current.filter((entry) => entry !== permission) : [...current, permission],
+    );
+  }
+
+  function createApiKey() {
+    if (!canCreateApiKey) return;
+    const creditLimit = newApiKeyCreditLimitEnabled ? Number(newApiKeyCreditLimit) : null;
+    const nextKey: PortalApiKeyRecord = {
+      id: `api-key-${Date.now()}`,
+      name: newApiKeyName.trim(),
+      value: generateClientApiKey("scoped"),
+      permissions: [...newApiKeyPermissions],
+      creditLimit: Number.isFinite(creditLimit) ? creditLimit : null,
+      createdLabel: "Just now",
+      lastUsedLabel: "Never used",
+    };
+    setApiKeys((current) => [nextKey, ...current]);
+    setApiKeyModalOpen(false);
+    resetApiKeyComposer();
+    toast.success("API key created");
+  }
+
+  function deleteApiKey(keyId: string) {
+    setApiKeys((current) => current.filter((entry) => entry.id !== keyId));
+    toast.success("API key deleted");
+  }
+
   // Stripe connect/disconnect is handled via connectSelectedProvider/disconnectSelectedProvider.
 
   const canSaveMailbox = useMemo(() => {
@@ -767,6 +874,99 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
     if (next.toLowerCase() === String(mailbox.localPart || "").toLowerCase()) return false;
     return true;
   }, [mailbox, mailboxLocalPart]);
+
+  const twilioHasPendingChanges = useMemo(() => {
+    const nextFrom = twilioFromNumber.trim();
+    const currentFrom = String(twilioMasked?.fromNumberE164 || "").trim();
+    return Boolean(twilioAccountSid.trim() || twilioAuthToken.trim() || nextFrom !== currentFrom);
+  }, [twilioAccountSid, twilioAuthToken, twilioFromNumber, twilioMasked?.fromNumberE164]);
+
+  const activeSalesProvider = salesStatus?.ok === true ? salesStatus.activeProvider : null;
+  const selectedSalesConfigured = salesStatus?.ok === true ? Boolean(salesStatus.providers[salesProvider]?.configured) : false;
+
+  const salesProviderFormReady = useMemo(() => {
+    switch (salesProvider) {
+      case "stripe":
+        return stripeSecretKey.trim().length > 0;
+      case "authorizenet":
+        return authNetLoginId.trim().length > 0 && authNetTxKey.trim().length > 0;
+      case "braintree":
+        return braintreeMerchantId.trim().length > 0 && braintreePublicKey.trim().length > 0 && braintreePrivateKey.trim().length > 0;
+      case "razorpay":
+        return razorpayKeyId.trim().length > 0 && razorpayKeySecret.trim().length > 0;
+      case "paystack":
+        return paystackSecretKey.trim().length > 0;
+      case "flutterwave":
+        return flutterwaveSecretKey.trim().length > 0;
+      case "mollie":
+        return mollieApiKey.trim().length > 0;
+      case "mercadopago":
+        return mercadoPagoAccessToken.trim().length > 0;
+      default:
+        return false;
+    }
+  }, [
+    authNetLoginId,
+    authNetTxKey,
+    braintreeMerchantId,
+    braintreePrivateKey,
+    braintreePublicKey,
+    flutterwaveSecretKey,
+    mercadoPagoAccessToken,
+    mollieApiKey,
+    paystackSecretKey,
+    razorpayKeyId,
+    razorpayKeySecret,
+    salesProvider,
+    stripeSecretKey,
+  ]);
+
+  const salesProviderDirty = useMemo(() => {
+    if (salesProvider !== activeSalesProvider) return true;
+    switch (salesProvider) {
+      case "stripe":
+        return stripeSecretKey.trim().length > 0;
+      case "authorizenet":
+        return authNetLoginId.trim().length > 0 || authNetTxKey.trim().length > 0;
+      case "braintree":
+        return braintreeMerchantId.trim().length > 0 || braintreePublicKey.trim().length > 0 || braintreePrivateKey.trim().length > 0;
+      case "razorpay":
+        return razorpayKeyId.trim().length > 0 || razorpayKeySecret.trim().length > 0;
+      case "paystack":
+        return paystackSecretKey.trim().length > 0;
+      case "flutterwave":
+        return flutterwaveSecretKey.trim().length > 0;
+      case "mollie":
+        return mollieApiKey.trim().length > 0;
+      case "mercadopago":
+        return mercadoPagoAccessToken.trim().length > 0;
+      default:
+        return false;
+    }
+  }, [
+    activeSalesProvider,
+    authNetLoginId,
+    authNetTxKey,
+    braintreeMerchantId,
+    braintreePrivateKey,
+    braintreePublicKey,
+    flutterwaveSecretKey,
+    mercadoPagoAccessToken,
+    mollieApiKey,
+    paystackSecretKey,
+    razorpayKeyId,
+    razorpayKeySecret,
+    salesProvider,
+    stripeSecretKey,
+  ]);
+
+  const canCreateApiKey = useMemo(() => {
+    if (newApiKeyName.trim().length < 2) return false;
+    if (!newApiKeyPermissions.length) return false;
+    if (!newApiKeyCreditLimitEnabled) return true;
+    const limit = Number(newApiKeyCreditLimit);
+    return Number.isFinite(limit) && limit > 0;
+  }, [newApiKeyCreditLimit, newApiKeyCreditLimitEnabled, newApiKeyName, newApiKeyPermissions]);
 
   async function saveMailboxOnce() {
     if (!mailbox?.canChange) {
@@ -1158,22 +1358,22 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
             <div className="space-y-4">
               {showAdvancedToggle ? (
                 <div className="flex flex-wrap gap-x-3 gap-y-1">
-                  {showIntegrationSections && canViewTwilio ? (
+                  {showIntegrationSections ? (
+                    <button
+                      type="button"
+                      onClick={() => requestAdvancedScroll("domains")}
+                      className="rounded-md px-2 py-1 text-xs font-semibold text-zinc-700 hover:bg-blue-50 hover:text-(--color-brand-blue) focus-visible:outline-none focus-visible:text-(--color-brand-blue) focus-visible:underline"
+                    >
+                      Domains & DNS
+                    </button>
+                  ) : null}
+                  {showIntegrationSections && (canViewTwilio || canViewWebhooks) ? (
                     <button
                       type="button"
                       onClick={() => requestAdvancedScroll("twilio")}
                       className="rounded-md px-2 py-1 text-xs font-semibold text-zinc-700 hover:bg-blue-50 hover:text-(--color-brand-blue) focus-visible:outline-none focus-visible:text-(--color-brand-blue) focus-visible:underline"
                     >
-                      Twilio
-                    </button>
-                  ) : null}
-                  {showIntegrationSections && canViewWebhooks ? (
-                    <button
-                      type="button"
-                      onClick={() => requestAdvancedScroll("webhooks")}
-                      className="rounded-md px-2 py-1 text-xs font-semibold text-zinc-700 hover:bg-blue-50 hover:text-(--color-brand-blue) focus-visible:outline-none focus-visible:text-(--color-brand-blue) focus-visible:underline"
-                    >
-                      Webhooks
+                      Twilio & webhooks
                     </button>
                   ) : null}
                   {showIntegrationSections ? (
@@ -1183,6 +1383,15 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
                       className="rounded-md px-2 py-1 text-xs font-semibold text-zinc-700 hover:bg-blue-50 hover:text-(--color-brand-blue) focus-visible:outline-none focus-visible:text-(--color-brand-blue) focus-visible:underline"
                     >
                       Sales reporting
+                    </button>
+                  ) : null}
+                  {showIntegrationSections ? (
+                    <button
+                      type="button"
+                      onClick={() => requestAdvancedScroll("apiKeys")}
+                      className="rounded-md px-2 py-1 text-xs font-semibold text-zinc-700 hover:bg-blue-50 hover:text-(--color-brand-blue) focus-visible:outline-none focus-visible:text-(--color-brand-blue) focus-visible:underline"
+                    >
+                      API keys
                     </button>
                   ) : null}
                   {showBusinessSections && portalMe?.ok === true ? (
@@ -1206,136 +1415,8 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
                 </div>
               ) : null}
 
-              {showIntegrationSections && canViewWebhooks ? (
-                <div ref={webhooksRef} className="scroll-mt-24">
-                  <PortalSettingsSection
-                    title="Webhooks (copy/paste)"
-                    description="Paste these into Twilio so calls flow into your AI Receptionist and Missed-Call Text Back."
-                    accent="blue"
-                    collapsible={false}
-                    dotClassName="hidden"
-                    variant={sectionVariant}
-                  >
-                    <div className="space-y-3">
-                      <CopyRow label="Calls (Primary handler: AI Receptionist)" value={webhooks?.legacy?.aiReceptionistVoiceUrl ?? null} />
-                      <CopyRow label="Calls (If primary handler fails: Missed Call Text Back)" value={webhooks?.legacy?.missedCallVoiceUrl ?? null} />
-                      <div className="rounded-2xl border border-zinc-200 bg-white p-4 text-sm text-zinc-700">
-                        <div className="font-semibold text-zinc-900">Where do I paste these in Twilio?</div>
-                        <div className="mt-2 space-y-1">
-                          <div>1) Twilio Console → Phone Numbers → Manage → Active numbers → click your number</div>
-                          <div>2) For calls: Voice &amp; Fax → A CALL COMES IN → paste <span className="font-semibold">Calls (Primary handler: AI Receptionist)</span></div>
-                          <div>3) Still in Voice &amp; Fax → IF PRIMARY HANDLER FAILS → paste <span className="font-semibold">Calls (If primary handler fails: Missed Call Text Back)</span></div>
-                        </div>
-                        <div className="mt-2 text-xs text-zinc-500">SMS webhooks are configured automatically when you connect Twilio.</div>
-                      </div>
-                    </div>
-                  </PortalSettingsSection>
-                </div>
-              ) : null}
-
-              {showIntegrationSections && canViewTwilio ? (
-                <div ref={twilioRef} className="scroll-mt-24">
-                  <PortalSettingsSection
-                    title="Twilio"
-                    description="Paste your Twilio Account SID, Auth Token, and From number. This powers Inbox (SMS) + AI Receptionist + Missed-Call Text Back."
-                    accent="blue"
-                    collapsible={false}
-                    dotClassName="hidden"
-                    variant={sectionVariant}
-                  >
-                    <div className="space-y-3">
-                      {twilioNote ? (
-                        <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800">{twilioNote}</div>
-                      ) : null}
-
-                      {!canEditTwilio ? (
-                        <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">
-                          You have view-only access.
-                        </div>
-                      ) : null}
-
-                      <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4 text-xs text-zinc-600">
-                        <div>
-                          Configured: <span className="font-semibold text-zinc-900">{twilioMasked?.configured ? "Yes" : "No"}</span>
-                        </div>
-                        <div className="mt-1">
-                          Account: <span className="font-mono">{twilioMasked?.accountSidMasked ?? "N/A"}</span>
-                        </div>
-                        <div className="mt-1">
-                          From: <span className="font-mono">{twilioMasked?.fromNumberE164 ?? "N/A"}</span>
-                        </div>
-                      </div>
-
-                      <div className="rounded-2xl border border-zinc-200 bg-white p-4 text-sm text-zinc-700">
-                        <div className="font-semibold text-zinc-900">Where do I find these?</div>
-                        <div className="mt-2 space-y-1">
-                          <div>• Account SID + Auth Token: Twilio Console → Account → <span className="font-semibold">Account Info</span></div>
-                          <div>• From number: Twilio Console → Phone Numbers → <span className="font-semibold">Active numbers</span></div>
-                        </div>
-                        <div className="mt-2 text-xs text-zinc-500">Tip: paste the number in E.164 format (example: +15551234567).</div>
-                      </div>
-
-                      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                        <div className="sm:col-span-2">
-                          <label className="text-xs font-semibold text-zinc-700">Account SID</label>
-                          <input
-                            value={twilioAccountSid}
-                            onChange={(e) => setTwilioAccountSid(e.target.value)}
-                            placeholder={twilioMasked?.accountSidMasked ? `Current: ${twilioMasked.accountSidMasked}` : "AC…"}
-                            className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                            disabled={!canEditTwilio}
-                          />
-                        </div>
-                        <div>
-                          <label className="text-xs font-semibold text-zinc-700">Auth Token</label>
-                          <input
-                            value={twilioAuthToken}
-                            onChange={(e) => setTwilioAuthToken(e.target.value)}
-                            type="password"
-                            placeholder={twilioMasked?.configured ? "•••••• (leave blank to keep)" : ""}
-                            className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                            disabled={!canEditTwilio}
-                          />
-                        </div>
-                        <div>
-                          <label className="text-xs font-semibold text-zinc-700">From number</label>
-                          <input
-                            value={twilioFromNumber}
-                            onChange={(e) => setTwilioFromNumber(e.target.value)}
-                            placeholder={twilioMasked?.fromNumberE164 ?? "+1…"}
-                            className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                            disabled={!canEditTwilio}
-                          />
-                        </div>
-                      </div>
-
-                      {canEditTwilio ? (
-                        <div className="flex flex-col gap-2 sm:flex-row">
-                          <button
-                            type="button"
-                            onClick={() => void saveTwilio()}
-                            disabled={savingTwilio}
-                            className="inline-flex items-center justify-center rounded-2xl bg-(--color-brand-blue) px-4 py-2 text-sm font-semibold text-white transition-transform duration-150 hover:-translate-y-0.5 hover:opacity-95 disabled:opacity-60"
-                          >
-                            {savingTwilio ? "Saving…" : "Save Twilio"}
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => void clearTwilio()}
-                            disabled={savingTwilio}
-                            className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink transition-all duration-150 hover:-translate-y-0.5 hover:border-zinc-300 hover:bg-zinc-50 disabled:opacity-60"
-                          >
-                            Clear
-                          </button>
-                        </div>
-                      ) : null}
-                    </div>
-                  </PortalSettingsSection>
-                </div>
-              ) : null}
-
               {showIntegrationSections ? (
-                <div className="scroll-mt-24">
+                <div ref={domainsRef} className="scroll-mt-24">
                   <PortalSettingsSection
                     title="Domains & DNS"
                     description="Add domains, copy the exact DNS records, and verify them right here."
@@ -1540,6 +1621,165 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
                 </div>
               ) : null}
 
+              {showIntegrationSections && (canViewTwilio || canViewWebhooks) ? (
+                <div ref={twilioRef} className="scroll-mt-24">
+                  <PortalSettingsSection
+                    title="Twilio & webhooks"
+                    description="Connection status up front, with Twilio credentials and webhook copy/paste tools tucked under the same dropdown."
+                    accent="blue"
+                    collapsible={false}
+                    dotClassName="hidden"
+                    variant={sectionVariant}
+                  >
+                    <div className="space-y-3">
+                      {twilioNote ? (
+                        <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800">{twilioNote}</div>
+                      ) : null}
+
+                      <div className="rounded-2xl border border-zinc-200 bg-white p-4">
+                        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                          <button
+                            type="button"
+                            onClick={() => setTwilioExpanded((current) => !current)}
+                            className="flex min-w-0 flex-1 items-center justify-between gap-3 rounded-2xl text-left transition-all duration-150 hover:-translate-y-0.5"
+                          >
+                            <div className="min-w-0">
+                              <div className="text-sm font-semibold text-zinc-900">Twilio connection</div>
+                              <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-zinc-500">
+                                <span>
+                                  Status: <span className="font-semibold text-zinc-900">{twilioMasked?.configured ? "Connected" : "Not connected"}</span>
+                                </span>
+                                <span>•</span>
+                                <span>
+                                  From: <span className="font-mono text-zinc-900">{twilioMasked?.fromNumberE164 ?? (twilioFromNumber.trim() || "Not set")}</span>
+                                </span>
+                              </div>
+                            </div>
+                            <span
+                              className={classNames(
+                                "inline-flex h-8 w-8 items-center justify-center rounded-full border border-zinc-200 bg-white text-zinc-600 transition-transform duration-150",
+                                twilioExpanded ? "-rotate-90" : "rotate-90",
+                              )}
+                              aria-hidden
+                            >
+                              <IconChevron />
+                            </span>
+                          </button>
+                        </div>
+
+                        {twilioExpanded ? (
+                          <div className="mt-4 space-y-4 border-t border-zinc-100 pt-4">
+                            {!canEditTwilio ? (
+                              <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">You have view-only access.</div>
+                            ) : null}
+
+                            {canViewTwilio ? (
+                              <>
+                                <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4 text-xs text-zinc-600">
+                                  <div>
+                                    Configured: <span className="font-semibold text-zinc-900">{twilioMasked?.configured ? "Yes" : "No"}</span>
+                                  </div>
+                                  <div className="mt-1">
+                                    Account: <span className="font-mono">{twilioMasked?.accountSidMasked ?? "N/A"}</span>
+                                  </div>
+                                  <div className="mt-1">
+                                    From: <span className="font-mono">{twilioMasked?.fromNumberE164 ?? "N/A"}</span>
+                                  </div>
+                                </div>
+
+                                <div className="rounded-2xl border border-zinc-200 bg-white p-4 text-sm text-zinc-700">
+                                  <div className="font-semibold text-zinc-900">Where do I find these?</div>
+                                  <div className="mt-2 space-y-1">
+                                    <div>• Account SID + Auth Token: Twilio Console → Account → <span className="font-semibold">Account Info</span></div>
+                                    <div>• From number: Twilio Console → Phone Numbers → <span className="font-semibold">Active numbers</span></div>
+                                  </div>
+                                  <div className="mt-2 text-xs text-zinc-500">Tip: paste the number in E.164 format (example: +15551234567).</div>
+                                </div>
+
+                                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                                  <div className="sm:col-span-2">
+                                    <label className="text-xs font-semibold text-zinc-700">Account SID</label>
+                                    <input
+                                      value={twilioAccountSid}
+                                      onChange={(e) => setTwilioAccountSid(e.target.value)}
+                                      placeholder={twilioMasked?.accountSidMasked ? `Current: ${twilioMasked.accountSidMasked}` : "AC…"}
+                                      className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                                      disabled={!canEditTwilio}
+                                    />
+                                  </div>
+                                  <div>
+                                    <label className="text-xs font-semibold text-zinc-700">Auth Token</label>
+                                    <input
+                                      value={twilioAuthToken}
+                                      onChange={(e) => setTwilioAuthToken(e.target.value)}
+                                      type="password"
+                                      placeholder={twilioMasked?.configured ? "•••••• (leave blank to keep)" : ""}
+                                      className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                                      disabled={!canEditTwilio}
+                                    />
+                                  </div>
+                                  <div>
+                                    <label className="text-xs font-semibold text-zinc-700">From number</label>
+                                    <input
+                                      value={twilioFromNumber}
+                                      onChange={(e) => setTwilioFromNumber(e.target.value)}
+                                      placeholder={twilioMasked?.fromNumberE164 ?? "+1…"}
+                                      className="mt-2 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                                      disabled={!canEditTwilio}
+                                    />
+                                  </div>
+                                </div>
+
+                                {canEditTwilio ? (
+                                  <div className="flex flex-col gap-2 sm:flex-row">
+                                    <button
+                                      type="button"
+                                      onClick={() => void saveTwilio()}
+                                      disabled={savingTwilio || !twilioHasPendingChanges}
+                                      className="inline-flex items-center justify-center rounded-2xl bg-(--color-brand-blue) px-4 py-2 text-sm font-semibold text-white transition-transform duration-150 hover:-translate-y-0.5 hover:opacity-95 disabled:opacity-60"
+                                    >
+                                      {savingTwilio ? "Saving…" : twilioHasPendingChanges ? "Save Twilio" : "No changes"}
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => void clearTwilio()}
+                                      disabled={savingTwilio || !twilioMasked?.configured}
+                                      className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink transition-all duration-150 hover:-translate-y-0.5 hover:border-zinc-300 hover:bg-zinc-50 disabled:opacity-60"
+                                    >
+                                      Clear
+                                    </button>
+                                  </div>
+                                ) : null}
+                              </>
+                            ) : null}
+
+                            {canViewWebhooks ? (
+                              <div className="space-y-3">
+                                <div className="rounded-2xl border border-zinc-200 bg-white p-4 text-sm text-zinc-700">
+                                  <div className="font-semibold text-zinc-900">Webhook URLs</div>
+                                  <div className="mt-1 text-xs text-zinc-500">Paste these into Twilio when you need to route calls into your AI Receptionist or fallback flow.</div>
+                                </div>
+                                <CopyRow label="Calls (Primary handler: AI Receptionist)" value={webhooks?.legacy?.aiReceptionistVoiceUrl ?? null} />
+                                <CopyRow label="Calls (If primary handler fails: Missed Call Text Back)" value={webhooks?.legacy?.missedCallVoiceUrl ?? null} />
+                                <div className="rounded-2xl border border-zinc-200 bg-white p-4 text-sm text-zinc-700">
+                                  <div className="font-semibold text-zinc-900">Where do I paste these in Twilio?</div>
+                                  <div className="mt-2 space-y-1">
+                                    <div>1) Twilio Console → Phone Numbers → Manage → Active numbers → click your number</div>
+                                    <div>2) For calls: Voice &amp; Fax → A CALL COMES IN → paste <span className="font-semibold">Calls (Primary handler: AI Receptionist)</span></div>
+                                    <div>3) Still in Voice &amp; Fax → IF PRIMARY HANDLER FAILS → paste <span className="font-semibold">Calls (If primary handler fails: Missed Call Text Back)</span></div>
+                                  </div>
+                                  <div className="mt-2 text-xs text-zinc-500">SMS webhooks are configured automatically when you connect Twilio.</div>
+                                </div>
+                              </div>
+                            ) : null}
+                          </div>
+                        ) : null}
+                      </div>
+                    </div>
+                  </PortalSettingsSection>
+                </div>
+              ) : null}
+
               {showIntegrationSections ? (
                 <div ref={salesReportingRef} className="scroll-mt-24">
                   <PortalSettingsSection
@@ -1570,44 +1810,87 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
                       ) : null}
 
                       <div className="rounded-2xl border border-zinc-200 bg-white p-4">
-                        <div className="text-xs font-semibold text-zinc-600">Provider</div>
-                        <div className="mt-2">
-                          <PortalListboxDropdown
-                            value={salesProvider}
-                            options={SALES_REPORTING_PROVIDER_OPTIONS}
-                            onChange={(v) => setSalesProvider(v)}
-                            disabled={stripeSaving}
-                            portal={false}
-                          />
-                        </div>
-
-                        <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-4 text-xs text-zinc-700">
-                          <div>
-                            Connected:{" "}
-                            <span className="font-semibold text-zinc-900">
-                              {salesStatus?.ok === true && salesStatus.providers[salesProvider]?.configured ? "Yes" : "No"}
-                            </span>
-                          </div>
-                          {salesProvider === "stripe" ? (
-                            <>
-                              <div className="mt-1">
-                                Key type: <span className="font-mono">{salesStatus?.ok === true ? salesStatus.stripe.prefix ?? "N/A" : "N/A"}</span>
+                        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                          <button
+                            type="button"
+                            onClick={() => setSalesReportingExpanded((current) => !current)}
+                            className="flex min-w-0 flex-1 items-center justify-between gap-3 rounded-2xl text-left transition-all duration-150 hover:-translate-y-0.5"
+                          >
+                            <div className="min-w-0">
+                              <div className="text-sm font-semibold text-zinc-900">Sales reporting connection</div>
+                              <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-zinc-500">
+                                <span>
+                                  Provider: <span className="font-semibold text-zinc-900">{providerLabel(salesProvider)}</span>
+                                </span>
+                                <span>•</span>
+                                <span>
+                                  Status: <span className="font-semibold text-zinc-900">{selectedSalesConfigured ? "Connected" : "Not connected"}</span>
+                                </span>
                               </div>
-                              <div className="mt-1">
-                                Account: <span className="font-mono">{salesStatus?.ok === true ? salesStatus.stripe.accountId ?? "N/A" : "N/A"}</span>
-                              </div>
-                            </>
-                          ) : (
-                            <div className="mt-1">
-                              Details:{" "}
-                              <span className="font-mono">
-                                {salesStatus?.ok === true ? salesStatus.providers[salesProvider]?.displayHint ?? "N/A" : "N/A"}
-                              </span>
                             </div>
-                          )}
+                            <span
+                              className={classNames(
+                                "inline-flex h-8 w-8 items-center justify-center rounded-full border border-zinc-200 bg-white text-zinc-600 transition-transform duration-150",
+                                salesReportingExpanded ? "-rotate-90" : "rotate-90",
+                              )}
+                              aria-hidden
+                            >
+                              <IconChevron />
+                            </span>
+                          </button>
+
+                          <div className="flex flex-wrap items-center gap-2">
+                            <Link
+                              href="/portal/app/services/reporting/sales"
+                              className="inline-flex items-center justify-center rounded-2xl px-2 py-1 text-sm font-semibold text-(--color-brand-blue) underline underline-offset-4 transition-transform duration-150 hover:-translate-y-0.5"
+                            >
+                              Open sales dashboard →
+                            </Link>
+                            <button
+                              type="button"
+                              onClick={() => void disconnectSelectedProvider()}
+                              disabled={!canEditProfile || stripeSaving || !selectedSalesConfigured}
+                              className="inline-flex items-center justify-center rounded-2xl bg-red-600 px-4 py-2 text-sm font-semibold text-white transition-transform duration-150 hover:-translate-y-0.5 hover:bg-red-700 disabled:opacity-60"
+                            >
+                              Disconnect
+                            </button>
+                          </div>
                         </div>
 
-                        <div className="mt-4 space-y-3">
+                        {salesReportingExpanded ? (
+                          <div className="mt-4 space-y-3 border-t border-zinc-100 pt-4">
+                            <div className="text-xs font-semibold text-zinc-600">Provider</div>
+                            <div>
+                              <PortalListboxDropdown
+                                value={salesProvider}
+                                options={SALES_REPORTING_PROVIDER_OPTIONS}
+                                onChange={(v) => setSalesProvider(v)}
+                                disabled={stripeSaving}
+                                portal={false}
+                              />
+                            </div>
+
+                            <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4 text-xs text-zinc-700">
+                              <div>
+                                Connected: <span className="font-semibold text-zinc-900">{selectedSalesConfigured ? "Yes" : "No"}</span>
+                              </div>
+                              {salesProvider === "stripe" ? (
+                                <>
+                                  <div className="mt-1">
+                                    Key type: <span className="font-mono">{salesStatus?.ok === true ? salesStatus.stripe.prefix ?? "N/A" : "N/A"}</span>
+                                  </div>
+                                  <div className="mt-1">
+                                    Account: <span className="font-mono">{salesStatus?.ok === true ? salesStatus.stripe.accountId ?? "N/A" : "N/A"}</span>
+                                  </div>
+                                </>
+                              ) : (
+                                <div className="mt-1">
+                                  Details: <span className="font-mono">{salesStatus?.ok === true ? salesStatus.providers[salesProvider]?.displayHint ?? "N/A" : "N/A"}</span>
+                                </div>
+                              )}
+                            </div>
+
+                            <div className="space-y-3">
                           {salesProvider === "stripe" ? (
                             <div>
                               <label className="text-xs font-semibold text-zinc-700">Stripe secret key</label>
@@ -1817,36 +2100,135 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
                               </div>
                             </div>
                           ) : null}
-                        </div>
+                            </div>
 
-                        <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                          <div className="flex gap-2">
-                            <button
-                              type="button"
-                              onClick={() => void connectSelectedProvider()}
-                              disabled={!canEditProfile || stripeSaving || !(salesStatus?.ok === true && salesStatus.encryptionConfigured)}
-                              className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white transition-transform duration-150 hover:-translate-y-0.5 hover:opacity-95 disabled:opacity-60"
-                            >
-                              {stripeSaving
-                                ? "Saving…"
-                                : salesStatus?.ok === true && salesStatus.providers[salesProvider]?.configured
-                                  ? `Replace ${providerLabel(salesProvider)}`
-                                  : `Connect ${providerLabel(salesProvider)}`}
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => void disconnectSelectedProvider()}
-                              disabled={!canEditProfile || stripeSaving || !(salesStatus?.ok === true && salesStatus.providers[salesProvider]?.configured)}
-                              className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink transition-all duration-150 hover:-translate-y-0.5 hover:border-zinc-300 hover:bg-zinc-50 disabled:opacity-60"
-                            >
-                              Disconnect
-                            </button>
+                            <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                              <button
+                                type="button"
+                                onClick={() => void connectSelectedProvider()}
+                                disabled={!canEditProfile || stripeSaving || !(salesStatus?.ok === true && salesStatus.encryptionConfigured) || !salesProviderDirty || !salesProviderFormReady}
+                                className="inline-flex items-center justify-center rounded-2xl bg-(--color-brand-blue) px-4 py-2 text-sm font-semibold text-white transition-transform duration-150 hover:-translate-y-0.5 hover:opacity-95 disabled:opacity-60"
+                              >
+                                {stripeSaving
+                                  ? "Saving…"
+                                  : salesProvider === activeSalesProvider && selectedSalesConfigured
+                                    ? `Replace ${providerLabel(salesProvider)}`
+                                    : `Connect ${providerLabel(salesProvider)}`}
+                              </button>
+                              {!salesProviderDirty ? <div className="text-xs text-zinc-500">Make a change to save this provider.</div> : null}
+                            </div>
                           </div>
-                          <Link href="/portal/app/services/reporting/sales" className="text-sm font-semibold text-(--color-brand-blue) hover:underline">
-                            Open sales dashboard →
-                          </Link>
+                        ) : null}
+                      </div>
+                    </div>
+                  </PortalSettingsSection>
+                </div>
+              ) : null}
+
+              {showIntegrationSections ? (
+                <div ref={apiKeysRef} className="scroll-mt-24">
+                  <PortalSettingsSection
+                    title="API keys"
+                    description="Manage the keys your own software will use to talk to the portal and Pura. This is the UI layer for now; deeper behavior comes next."
+                    accent="blue"
+                    collapsible={false}
+                    dotClassName="hidden"
+                    variant={sectionVariant}
+                  >
+                    <div className="space-y-4">
+                      <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+                        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                          <div>
+                            <div className="text-sm font-semibold text-zinc-900">Full access API key</div>
+                            <div className="mt-1 text-xs text-zinc-500">Use this for trusted internal integrations that need full portal + Pura access.</div>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => void copyText(fullAccessApiKey)}
+                            disabled={!fullAccessApiKey}
+                            className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink transition-all duration-150 hover:-translate-y-0.5 hover:border-zinc-300 hover:bg-zinc-50 disabled:opacity-60"
+                          >
+                            Copy full access key
+                          </button>
+                        </div>
+                        <div className="mt-3 break-all rounded-2xl border border-zinc-200 bg-white px-4 py-3 font-mono text-xs text-zinc-800">
+                          {fullAccessApiKey || "Generating full access key…"}
                         </div>
                       </div>
+
+                      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                        <div>
+                          <div className="text-sm font-semibold text-zinc-900">Scoped API keys</div>
+                          <div className="mt-1 text-xs text-zinc-500">Create limited keys for external apps, team tools, or client-specific integrations.</div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setApiKeyModalOpen(true)}
+                          className="inline-flex items-center justify-center rounded-2xl bg-(--color-brand-blue) px-4 py-2 text-sm font-semibold text-white transition-transform duration-150 hover:-translate-y-0.5 hover:opacity-95"
+                        >
+                          Create API key
+                        </button>
+                      </div>
+
+                      {apiKeys.length ? (
+                        <div className="space-y-3">
+                          {apiKeys.map((apiKey) => (
+                            <div key={apiKey.id} className="rounded-2xl border border-zinc-200 bg-white p-4">
+                              <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                                <div className="min-w-0 flex-1">
+                                  <div className="flex flex-wrap items-center gap-2">
+                                    <div className="text-sm font-semibold text-zinc-900">{apiKey.name}</div>
+                                    {apiKey.creditLimit !== null ? (
+                                      <span className="inline-flex items-center rounded-full bg-amber-100 px-2.5 py-1 text-[11px] font-semibold text-amber-800">
+                                        Credit limit: {apiKey.creditLimit.toLocaleString()}
+                                      </span>
+                                    ) : (
+                                      <span className="inline-flex items-center rounded-full bg-zinc-100 px-2.5 py-1 text-[11px] font-semibold text-zinc-700">
+                                        No credit limit
+                                      </span>
+                                    )}
+                                  </div>
+                                  <div className="mt-2 break-all rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 font-mono text-xs text-zinc-800">
+                                    {apiKey.value}
+                                  </div>
+                                  <div className="mt-3 flex flex-wrap gap-2">
+                                    {apiKey.permissions.map((permission) => {
+                                      const option = API_KEY_PERMISSION_OPTIONS.find((entry) => entry.value === permission);
+                                      return (
+                                        <span key={permission} className="inline-flex items-center rounded-full bg-brand-blue/10 px-3 py-1 text-[11px] font-semibold text-brand-blue">
+                                          {option?.label ?? permission}
+                                        </span>
+                                      );
+                                    })}
+                                  </div>
+                                  <div className="mt-3 text-xs text-zinc-500">
+                                    Created {apiKey.createdLabel} · Last used {apiKey.lastUsedLabel ?? "Never used"}
+                                  </div>
+                                </div>
+
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <button
+                                    type="button"
+                                    onClick={() => void copyText(apiKey.value)}
+                                    className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink transition-all duration-150 hover:-translate-y-0.5 hover:border-zinc-300 hover:bg-zinc-50"
+                                  >
+                                    Copy
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => deleteApiKey(apiKey.id)}
+                                    className="inline-flex items-center justify-center rounded-2xl bg-red-600 px-4 py-2 text-sm font-semibold text-white transition-transform duration-150 hover:-translate-y-0.5 hover:bg-red-700"
+                                  >
+                                    Delete
+                                  </button>
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="rounded-2xl border border-zinc-200 bg-white p-4 text-sm text-zinc-600">No scoped API keys yet.</div>
+                      )}
                     </div>
                   </PortalSettingsSection>
                 </div>
@@ -1938,6 +2320,99 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
               ) : null}
             </div>
           ) : null}
+
+          <AppModal
+            open={apiKeyModalOpen}
+            title="Create API key"
+            description="Create a scoped key for your own software to access the portal and Pura with only the permissions it needs."
+            onClose={() => {
+              setApiKeyModalOpen(false);
+              resetApiKeyComposer();
+            }}
+            widthClassName="w-[min(760px,calc(100vw-32px))]"
+            footer={
+              <div className="flex flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-end">
+                <button
+                  type="button"
+                  className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 transition-all duration-150 hover:-translate-y-0.5 hover:border-zinc-300 hover:bg-zinc-50"
+                  onClick={() => {
+                    setApiKeyModalOpen(false);
+                    resetApiKeyComposer();
+                  }}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={createApiKey}
+                  disabled={!canCreateApiKey}
+                  className="rounded-2xl bg-(--color-brand-blue) px-4 py-2 text-sm font-semibold text-white transition-transform duration-150 hover:-translate-y-0.5 hover:opacity-95 disabled:opacity-60"
+                >
+                  Create key
+                </button>
+              </div>
+            }
+          >
+            <div className="space-y-4">
+              <div>
+                <label className="text-xs font-semibold text-zinc-700">Key name</label>
+                <input
+                  value={newApiKeyName}
+                  onChange={(e) => setNewApiKeyName(e.target.value)}
+                  className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-900 outline-none placeholder:text-zinc-500 focus:border-zinc-300"
+                  placeholder="Ex: CRM sync, internal dashboard, Pura embed"
+                />
+              </div>
+
+              <div>
+                <div className="text-xs font-semibold text-zinc-700">Permissions</div>
+                <div className="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  {API_KEY_PERMISSION_OPTIONS.map((option) => {
+                    const checked = newApiKeyPermissions.includes(option.value);
+                    return (
+                      <label key={option.value} className="flex gap-3 rounded-2xl border border-zinc-200 bg-white p-4">
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() => toggleApiKeyPermission(option.value)}
+                          className="mt-0.5 h-4 w-4 rounded border-zinc-300 text-brand-blue focus:ring-brand-blue"
+                        />
+                        <span className="min-w-0">
+                          <span className="block text-sm font-semibold text-zinc-900">{option.label}</span>
+                          <span className="mt-1 block text-xs text-zinc-500">{option.description}</span>
+                        </span>
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+                <label className="flex items-center gap-3 text-sm font-semibold text-zinc-900">
+                  <input
+                    type="checkbox"
+                    checked={newApiKeyCreditLimitEnabled}
+                    onChange={(e) => setNewApiKeyCreditLimitEnabled(e.target.checked)}
+                    className="h-4 w-4 rounded border-zinc-300 text-brand-blue focus:ring-brand-blue"
+                  />
+                  Set a credit limit for this key
+                </label>
+                {newApiKeyCreditLimitEnabled ? (
+                  <div className="mt-3">
+                    <label className="text-xs font-semibold text-zinc-700">Credit limit</label>
+                    <input
+                      value={newApiKeyCreditLimit}
+                      onChange={(e) => setNewApiKeyCreditLimit(e.target.value.replace(/[^0-9]/g, ""))}
+                      inputMode="numeric"
+                      className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-900 outline-none placeholder:text-zinc-500 focus:border-zinc-300"
+                      placeholder="Ex: 5000"
+                    />
+                    <div className="mt-2 text-xs text-zinc-500">Use this to cap how many credits this integration is allowed to consume.</div>
+                  </div>
+                ) : null}
+              </div>
+            </div>
+          </AppModal>
 
           <AppModal
             open={contactPasswordModalOpen}
