@@ -100,7 +100,8 @@ export function PortalListboxDropdown<T extends string>(props: {
     const menu = (
       <div
         ref={menuRef}
-        className="overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-lg"
+        className="pa-portal-listbox-menu overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-lg"
+        role="listbox"
         style={{
           position: portal ? "fixed" : ("static" as any),
           zIndex: 120100,
@@ -124,8 +125,9 @@ export function PortalListboxDropdown<T extends string>(props: {
                 key={o.value}
                 type="button"
                 title={o.label}
+                data-selected={isSel ? "true" : "false"}
                 className={
-                  "w-full rounded-xl px-3 py-2 text-left text-sm transition " +
+                  "pa-portal-listbox-option w-full rounded-xl px-3 py-2 text-left text-sm transition " +
                   (disabled
                     ? "cursor-not-allowed text-zinc-400"
                     : isSel
@@ -228,7 +230,7 @@ export function PortalListboxDropdown<T extends string>(props: {
         disabled={disabled}
         className={
           (buttonClassName ||
-            "flex w-full items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50") +
+            "pa-portal-listbox-button flex w-full items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50") +
           (disabled ? " cursor-not-allowed opacity-60" : "")
         }
         onMouseDown={(e) => {
@@ -247,7 +249,7 @@ export function PortalListboxDropdown<T extends string>(props: {
       >
         <span
           className={
-            "truncate " +
+            "pa-portal-listbox-label truncate " +
             (!current && placeholder
               ? "text-zinc-500"
               : current
@@ -259,7 +261,7 @@ export function PortalListboxDropdown<T extends string>(props: {
         >
           {currentLabel}
         </span>
-        <span className="shrink-0 text-xs text-zinc-500">▾</span>
+        <span className="pa-portal-listbox-chevron shrink-0 text-xs text-zinc-500">▾</span>
       </button>
 
       {open ? menuNode : null}

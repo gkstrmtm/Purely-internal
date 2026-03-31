@@ -70,23 +70,22 @@ function sidebarIconToneClassForCategory(category: PortalServiceCategory) {
   switch (category) {
     case "communication":
     case "leads":
-      return "text-(--color-brand-blue)";
+      return "text-(--color-brand-blue) pa-portal-service-icon-tone pa-portal-service-icon-tone--blue";
     case "marketing":
     case "operations":
-      return "text-(--color-brand-pink)";
+      return "text-(--color-brand-pink) pa-portal-service-icon-tone pa-portal-service-icon-tone--pink";
     case "automation":
     case "analytics":
-      // Match the "View details" dashboard button tone (bg-brand-ink).
-      return "text-brand-ink";
+      return "text-brand-ink pa-portal-service-icon-tone pa-portal-service-icon-tone--ink";
     case "credit":
     case "other":
     default:
-      return "text-zinc-700";
+      return "text-zinc-700 pa-portal-service-icon-tone pa-portal-service-icon-tone--neutral";
   }
 }
 
 function sidebarIconToneClassForSlug(slug: string) {
-  return sidebarIconToneClassForCategory(portalServiceCategoryForSlug(slug));
+  return `${sidebarIconToneClassForCategory(portalServiceCategoryForSlug(slug))} pa-portal-service-icon-tone--${slug}`;
 }
 
 function sidebarIconButtonClass(active: boolean, extra?: string) {

@@ -486,13 +486,9 @@ export function PortalFloatingTools() {
   }, [loadSuggestedSetupPreview]);
 
   useEffect(() => {
-    if (typeof window === "undefined") return;
-    const savedThreadId = window.localStorage.getItem("pa_portal_floating_tools_thread_id");
-    if (savedThreadId) {
-      setChatThreadId(savedThreadId);
-      void loadPuraThreadMessages(savedThreadId);
-    }
-  }, []);
+    if (!chatOpen || !chatThreadId) return;
+    void loadPuraThreadMessages(chatThreadId);
+  }, [chatOpen, chatThreadId]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -808,9 +804,6 @@ export function PortalFloatingTools() {
 
   function persistWidgetThreadId(nextThreadId: string | null) {
     setChatThreadId(nextThreadId);
-    if (typeof window === "undefined") return;
-    if (nextThreadId) window.localStorage.setItem("pa_portal_floating_tools_thread_id", nextThreadId);
-    else window.localStorage.removeItem("pa_portal_floating_tools_thread_id");
   }
 
   async function loadPuraThreadMessages(threadId: string) {
@@ -996,13 +989,13 @@ export function PortalFloatingTools() {
   return (
     <>
       {note ? (
-        <div className="fixed bottom-[calc(var(--pa-portal-embed-footer-offset,0px)+6rem)] right-4 z-11003 max-w-sm rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-800 shadow-lg ring-1 ring-[rgba(29,78,216,0.14)]">
+        <div className="fixed bottom-[calc(var(--pa-portal-embed-footer-offset,0px)+6rem)] right-4 z-130103 max-w-sm rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-800 shadow-lg ring-1 ring-[rgba(29,78,216,0.14)]">
           {note}
         </div>
       ) : null}
 
       {reportOpen ? (
-        <div className="fixed inset-0 z-11002">
+        <div className="fixed inset-0 z-130102">
           <button
             type="button"
             className="absolute inset-0 bg-black/30"
@@ -1059,7 +1052,7 @@ export function PortalFloatingTools() {
       {chatOpen ? (
         <div
           ref={chatPanelRef}
-          className="fixed bottom-[calc(var(--pa-portal-embed-footer-offset,0px)+1.5rem)] right-4 z-11001 w-[min(520px,calc(100vw-2rem))] overflow-hidden rounded-3xl border border-zinc-200 bg-white p-5 shadow-2xl"
+          className="fixed bottom-[calc(var(--pa-portal-embed-footer-offset,0px)+1.5rem)] right-4 z-130101 w-[min(520px,calc(100vw-2rem))] overflow-hidden rounded-3xl border border-zinc-200 bg-white p-5 shadow-2xl"
         >
             <div className="mb-3 h-1.5 w-16 rounded-full bg-[linear-gradient(90deg,rgba(29,78,216,0.9),rgba(251,113,133,0.35))]" />
             <div className="flex items-start justify-between gap-3">
@@ -1190,7 +1183,7 @@ export function PortalFloatingTools() {
         </div>
       ) : null}
 
-      <div className="fixed bottom-[calc(var(--pa-portal-embed-footer-offset,0px)+1rem)] right-4 z-11000 flex justify-end">
+      <div className="fixed bottom-[calc(var(--pa-portal-embed-footer-offset,0px)+1rem)] right-4 z-130100 flex justify-end">
         {minimized ? (
           compactDock ? (
             <div className="group flex items-center justify-end gap-2">

@@ -37,6 +37,11 @@ function classNames(...xs: Array<string | false | null | undefined>) {
   return xs.filter(Boolean).join(" ");
 }
 
+function dispatchPortalThemePreview(mode: "device" | "light" | "dark") {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(new CustomEvent("pa.portal.theme-preview", { detail: { mode } }));
+}
+
 export function PortalAppearanceSettingsClient() {
   const pathname = usePathname() || "";
   const toast = useToast();
@@ -173,6 +178,16 @@ export function PortalAppearanceSettingsClient() {
       if (prev) URL.revokeObjectURL(prev);
     };
   }, []);
+
+  useEffect(() => {
+    dispatchPortalThemePreview(themeMode);
+  }, [themeMode]);
+
+  useEffect(() => {
+    return () => {
+      dispatchPortalThemePreview(savedThemeMode);
+    };
+  }, [savedThemeMode]);
 
   const voiceOptions = useMemo(
     () => [
