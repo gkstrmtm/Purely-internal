@@ -2,7 +2,9 @@ import type { Metadata } from "next";
 import { headers } from "next/headers";
 import { getPortalUser } from "@/lib/portalAuth";
 import { PortalTopbarClient } from "@/app/portal/PortalTopbarClient";
+import { PortalThemeClient } from "@/app/portal/PortalThemeClient";
 import { getPortalBusinessProfile } from "@/lib/portalBusinessProfile.server";
+import { getPortalThemeMode } from "@/lib/portalTheme.server";
 import { normalizePortalVariant, PORTAL_VARIANT_HEADER } from "@/lib/portalVariant";
 
 export const metadata: Metadata = {
@@ -26,6 +28,7 @@ export default async function PortalLayout({
   const getStartedHref = variant === "credit" ? "/credit/get-started" : "/portal/get-started";
 
   const user = await getPortalUser();
+  const themeMode = await getPortalThemeMode(user?.id ?? null);
   const canOpenPortalApp = user?.role === "CLIENT" || user?.role === "ADMIN";
   const businessName = user?.id
     ? await getPortalBusinessProfile({ ownerId: user.id })
@@ -37,20 +40,22 @@ export default async function PortalLayout({
     : "";
 
   return (
-    <div className="flex min-h-dvh flex-col overflow-x-hidden bg-brand-mist text-brand-ink">
-      <PortalTopbarClient
-        logoSrc={logoSrc}
-        homeHref={homeHref}
-        signInHref={signInHref}
-        getStartedHref={getStartedHref}
-        businessName={businessName}
-        userEmail={user?.email ?? null}
-        canOpenPortalApp={canOpenPortalApp}
-      />
+    <PortalThemeClient preferredMode={themeMode}>
+      <div className="flex min-h-dvh flex-col overflow-x-hidden bg-brand-mist text-brand-ink">
+        <PortalTopbarClient
+          logoSrc={logoSrc}
+          homeHref={homeHref}
+          signInHref={signInHref}
+          getStartedHref={getStartedHref}
+          businessName={businessName}
+          userEmail={user?.email ?? null}
+          canOpenPortalApp={canOpenPortalApp}
+        />
 
-      <div className="min-h-0 flex-1">
-        {children}
+        <div className="min-h-0 flex-1">
+          {children}
+        </div>
       </div>
-    </div>
+    </PortalThemeClient>
   );
 }
