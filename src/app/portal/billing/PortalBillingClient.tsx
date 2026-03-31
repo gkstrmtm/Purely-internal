@@ -322,6 +322,7 @@ export function PortalBillingClient({
   const [updateCardClientSecret, setUpdateCardClientSecret] = useState<string | null>(null);
   const [updateCardLoading, setUpdateCardLoading] = useState(false);
   const [updateCardError, setUpdateCardError] = useState<string | null>(null);
+  const [portalTheme, setPortalTheme] = useState<"light" | "dark">("light");
 
   const billingInfoStripeConfigured = Boolean(
     billingInfo && "ok" in billingInfo && billingInfo.ok && (billingInfo as any).stripeConfigured,
@@ -415,6 +416,20 @@ export function PortalBillingClient({
   useEffect(() => {
     if (error) toast.error(error);
   }, [error, toast]);
+
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+
+    const root = document.documentElement;
+    const syncTheme = () => setPortalTheme(root.getAttribute("data-portal-theme") === "dark" ? "dark" : "light");
+
+    syncTheme();
+
+    const observer = typeof MutationObserver === "undefined" ? null : new MutationObserver(syncTheme);
+    observer?.observe(root, { attributes: true, attributeFilter: ["data-portal-theme"] });
+
+    return () => observer?.disconnect();
+  }, []);
 
   const loadBillingInfo = useCallback(async () => {
     setBillingInfoLoading(true);
@@ -510,9 +525,30 @@ export function PortalBillingClient({
     if (!updateCardClientSecret) return null;
     return {
       clientSecret: updateCardClientSecret,
-      appearance: { theme: "stripe" as const },
+      appearance:
+        portalTheme === "dark"
+          ? {
+              theme: "night" as const,
+              variables: {
+                colorPrimary: "#60a5fa",
+                colorBackground: "#111418",
+                colorText: "#f3f6fb",
+                colorDanger: "#f87171",
+                colorSuccess: "#34d399",
+                colorWarning: "#fbbf24",
+                colorTextSecondary: "#9aa5b4",
+                colorBorder: "#2c3440",
+                borderRadius: "16px",
+              },
+            }
+          : {
+              theme: "stripe" as const,
+              variables: {
+                borderRadius: "16px",
+              },
+            },
     };
-  }, [updateCardClientSecret]);
+  }, [portalTheme, updateCardClientSecret]);
 
   const finalizeUpdateCard = useCallback(
     async (setupIntentId: string) => {

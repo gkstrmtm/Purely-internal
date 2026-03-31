@@ -73,12 +73,14 @@ export function PortalAppearanceSettingsClient() {
   const [savedDefaultLoginPath, setSavedDefaultLoginPath] = useState(`${portalBase}/app`);
   const [themeMode, setThemeMode] = useState<"device" | "light" | "dark" | null>(null);
   const [savedThemeMode, setSavedThemeMode] = useState<"device" | "light" | "dark" | null>(null);
+  const [themeSaving, setThemeSaving] = useState(false);
   const [devicePreference, setDevicePreference] = useState<"light" | "dark">("light");
   const [hideFloatingTools, setHideFloatingTools] = useState(false);
   const [savedHideFloatingTools, setSavedHideFloatingTools] = useState(false);
 
   const voicePreviewAudioRef = useRef<HTMLAudioElement | null>(null);
   const voicePreviewUrlRef = useRef<string | null>(null);
+  const themeRequestIdRef = useRef(0);
 
   const themeOptions = useMemo(
     () => [
@@ -197,13 +199,6 @@ export function PortalAppearanceSettingsClient() {
     dispatchPortalThemePreview(themeMode);
   }, [themeMode]);
 
-  useEffect(() => {
-    return () => {
-      if (!savedThemeMode) return;
-      dispatchPortalThemePreview(savedThemeMode);
-    };
-  }, [savedThemeMode]);
-
   const voiceOptions = useMemo(
     () => [
       { value: "", label: "Use service default" },
@@ -223,11 +218,43 @@ export function PortalAppearanceSettingsClient() {
   const dirty =
     selectedVoiceId !== savedVoiceId ||
     defaultLoginPath !== savedDefaultLoginPath ||
-    themeMode !== savedThemeMode ||
     hideFloatingTools !== savedHideFloatingTools;
 
+  const saveThemePreference = useCallback(
+    async (nextThemeMode: "device" | "light" | "dark") => {
+      setThemeMode(nextThemeMode);
+      const requestId = themeRequestIdRef.current + 1;
+      themeRequestIdRef.current = requestId;
+      const previousSavedThemeMode = savedThemeMode ?? "device";
+      setThemeSaving(true);
+
+      const res = await fetch("/api/portal/profile", {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ themeMode: nextThemeMode }),
+      }).catch(() => null as any);
+
+      const json = (res ? ((await res.json().catch(() => null)) as ProfileResponse | null) : null) ?? null;
+
+      if (requestId !== themeRequestIdRef.current) return;
+
+      setThemeSaving(false);
+      if (!res?.ok || json?.ok !== true || !json.user) {
+        setThemeMode(previousSavedThemeMode);
+        toast.error(json?.error || "Unable to update theme");
+        return;
+      }
+
+      const persistedThemeMode =
+        json.user.themeMode === "light" || json.user.themeMode === "dark" ? json.user.themeMode : "device";
+      setThemeMode(persistedThemeMode);
+      setSavedThemeMode(persistedThemeMode);
+    },
+    [savedThemeMode, toast],
+  );
+
   async function savePreferences() {
-    if (saving || !dirty || !themeMode) return;
+    if (saving || !dirty) return;
     setSaving(true);
     const res = await fetch("/api/portal/profile", {
       method: "PUT",
@@ -235,7 +262,6 @@ export function PortalAppearanceSettingsClient() {
       body: JSON.stringify({
         voiceId: selectedVoiceId || "",
         defaultLoginPath,
-        themeMode,
         hideFloatingTools,
       }),
     }).catch(() => null as any);
@@ -249,14 +275,11 @@ export function PortalAppearanceSettingsClient() {
 
     const nextVoiceId = String(json.user.voiceId || "").trim();
     const nextDefaultLoginPath = String(json.user.defaultLoginPath || defaultLoginPath).trim() || defaultLoginPath;
-    const nextThemeMode = json.user.themeMode === "light" || json.user.themeMode === "dark" ? json.user.themeMode : "device";
     const nextHideFloatingTools = Boolean(json.user.hideFloatingTools);
     setSelectedVoiceId(nextVoiceId);
     setSavedVoiceId(nextVoiceId);
     setDefaultLoginPath(nextDefaultLoginPath);
     setSavedDefaultLoginPath(nextDefaultLoginPath);
-    setThemeMode(nextThemeMode);
-    setSavedThemeMode(nextThemeMode);
     setHideFloatingTools(nextHideFloatingTools);
     setSavedHideFloatingTools(nextHideFloatingTools);
     syncFloatingToolsPreference(nextHideFloatingTools);
@@ -325,10 +348,11 @@ export function PortalAppearanceSettingsClient() {
           <PortalListboxDropdown
             value={themeMode ?? savedThemeMode ?? "device"}
             options={themeOptions}
-            onChange={(value) => setThemeMode(value as "device" | "light" | "dark")}
-            disabled={loading || themeMode === null}
+            onChange={(value) => void saveThemePreference(value as "device" | "light" | "dark")}
+            disabled={loading || themeMode === null || themeSaving}
           />
         </div>
+        <div className="mt-3 text-xs text-zinc-500">Theme changes apply and save immediately.</div>
       </div>
 
       <div className="rounded-3xl border border-zinc-200 bg-white p-6">

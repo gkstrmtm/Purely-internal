@@ -601,7 +601,7 @@ export function InlineElevenLabsAgentTester(props: {
 
   return (
     <div className={props.className ?? ""}>
-      <div className="rounded-3xl border border-zinc-200 bg-gradient-to-b from-white to-zinc-50 p-5">
+      <div className="rounded-3xl border border-zinc-200 bg-white/90 p-5 shadow-[0_18px_50px_rgba(15,23,42,0.08)] supports-backdrop-filter:bg-white/80 supports-backdrop-filter:backdrop-blur">
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-2">
             <div
@@ -619,8 +619,10 @@ export function InlineElevenLabsAgentTester(props: {
           <button
             type="button"
             className={classNames(
-              "rounded-xl border px-3 py-2 text-xs font-semibold disabled:opacity-60",
-              speakerEnabled ? "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50" : "border-zinc-200 bg-zinc-900 text-white",
+              "rounded-xl border px-3 py-2 text-xs font-semibold transition-all duration-150 hover:-translate-y-0.5 disabled:opacity-60",
+              speakerEnabled
+                ? "border-zinc-200 bg-white text-zinc-700 hover:border-zinc-300 hover:bg-zinc-50"
+                : "border-zinc-900 bg-zinc-900 text-white hover:opacity-95",
             )}
             disabled={status !== "connected"}
             onClick={() => setSpeakerEnabled((v) => !v)}
@@ -639,7 +641,7 @@ export function InlineElevenLabsAgentTester(props: {
             <button
               type="button"
               onClick={() => disconnect()}
-              className="group flex h-16 w-16 items-center justify-center rounded-full bg-red-600 text-white shadow-lg shadow-red-600/20 hover:bg-red-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-600/50"
+              className="group flex h-16 w-16 items-center justify-center rounded-full bg-red-600 text-white shadow-lg shadow-red-600/20 transition-all duration-150 hover:-translate-y-0.5 hover:bg-red-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-600/50"
               title="Hang up"
             >
               <svg viewBox="0 0 24 24" className="h-7 w-7" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -655,7 +657,7 @@ export function InlineElevenLabsAgentTester(props: {
               onClick={() => void connect()}
               disabled={!canConnect || status === "connecting"}
               className={classNames(
-                "group flex h-16 w-16 items-center justify-center rounded-full text-white shadow-lg focus:outline-none focus-visible:ring-2",
+                "group flex h-16 w-16 items-center justify-center rounded-full text-white shadow-lg transition-all duration-150 hover:-translate-y-0.5 focus:outline-none focus-visible:ring-2",
                 status === "connecting"
                   ? "bg-amber-500 shadow-amber-500/20 focus-visible:ring-amber-500/40"
                   : "bg-emerald-600 shadow-emerald-600/20 hover:bg-emerald-500 focus-visible:ring-emerald-600/40",
@@ -682,8 +684,10 @@ export function InlineElevenLabsAgentTester(props: {
           <button
             type="button"
             className={classNames(
-              "rounded-full border px-3 py-1.5 text-xs font-semibold disabled:opacity-60",
-              micEnabled ? "border-zinc-900 bg-zinc-900 text-white" : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50",
+              "rounded-full border px-3 py-1.5 text-xs font-semibold transition-all duration-150 hover:-translate-y-0.5 disabled:opacity-60",
+              micEnabled
+                ? "border-zinc-900 bg-zinc-900 text-white hover:opacity-95"
+                : "border-zinc-200 bg-white text-zinc-700 hover:border-zinc-300 hover:bg-zinc-50",
             )}
             disabled={status !== "connected"}
             onClick={() => (micEnabled ? disableMic() : void enableMic())}

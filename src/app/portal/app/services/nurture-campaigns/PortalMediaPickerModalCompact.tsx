@@ -147,10 +147,11 @@ export function PortalMediaPickerModalCompact({
 
                 <button
                   type="button"
-                  className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
+                  aria-label="Close media library"
+                  className="inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-zinc-200 bg-white text-base font-semibold text-zinc-500 transition-all duration-150 hover:-translate-y-0.5 hover:scale-105 hover:bg-zinc-50 hover:text-zinc-800"
                   onClick={onClose}
                 >
-                  Close
+                  ×
                 </button>
               </div>
             </div>

@@ -813,11 +813,12 @@ export function PortalNurtureCampaignsClient() {
                         <div className="text-xs font-semibold text-zinc-600">Create new tag</div>
                         <button
                           type="button"
-                          className="rounded-xl border border-zinc-200 bg-white px-2 py-1 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
+                          aria-label="Close create tag"
+                          className="inline-flex h-8 w-8 items-center justify-center rounded-xl border border-zinc-200 bg-white text-sm font-semibold text-zinc-500 transition-all duration-150 hover:-translate-y-0.5 hover:scale-105 hover:bg-zinc-50 hover:text-zinc-800"
                           onClick={() => setCreateTagOpen(false)}
                           disabled={createTagBusy}
                         >
-                          Close
+                          ×
                         </button>
                       </div>
                       <div className="mt-2 flex flex-wrap items-center gap-2">
@@ -969,11 +970,12 @@ export function PortalNurtureCampaignsClient() {
                         </div>
                         <button
                           type="button"
-                          className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
+                          aria-label="Close template picker"
+                          className="inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-zinc-200 bg-white text-base font-semibold text-zinc-500 transition-all duration-150 hover:-translate-y-0.5 hover:scale-105 hover:bg-zinc-50 hover:text-zinc-800"
                           onClick={() => setTemplateOpen(false)}
                           disabled={templateBusy}
                         >
-                          Close
+                          ×
                         </button>
                       </div>
 
@@ -1606,11 +1608,12 @@ function StepCard(props: {
               </div>
               <button
                 type="button"
-                className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50 disabled:opacity-60"
+                aria-label="Close AI draft"
+                className="inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-zinc-200 bg-white text-base font-semibold text-zinc-500 transition-all duration-150 hover:-translate-y-0.5 hover:scale-105 hover:bg-zinc-50 hover:text-zinc-800 disabled:opacity-60"
                 onClick={() => setAiModalOpen(false)}
                 disabled={aiBusy}
               >
-                Close
+                ×
               </button>
             </div>
 

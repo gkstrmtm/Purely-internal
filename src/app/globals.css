@@ -152,12 +152,20 @@ pre {
   background-color: var(--pa-portal-overlay) !important;
 }
 
-[data-portal-theme="dark"] :is(.bg-blue-50, .bg-blue-50\/60, .bg-brand-blue\/10, .bg-brand-blue\/15) {
+[data-portal-theme="dark"] :is(.bg-blue-50, .bg-blue-50\/60, .bg-blue-50\/70, .bg-blue-50\/80, .bg-brand-blue\/10, .bg-brand-blue\/15) {
   background-color: rgba(37, 99, 235, 0.16) !important;
 }
 
-[data-portal-theme="dark"] :is(.bg-emerald-50, .bg-emerald-100) {
+[data-portal-theme="dark"] :is(.bg-sky-50) {
+  background-color: rgba(56, 189, 248, 0.16) !important;
+}
+
+[data-portal-theme="dark"] :is(.bg-emerald-50, .bg-emerald-100, .bg-emerald-200) {
   background-color: rgba(16, 185, 129, 0.16) !important;
+}
+
+[data-portal-theme="dark"] :is(.hover\:bg-emerald-200:hover, .hover\:bg-emerald-300:hover) {
+  background-color: rgba(16, 185, 129, 0.22) !important;
 }
 
 [data-portal-theme="dark"] :is(.bg-amber-50, .bg-amber-100) {
@@ -176,7 +184,7 @@ pre {
   background-color: var(--pa-portal-surface-2) !important;
 }
 
-[data-portal-theme="dark"] :is(.border-zinc-200, .border-brand-ink\/10, .divide-zinc-200 > :not([hidden]) ~ :not([hidden])) {
+[data-portal-theme="dark"] :is(.border-zinc-100, .border-zinc-200, .border-brand-ink\/10, .divide-zinc-200 > :not([hidden]) ~ :not([hidden])) {
   border-color: var(--pa-portal-border) !important;
 }
 

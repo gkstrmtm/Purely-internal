@@ -1327,9 +1327,10 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                   <button
                     type="button"
                     onClick={() => setComposerOpen(false)}
-                    className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
+                    aria-label="Close composer"
+                    className="inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-zinc-200 bg-white text-base font-semibold text-zinc-500 transition-all duration-150 hover:-translate-y-0.5 hover:scale-105 hover:bg-zinc-50 hover:text-zinc-800"
                   >
-                    Close
+                    ×
                   </button>
                 </div>
               </div>
@@ -1518,11 +1519,12 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                         </div>
                         <button
                           type="button"
-                          className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold hover:bg-zinc-50 disabled:opacity-60"
+                          aria-label="Close image preview"
+                          className="inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-zinc-200 bg-white text-base font-semibold text-zinc-500 transition-all duration-150 hover:-translate-y-0.5 hover:scale-105 hover:bg-zinc-50 hover:text-zinc-800 disabled:opacity-60"
                           onClick={() => setManualImagePreviewOpen(false)}
                           disabled={manualImageImporting}
                         >
-                          Close
+                          ×
                         </button>
                       </div>
 
@@ -2687,11 +2689,12 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
               </div>
               <button
                 type="button"
-                className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold hover:bg-zinc-50"
+                aria-label="Close draft editor"
+                className="inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-zinc-200 bg-white text-base font-semibold text-zinc-500 transition-all duration-150 hover:-translate-y-0.5 hover:scale-105 hover:bg-zinc-50 hover:text-zinc-800"
                 onClick={() => setDraftOpen(false)}
                 disabled={draftSaving}
               >
-                Close
+                ×
               </button>
             </div>
 
@@ -3003,11 +3006,12 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
               </div>
               <button
                 type="button"
-                className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold hover:bg-zinc-50 disabled:opacity-60"
+                aria-label="Close hosted pages setup"
+                className="inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-zinc-200 bg-white text-base font-semibold text-zinc-500 transition-all duration-150 hover:-translate-y-0.5 hover:scale-105 hover:bg-zinc-50 hover:text-zinc-800 disabled:opacity-60"
                 onClick={() => setSiteConfigOpen(false)}
                 disabled={siteConfigBusy}
               >
-                Close
+                ×
               </button>
             </div>
 

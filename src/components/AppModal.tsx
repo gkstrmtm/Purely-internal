@@ -17,8 +17,8 @@ export function AppModal({
   widthClassName,
   zIndex,
   closeVariant = "x",
-  hideHeaderDivider,
-  hideFooterDivider,
+  hideHeaderDivider = true,
+  hideFooterDivider = true,
 }: {
   open: boolean;
   title: string;
@@ -97,9 +97,9 @@ export function AppModal({
                 <button
                   type="button"
                   className={classNames(
-                    "shrink-0 select-none",
+                    "shrink-0 select-none transition-all duration-150 hover:-translate-y-0.5",
                     closeVariant === "x"
-                      ? "grid h-10 w-10 place-items-center rounded-2xl border border-transparent bg-white text-lg leading-none font-semibold text-zinc-500 hover:border-zinc-200 hover:bg-zinc-50 hover:text-zinc-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(29,78,216,0.25)]"
+                      ? "grid h-10 w-10 place-items-center rounded-2xl border border-transparent bg-white text-lg leading-none font-semibold text-zinc-500 hover:scale-105 hover:border-zinc-200 hover:bg-zinc-50 hover:text-zinc-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(29,78,216,0.25)]"
                       : "rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50",
                   )}
                   onClick={onClose}

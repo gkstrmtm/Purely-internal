@@ -232,32 +232,32 @@ export function PortalBookingAvailabilityClient({ variant = "page" }: { variant?
           </div>
           <Link
             href="/portal/app/services/booking"
-            className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+            className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink transition-all duration-150 hover:-translate-y-0.5 hover:bg-zinc-50"
           >
             Back
           </Link>
         </div>
       ) : null}
 
-      <div className={variant === "modal" ? "rounded-3xl border border-zinc-200 bg-white p-4" : "mt-6 rounded-3xl border border-zinc-200 bg-white p-6"}>
+      <div className={variant === "modal" ? "rounded-3xl border border-zinc-200 bg-white/95 p-4 shadow-[0_20px_50px_rgba(15,23,42,0.08)]" : "mt-6 rounded-3xl border border-zinc-200 bg-white p-6 shadow-[0_20px_50px_rgba(15,23,42,0.06)]"}>
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex flex-wrap items-center gap-2 text-sm">
             <button
-              className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
+              className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-900 transition-all duration-150 hover:-translate-y-0.5 hover:bg-zinc-50"
               type="button"
               onClick={() => setWeekStart((d) => addDays(d, -7))}
             >
               ← Prev
             </button>
             <button
-              className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
+              className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-900 transition-all duration-150 hover:-translate-y-0.5 hover:bg-zinc-50"
               type="button"
               onClick={() => setWeekStart(startOfWeekMonday(new Date()))}
             >
               This week
             </button>
             <button
-              className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
+              className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-900 transition-all duration-150 hover:-translate-y-0.5 hover:bg-zinc-50"
               type="button"
               onClick={() => setWeekStart((d) => addDays(d, 7))}
             >
@@ -267,14 +267,14 @@ export function PortalBookingAvailabilityClient({ variant = "page" }: { variant?
 
           <div className="flex flex-wrap items-center gap-2">
             <button
-              className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
+              className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-900 transition-all duration-150 hover:-translate-y-0.5 hover:bg-zinc-50"
               type="button"
               onClick={() => clearWeek()}
             >
               Clear week
             </button>
             <button
-              className="rounded-xl bg-brand-ink px-3 py-2 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
+              className="rounded-xl bg-brand-ink px-3 py-2 text-sm font-semibold text-white transition-all duration-150 hover:-translate-y-0.5 hover:opacity-95 disabled:opacity-60"
               type="button"
               onClick={() => saveWeek()}
               disabled={!dirty || saving}
@@ -298,7 +298,7 @@ export function PortalBookingAvailabilityClient({ variant = "page" }: { variant?
           <div className="grid grid-cols-8">
             {slotRows.map((mins) => (
               <div key={mins} className="contents">
-                <div className="border-t border-zinc-100 p-2 text-xs text-zinc-500">{minutesToLabel(mins)}</div>
+                <div className="border-t border-zinc-200 p-2 text-xs text-zinc-500">{minutesToLabel(mins)}</div>
 
                 {days.map((d) => {
                   const ymd = formatYmd(d);
@@ -311,11 +311,11 @@ export function PortalBookingAvailabilityClient({ variant = "page" }: { variant?
                       type="button"
                       disabled={isPastDay}
                       className={
-                        "border-t border-l border-zinc-100 p-2 transition-colors " +
+                        "border-t border-l border-zinc-200 p-2 transition-colors " +
                         (isPastDay
-                          ? "bg-zinc-100"
+                          ? "bg-zinc-100/80"
                           : active
-                            ? "bg-emerald-200 hover:bg-emerald-300"
+                            ? "bg-emerald-100 ring-1 ring-inset ring-emerald-300 hover:bg-emerald-200"
                             : "bg-white hover:bg-zinc-50")
                       }
                       onMouseDown={

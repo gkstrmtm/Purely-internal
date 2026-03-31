@@ -2221,7 +2221,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
 
             {activeTopKey === "services" ? (
               collapsed ? (
-                <div className="flex flex-col items-center gap-1 py-1">
+                <div className="flex min-h-0 flex-1 flex-col items-center gap-1 py-1">
                   <Link
                     href={`${basePath}/app/services`}
                     title="See all"
@@ -2231,7 +2231,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                     <IconEyeGlyph />
                   </Link>
 
-                  <div className="mt-2 flex min-h-0 w-full flex-1 flex-col items-center gap-1 overflow-y-auto overscroll-y-contain">
+                  <div className="mt-2 flex min-h-0 w-full flex-1 flex-col items-center gap-1 overflow-y-auto overscroll-y-contain px-1 pb-24">
                     {sidebarServiceGroups.flatMap((group) => {
                       return group.services.flatMap((svc) => {
                         const out: React.ReactNode[] = [];

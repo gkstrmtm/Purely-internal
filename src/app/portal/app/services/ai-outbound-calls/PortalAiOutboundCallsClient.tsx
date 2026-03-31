@@ -234,12 +234,12 @@ function badgeClass(kind: string) {
     case "QUEUED":
     case "QUEUED_FOR_SEND":
     case "ENQUEUED":
-      return "bg-sky-50 text-sky-700 border-sky-200";
+      return "bg-amber-50 text-amber-800 border-amber-200";
     case "ACTIVE":
       return "bg-emerald-50 text-emerald-700 border-emerald-200";
     case "CALLING":
     case "IN_PROGRESS":
-      return "bg-sky-50 text-sky-700 border-sky-200";
+      return "bg-blue-50 text-blue-700 border-blue-200";
     case "COMPLETED":
       return "bg-emerald-50 text-emerald-700 border-emerald-200";
     case "FAILED":
@@ -2779,8 +2779,8 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
                           const c = activityCounts;
                           const items = c
                             ? [
-                                { label: "Queued", value: c.queued, cls: "bg-zinc-50 text-zinc-700 border-zinc-200" },
-                                { label: "Calling", value: c.calling, cls: "bg-sky-50 text-sky-700 border-sky-200" },
+                                { label: "Queued", value: c.queued, cls: badgeClass("QUEUED") },
+                                { label: "Calling", value: c.calling, cls: badgeClass("CALLING") },
                                 { label: "Completed", value: c.completed, cls: "bg-emerald-50 text-emerald-700 border-emerald-200" },
                                 { label: "Failed", value: c.failed, cls: "bg-red-50 text-red-700 border-red-200" },
                                 { label: "Skipped", value: c.skipped, cls: "bg-zinc-50 text-zinc-700 border-zinc-200" },
@@ -2816,7 +2816,7 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
 
                           const items = [
                             { label: "Manual", value: counts.total, cls: "bg-zinc-50 text-zinc-700 border-zinc-200" },
-                            { label: "Calling", value: counts.calling, cls: "bg-sky-50 text-sky-700 border-sky-200" },
+                            { label: "Calling", value: counts.calling, cls: badgeClass("CALLING") },
                             { label: "Completed", value: counts.completed, cls: "bg-emerald-50 text-emerald-700 border-emerald-200" },
                             { label: "Failed", value: counts.failed, cls: "bg-red-50 text-red-700 border-red-200" },
                           ];
