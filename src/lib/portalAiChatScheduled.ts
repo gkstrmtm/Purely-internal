@@ -253,8 +253,13 @@ export async function processDuePortalAiChatScheduledMessages(
         null;
 
       const assistantText = (() => {
+        const workTitle = String((plan as any)?.workTitle || "Scheduled task").trim() || "Scheduled task";
         if (resolvedSteps.length === 1) {
-          return String(results[0]?.markdown || (results[0]?.ok ? "Done." : "Action failed.")).trim() || "Done.";
+          const detail = String(results[0]?.markdown || (results[0]?.ok ? "Done." : "Action failed.")).trim() || "Done.";
+          const lead = results[0]?.ok
+            ? `I finished your scheduled task${workTitle ? `: ${workTitle}` : ""}.`
+            : `I tried to run your scheduled task${workTitle ? `: ${workTitle}` : ""}, but it failed.`;
+          return `${lead}\n\n${detail}`;
         }
         const allOk = results.every((r) => r.ok);
         const anyOk = results.some((r) => r.ok);
@@ -262,7 +267,11 @@ export async function processDuePortalAiChatScheduledMessages(
           const md = String(results[idx]?.markdown || (results[idx]?.ok ? "Done." : "Action failed.")).trim();
           return `#### ${s.title}\n${md}`;
         });
-        const summary = allOk ? "Done." : anyOk ? "Some actions failed." : "Action failed.";
+        const summary = allOk
+          ? `I finished your scheduled task${workTitle ? `: ${workTitle}` : ""}.`
+          : anyOk
+            ? `I finished part of your scheduled task${workTitle ? `: ${workTitle}` : ""}, but some actions failed.`
+            : `I tried to run your scheduled task${workTitle ? `: ${workTitle}` : ""}, but it failed.`;
         return `${summary}\n\n${blocks.join("\n\n")}`;
       })();
 
