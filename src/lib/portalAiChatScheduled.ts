@@ -127,6 +127,10 @@ export async function processDuePortalAiChatScheduledMessages(
           });
         })();
 
+    const resolverUserHint = envelope
+      ? String(envelope.workTitle || "").trim().slice(0, 200)
+      : text;
+
     const shouldExecute = plan?.mode === "execute" && Array.isArray((plan as any).steps) && (plan as any).steps.length;
 
     if (!shouldExecute) {
@@ -188,7 +192,7 @@ export async function processDuePortalAiChatScheduledMessages(
         ownerId,
         stepKey: step.key,
         args: argsRaw,
-        userHint: text,
+        userHint: resolverUserHint,
         url: undefined,
         threadContext: localCtx,
       });
