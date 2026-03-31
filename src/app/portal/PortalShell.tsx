@@ -1491,7 +1491,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                 </div>
 
                 <div className="mt-6 px-3">
-                  <SignOutButton className="w-full justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm font-semibold text-zinc-800 hover:bg-zinc-50" />
+                  <SignOutButton className="w-full justify-center rounded-2xl px-4 py-3" />
                 </div>
               </div>
             </aside>

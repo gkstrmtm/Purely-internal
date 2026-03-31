@@ -177,24 +177,25 @@ function CopyRow({ label, value }: { label: string; value: string | null | undef
 }
 
 function formatApiKeyTimestamp(value: string | null | undefined) {
-  if (!value) return "Never used";
+  if (!value) return "never";
   const date = new Date(value);
-  if (!Number.isFinite(date.getTime())) return "Never used";
+  if (!Number.isFinite(date.getTime())) return "never";
   return date.toLocaleString();
 }
 
 function ToggleChip({ checked }: { checked: boolean }) {
   return (
     <span
+      aria-hidden="true"
       className={classNames(
-        "relative inline-flex h-6 w-11 items-center rounded-full transition-colors duration-150",
-        checked ? "bg-brand-blue" : "bg-zinc-300",
+        "relative inline-flex h-6 w-11 shrink-0 items-center rounded-full border transition-all duration-200",
+        checked ? "border-brand-blue bg-brand-blue shadow-[inset_0_0_0_1px_rgba(37,99,235,0.18)]" : "border-zinc-300 bg-zinc-200",
       )}
     >
       <span
         className={classNames(
-          "inline-block h-5 w-5 rounded-full bg-white transition-transform duration-150",
-          checked ? "translate-x-5" : "translate-x-0.5",
+          "absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow-sm transition-transform duration-200",
+          checked ? "translate-x-5" : "translate-x-0",
         )}
       />
     </span>
@@ -2519,9 +2520,12 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
                         key={option.value}
                         type="button"
                         onClick={() => toggleApiKeyPermission(option.value)}
+                        aria-pressed={checked}
                         className={classNames(
                           "flex items-start justify-between gap-3 rounded-2xl border bg-white p-4 text-left transition-all duration-150 hover:-translate-y-0.5",
-                          checked ? "border-brand-blue bg-brand-blue/5" : "border-zinc-200",
+                          checked
+                            ? "border-brand-blue bg-brand-blue/5 shadow-[0_12px_28px_rgba(37,99,235,0.12)]"
+                            : "border-zinc-200 hover:border-zinc-300",
                         )}
                       >
                         <span className="min-w-0">
@@ -2539,6 +2543,7 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
                 <button
                   type="button"
                   onClick={() => setNewApiKeyCreditLimitEnabled((current) => !current)}
+                  aria-pressed={newApiKeyCreditLimitEnabled}
                   className="flex w-full items-center justify-between gap-3 text-left text-sm font-semibold text-zinc-900"
                 >
                   <span>Set a credit limit for this key</span>

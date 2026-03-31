@@ -65,17 +65,17 @@ export function SignOutButton(
         onClick={doSignOut}
         className={classNames(
           "group inline-flex items-center rounded-2xl bg-transparent text-sm font-semibold transition-transform duration-150 hover:-translate-y-0.5",
-          "text-red-600 hover:text-red-700",
+          "text-[#dc2626] hover:text-[#b91c1c]",
           isCollapsed ? "h-10 w-10 justify-center" : "h-10 px-2.5",
-          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-200",
+          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#fecaca]",
           className,
         )}
       >
         <span
           className={classNames(
             "inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl",
-            "text-red-600",
-            "group-hover:scale-110 group-hover:bg-red-50 group-hover:text-red-700 transition-all duration-150",
+            "text-[#dc2626]",
+            "group-hover:scale-110 group-hover:bg-[rgba(220,38,38,0.10)] group-hover:text-[#b91c1c] transition-all duration-150",
           )}
         >
           <LogoutIcon />
@@ -96,7 +96,8 @@ export function SignOutButton(
     );
   }
 
-  const baseClassName = "rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 transition-transform duration-150 hover:-translate-y-0.5 hover:bg-zinc-50";
+  const baseClassName =
+    "rounded-xl border border-red-200 bg-white px-3 py-2 text-sm font-semibold text-[#dc2626] transition-transform duration-150 hover:-translate-y-0.5 hover:bg-[rgba(220,38,38,0.08)] hover:text-[#b91c1c] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#fecaca]";
   const mergedClassName = className ? `${baseClassName} ${className}` : baseClassName;
   return (
     <button
