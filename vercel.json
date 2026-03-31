@@ -65,7 +65,7 @@
     },
     {
       "path": "/api/portal/ai-chat/cron",
-      "schedule": "*/5 * * * *"
+      "schedule": "* * * * *"
     },
     {
       "path": "/api/portal/inbox/scheduled/cron",

@@ -55,11 +55,13 @@ export async function processDuePortalAiChatScheduledMessages(
         : 0;
     const scheduledAt = (p as any).sendAt ? new Date((p as any).sendAt) : null;
 
-    // Mark as sent first to avoid double-processing.
-    await (prisma as any).portalAiChatMessage.update({
-      where: { id: p.id },
-      data: { sentAt: new Date() },
+    // Atomically claim the row first to avoid double-processing under overlapping cron runs.
+    const claimedAt = new Date();
+    const claim = await (prisma as any).portalAiChatMessage.updateMany({
+      where: { id: p.id, sentAt: null },
+      data: { sentAt: claimedAt },
     });
+    if (!claim?.count) continue;
 
     const thread = await (prisma as any).portalAiChatThread.findFirst({
       where: { id: threadId, ownerId },
