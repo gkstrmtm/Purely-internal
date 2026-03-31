@@ -1930,7 +1930,7 @@ export function PortalAiChatClient() {
   const mobileSidebar = useMemo(
     () => (
       <div className="flex h-full flex-col overflow-hidden">
-        <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain p-2">
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain p-2 pb-[calc(env(safe-area-inset-bottom)+0.75rem)]">
           {threadsLoading ? (
             <div className="p-3 text-sm text-zinc-500">Loading…</div>
           ) : !threads.length ? (
@@ -1972,8 +1972,7 @@ export function PortalAiChatClient() {
                       type="button"
                       className={classNames(
                         "absolute right-2 top-2 inline-flex h-7 w-7 items-center justify-center rounded-xl text-zinc-500",
-                        "opacity-0 transition-all group-hover:opacity-100 hover:scale-110 hover:text-zinc-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/30",
-                        active && "opacity-100",
+                        "opacity-100 transition-all hover:scale-110 hover:text-zinc-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/30",
                       )}
                       aria-label="Chat options"
                       title="Chat options"
@@ -2597,7 +2596,7 @@ export function PortalAiChatClient() {
       <div ref={canvasContainerRef} className="flex min-w-0 flex-1 bg-white shadow-[inset_12px_0_16px_-16px_rgba(0,0,0,0.22)] relative">
         <div className="flex min-w-0 flex-1 flex-col">
         <div ref={scrollerRef} className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain bg-white">
-          <div className="mx-auto w-full max-w-5xl space-y-3 px-4 py-6">
+          <div className="mx-auto w-full max-w-5xl space-y-3 px-3 py-4 sm:px-4 sm:py-6">
             {messagesLoading ? (
               <div className="text-sm text-zinc-500">Loading messages…</div>
             ) : messages.length ? (
@@ -2736,11 +2735,11 @@ export function PortalAiChatClient() {
                 <div ref={endRef} />
               </>
             ) : showWelcomeComposer ? (
-              <div className="flex min-h-[60vh] items-center justify-center">
+              <div className="flex min-h-[calc(100dvh-12rem)] items-start justify-center pt-8 sm:min-h-[60vh] sm:items-center sm:pt-0">
                 <div className="w-full max-w-2xl">
-                  <div className="mb-6 text-center">
-                    <div className="text-3xl font-semibold tracking-tight text-zinc-900">Let Pura work for you</div>
-                    <div className="mt-2 text-sm text-zinc-500">Start with a question, a task, or the next workflow you want off your plate.</div>
+                  <div className="mb-5 px-1 text-center sm:mb-6 sm:px-0">
+                    <div className="text-[1.75rem] font-semibold tracking-tight text-zinc-900 sm:text-3xl">Let Pura work for you</div>
+                    <div className="mt-2 text-sm leading-relaxed text-zinc-500">Start with a question, a task, or the next workflow you want off your plate.</div>
                   </div>
                   <div className="mb-4 hidden grid-cols-1 gap-3 md:grid">
                     {welcomePromptChips.map((prompt) => (
@@ -2761,7 +2760,7 @@ export function PortalAiChatClient() {
                       </button>
                     ))}
                   </div>
-                  <div className="rounded-3xl bg-white p-3 shadow-[0_18px_50px_rgba(0,0,0,0.08)]">
+                  <div className="rounded-[28px] border border-zinc-200 bg-white p-2.5 shadow-[0_12px_34px_rgba(0,0,0,0.06)] sm:rounded-3xl sm:border-0 sm:p-3 sm:shadow-[0_18px_50px_rgba(0,0,0,0.08)]">
                     {composerInner}
                   </div>
                 </div>
@@ -2800,20 +2799,33 @@ export function PortalAiChatClient() {
                 </button>
               </div>
             ) : null}
-          {!canvasOpen && Boolean(canvasUrl) && (
-            <button
-              className="fixed bottom-[calc(env(safe-area-inset-bottom)+5.75rem)] right-3 z-20 inline-flex h-10 items-center gap-1 rounded-2xl border border-brand-blue/20 bg-brand-blue px-3 py-2 text-xs font-bold text-white shadow-lg hover:opacity-95 lg:absolute lg:right-0 lg:top-32 lg:rounded-l-2xl lg:rounded-r-none lg:shadow-none"
-              title="Open canvas"
-              onClick={() => openLatestCanvas({ modal: false })}
-            >
-              <span className="leading-none">Open work</span>
-              <span className="text-base leading-none lg:hidden">↗</span>
-              <span className="hidden text-base leading-none lg:inline">‹</span>
-            </button>
-          )}
+
+            {!canvasOpen && Boolean(canvasUrl) ? (
+              <div className="mb-2 flex justify-end lg:hidden">
+                <button
+                  className="inline-flex h-10 items-center gap-1 rounded-2xl border border-brand-blue/20 bg-brand-blue px-3 py-2 text-xs font-bold text-white shadow-sm hover:opacity-95"
+                  title="Open canvas"
+                  onClick={() => openLatestCanvas({ modal: false })}
+                >
+                  <span className="leading-none">Open work</span>
+                  <span className="text-base leading-none">↗</span>
+                </button>
+              </div>
+            ) : null}
 
             {composerInner}
           </div>
+        ) : null}
+
+        {!canvasOpen && Boolean(canvasUrl) ? (
+          <button
+            className="hidden lg:absolute lg:right-0 lg:top-32 lg:inline-flex lg:h-10 lg:items-center lg:gap-1 lg:rounded-l-2xl lg:rounded-r-none lg:border lg:border-brand-blue/20 lg:bg-brand-blue lg:px-3 lg:py-2 lg:text-xs lg:font-bold lg:text-white lg:shadow-none hover:opacity-95"
+            title="Open canvas"
+            onClick={() => openLatestCanvas({ modal: false })}
+          >
+            <span className="leading-none">Open work</span>
+            <span className="text-base leading-none">‹</span>
+          </button>
         ) : null}
         </div>
 

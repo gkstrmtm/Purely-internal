@@ -1723,8 +1723,11 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
               "absolute left-0 top-0 flex h-full w-72.5 flex-col overflow-hidden border-r border-zinc-200 bg-white shadow-xl transition-transform",
               mobileOpen ? "translate-x-0" : "-translate-x-full",
             )}
+            role="dialog"
+            aria-modal="true"
+            aria-label="Portal navigation"
           >
-            <div className="shrink-0 flex items-center gap-3 border-b border-zinc-200 bg-white/90 p-3 backdrop-blur">
+            <div className="shrink-0 flex items-center gap-3 border-b border-zinc-200 bg-white/90 px-3 pb-3 pt-[calc(env(safe-area-inset-top)+0.75rem)] backdrop-blur">
               <div className="min-w-0 flex-1 px-1">
                 <div className="truncate text-base font-semibold tracking-tight text-brand-ink">{mobileHeaderTitle}</div>
               </div>
