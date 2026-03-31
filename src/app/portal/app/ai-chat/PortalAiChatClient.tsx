@@ -116,6 +116,11 @@ type ThreadUiState = {
   canvasUiResumeActions: PuraCanvasUiAction[] | null;
 };
 
+type ThreadDraftState = {
+  input: string;
+  pendingAttachments: Attachment[];
+};
+
 const DRAFT_THREAD_KEY = "__draft__";
 
 function createEmptyThreadUiState(): ThreadUiState {
@@ -124,6 +129,13 @@ function createEmptyThreadUiState(): ThreadUiState {
     assistantChoices: null,
     canvasUiAmbiguity: null,
     canvasUiResumeActions: null,
+  };
+}
+
+function createEmptyThreadDraftState(): ThreadDraftState {
+  return {
+    input: "",
+    pendingAttachments: [],
   };
 }
 
@@ -712,7 +724,9 @@ export function PortalAiChatClient() {
   const [serviceUsageCounts, setServiceUsageCounts] = useState<Record<string, number>>({});
   const [welcomePromptSeed, setWelcomePromptSeed] = useState(() => `${Date.now()}-${Math.random()}`);
 
-  const [input, setInput] = useState("");
+  const [threadDraftsById, setThreadDraftsById] = useState<Record<string, ThreadDraftState>>(() => ({
+    [DRAFT_THREAD_KEY]: createEmptyThreadDraftState(),
+  }));
   const [sendingThreadIds, setSendingThreadIds] = useState<Set<string>>(() => new Set());
   const [draftSending, setDraftSending] = useState(false);
   const [dictating, setDictating] = useState(false);
@@ -721,7 +735,6 @@ export function PortalAiChatClient() {
   const dictationRef = useRef<{ audio: HTMLAudioElement; objectUrl: string; messageId: string } | null>(null);
   const [regenerating, setRegenerating] = useState(false);
 
-  const [pendingAttachments, setPendingAttachments] = useState<Attachment[]>([]);
   const [scheduleTaskOpen, setScheduleTaskOpen] = useState(false);
   const [scheduleTaskText, setScheduleTaskText] = useState("");
   const [uploading, setUploading] = useState(false);
@@ -820,16 +833,20 @@ export function PortalAiChatClient() {
   const forceScrollToBottomRef = useRef(false);
   const sendInFlightRef = useRef<Set<string>>(new Set());
   const activeThreadIdRef = useRef<string | null>(null);
+  const threadDraftsRef = useRef<Record<string, ThreadDraftState>>({ [DRAFT_THREAD_KEY]: createEmptyThreadDraftState() });
 
   const activeThreadKey = activeThreadId ?? DRAFT_THREAD_KEY;
   const messages = messagesByThread[activeThreadKey] ?? [];
   const messagesLoading = activeThreadId ? loadingThreadIds.has(activeThreadId) : false;
   const sending = activeThreadId ? sendingThreadIds.has(activeThreadId) : draftSending;
   const activeThreadUiState = threadUiStateById[activeThreadKey] ?? createEmptyThreadUiState();
+  const activeThreadDraft = threadDraftsById[activeThreadKey] ?? createEmptyThreadDraftState();
   const ambiguousContacts = activeThreadUiState.ambiguousContacts;
   const assistantChoices = activeThreadUiState.assistantChoices;
   const canvasUiAmbiguity = activeThreadUiState.canvasUiAmbiguity;
   const canvasUiResumeActions = activeThreadUiState.canvasUiResumeActions;
+  const input = activeThreadDraft.input;
+  const pendingAttachments = activeThreadDraft.pendingAttachments;
 
   const activeThread = useMemo(() => threads.find((t) => t.id === activeThreadId) || null, [threads, activeThreadId]);
   const requestedThreadId = (searchParams?.get("thread") || "").trim() || null;
@@ -838,12 +855,33 @@ export function PortalAiChatClient() {
     activeThreadIdRef.current = activeThreadId;
   }, [activeThreadId]);
 
+  useEffect(() => {
+    threadDraftsRef.current = threadDraftsById;
+  }, [threadDraftsById]);
+
   const setThreadUiState = useCallback(
     (threadKey: string, updater: (prev: ThreadUiState) => ThreadUiState) => {
       setThreadUiStateById((prev) => {
         const current = prev[threadKey] ?? createEmptyThreadUiState();
         return { ...prev, [threadKey]: updater(current) };
       });
+    },
+    [],
+  );
+
+  const setThreadDraftState = useCallback(
+    (threadKey: string, updater: (prev: ThreadDraftState) => ThreadDraftState) => {
+      setThreadDraftsById((prev) => {
+        const current = prev[threadKey] ?? createEmptyThreadDraftState();
+        return { ...prev, [threadKey]: updater(current) };
+      });
+    },
+    [],
+  );
+
+  const clearThreadDraftState = useCallback(
+    (threadKey: string) => {
+      setThreadDraftsById((prev) => ({ ...prev, [threadKey]: createEmptyThreadDraftState() }));
     },
     [],
   );
@@ -1021,14 +1059,13 @@ export function PortalAiChatClient() {
     forceScrollToBottomRef.current = true;
     setActiveThreadId(null);
     setMessagesByThread((prev) => ({ ...prev, [DRAFT_THREAD_KEY]: [] }));
-    setInput("");
-    setPendingAttachments([]);
+    clearThreadDraftState(DRAFT_THREAD_KEY);
     clearThreadUiState(DRAFT_THREAD_KEY);
     setCanvasUrl(null);
     setCanvasModalOpen(false);
     setCanvasOpen(false);
     setMobileThreadsOpen(false);
-  }, [clearThreadUiState]);
+  }, [clearThreadDraftState, clearThreadUiState]);
 
   const pinThread = useCallback(
     async (thread: Thread) => {
@@ -1187,6 +1224,7 @@ export function PortalAiChatClient() {
   const uploadFiles = useCallback(
     async (files: FileList | null) => {
       if (!files || !files.length) return;
+      const threadKey = activeThreadIdRef.current ?? DRAFT_THREAD_KEY;
       setUploading(true);
       try {
         const form = new FormData();
@@ -1197,18 +1235,22 @@ export function PortalAiChatClient() {
         if (!json?.ok) throw new Error(json?.error || "Upload failed");
 
         const next = Array.isArray(json.attachments) ? (json.attachments as Attachment[]) : [];
-        setPendingAttachments((prev) => [...prev, ...next].slice(0, 10));
+        setThreadDraftState(threadKey, (prev) => ({
+          ...prev,
+          pendingAttachments: [...prev.pendingAttachments, ...next].slice(0, 10),
+        }));
       } catch (e) {
         toast.error(e instanceof Error ? e.message : String(e));
       } finally {
         setUploading(false);
       }
     },
-    [toast],
+    [setThreadDraftState, toast],
   );
 
   const addMediaAttachment = useCallback(
     async (item: PortalMediaPickItem) => {
+      const threadKey = activeThreadIdRef.current ?? DRAFT_THREAD_KEY;
       const next: Attachment = {
         id: item.id,
         fileName: item.fileName,
@@ -1216,10 +1258,13 @@ export function PortalAiChatClient() {
         fileSize: item.fileSize,
         url: item.shareUrl || item.downloadUrl,
       };
-      setPendingAttachments((prev) => [...prev, next].slice(0, 10));
+      setThreadDraftState(threadKey, (prev) => ({
+        ...prev,
+        pendingAttachments: [...prev.pendingAttachments, next].slice(0, 10),
+      }));
       setMediaPickerOpen(false);
     },
-    [],
+    [setThreadDraftState],
   );
 
   const waitForCanvasReady = useCallback(
@@ -1314,16 +1359,19 @@ export function PortalAiChatClient() {
         | { type: "booking_calendar"; calendarId: string; label?: string }
         | { type: "entity"; kind: string; value: string; label?: string },
     ) => {
-      const initialThreadKey = activeThreadId ?? DRAFT_THREAD_KEY;
+      const initialThreadId = activeThreadIdRef.current;
+      const initialThreadKey = initialThreadId ?? DRAFT_THREAD_KEY;
       if (sendInFlightRef.current.has(initialThreadKey)) return;
 
-      const text = typeof overrideText === "string" ? overrideText : input.trim();
-      const attachments = pendingAttachments;
+      const draftAtSend = threadDraftsRef.current[initialThreadKey] ?? createEmptyThreadDraftState();
+      const text = typeof overrideText === "string" ? overrideText : draftAtSend.input.trim();
+      const attachments = draftAtSend.pendingAttachments;
       if (!text && !attachments.length && !choice) return;
 
-      let threadIdForSend = activeThreadId;
+      let threadIdForSend = initialThreadId;
       let createdThread: Thread | null = null;
       let sendLockKey = initialThreadKey;
+      const draftRestoreKey = initialThreadKey;
       sendInFlightRef.current.add(sendLockKey);
       if (sendLockKey === DRAFT_THREAD_KEY) setDraftSending(true);
       else setThreadSending(sendLockKey, true);
@@ -1373,8 +1421,10 @@ export function PortalAiChatClient() {
       };
 
       updateThreadMessages(threadIdForSend, (prev) => [...prev, optimisticUser, optimisticAssistant]);
-      if (!overrideText) setInput("");
-      setPendingAttachments([]);
+      setThreadDraftState(draftRestoreKey, (prev) => ({
+        input: typeof overrideText === "string" ? prev.input : "",
+        pendingAttachments: [],
+      }));
       clearThreadUiState(threadIdForSend);
 
       try {
@@ -1508,8 +1558,11 @@ export function PortalAiChatClient() {
         void loadThreads();
       } catch (e) {
         updateThreadMessages(threadIdForSend, (prev) => prev.filter((m) => m.id !== optimisticUser.id && m.id !== optimisticAssistant.id));
-        setInput(text);
-        setPendingAttachments(attachments);
+        setThreadDraftState(draftRestoreKey, (prev) => ({
+          ...prev,
+          input: typeof overrideText === "string" ? prev.input : text,
+          pendingAttachments: attachments,
+        }));
 
         // If the first send failed right after creating a brand new thread,
         // proactively delete it so empty chats are never persisted.
@@ -1529,7 +1582,7 @@ export function PortalAiChatClient() {
         else setThreadSending(sendLockKey, false);
       }
     },
-    [activeThreadId, askConfirm, canvasUrl, clearThreadUiState, clientTimeZone, clientTimeZoneHeaders, executeClientUiActions, input, loadThreads, pendingAttachments, setThreadSending, toast, updateThreadMessages],
+    [askConfirm, canvasUrl, clearThreadUiState, clientTimeZone, clientTimeZoneHeaders, executeClientUiActions, loadThreads, setThreadDraftState, setThreadSending, toast, updateThreadMessages],
   );
 
   // Handler for ambiguous contact selection (must be after send is defined)
@@ -2158,7 +2211,12 @@ export function PortalAiChatClient() {
               <button
                 type="button"
                 className="rounded-xl px-2 py-1 text-xs font-semibold text-zinc-600 hover:bg-zinc-50"
-                onClick={() => setPendingAttachments((prev) => prev.filter((_, i) => i !== idx))}
+                onClick={() =>
+                  setThreadDraftState(activeThreadKey, (prev) => ({
+                    ...prev,
+                    pendingAttachments: prev.pendingAttachments.filter((_, i) => i !== idx),
+                  }))
+                }
                 aria-label="Remove attachment"
                 title="Remove"
               >
@@ -2211,7 +2269,8 @@ export function PortalAiChatClient() {
           ref={inputRef}
           value={input}
           onChange={(e) => {
-            setInput(e.target.value);
+            const nextValue = e.target.value;
+            setThreadDraftState(activeThreadKey, (prev) => ({ ...prev, input: nextValue }));
             requestAnimationFrame(() => resizeInput());
           }}
           rows={1}
@@ -2628,7 +2687,7 @@ export function PortalAiChatClient() {
                         type="button"
                         className="flex min-h-28 items-start rounded-3xl border border-zinc-200 bg-white p-4 text-left text-sm font-semibold text-zinc-800 shadow-[0_10px_30px_rgba(0,0,0,0.04)] transition-all duration-150 hover:-translate-y-1 hover:border-zinc-300 hover:bg-zinc-50"
                         onClick={() => {
-                          setInput(prompt);
+                          setThreadDraftState(activeThreadKey, (prev) => ({ ...prev, input: prompt }));
                           requestAnimationFrame(() => {
                             resizeInput();
                             inputRef.current?.focus();
