@@ -12,6 +12,7 @@ import { PortalFontDropdown } from "@/components/PortalFontDropdown";
 import { PortalListboxDropdown } from "@/components/PortalListboxDropdown";
 import { InlineSpinner } from "@/components/InlineSpinner";
 import { SuggestedSetupModalLauncher } from "@/components/SuggestedSetupModalLauncher";
+import { ToggleSwitch } from "@/components/ToggleSwitch";
 import { toPurelyHostedUrl } from "@/lib/publicHostedOrigin";
 
 type AudienceTab = "external" | "internal";
@@ -1718,16 +1719,11 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                       <div className="text-sm font-semibold text-zinc-800">Enabled</div>
                       <div className="mt-1 text-xs text-zinc-500">Runs on schedule when enabled.</div>
                     </div>
-                    <span className="relative inline-flex h-6 w-11 shrink-0 items-center">
-                      <input
-                        type="checkbox"
-                        className="peer sr-only"
-                        checked={Boolean(settings?.enabled)}
-                        onChange={(e) => setSettings((prev) => (prev ? { ...prev, enabled: e.target.checked } : prev))}
-                      />
-                      <span className="absolute inset-0 rounded-full bg-zinc-200 transition peer-checked:bg-[color:var(--color-brand-blue)]" />
-                      <span className="absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow-sm transition peer-checked:translate-x-5" />
-                    </span>
+                    <ToggleSwitch
+                      checked={Boolean(settings?.enabled)}
+                      onChange={(checked) => setSettings((prev) => (prev ? { ...prev, enabled: checked } : prev))}
+                      ariaLabel="Enable newsletter automation"
+                    />
                   </label>
 
                   <div className="rounded-2xl border border-zinc-200 bg-white px-3 py-2">
@@ -1788,16 +1784,11 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                       <div className="text-sm font-semibold text-zinc-800">Require approval</div>
                       <div className="mt-1 text-xs text-zinc-500">If enabled, scheduled runs create READY drafts you manually send.</div>
                     </div>
-                    <span className="relative inline-flex h-6 w-11 shrink-0 items-center">
-                      <input
-                        type="checkbox"
-                        className="peer sr-only"
-                        checked={Boolean(settings?.requireApproval)}
-                        onChange={(e) => setSettings((prev) => (prev ? { ...prev, requireApproval: e.target.checked } : prev))}
-                      />
-                      <span className="absolute inset-0 rounded-full bg-zinc-200 transition peer-checked:bg-[color:var(--color-brand-blue)]" />
-                      <span className="absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow-sm transition peer-checked:translate-x-5" />
-                    </span>
+                    <ToggleSwitch
+                      checked={Boolean(settings?.requireApproval)}
+                      onChange={(checked) => setSettings((prev) => (prev ? { ...prev, requireApproval: checked } : prev))}
+                      ariaLabel="Require approval before scheduled sends"
+                    />
                   </label>
 
                   <div className="rounded-2xl border border-zinc-200 bg-white px-4 py-3">
@@ -1925,26 +1916,21 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                             <div className="text-sm font-semibold text-zinc-800">Generate images</div>
                             <div className="mt-0.5 text-xs text-zinc-500">Adds images to the hosted page when drafting.</div>
                           </div>
-                          <span className="relative inline-flex h-6 w-11 shrink-0 items-center">
-                            <input
-                              type="checkbox"
-                              className="peer sr-only"
-                              checked={Boolean(settings?.includeImages)}
-                              onChange={(e) =>
-                                setSettings((prev) =>
-                                  prev
-                                    ? {
-                                        ...prev,
-                                        includeImages: e.target.checked,
-                                        includeImagesWhereNeeded: e.target.checked ? Boolean(prev.includeImagesWhereNeeded) : false,
-                                      }
-                                    : prev,
-                                )
-                              }
-                            />
-                            <span className="absolute inset-0 rounded-full bg-zinc-200 transition peer-checked:bg-[color:var(--color-brand-blue)]" />
-                            <span className="absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow-sm transition peer-checked:translate-x-5" />
-                          </span>
+                          <ToggleSwitch
+                            checked={Boolean(settings?.includeImages)}
+                            onChange={(checked) =>
+                              setSettings((prev) =>
+                                prev
+                                  ? {
+                                      ...prev,
+                                      includeImages: checked,
+                                      includeImagesWhereNeeded: checked ? Boolean(prev.includeImagesWhereNeeded) : false,
+                                    }
+                                  : prev,
+                              )
+                            }
+                            ariaLabel="Generate images for hosted newsletter pages"
+                          />
                         </label>
 
                         <label className="flex items-center justify-between gap-4">
@@ -1952,17 +1938,12 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                             <div className="text-sm font-semibold text-zinc-800">Royalty-free images</div>
                             <div className="mt-0.5 text-xs text-zinc-500">Uses Wikimedia Commons results.</div>
                           </div>
-                          <span className="relative inline-flex h-6 w-11 shrink-0 items-center">
-                            <input
-                              type="checkbox"
-                              className="peer sr-only"
-                              checked={Boolean(settings?.royaltyFreeImages ?? true)}
-                              onChange={(e) => setSettings((prev) => (prev ? { ...prev, royaltyFreeImages: e.target.checked } : prev))}
-                              disabled={!Boolean(settings?.includeImages)}
-                            />
-                            <span className="absolute inset-0 rounded-full bg-zinc-200 transition peer-checked:bg-[color:var(--color-brand-blue)] peer-disabled:opacity-50" />
-                            <span className="absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow-sm transition peer-checked:translate-x-5" />
-                          </span>
+                          <ToggleSwitch
+                            checked={Boolean(settings?.royaltyFreeImages ?? true)}
+                            onChange={(checked) => setSettings((prev) => (prev ? { ...prev, royaltyFreeImages: checked } : prev))}
+                            disabled={!Boolean(settings?.includeImages)}
+                            ariaLabel="Use royalty-free images"
+                          />
                         </label>
 
                         <label className="flex items-center justify-between gap-4">
@@ -1970,17 +1951,12 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                             <div className="text-sm font-semibold text-zinc-800">Only where needed</div>
                             <div className="mt-0.5 text-xs text-zinc-500">Adds fewer images when content already includes one.</div>
                           </div>
-                          <span className="relative inline-flex h-6 w-11 shrink-0 items-center">
-                            <input
-                              type="checkbox"
-                              className="peer sr-only"
-                              checked={Boolean(settings?.includeImagesWhereNeeded)}
-                              onChange={(e) => setSettings((prev) => (prev ? { ...prev, includeImagesWhereNeeded: e.target.checked } : prev))}
-                              disabled={!Boolean(settings?.includeImages)}
-                            />
-                            <span className="absolute inset-0 rounded-full bg-zinc-200 transition peer-checked:bg-[color:var(--color-brand-blue)] peer-disabled:opacity-50" />
-                            <span className="absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow-sm transition peer-checked:translate-x-5" />
-                          </span>
+                          <ToggleSwitch
+                            checked={Boolean(settings?.includeImagesWhereNeeded)}
+                            onChange={(checked) => setSettings((prev) => (prev ? { ...prev, includeImagesWhereNeeded: checked } : prev))}
+                            disabled={!Boolean(settings?.includeImages)}
+                            ariaLabel="Only generate images where needed"
+                          />
                         </label>
                       </div>
                     </div>
@@ -2441,20 +2417,15 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                       <div className="text-sm font-semibold text-zinc-800">Send to all users under this account</div>
                       <div className="mt-1 text-xs text-zinc-500">Includes all team members. Use extra emails for additional recipients.</div>
                     </div>
-                    <span className="relative inline-flex h-6 w-11 shrink-0 items-center">
-                      <input
-                        type="checkbox"
-                        className="peer sr-only"
-                        checked={Boolean(settings?.audience?.sendAllUsers)}
-                        onChange={(e) =>
-                          setSettings((prev) =>
-                            prev ? { ...prev, audience: { ...prev.audience, sendAllUsers: e.target.checked } } : prev,
-                          )
-                        }
-                      />
-                      <span className="absolute inset-0 rounded-full bg-zinc-200 transition peer-checked:bg-[color:var(--color-brand-blue)]" />
-                      <span className="absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow-sm transition peer-checked:translate-x-5" />
-                    </span>
+                    <ToggleSwitch
+                      checked={Boolean(settings?.audience?.sendAllUsers)}
+                      onChange={(checked) =>
+                        setSettings((prev) =>
+                          prev ? { ...prev, audience: { ...prev.audience, sendAllUsers: checked } } : prev,
+                        )
+                      }
+                      ariaLabel="Send internal newsletter to all team members"
+                    />
                   </label>
 
                   <div>

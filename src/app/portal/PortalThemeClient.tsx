@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useMemo, useState, type ReactNode } from "react";
 
 import type { PortalThemeMode } from "@/lib/portalTheme.server";
 
@@ -32,8 +32,10 @@ export function PortalThemeClient({
   children: ReactNode;
 }) {
   const [previewMode, setPreviewMode] = useState<PortalThemeMode | null>(null);
+  const [deviceTheme, setDeviceTheme] = useState<"light" | "dark">(() => resolveTheme("device"));
+  const [transitionsReady, setTransitionsReady] = useState(false);
   const effectiveMode = previewMode ?? preferredMode;
-  const [resolvedTheme, setResolvedTheme] = useState<"light" | "dark">(() => resolveTheme(effectiveMode));
+  const resolvedTheme = effectiveMode === "device" ? deviceTheme : effectiveMode;
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -48,46 +50,56 @@ export function PortalThemeClient({
   }, []);
 
   useEffect(() => {
-    const apply = () => setResolvedTheme(resolveTheme(effectiveMode));
+    if (typeof window === "undefined" || typeof window.matchMedia !== "function") return;
+    const media = window.matchMedia("(prefers-color-scheme: dark)");
+    const apply = () => setDeviceTheme(media.matches ? "dark" : "light");
     apply();
 
-    if (effectiveMode !== "device" || typeof window === "undefined" || typeof window.matchMedia !== "function") {
-      return;
-    }
-
-    const media = window.matchMedia("(prefers-color-scheme: dark)");
     const onChange = () => apply();
     media.addEventListener("change", onChange);
     return () => media.removeEventListener("change", onChange);
-  }, [effectiveMode]);
+  }, []);
 
   useEffect(() => {
+    if (typeof window === "undefined") return;
+    const timeout = window.setTimeout(() => setTransitionsReady(true), 40);
+    return () => window.clearTimeout(timeout);
+  }, []);
+
+  useLayoutEffect(() => {
     if (typeof document === "undefined") return;
 
     const root = document.documentElement;
-    const previousTheme = root.getAttribute("data-portal-theme");
-    const previousMode = root.getAttribute("data-portal-theme-mode");
-    const previousColorScheme = root.style.colorScheme;
 
     root.setAttribute("data-portal-theme", resolvedTheme);
     root.setAttribute("data-portal-theme-mode", effectiveMode);
+    root.setAttribute("data-portal-device-theme", deviceTheme);
+    root.setAttribute("data-portal-theme-ready", transitionsReady ? "true" : "false");
     root.style.colorScheme = resolvedTheme;
+  }, [deviceTheme, effectiveMode, resolvedTheme, transitionsReady]);
 
+  useEffect(() => {
     return () => {
-      if (previousTheme) root.setAttribute("data-portal-theme", previousTheme);
-      else root.removeAttribute("data-portal-theme");
-
-      if (previousMode) root.setAttribute("data-portal-theme-mode", previousMode);
-      else root.removeAttribute("data-portal-theme-mode");
-
-      root.style.colorScheme = previousColorScheme;
+      if (typeof document === "undefined") return;
+      const root = document.documentElement;
+      root.removeAttribute("data-portal-theme");
+      root.removeAttribute("data-portal-theme-mode");
+      root.removeAttribute("data-portal-device-theme");
+      root.removeAttribute("data-portal-theme-ready");
+      root.style.colorScheme = "";
     };
-  }, [effectiveMode, resolvedTheme]);
+  }, []);
 
   const colorScheme = useMemo(() => resolvedTheme, [resolvedTheme]);
 
   return (
-    <div data-portal-theme={resolvedTheme} data-portal-theme-mode={effectiveMode} style={{ colorScheme }}>
+    <div
+      data-portal-theme={resolvedTheme}
+      data-portal-theme-mode={effectiveMode}
+      data-portal-device-theme={deviceTheme}
+      data-portal-theme-ready={transitionsReady ? "true" : "false"}
+      style={{ colorScheme }}
+    >
       {children}
     </div>
   );

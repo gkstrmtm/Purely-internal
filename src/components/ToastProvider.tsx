@@ -114,12 +114,12 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
             <div
               key={t.id}
               className={classNames(
-                "pointer-events-auto rounded-2xl border px-4 py-3 text-sm shadow-lg backdrop-blur",
+                "pa-portal-toast pointer-events-auto rounded-2xl border px-4 py-3 text-sm shadow-lg backdrop-blur",
                 t.kind === "error"
-                  ? "border-rose-200 bg-rose-50/95 text-rose-900"
+                  ? "pa-portal-toast--error border-rose-200 bg-rose-50/95 text-rose-900"
                   : t.kind === "success"
-                    ? "border-emerald-200 bg-emerald-50/95 text-emerald-900"
-                    : "border-zinc-200 bg-white/95 text-zinc-900",
+                    ? "pa-portal-toast--success border-emerald-200 bg-emerald-50/95 text-emerald-900"
+                    : "pa-portal-toast--info border-zinc-200 bg-white/95 text-zinc-900",
               )}
               role="status"
               aria-live="polite"

@@ -98,7 +98,7 @@ function sidebarIconButtonClass(active: boolean, extra?: string) {
 
 function sidebarIconChipClass(active: boolean) {
   return classNames(
-    "inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl text-zinc-700 transition-all duration-150",
+    "inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl transition-all duration-150",
     active ? "bg-zinc-100 text-zinc-700" : "bg-transparent group-hover:bg-zinc-100 group-hover:scale-110",
   );
 }
@@ -243,6 +243,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
     pathname.includes("/editor");
   const [collapsed, setCollapsed] = useState(false);
   const collapsedBeforeCanvasOpenRef = useRef<boolean | null>(null);
+  const collapsedBeforeOverrideRef = useRef<boolean | null>(null);
   const prevPuraCanvasOpenRef = useRef(false);
   const [mobileOpen, setMobileOpen] = useState(false);
 
@@ -652,6 +653,21 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
       collapsedBeforeCanvasOpenRef.current = null;
     }
   }, [collapsed, isAiChat, puraCanvasOpen]);
+
+  useEffect(() => {
+    if (!sidebarOverride?.forceCollapsed) {
+      if (collapsedBeforeOverrideRef.current !== null) {
+        setCollapsed(collapsedBeforeOverrideRef.current);
+        collapsedBeforeOverrideRef.current = null;
+      }
+      return;
+    }
+
+    if (collapsedBeforeOverrideRef.current === null) {
+      collapsedBeforeOverrideRef.current = collapsed;
+    }
+    if (!collapsed) setCollapsed(true);
+  }, [collapsed, sidebarOverride?.forceCollapsed]);
 
   useEffect(() => {
     // Close mobile drawer on navigation.
@@ -2244,7 +2260,9 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                                 aria-label="People"
                                 className={sidebarIconButtonClass(pathname.startsWith(`${basePath}/app/people`))}
                               >
-                                <IconPeopleGlyph />
+                                <span className={sidebarIconToneClassForCategory("communication")} aria-hidden>
+                                  <IconPeopleGlyph />
+                                </span>
                               </Link>,
                             );
                           }

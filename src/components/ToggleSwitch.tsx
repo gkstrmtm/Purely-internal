@@ -17,12 +17,12 @@ export function ToggleSwitch({
   ariaLabel?: string;
   className?: string;
 }) {
-  const checkedBgClass =
+  const checkedBgColor =
     accent === "pink"
-      ? "peer-checked:bg-(--color-brand-pink)"
+      ? "var(--color-brand-pink)"
       : accent === "ink"
-        ? "peer-checked:bg-brand-ink"
-        : "peer-checked:bg-(--color-brand-blue)";
+        ? "var(--color-brand-ink)"
+        : "var(--color-brand-blue)";
 
   return (
     <span className={"relative inline-flex h-6 w-11 shrink-0 items-center " + (className ?? "")}>
@@ -36,10 +36,9 @@ export function ToggleSwitch({
       />
       <span
         aria-hidden="true"
+        style={checked ? { backgroundColor: checkedBgColor } : undefined}
         className={
-          "pointer-events-none absolute inset-0 rounded-full bg-zinc-200 transition " +
-          checkedBgClass +
-          " peer-disabled:opacity-60"
+          "pa-portal-toggle-track pointer-events-none absolute inset-0 rounded-full bg-zinc-200 transition-colors duration-200 peer-disabled:opacity-60"
         }
       />
       <span

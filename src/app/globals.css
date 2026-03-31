@@ -80,6 +80,37 @@ pre {
   color: var(--pa-portal-text);
 }
 
+:is([data-portal-theme-ready="true"], html[data-portal-theme-ready="true"]) :is(
+  body,
+  main,
+  aside,
+  section,
+  article,
+  header,
+  footer,
+  nav,
+  div,
+  span,
+  p,
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6,
+  a,
+  button,
+  input,
+  textarea,
+  select,
+  svg,
+  path
+) {
+  transition-property: background-color, border-color, color, fill, stroke, box-shadow, opacity;
+  transition-duration: 220ms;
+  transition-timing-function: ease;
+}
+
 [data-portal-theme="dark"] :is(.bg-brand-mist) {
   background-color: var(--pa-portal-bg) !important;
 }
@@ -102,6 +133,19 @@ pre {
 
 [data-portal-theme="dark"] :is(.bg-zinc-200, .hover\:bg-zinc-200:hover) {
   background-color: var(--pa-portal-surface-4) !important;
+}
+
+[data-portal-theme="dark"] .peer:checked ~ [class*="peer-checked:bg-(--color-brand-blue)"],
+[data-portal-theme="dark"] .peer:checked ~ [class*="color-brand-blue"] {
+  background-color: var(--color-brand-blue) !important;
+}
+
+[data-portal-theme="dark"] .peer:checked ~ [class*="peer-checked:bg-(--color-brand-pink)"] {
+  background-color: var(--color-brand-pink) !important;
+}
+
+[data-portal-theme="dark"] .peer:checked ~ [class*="peer-checked:bg-brand-ink"] {
+  background-color: var(--color-brand-ink) !important;
 }
 
 [data-portal-theme="dark"] :is(.bg-black\/20, .bg-black\/30, .bg-black\/40) {
@@ -250,6 +294,28 @@ pre {
   color: #eff6ff !important;
 }
 
+[data-portal-theme="dark"] .pa-portal-toast {
+  box-shadow: 0 22px 60px rgba(0, 0, 0, 0.42) !important;
+}
+
+[data-portal-theme="dark"] .pa-portal-toast--success {
+  background-color: rgba(6, 78, 59, 0.92) !important;
+  border-color: rgba(52, 211, 153, 0.32) !important;
+  color: #ecfdf5 !important;
+}
+
+[data-portal-theme="dark"] .pa-portal-toast--error {
+  background-color: rgba(127, 29, 29, 0.92) !important;
+  border-color: rgba(248, 113, 113, 0.32) !important;
+  color: #fff1f2 !important;
+}
+
+[data-portal-theme="dark"] .pa-portal-toast--info {
+  background-color: color-mix(in srgb, var(--pa-portal-surface-3) 94%, transparent) !important;
+  border-color: var(--pa-portal-border-strong) !important;
+  color: var(--pa-portal-text) !important;
+}
+
 [data-portal-theme="dark"] :is(.pa-portal-service-icon-tone--reporting, .pa-portal-service-icon-tone--booking, .pa-portal-service-icon-tone--automations) {
   color: #9cc0ff !important;
 }
@@ -306,7 +372,9 @@ pre {
   border-color: var(--pa-portal-border-strong) !important;
 }
 
-[data-portal-theme="dark"] :is(.shadow-sm, .shadow-lg, .shadow-2xl, .shadow-[0_10px_30px_rgba(0,0,0,0.04)], .shadow-[0_18px_50px_rgba(0,0,0,0.08)]) {
+[data-portal-theme="dark"] :is(.shadow-sm, .shadow-lg, .shadow-2xl),
+[data-portal-theme="dark"] [class*="shadow-[0_10px_30px"],
+[data-portal-theme="dark"] [class*="shadow-[0_18px_50px"] {
   box-shadow: 0 24px 60px rgba(0, 0, 0, 0.36) !important;
 }
 

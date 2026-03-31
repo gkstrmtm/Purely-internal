@@ -71,8 +71,9 @@ export function PortalAppearanceSettingsClient() {
   const [savedVoiceId, setSavedVoiceId] = useState("");
   const [defaultLoginPath, setDefaultLoginPath] = useState(`${portalBase}/app`);
   const [savedDefaultLoginPath, setSavedDefaultLoginPath] = useState(`${portalBase}/app`);
-  const [themeMode, setThemeMode] = useState<"device" | "light" | "dark">("device");
-  const [savedThemeMode, setSavedThemeMode] = useState<"device" | "light" | "dark">("device");
+  const [themeMode, setThemeMode] = useState<"device" | "light" | "dark" | null>(null);
+  const [savedThemeMode, setSavedThemeMode] = useState<"device" | "light" | "dark" | null>(null);
+  const [devicePreference, setDevicePreference] = useState<"light" | "dark">("light");
   const [hideFloatingTools, setHideFloatingTools] = useState(false);
   const [savedHideFloatingTools, setSavedHideFloatingTools] = useState(false);
 
@@ -161,6 +162,18 @@ export function PortalAppearanceSettingsClient() {
   }, [voiceAgentApiKeyConfigured]);
 
   useEffect(() => {
+    if (typeof window === "undefined" || typeof window.matchMedia !== "function") return;
+
+    const media = window.matchMedia("(prefers-color-scheme: dark)");
+    const apply = () => setDevicePreference(media.matches ? "dark" : "light");
+    apply();
+
+    const onChange = () => apply();
+    media.addEventListener("change", onChange);
+    return () => media.removeEventListener("change", onChange);
+  }, []);
+
+  useEffect(() => {
     void loadProfile();
   }, [loadProfile]);
 
@@ -180,11 +193,13 @@ export function PortalAppearanceSettingsClient() {
   }, []);
 
   useEffect(() => {
+    if (!themeMode) return;
     dispatchPortalThemePreview(themeMode);
   }, [themeMode]);
 
   useEffect(() => {
     return () => {
+      if (!savedThemeMode) return;
       dispatchPortalThemePreview(savedThemeMode);
     };
   }, [savedThemeMode]);
@@ -212,7 +227,7 @@ export function PortalAppearanceSettingsClient() {
     hideFloatingTools !== savedHideFloatingTools;
 
   async function savePreferences() {
-    if (saving || !dirty) return;
+    if (saving || !dirty || !themeMode) return;
     setSaving(true);
     const res = await fetch("/api/portal/profile", {
       method: "PUT",
@@ -303,13 +318,15 @@ export function PortalAppearanceSettingsClient() {
     <div className="space-y-6">
       <div className="rounded-3xl border border-zinc-200 bg-white p-6">
         <h2 className="text-lg font-semibold text-brand-ink">Theme</h2>
-        <p className="mt-1 text-sm text-zinc-600">Choose how the portal should look on this account.</p>
+        <p className="mt-1 text-sm text-zinc-600">
+          Choose how the portal should look on this account. Device mode currently resolves to {devicePreference} mode.
+        </p>
         <div className="mt-4 w-full max-w-xs">
           <PortalListboxDropdown
-            value={themeMode}
+            value={themeMode ?? savedThemeMode ?? "device"}
             options={themeOptions}
             onChange={(value) => setThemeMode(value as "device" | "light" | "dark")}
-            disabled={loading}
+            disabled={loading || themeMode === null}
           />
         </div>
       </div>

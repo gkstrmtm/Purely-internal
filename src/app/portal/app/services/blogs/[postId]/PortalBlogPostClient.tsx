@@ -10,6 +10,7 @@ import { PortalListboxDropdown, type PortalListboxOption } from "@/components/Po
 import { ToggleSwitch } from "@/components/ToggleSwitch";
 import { useToast } from "@/components/ToastProvider";
 import { InlineSpinner } from "@/components/InlineSpinner";
+import { useSetPortalSidebarOverride } from "@/app/portal/PortalSidebarOverride";
 import { buildFontDropdownOptions } from "@/lib/portalHostedFonts";
 import { IconExport } from "@/app/portal/PortalIcons";
 import { IconEdit } from "@/app/portal/PortalIcons";
@@ -175,6 +176,7 @@ function validateMarkdownForPublish(md: string): string | null {
 
 export function PortalBlogPostClient({ postId }: { postId: string }) {
   const toast = useToast();
+  const setSidebarOverride = useSetPortalSidebarOverride();
 
   const isPaMobileApp = useMemo(() => {
     if (typeof window === "undefined") return false;
@@ -218,6 +220,11 @@ export function PortalBlogPostClient({ postId }: { postId: string }) {
   const [creditsRemaining, setCreditsRemaining] = useState<number | null>(null);
 
   const [imageBusy, setImageBusy] = useState(false);
+
+  useEffect(() => {
+    setSidebarOverride({ forceCollapsed: true });
+    return () => setSidebarOverride(null);
+  }, [setSidebarOverride]);
   const [imageAlt, setImageAlt] = useState("");
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [imagePickerOpen, setImagePickerOpen] = useState(false);
