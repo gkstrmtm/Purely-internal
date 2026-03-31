@@ -2742,7 +2742,7 @@ export function PortalAiChatClient() {
                     <div className="text-3xl font-semibold tracking-tight text-zinc-900">Let Pura work for you</div>
                     <div className="mt-2 text-sm text-zinc-500">Start with a question, a task, or the next workflow you want off your plate.</div>
                   </div>
-                  <div className="mb-4 grid grid-cols-1 gap-3 md:grid-cols-3">
+                  <div className="mb-4 hidden grid-cols-1 gap-3 md:grid">
                     {welcomePromptChips.map((prompt) => (
                       <button
                         key={prompt}

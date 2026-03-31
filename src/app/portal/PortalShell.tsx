@@ -1743,8 +1743,8 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
               </button>
             </div>
 
-            <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain px-3 pb-[calc(env(safe-area-inset-bottom)+1rem)] pt-3">
-              <div className="grid grid-cols-4 gap-1 px-1">
+            <div className="flex min-h-0 flex-1 flex-col overflow-hidden px-3 pt-3">
+              <div className="shrink-0 grid grid-cols-4 gap-1 px-1">
                 {navItems.map((item: any) => {
                   const key = item.key as "pura" | "dashboard" | "services" | "settings";
                   const active = activeTopKey === key;
@@ -1789,12 +1789,231 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                 })}
               </div>
 
-              <div className="mt-4">
+              <div className="mt-4 min-h-0 flex-1 overflow-y-auto overscroll-y-contain pb-4">
                 {activeTopKey === "pura" ? (
                   <div className="min-h-0 overflow-hidden rounded-2xl bg-white">
                     {sidebarOverride?.mobileSidebarContent || sidebarOverride?.desktopSidebarContent || (
                       <div className="p-3 text-sm text-zinc-500">Loading chats…</div>
                     )}
+                  </div>
+                ) : null}
+
+                {activeTopKey === "dashboard" ? (
+                  <div className="space-y-4">
+                    <div>
+                      <div className="flex items-center justify-between px-1">
+                        <div className="text-[10px] font-semibold uppercase tracking-wide text-zinc-500">Shortcuts</div>
+                      </div>
+
+                      {dashboardEditMode ? (
+                        <div className="mt-2 space-y-1">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const cur = dashboardQuickAccessEffective;
+                              const selected = cur.includes(DASHBOARD_SALES_SHORTCUT_SLUG);
+                              if (selected) {
+                                const next = cur.filter((x) => x !== DASHBOARD_SALES_SHORTCUT_SLUG);
+                                setDashboardQuickAccess(next);
+                                void saveDashboardQuickAccess(next);
+                                return;
+                              }
+
+                              if (cur.length >= 6) {
+                                toast?.push({ kind: "error", message: "Pick up to 6 shortcuts" });
+                                return;
+                              }
+                              const next = [DASHBOARD_SALES_SHORTCUT_SLUG, ...cur.filter((x) => x !== DASHBOARD_SALES_SHORTCUT_SLUG)];
+                              setDashboardQuickAccess(next);
+                              void saveDashboardQuickAccess(next);
+                            }}
+                            className={classNames(
+                              "group flex w-full items-center gap-2 rounded-2xl px-2.5 py-1.5 text-[13px] font-medium transition-all duration-150 hover:-translate-y-0.5",
+                              dashboardQuickAccessEffective.includes(DASHBOARD_SALES_SHORTCUT_SLUG)
+                                ? "bg-zinc-100 text-zinc-900"
+                                : "text-zinc-700 hover:bg-zinc-50",
+                            )}
+                          >
+                            <span className={sidebarIconChipClass(dashboardQuickAccessEffective.includes(DASHBOARD_SALES_SHORTCUT_SLUG))} aria-hidden>
+                              <span className={sidebarIconToneClassForSlug("reporting")}>
+                                <IconSalesDashboardGlyph size={18} />
+                              </span>
+                            </span>
+                            <span className="min-w-0 flex-1 truncate">Sales dashboard</span>
+                            <span
+                              className={classNames(
+                                "inline-flex h-6 min-w-6 items-center justify-center rounded-full border px-2 text-[11px] font-semibold",
+                                dashboardQuickAccessEffective.includes(DASHBOARD_SALES_SHORTCUT_SLUG)
+                                  ? "border-brand-blue/25 bg-brand-blue/10 text-brand-blue"
+                                  : "border-zinc-200 bg-white text-zinc-500",
+                              )}
+                              aria-hidden
+                            >
+                              {dashboardQuickAccessEffective.includes(DASHBOARD_SALES_SHORTCUT_SLUG) ? "✓" : "+"}
+                            </span>
+                          </button>
+
+                          {dashboardShortcutCandidates.map((svc) => {
+                            const selected = dashboardQuickAccessEffective.includes(svc.slug);
+                            return (
+                              <button
+                                key={`mobile_shortcut_${svc.slug}`}
+                                type="button"
+                                onClick={() => {
+                                  const cur = dashboardQuickAccessEffective;
+                                  if (selected) {
+                                    const next = cur.filter((x) => x !== svc.slug);
+                                    setDashboardQuickAccess(next);
+                                    void saveDashboardQuickAccess(next);
+                                    return;
+                                  }
+
+                                  if (cur.length >= 6) {
+                                    toast?.push({ kind: "error", message: "Pick up to 6 shortcuts" });
+                                    return;
+                                  }
+                                  const next = [...cur, svc.slug];
+                                  setDashboardQuickAccess(next);
+                                  void saveDashboardQuickAccess(next);
+                                }}
+                                className={classNames(
+                                  "group flex w-full items-center gap-2 rounded-2xl px-2.5 py-1.5 text-[13px] font-medium transition-all duration-150 hover:-translate-y-0.5",
+                                  selected ? "bg-zinc-100 text-zinc-900" : "text-zinc-700 hover:bg-zinc-50",
+                                )}
+                              >
+                                <span className={sidebarIconChipClass(selected)}>
+                                  <span className={sidebarIconToneClassForSlug(svc.slug)}>
+                                    <IconServiceGlyph slug={svc.slug} />
+                                  </span>
+                                </span>
+                                <span className="min-w-0 flex-1 truncate">{svc.title}</span>
+                                <span
+                                  className={classNames(
+                                    "inline-flex h-6 min-w-6 items-center justify-center rounded-full border px-2 text-[11px] font-semibold",
+                                    selected
+                                      ? "border-brand-blue/25 bg-brand-blue/10 text-brand-blue"
+                                      : "border-zinc-200 bg-white text-zinc-500",
+                                  )}
+                                  aria-hidden
+                                >
+                                  {selected ? "✓" : "+"}
+                                </span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      ) : (
+                        <div className="mt-2">
+                          {dashboardQuickAccessEffective.length ? (
+                            <div className="space-y-1">
+                              {dashboardQuickAccessEffective.map((slug) => {
+                                if (slug === DASHBOARD_SALES_SHORTCUT_SLUG) {
+                                  return (
+                                    <Link
+                                      key="mobile_shortcut_sales_dashboard"
+                                      href={`${basePath}/app/services/reporting/sales`}
+                                      className={classNames(
+                                        "group flex items-center gap-2 rounded-2xl px-2.5 py-1.5 text-[13px] font-medium transition-all duration-150 hover:-translate-y-0.5",
+                                        pathname === `${basePath}/app/services/reporting/sales`
+                                          ? "bg-zinc-100 text-zinc-900"
+                                          : "text-zinc-700 hover:bg-zinc-50",
+                                      )}
+                                    >
+                                      <span className={sidebarIconChipClass(pathname === `${basePath}/app/services/reporting/sales`)} aria-hidden>
+                                        <span className={sidebarIconToneClassForSlug("reporting")}>
+                                          <IconSalesDashboardGlyph size={18} />
+                                        </span>
+                                      </span>
+                                      <span className="truncate">Sales dashboard</span>
+                                    </Link>
+                                  );
+                                }
+
+                                const svc = PORTAL_SERVICE_BY_SLUG.get(slug) || null;
+                                return svc ? renderSidebarServiceLink(svc as PortalService) : null;
+                              })}
+                            </div>
+                          ) : (
+                            <div className="px-1 py-2 text-sm text-zinc-500">No shortcuts yet.</div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+
+                    <div>
+                      <div className="flex items-center justify-between px-1">
+                        <div className="text-[10px] font-semibold uppercase tracking-wide text-zinc-500">Analysis</div>
+                        <button
+                          type="button"
+                          onClick={() => void refreshDashboardAnalysis("manual_refresh")}
+                          className="rounded-xl px-2 py-1 text-[11px] font-semibold text-zinc-600 transition-all duration-150 hover:-translate-y-0.5 hover:bg-zinc-50 hover:text-zinc-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--color-brand-blue)"
+                        >
+                          {dashboardAnalysisLoading ? "Refreshing…" : "Refresh"}
+                        </button>
+                      </div>
+                      <div className="mt-2 rounded-2xl bg-white p-3 text-xs leading-relaxed text-zinc-700">
+                        <div className="prose prose-sm max-w-none prose-zinc">
+                          <ReactMarkdown
+                            remarkPlugins={[remarkGfm]}
+                            components={{
+                              a({ href, children }: { href?: string; children?: ReactNode }) {
+                                const raw = String(href || "").trim();
+                                const safe = /^https?:\/\//i.test(raw) || raw.startsWith("/") ? raw : "";
+                                const external = /^https?:\/\//i.test(safe);
+                                return safe ? (
+                                  <a
+                                    href={safe}
+                                    target={external ? "_blank" : undefined}
+                                    rel={external ? "noreferrer noopener" : undefined}
+                                    className="font-semibold underline underline-offset-2 text-brand-blue"
+                                  >
+                                    {children}
+                                  </a>
+                                ) : (
+                                  <span>{children}</span>
+                                );
+                              },
+                              p({ children }: { children?: ReactNode }) {
+                                return <p className="my-2 first:mt-0 last:mb-0">{children}</p>;
+                              },
+                              ul({ children }: { children?: ReactNode }) {
+                                return <ul className="my-2 list-disc pl-5">{children}</ul>;
+                              },
+                              ol({ children }: { children?: ReactNode }) {
+                                return <ol className="my-2 list-decimal pl-5">{children}</ol>;
+                              },
+                              li({ children }: { children?: ReactNode }) {
+                                return <li className="my-1">{children}</li>;
+                              },
+                              h1({ children }: { children?: ReactNode }) {
+                                return <h1 className="my-2 text-base font-semibold">{children}</h1>;
+                              },
+                              h2({ children }: { children?: ReactNode }) {
+                                return <h2 className="my-2 text-sm font-semibold">{children}</h2>;
+                              },
+                              h3({ children }: { children?: ReactNode }) {
+                                return <h3 className="my-2 text-sm font-semibold">{children}</h3>;
+                              },
+                              code({ children }: { children?: ReactNode }) {
+                                return <code className="rounded bg-zinc-100 px-1 py-0.5 text-[12px]">{children}</code>;
+                              },
+                              pre({ children }: { children?: ReactNode }) {
+                                return <pre className="my-2 overflow-x-auto rounded-2xl bg-zinc-100 p-3 text-[12px]">{children}</pre>;
+                              },
+                            }}
+                          >
+                            {dashboardAnalysis?.text
+                              ? dashboardAnalysis.text
+                              : dashboardAnalysisLoading
+                                ? "Generating analysis…"
+                                : "Generating analysis…"}
+                          </ReactMarkdown>
+                        </div>
+                        {dashboardAnalysis?.generatedAtIso ? (
+                          <div className="mt-2 text-[11px] text-zinc-500">Updated {new Date(dashboardAnalysis.generatedAtIso).toLocaleString()}</div>
+                        ) : null}
+                      </div>
+                    </div>
                   </div>
                 ) : null}
 
@@ -1908,7 +2127,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
               </div>
             </div>
 
-            <div className="border-t border-zinc-200 p-3">
+            <div className="shrink-0 border-t border-zinc-200 px-3 pb-[calc(env(safe-area-inset-bottom)+0.75rem)] pt-3">
               <div className="flex items-center justify-end">
                 <SignOutButton variant="sidebar" collapsed />
               </div>

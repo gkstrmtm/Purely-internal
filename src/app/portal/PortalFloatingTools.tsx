@@ -422,6 +422,11 @@ export function PortalFloatingTools() {
   const pathname = usePathname() || "";
   const router = useRouter();
   const portalBase = pathname.startsWith("/credit") ? "/credit" : "/portal";
+  const isDashboardRoute = pathname === `${portalBase}/app`;
+  const isSettingsRoute =
+    pathname.startsWith(`${portalBase}/app/settings`) ||
+    pathname.startsWith(`${portalBase}/app/profile`) ||
+    pathname.startsWith(`${portalBase}/app/billing`);
   const [isSmallScreen, setIsSmallScreen] = useState(false);
   const [minimized, setMinimized] = useState(true);
   const [compactDock, setCompactDock] = useState(false);
@@ -543,8 +548,8 @@ export function PortalFloatingTools() {
     };
   }, []);
 
-  const hidden = forceHidden || profileHidden;
-  const moveDockToTopRight = isSmallScreen && pathname.startsWith(`${portalBase}/app/services/inbox`);
+  const hidden = forceHidden || profileHidden || (isSmallScreen && !isDashboardRoute && !isSettingsRoute && !chatOpen && !reportOpen);
+  const moveDockToTopRight = false;
   const notePositionClass = moveDockToTopRight
     ? "fixed right-3 top-[calc(env(safe-area-inset-top)+4rem)] z-130103 max-w-[calc(100vw-1.5rem)] rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-800 shadow-lg ring-1 ring-[rgba(29,78,216,0.14)] sm:top-auto sm:right-4 sm:max-w-sm sm:bottom-[calc(var(--pa-portal-embed-footer-offset,0px)+6rem)]"
     : "fixed bottom-[calc(var(--pa-portal-embed-footer-offset,0px)+6rem)] right-4 z-130103 max-w-sm rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-800 shadow-lg ring-1 ring-[rgba(29,78,216,0.14)]";
