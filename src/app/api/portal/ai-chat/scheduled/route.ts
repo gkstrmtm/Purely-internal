@@ -4,6 +4,7 @@ import { requireClientSession } from "@/lib/apiAuth";
 import { prisma } from "@/lib/db";
 import { tryParseScheduledActionEnvelope } from "@/lib/portalAiChatScheduledActionEnvelope";
 import { ensurePortalAiChatSchema } from "@/lib/portalAiChatSchema";
+import { getScheduledRecurrenceTimeZone, withScheduledRecurrenceMetadata } from "@/lib/portalAiChatScheduledRecurrence";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -40,8 +41,46 @@ export async function GET(req: Request) {
       sendAt: true,
       repeatEveryMinutes: true,
       createdAt: true,
+      createdByUserId: true,
+      attachmentsJson: true,
     },
   });
+
+  const userIds = Array.from(new Set([
+    ownerId,
+    ...rows.map((r: any) => String(r.createdByUserId || "").trim()).filter(Boolean),
+  ])).slice(0, 300);
+  const users = userIds.length
+    ? await prisma.user.findMany({ where: { id: { in: userIds } }, select: { id: true, timeZone: true } }).catch(() => [])
+    : [];
+  const timeZoneByUserId = new Map<string, string>();
+  for (const user of users) {
+    const timeZone = typeof user.timeZone === "string" ? String(user.timeZone).trim().slice(0, 80) : "";
+    if (timeZone) timeZoneByUserId.set(String(user.id), timeZone);
+  }
+
+  await Promise.all(rows.map(async (row: any) => {
+    const repeatEveryMinutes = typeof row.repeatEveryMinutes === "number" && Number.isFinite(row.repeatEveryMinutes)
+      ? Math.max(0, Math.floor(row.repeatEveryMinutes))
+      : 0;
+    if (!repeatEveryMinutes) return;
+    if (getScheduledRecurrenceTimeZone(row.attachmentsJson)) return;
+    const recurrenceTimeZone =
+      timeZoneByUserId.get(String(row.createdByUserId || "").trim()) ||
+      timeZoneByUserId.get(ownerId) ||
+      "UTC";
+    const attachmentsJson = withScheduledRecurrenceMetadata({
+      attachmentsJson: row.attachmentsJson ?? null,
+      repeatEveryMinutes,
+      recurrenceTimeZone,
+    });
+    if (attachmentsJson === (row.attachmentsJson ?? null)) return;
+    await (prisma as any).portalAiChatMessage.update({
+      where: { id: String(row.id) },
+      data: { attachmentsJson },
+    }).catch(() => null);
+    row.attachmentsJson = attachmentsJson;
+  }));
 
   const threadIds = Array.from(new Set(rows.map((r: any) => String(r.threadId)))).slice(0, 300);
 

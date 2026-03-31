@@ -2100,11 +2100,12 @@ export function PortalAiChatClient() {
       const repeatEveryMinutes = computeRepeatEveryMinutes({ repeatEvery: edit.repeatEvery, repeatUnit: edit.repeatUnit });
 
       try {
+        const clientTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || null;
         const res = await fetch(`/api/portal/ai-chat/scheduled/${encodeURIComponent(id)}`,
           {
             method: "PATCH",
             headers: { "content-type": "application/json" },
-            body: JSON.stringify({ sendAtIso, repeatEveryMinutes }),
+            body: JSON.stringify({ sendAtIso, repeatEveryMinutes, clientTimeZone }),
           },
         );
         const json = await res.json().catch(() => null);

@@ -4,6 +4,7 @@ import { z } from "zod";
 import { requireClientSession } from "@/lib/apiAuth";
 import { prisma } from "@/lib/db";
 import { ensurePortalAiChatSchema } from "@/lib/portalAiChatSchema";
+import { getScheduledRecurrenceTimeZone, withScheduledRecurrenceMetadata } from "@/lib/portalAiChatScheduledRecurrence";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -13,6 +14,7 @@ const PatchSchema = z
   .object({
     sendAtIso: z.string().trim().min(1).max(64).nullable().optional(),
     repeatEveryMinutes: z.number().int().min(0).max(60 * 24 * 365).nullable().optional(),
+    clientTimeZone: z.string().trim().min(1).max(80).nullable().optional(),
   })
   .strict();
 
@@ -38,7 +40,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ messageId: st
 
   const msg = await (prisma as any).portalAiChatMessage.findFirst({
     where: { id: String(messageId), ownerId, role: "user", createdByUserId: memberId },
-    select: { id: true, sentAt: true },
+    select: { id: true, sentAt: true, attachmentsJson: true, repeatEveryMinutes: true, createdByUserId: true },
   });
   if (!msg) return NextResponse.json({ ok: false, error: "Not found" }, { status: 404 });
   if (msg.sentAt) return NextResponse.json({ ok: false, error: "Already sent" }, { status: 409 });
@@ -63,6 +65,26 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ messageId: st
     if (v === null) data.repeatEveryMinutes = null;
     else if (typeof v === "number" && Number.isFinite(v)) data.repeatEveryMinutes = Math.max(0, Math.floor(v));
   }
+
+  const nextRepeatEveryMinutes =
+    typeof data.repeatEveryMinutes === "number"
+      ? Math.max(0, Math.floor(data.repeatEveryMinutes as number))
+      : typeof msg.repeatEveryMinutes === "number" && Number.isFinite(msg.repeatEveryMinutes)
+        ? Math.max(0, Math.floor(msg.repeatEveryMinutes))
+        : 0;
+  const existingRecurrenceTimeZone = getScheduledRecurrenceTimeZone((msg as any).attachmentsJson ?? null);
+  const clientTimeZone = typeof parsed.data.clientTimeZone === "string" ? String(parsed.data.clientTimeZone).trim().slice(0, 80) : "";
+  const actorTimeZone =
+    (await prisma.user.findUnique({ where: { id: String((msg as any).createdByUserId || memberId) }, select: { timeZone: true } }).catch(() => null))?.timeZone ||
+    "";
+  const ownerTimeZone =
+    (await prisma.user.findUnique({ where: { id: ownerId }, select: { timeZone: true } }).catch(() => null))?.timeZone ||
+    "";
+  data.attachmentsJson = withScheduledRecurrenceMetadata({
+    attachmentsJson: (msg as any).attachmentsJson ?? null,
+    repeatEveryMinutes: nextRepeatEveryMinutes,
+    recurrenceTimeZone: clientTimeZone || existingRecurrenceTimeZone || String(actorTimeZone || "").trim() || String(ownerTimeZone || "").trim() || "UTC",
+  });
 
   await (prisma as any).portalAiChatMessage.update({ where: { id: String(messageId) }, data });
 

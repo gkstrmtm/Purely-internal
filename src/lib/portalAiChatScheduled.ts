@@ -4,6 +4,7 @@ import { getConfirmSpecForPortalAgentAction, portalCanvasUrlForAction } from "@/
 import { deriveThreadContextPatchFromAction, executePortalAgentAction } from "@/lib/portalAgentActionExecutor";
 import type { PortalAgentActionKey } from "@/lib/portalAgentActions";
 import { tryParseScheduledActionEnvelope } from "@/lib/portalAiChatScheduledActionEnvelope";
+import { getScheduledRecurrenceTimeZone, withScheduledRecurrenceMetadata } from "@/lib/portalAiChatScheduledRecurrence";
 import { planPuraActions } from "@/lib/puraPlanner";
 import { resolvePlanArgs } from "@/lib/puraResolver";
 import { isPortalSupportChatConfigured } from "@/lib/portalSupportChat";
@@ -75,6 +76,7 @@ export async function processDuePortalAiChatScheduledMessages(
 
   let processed = 0;
   const ownerTimeZoneCache = new Map<string, string>();
+  const actorTimeZoneCache = new Map<string, string>();
 
   for (const p of pending) {
     const ownerId = String(p.ownerId);
@@ -85,16 +87,7 @@ export async function processDuePortalAiChatScheduledMessages(
         ? Math.max(0, Math.floor((p as any).repeatEveryMinutes))
         : 0;
     const scheduledAt = (p as any).sendAt ? new Date((p as any).sendAt) : null;
-    const recurrenceTimeZone = (() => {
-      const attachments = (p as any).attachmentsJson;
-      const recurrence = attachments && typeof attachments === "object" && !Array.isArray(attachments)
-        ? (attachments as any).recurrence
-        : null;
-      const timeZone = recurrence && typeof recurrence === "object" && !Array.isArray(recurrence) && typeof recurrence.timeZone === "string"
-        ? String(recurrence.timeZone).trim().slice(0, 80)
-        : "";
-      return timeZone;
-    })();
+    const recurrenceTimeZone = getScheduledRecurrenceTimeZone((p as any).attachmentsJson);
     let ownerTimeZone = ownerTimeZoneCache.get(ownerId) || "";
     if (!ownerTimeZone) {
       const tz =
@@ -102,6 +95,26 @@ export async function processDuePortalAiChatScheduledMessages(
         "";
       ownerTimeZone = tz ? String(tz).slice(0, 80) : "";
       if (ownerTimeZone) ownerTimeZoneCache.set(ownerId, ownerTimeZone);
+    }
+    let actorTimeZone = actorTimeZoneCache.get(actorUserId) || "";
+    if (!actorTimeZone) {
+      const tz =
+        (await prisma.user.findUnique({ where: { id: actorUserId }, select: { timeZone: true } }).catch(() => null))?.timeZone ||
+        "";
+      actorTimeZone = tz ? String(tz).slice(0, 80) : "";
+      if (actorTimeZone) actorTimeZoneCache.set(actorUserId, actorTimeZone);
+    }
+    const effectiveRecurrenceTimeZone = recurrenceTimeZone || actorTimeZone || ownerTimeZone;
+    const normalizedAttachmentsJson = withScheduledRecurrenceMetadata({
+      attachmentsJson: (p as any).attachmentsJson ?? null,
+      repeatEveryMinutes,
+      recurrenceTimeZone: effectiveRecurrenceTimeZone,
+    });
+    if (normalizedAttachmentsJson !== ((p as any).attachmentsJson ?? null)) {
+      await (prisma as any).portalAiChatMessage.update({
+        where: { id: p.id },
+        data: { attachmentsJson: normalizedAttachmentsJson },
+      }).catch(() => null);
     }
 
     // Atomically claim the row first to avoid double-processing under overlapping cron runs.
@@ -369,7 +382,7 @@ export async function processDuePortalAiChatScheduledMessages(
         const nextAt = await computeNextRecurringRunAt({
           scheduledAt,
           repeatEveryMinutes,
-          recurrenceTimeZone: recurrenceTimeZone || ownerTimeZone,
+          recurrenceTimeZone: effectiveRecurrenceTimeZone,
         });
         if (!nextAt) throw new Error("Unable to compute next recurring run time");
         await (prisma as any).portalAiChatMessage.create({
@@ -378,7 +391,7 @@ export async function processDuePortalAiChatScheduledMessages(
             threadId,
             role: "user",
             text: String((p as any).text || "").slice(0, 4000),
-            attachmentsJson: (p as any).attachmentsJson ?? null,
+            attachmentsJson: normalizedAttachmentsJson,
             createdByUserId: (p as any).createdByUserId ?? null,
             sendAt: nextAt,
             sentAt: null,
@@ -415,7 +428,7 @@ export async function processDuePortalAiChatScheduledMessages(
         const nextAt = await computeNextRecurringRunAt({
           scheduledAt,
           repeatEveryMinutes,
-          recurrenceTimeZone: recurrenceTimeZone || ownerTimeZone,
+          recurrenceTimeZone: effectiveRecurrenceTimeZone,
         });
         if (!nextAt) throw new Error("Unable to compute next recurring run time");
         await (prisma as any).portalAiChatMessage.create({
@@ -424,7 +437,7 @@ export async function processDuePortalAiChatScheduledMessages(
             threadId,
             role: "user",
             text: String((p as any).text || "").slice(0, 4000),
-            attachmentsJson: (p as any).attachmentsJson ?? null,
+            attachmentsJson: normalizedAttachmentsJson,
             createdByUserId: (p as any).createdByUserId ?? null,
             sendAt: nextAt,
             sentAt: null,
