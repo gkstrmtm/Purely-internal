@@ -247,6 +247,26 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
   const prevPuraCanvasOpenRef = useRef(false);
   const [mobileOpen, setMobileOpen] = useState(false);
 
+  useEffect(() => {
+    if (!mobileOpen) return;
+
+    const html = document.documentElement;
+    const body = document.body;
+    const prevHtmlOverflow = html.style.overflow;
+    const prevBodyOverflow = body.style.overflow;
+    const prevBodyTouchAction = body.style.touchAction;
+
+    html.style.overflow = "hidden";
+    body.style.overflow = "hidden";
+    body.style.touchAction = "none";
+
+    return () => {
+      html.style.overflow = prevHtmlOverflow;
+      body.style.overflow = prevBodyOverflow;
+      body.style.touchAction = prevBodyTouchAction;
+    };
+  }, [mobileOpen]);
+
   const sidebarOverride = usePortalSidebarOverride();
 
   const [me, setMe] = useState<Me | null>(null);
@@ -1707,12 +1727,13 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
               </button>
             </div>
 
-            <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain p-3">
+            <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain px-3 pb-[calc(env(safe-area-inset-bottom)+1rem)] pt-3">
               <div className="space-y-1">
                 {navItems.map((item) => (
                   <Link
                     key={item.href}
                     href={item.href}
+                    onClick={() => setMobileOpen(false)}
                     className={classNames(
                       "flex items-center gap-3 rounded-2xl px-3 py-2 text-sm font-semibold",
                       isActive(item.href)
@@ -2561,7 +2582,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
         </aside>
 
         <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto overscroll-y-contain">
-          <header className="sticky top-0 z-10 border-b border-zinc-200 bg-white/80 backdrop-blur sm:hidden">
+          <header className="sticky top-0 z-10 border-b border-zinc-200 bg-white/80 pt-[env(safe-area-inset-top)] backdrop-blur sm:hidden">
             <div className="flex items-center justify-between px-4 py-3">
               <button
                 type="button"

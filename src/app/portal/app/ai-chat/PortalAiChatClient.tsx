@@ -2483,61 +2483,56 @@ export function PortalAiChatClient() {
 
       <div ref={canvasContainerRef} className="flex min-w-0 flex-1 bg-white shadow-[inset_12px_0_16px_-16px_rgba(0,0,0,0.22)] relative">
         <div className="flex min-w-0 flex-1 flex-col">
-        <div className="shrink-0 border-b border-zinc-200 bg-white lg:hidden">
-          <div className="flex items-center justify-between gap-3 px-4 py-3">
-            <button
-              type="button"
-              className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
-              onClick={() => setMobileThreadsOpen(true)}
-            >
-              Threads
-            </button>
+        <div className="shrink-0 border-b border-zinc-200 bg-white pt-[env(safe-area-inset-top)] lg:hidden">
+          <div className="px-3 py-3 sm:px-4">
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                className="inline-flex h-10 items-center justify-center rounded-2xl border border-zinc-200 bg-white px-3 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
+                onClick={() => setMobileThreadsOpen(true)}
+              >
+                Threads
+              </button>
 
-            <div className="min-w-0 flex-1 text-center">
-              <div className="truncate text-sm font-semibold text-zinc-900">{activeThread?.title || "Chat"}</div>
+              <div className="min-w-0 flex-1 px-1">
+                <div className="truncate text-sm font-semibold text-zinc-900">{activeThread?.title || "Chat"}</div>
+              </div>
+
+              <button
+                type="button"
+                className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-brand-blue text-white hover:opacity-95"
+                onClick={createThread}
+                aria-label="New chat"
+                title="New chat"
+              >
+                <span className="text-lg font-semibold leading-none">＋</span>
+              </button>
             </div>
 
-            <button
-              type="button"
-              className="inline-flex h-10 w-10 items-center justify-center rounded-2xl bg-brand-blue text-white hover:opacity-95"
-              onClick={createThread}
-              aria-label="New chat"
-              title="New chat"
-            >
-              <span className="text-lg font-semibold leading-none">＋</span>
-            </button>
-
-            <button
-              type="button"
-              className="inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50"
-              onClick={() => setScheduledOpen(true)}
-              aria-label="Scheduled tasks"
-              title="Scheduled tasks"
-            >
-              <IconSchedule size={18} />
-            </button>
-
-            {canvasOpen && canvasUrl ? (
+            <div className="mt-2 flex items-center gap-2">
               <button
                 type="button"
-                className="inline-flex h-10 items-center justify-center rounded-2xl border border-brand-blue/20 bg-brand-blue px-3 text-sm font-semibold text-white hover:opacity-95 lg:hidden"
-                onClick={() => openCanvasInNewTab(canvasUrl)}
-                aria-label="Open work"
-                title="Open work"
+                className="inline-flex h-10 items-center justify-center gap-2 rounded-2xl border border-zinc-200 bg-white px-3 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
+                onClick={() => setScheduledOpen(true)}
+                aria-label="Scheduled tasks"
+                title="Scheduled tasks"
               >
-                Work
+                <IconSchedule size={16} />
+                <span>Scheduled</span>
               </button>
-            ) : canvasUrl ? (
-              <button
-                type="button"
-                className="inline-flex h-10 items-center justify-center rounded-2xl border border-brand-blue/20 bg-brand-blue px-3 text-sm font-semibold text-white hover:opacity-95 lg:hidden"
-                onClick={() => openCanvasInNewTab(canvasUrl)}
-                aria-label="Open work"
-                title="Open work"
-              >
-                Work
-              </button>
-            ) : null}
+
+              {canvasUrl ? (
+                <button
+                  type="button"
+                  className="ml-auto inline-flex h-10 items-center justify-center rounded-2xl border border-brand-blue/20 bg-brand-blue px-3 text-sm font-semibold text-white hover:opacity-95"
+                  onClick={() => openCanvasInNewTab(canvasUrl)}
+                  aria-label="Open work"
+                  title="Open work"
+                >
+                  Open work
+                </button>
+              ) : null}
+            </div>
           </div>
         </div>
 
@@ -2718,7 +2713,7 @@ export function PortalAiChatClient() {
         </div>
 
         {!showWelcomeComposer ? (
-          <div className="shrink-0 border-t border-zinc-200 bg-white px-3 py-3 shadow-[0_-1px_10px_rgba(0,0,0,0.05)]">
+          <div className="shrink-0 border-t border-zinc-200 bg-white px-3 pb-[calc(env(safe-area-inset-bottom)+0.75rem)] pt-3 shadow-[0_-1px_10px_rgba(0,0,0,0.05)]">
             {canvasOpen && canvasUrl ? (
               <div className="mb-2 flex items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs text-zinc-700 lg:hidden relative">
                 <div className="min-w-0 truncate">
@@ -2747,13 +2742,13 @@ export function PortalAiChatClient() {
             ) : null}
           {!canvasOpen && Boolean(canvasUrl) && (
             <button
-              className="absolute right-0 top-32 z-20 inline-flex items-center gap-1 rounded-l-2xl border border-brand-blue/20 bg-brand-blue px-3 py-2 text-xs font-bold text-white hover:opacity-95"
-              style={{ height: 40 }}
+              className="fixed bottom-[calc(env(safe-area-inset-bottom)+5.75rem)] right-3 z-20 inline-flex h-10 items-center gap-1 rounded-2xl border border-brand-blue/20 bg-brand-blue px-3 py-2 text-xs font-bold text-white shadow-lg hover:opacity-95 lg:absolute lg:right-0 lg:top-32 lg:rounded-l-2xl lg:rounded-r-none lg:shadow-none"
               title="Open canvas"
               onClick={() => openLatestCanvas({ modal: false })}
             >
-              <span className="leading-none">Open</span>
-              <span className="text-base leading-none">‹</span>
+              <span className="leading-none">Open work</span>
+              <span className="text-base leading-none lg:hidden">↗</span>
+              <span className="hidden text-base leading-none lg:inline">‹</span>
             </button>
           )}
 
