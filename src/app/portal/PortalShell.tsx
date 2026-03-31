@@ -267,6 +267,12 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
     };
   }, [mobileOpen]);
 
+  useEffect(() => {
+    const onClose = () => setMobileOpen(false);
+    window.addEventListener("pa.portal.mobile-drawer.close", onClose as EventListener);
+    return () => window.removeEventListener("pa.portal.mobile-drawer.close", onClose as EventListener);
+  }, []);
+
   const sidebarOverride = usePortalSidebarOverride();
 
   const [me, setMe] = useState<Me | null>(null);
@@ -1205,6 +1211,23 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
     return "";
   }, [activeServiceSlug, activeTopKey, basePath, pathname]);
 
+  const mobileHeaderTitle = useMemo(() => {
+    if (activeTopKey === "pura") return "Pura";
+    if (pathname === `${basePath}/app` || pathname === `${basePath}/app/`) return "Dashboard";
+    if (pathname === `${basePath}/app/people` || pathname.startsWith(`${basePath}/app/people/`)) return "People";
+    if (pathname.startsWith(`${basePath}/app/profile`)) return "Profile";
+    if (pathname.startsWith(`${basePath}/app/billing`)) return "Billing";
+    if (pathname.startsWith(`${basePath}/app/settings/appearance`)) return "Appearance";
+    if (pathname.startsWith(`${basePath}/app/settings/integrations`)) return "Integrations";
+    if (pathname.startsWith(`${basePath}/app/settings/business`)) return "Business";
+    if (pathname.startsWith(`${basePath}/app/settings`)) return "Settings";
+    if (pathname.startsWith(`${basePath}/app/services/`) && activeServiceSlug) {
+      return PORTAL_SERVICE_TITLE_BY_SLUG.get(activeServiceSlug) || "Services";
+    }
+    if (pathname.startsWith(`${basePath}/app/services`)) return "Services";
+    return sidebarHeaderLabel ? sidebarHeaderLabel.charAt(0).toUpperCase() + sidebarHeaderLabel.slice(1) : "Portal";
+  }, [activeServiceSlug, activeTopKey, basePath, pathname, sidebarHeaderLabel]);
+
   const dashboardShortcutCandidates = PORTAL_SERVICES.filter((s) => !s.hidden)
     .filter((s) => canViewServiceSlug(s.slug))
     .filter((s) => !s.variants || s.variants.includes(variant));
@@ -1702,16 +1725,9 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
             )}
           >
             <div className="shrink-0 flex items-center gap-3 border-b border-zinc-200 bg-white/90 p-3 backdrop-blur">
-              <Link href={`${basePath}/app`} className="flex items-center gap-3">
-                <Image
-                  src={sidebarLogoSrc}
-                  alt="Purely Automation"
-                  width={120}
-                  height={34}
-                  className="h-6 w-auto max-w-32 object-contain"
-                  priority
-                />
-              </Link>
+              <div className="min-w-0 flex-1 px-1">
+                <div className="truncate text-base font-semibold tracking-tight text-brand-ink">{mobileHeaderTitle}</div>
+              </div>
               <button
                 type="button"
                 onClick={() => setMobileOpen(false)}
@@ -1728,163 +1744,173 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
             </div>
 
             <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain px-3 pb-[calc(env(safe-area-inset-bottom)+1rem)] pt-3">
-              <div className="space-y-1">
-                {navItems.map((item) => (
-                  <Link
-                    key={item.href}
-                    href={item.href}
-                    onClick={() => setMobileOpen(false)}
-                    className={classNames(
-                      "flex items-center gap-3 rounded-2xl px-3 py-2 text-sm font-semibold",
-                      isActive(item.href)
-                        ? "bg-[rgba(29,78,216,0.10)] text-zinc-900"
-                        : `text-zinc-700 ${portalSecondaryActionClass}`,
-                    )}
-                  >
-                    <span
-                      className={classNames(
-                        "inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl bg-zinc-100",
-                        isActive(item.href) ? "text-(--color-brand-blue)" : "text-zinc-700",
-                      )}
-                      aria-hidden
+              <div className="grid grid-cols-4 gap-1 px-1">
+                {navItems.map((item: any) => {
+                  const key = item.key as "pura" | "dashboard" | "services" | "settings";
+                  const active = activeTopKey === key;
+                  const isSidebarOnly = key === "services" || key === "settings";
+                  const iconClass = sidebarIconButtonClass(active, "h-10 w-10");
+                  const onClick = () => {
+                    if (isSidebarOnly) {
+                      setSidebarModeOverride(key);
+                      return;
+                    }
+                    setSidebarModeOverride(null);
+                    setMobileOpen(false);
+                  };
+
+                  return isSidebarOnly ? (
+                    <button
+                      key={item.href}
+                      type="button"
+                      title={item.label}
+                      aria-label={item.label}
+                      onClick={onClick}
+                      className="inline-flex items-center justify-center rounded-2xl p-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--color-brand-blue)"
                     >
-                      {item.iconGlyph}
-                    </span>
-                    <span className="truncate">{item.label}</span>
-                  </Link>
-                ))}
+                      <span className={iconClass} aria-hidden>
+                        {item.iconGlyph}
+                      </span>
+                    </button>
+                  ) : (
+                    <Link
+                      key={item.href}
+                      href={item.href}
+                      title={item.label}
+                      aria-label={item.label}
+                      onClick={onClick as any}
+                      className="inline-flex items-center justify-center rounded-2xl p-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--color-brand-blue)"
+                    >
+                      <span className={iconClass} aria-hidden>
+                        {item.iconGlyph}
+                      </span>
+                    </Link>
+                  );
+                })}
               </div>
 
-              <div className="mt-6">
-                <div className="px-3 text-xs font-semibold uppercase tracking-wide text-zinc-500">
-                  Services
-                </div>
-
-                {canViewServiceKey("people") ? (
-                  <div className="mt-2">
-                    <Link
-                      href={`${basePath}/app/people`}
-                      className={classNames(
-                        "flex items-center gap-3 rounded-2xl px-3 py-2 text-sm font-semibold",
-                        pathname.startsWith(`${basePath}/app/people`)
-                          ? "bg-zinc-100 text-zinc-900"
-                          : `text-zinc-700 ${portalSecondaryActionClass}`,
-                      )}
-                      onClick={() => setMobileOpen(false)}
-                    >
-                      <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl bg-zinc-100 text-zinc-700" aria-hidden>
-                        <IconPeopleGlyph />
-                      </span>
-                      <span className="truncate">People</span>
-                    </Link>
+              <div className="mt-4">
+                {activeTopKey === "pura" ? (
+                  <div className="min-h-0 overflow-hidden rounded-2xl bg-white">
+                    {sidebarOverride?.mobileSidebarContent || sidebarOverride?.desktopSidebarContent || (
+                      <div className="p-3 text-sm text-zinc-500">Loading chats…</div>
+                    )}
                   </div>
                 ) : null}
 
-                <div className="mt-2 space-y-4">
-                  {sidebarServiceGroups.map((group) => (
-                    <div key={group.key}>
-                      <div className="px-3 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">{group.title}</div>
-                      <div className="mt-1 space-y-1">
-                        {group.services.map((s) => {
-                          const lockBadge = serviceLockBadge(s.slug);
-                          const unlocked = serviceUnlocked(s);
-                          return (
-                            <Link
-                              key={s.slug}
-                              href={`${basePath}/app/services/${s.slug}`}
-                              className={classNames(
-                                "flex items-center gap-3 rounded-2xl px-3 py-2 text-sm font-medium",
-                                pathname.startsWith(`${basePath}/app/services/${s.slug}`)
-                                  ? "bg-zinc-100 text-zinc-900"
-                                  : `text-zinc-700 ${portalSecondaryActionClass}`,
-                              )}
-                            >
-                              <span className="inline-flex h-9 w-9 items-center justify-center rounded-2xl border border-zinc-200 bg-white">
-                                <span className={sidebarIconToneClassForSlug(s.slug)}>
-                                  <IconServiceGlyph slug={s.slug} />
-                                </span>
-                              </span>
-
-                              <span className="flex min-w-0 flex-1 items-center justify-between gap-2">
-                                <span className="truncate">{s.title}</span>
-                                {!unlocked ? (
-                                  <span className="inline-flex items-center gap-1 text-xs font-semibold text-zinc-500">
-                                    <IconLock /> {lockBadge?.label || "Locked"}
-                                  </span>
-                                ) : null}
-                              </span>
-                            </Link>
-                          );
-                        })}
+                {activeTopKey === "services" ? (
+                  <div className="space-y-4">
+                    {sidebarServiceGroups.map((group) => (
+                      <div key={group.key}>
+                        <div className="space-y-1">
+                          {group.key === "communication"
+                            ? group.services.flatMap((s) => {
+                                if (s.slug === "inbox") {
+                                  const items = [renderSidebarServiceLink(s)];
+                                  if (canViewServiceKey("people")) items.push(renderPeopleLink());
+                                  return items;
+                                }
+                                return [renderSidebarServiceLink(s)];
+                              })
+                            : group.services.map((s) => renderSidebarServiceLink(s))}
+                        </div>
                       </div>
-                    </div>
-                  ))}
-                </div>
+                    ))}
+                  </div>
+                ) : null}
+
+                {activeTopKey === "settings" ? (
+                  <div className="space-y-1">
+                    <Link
+                      href={`${basePath}/app/settings`}
+                      onClick={() => setMobileOpen(false)}
+                      className={classNames(
+                        "group flex items-center gap-3 rounded-2xl px-3 py-2 text-sm font-semibold transition-all duration-150 hover:-translate-y-0.5",
+                        pathname === `${basePath}/app/settings` ? "bg-zinc-100 text-zinc-900" : "text-zinc-700 hover:bg-zinc-50",
+                      )}
+                    >
+                      <span className={sidebarIconChipClass(pathname === `${basePath}/app/settings`)} aria-hidden>
+                        <IconSettingsGlyph />
+                      </span>
+                      <span className="truncate">General</span>
+                    </Link>
+                    {canViewServiceKey("profile") ? (
+                      <Link
+                        href={`${basePath}/app/profile`}
+                        onClick={() => setMobileOpen(false)}
+                        className={classNames(
+                          "group flex items-center gap-3 rounded-2xl px-3 py-2 text-sm font-semibold transition-all duration-150 hover:-translate-y-0.5",
+                          pathname.startsWith(`${basePath}/app/profile`) ? "bg-zinc-100 text-zinc-900" : "text-zinc-700 hover:bg-zinc-50",
+                        )}
+                      >
+                        <span className={sidebarIconChipClass(pathname.startsWith(`${basePath}/app/profile`))} aria-hidden>
+                          <IconProfileGlyph />
+                        </span>
+                        <span className="truncate">Profile</span>
+                      </Link>
+                    ) : null}
+                    {canViewServiceKey("billing") ? (
+                      <Link
+                        href={`${basePath}/app/billing`}
+                        onClick={() => setMobileOpen(false)}
+                        className={classNames(
+                          "group flex items-center gap-3 rounded-2xl px-3 py-2 text-sm font-semibold transition-all duration-150 hover:-translate-y-0.5",
+                          pathname.startsWith(`${basePath}/app/billing`) ? "bg-zinc-100 text-zinc-900" : "text-zinc-700 hover:bg-zinc-50",
+                        )}
+                      >
+                        <span className={sidebarIconChipClass(pathname.startsWith(`${basePath}/app/billing`))} aria-hidden>
+                          <IconBillingGlyph />
+                        </span>
+                        <span className="truncate">Billing</span>
+                      </Link>
+                    ) : null}
+                    <Link
+                      href={`${basePath}/app/settings/appearance`}
+                      onClick={() => setMobileOpen(false)}
+                      className={classNames(
+                        "group flex items-center gap-3 rounded-2xl px-3 py-2 text-sm font-semibold transition-all duration-150 hover:-translate-y-0.5",
+                        pathname.startsWith(`${basePath}/app/settings/appearance`) ? "bg-zinc-100 text-zinc-900" : "text-zinc-700 hover:bg-zinc-50",
+                      )}
+                    >
+                      <span className={sidebarIconChipClass(pathname.startsWith(`${basePath}/app/settings/appearance`))} aria-hidden>
+                        <IconEyeGlyph />
+                      </span>
+                      <span className="truncate">Appearance</span>
+                    </Link>
+                    <Link
+                      href={`${basePath}/app/settings/integrations`}
+                      onClick={() => setMobileOpen(false)}
+                      className={classNames(
+                        "group flex items-center gap-3 rounded-2xl px-3 py-2 text-sm font-semibold transition-all duration-150 hover:-translate-y-0.5",
+                        pathname.startsWith(`${basePath}/app/settings/integrations`) ? "bg-zinc-100 text-zinc-900" : "text-zinc-700 hover:bg-zinc-50",
+                      )}
+                    >
+                      <span className={sidebarIconChipClass(pathname.startsWith(`${basePath}/app/settings/integrations`))} aria-hidden>
+                        <IconApiKeysGlyph />
+                      </span>
+                      <span className="truncate">Integrations</span>
+                    </Link>
+                    <Link
+                      href={`${basePath}/app/settings/business`}
+                      onClick={() => setMobileOpen(false)}
+                      className={classNames(
+                        "group flex items-center gap-3 rounded-2xl px-3 py-2 text-sm font-semibold transition-all duration-150 hover:-translate-y-0.5",
+                        pathname.startsWith(`${basePath}/app/settings/business`) ? "bg-zinc-100 text-zinc-900" : "text-zinc-700 hover:bg-zinc-50",
+                      )}
+                    >
+                      <span className={sidebarIconChipClass(pathname.startsWith(`${basePath}/app/settings/business`))} aria-hidden>
+                        <IconBusinessGlyph />
+                      </span>
+                      <span className="truncate">Business</span>
+                    </Link>
+                  </div>
+                ) : null}
               </div>
             </div>
 
-            <div className="border-t border-zinc-200 p-4">
-              {sidebarCampaign ? (
-                <div className="mb-4 rounded-2xl border border-brand-ink/10 bg-linear-to-br from-brand-blue/10 to-white p-3 text-sm text-zinc-800">
-                  {canShowDismiss(sidebarCampaign, sidebarShownAtMs) ? (
-                    <div className="mb-2 flex justify-end">
-                      <button
-                        type="button"
-                        className={classNames(
-                          "inline-flex h-8 w-8 items-center justify-center rounded-full border border-zinc-200 bg-white text-zinc-700",
-                          portalIconActionClass,
-                        )}
-                        aria-label="Dismiss"
-                        onClick={() => {
-                          dismissCampaign({
-                            placement: "SIDEBAR_BANNER",
-                            campaignId: sidebarCampaign.id,
-                            reshowAfterSeconds: sidebarCampaign?.creative?.dismissReshowAfterSeconds,
-                          });
-                          setSidebarCampaign(null);
-                          void refreshAds({ placement: "SIDEBAR_BANNER", reason: "dismiss" });
-                        }}
-                      >
-                        ×
-                      </button>
-                    </div>
-                  ) : null}
-                  {sidebarCampaign?.creative?.mediaUrl && sidebarCampaign?.creative?.mediaKind !== "video" ? (
-                    /* eslint-disable-next-line @next/next/no-img-element */
-                    <img
-                      src={sidebarCampaign.creative.mediaUrl}
-                      alt={sidebarCampaign?.creative?.headline || "Sponsored"}
-                      className="mb-2 w-full rounded-xl border border-zinc-200 object-cover"
-                      style={{
-                        height: Math.max(60, Math.min(240, Math.floor(Number(sidebarCampaign?.creative?.sidebarImageHeight || 120)))),
-                        objectFit: sidebarCampaign?.creative?.mediaFit || "cover",
-                        objectPosition: sidebarCampaign?.creative?.mediaPosition || "center",
-                      }}
-                      loading="lazy"
-                    />
-                  ) : null}
-                  <div className="font-semibold text-zinc-900">
-                    {sidebarCampaign?.creative?.headline || "Sponsored by Purely Automation"}
-                  </div>
-                  <div className="mt-1 text-xs text-zinc-600">{sidebarCampaign?.creative?.body || "Explore add-ons and unlock more automation."}</div>
-                  <a
-                    href={
-                      `/api/portal/ads/click?campaignId=${encodeURIComponent(sidebarCampaign.id)}` +
-                      `&placement=SIDEBAR_BANNER` +
-                      `&path=${encodeURIComponent(pathname || "")}` +
-                      `&to=${encodeURIComponent(sidebarCampaign?.creative?.linkUrl || `${basePath}/app/billing`)}`
-                    }
-                    className="mt-2 inline-flex rounded-xl bg-brand-ink px-3 py-2 text-xs font-semibold text-white hover:opacity-95"
-                  >
-                    {sidebarCampaign?.creative?.ctaText || "View upgrades"}
-                  </a>
-                </div>
-              ) : null}
-
-              <div className="text-xs text-zinc-500">Signed in as</div>
-              <div className="mt-1 truncate text-sm font-semibold text-brand-ink">{signedInLabel}</div>
-              <div className="mt-3">
-                <SignOutButton />
+            <div className="border-t border-zinc-200 p-3">
+              <div className="flex items-center justify-end">
+                <SignOutButton variant="sidebar" collapsed />
               </div>
             </div>
           </aside>
@@ -2590,25 +2616,16 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                 className="inline-flex items-center justify-center rounded-xl border border-zinc-200 bg-white p-2 text-zinc-700 hover:bg-zinc-50"
                 aria-label="Open menu"
               >
-                <IconHamburger />
+                <IconChevron />
               </button>
 
-              <Link href={`${basePath}/app`} className="flex items-center gap-3">
-                <Image
-                  src={logoSrc}
-                  alt="Purely Automation"
-                  width={150}
-                  height={46}
-                  className="h-8 w-auto object-contain"
-                  priority
-                />
-              </Link>
-              <Link
-                href={`${basePath}/app/services`}
-                className="inline-flex items-center justify-center rounded-xl bg-brand-ink px-3 py-2 text-sm font-semibold text-white"
-              >
-                Services
-              </Link>
+              <div className="min-w-0 flex-1 px-3 text-center">
+                <div className="truncate text-base font-semibold tracking-tight text-brand-ink">{mobileHeaderTitle}</div>
+              </div>
+
+              <div className="flex items-center gap-2">
+                {sidebarOverride?.mobileHeaderActions ? sidebarOverride.mobileHeaderActions : <div className="h-10 w-10" aria-hidden />}
+              </div>
             </div>
           </header>
 

@@ -6,6 +6,8 @@ import { createContext, useContext, useMemo, useState } from "react";
 export type PortalSidebarOverride = {
   desktopTopRight?: ReactNode;
   desktopSidebarContent?: ReactNode;
+  mobileHeaderActions?: ReactNode;
+  mobileSidebarContent?: ReactNode;
   forceCollapsed?: boolean;
 };
 

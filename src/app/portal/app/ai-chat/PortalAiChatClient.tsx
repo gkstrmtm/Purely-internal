@@ -1927,10 +1927,123 @@ export function PortalAiChatClient() {
     [activeThreadId, closeThreadMenu, createThread, selectThread, setScheduledOpen, threadMenu, threadMenuThreadId, threads, threadsLoading],
   );
 
+  const mobileSidebar = useMemo(
+    () => (
+      <div className="flex h-full flex-col overflow-hidden">
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain p-2">
+          {threadsLoading ? (
+            <div className="p-3 text-sm text-zinc-500">Loading…</div>
+          ) : !threads.length ? (
+            <div className="p-3 text-sm text-zinc-500">No chats yet.</div>
+          ) : (
+            <div className="space-y-1">
+              {threads.map((t) => {
+                const active = t.id === activeThreadId;
+                return (
+                  <div
+                    key={t.id}
+                    className={classNames(
+                      "group relative w-full rounded-2xl",
+                      active ? "bg-[rgba(29,78,216,0.10)]" : "hover:bg-zinc-50",
+                    )}
+                  >
+                    <button
+                      type="button"
+                      onClick={() => {
+                        selectThread(t.id);
+                        if (typeof window !== "undefined") {
+                          window.dispatchEvent(new CustomEvent("pa.portal.mobile-drawer.close"));
+                        }
+                      }}
+                      className="w-full rounded-2xl px-3 py-2 pr-10 text-left"
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div className={classNames("min-w-0 text-sm font-semibold", active ? "text-zinc-900" : "text-zinc-800")}>
+                          <span className="block truncate">
+                            {t.title || "New chat"}
+                            {t.isPinned ? <span className="ml-2 text-[11px] font-bold text-zinc-500">PINNED</span> : null}
+                          </span>
+                        </div>
+                        <div className="shrink-0 text-xs font-semibold text-zinc-500">{fmtShortTime(t.lastMessageAt || t.updatedAt)}</div>
+                      </div>
+                    </button>
+
+                    <button
+                      type="button"
+                      className={classNames(
+                        "absolute right-2 top-2 inline-flex h-7 w-7 items-center justify-center rounded-xl text-zinc-500",
+                        "opacity-0 transition-all group-hover:opacity-100 hover:scale-110 hover:text-zinc-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/30",
+                        active && "opacity-100",
+                      )}
+                      aria-label="Chat options"
+                      title="Chat options"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        if (threadMenu && threadMenuThreadId === t.id) {
+                          closeThreadMenu();
+                          return;
+                        }
+                        const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                        setThreadMenuAnchorRect(rect);
+                        setThreadMenuThreadId(t.id);
+                        setThreadMenu(
+                          computeFixedMenuStyle({ rect, width: 220, estHeight: 170, alignX: "right", minHeight: 140, gapPx: 4 }),
+                        );
+                      }}
+                    >
+                      <span className="text-lg font-semibold leading-none">⋯</span>
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </div>
+    ),
+    [activeThreadId, closeThreadMenu, selectThread, threadMenu, threadMenuThreadId, threads, threadsLoading],
+  );
+
+  const mobileHeaderActions = useMemo(
+    () => (
+      <>
+        <button
+          type="button"
+          className="inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50"
+          onClick={() => setScheduledOpen(true)}
+          aria-label="Scheduled tasks"
+          title="Scheduled tasks"
+        >
+          <IconSchedule size={18} />
+        </button>
+        <button
+          type="button"
+          className="inline-flex h-10 w-10 items-center justify-center rounded-2xl bg-brand-blue text-white hover:opacity-95"
+          onClick={() => {
+            createThread();
+            if (typeof window !== "undefined") {
+              window.dispatchEvent(new CustomEvent("pa.portal.mobile-drawer.close"));
+            }
+          }}
+          aria-label="New chat"
+          title="New chat"
+        >
+          <span className="text-lg font-semibold leading-none">＋</span>
+        </button>
+      </>
+    ),
+    [createThread],
+  );
+
   const setSidebarOverride = useSetPortalSidebarOverride();
   useEffect(() => {
-    setSidebarOverride({ desktopSidebarContent: left });
-  }, [left, setSidebarOverride]);
+    setSidebarOverride({
+      desktopSidebarContent: left,
+      mobileSidebarContent: mobileSidebar,
+      mobileHeaderActions,
+    });
+  }, [left, mobileHeaderActions, mobileSidebar, setSidebarOverride]);
 
   useEffect(() => {
     return () => setSidebarOverride(null);
@@ -2483,59 +2596,6 @@ export function PortalAiChatClient() {
 
       <div ref={canvasContainerRef} className="flex min-w-0 flex-1 bg-white shadow-[inset_12px_0_16px_-16px_rgba(0,0,0,0.22)] relative">
         <div className="flex min-w-0 flex-1 flex-col">
-        <div className="shrink-0 border-b border-zinc-200 bg-white pt-[env(safe-area-inset-top)] lg:hidden">
-          <div className="px-3 py-3 sm:px-4">
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                className="inline-flex h-10 items-center justify-center rounded-2xl border border-zinc-200 bg-white px-3 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
-                onClick={() => setMobileThreadsOpen(true)}
-              >
-                Threads
-              </button>
-
-              <div className="min-w-0 flex-1 px-1">
-                <div className="truncate text-sm font-semibold text-zinc-900">{activeThread?.title || "Chat"}</div>
-              </div>
-
-              <button
-                type="button"
-                className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-brand-blue text-white hover:opacity-95"
-                onClick={createThread}
-                aria-label="New chat"
-                title="New chat"
-              >
-                <span className="text-lg font-semibold leading-none">＋</span>
-              </button>
-            </div>
-
-            <div className="mt-2 flex items-center gap-2">
-              <button
-                type="button"
-                className="inline-flex h-10 items-center justify-center gap-2 rounded-2xl border border-zinc-200 bg-white px-3 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
-                onClick={() => setScheduledOpen(true)}
-                aria-label="Scheduled tasks"
-                title="Scheduled tasks"
-              >
-                <IconSchedule size={16} />
-                <span>Scheduled</span>
-              </button>
-
-              {canvasUrl ? (
-                <button
-                  type="button"
-                  className="ml-auto inline-flex h-10 items-center justify-center rounded-2xl border border-brand-blue/20 bg-brand-blue px-3 text-sm font-semibold text-white hover:opacity-95"
-                  onClick={() => openCanvasInNewTab(canvasUrl)}
-                  aria-label="Open work"
-                  title="Open work"
-                >
-                  Open work
-                </button>
-              ) : null}
-            </div>
-          </div>
-        </div>
-
         <div ref={scrollerRef} className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain bg-white">
           <div className="mx-auto w-full max-w-5xl space-y-3 px-4 py-6">
             {messagesLoading ? (

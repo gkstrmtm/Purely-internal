@@ -422,6 +422,7 @@ export function PortalFloatingTools() {
   const pathname = usePathname() || "";
   const router = useRouter();
   const portalBase = pathname.startsWith("/credit") ? "/credit" : "/portal";
+  const [isSmallScreen, setIsSmallScreen] = useState(false);
   const [minimized, setMinimized] = useState(true);
   const [compactDock, setCompactDock] = useState(false);
   const [forceHidden, setForceHidden] = useState(false);
@@ -448,6 +449,15 @@ export function PortalFloatingTools() {
   const toolsCardRef = useRef<HTMLDivElement | null>(null);
   const chatPanelRef = useRef<HTMLDivElement | null>(null);
   const reportCardRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const media = window.matchMedia("(max-width: 639px)");
+    const sync = () => setIsSmallScreen(media.matches);
+    sync();
+    media.addEventListener("change", sync);
+    return () => media.removeEventListener("change", sync);
+  }, []);
 
   useEffect(() => {
     chatMessagesRef.current = chatMessages;
@@ -534,6 +544,19 @@ export function PortalFloatingTools() {
   }, []);
 
   const hidden = forceHidden || profileHidden;
+  const moveDockToTopRight = isSmallScreen && pathname.startsWith(`${portalBase}/app/services/inbox`);
+  const notePositionClass = moveDockToTopRight
+    ? "fixed right-3 top-[calc(env(safe-area-inset-top)+4rem)] z-130103 max-w-[calc(100vw-1.5rem)] rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-800 shadow-lg ring-1 ring-[rgba(29,78,216,0.14)] sm:top-auto sm:right-4 sm:max-w-sm sm:bottom-[calc(var(--pa-portal-embed-footer-offset,0px)+6rem)]"
+    : "fixed bottom-[calc(var(--pa-portal-embed-footer-offset,0px)+6rem)] right-4 z-130103 max-w-sm rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-800 shadow-lg ring-1 ring-[rgba(29,78,216,0.14)]";
+  const reportPanelPositionClass = moveDockToTopRight
+    ? "absolute right-3 top-[calc(env(safe-area-inset-top)+4rem)] w-[min(520px,calc(100vw-1.5rem))] rounded-3xl border border-zinc-200 bg-white p-5 shadow-2xl sm:top-auto sm:right-4 sm:bottom-[calc(var(--pa-portal-embed-footer-offset,0px)+1.5rem)] sm:w-[min(520px,calc(100vw-2rem))]"
+    : "absolute bottom-[calc(var(--pa-portal-embed-footer-offset,0px)+1.5rem)] right-4 w-[min(520px,calc(100vw-2rem))] rounded-3xl border border-zinc-200 bg-white p-5 shadow-2xl";
+  const chatPanelPositionClass = moveDockToTopRight
+    ? "fixed right-3 top-[calc(env(safe-area-inset-top)+4rem)] z-130101 w-[min(520px,calc(100vw-1.5rem))] overflow-hidden rounded-3xl border border-zinc-200 bg-white p-5 shadow-2xl sm:right-4 sm:top-auto sm:bottom-[calc(var(--pa-portal-embed-footer-offset,0px)+1.5rem)] sm:w-[min(520px,calc(100vw-2rem))]"
+    : "fixed bottom-[calc(var(--pa-portal-embed-footer-offset,0px)+1.5rem)] right-4 z-130101 w-[min(520px,calc(100vw-2rem))] overflow-hidden rounded-3xl border border-zinc-200 bg-white p-5 shadow-2xl";
+  const dockPositionClass = moveDockToTopRight
+    ? "fixed right-3 top-[calc(env(safe-area-inset-top)+4rem)] z-130100 flex justify-end sm:top-auto sm:right-4 sm:bottom-[calc(var(--pa-portal-embed-footer-offset,0px)+1rem)]"
+    : "fixed bottom-[calc(var(--pa-portal-embed-footer-offset,0px)+1rem)] right-4 z-130100 flex justify-end";
 
   useEffect(() => {
     if (!hidden) return;
@@ -601,7 +624,7 @@ export function PortalFloatingTools() {
       root.style.setProperty("--pa-portal-floating-tools-reserve", `${v}px`);
     };
 
-    if (hidden) {
+    if (hidden || moveDockToTopRight) {
       setReserve(0);
       return;
     }
@@ -639,7 +662,7 @@ export function PortalFloatingTools() {
       ro?.disconnect();
       window.removeEventListener("resize", recompute);
     };
-  }, [chatOpen, hidden, minimized, reportOpen]);
+  }, [chatOpen, hidden, minimized, moveDockToTopRight, reportOpen]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -989,7 +1012,7 @@ export function PortalFloatingTools() {
   return (
     <>
       {note ? (
-        <div className="fixed bottom-[calc(var(--pa-portal-embed-footer-offset,0px)+6rem)] right-4 z-130103 max-w-sm rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-800 shadow-lg ring-1 ring-[rgba(29,78,216,0.14)]">
+        <div className={notePositionClass}>
           {note}
         </div>
       ) : null}
@@ -1005,7 +1028,7 @@ export function PortalFloatingTools() {
 
           <div
             ref={reportCardRef}
-            className="absolute bottom-[calc(var(--pa-portal-embed-footer-offset,0px)+1.5rem)] right-4 w-[min(520px,calc(100vw-2rem))] rounded-3xl border border-zinc-200 bg-white p-5 shadow-2xl"
+            className={reportPanelPositionClass}
           >
             <div className="mb-3 h-1.5 w-16 rounded-full bg-[linear-gradient(90deg,rgba(29,78,216,0.9),rgba(251,113,133,0.35))]" />
             <div className="flex items-start justify-between gap-3">
@@ -1052,7 +1075,7 @@ export function PortalFloatingTools() {
       {chatOpen ? (
         <div
           ref={chatPanelRef}
-          className="fixed bottom-[calc(var(--pa-portal-embed-footer-offset,0px)+1.5rem)] right-4 z-130101 w-[min(520px,calc(100vw-2rem))] overflow-hidden rounded-3xl border border-zinc-200 bg-white p-5 shadow-2xl"
+          className={chatPanelPositionClass}
         >
             <div className="mb-3 h-1.5 w-16 rounded-full bg-[linear-gradient(90deg,rgba(29,78,216,0.9),rgba(251,113,133,0.35))]" />
             <div className="flex items-start justify-between gap-3">
@@ -1183,7 +1206,7 @@ export function PortalFloatingTools() {
         </div>
       ) : null}
 
-      <div className="fixed bottom-[calc(var(--pa-portal-embed-footer-offset,0px)+1rem)] right-4 z-130100 flex justify-end">
+      <div className={dockPositionClass}>
         {minimized ? (
           compactDock ? (
             <div className="group flex items-center justify-end gap-2">
