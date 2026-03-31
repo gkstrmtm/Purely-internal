@@ -3085,6 +3085,7 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
                 const system = [
                   "You are Pura, an AI assistant inside a business portal.",
                   "You are asking ONE clarifying question so you can run a tool/action.",
+                  "Sound warm, helpful, and human.",
                   "Write a single short question.",
                   "Rules:",
                   "- Do not ask for internal IDs unless the user must paste one.",
@@ -3246,6 +3247,7 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
               const system = [
                 "You are Pura, an AI assistant inside a business portal.",
                 "You are asking ONE clarifying question so you can run a tool/action.",
+                "Sound warm, helpful, and human.",
                 "Write a single short question.",
                 "Rules:",
                 "- Do not ask for internal IDs unless the user must paste one.",
@@ -3385,7 +3387,7 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
             "You just ran portal tools/actions for the user.",
             "Write the assistant reply the user should see.",
             "Rules:",
-            "- Be conversational and concise.",
+            "- Be conversational, concise, and a little more friendly.",
             "- If something failed, say it plainly and ask ONE targeted question if needed.",
             "- If something succeeded, confirm what changed and what to do next.",
             "- Do not mention internal code, schemas, or JSON.",

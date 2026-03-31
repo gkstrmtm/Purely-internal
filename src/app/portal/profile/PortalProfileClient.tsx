@@ -23,7 +23,7 @@ import {
   type SalesReportingProviderKey,
 } from "@/lib/salesReportingProviders";
 import { SuggestedSetupSection } from "./SuggestedSetupSection";
-import { IconChevron, IconCopy, IconEyeGlyph } from "@/app/portal/PortalIcons";
+import { IconChevron, IconCopy, IconEyeGlyph, IconEyeOffGlyph } from "@/app/portal/PortalIcons";
 
 type Me = {
   ok?: boolean;
@@ -1686,19 +1686,11 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
                           <button
                             type="button"
                             onClick={() => setTwilioExpanded((current) => !current)}
-                            className="flex min-w-0 flex-1 items-center justify-between gap-3 rounded-2xl text-left transition-all duration-150 hover:-translate-y-0.5"
+                            className="flex min-w-0 flex-1 items-center gap-3 rounded-2xl text-left transition-all duration-150 hover:-translate-y-0.5"
                           >
                             <div className="min-w-0">
                               <div className="text-sm font-semibold text-zinc-900">Twilio connection</div>
                               <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-zinc-500">
-                                <span
-                                  className={classNames(
-                                    "inline-flex w-fit items-center rounded-full px-3 py-1 text-xs font-semibold",
-                                    twilioMasked?.configured ? "bg-emerald-100 text-emerald-700" : "bg-zinc-100 text-zinc-700",
-                                  )}
-                                >
-                                  {twilioMasked?.configured ? "Ready" : "Setup needed"}
-                                </span>
                                 <span>
                                   Status: <span className="font-semibold text-zinc-900">{twilioMasked?.configured ? "Connected" : "Not connected"}</span>
                                 </span>
@@ -1708,16 +1700,28 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
                                 </span>
                               </div>
                             </div>
+                          </button>
+                          <div className="flex items-center gap-2">
                             <span
                               className={classNames(
-                                "inline-flex h-8 w-8 items-center justify-center rounded-full border border-zinc-200 bg-white text-zinc-600 transition-transform duration-150",
+                                "inline-flex w-fit items-center rounded-full px-3 py-1 text-xs font-semibold",
+                                twilioMasked?.configured ? "bg-emerald-100 text-emerald-700" : "bg-zinc-100 text-zinc-700",
+                              )}
+                            >
+                              {twilioMasked?.configured ? "Ready" : "Setup needed"}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => setTwilioExpanded((current) => !current)}
+                              className={classNames(
+                                "inline-flex h-8 w-8 items-center justify-center rounded-full border border-zinc-200 bg-white text-zinc-600 transition-transform duration-150 hover:-translate-y-0.5",
                                 twilioExpanded ? "-rotate-90" : "rotate-90",
                               )}
-                              aria-hidden
+                              aria-label={twilioExpanded ? "Collapse Twilio settings" : "Expand Twilio settings"}
                             >
                               <IconChevron />
-                            </span>
-                          </button>
+                            </button>
+                          </div>
                         </div>
 
                         {twilioExpanded ? (
@@ -1867,7 +1871,7 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
                           <button
                             type="button"
                             onClick={() => setSalesReportingExpanded((current) => !current)}
-                            className="flex min-w-0 flex-1 items-center justify-between gap-3 rounded-2xl text-left transition-all duration-150 hover:-translate-y-0.5"
+                            className="flex min-w-0 flex-1 items-center gap-3 rounded-2xl text-left transition-all duration-150 hover:-translate-y-0.5"
                           >
                             <div className="min-w-0">
                               <div className="text-sm font-semibold text-zinc-900">Sales reporting connection</div>
@@ -1881,24 +1885,25 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
                                 </span>
                               </div>
                             </div>
-                            <span
-                              className={classNames(
-                                "inline-flex h-8 w-8 items-center justify-center rounded-full border border-zinc-200 bg-white text-zinc-600 transition-transform duration-150",
-                                salesReportingExpanded ? "-rotate-90" : "rotate-90",
-                              )}
-                              aria-hidden
-                            >
-                              <IconChevron />
-                            </span>
                           </button>
-
                           <div className="flex flex-wrap items-center gap-2">
                             <Link
                               href="/portal/app/services/reporting/sales"
                               className="inline-flex items-center justify-center rounded-2xl px-2 py-1 text-sm font-semibold text-(--color-brand-blue) underline underline-offset-4 transition-transform duration-150 hover:-translate-y-0.5"
                             >
-                              Open sales dashboard →
+                              Open Sales Dashboard →
                             </Link>
+                            <button
+                              type="button"
+                              onClick={() => setSalesReportingExpanded((current) => !current)}
+                              className={classNames(
+                                "inline-flex h-8 w-8 items-center justify-center rounded-full border border-zinc-200 bg-white text-zinc-600 transition-transform duration-150 hover:-translate-y-0.5",
+                                salesReportingExpanded ? "-rotate-90" : "rotate-90",
+                              )}
+                              aria-label={salesReportingExpanded ? "Collapse sales reporting settings" : "Expand sales reporting settings"}
+                            >
+                              <IconChevron />
+                            </button>
                           </div>
                         </div>
 
@@ -2200,7 +2205,7 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
                           <button
                             type="button"
                             onClick={() => setApiKeysExpanded((current) => !current)}
-                            className="flex min-w-0 flex-1 items-center justify-between gap-3 rounded-2xl text-left transition-all duration-150 hover:-translate-y-0.5"
+                            className="flex min-w-0 flex-1 items-center gap-3 rounded-2xl text-left transition-all duration-150 hover:-translate-y-0.5"
                           >
                             <div className="min-w-0">
                               <div className="text-sm font-semibold text-zinc-900">API keys overview</div>
@@ -2214,27 +2219,30 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
                                 </span>
                               </div>
                             </div>
-                            <span
+                          </button>
+                          <div className="flex items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                resetApiKeyComposer();
+                                setApiKeyModalOpen(true);
+                              }}
+                              className="inline-flex items-center justify-center rounded-2xl bg-(--color-brand-blue) px-4 py-2 text-sm font-semibold text-white transition-transform duration-150 hover:-translate-y-0.5 hover:opacity-95"
+                            >
+                              Create API Key
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setApiKeysExpanded((current) => !current)}
                               className={classNames(
-                                "inline-flex h-8 w-8 items-center justify-center rounded-full border border-zinc-200 bg-white text-zinc-600 transition-transform duration-150",
+                                "inline-flex h-8 w-8 items-center justify-center rounded-full border border-zinc-200 bg-white text-zinc-600 transition-transform duration-150 hover:-translate-y-0.5",
                                 apiKeysExpanded ? "-rotate-90" : "rotate-90",
                               )}
-                              aria-hidden
+                              aria-label={apiKeysExpanded ? "Collapse API key settings" : "Expand API key settings"}
                             >
                               <IconChevron />
-                            </span>
-                          </button>
-
-                          <button
-                            type="button"
-                            onClick={() => {
-                              resetApiKeyComposer();
-                              setApiKeyModalOpen(true);
-                            }}
-                            className="inline-flex items-center justify-center rounded-2xl bg-(--color-brand-blue) px-4 py-2 text-sm font-semibold text-white transition-transform duration-150 hover:-translate-y-0.5 hover:opacity-95"
-                          >
-                            Create API key
-                          </button>
+                            </button>
+                          </div>
                         </div>
 
                         {apiKeysExpanded ? (
@@ -2265,7 +2273,7 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
                                       onClick={() => void revealApiKey(fullAccessApiKey.id)}
                                       className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-brand-ink transition-all duration-150 hover:-translate-y-0.5 hover:border-zinc-300 hover:bg-zinc-50"
                                     >
-                                      <IconEyeGlyph size={16} className="mr-2" />
+                                      {revealedApiKeyValues[fullAccessApiKey.id] ? <IconEyeOffGlyph size={16} className="mr-2" /> : <IconEyeGlyph size={16} className="mr-2" />}
                                       {revealingApiKeyId === fullAccessApiKey.id
                                         ? "Loading…"
                                         : revealedApiKeyValues[fullAccessApiKey.id]
@@ -2327,7 +2335,7 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
                                     onClick={() => void revealApiKey(apiKey.id)}
                                     className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink transition-all duration-150 hover:-translate-y-0.5 hover:border-zinc-300 hover:bg-zinc-50"
                                   >
-                                    <IconEyeGlyph size={16} className="mr-2" />
+                                    {revealedApiKeyValues[apiKey.id] ? <IconEyeOffGlyph size={16} className="mr-2" /> : <IconEyeGlyph size={16} className="mr-2" />}
                                     {revealingApiKeyId === apiKey.id ? "Loading…" : revealedApiKeyValues[apiKey.id] ? "Hide" : "Reveal"}
                                   </button>
                                   <button

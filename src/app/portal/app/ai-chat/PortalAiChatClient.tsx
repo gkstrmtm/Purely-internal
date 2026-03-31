@@ -109,6 +109,24 @@ type Message = {
   sentAt: string | null;
 };
 
+type ThreadUiState = {
+  ambiguousContacts: AmbiguousContact[] | null;
+  assistantChoices: AssistantChoice[] | null;
+  canvasUiAmbiguity: { action: PuraCanvasUiAction; candidates: CanvasUiCandidate[] } | null;
+  canvasUiResumeActions: PuraCanvasUiAction[] | null;
+};
+
+const DRAFT_THREAD_KEY = "__draft__";
+
+function createEmptyThreadUiState(): ThreadUiState {
+  return {
+    ambiguousContacts: null,
+    assistantChoices: null,
+    canvasUiAmbiguity: null,
+    canvasUiResumeActions: null,
+  };
+}
+
 type PromptChipDefinition = {
   id: string;
   prompt: string;
@@ -545,10 +563,9 @@ export function PortalAiChatClient() {
     }
   }, [canvasOpen]);
 
-  const [ambiguousContacts, setAmbiguousContacts] = useState<AmbiguousContact[] | null>(null);
-  const [assistantChoices, setAssistantChoices] = useState<AssistantChoice[] | null>(null);
-  const [canvasUiAmbiguity, setCanvasUiAmbiguity] = useState<{ action: PuraCanvasUiAction; candidates: CanvasUiCandidate[] } | null>(null);
-  const [canvasUiResumeActions, setCanvasUiResumeActions] = useState<PuraCanvasUiAction[] | null>(null);
+  const [threadUiStateById, setThreadUiStateById] = useState<Record<string, ThreadUiState>>(() => ({
+    [DRAFT_THREAD_KEY]: createEmptyThreadUiState(),
+  }));
 
   const toast = useToast();
 
@@ -690,13 +707,14 @@ export function PortalAiChatClient() {
   const [threadsLoading, setThreadsLoading] = useState(true);
   const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
 
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [messagesLoading, setMessagesLoading] = useState(false);
+  const [messagesByThread, setMessagesByThread] = useState<Record<string, Message[]>>(() => ({ [DRAFT_THREAD_KEY]: [] }));
+  const [loadingThreadIds, setLoadingThreadIds] = useState<Set<string>>(() => new Set());
   const [serviceUsageCounts, setServiceUsageCounts] = useState<Record<string, number>>({});
   const [welcomePromptSeed, setWelcomePromptSeed] = useState(() => `${Date.now()}-${Math.random()}`);
 
   const [input, setInput] = useState("");
-  const [sending, setSending] = useState(false);
+  const [sendingThreadIds, setSendingThreadIds] = useState<Set<string>>(() => new Set());
+  const [draftSending, setDraftSending] = useState(false);
   const [dictating, setDictating] = useState(false);
   const [dictatingMessageId, setDictatingMessageId] = useState<string | null>(null);
   const [dictationPlayingMessageId, setDictationPlayingMessageId] = useState<string | null>(null);
@@ -800,10 +818,70 @@ export function PortalAiChatClient() {
   const endRef = useRef<HTMLDivElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const forceScrollToBottomRef = useRef(false);
-  const sendInFlightRef = useRef(false);
+  const sendInFlightRef = useRef<Set<string>>(new Set());
+  const activeThreadIdRef = useRef<string | null>(null);
+
+  const activeThreadKey = activeThreadId ?? DRAFT_THREAD_KEY;
+  const messages = messagesByThread[activeThreadKey] ?? [];
+  const messagesLoading = activeThreadId ? loadingThreadIds.has(activeThreadId) : false;
+  const sending = activeThreadId ? sendingThreadIds.has(activeThreadId) : draftSending;
+  const activeThreadUiState = threadUiStateById[activeThreadKey] ?? createEmptyThreadUiState();
+  const ambiguousContacts = activeThreadUiState.ambiguousContacts;
+  const assistantChoices = activeThreadUiState.assistantChoices;
+  const canvasUiAmbiguity = activeThreadUiState.canvasUiAmbiguity;
+  const canvasUiResumeActions = activeThreadUiState.canvasUiResumeActions;
 
   const activeThread = useMemo(() => threads.find((t) => t.id === activeThreadId) || null, [threads, activeThreadId]);
   const requestedThreadId = (searchParams?.get("thread") || "").trim() || null;
+
+  useEffect(() => {
+    activeThreadIdRef.current = activeThreadId;
+  }, [activeThreadId]);
+
+  const setThreadUiState = useCallback(
+    (threadKey: string, updater: (prev: ThreadUiState) => ThreadUiState) => {
+      setThreadUiStateById((prev) => {
+        const current = prev[threadKey] ?? createEmptyThreadUiState();
+        return { ...prev, [threadKey]: updater(current) };
+      });
+    },
+    [],
+  );
+
+  const clearThreadUiState = useCallback(
+    (threadKey: string) => {
+      setThreadUiStateById((prev) => ({ ...prev, [threadKey]: createEmptyThreadUiState() }));
+    },
+    [],
+  );
+
+  const updateThreadMessages = useCallback(
+    (threadKey: string, updater: (prev: Message[]) => Message[]) => {
+      setMessagesByThread((prev) => ({
+        ...prev,
+        [threadKey]: updater(prev[threadKey] ?? []),
+      }));
+    },
+    [],
+  );
+
+  const setThreadLoading = useCallback((threadId: string, loading: boolean) => {
+    setLoadingThreadIds((prev) => {
+      const next = new Set(prev);
+      if (loading) next.add(threadId);
+      else next.delete(threadId);
+      return next;
+    });
+  }, []);
+
+  const setThreadSending = useCallback((threadId: string, sendingState: boolean) => {
+    setSendingThreadIds((prev) => {
+      const next = new Set(prev);
+      if (sendingState) next.add(threadId);
+      else next.delete(threadId);
+      return next;
+    });
+  }, []);
 
   useEffect(() => {
     const root = document.documentElement;
@@ -854,19 +932,22 @@ export function PortalAiChatClient() {
 
   const loadMessages = useCallback(
     async (threadId: string) => {
-      setMessagesLoading(true);
+      setThreadLoading(threadId, true);
       try {
         const res = await fetch(`/api/portal/ai-chat/threads/${encodeURIComponent(threadId)}/messages`, {
           cache: "no-store",
         });
         const json = await res.json().catch(() => null);
         if (!json?.ok) throw new Error(json?.error || "Failed to load messages");
-        setMessages(Array.isArray(json.messages) ? (json.messages as Message[]) : []);
+        setMessagesByThread((prev) => ({
+          ...prev,
+          [threadId]: Array.isArray(json.messages) ? (json.messages as Message[]) : [],
+        }));
         const nextLastCanvasUrl =
           typeof json?.threadContext?.lastCanvasUrl === "string" && json.threadContext.lastCanvasUrl.trim()
             ? String(json.threadContext.lastCanvasUrl).trim()
             : null;
-        if (nextLastCanvasUrl) {
+        if (nextLastCanvasUrl && activeThreadIdRef.current === threadId) {
           setCanvasUrl(nextLastCanvasUrl);
         }
         // Ensure we scroll after the new messages have actually rendered.
@@ -877,10 +958,10 @@ export function PortalAiChatClient() {
         const msg = e instanceof Error ? e.message : String(e);
         toast.error(msg);
       } finally {
-        setMessagesLoading(false);
+        setThreadLoading(threadId, false);
       }
     },
-    [toast, scrollToBottom],
+    [scrollToBottom, setThreadLoading, toast],
   );
 
   const selectThread = useCallback(
@@ -939,18 +1020,15 @@ export function PortalAiChatClient() {
     // This prevents empty threads from being persisted.
     forceScrollToBottomRef.current = true;
     setActiveThreadId(null);
-    setMessages([]);
+    setMessagesByThread((prev) => ({ ...prev, [DRAFT_THREAD_KEY]: [] }));
     setInput("");
     setPendingAttachments([]);
-    setAmbiguousContacts(null);
-    setAssistantChoices(null);
-    setCanvasUiAmbiguity(null);
-    setCanvasUiResumeActions(null);
+    clearThreadUiState(DRAFT_THREAD_KEY);
     setCanvasUrl(null);
     setCanvasModalOpen(false);
     setCanvasOpen(false);
     setMobileThreadsOpen(false);
-  }, []);
+  }, [clearThreadUiState]);
 
   const pinThread = useCallback(
     async (thread: Thread) => {
@@ -1162,15 +1240,15 @@ export function PortalAiChatClient() {
   );
 
   const executeClientUiActions = useCallback(
-    async (raw: unknown) => {
+    async (raw: unknown, threadKey = activeThreadKey) => {
       const list = (Array.isArray(raw) ? raw : [])
         .filter((a) => a && typeof a === "object" && typeof (a as any).kind === "string")
         .slice(0, 20) as PuraCanvasUiAction[];
       if (!list.length) return;
 
-      setCanvasUiAmbiguity(null);
-      setCanvasUiResumeActions(null);
+      setThreadUiState(threadKey, (prev) => ({ ...prev, canvasUiAmbiguity: null, canvasUiResumeActions: null }));
 
+      if (threadKey !== (activeThreadIdRef.current ?? DRAFT_THREAD_KEY)) return;
       setCanvasOpen(true);
       setCanvasModalOpen(false);
 
@@ -1185,9 +1263,9 @@ export function PortalAiChatClient() {
           } catch (e: any) {
             const candidates = Array.isArray(e?.candidates) ? (e.candidates as CanvasUiCandidate[]) : null;
             if (candidates && candidates.length) {
-              setCanvasUiAmbiguity({ action, candidates });
+              setThreadUiState(threadKey, (prev) => ({ ...prev, canvasUiAmbiguity: { action, candidates } }));
               const remaining = list.slice(i + 1);
-              setCanvasUiResumeActions(remaining.length ? remaining : null);
+              setThreadUiState(threadKey, (prev) => ({ ...prev, canvasUiResumeActions: remaining.length ? remaining : null }));
               toast.error(e instanceof Error ? e.message : String(e));
               return;
             }
@@ -1198,7 +1276,7 @@ export function PortalAiChatClient() {
         toast.error(e instanceof Error ? e.message : String(e));
       }
     },
-    [canvasUi, toast, waitForCanvasReady],
+    [activeThreadKey, canvasUi, setThreadUiState, toast, waitForCanvasReady],
   );
 
   const handleCanvasUiCandidateSelect = useCallback(
@@ -1206,7 +1284,7 @@ export function PortalAiChatClient() {
       const amb = canvasUiAmbiguity;
       if (!amb) return;
 
-      setCanvasUiAmbiguity(null);
+      setThreadUiState(activeThreadKey, (prev) => ({ ...prev, canvasUiAmbiguity: null }));
 
       try {
         setCanvasOpen(true);
@@ -1218,15 +1296,15 @@ export function PortalAiChatClient() {
         await canvasUi.run(rerun);
 
         const remaining = canvasUiResumeActions;
-        setCanvasUiResumeActions(null);
+        setThreadUiState(activeThreadKey, (prev) => ({ ...prev, canvasUiResumeActions: null }));
         if (remaining && remaining.length) {
-          await executeClientUiActions(remaining);
+          await executeClientUiActions(remaining, activeThreadKey);
         }
       } catch (e) {
         toast.error(e instanceof Error ? e.message : String(e));
       }
     },
-    [canvasUi, canvasUiAmbiguity, canvasUiResumeActions, executeClientUiActions, toast, waitForCanvasReady],
+    [activeThreadKey, canvasUi, canvasUiAmbiguity, canvasUiResumeActions, executeClientUiActions, setThreadUiState, toast, waitForCanvasReady],
   );
 
   const send = useCallback(
@@ -1236,7 +1314,8 @@ export function PortalAiChatClient() {
         | { type: "booking_calendar"; calendarId: string; label?: string }
         | { type: "entity"; kind: string; value: string; label?: string },
     ) => {
-      if (sendInFlightRef.current) return;
+      const initialThreadKey = activeThreadId ?? DRAFT_THREAD_KEY;
+      if (sendInFlightRef.current.has(initialThreadKey)) return;
 
       const text = typeof overrideText === "string" ? overrideText : input.trim();
       const attachments = pendingAttachments;
@@ -1244,15 +1323,30 @@ export function PortalAiChatClient() {
 
       let threadIdForSend = activeThreadId;
       let createdThread: Thread | null = null;
+      let sendLockKey = initialThreadKey;
+      sendInFlightRef.current.add(sendLockKey);
+      if (sendLockKey === DRAFT_THREAD_KEY) setDraftSending(true);
+      else setThreadSending(sendLockKey, true);
       if (!threadIdForSend) {
-        const created = await fetch("/api/portal/ai-chat/threads", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({}),
-        }).then((r) => r.json().catch(() => null));
-        if (!created?.ok || !created?.thread?.id) throw new Error(created?.error || "Failed to create chat");
-        createdThread = created.thread as Thread;
-        threadIdForSend = String(createdThread.id);
+        try {
+          const created = await fetch("/api/portal/ai-chat/threads", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({}),
+          }).then((r) => r.json().catch(() => null));
+          if (!created?.ok || !created?.thread?.id) throw new Error(created?.error || "Failed to create chat");
+          createdThread = created.thread as Thread;
+          threadIdForSend = String(createdThread.id);
+          sendInFlightRef.current.delete(DRAFT_THREAD_KEY);
+          setDraftSending(false);
+          sendLockKey = threadIdForSend;
+          sendInFlightRef.current.add(sendLockKey);
+          setThreadSending(sendLockKey, true);
+        } catch (e) {
+          sendInFlightRef.current.delete(DRAFT_THREAD_KEY);
+          setDraftSending(false);
+          throw e;
+        }
       }
 
       const optimisticId = newClientId();
@@ -1278,16 +1372,11 @@ export function PortalAiChatClient() {
         sentAt: nowIso,
       };
 
-      setMessages((prev) => [...prev, optimisticUser, optimisticAssistant]);
+      updateThreadMessages(threadIdForSend, (prev) => [...prev, optimisticUser, optimisticAssistant]);
       if (!overrideText) setInput("");
       setPendingAttachments([]);
-      setAmbiguousContacts(null);
-      setAssistantChoices(null);
-      setCanvasUiAmbiguity(null);
-      setCanvasUiResumeActions(null);
+      clearThreadUiState(threadIdForSend);
 
-      sendInFlightRef.current = true;
-      setSending(true);
       try {
         const res = await fetch(`/api/portal/ai-chat/threads/${encodeURIComponent(threadIdForSend)}/messages`, {
           method: "POST",
@@ -1306,27 +1395,25 @@ export function PortalAiChatClient() {
 
         if (createdThread) {
           setThreads((prev) => [createdThread as Thread, ...prev]);
-          setActiveThreadId(threadIdForSend);
+          if (activeThreadIdRef.current === null) {
+            setActiveThreadId(threadIdForSend);
+          }
           setMobileThreadsOpen(false);
         }
-        if (json.ambiguousContacts && Array.isArray(json.ambiguousContacts) && json.ambiguousContacts.length) {
-          setAmbiguousContacts(json.ambiguousContacts);
-        } else {
-          setAmbiguousContacts(null);
-        }
-
-        if (json.assistantChoices && Array.isArray(json.assistantChoices) && json.assistantChoices.length) {
-          setAssistantChoices(json.assistantChoices as AssistantChoice[]);
-        } else {
-          setAssistantChoices(null);
-        }
+        setThreadUiState(threadIdForSend, (prev) => ({
+          ...prev,
+          ambiguousContacts: json.ambiguousContacts && Array.isArray(json.ambiguousContacts) && json.ambiguousContacts.length ? json.ambiguousContacts : null,
+          assistantChoices: json.assistantChoices && Array.isArray(json.assistantChoices) && json.assistantChoices.length ? (json.assistantChoices as AssistantChoice[]) : null,
+          canvasUiAmbiguity: null,
+          canvasUiResumeActions: null,
+        }));
 
         if (json?.needsConfirm?.token) {
           const token = String(json.needsConfirm.token || "").trim();
           const title = String(json.needsConfirm.title || "Confirm").trim() || "Confirm";
           const message = String(json.needsConfirm.message || "").trim() || "Continue?";
 
-          setMessages((prev) => {
+          updateThreadMessages(threadIdForSend, (prev) => {
             const cleaned = prev.filter((m) => m.id !== optimisticUser.id && m.id !== optimisticAssistant.id);
             const next: Message[] = [...cleaned];
             if (json.userMessage) next.push(json.userMessage);
@@ -1360,21 +1447,21 @@ export function PortalAiChatClient() {
           if (!json2?.ok) throw new Error(json2?.error || "Action failed");
 
           const nextCanvasUrl2 = typeof json2?.canvasUrl === "string" && json2.canvasUrl.trim() ? String(json2.canvasUrl).trim() : null;
-          if (nextCanvasUrl2) {
+          if (nextCanvasUrl2 && activeThreadIdRef.current === threadIdForSend) {
             setCanvasUrl(nextCanvasUrl2);
             setCanvasOpen(true);
             setCanvasModalOpen(false);
           }
 
           if (Array.isArray((json2 as any)?.clientUiActions) && (json2 as any).clientUiActions.length) {
-            void executeClientUiActions((json2 as any).clientUiActions);
+            void executeClientUiActions((json2 as any).clientUiActions, threadIdForSend);
           }
 
           const assistantActions2: AssistantAction[] = Array.isArray(json2.assistantActions)
             ? (json2.assistantActions as AssistantAction[])
             : [];
 
-          setMessages((prev) => {
+          updateThreadMessages(threadIdForSend, (prev) => {
             const next = [...prev];
             if (json2.assistantMessage) {
               const am: Message = json2.assistantMessage as Message;
@@ -1388,14 +1475,14 @@ export function PortalAiChatClient() {
         }
 
         const nextCanvasUrl = typeof json?.canvasUrl === "string" && json.canvasUrl.trim() ? String(json.canvasUrl).trim() : null;
-        if (nextCanvasUrl) {
+        if (nextCanvasUrl && activeThreadIdRef.current === threadIdForSend) {
           setCanvasUrl(nextCanvasUrl);
           setCanvasOpen(true);
           setCanvasModalOpen(false);
         }
 
         if (Array.isArray((json as any)?.clientUiActions) && (json as any).clientUiActions.length) {
-          void executeClientUiActions((json as any).clientUiActions);
+          void executeClientUiActions((json as any).clientUiActions, threadIdForSend);
         }
 
         const assistantActions: AssistantAction[] = Array.isArray(json.assistantActions)
@@ -1403,7 +1490,7 @@ export function PortalAiChatClient() {
           : [];
 
 
-        setMessages((prev) => {
+        updateThreadMessages(threadIdForSend, (prev) => {
           const cleaned = prev.filter((m) => m.id !== optimisticUser.id && m.id !== optimisticAssistant.id);
           const next: Message[] = [...cleaned];
           if (json.userMessage) next.push(json.userMessage);
@@ -1420,7 +1507,7 @@ export function PortalAiChatClient() {
 
         void loadThreads();
       } catch (e) {
-        setMessages((prev) => prev.filter((m) => m.id !== optimisticUser.id && m.id !== optimisticAssistant.id));
+        updateThreadMessages(threadIdForSend, (prev) => prev.filter((m) => m.id !== optimisticUser.id && m.id !== optimisticAssistant.id));
         setInput(text);
         setPendingAttachments(attachments);
 
@@ -1437,11 +1524,12 @@ export function PortalAiChatClient() {
 
         toast.error(e instanceof Error ? e.message : String(e));
       } finally {
-        sendInFlightRef.current = false;
-        setSending(false);
+        sendInFlightRef.current.delete(sendLockKey);
+        if (sendLockKey === DRAFT_THREAD_KEY) setDraftSending(false);
+        else setThreadSending(sendLockKey, false);
       }
     },
-    [activeThreadId, askConfirm, canvasUrl, clientTimeZone, clientTimeZoneHeaders, executeClientUiActions, input, pendingAttachments, toast, loadThreads],
+    [activeThreadId, askConfirm, canvasUrl, clearThreadUiState, clientTimeZone, clientTimeZoneHeaders, executeClientUiActions, input, loadThreads, pendingAttachments, setThreadSending, toast, updateThreadMessages],
   );
 
   // Handler for ambiguous contact selection (must be after send is defined)
@@ -1498,21 +1586,24 @@ export function PortalAiChatClient() {
       }
 
       setRunningActionKey(a.key);
+      const threadIdForAction = activeThreadId;
       try {
         const json = await executeAgentAction(a.key, a.args || {});
-        if (json.assistantMessage) setMessages((prev) => [...prev, json.assistantMessage as Message]);
+        if (json.assistantMessage && threadIdForAction) {
+          updateThreadMessages(threadIdForAction, (prev) => [...prev, json.assistantMessage as Message]);
+        }
         if ((json as any)?.openScheduledTasks) {
           setScheduledOpen(true);
         }
         const nextCanvasUrl = typeof json?.linkUrl === "string" && json.linkUrl.trim() ? String(json.linkUrl).trim() : null;
-        if (nextCanvasUrl) {
+        if (nextCanvasUrl && activeThreadIdRef.current === threadIdForAction) {
           setCanvasUrl(nextCanvasUrl);
           setCanvasOpen(true);
           setCanvasModalOpen(false);
         }
 
         if (Array.isArray((json as any)?.clientUiActions) && (json as any).clientUiActions.length) {
-          void executeClientUiActions((json as any).clientUiActions);
+          void executeClientUiActions((json as any).clientUiActions, threadIdForAction ?? DRAFT_THREAD_KEY);
         }
 
         void loadThreads();
@@ -1522,7 +1613,7 @@ export function PortalAiChatClient() {
         setRunningActionKey(null);
       }
     },
-    [askConfirm, executeAgentAction, executeClientUiActions, loadThreads, runningActionKey, toast],
+    [activeThreadId, askConfirm, executeAgentAction, executeClientUiActions, loadThreads, runningActionKey, toast, updateThreadMessages],
   );
 
   const openInCanvas = useCallback(

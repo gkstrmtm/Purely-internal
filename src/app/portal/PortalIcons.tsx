@@ -135,6 +135,50 @@ export function IconEyeGlyph({ size = 18, className, title }: PortalIconProps) {
   );
 }
 
+export function IconEyeOffGlyph({ size = 18, className, title }: PortalIconProps) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+      className={className}
+      aria-hidden={title ? undefined : true}
+    >
+      {title ? <title>{title}</title> : null}
+      <path
+        d="M10.7327 5.07312C11.1484 5.02466 11.5707 5 12.0004 5C17.1054 5 20.4553 9.50484 21.5807 11.2868C21.7169 11.5025 21.785 11.6103 21.8231 11.7766C21.8517 11.9015 21.8517 12.0985 21.8231 12.2234C21.785 12.3897 21.7169 12.4975 21.5807 12.7132C21.1892 13.333 20.6985 14.0347 20.1072 14.735"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M6.61075 6.63464C4.6218 7.99037 3.33099 9.72494 2.42012 11.2868C2.28394 11.5025 2.21584 11.6103 2.17772 11.7766C2.14909 11.9015 2.14909 12.0985 2.17772 12.2234C2.21584 12.3897 2.28394 12.4975 2.42012 12.7132C3.54553 14.4952 6.8954 19 12.0004 19C13.7157 19 15.2323 18.4918 16.5194 17.7882"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M9.87988 9.87891C9.33659 10.4222 9.0004 11.1728 9.0004 12.002C9.0004 13.6588 10.3435 15.002 12.0004 15.002C12.8296 15.002 13.5802 14.6658 14.1235 14.1225"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M3 3L21 21"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
 export function IconApiKeysGlyph({ size = 18, className, title }: PortalIconProps) {
   return (
     <svg
