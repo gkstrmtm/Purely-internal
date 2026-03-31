@@ -48,12 +48,17 @@ export async function GET(req: Request) {
   const threads = threadIds.length
     ? await (prisma as any).portalAiChatThread.findMany({
         where: { ownerId, id: { in: threadIds } },
-        select: { id: true, title: true },
+        select: { id: true, title: true, contextJson: true },
       })
     : [];
 
-  const titleByThreadId = new Map<string, string>();
-  for (const t of threads) titleByThreadId.set(String(t.id), String(t.title || "Chat"));
+  const threadMetaById = new Map<string, { title: string; contextJson: unknown }>();
+  for (const t of threads) {
+    threadMetaById.set(String(t.id), {
+      title: String(t.title || "Chat"),
+      contextJson: (t as any).contextJson ?? null,
+    });
+  }
 
   const toDisplayText = (textRaw: unknown): string => {
     const raw = String(textRaw || "").trim();
@@ -76,10 +81,53 @@ export async function GET(req: Request) {
     return keys.length ? `Scheduled: ${keys.join(" • ")}` : "Scheduled task";
   };
 
+  const summarizeRun = (run: any): { lastRunAt: string | null; lastRunOk: boolean | null; lastRunSummary: string | null } => {
+    const lastRunAt = run?.at ? new Date(run.at).toISOString() : null;
+    const steps = Array.isArray(run?.steps) ? run.steps : [];
+    if (!steps.length) {
+      return { lastRunAt, lastRunOk: null, lastRunSummary: null };
+    }
+
+    const okCount = steps.filter((s: any) => Boolean(s?.ok)).length;
+    const total = steps.length;
+    const titles = steps
+      .map((s: any) => String(s?.title || "").trim())
+      .filter(Boolean)
+      .slice(0, 2);
+    const titleText = titles.length ? ` · ${titles.join(" • ")}` : "";
+
+    if (okCount === total) {
+      return { lastRunAt, lastRunOk: true, lastRunSummary: `Completed${titleText}` };
+    }
+    if (okCount > 0) {
+      return { lastRunAt, lastRunOk: false, lastRunSummary: `Partial success (${okCount}/${total})${titleText}` };
+    }
+    return { lastRunAt, lastRunOk: false, lastRunSummary: `Failed${titleText}` };
+  };
+
+  const findLatestRunForRow = (threadContext: unknown, rowId: string, displayText: string) => {
+    const ctx = threadContext && typeof threadContext === "object" && !Array.isArray(threadContext)
+      ? (threadContext as Record<string, unknown>)
+      : null;
+    const runs = Array.isArray(ctx?.runs) ? (ctx?.runs as any[]) : [];
+    if (!runs.length) return { lastRunAt: null, lastRunOk: null, lastRunSummary: null };
+
+    const normalizedDisplay = displayText.trim().toLowerCase();
+    const exact = runs.filter((run) => String(run?.scheduledMessageId || "") === rowId);
+    const byTitle = normalizedDisplay
+      ? runs.filter((run) => String(run?.workTitle || "").trim().toLowerCase() === normalizedDisplay)
+      : [];
+    const matched = [...exact, ...byTitle]
+      .sort((a, b) => new Date(String(b?.at || 0)).getTime() - new Date(String(a?.at || 0)).getTime())[0];
+
+    return summarizeRun(matched);
+  };
+
   const scheduled = rows.map((r: any) => ({
+    ...(findLatestRunForRow(threadMetaById.get(String(r.threadId))?.contextJson ?? null, String(r.id), toDisplayText(r.text))),
     id: String(r.id),
     threadId: String(r.threadId),
-    threadTitle: titleByThreadId.get(String(r.threadId)) || "Chat",
+    threadTitle: threadMetaById.get(String(r.threadId))?.title || "Chat",
     displayText: toDisplayText(r.text),
     sendAt: r.sendAt ? new Date(r.sendAt).toISOString() : null,
     repeatEveryMinutes:

@@ -811,6 +811,9 @@ export function PortalAiChatClient() {
       displayText: string;
       sendAt: string | null;
       repeatEveryMinutes: number;
+      lastRunAt?: string | null;
+      lastRunOk?: boolean | null;
+      lastRunSummary?: string | null;
     }>
   >([]);
 
@@ -2006,6 +2009,9 @@ export function PortalAiChatClient() {
             typeof r.repeatEveryMinutes === "number" && Number.isFinite(r.repeatEveryMinutes)
               ? Math.max(0, Math.floor(r.repeatEveryMinutes))
               : 0,
+          lastRunAt: r.lastRunAt ? String(r.lastRunAt) : null,
+          lastRunOk: typeof r.lastRunOk === "boolean" ? r.lastRunOk : null,
+          lastRunSummary: r.lastRunSummary ? String(r.lastRunSummary) : null,
         }))
         .slice(0, 200);
 
@@ -2867,6 +2873,21 @@ export function PortalAiChatClient() {
                       <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-zinc-500">
                         <span className="rounded-full border border-zinc-200 bg-zinc-50 px-2 py-0.5">
                           Next: {r.sendAt ? formatLocalDateTime(new Date(r.sendAt)) : "-"}
+                        </span>
+                        <span
+                          className={classNames(
+                            "rounded-full border px-2 py-0.5",
+                            r.lastRunOk === true
+                              ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+                              : r.lastRunOk === false
+                                ? "border-amber-200 bg-amber-50 text-amber-900"
+                                : "border-zinc-200 bg-zinc-50",
+                          )}
+                        >
+                          Last result: {r.lastRunSummary || "Not run yet"}
+                        </span>
+                        <span className="rounded-full border border-zinc-200 bg-zinc-50 px-2 py-0.5">
+                          Last run: {r.lastRunAt ? formatLocalDateTime(new Date(r.lastRunAt)) : "Not run yet"}
                         </span>
                         {isRepeating ? (
                           <span className="rounded-full border border-zinc-200 bg-zinc-50 px-2 py-0.5">Repeats</span>
