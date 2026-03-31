@@ -63,6 +63,8 @@ export async function processDuePortalAiChatScheduledMessages(
     });
     if (!claim?.count) continue;
 
+    try {
+
     const thread = await (prisma as any).portalAiChatThread.findFirst({
       where: { id: threadId, ownerId },
       select: { id: true, contextJson: true },
@@ -322,27 +324,68 @@ export async function processDuePortalAiChatScheduledMessages(
       await (prisma as any).portalAiChatThread.update({ where: { id: threadId }, data: { lastMessageAt: new Date(), contextJson: nextCtx } });
     }
 
-    // If this was a repeating scheduled message, enqueue the next run.
-    if (repeatEveryMinutes > 0) {
-      const base = scheduledAt && Number.isFinite(scheduledAt.getTime()) ? scheduledAt : now;
-      const nextAt = new Date(base.getTime() + repeatEveryMinutes * 60_000);
+      // If this was a repeating scheduled message, enqueue the next run.
+      if (repeatEveryMinutes > 0) {
+        const base = scheduledAt && Number.isFinite(scheduledAt.getTime()) ? scheduledAt : now;
+        const nextAt = new Date(base.getTime() + repeatEveryMinutes * 60_000);
+        await (prisma as any).portalAiChatMessage.create({
+          data: {
+            ownerId,
+            threadId,
+            role: "user",
+            text: String((p as any).text || "").slice(0, 4000),
+            attachmentsJson: (p as any).attachmentsJson ?? null,
+            createdByUserId: (p as any).createdByUserId ?? null,
+            sendAt: nextAt,
+            sentAt: null,
+            repeatEveryMinutes,
+          },
+          select: { id: true },
+        });
+      }
+
+      processed += 1;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unknown error";
+
       await (prisma as any).portalAiChatMessage.create({
         data: {
           ownerId,
           threadId,
-          role: "user",
-          text: String((p as any).text || "").slice(0, 4000),
-          attachmentsJson: (p as any).attachmentsJson ?? null,
-          createdByUserId: (p as any).createdByUserId ?? null,
-          sendAt: nextAt,
-          sentAt: null,
-          repeatEveryMinutes,
+          role: "assistant",
+          text: `I tried to run your scheduled task, but it failed.\n\n${String(message || "Unknown error").slice(0, 600)}`,
+          attachmentsJson: null,
+          createdByUserId: null,
+          sendAt: null,
+          sentAt: new Date(),
         },
         select: { id: true },
-      });
-    }
+      }).catch(() => null);
 
-    processed += 1;
+      await (prisma as any).portalAiChatThread.update({
+        where: { id: threadId },
+        data: { lastMessageAt: new Date() },
+      }).catch(() => null);
+
+      if (repeatEveryMinutes > 0) {
+        const base = scheduledAt && Number.isFinite(scheduledAt.getTime()) ? scheduledAt : new Date();
+        const nextAt = new Date(base.getTime() + repeatEveryMinutes * 60_000);
+        await (prisma as any).portalAiChatMessage.create({
+          data: {
+            ownerId,
+            threadId,
+            role: "user",
+            text: String((p as any).text || "").slice(0, 4000),
+            attachmentsJson: (p as any).attachmentsJson ?? null,
+            createdByUserId: (p as any).createdByUserId ?? null,
+            sendAt: nextAt,
+            sentAt: null,
+            repeatEveryMinutes,
+          },
+          select: { id: true },
+        }).catch(() => null);
+      }
+    }
   }
 
     return { ok: true as const, processed };
