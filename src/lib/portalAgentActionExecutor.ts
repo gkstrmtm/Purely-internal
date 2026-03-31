@@ -15783,6 +15783,8 @@ async function runDirectAction(opts: {
 
       const memberTimeZone =
         (await prisma.user.findUnique({ where: { id: membership.memberId }, select: { timeZone: true } }).catch(() => null))?.timeZone || "";
+      const ownerTimeZone =
+        (await prisma.user.findUnique({ where: { id: ownerId }, select: { timeZone: true } }).catch(() => null))?.timeZone || "";
 
       const sendAtIso = typeof (args as any)?.sendAtIso === "string" ? String((args as any).sendAtIso).trim().slice(0, 64) : "";
       const sendAtLocalRaw = (args as any)?.sendAtLocal;
@@ -15801,9 +15803,7 @@ async function runDirectAction(opts: {
 
         const { DateTime } = await import("luxon");
 
-        const ownerTz =
-          (await prisma.user.findUnique({ where: { id: ownerId }, select: { timeZone: true } }).catch(() => null))?.timeZone || "";
-        const tz = (tzFromArgs || clientTimeZone || String(memberTimeZone || "").trim() || String(ownerTz || "").trim() || "UTC").slice(0, 80);
+        const tz = (tzFromArgs || clientTimeZone || String(memberTimeZone || "").trim() || String(ownerTimeZone || "").trim() || "UTC").slice(0, 80);
 
         const now = DateTime.now().setZone(tz);
         const zone = now.isValid ? tz : "UTC";
@@ -15848,13 +15848,28 @@ async function runDirectAction(opts: {
       const repeatEveryMinutes =
         typeof repeatRaw === "number" && Number.isFinite(repeatRaw) ? Math.max(0, Math.floor(repeatRaw)) : 0;
 
+      const recurrenceTimeZone = (() => {
+        if (!repeatEveryMinutes) return "";
+        const raw = sendAtLocalRaw && typeof sendAtLocalRaw === "object" && !Array.isArray(sendAtLocalRaw) ? (sendAtLocalRaw as any) : null;
+        const tzFromArgs = raw && typeof raw.timeZone === "string" ? String(raw.timeZone).trim().slice(0, 80) : "";
+        return (tzFromArgs || clientTimeZone || String(memberTimeZone || "").trim() || String(ownerTimeZone || "").trim() || "UTC").slice(0, 80);
+      })();
+
       const msg = await (prisma as any).portalAiChatMessage.create({
         data: {
           ownerId,
           threadId,
           role: "user",
           text,
-          attachmentsJson: null,
+          attachmentsJson:
+            repeatEveryMinutes > 0
+              ? {
+                  recurrence: {
+                    timeZone: recurrenceTimeZone || "UTC",
+                    mode: "wall_clock",
+                  },
+                }
+              : null,
           createdByUserId: membership.memberId,
           sendAt: finalSendAt,
           sentAt: null,
