@@ -55,7 +55,7 @@ function statusBadgeClass(state: string) {
   }
 }
 
-function benefitCopyForService(serviceSlug: string, entitlementKey?: string) {
+function benefitCopyForService(serviceSlug: string, entitlementKey?: string, variant: "credit" | "portal" = "portal") {
   const key = (entitlementKey || "").trim();
   if (serviceSlug === "blogs" || key === "blog") {
     return {
@@ -109,7 +109,7 @@ function benefitCopyForService(serviceSlug: string, entitlementKey?: string) {
     title: "Unlock this service",
     bullets: [
       "Add it in Billing and start configuring right away",
-      "Keep everything under one portal login",
+      variant === "credit" ? "Keep everything in one credit workspace" : "Keep everything under one portal login",
       "Upgrade or remove add-ons any time",
     ],
   };
@@ -183,7 +183,7 @@ export function PortalServicePageClient({ slug }: { slug: string }) {
       : null;
 
   const entitlementKey = service?.entitlementKey;
-  const benefit = benefitCopyForService(slug, entitlementKey);
+  const benefit = benefitCopyForService(slug, entitlementKey, variant);
 
   const billingUnlockHref =
     isPaused || isCanceled

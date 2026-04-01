@@ -1928,7 +1928,7 @@ export function PortalAiReceptionistClient() {
                   <div className="mt-2 text-xs text-zinc-600">
                     {settings?.mode === "AI"
                       ? "Required for AI transfer. Use E.164 format like +15551234567."
-                      : "If blank, we’ll try your Portal profile phone."}
+                      : `If blank, we’ll try your ${pathname.startsWith("/credit") ? "credit profile" : "portal profile"} phone.`}
                   </div>
                 </label>
               ) : null}

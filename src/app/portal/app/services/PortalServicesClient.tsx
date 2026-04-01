@@ -67,6 +67,8 @@ export function PortalServicesClient() {
   const pathname = usePathname();
   const basePath = pathname === "/credit" || pathname.startsWith("/credit/") ? "/credit" : "/portal";
   const variant = basePath === "/credit" ? "credit" : "portal";
+  const servicesSubtitle =
+    variant === "credit" ? "Everything available in your credit workspace." : "Everything available in your portal.";
 
   useEffect(() => {
     let mounted = true;
@@ -142,7 +144,7 @@ export function PortalServicesClient() {
       <div className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-end">
         <div>
           <h1 className="text-2xl font-bold text-brand-ink sm:text-3xl">Services</h1>
-          <p className="mt-1 text-sm text-zinc-600">Everything available in your portal.</p>
+          <p className="mt-1 text-sm text-zinc-600">{servicesSubtitle}</p>
         </div>
         {canViewBilling ? (
           <Link
@@ -183,9 +185,9 @@ export function PortalServicesClient() {
                         <span
                           className={
                             s.accent === "blue"
-                              ? "text-[color:var(--color-brand-blue)]"
+                              ? "text-(--color-brand-blue)"
                               : s.accent === "coral"
-                                ? "text-[color:var(--color-brand-pink)]"
+                                ? "text-(--color-brand-pink)"
                                 : "text-zinc-700"
                           }
                         >

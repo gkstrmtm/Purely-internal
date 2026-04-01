@@ -31,7 +31,7 @@ function serviceKeysForSlug(slug: string): readonly PortalServiceKey[] {
   }
 }
 
-function benefitCopyForService(serviceSlug: string, entitlementKey?: string) {
+function benefitCopyForService(serviceSlug: string, entitlementKey?: string, variant: "credit" | "portal" = "portal") {
   const key = (entitlementKey || "").trim();
   if (serviceSlug === "blogs" || key === "blog") {
     return {
@@ -86,7 +86,7 @@ function benefitCopyForService(serviceSlug: string, entitlementKey?: string) {
     bullets: [
       "Add it in Billing and start configuring right away",
       "Upgrade or remove add-ons any time",
-      "Everything stays under one portal login",
+      variant === "credit" ? "Everything stays in one credit workspace" : "Everything stays under one portal login",
     ],
   };
 }
@@ -101,7 +101,7 @@ function LockedShell(opts: {
   state: "locked" | "paused" | "canceled" | "coming_soon";
   label: string;
 }) {
-  const benefit = benefitCopyForService(opts.slug, opts.entitlementKey);
+  const benefit = benefitCopyForService(opts.slug, opts.entitlementKey, opts.basePath === "/credit" ? "credit" : "portal");
 
   const statusClass =
     opts.state === "paused"
