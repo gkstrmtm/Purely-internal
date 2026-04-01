@@ -14,6 +14,7 @@ function classNames(...xs: Array<string | false | null | undefined>) {
 
 const TOPBAR_TRANSITION_MS = 360;
 const TOPBAR_TRANSITION_EASING = "cubic-bezier(0.22, 1, 0.36, 1)";
+const TOPBAR_INTENT_EVENT = "pa.portal.topbar.intent";
 
 function PortalPublicNav({ signInHref, getStartedHref }: { signInHref: string; getStartedHref: string }) {
   return (
@@ -58,6 +59,7 @@ export function PortalTopbarClient(props: {
   const topbarInnerRef = useRef<HTMLDivElement | null>(null);
   const [isSmallScreen, setIsSmallScreen] = useState(false);
   const [measuredHeight, setMeasuredHeight] = useState(0);
+  const [intentHidden, setIntentHidden] = useState<boolean | null>(null);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -74,8 +76,27 @@ export function PortalTopbarClient(props: {
     typeof pathname === "string" && (pathname.startsWith("/portal/app") || pathname.startsWith("/credit/app"));
   const isMobileApp = (searchParams?.get("pa_mobileapp") || "").trim() === "1";
   const hidden = isAiChat || isMobileApp || (isPortalAppRoute && isSmallScreen);
+  const effectiveHidden = intentHidden ?? hidden;
   const signedInLabel = (businessName || userEmail || "").trim();
-  const animatedHeight = useMemo(() => (hidden ? 0 : measuredHeight), [hidden, measuredHeight]);
+  const animatedHeight = useMemo(() => (effectiveHidden ? 0 : measuredHeight), [effectiveHidden, measuredHeight]);
+
+  useEffect(() => {
+    const onIntent = (event: Event) => {
+      const nextHidden = (event as CustomEvent<{ hidden?: boolean }>).detail?.hidden;
+      if (typeof nextHidden === "boolean") {
+        setIntentHidden(nextHidden);
+      }
+    };
+
+    window.addEventListener(TOPBAR_INTENT_EVENT, onIntent as EventListener);
+    return () => window.removeEventListener(TOPBAR_INTENT_EVENT, onIntent as EventListener);
+  }, []);
+
+  useEffect(() => {
+    if (intentHidden === hidden) {
+      setIntentHidden(null);
+    }
+  }, [hidden, intentHidden]);
 
   useEffect(() => {
     const inner = topbarInnerRef.current;
@@ -96,13 +117,13 @@ export function PortalTopbarClient(props: {
   }, [pathname, signedInLabel, userEmail]);
 
   useEffect(() => {
-    syncTopbarHeight(measuredHeight, hidden);
-  }, [hidden, measuredHeight]);
+    syncTopbarHeight(measuredHeight, effectiveHidden);
+  }, [effectiveHidden, measuredHeight]);
 
   return (
     <header
       ref={topbarRef}
-      aria-hidden={hidden}
+      aria-hidden={effectiveHidden}
       style={{
         height: `${animatedHeight}px`,
         transitionDuration: `${TOPBAR_TRANSITION_MS}ms`,
@@ -121,7 +142,7 @@ export function PortalTopbarClient(props: {
         }}
         className={classNames(
           "mx-auto flex max-w-6xl items-center justify-between gap-4 px-4 py-4 transition-[transform,opacity] will-change-transform sm:gap-6 sm:px-6",
-          hidden ? "-translate-y-full opacity-0" : "translate-y-0 opacity-100",
+          effectiveHidden ? "-translate-y-full opacity-0" : "translate-y-0 opacity-100",
         )}
       >
         <Link href={homeHref} className="flex shrink-0 items-center gap-3">

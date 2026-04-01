@@ -66,6 +66,11 @@ function classNames(...xs: Array<string | false | null | undefined>) {
   return xs.filter(Boolean).join(" ");
 }
 
+function dispatchTopbarIntent(hidden: boolean) {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(new CustomEvent("pa.portal.topbar.intent", { detail: { hidden } }));
+}
+
 function sidebarIconToneClassForCategory(category: PortalServiceCategory) {
   switch (category) {
     case "communication":
@@ -1741,6 +1746,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                   const isSidebarOnly = key === "services" || key === "settings";
                   const iconClass = sidebarIconButtonClass(active, "h-10 w-10");
                   const onClick = () => {
+                    dispatchTopbarIntent(key === "pura");
                     if (isSidebarOnly) {
                       setSidebarModeOverride(key);
                       return;
@@ -2205,6 +2211,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                   const iconClass = sidebarIconButtonClass(active);
 
                   const onSidebarOnlyClick = () => {
+                    dispatchTopbarIntent(false);
                     if (key === "settings") {
                       setCollapsed(false);
                       setSidebarModeOverride("settings");
@@ -2236,6 +2243,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                   }
 
                   const onNavigate = () => {
+                    dispatchTopbarIntent(key === "pura");
                     if (key === "pura" || key === "dashboard" || key === "settings") setCollapsed(false);
                     setSidebarModeOverride(null);
                   };
