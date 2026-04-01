@@ -3,7 +3,7 @@ import { z } from "zod";
 
 import { prisma } from "@/lib/db";
 import { requireCreditClientSession } from "@/lib/creditPortalAccess";
-import { generateCreditText } from "@/lib/creditAi";
+import { generateText } from "@/lib/ai";
 import { mirrorUploadToMediaLibrary } from "@/lib/portalMediaUploads";
 import { renderTextToPdfBytes } from "@/lib/simplePdf";
 
@@ -16,17 +16,12 @@ const createSchema = z.object({
   recipientName: z.string().trim().max(120).optional().nullable(),
   recipientAddress: z.string().trim().max(600).optional().nullable(),
   disputesText: z.string().trim().min(3).max(5000),
-  letterStageLabel: z.string().trim().optional(),
   templateLabel: z.string().trim().optional(),
   templatePrompt: z.string().trim().optional(),
   templateBodyStarter: z.string().trim().optional(),
   creditPullId: z.string().trim().optional().nullable(),
   subjectLine: z.string().trim().max(200).optional(),
   roundNumber: z.number().int().min(1).max(12).optional(),
-  followUpDays: z.number().int().min(1).max(120).optional(),
-  nextRoundNumber: z.number().int().min(1).max(12).optional(),
-  recommendedNextTemplateLabel: z.string().trim().max(160).optional(),
-  recipientPresetLabel: z.string().trim().max(120).optional(),
 });
 
 function numberToOrdinal(value: number) {
@@ -103,15 +98,10 @@ export async function POST(req: Request) {
   const recipientName = (parsed.data.recipientName || "").trim();
   const recipientAddress = (parsed.data.recipientAddress || "").trim();
 
-  const letterStageLabel = parsed.data.letterStageLabel;
   const templateLabel = parsed.data.templateLabel;
   const templatePrompt = parsed.data.templatePrompt;
   const templateBodyStarter = parsed.data.templateBodyStarter;
   const roundNumber = parsed.data.roundNumber;
-  const followUpDays = parsed.data.followUpDays;
-  const nextRoundNumber = parsed.data.nextRoundNumber;
-  const recommendedNextTemplateLabel = parsed.data.recommendedNextTemplateLabel;
-  const recipientPresetLabel = parsed.data.recipientPresetLabel;
 
   const system =
     "You draft consumer credit dispute letters. Output ONLY a plain-text letter. " +
@@ -131,15 +121,10 @@ export async function POST(req: Request) {
     contact.email ? `Consumer email: ${contact.email}` : "Consumer email: {{email}}",
     contact.phone ? `Consumer phone: ${contact.phone}` : "Consumer phone: {{phone}}",
     "",
-    letterStageLabel ? `Letter strategy: ${letterStageLabel}` : null,
-    roundNumber ? `Workflow round: ${numberToOrdinal(roundNumber)} correspondence` : null,
+    roundNumber && roundNumber > 1 ? `This is follow-up correspondence after an earlier dispute attempt.` : "This is the first dispute letter for these items.",
     templateLabel ? `Template selected: ${templateLabel}` : null,
-    recipientPresetLabel ? `Recipient preset: ${recipientPresetLabel}` : null,
     templatePrompt ? `Draft direction:\n${templatePrompt}` : null,
     templateBodyStarter ? `Optional sample structure:\n${templateBodyStarter}` : null,
-    followUpDays ? `Recommended time before the next follow-up: about ${followUpDays} days.` : null,
-    nextRoundNumber ? `If unresolved, the internal next step is ${numberToOrdinal(nextRoundNumber)} correspondence.` : null,
-    recommendedNextTemplateLabel ? `If unresolved, the next likely template is: ${recommendedNextTemplateLabel}.` : null,
     "",
     "Dispute context:",
     disputesText,
@@ -154,8 +139,8 @@ export async function POST(req: Request) {
     .filter(Boolean)
     .join("\n");
 
-  const model = (process.env.CREDIT_AI_MODEL || "gpt-4o-mini").trim() || "gpt-4o-mini";
-  const bodyTextRaw = await generateCreditText({ system, user, model });
+  const model = (process.env.AI_MODEL || "gpt-4o-mini").trim() || "gpt-4o-mini";
+  const bodyTextRaw = await generateText({ system, user, model });
   const bodyText = String(bodyTextRaw || "").trim();
 
   const subject = parsed.data.subjectLine?.trim() || `${contact.name} - ${recipientName || templateLabel || "Credit dispute letter"}`;

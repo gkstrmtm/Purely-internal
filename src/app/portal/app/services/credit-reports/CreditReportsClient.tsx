@@ -1,10 +1,11 @@
 "use client";
 
 import { usePathname, useSearchParams } from "next/navigation";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { PortalListboxDropdown, type PortalListboxOption } from "@/components/PortalListboxDropdown";
 import { PortalSearchableCombobox, type PortalSearchableOption } from "@/components/PortalSearchableCombobox";
+import { useToast } from "@/components/ToastProvider";
 
 type ContactLite = { id: string; name: string; email: string | null };
 
@@ -241,13 +242,18 @@ async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
 export default function CreditReportsClient({ mode = "list", initialReportId = "" }: { mode?: "list" | "detail"; initialReportId?: string }) {
   const pathname = usePathname() || "";
   const searchParams = useSearchParams();
+  const toast = useToast();
   const routeSet = useMemo(() => reportRoutesFor(pathname), [pathname]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const loadedReportIdsRef = useRef<string[]>([]);
 
   const [reports, setReports] = useState<ReportLite[]>([]);
   const [selectedReportId, setSelectedReportId] = useState<string>(initialReportId);
   const [selectedReport, setSelectedReport] = useState<ReportFull | null>(null);
+  const [newReportOpen, setNewReportOpen] = useState(false);
+  const [reportSearch, setReportSearch] = useState("");
+  const [providerFilter, setProviderFilter] = useState<string>("ALL");
 
   const [contactQuery, setContactQuery] = useState("");
   const [contacts, setContacts] = useState<ContactLite[]>([]);
@@ -266,8 +272,16 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
 
   const loadReports = useCallback(async () => {
     const json = await fetchJson<{ ok: true; reports: ReportLite[] }>("/api/portal/credit/reports", { cache: "no-store" as any });
-    setReports(json.reports || []);
-  }, []);
+    const nextReports = json.reports || [];
+    const previousIds = loadedReportIdsRef.current;
+    const nextIds = nextReports.map((report) => report.id);
+    const newIds = previousIds.length ? nextIds.filter((id) => !previousIds.includes(id)) : [];
+    if (newIds.length) {
+      toast.success(newIds.length === 1 ? "New credit report received." : `${newIds.length} new credit reports received.`);
+    }
+    loadedReportIdsRef.current = nextIds;
+    setReports(nextReports);
+  }, [toast]);
 
   const loadReport = useCallback(async (reportId: string) => {
     if (!reportId) return;
@@ -337,6 +351,35 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
     hint: contact.email || undefined,
     keywords: [contact.name, contact.email || ""],
   })), [contacts]);
+  const providerOptions = useMemo<PortalListboxOption<string>[]>(() => (
+    [
+      { value: "IdentityIQ", label: "IdentityIQ" },
+      { value: "SmartCredit", label: "SmartCredit" },
+      { value: "MyScoreIQ", label: "MyScoreIQ" },
+      { value: "Experian", label: "Experian" },
+      { value: "TransUnion", label: "TransUnion" },
+      { value: "Equifax", label: "Equifax" },
+      { value: "Other", label: "Other" },
+    ] as PortalListboxOption<string>[]
+  ), []);
+  const providerFilterOptions = useMemo<PortalListboxOption<string>[]>(() => {
+    const providerValues = Array.from(new Set(reports.map((report) => String(report.provider || "").trim()).filter(Boolean)));
+    return [
+      { value: "ALL", label: "All providers" },
+      ...providerValues.map((value) => ({ value, label: value })),
+    ];
+  }, [reports]);
+  const filteredReports = useMemo(() => {
+    const query = reportSearch.trim().toLowerCase();
+    return reports.filter((report) => {
+      if (providerFilter !== "ALL" && report.provider !== providerFilter) return false;
+      if (!query) return true;
+      const haystack = [report.contact?.name, report.contact?.email, report.provider, report.creditScope]
+        .map((part) => String(part || "").toLowerCase())
+        .join(" ");
+      return haystack.includes(query);
+    });
+  }, [providerFilter, reportSearch, reports]);
   const selectedReportSummary = useMemo(() => {
     const items = selectedReport?.items || [];
     const pending = items.filter((item) => item.auditTag === "PENDING").length;
@@ -521,8 +564,11 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
         }),
       });
       await loadReports();
+      toast.success("Credit report imported.");
+      setNewReportOpen(false);
       setSelectedReportId(json.report.id);
       setRawText("{");
+      window.location.href = routeSet.detailHref(json.report.id);
     } catch (e: any) {
       setError(e?.message ? String(e.message) : "Failed to import");
     } finally {
@@ -543,11 +589,13 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
         body: JSON.stringify({
           contactId: selectedContactId,
           provider,
-          creditScope,
         }),
       });
       await loadReports();
+      toast.success("Credit report pulled.");
+      setNewReportOpen(false);
       setSelectedReportId(json.report.id);
+      window.location.href = routeSet.detailHref(json.report.id);
     } catch (e: any) {
       setError(e?.message ? String(e.message) : "Unable to pull report");
     } finally {
@@ -592,327 +640,277 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
             Back to reports
           </button>
         ) : (
-          <div className="rounded-full border border-zinc-200 bg-white px-3 py-1 text-xs font-semibold text-zinc-600">{reports.length} saved</div>
+          <div className="flex items-center gap-2">
+            <div className="rounded-full border border-zinc-200 bg-white px-3 py-1 text-xs font-semibold text-zinc-600">{reports.length} saved</div>
+            <button
+              type="button"
+              onClick={() => setNewReportOpen(true)}
+              className="inline-flex items-center justify-center rounded-2xl bg-brand-blue px-4 py-2 text-sm font-semibold text-white hover:opacity-95"
+            >
+              + New
+            </button>
+          </div>
         )}
       </div>
 
       {error ? <div className="mt-4 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">{error}</div> : null}
 
       {mode === "list" ? (
-        <div className="mt-6 space-y-5">
-          <section className="rounded-[28px] border border-zinc-200 bg-white p-5 shadow-sm sm:p-6">
-            <div className="grid gap-5 lg:grid-cols-[minmax(0,1.15fr)_320px]">
-              <div className="rounded-[26px] border border-zinc-200 bg-zinc-50/70 p-5">
-                <div className="text-sm font-semibold text-zinc-900">Report intake</div>
-                <div className="mt-1 text-sm text-zinc-600">Pick the contact, choose what file you’re working, then pull or re-import with that context attached.</div>
-
-                <div className="mt-4">
-                  <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Credit scope</div>
-                  <div className="grid gap-2 sm:grid-cols-3">
-                    {CREDIT_SCOPE_SEGMENTS.map((segment) => (
-                      <button
-                        key={segment.value}
-                        type="button"
-                        onClick={() => setCreditScope(segment.value)}
-                        className={creditScope === segment.value
-                          ? "rounded-2xl border border-brand-ink bg-brand-ink px-4 py-3 text-left text-white"
-                          : "rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-left text-zinc-700 hover:bg-zinc-50"}
-                      >
-                        <div className="text-sm font-semibold">{segment.label}</div>
-                        <div className={"mt-1 text-xs " + (creditScope === segment.value ? "text-white/80" : "text-zinc-500")}>{segment.summary}</div>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                <label className="mt-4 block">
-                  <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Contact</div>
-                  <PortalSearchableCombobox
-                    query={contactQuery}
-                    onQueryChange={(value) => {
-                      setContactQuery(value);
-                      if (!value.trim()) setSelectedContactId("");
-                    }}
-                    options={contactOptions}
-                    selectedValue={selectedContactId}
-                    onSelect={(option) => {
-                      setSelectedContactId(option.value);
-                      setContactQuery(option.label);
-                    }}
-                    placeholder="Search or select a contact"
-                    emptyLabel="No contacts found"
-                    inputClassName="pa-portal-listbox-button w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 pr-10 text-sm text-zinc-900 outline-none focus:border-zinc-300"
-                  />
-                  {selectedContact ? <div className="mt-2 text-xs text-zinc-500">Selected: {selectedContact.name}{selectedContact.email ? ` • ${selectedContact.email}` : ""}</div> : null}
-                </label>
-
-                <label className="mt-3 block">
-                  <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Provider</div>
+        <>
+          <section className="mt-6 rounded-3xl border border-zinc-200 bg-white p-6 shadow-sm">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="flex w-full max-w-3xl flex-col gap-3 sm:flex-row sm:items-center">
+                <input
+                  value={reportSearch}
+                  onChange={(event) => setReportSearch(event.target.value)}
+                  className="w-full rounded-2xl border border-zinc-200 px-4 py-3 text-sm outline-none focus:border-zinc-300 sm:flex-1"
+                  placeholder="Search reports"
+                />
+                <div className="w-full sm:w-56">
                   <PortalListboxDropdown
-                    value={provider}
-                    onChange={(v) => setProvider(v)}
-                    disabled={busy}
-                    buttonClassName="flex w-full items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-white px-3 py-2.5 text-sm hover:bg-zinc-50"
-                    options={(
-                      [
-                        { value: "IdentityIQ", label: "IdentityIQ" },
-                        { value: "SmartCredit", label: "SmartCredit" },
-                        { value: "MyScoreIQ", label: "MyScoreIQ" },
-                        { value: "Experian", label: "Experian" },
-                        { value: "TransUnion", label: "TransUnion" },
-                        { value: "Equifax", label: "Equifax" },
-                        { value: "Other", label: "Other" },
-                      ] as PortalListboxOption<string>[]
-                    )}
+                    value={providerFilter}
+                    onChange={setProviderFilter}
+                    options={providerFilterOptions}
+                    buttonClassName="flex w-full items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm hover:bg-zinc-50"
                   />
-                </label>
-
-                <div className="mt-4 flex flex-wrap gap-2">
-                  <button
-                    type="button"
-                    disabled={busy}
-                    onClick={requestProviderPull}
-                    className="rounded-2xl bg-brand-ink px-4 py-2.5 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
-                  >
-                    {busy ? "Working…" : reports.some((report) => report.contactId === selectedContactId) ? "Re-import latest" : "Pull latest report"}
-                  </button>
                 </div>
               </div>
+              <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">{`${filteredReports.length} reports`}</div>
+            </div>
 
-              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-1">
-                <div className="rounded-[26px] border border-zinc-200 bg-white p-4">
-                  <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Current pull</div>
-                  <div className="mt-2 text-base font-semibold text-zinc-900">{creditScopeLabel(creditScope)}</div>
-                  <div className="mt-1 text-sm text-zinc-600">{selectedContact ? selectedContact.name : "Select a contact to start the file."}</div>
-                </div>
-                <div className="rounded-[26px] border border-zinc-200 bg-white p-4">
-                  <div className="flex items-end justify-between gap-3">
-                    <div>
-                      <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Saved reports</div>
-                      <div className="mt-2 text-2xl font-bold text-brand-ink">{reports.length}</div>
-                    </div>
-                    <div>
-                      <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Contacts</div>
-                      <div className="mt-2 text-xl font-bold text-zinc-900">{contacts.length}</div>
-                    </div>
+            <div className="mt-5 overflow-x-auto rounded-3xl border border-zinc-200">
+              <table className="min-w-full text-left text-sm">
+                <thead className="bg-zinc-50 text-xs font-semibold uppercase tracking-wide text-zinc-500">
+                  <tr>
+                    <th className="px-4 py-3">Report</th>
+                    <th className="px-4 py-3">Contact</th>
+                    <th className="px-4 py-3">Provider</th>
+                    <th className="px-4 py-3">Updated</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredReports.length === 0 ? (
+                    <tr>
+                      <td colSpan={4} className="px-4 py-10 text-center text-zinc-600">{busy ? "Loading reports..." : "No reports yet."}</td>
+                    </tr>
+                  ) : (
+                    filteredReports.map((report) => (
+                      <tr
+                        key={report.id}
+                        tabIndex={0}
+                        role="button"
+                        onClick={() => {
+                          window.location.href = routeSet.detailHref(report.id);
+                        }}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter" || event.key === " ") {
+                            event.preventDefault();
+                            window.location.href = routeSet.detailHref(report.id);
+                          }
+                        }}
+                        className="cursor-pointer border-t border-zinc-200 hover:bg-zinc-50 focus:bg-zinc-50"
+                      >
+                        <td className="px-4 py-3">
+                          <div className="font-semibold text-zinc-900">{report.contact?.name || report.provider}</div>
+                          <div className="mt-1 inline-flex rounded-full border px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-600">
+                            {creditScopeLabel(report.creditScope)}
+                          </div>
+                        </td>
+                        <td className="px-4 py-3">
+                          <div className="font-medium text-zinc-900">{report.contact?.name || "Unassigned"}</div>
+                          <div className="mt-1 text-xs text-zinc-500">{report.contact?.email || "No email"}</div>
+                        </td>
+                        <td className="px-4 py-3 text-zinc-700">
+                          <div>{report.provider}</div>
+                          <div className="mt-1 text-xs text-zinc-500">{report._count.items} items</div>
+                        </td>
+                        <td className="px-4 py-3 text-zinc-600">
+                          <div>{new Date(report.importedAt).toLocaleString()}</div>
+                          <div className="mt-1 text-xs text-zinc-400">Click to open</div>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </section>
+
+          {newReportOpen ? (
+            <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/30 p-4" onMouseDown={() => !busy && setNewReportOpen(false)}>
+              <div className="my-auto w-full max-w-3xl rounded-4xl border border-zinc-200 bg-white p-6 shadow-xl sm:p-7" onMouseDown={(event) => event.stopPropagation()} role="dialog" aria-modal="true" aria-label="New credit report" data-overlay-root="true">
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <div className="text-lg font-semibold text-zinc-900">New report</div>
                   </div>
-                  <div className="mt-3 text-sm text-zinc-600">Keep pulls separated by file type so the funding lane and dispute work stay on the right track.</div>
+                  <button type="button" onClick={() => setNewReportOpen(false)} aria-label="Close new report" className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-zinc-200 text-lg font-semibold text-zinc-700 hover:bg-zinc-50">×</button>
+                </div>
+
+                <div className="mt-5 grid gap-4">
+                  <label className="block">
+                    <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Contact</div>
+                    <PortalSearchableCombobox
+                      query={contactQuery}
+                      onQueryChange={(value) => {
+                        setContactQuery(value);
+                        if (!value.trim()) setSelectedContactId("");
+                      }}
+                      options={contactOptions}
+                      selectedValue={selectedContactId}
+                      onSelect={(option) => {
+                        setSelectedContactId(option.value);
+                        setContactQuery(option.label);
+                      }}
+                      placeholder="Search or select a contact"
+                      emptyLabel="No contacts found"
+                      inputClassName="pa-portal-listbox-button w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 pr-10 text-sm text-zinc-900 outline-none focus:border-zinc-300"
+                    />
+                  </label>
+
+                  <label className="block">
+                    <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Provider</div>
+                    <PortalListboxDropdown
+                      value={provider}
+                      onChange={setProvider}
+                      disabled={busy}
+                      options={providerOptions}
+                      buttonClassName="flex w-full items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm hover:bg-zinc-50"
+                    />
+                  </label>
+
+                  {showAdvancedImport ? (
+                    <details className="rounded-3xl border border-zinc-200 bg-zinc-50 p-4">
+                      <summary className="cursor-pointer text-sm font-semibold text-zinc-800">Advanced import</summary>
+                      <label className="mt-3 block">
+                        <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Report JSON</div>
+                        <textarea
+                          value={rawText}
+                          onChange={(e) => setRawText(e.target.value)}
+                          className="min-h-45 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 font-mono text-xs"
+                          placeholder="Paste JSON here"
+                        />
+                      </label>
+                      <div className="mt-3 flex gap-2">
+                        <button
+                          type="button"
+                          disabled={busy || rawText.trim().length < 2}
+                          onClick={importReport}
+                          className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-900 hover:bg-zinc-50 disabled:opacity-60"
+                        >
+                          {busy ? "Working..." : "Import report"}
+                        </button>
+                      </div>
+                    </details>
+                  ) : null}
+                </div>
+
+                <div className="mt-6 flex justify-end gap-2">
+                  <button type="button" onClick={() => setNewReportOpen(false)} className="rounded-2xl border border-zinc-200 px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50">Cancel</button>
+                  <button type="button" disabled={busy || !selectedContactId} onClick={requestProviderPull} className="rounded-2xl bg-brand-blue px-4 py-2 text-sm font-semibold text-white disabled:opacity-60">{busy ? "Working..." : "Pull report"}</button>
                 </div>
               </div>
             </div>
-
-            {showAdvancedImport ? (
-              <details className="mt-4 rounded-3xl border border-zinc-200 bg-zinc-50 p-4">
-                <summary className="cursor-pointer text-sm font-semibold text-zinc-800">Advanced import</summary>
-                <label className="mt-3 block">
-                  <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Report JSON</div>
-                  <textarea
-                    value={rawText}
-                    onChange={(e) => setRawText(e.target.value)}
-                    className="min-h-45 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 font-mono text-xs"
-                    placeholder="Paste JSON here"
-                  />
-                </label>
-                <div className="mt-3 flex gap-2">
-                  <button
-                    type="button"
-                    disabled={busy || rawText.trim().length < 2}
-                    onClick={importReport}
-                    className="rounded-xl bg-white px-4 py-2 text-sm font-semibold text-zinc-900 ring-1 ring-inset ring-zinc-200 hover:bg-zinc-50 disabled:opacity-60"
-                  >
-                    {busy ? "Working…" : "Import report"}
-                  </button>
-                </div>
-              </details>
-            ) : null}
-          </section>
-
-          <section className="rounded-[28px] border border-zinc-200 bg-white p-5 shadow-sm">
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <div className="text-sm font-semibold text-zinc-900">Saved reports</div>
-                <div className="mt-1 text-sm text-zinc-600">Click a report to open its own detail page instead of cramming everything into one screen.</div>
-              </div>
-              <div className="text-xs text-zinc-500">Newest first</div>
-            </div>
-
-            {reports.length === 0 ? (
-              <div className="mt-4 rounded-2xl border border-dashed border-zinc-300 bg-zinc-50 p-5 text-sm text-zinc-600">No reports yet.</div>
-            ) : (
-              <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-                {reports.map((report) => (
-                  <button
-                    key={report.id}
-                    type="button"
-                    onClick={() => {
-                      window.location.href = routeSet.detailHref(report.id);
-                    }}
-                    className={["rounded-3xl", "border", "border-zinc-200", "bg-white", "p-4", "text-left", "transition", "hover:-translate-y-0.5", "hover:border-zinc-300", "hover:shadow-sm"].join(" ")}
-                  >
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <div className="truncate text-base font-semibold text-zinc-900">{report.contact?.name || "Unassigned contact"}</div>
-                        <div className="mt-1 text-sm text-zinc-600">{report.provider}</div>
-                      </div>
-                      <div className="flex flex-col items-end gap-2">
-                        <div className={"rounded-full border px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide " + scopeChipClasses(report.creditScope)}>
-                          {creditScopeLabel(report.creditScope)}
-                        </div>
-                        <div className="rounded-full border border-zinc-200 bg-zinc-50 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">
-                          {report._count.items} items
-                        </div>
-                      </div>
-                    </div>
-                    <div className="mt-3 text-xs text-zinc-500">Imported {new Date(report.importedAt).toLocaleString()}</div>
-                    <div className="mt-4 flex items-center justify-between text-xs font-semibold text-zinc-600">
-                      <span>{report.contact?.email || "No email on file"}</span>
-                      <span>Open →</span>
-                    </div>
-                  </button>
-                ))}
-              </div>
-            )}
-          </section>
-        </div>
+          ) : null}
+        </>
       ) : !selectedReport ? (
         <div className="mt-6 rounded-3xl border border-zinc-200 bg-white p-6 text-sm text-zinc-600">Report not found.</div>
       ) : (
         <div className="mt-6 space-y-5">
-          <section className="overflow-hidden rounded-[30px] border border-zinc-200 bg-white shadow-sm">
-            <div className="grid gap-0 lg:grid-cols-[minmax(0,1.15fr)_360px]">
-              <div className="bg-linear-to-r from-[rgba(29,78,216,0.07)] via-white to-[rgba(251,113,133,0.08)] p-6 sm:p-7">
-                <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-500">File overview</div>
-                <div className="mt-3 flex flex-wrap items-center gap-2">
-                  <div className="text-2xl font-semibold tracking-tight text-zinc-900 sm:text-3xl">{selectedReport.contact?.name || selectedReport.provider}</div>
-                  <div className="rounded-full border border-zinc-200 bg-white/90 px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-600">{readinessLabel}</div>
-                  <div className={"rounded-full border bg-white/90 px-3 py-1 text-[11px] font-semibold uppercase tracking-wide " + scopeChipClasses(selectedReport.creditScope)}>{creditScopeLabel(selectedReport.creditScope)}</div>
-                </div>
-                <div className="mt-2 text-sm text-zinc-600">
-                  {selectedReport.provider} • Imported {new Date(selectedReport.importedAt).toLocaleString()}
-                </div>
-
-                <div className="mt-4 flex flex-wrap gap-2">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const params = new URLSearchParams();
-                      if (selectedReport.contactId) params.set("contactId", selectedReport.contactId);
-                      params.set("compose", "1");
-                      window.location.href = `${routeSet.disputeHref}?${params.toString()}`;
-                    }}
-                    className="rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95"
-                  >
-                    Open dispute workflow
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      document.getElementById("credit-report-items")?.scrollIntoView({ behavior: "smooth", block: "start" });
-                    }}
-                    className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
-                  >
-                    Jump to items
-                  </button>
-                </div>
-
-                <div className="mt-5 grid gap-3 sm:grid-cols-3">
-                  <div className="rounded-2xl border border-white/70 bg-white/85 px-4 py-3 backdrop-blur-sm">
-                    <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Contact email</div>
-                    <div className="mt-1 truncate text-sm font-semibold text-zinc-900">{selectedReport.contact?.email || "No email on file"}</div>
-                  </div>
-                  <div className="rounded-2xl border border-white/70 bg-white/85 px-4 py-3 backdrop-blur-sm">
-                    <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Items on file</div>
-                    <div className="mt-1 text-sm font-semibold text-zinc-900">{selectedReport.items.length} total lines</div>
-                  </div>
-                  <div className="rounded-2xl border border-white/70 bg-white/85 px-4 py-3 backdrop-blur-sm">
-                    <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Bureaus touched</div>
-                    <div className="mt-1 text-sm font-semibold text-zinc-900">{bureauBreakdown.length || 0} bureau views</div>
-                  </div>
-                </div>
-              </div>
-
-              <div className="grid gap-px bg-zinc-200">
-                <div className="bg-white px-5 py-5">
-                  <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Next move</div>
-                  <div className="mt-2 text-base font-semibold text-zinc-900">{nextSteps[0]?.title || "Start classifying the file"}</div>
-                  <div className="mt-1 text-sm text-zinc-600">{nextSteps[0]?.detail || "Get the report sorted into dispute, review, and positive support lanes."}</div>
-                </div>
-                <div className="bg-white px-5 py-5">
-                  <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Current posture</div>
-                  <div className="mt-2 text-base font-semibold text-zinc-900">{readinessLabel}</div>
-                  <div className="mt-1 text-sm text-zinc-600">Handle the repair queue first, then use the funding section once the file is calmer.</div>
-                </div>
-              </div>
-            </div>
-          </section>
-
-          <section className="rounded-[30px] border border-zinc-200 bg-white p-5 shadow-sm sm:p-6">
-            <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+          <section className="rounded-3xl border border-zinc-200 bg-white p-6 shadow-sm">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
               <div>
-                <div className="text-sm font-semibold text-zinc-900">Repair snapshot</div>
-                <div className="mt-1 text-sm text-zinc-600">The fastest read on what needs disputes, what still needs review, and what is already helping the file.</div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <h2 className="text-2xl font-semibold text-zinc-900">{selectedReport.contact?.name || selectedReport.provider}</h2>
+                  <div className={"rounded-full border px-3 py-1 text-[11px] font-semibold uppercase tracking-wide " + scopeChipClasses(selectedReport.creditScope)}>{creditScopeLabel(selectedReport.creditScope)}</div>
+                </div>
+                <div className="mt-2 text-sm text-zinc-600">{selectedReport.provider} • Imported {new Date(selectedReport.importedAt).toLocaleString()}</div>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const params = new URLSearchParams();
+                    if (selectedReport.contactId) params.set("contactId", selectedReport.contactId);
+                    params.set("compose", "1");
+                    window.location.href = `${routeSet.disputeHref}?${params.toString()}`;
+                  }}
+                  className="rounded-2xl bg-brand-blue px-4 py-2 text-sm font-semibold text-white hover:opacity-95"
+                >
+                  Open dispute
+                </button>
+                <button
+                  type="button"
+                  onClick={() => document.getElementById("credit-report-items")?.scrollIntoView({ behavior: "smooth", block: "start" })}
+                  className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
+                >
+                  View items
+                </button>
               </div>
             </div>
 
-            <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-              {statCards.map((stat) => (
-                <div key={stat.label} className="rounded-3xl border bg-white p-4 shadow-sm shadow-zinc-950/2">
-                  <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">{stat.label}</div>
-                  <div className="mt-1 text-2xl font-bold text-brand-ink">{stat.value}</div>
-                  <div className={"mt-2 inline-flex rounded-full border px-2.5 py-1 text-[11px] font-semibold " + stat.toneClass}>{stat.share}</div>
-                  <div className="mt-3 text-sm text-zinc-600">
-                    {stat.helper}
-                  </div>
-                </div>
-              ))}
+            <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+              <div className="rounded-3xl border border-zinc-200 bg-zinc-50 p-4">
+                <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Negative</div>
+                <div className="mt-2 text-2xl font-bold text-zinc-900">{selectedReportSummary.negative}</div>
+              </div>
+              <div className="rounded-3xl border border-zinc-200 bg-zinc-50 p-4">
+                <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Pending review</div>
+                <div className="mt-2 text-2xl font-bold text-zinc-900">{selectedReportSummary.pending}</div>
+              </div>
+              <div className="rounded-3xl border border-zinc-200 bg-zinc-50 p-4">
+                <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Positive</div>
+                <div className="mt-2 text-2xl font-bold text-zinc-900">{selectedReportSummary.positive}</div>
+              </div>
+              <div className="rounded-3xl border border-zinc-200 bg-zinc-50 p-4">
+                <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Dispute notes</div>
+                <div className="mt-2 text-2xl font-bold text-zinc-900">{selectedReportSummary.tracked}</div>
+              </div>
             </div>
 
-            <div className="mt-5 grid gap-4 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
-              <div className="rounded-3xl border border-zinc-200 bg-zinc-50/80 p-5">
-                <div className="text-sm font-semibold text-zinc-900">Do next</div>
-                <div className="mt-1 text-sm text-zinc-600">A repair-first queue based on the actual tags and follow-up state in this report.</div>
+            <div className="mt-5 grid gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
+              <div className="rounded-3xl border border-zinc-200 p-5">
+                <div className="text-sm font-semibold text-zinc-900">Priority queue</div>
                 <div className="mt-4 space-y-3">
-                  {nextSteps.map((step) => (
-                    <div key={step.key} className="rounded-2xl border border-zinc-200 bg-white px-4 py-3">
+                  {priorityItems.length ? priorityItems.map((item) => (
+                    <div key={item.id} className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3">
                       <div className="flex items-start justify-between gap-3">
-                        <div>
-                          <div className="text-sm font-semibold text-zinc-900">{step.title}</div>
-                          <div className="mt-1 text-sm text-zinc-600">{step.detail}</div>
+                        <div className="min-w-0">
+                          <div className="truncate text-sm font-semibold text-zinc-900">{item.label}</div>
+                          <div className="mt-1 text-xs text-zinc-500">{[item.bureau, item.kind].filter(Boolean).join(" • ") || "Uncategorized"}</div>
                         </div>
-                        <div className={"inline-flex rounded-full border px-2.5 py-1 text-[11px] font-semibold " + step.toneClass}>{step.title}</div>
+                        <div className={item.auditTag === "NEGATIVE" ? "rounded-full border border-rose-200 bg-rose-50 px-2.5 py-1 text-[11px] font-semibold text-rose-700" : item.auditTag === "PENDING" ? "rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-[11px] font-semibold text-amber-700" : "rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[11px] font-semibold text-emerald-700"}>
+                          {REPORT_FILTER_LABELS[item.auditTag]}
+                        </div>
                       </div>
                     </div>
-                  ))}
+                  )) : <div className="rounded-2xl border border-dashed border-zinc-300 bg-zinc-50 px-4 py-3 text-sm text-zinc-600">No items on this report yet.</div>}
                 </div>
               </div>
-              <div className="rounded-3xl border border-zinc-200 bg-zinc-50/80 p-5">
-                <div className="text-sm font-semibold text-zinc-900">Where the file is concentrated</div>
-                <div className="mt-1 text-sm text-zinc-600">Real bureau and account-type distribution so you can see where the work is clustered.</div>
-                <div className="mt-4 space-y-3">
-                  {bureauBreakdown.length ? bureauBreakdown.map((entry, index) => (
-                    <div key={entry.bureau} className="rounded-2xl border border-zinc-200 bg-white px-4 py-3">
-                      <div className="flex items-center justify-between gap-3 text-sm font-semibold text-zinc-900">
-                        <span>{entry.bureau}</span>
-                        <span>{entry.count} item{entry.count === 1 ? "" : "s"}</span>
-                      </div>
-                      <div className="mt-2 h-2 overflow-hidden rounded-full bg-zinc-100">
-                        <div
-                          className={index % 3 === 0 ? "h-full rounded-full bg-brand-ink" : index % 3 === 1 ? "h-full rounded-full bg-rose-500" : "h-full rounded-full bg-amber-500"}
-                          style={{ width: `${entry.percentage}%` }}
-                        />
-                      </div>
-                      <div className="mt-2 text-xs text-zinc-500">{entry.percentage}% of this file</div>
+
+              <div className="rounded-3xl border border-zinc-200 p-5">
+                <div className="text-sm font-semibold text-zinc-900">Report info</div>
+                <div className="mt-4 space-y-3 text-sm text-zinc-700">
+                  <div className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3">
+                    <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Contact</div>
+                    <div className="mt-1 font-semibold text-zinc-900">{selectedReport.contact?.name || "Unassigned"}</div>
+                    <div className="mt-1 text-xs text-zinc-500">{selectedReport.contact?.email || "No email on file"}</div>
+                  </div>
+                  <div className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3">
+                    <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Bureaus</div>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      {bureauBreakdown.length ? bureauBreakdown.map((entry) => (
+                        <div key={entry.bureau} className="rounded-full border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-600">{entry.bureau} · {entry.count}</div>
+                      )) : <div className="text-xs text-zinc-500">No bureau data</div>}
                     </div>
-                  )) : (
-                    <div className="rounded-2xl border border-dashed border-zinc-300 bg-white px-4 py-3 text-sm text-zinc-600">No bureau data is attached to this report yet.</div>
-                  )}
-                </div>
-                <div className="mt-4 flex flex-wrap gap-2">
-                  {kindBreakdown.map((entry) => (
-                    <div key={entry.kind} className="rounded-full border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-600">
-                      {entry.kind} · {entry.count}
+                  </div>
+                  <div className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3">
+                    <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Account types</div>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      {kindBreakdown.length ? kindBreakdown.map((entry) => (
+                        <div key={entry.kind} className="rounded-full border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-600">{entry.kind} · {entry.count}</div>
+                      )) : <div className="text-xs text-zinc-500">No account types</div>}
                     </div>
-                  ))}
+                  </div>
                 </div>
               </div>
             </div>
@@ -922,14 +920,25 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
             <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
               <div>
                 <div className="text-sm font-semibold text-zinc-900">Report items</div>
-                <div className="mt-1 text-sm text-zinc-600">Work the highest-priority lines first, tag them cleanly, and keep dispute follow-up attached to each item.</div>
               </div>
               <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
                 <input
                   value={itemQuery}
                   onChange={(e) => setItemQuery(e.target.value)}
                   className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm sm:w-56"
-                  placeholder="Search items…"
+                  placeholder="Search items"
+                />
+                <PortalListboxDropdown
+                  value={itemFilter}
+                  onChange={(value) => setItemFilter(value as typeof itemFilter)}
+                  options={[
+                    { value: "ALL", label: `All ${selectedReport.items.length}` },
+                    { value: "PENDING", label: `${REPORT_FILTER_LABELS.PENDING} ${selectedReportSummary.pending}` },
+                    { value: "NEGATIVE", label: `${REPORT_FILTER_LABELS.NEGATIVE} ${selectedReportSummary.negative}` },
+                    { value: "POSITIVE", label: `Positive ${selectedReportSummary.positive}` },
+                    { value: "TRACKED", label: `${REPORT_FILTER_LABELS.TRACKED} ${selectedReportSummary.tracked}` },
+                  ]}
+                  buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50 sm:w-52"
                 />
                 <div className="text-xs text-zinc-500">{filteredItems.length} shown</div>
               </div>
@@ -951,25 +960,6 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
                     {it.disputeStatus ? `Latest follow-up: ${it.disputeStatus}` : it.auditTag === "NEGATIVE" ? "Ready to move into a dispute letter." : it.auditTag === "PENDING" ? "Review this item before deciding the next move." : "Keep this account steady while cleanup continues."}
                   </div>
                 </div>
-              ))}
-            </div>
-
-            <div className="mt-4 flex flex-wrap gap-2">
-              {([
-                ["ALL", `All ${selectedReport.items.length}`],
-                ["PENDING", `${REPORT_FILTER_LABELS.PENDING} ${selectedReportSummary.pending}`],
-                ["NEGATIVE", `${REPORT_FILTER_LABELS.NEGATIVE} ${selectedReportSummary.negative}`],
-                ["POSITIVE", `Positive ${selectedReportSummary.positive}`],
-                ["TRACKED", `${REPORT_FILTER_LABELS.TRACKED} ${selectedReportSummary.tracked}`],
-              ] as const).map(([value, label]) => (
-                <button
-                  key={value}
-                  type="button"
-                  onClick={() => setItemFilter(value)}
-                  className={itemFilter === value ? "rounded-full bg-zinc-900 px-3 py-1.5 text-xs font-semibold text-white" : "rounded-full border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-600 hover:bg-zinc-50"}
-                >
-                  {label}
-                </button>
               ))}
             </div>
 
@@ -1043,7 +1033,6 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
             <div className="flex flex-col gap-2 lg:flex-row lg:items-end lg:justify-between">
               <div>
                 <div className="text-sm font-semibold text-zinc-900">Funding lanes</div>
-                <div className="mt-1 text-sm text-zinc-600">Use these after the repair queue is under control, not before.</div>
               </div>
               <div className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm text-zinc-700">
                 {selectedReport.contact ? `Planned for ${selectedReport.contact.name}` : "Planned from this report"}

@@ -66,7 +66,6 @@ type TemplateConfig = {
   key: string;
   label: string;
   summary: string;
-  education: string;
   prompt: string;
   starter: string;
   cadenceDays: number;
@@ -77,20 +76,6 @@ const ROUND_OPTIONS: PortalListboxOption<string>[] = Array.from({ length: 8 }, (
   value: String(index + 1),
   label: `Round ${index + 1}`,
 }));
-
-const STRATEGY_OPTIONS: PortalListboxOption<string>[] = [
-  { value: "initial", label: "Initial investigation" },
-  { value: "followup", label: "Second notice" },
-  { value: "escalated", label: "Final escalation" },
-  { value: "custom", label: "Custom strategy" },
-];
-
-const CADENCE_OPTIONS: PortalListboxOption<string>[] = [
-  { value: "15", label: "15 days" },
-  { value: "21", label: "21 days" },
-  { value: "30", label: "30 days" },
-  { value: "45", label: "45 days" },
-];
 
 const RECIPIENT_PRESETS: RecipientPreset[] = [
   { key: "experian", label: "Experian", aliases: ["experian"], address: "Experian\nP.O. Box 4500\nAllen, TX 75013" },
@@ -105,7 +90,6 @@ const TEMPLATES: TemplateConfig[] = [
     key: "bureau-general",
     label: "General bureau investigation demand",
     summary: "Use for inaccurate balances, dates, statuses, ownership details, or incomplete reporting.",
-    education: "This prompt is built to generate a real mailed dispute with a clear opening, specific factual framing, and a direct reinvestigation request instead of a short generic note.",
     prompt: "Write a substantive bureau dispute letter under the FCRA. Make it specific, professional, and natural. Ask for a meaningful reinvestigation and deletion or correction of any item that cannot be verified accurately and completely.",
     starter: "Re: Formal dispute and request for reinvestigation of inaccurate credit reporting",
     cadenceDays: 21,
@@ -115,7 +99,6 @@ const TEMPLATES: TemplateConfig[] = [
     key: "bureau-followup",
     label: "Follow-up after weak bureau response",
     summary: "Use when a previous dispute did not fix the reporting or produced a vague response.",
-    education: "This pushes for a more documented reinvestigation and asks what records were actually reviewed.",
     prompt: "Write a firm follow-up bureau dispute letter after prior notice failed to resolve the issue. Reference prior correspondence naturally, but do not use internal workflow labels like round numbers.",
     starter: "Re: Follow-up dispute regarding unresolved inaccurate credit reporting",
     cadenceDays: 21,
@@ -125,7 +108,6 @@ const TEMPLATES: TemplateConfig[] = [
     key: "late-payment",
     label: "Late-payment accuracy challenge",
     summary: "Use for incorrect delinquency marks, overstated late history, or payment timing issues.",
-    education: "A strong late-payment dispute should ask for review of posting history, account notes, and furnished payment data.",
     prompt: "Write a detailed dispute letter focused on inaccurate late-payment reporting. Ask for review of payment history, posting records, and furnished status details.",
     starter: "Re: Dispute of inaccurate late-payment reporting",
     cadenceDays: 15,
@@ -135,7 +117,6 @@ const TEMPLATES: TemplateConfig[] = [
     key: "identity-theft",
     label: "Identity theft / not-mine dispute",
     summary: "Use when the account, inquiry, or personal information does not belong to the consumer.",
-    education: "This should clearly state the consumer disputes ownership and expects the item to be investigated, blocked, deleted, or corrected.",
     prompt: "Write a detailed identity theft or not-mine dispute letter. Make the ownership dispute clear and ask for investigation and removal of any information that does not belong to the consumer.",
     starter: "Re: Dispute of accounts or information not belonging to me",
     cadenceDays: 15,
@@ -145,7 +126,6 @@ const TEMPLATES: TemplateConfig[] = [
     key: "furnisher-direct",
     label: "Direct dispute to furnisher or creditor",
     summary: "Use when the next move should go to the furnisher instead of another bureau-only request.",
-    education: "This asks the furnisher to investigate source records and correct downstream furnishing if the account data is wrong.",
     prompt: "Write a direct dispute letter to a creditor or furnisher asking for review of source account records, balances, dates, account ownership, and payment history.",
     starter: "Re: Direct dispute of inaccurate furnished account information",
     cadenceDays: 30,
@@ -162,7 +142,7 @@ function normalize(value: string | null | undefined) {
 }
 
 function formatDateTime(value: string | null | undefined) {
-  if (!value) return "—";
+  if (!value) return "Not available";
   try {
     return new Date(value).toLocaleString();
   } catch {
@@ -258,13 +238,11 @@ export default function DisputeLettersClient({ mode = "list", initialLetterId = 
   const [contactQuery, setContactQuery] = useState("");
   const [composerOpen, setComposerOpen] = useState(false);
   const [contactId, setContactId] = useState("");
-  const [strategy, setStrategy] = useState("initial");
   const [round, setRound] = useState("1");
   const [templateKey, setTemplateKey] = useState(TEMPLATES[0].key);
   const [recipientName, setRecipientName] = useState("");
   const [recipientAddress, setRecipientAddress] = useState("");
   const [recipientAddressManual, setRecipientAddressManual] = useState(false);
-  const [cadenceDays, setCadenceDays] = useState(String(TEMPLATES[0].cadenceDays));
   const [items, setItems] = useState([""]);
   const [composerReportItems, setComposerReportItems] = useState<CreditReportItem[]>([]);
   const [composerReportLabel, setComposerReportLabel] = useState("");
@@ -273,7 +251,6 @@ export default function DisputeLettersClient({ mode = "list", initialLetterId = 
 
   const template = useMemo(() => TEMPLATES.find((entry) => entry.key === templateKey) || TEMPLATES[0], [templateKey]);
   const roundNumber = useMemo(() => Math.max(1, Number.parseInt(round, 10) || 1), [round]);
-  const cadenceNumber = useMemo(() => Math.max(1, Number.parseInt(cadenceDays, 10) || template.cadenceDays), [cadenceDays, template.cadenceDays]);
   const recipientPreset = useMemo(() => findRecipientPreset(recipientName), [recipientName]);
   const nextTemplate = useMemo(() => TEMPLATES.find((entry) => entry.key === template.nextTemplateKey) || template, [template]);
   const filteredLetters = useMemo(() => {
@@ -392,10 +369,6 @@ export default function DisputeLettersClient({ mode = "list", initialLetterId = 
   }, [loadLetter, selectedLetterId]);
 
   useEffect(() => {
-    setCadenceDays(String(template.cadenceDays));
-  }, [template]);
-
-  useEffect(() => {
     if (!recipientPreset || recipientAddressManual) return;
     setRecipientAddress(recipientPreset.address);
   }, [recipientAddressManual, recipientPreset]);
@@ -434,13 +407,11 @@ export default function DisputeLettersClient({ mode = "list", initialLetterId = 
     setContactId(nextContactId);
     const matchedContact = contacts.find((entry) => entry.id === nextContactId) || selectedLetter?.contact || null;
     setContactQuery(matchedContact ? `${matchedContact.name}${matchedContact.email ? ` - ${matchedContact.email}` : ""}` : "");
-    setStrategy("initial");
     setRound("1");
     setTemplateKey(TEMPLATES[0].key);
     setRecipientName(preset?.recipientName || "");
     setRecipientAddress("");
     setRecipientAddressManual(false);
-    setCadenceDays(String(TEMPLATES[0].cadenceDays));
     setItems(preset?.items?.length ? preset.items : [""]);
     setReportItemQuery("");
   }, [contacts, selectedLetter?.contact, selectedLetter?.contactId]);
@@ -486,16 +457,11 @@ export default function DisputeLettersClient({ mode = "list", initialLetterId = 
           recipientName: recipientName.trim(),
           recipientAddress: recipientAddress.trim(),
           disputesText: cleanItems.map((item) => `- ${item}`).join("\n"),
-          letterStageLabel: `${STRATEGY_OPTIONS.find((entry) => entry.value === strategy)?.label || "Initial investigation"} • Round ${roundNumber}`,
           templateLabel: template.label,
-          templatePrompt: toPrompt(template, roundNumber, cadenceNumber, nextTemplate.label, recipientName.trim()),
+          templatePrompt: toPrompt(template, roundNumber, template.cadenceDays, nextTemplate.label, recipientName.trim()),
           templateBodyStarter: template.starter,
-          subjectLine: `${selectedContact?.name || "Contact"} - ${recipientName.trim()} - Round ${roundNumber} - ${template.label}`,
+          subjectLine: `${selectedContact?.name || "Contact"} - ${recipientName.trim()} - ${template.label}`,
           roundNumber,
-          followUpDays: cadenceNumber,
-          nextRoundNumber: Math.min(12, roundNumber + 1),
-          recommendedNextTemplateLabel: nextTemplate.label,
-          recipientPresetLabel: recipientPreset?.label,
         }),
       });
       await loadLetters();
@@ -507,7 +473,7 @@ export default function DisputeLettersClient({ mode = "list", initialLetterId = 
     } finally {
       setWorking(null);
     }
-  }, [cadenceNumber, cleanItems, contactId, contacts, loadLetters, nextTemplate.label, recipientAddress, recipientName, recipientPreset?.label, roundNumber, routeSet, strategy, template]);
+  }, [cleanItems, contactId, contacts, loadLetters, nextTemplate.label, recipientAddress, recipientName, roundNumber, routeSet, template]);
 
   const saveLetter = useCallback(async () => {
     if (!selectedLetterId) return;
@@ -552,166 +518,138 @@ export default function DisputeLettersClient({ mode = "list", initialLetterId = 
     }
   }, [loadLetter, loadLetters, selectedLetterId]);
 
+  useEffect(() => {
+    if (mode !== "editor") return;
+    if (!selectedLetterId || !selectedLetter || letterLoading || working || pdfDownloadUrl) return;
+    void refreshPdf().catch(() => undefined);
+  }, [letterLoading, mode, pdfDownloadUrl, refreshPdf, selectedLetter, selectedLetterId, working]);
+
   const composer = composerOpen ? (
     <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/30 p-4" onMouseDown={() => working !== "generate" && setComposerOpen(false)}>
-      <div className="my-auto w-full max-w-5xl max-h-[calc(100dvh-2rem)] overflow-y-auto rounded-4xl border border-zinc-200 bg-white p-6 shadow-xl sm:p-7" onMouseDown={(event) => event.stopPropagation()} role="dialog" aria-modal="true" aria-label="New dispute letter" data-overlay-root="true">
+      <div className="my-auto w-full max-w-4xl max-h-[calc(100dvh-2rem)] overflow-y-auto rounded-4xl border border-zinc-200 bg-white p-6 shadow-xl sm:p-7" onMouseDown={(event) => event.stopPropagation()} role="dialog" aria-modal="true" aria-label="New dispute letter" data-overlay-root="true">
         <div className="flex items-start justify-between gap-4">
           <div>
             <div className="text-lg font-semibold text-zinc-900">New dispute letter</div>
-            <div className="mt-1 text-sm text-zinc-600">Pick the contact, choose the recipient, load exact report items, and generate a letter without the clutter.</div>
+            <div className="mt-1 text-sm text-zinc-600">Pick the contact, choose the recipient, load the report items, and generate the draft.</div>
           </div>
           <button type="button" onClick={() => setComposerOpen(false)} aria-label="Close dispute letter composer" className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-zinc-200 text-lg font-semibold text-zinc-700 hover:bg-zinc-50">×</button>
         </div>
-        <div className="mt-6 grid gap-5 xl:grid-cols-[minmax(0,1fr)_320px]">
-          <div className="space-y-4">
-            <section className="rounded-3xl border border-zinc-200 bg-zinc-50/70 p-5">
-              <div className="text-sm font-semibold text-zinc-900">Case</div>
-              <div className="mt-1 text-sm text-zinc-600">Set the contact and the recipient first so the rest of the draft stays tied to the right file.</div>
-              <div className="mt-4 grid gap-4 md:grid-cols-2">
-                <label className="block md:col-span-2">
-                  <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Contact</div>
-                  <PortalSearchableCombobox
-                    query={contactQuery}
-                    onQueryChange={(value) => {
-                      setContactQuery(value);
-                      if (!value.trim()) setContactId("");
-                    }}
-                    options={contactOptions}
-                    selectedValue={contactId}
-                    onSelect={(option) => {
-                      setContactId(option.value);
-                      setContactQuery(option.label);
-                    }}
-                    placeholder={contactsLoading ? "Searching contacts…" : "Search or select a contact"}
-                    emptyLabel={contactsLoading ? "Searching contacts…" : "No contacts found"}
-                    inputClassName="pa-portal-listbox-button w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 pr-10 text-sm text-zinc-900 outline-none focus:border-zinc-300"
-                  />
-                </label>
-                <label className="block md:col-span-2">
-                  <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Recipient</div>
-                  <PortalSearchableCombobox
-                    query={recipientName}
-                    onQueryChange={(value) => {
-                      setRecipientName(value);
-                      if (!value.trim()) {
-                        setRecipientAddress("");
-                        setRecipientAddressManual(false);
-                      }
-                    }}
-                    options={recipientOptions}
-                    selectedValue={recipientPreset?.key}
-                    onSelect={(option) => {
-                      setRecipientName(option.label);
-                      setRecipientAddressManual(false);
-                    }}
-                    placeholder="Type or select a recipient"
-                    emptyLabel="Keep typing to use a custom recipient"
-                    inputClassName="pa-portal-listbox-button w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 pr-10 text-sm text-zinc-900 outline-none focus:border-zinc-300"
-                  />
-                </label>
-                <label className="block md:col-span-2">
-                  <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Recipient address</div>
-                  <textarea value={recipientAddress} onChange={(event) => { setRecipientAddress(event.target.value); setRecipientAddressManual(true); }} className="min-h-24 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300" />
-                </label>
-              </div>
-            </section>
-
-            <section className="rounded-3xl border border-zinc-200 bg-white p-5">
-              <div className="text-sm font-semibold text-zinc-900">Letter setup</div>
-              <div className="mt-1 text-sm text-zinc-600">Keep the drafting controls grouped instead of mixing them into the issue list.</div>
-              <div className="mt-4 grid gap-4 md:grid-cols-2">
-                <label className="block">
-                  <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Round</div>
-                  <PortalListboxDropdown value={round} onChange={setRound} options={ROUND_OPTIONS} buttonClassName="flex w-full items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm hover:bg-zinc-50" />
-                </label>
-                <label className="block">
-                  <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Strategy</div>
-                  <PortalListboxDropdown value={strategy} onChange={setStrategy} options={STRATEGY_OPTIONS} buttonClassName="flex w-full items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm hover:bg-zinc-50" />
-                </label>
-                <label className="block">
-                  <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Template</div>
-                  <PortalListboxDropdown value={templateKey} onChange={setTemplateKey} options={templateOptions} buttonClassName="flex w-full items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm hover:bg-zinc-50" />
-                </label>
-                <label className="block">
-                  <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Next touchpoint</div>
-                  <PortalListboxDropdown value={cadenceDays} onChange={setCadenceDays} options={CADENCE_OPTIONS} buttonClassName="flex w-full items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm hover:bg-zinc-50" />
-                </label>
-              </div>
-            </section>
-
-            <section className="rounded-3xl border border-zinc-200 bg-white p-5">
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <div className="text-sm font-semibold text-zinc-900">Dispute items</div>
-                  <div className="mt-1 text-sm text-zinc-600">Pull exact report items in, then clean up the wording only where you need to.</div>
-                </div>
-                <div className="rounded-full border border-zinc-200 bg-zinc-50 px-3 py-1 text-xs font-semibold text-zinc-600">{cleanItems.length} issue{cleanItems.length === 1 ? "" : "s"}</div>
-              </div>
-
-              <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
-                <div className="mb-2 flex items-center justify-between gap-2">
-                  <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Add from latest credit report</div>
-                  <div className="text-[11px] text-zinc-500">{composerReportLabel || (contactId ? "No report found yet" : "Select a contact first")}</div>
-                </div>
+        <div className="mt-6 flex flex-wrap gap-2 text-xs font-semibold uppercase tracking-wide text-zinc-500">
+          <span className="rounded-full border border-zinc-200 bg-zinc-50 px-3 py-1.5">1 Contact</span>
+          <span className="rounded-full border border-zinc-200 bg-zinc-50 px-3 py-1.5">2 Letter</span>
+          <span className="rounded-full border border-zinc-200 bg-zinc-50 px-3 py-1.5">3 Issues</span>
+        </div>
+        <div className="mt-5 space-y-4">
+          <section className="rounded-3xl border border-zinc-200 bg-zinc-50/70 p-5">
+            <div className="text-sm font-semibold text-zinc-900">Contact and recipient</div>
+            <div className="mt-4 grid gap-4 md:grid-cols-2">
+              <label className="block md:col-span-2">
+                <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Contact</div>
                 <PortalSearchableCombobox
-                  query={reportItemQuery}
-                  onQueryChange={setReportItemQuery}
-                  options={reportItemOptions}
-                  onSelect={addComposerReportItem}
-                  placeholder={composerItemsLoading ? "Loading report items…" : "Search report items to add"}
-                  emptyLabel={composerItemsLoading ? "Loading report items…" : "No report items available"}
+                  query={contactQuery}
+                  onQueryChange={(value) => {
+                    setContactQuery(value);
+                    if (!value.trim()) setContactId("");
+                  }}
+                  options={contactOptions}
+                  selectedValue={contactId}
+                  onSelect={(option) => {
+                    setContactId(option.value);
+                    setContactQuery(option.label);
+                  }}
+                  placeholder={contactsLoading ? "Searching contacts..." : "Search or select a contact"}
+                  emptyLabel={contactsLoading ? "Searching contacts..." : "No contacts found"}
                   inputClassName="pa-portal-listbox-button w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 pr-10 text-sm text-zinc-900 outline-none focus:border-zinc-300"
-                  disabled={!contactId || composerItemsLoading}
                 />
-              </div>
+              </label>
+              <label className="block md:col-span-2">
+                <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Recipient</div>
+                <PortalSearchableCombobox
+                  query={recipientName}
+                  onQueryChange={(value) => {
+                    setRecipientName(value);
+                    if (!value.trim()) {
+                      setRecipientAddress("");
+                      setRecipientAddressManual(false);
+                    }
+                  }}
+                  options={recipientOptions}
+                  selectedValue={recipientPreset?.key}
+                  onSelect={(option) => {
+                    setRecipientName(option.label);
+                    setRecipientAddressManual(false);
+                  }}
+                  placeholder="Type or select a recipient"
+                  emptyLabel="Keep typing to use a custom recipient"
+                  inputClassName="pa-portal-listbox-button w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 pr-10 text-sm text-zinc-900 outline-none focus:border-zinc-300"
+                />
+              </label>
+              <label className="block md:col-span-2">
+                <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Recipient address</div>
+                <textarea value={recipientAddress} onChange={(event) => { setRecipientAddress(event.target.value); setRecipientAddressManual(true); }} className="min-h-24 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300" />
+              </label>
+            </div>
+          </section>
 
-              <div className="mt-4 space-y-2">
-                {items.map((item, index) => (
-                  <div key={index} className="flex gap-2">
-                    <input value={item} onChange={(event) => setItems((current) => current.map((entry, entryIndex) => entryIndex === index ? event.target.value : entry))} className="flex-1 rounded-2xl border border-zinc-200 bg-zinc-50/40 px-4 py-3 text-sm outline-none focus:border-zinc-300" placeholder={index === 0 ? "Account XXXX reported late but was paid on time" : "Add another dispute item"} />
-                    <button type="button" onClick={() => setItems((current) => { const next = current.filter((_, entryIndex) => entryIndex !== index); return next.length ? next : [""]; })} className="rounded-2xl border border-zinc-200 px-3 py-3 text-sm font-semibold text-zinc-700 hover:bg-zinc-50">Remove</button>
-                  </div>
-                ))}
-              </div>
-              <button type="button" onClick={() => setItems((current) => [...current, ""])} className="mt-3 rounded-2xl border border-zinc-200 px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50">Add dispute item</button>
-            </section>
-          </div>
+          <section className="rounded-3xl border border-zinc-200 bg-white p-5">
+            <div className="text-sm font-semibold text-zinc-900">Letter details</div>
+            <div className="mt-4 grid gap-4 md:grid-cols-2">
+              <label className="block">
+                <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Template</div>
+                <PortalListboxDropdown value={templateKey} onChange={setTemplateKey} options={templateOptions} buttonClassName="flex w-full items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm hover:bg-zinc-50" />
+              </label>
+              <label className="block">
+                <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Round</div>
+                <PortalListboxDropdown value={round} onChange={setRound} options={ROUND_OPTIONS} buttonClassName="flex w-full items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm hover:bg-zinc-50" />
+              </label>
+            </div>
+            <div className="mt-4 rounded-2xl border border-brand-blue/20 bg-brand-blue/5 px-4 py-3 text-sm text-zinc-700">
+              <div className="font-semibold text-zinc-900">{template.label}</div>
+              <div className="mt-1">{template.summary}</div>
+              <div className="mt-2 text-xs font-semibold uppercase tracking-wide text-zinc-500">Recommended follow-up: {nextTemplate.label} in about {template.cadenceDays} days</div>
+            </div>
+          </section>
 
-          <aside className="space-y-4">
-            <section className="rounded-3xl border border-zinc-200 bg-zinc-50/70 p-5">
-              <div className="text-sm font-semibold text-zinc-900">Draft summary</div>
-              <div className="mt-4 space-y-3 text-sm text-zinc-700">
-                <div>
-                  <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Contact</div>
-                  <div className="mt-1 font-semibold text-zinc-900">{selectedContact?.name || "No contact selected"}</div>
-                  <div className="mt-1 text-xs text-zinc-500">{selectedContact?.email || selectedContact?.phone || "Pick a contact to load the right report items."}</div>
-                </div>
-                <div>
-                  <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Recipient</div>
-                  <div className="mt-1 font-semibold text-zinc-900">{recipientName || "No recipient yet"}</div>
-                </div>
-                <div>
-                  <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Report source</div>
-                  <div className="mt-1 text-zinc-700">{composerReportLabel || "No linked report loaded"}</div>
-                </div>
+          <section className="rounded-3xl border border-zinc-200 bg-white p-5">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <div className="text-sm font-semibold text-zinc-900">Issues</div>
+                <div className="mt-1 text-sm text-zinc-600">Add the exact items you want in the letter.</div>
               </div>
-            </section>
+              <div className="rounded-full border border-zinc-200 bg-zinc-50 px-3 py-1 text-xs font-semibold text-zinc-600">{cleanItems.length} issue{cleanItems.length === 1 ? "" : "s"}</div>
+            </div>
 
-            <section className="rounded-3xl border border-zinc-200 bg-white p-5">
-              <div className="text-sm font-semibold text-zinc-900">Template</div>
-              <div className="mt-2 text-sm text-zinc-700">{template.summary}</div>
-              <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm text-zinc-700">{template.education}</div>
-              <div className="mt-4 grid gap-2 text-xs font-semibold text-zinc-600">
-                <div className="rounded-2xl border border-zinc-200 bg-white px-3 py-2">{STRATEGY_OPTIONS.find((entry) => entry.value === strategy)?.label || "Initial investigation"}</div>
-                <div className="rounded-2xl border border-zinc-200 bg-white px-3 py-2">Round {roundNumber}</div>
-                <div className="rounded-2xl border border-zinc-200 bg-white px-3 py-2">Next touchpoint in {cadenceNumber} days</div>
+            <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
+              <div className="mb-2 flex items-center justify-between gap-2">
+                <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Add from latest credit report</div>
+                <div className="text-[11px] text-zinc-500">{composerReportLabel || (contactId ? "No report found yet" : "Select a contact first")}</div>
               </div>
-            </section>
-          </aside>
+              <PortalSearchableCombobox
+                query={reportItemQuery}
+                onQueryChange={setReportItemQuery}
+                options={reportItemOptions}
+                onSelect={addComposerReportItem}
+                placeholder={composerItemsLoading ? "Loading report items..." : "Search report items to add"}
+                emptyLabel={composerItemsLoading ? "Loading report items..." : "No report items available"}
+                inputClassName="pa-portal-listbox-button w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 pr-10 text-sm text-zinc-900 outline-none focus:border-zinc-300"
+                disabled={!contactId || composerItemsLoading}
+              />
+            </div>
+
+            <div className="mt-4 space-y-2">
+              {items.map((item, index) => (
+                <div key={index} className="flex gap-2">
+                  <input value={item} onChange={(event) => setItems((current) => current.map((entry, entryIndex) => entryIndex === index ? event.target.value : entry))} className="flex-1 rounded-2xl border border-zinc-200 bg-zinc-50/40 px-4 py-3 text-sm outline-none focus:border-zinc-300" placeholder={index === 0 ? "Account XXXX reported late but was paid on time" : "Add another issue"} />
+                  <button type="button" onClick={() => setItems((current) => { const next = current.filter((_, entryIndex) => entryIndex !== index); return next.length ? next : [""]; })} className="rounded-2xl border border-zinc-200 px-3 py-3 text-sm font-semibold text-zinc-700 hover:bg-zinc-50">Remove</button>
+                </div>
+              ))}
+            </div>
+            <button type="button" onClick={() => setItems((current) => [...current, ""])} className="mt-3 rounded-2xl border border-zinc-200 px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50">Add issue</button>
+          </section>
         </div>
         <div className="mt-6 flex justify-end gap-2">
           <button type="button" onClick={() => setComposerOpen(false)} className="rounded-2xl border border-zinc-200 px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50">Cancel</button>
-          <button type="button" disabled={!canGenerate || working !== null} onClick={() => void generateLetter()} className="rounded-2xl bg-zinc-900 px-4 py-2 text-sm font-semibold text-white disabled:opacity-60">{working === "generate" ? "Generating…" : "Generate"}</button>
+          <button type="button" disabled={!canGenerate || working !== null} onClick={() => void generateLetter()} className="rounded-2xl bg-brand-blue px-4 py-2 text-sm font-semibold text-white disabled:opacity-60">{working === "generate" ? "Generating..." : "Generate"}</button>
         </div>
       </div>
     </div>
@@ -730,11 +668,9 @@ export default function DisputeLettersClient({ mode = "list", initialLetterId = 
             </div>
           </div>
           <div className="flex flex-wrap gap-2">
-            <button type="button" onClick={handleOpenComposer} className="rounded-2xl border border-zinc-200 px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50">New Letter</button>
-            <button type="button" disabled={!selectedLetterId || working !== null} onClick={() => void refreshPdf()} className="rounded-2xl border border-zinc-200 px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-60">{working === "pdf" ? "Working…" : pdfDownloadUrl ? "Refresh PDF" : "Generate PDF"}</button>
-            {pdfDownloadUrl ? <a href={pdfDownloadUrl} target="_blank" rel="noreferrer" className="rounded-2xl border border-zinc-200 px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50">Download PDF</a> : null}
-            <button type="button" disabled={!selectedLetterId || working !== null} onClick={() => void saveLetter()} className="rounded-2xl bg-zinc-900 px-4 py-2 text-sm font-semibold text-white disabled:opacity-60">{working === "save" ? "Saving…" : "Save"}</button>
-            <button type="button" disabled={!selectedLetterId || !selectedLetter?.contact.email || working !== null} onClick={() => void sendLetter()} className="rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60">{working === "send" ? "Sending…" : "Send"}</button>
+            {pdfDownloadUrl ? <a href={pdfDownloadUrl} target="_blank" rel="noreferrer" aria-label="Download PDF" className="inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-zinc-200 bg-white text-lg font-semibold text-zinc-700 hover:bg-zinc-50">↓</a> : null}
+            <button type="button" disabled={!selectedLetterId || working !== null} onClick={() => void saveLetter()} className="rounded-2xl bg-brand-blue px-4 py-2 text-sm font-semibold text-white disabled:opacity-60">{working === "save" ? "Saving..." : "Save"}</button>
+            <button type="button" disabled={!selectedLetterId || !selectedLetter?.contact.email || working !== null} onClick={() => void sendLetter()} className="rounded-2xl bg-linear-to-r from-(--color-brand-blue) to-(--color-brand-pink) px-4 py-2 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60">{working === "send" ? "Sending..." : "Send"}</button>
           </div>
         </div>
         {error ? <div className="mt-4 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">{error}</div> : null}
@@ -773,15 +709,14 @@ export default function DisputeLettersClient({ mode = "list", initialLetterId = 
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold text-zinc-900">Dispute letters</h1>
-          <p className="mt-1 text-sm text-zinc-600">Click any row to open it. New letters now use round planning, stronger templates, and recipient autofill.</p>
         </div>
-        <button type="button" onClick={handleOpenComposer} className="rounded-2xl bg-zinc-900 px-4 py-2.5 text-sm font-semibold text-white">New Letter</button>
+        <button type="button" onClick={handleOpenComposer} className="rounded-2xl bg-brand-blue px-4 py-2.5 text-sm font-semibold text-white">+ New</button>
       </div>
       {error ? <div className="mt-4 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">{error}</div> : null}
       <section className="mt-6 rounded-3xl border border-zinc-200 bg-white p-6 shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <input value={search} onChange={(event) => setSearch(event.target.value)} className="w-full max-w-xl rounded-2xl border border-zinc-200 px-4 py-3 text-sm outline-none focus:border-zinc-300" placeholder="Search letters" />
-          <div className="rounded-full border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs font-semibold text-zinc-600">{lettersLoading ? "Loading…" : `${filteredLetters.length} shown`}</div>
+          <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">{lettersLoading ? "Loading..." : `${filteredLetters.length} letters`}</div>
         </div>
         <div className="mt-5 overflow-x-auto rounded-3xl border border-zinc-200">
           <table className="min-w-full text-left text-sm">
