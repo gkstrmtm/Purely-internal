@@ -6,6 +6,9 @@ import { getPortalBusinessProfile } from "@/lib/portalBusinessProfile.server";
 import { getPortalUser } from "@/lib/portalAuth";
 import { getPortalThemeMode } from "@/lib/portalTheme.server";
 
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 export const metadata: Metadata = {
   icons: {
     icon: [{ url: "/brand/2.png", type: "image/png" }],

@@ -1,3 +1,5 @@
+import { unstable_noStore as noStore } from "next/cache";
+
 import { prisma } from "@/lib/db";
 
 const PROFILE_EXTRAS_SERVICE_SLUG = "profile";
@@ -17,6 +19,8 @@ function asThemeRec(dataJson: unknown): Record<string, unknown> {
 }
 
 export async function getPortalThemeMode(userId?: string | null): Promise<PortalThemeMode> {
+  noStore();
+
   const cleanUserId = typeof userId === "string" ? userId.trim() : "";
   if (!cleanUserId) return "device";
 

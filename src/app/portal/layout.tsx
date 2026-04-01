@@ -7,6 +7,9 @@ import { getPortalBusinessProfile } from "@/lib/portalBusinessProfile.server";
 import { getPortalThemeMode } from "@/lib/portalTheme.server";
 import { normalizePortalVariant, PORTAL_VARIANT_HEADER } from "@/lib/portalVariant";
 
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 export const metadata: Metadata = {
   icons: {
     icon: [{ url: "/brand/purelylogo.png", type: "image/png" }],
