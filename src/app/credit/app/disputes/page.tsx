@@ -10,5 +10,5 @@ export default async function CreditDisputesPage() {
   const session = await requireCreditClientSession();
   if (!session.ok) redirect("/credit/login");
 
-  return <DisputeLettersClient />;
+  return <DisputeLettersClient mode="list" />;
 }

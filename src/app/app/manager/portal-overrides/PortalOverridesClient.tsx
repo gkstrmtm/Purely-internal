@@ -251,6 +251,21 @@ async function deletePortalUser(ownerId: string) {
   return body as { ok: true };
 }
 
+async function seedCreditDemo(opts: { email: string; force?: boolean }) {
+  const res = await fetch("/api/manager/portal/seed-credit-demo", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ email: opts.email, force: opts.force === true }),
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const details = typeof body?.details === "string" && body.details ? ` ${body.details}` : "";
+    const msg = typeof body?.error === "string" && body.error ? `${body.error}${details}` : `Request failed (HTTP ${res.status})`;
+    throw new Error(msg);
+  }
+  return body as { ok: true; skipped?: boolean; forced?: boolean; email?: string };
+}
+
 export default function PortalOverridesClient() {
   const toast = useToast();
 
@@ -268,6 +283,7 @@ export default function PortalOverridesClient() {
   const [detailsLoading, setDetailsLoading] = useState(false);
   const [detailsError, setDetailsError] = useState<string | null>(null);
   const [detailsByOwnerId, setDetailsByOwnerId] = useState<Record<string, OwnerDetails>>({});
+  const [creditSeedingOwnerId, setCreditSeedingOwnerId] = useState<string | null>(null);
 
   const testingUser = useMemo(() => {
     const id = (testingOwnerId || "").trim();
@@ -426,6 +442,25 @@ export default function PortalOverridesClient() {
       toast.error(e instanceof Error ? e.message : "Bulk update failed");
     } finally {
       setSavingKey(null);
+    }
+  }
+
+  async function onSeedCreditDemo(ownerId: string) {
+    const row = users.find((user) => user.id === ownerId) ?? null;
+    const email = String(row?.email || "").trim().toLowerCase();
+    if (!email) {
+      toast.error("This account is missing an email");
+      return;
+    }
+
+    setCreditSeedingOwnerId(ownerId);
+    try {
+      const result = await seedCreditDemo({ email, force: true });
+      toast.success(result.skipped ? `Credit demo already present for ${email}` : `Credit demo seeded for ${email}`);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Unable to seed credit demo");
+    } finally {
+      setCreditSeedingOwnerId(null);
     }
   }
 
@@ -733,6 +768,18 @@ export default function PortalOverridesClient() {
                 </div>
               </div>
               <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-800 hover:bg-emerald-100 disabled:opacity-60"
+                  disabled={creditSeedingOwnerId === detailsOwnerId}
+                  onClick={() => {
+                    const ownerId = (detailsOwnerId || "").trim();
+                    if (!ownerId) return;
+                    void onSeedCreditDemo(ownerId);
+                  }}
+                >
+                  {creditSeedingOwnerId === detailsOwnerId ? "Seeding credit…" : "Seed credit demo"}
+                </button>
                 <button
                   type="button"
                   className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm font-semibold text-red-800 hover:bg-red-100"

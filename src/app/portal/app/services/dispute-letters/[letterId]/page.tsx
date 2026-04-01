@@ -8,15 +8,21 @@ import { normalizePortalVariant, PORTAL_VARIANT_HEADER } from "@/lib/portalVaria
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-export default async function CreditDisputeLettersServicePage() {
+export default async function CreditDisputeLettersEditorPage({
+  params,
+}: {
+  params: Promise<{ letterId: string }>;
+}) {
   const h = await headers();
   const variant = normalizePortalVariant(h.get(PORTAL_VARIANT_HEADER)) ?? "portal";
   if (variant !== "credit") notFound();
 
   const session = await requireCreditClientSession();
   if (!session.ok) {
-    redirect(`/credit/login?from=${encodeURIComponent("/credit/app/services/dispute-letters")}`);
+    const { letterId } = await params;
+    redirect(`/credit/login?from=${encodeURIComponent(`/credit/app/services/dispute-letters/${letterId}`)}`);
   }
 
-  return <DisputeLettersClient mode="list" />;
+  const { letterId } = await params;
+  return <DisputeLettersClient mode="editor" initialLetterId={letterId} />;
 }

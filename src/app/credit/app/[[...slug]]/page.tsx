@@ -198,7 +198,11 @@ export default async function CreditAppCatchallPage({
   }
 
   if (slug.length === 2 && slug[0] === "services" && slug[1] === "dispute-letters") {
-    return <DisputeLettersClient />;
+    return <DisputeLettersClient mode="list" />;
+  }
+
+  if (slug.length === 3 && slug[0] === "services" && slug[1] === "dispute-letters") {
+    return <DisputeLettersClient mode="editor" initialLetterId={slug[2] || ""} />;
   }
 
   if (slug.length === 2 && slug[0] === "services" && slug[1] === "credit-reports") {
