@@ -1,5 +1,7 @@
 "use client";
 
+import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { PortalListboxDropdown, type PortalListboxOption } from "@/components/PortalListboxDropdown";
@@ -49,6 +51,8 @@ async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
 }
 
 export default function CreditReportsClient() {
+  const pathname = usePathname() || "";
+  const portalBase = pathname.startsWith("/credit") ? "/credit" : "/portal";
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -131,6 +135,14 @@ export default function CreditReportsClient() {
     () => contacts.find((c) => c.id === selectedContactId) || null,
     [contacts, selectedContactId],
   );
+  const selectedReportSummary = useMemo(() => {
+    const items = selectedReport?.items || [];
+    const pending = items.filter((item) => item.auditTag === "PENDING").length;
+    const negative = items.filter((item) => item.auditTag === "NEGATIVE").length;
+    const positive = items.filter((item) => item.auditTag === "POSITIVE").length;
+    const tracked = items.filter((item) => String(item.disputeStatus || "").trim().length > 0).length;
+    return { pending, negative, positive, tracked };
+  }, [selectedReport]);
 
   const importReport = async () => {
     setBusy(true);
@@ -206,7 +218,7 @@ export default function CreditReportsClient() {
         <aside className="rounded-3xl border border-zinc-200 bg-white p-4">
           <div className="text-sm font-semibold">Pull report</div>
           <div className="mt-1 text-sm text-zinc-600">
-            Choose your provider and pull a credit report.
+            Import, pull, or re-import a credit report so you can audit items and keep dispute tracking current.
           </div>
 
           <label className="mt-3 block">
@@ -275,9 +287,10 @@ export default function CreditReportsClient() {
               onClick={requestProviderPull}
               className="rounded-xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
             >
-              {busy ? "Working…" : "Pull report"}
+              {busy ? "Working…" : reports.some((report) => report.contactId === selectedContactId) ? "Re-import latest" : "Pull latest report"}
             </button>
           </div>
+          <div className="mt-2 text-xs text-zinc-500">Provider pull is ready for API credentials later; the workflow stays visible in the UI now.</div>
 
           {showAdvancedImport ? (
             <details className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
@@ -290,7 +303,7 @@ export default function CreditReportsClient() {
                 <textarea
                   value={rawText}
                   onChange={(e) => setRawText(e.target.value)}
-                  className="min-h-[180px] w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 font-mono text-xs"
+                  className="min-h-45 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 font-mono text-xs"
                   placeholder="Paste JSON here"
                 />
               </label>
@@ -342,7 +355,12 @@ export default function CreditReportsClient() {
           <div className="flex flex-wrap items-end justify-between gap-2">
             <div>
               <div className="text-sm font-semibold">Audit</div>
-              <div className="mt-1 text-xs text-zinc-600">Tag items pending / negative / positive and track dispute status.</div>
+              <div className="mt-1 text-xs text-zinc-600">Tag items pending / negative / positive, track dispute status, then hand the report straight into dispute letters.</div>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Link href={`${portalBase}/app/services/dispute-letters`} className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold hover:bg-zinc-50">
+                Open dispute letters
+              </Link>
             </div>
           </div>
 
@@ -357,8 +375,27 @@ export default function CreditReportsClient() {
                 {new Date(selectedReport.importedAt).toLocaleString()}
               </div>
 
+              <div className="mt-4 grid gap-3 sm:grid-cols-4">
+                <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
+                  <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Pending</div>
+                  <div className="mt-1 text-xl font-bold text-brand-ink">{selectedReportSummary.pending}</div>
+                </div>
+                <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
+                  <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Negative</div>
+                  <div className="mt-1 text-xl font-bold text-brand-ink">{selectedReportSummary.negative}</div>
+                </div>
+                <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
+                  <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Positive</div>
+                  <div className="mt-1 text-xl font-bold text-brand-ink">{selectedReportSummary.positive}</div>
+                </div>
+                <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
+                  <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Tracked disputes</div>
+                  <div className="mt-1 text-xl font-bold text-brand-ink">{selectedReportSummary.tracked}</div>
+                </div>
+              </div>
+
               <div className="mt-4 overflow-x-auto rounded-2xl border border-zinc-200">
-                <div className="min-w-[640px]">
+                <div className="min-w-160">
                   <div className="grid grid-cols-[1fr_140px_160px] gap-0 border-b border-zinc-200 bg-zinc-50 px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">
                     <div>Item</div>
                     <div>Audit tag</div>
@@ -407,7 +444,7 @@ export default function CreditReportsClient() {
               {showAdvancedImport ? (
                 <details className="mt-4">
                   <summary className="cursor-pointer text-sm font-semibold text-zinc-800">Raw JSON (dev)</summary>
-                  <pre className="mt-2 max-h-[420px] overflow-auto rounded-2xl border border-zinc-200 bg-zinc-50 p-3 text-xs text-zinc-800">
+                  <pre className="mt-2 max-h-105 overflow-auto rounded-2xl border border-zinc-200 bg-zinc-50 p-3 text-xs text-zinc-800">
                     {JSON.stringify(selectedReport.rawJson, null, 2)}
                   </pre>
                 </details>

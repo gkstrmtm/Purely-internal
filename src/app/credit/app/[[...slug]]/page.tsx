@@ -1,6 +1,8 @@
 import { notFound, redirect } from "next/navigation";
 
 import { PortalAiChatClient } from "@/app/portal/app/ai-chat/PortalAiChatClient";
+import CreditReportsClient from "@/app/portal/app/services/credit-reports/CreditReportsClient";
+import { PortalAppearanceSettingsClient } from "@/app/portal/app/settings/appearance/PortalAppearanceSettingsClient";
 import { PortalBillingClient } from "@/app/portal/billing/PortalBillingClient";
 import { PortalDashboardClient } from "@/app/portal/PortalDashboardClient";
 import { PortalPeopleContactsClient } from "@/app/portal/app/people/contacts/PortalPeopleContactsClient";
@@ -10,6 +12,7 @@ import { PortalProfileClient } from "@/app/portal/profile/PortalProfileClient";
 import { SettingsTabsClient } from "@/app/portal/app/settings/SettingsTabsClient";
 import { PortalServicePageClient } from "@/app/portal/services/[service]/PortalServicePageClient";
 import { PortalServicesClient } from "@/app/portal/app/services/PortalServicesClient";
+import DisputeLettersClient from "@/app/credit/app/disputes/DisputeLettersClient";
 import { PORTAL_SERVICES } from "@/app/portal/services/catalog";
 import { requireCreditClientSession } from "@/lib/creditPortalAccess";
 
@@ -55,8 +58,60 @@ export default async function CreditAppCatchallPage({
     );
   }
 
+  if (slug.length === 2 && slug[0] === "settings" && slug[1] === "appearance") {
+    return (
+      <div className="mx-auto w-full max-w-6xl">
+        <h1 className="text-2xl font-bold text-brand-ink sm:text-3xl">Appearance</h1>
+        <div className="mt-6">
+          <PortalAppearanceSettingsClient />
+        </div>
+      </div>
+    );
+  }
+
+  if (slug.length === 2 && slug[0] === "settings" && slug[1] === "integrations") {
+    return (
+      <div className="mx-auto w-full max-w-6xl">
+        <h1 className="text-2xl font-bold text-brand-ink sm:text-3xl">Integrations</h1>
+        <div className="mt-6">
+          <PortalProfileClient embedded mode="integrations" />
+        </div>
+      </div>
+    );
+  }
+
+  if (slug.length === 2 && slug[0] === "settings" && slug[1] === "business") {
+    return (
+      <div className="mx-auto w-full max-w-6xl">
+        <h1 className="text-2xl font-bold text-brand-ink sm:text-3xl">Business</h1>
+        <div className="mt-6">
+          <PortalProfileClient embedded mode="business" />
+        </div>
+      </div>
+    );
+  }
+
   if (slug.length === 1 && slug[0] === "services") {
     return <PortalServicesClient />;
+  }
+
+  if (slug.length === 2 && slug[0] === "services" && slug[1] === "dispute-letters") {
+    return <DisputeLettersClient />;
+  }
+
+  if (slug.length === 2 && slug[0] === "services" && slug[1] === "credit-reports") {
+    return (
+      <div className="min-h-screen bg-zinc-50 p-6 text-zinc-900">
+        <div className="mx-auto max-w-7xl">
+          <div className="mb-6">
+            <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Credit</div>
+            <h1 className="text-2xl font-bold text-brand-ink">Credit Reports</h1>
+            <p className="mt-1 text-sm text-zinc-600">Import and audit credit reports, re-import updates, and track disputed items.</p>
+          </div>
+          <CreditReportsClient />
+        </div>
+      </div>
+    );
   }
 
   if (slug.length === 2 && slug[0] === "services") {

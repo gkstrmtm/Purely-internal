@@ -4,7 +4,7 @@ import { z } from "zod";
 import { requireClientSession } from "@/lib/apiAuth";
 import {
   addPortalDashboardWidget,
-  getPortalDashboardData,
+  getPortalDashboardState,
   isDashboardWidgetId,
   removePortalDashboardWidget,
   resetPortalDashboard,
@@ -33,6 +33,11 @@ function dashboardScopeFromReq(req: Request) {
   }
 }
 
+function dashboardVariantFromReq(req: Request) {
+  const variant = String(req.headers.get("x-portal-variant") || "").trim().toLowerCase();
+  return variant === "credit" ? "credit" : "portal";
+}
+
 export async function GET(req: Request) {
   const auth = await requireClientSession();
   if (!auth.ok) {
@@ -44,8 +49,9 @@ export async function GET(req: Request) {
 
   const ownerId = auth.session.user.id;
   const scope = dashboardScopeFromReq(req);
-  const data = await getPortalDashboardData(ownerId, scope);
-  return NextResponse.json({ ok: true, data });
+  const variant = dashboardVariantFromReq(req);
+  const state = await getPortalDashboardState(ownerId, scope, variant);
+  return NextResponse.json({ ok: true, data: state.data, isPersisted: state.isPersisted });
 }
 
 export async function PUT(req: Request) {
@@ -65,10 +71,11 @@ export async function PUT(req: Request) {
 
   const ownerId = auth.session.user.id;
   const scope = dashboardScopeFromReq(req);
+  const variant = dashboardVariantFromReq(req);
 
   switch (parsed.data.action) {
     case "reset": {
-      const data = await resetPortalDashboard(ownerId, scope);
+      const data = await resetPortalDashboard(ownerId, scope, variant);
       return NextResponse.json({ ok: true, data });
     }
 

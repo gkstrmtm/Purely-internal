@@ -70,6 +70,8 @@ export type PortalDashboardMeta = {
   analysis?: PortalDashboardAnalysis;
 };
 
+export type DashboardVariant = "portal" | "credit";
+
 type StoredDashboardJson =
   | {
       version: 1;
@@ -168,7 +170,7 @@ export function isDashboardWidgetId(value: unknown): value is DashboardWidgetId 
   return typeof value === "string" && (ALL_WIDGET_IDS as string[]).includes(value);
 }
 
-function defaultDashboard(): PortalDashboardData {
+function portalDefaultDashboard(): PortalDashboardData {
   // 12-column grid. h is arbitrary “row units”.
   return {
     version: 1,
@@ -197,6 +199,30 @@ function defaultDashboard(): PortalDashboardData {
       { i: "services", x: 0, y: 40, w: 12, h: 14, minW: 6, minH: 10 },
     ],
   };
+}
+
+function creditDefaultDashboard(): PortalDashboardData {
+  return {
+    version: 1,
+    widgets: [
+      { id: "hoursSaved" },
+      { id: "billing" },
+      { id: "creditsRemaining" },
+      { id: "services" },
+      { id: "dailyActivity" },
+    ],
+    layout: [
+      { i: "hoursSaved", x: 0, y: 0, w: 3, h: 8, minW: 3, minH: 6 },
+      { i: "billing", x: 3, y: 0, w: 3, h: 8, minW: 3, minH: 6 },
+      { i: "creditsRemaining", x: 6, y: 0, w: 3, h: 8, minW: 3, minH: 6 },
+      { i: "services", x: 9, y: 0, w: 3, h: 8, minW: 3, minH: 6 },
+      { i: "dailyActivity", x: 0, y: 8, w: 12, h: 16, minW: 6, minH: 12 },
+    ],
+  };
+}
+
+function defaultDashboard(variant: DashboardVariant = "portal"): PortalDashboardData {
+  return variant === "credit" ? creditDefaultDashboard() : portalDefaultDashboard();
 }
 
 function parseDashboardJson(raw: unknown): PortalDashboardData {
@@ -273,13 +299,25 @@ function normalizeScope(scope: string | null | undefined): DashboardScope {
   return scope === "embedded" ? "embedded" : "default";
 }
 export async function getPortalDashboardData(ownerId: string, scope?: DashboardScope | string | null): Promise<PortalDashboardData> {
+  const state = await getPortalDashboardState(ownerId, scope, "portal");
+  return state.data;
+}
+
+export async function getPortalDashboardState(
+  ownerId: string,
+  scope?: DashboardScope | string | null,
+  variant: DashboardVariant = "portal",
+): Promise<{ data: PortalDashboardData; isPersisted: boolean }> {
   const s = normalizeScope(scope);
   const row = await prisma.portalServiceSetup.findUnique({
     where: { ownerId_serviceSlug: { ownerId, serviceSlug: SERVICE_SLUG } },
     select: { dataJson: true },
   });
+  if (!row) {
+    return { data: defaultDashboard(variant), isPersisted: false };
+  }
   const byScope = dashboardsByScopeFromStored((row?.dataJson ?? null) as any);
-  return byScope[s];
+  return { data: byScope[s], isPersisted: true };
 }
 
 export async function savePortalDashboardData(
@@ -438,6 +476,10 @@ export async function removePortalDashboardWidget(
   return await savePortalDashboardData(ownerId, scope, next);
 }
 
-export async function resetPortalDashboard(ownerId: string, scope: DashboardScope | string | null | undefined): Promise<PortalDashboardData> {
-  return await savePortalDashboardData(ownerId, scope, defaultDashboard());
+export async function resetPortalDashboard(
+  ownerId: string,
+  scope: DashboardScope | string | null | undefined,
+  variant: DashboardVariant = "portal",
+): Promise<PortalDashboardData> {
+  return await savePortalDashboardData(ownerId, scope, defaultDashboard(variant));
 }

@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import type { ComponentType } from "react";
 
@@ -80,6 +81,7 @@ type DashboardWidgetId =
 
 type DashboardPayload = {
   ok: boolean;
+  isPersisted?: boolean;
   data: {
     version: 1;
     widgets: Array<{ id: DashboardWidgetId }>;
@@ -338,11 +340,16 @@ function StatLine({ label, value }: { label: string; value: string }) {
 }
 
 export function PortalDashboardClient() {
+  const pathname = usePathname() || "";
   const toast = useToast();
+  const portalBase = useMemo(() => (pathname.startsWith("/credit") ? "/credit" : "/portal"), [pathname]);
+  const isCreditApp = portalBase === "/credit";
   const [data, setData] = useState<MeResponse | null>(null);
   const [reporting, setReporting] = useState<ReportingPayload | null>(null);
   const [mediaStats, setMediaStats] = useState<MediaStatsPayload | null>(null);
   const [dashboard, setDashboard] = useState<DashboardPayload["data"] | null>(null);
+  const [dashboardPersisted, setDashboardPersisted] = useState(true);
+  const [showCreditStarterGrid, setShowCreditStarterGrid] = useState(false);
   const [salesStatus, setSalesStatus] = useState<SalesIntegrationStatusPayload | null>(null);
   const [salesReport, setSalesReport] = useState<SalesReportPayload | null>(null);
   const [salesError, setSalesError] = useState<string | null>(null);
@@ -416,14 +423,18 @@ export function PortalDashboardClient() {
       const timeout = window.setTimeout(() => controller.abort(), 15000);
 
       try {
-        const variant = typeof window !== "undefined" && window.location.pathname.startsWith("/credit") ? "credit" : "portal";
+        const variant = pathname.startsWith("/credit") ? "credit" : "portal";
         const [meRes, dashRes, repRes, statsRes] = await Promise.all([
           fetch("/api/customer/me", {
             cache: "no-store",
             signal: controller.signal,
             headers: { "x-pa-app": "portal", "x-portal-variant": variant },
           }),
-          fetch(`/api/portal/dashboard?scope=${dashboardScope}` , { cache: "no-store", signal: controller.signal }),
+          fetch(`/api/portal/dashboard?scope=${dashboardScope}` , {
+            cache: "no-store",
+            signal: controller.signal,
+            headers: { "x-portal-variant": variant },
+          }),
           fetch("/api/portal/reporting?range=30d", { cache: "no-store", signal: controller.signal }).catch(() => null as any),
           fetch("/api/portal/media/stats", { cache: "no-store", signal: controller.signal }).catch(() => null as any),
         ]);
@@ -441,6 +452,7 @@ export function PortalDashboardClient() {
         if (dashRes.ok) {
           const body = (await dashRes.json().catch(() => null)) as DashboardPayload | null;
           if (body?.ok && body.data) {
+            setDashboardPersisted(body.isPersisted !== false);
             setDashboard(body.data);
 
             const base: LayoutItem[] = (body.data.layout ?? []).map((l) => ({
@@ -554,18 +566,18 @@ export function PortalDashboardClient() {
     return () => {
       mounted = false;
     };
-  }, [hasStripeSalesWidget]);
+  }, [hasStripeSalesWidget, pathname]);
 
   async function manageBilling() {
     if (!data?.billing?.configured) {
-      window.location.href = "/portal/app/billing";
+      window.location.href = `${portalBase}/app/billing`;
       return;
     }
     setError(null);
     const res = await fetch("/api/billing/create-portal-session", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ returnPath: "/portal/app" }),
+      body: JSON.stringify({ returnPath: `${portalBase}/app` }),
     });
     if (!res.ok) {
       const body = await res.json().catch(() => ({}));
@@ -578,14 +590,14 @@ export function PortalDashboardClient() {
 
   async function upgrade(module: ModuleKey) {
     if (!data?.billing?.configured) {
-      window.location.href = "/portal/app/billing";
+      window.location.href = `${portalBase}/app/billing`;
       return;
     }
     setError(null);
     const res = await fetch("/api/billing/checkout-module", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ module, successPath: "/portal/app", cancelPath: "/portal/app" }),
+      body: JSON.stringify({ module, successPath: `${portalBase}/app`, cancelPath: `${portalBase}/app` }),
     });
     if (!res.ok) {
       const body = await res.json().catch(() => ({}));
@@ -974,13 +986,13 @@ export function PortalDashboardClient() {
                 <div className="text-sm text-zinc-700">Connect a payment processor to see sales right on your dashboard.</div>
                 <div className="flex flex-col gap-2 sm:flex-row">
                   <Link
-                    href="/portal/app/profile"
+                    href={`${portalBase}/app/profile`}
                     className={dashboardPrimaryButtonClass}
                   >
                     Connect
                   </Link>
                   <Link
-                    href="/portal/app/services/reporting/sales?from=dashboard"
+                    href={`${portalBase}/app/services/reporting/sales?from=dashboard`}
                     className={dashboardSecondaryButtonClass}
                   >
                     Open sales dashboard
@@ -1000,7 +1012,7 @@ export function PortalDashboardClient() {
 
                 <div className="mt-4 flex flex-col gap-2 sm:flex-row">
                   <Link
-                    href="/portal/app/services/reporting/sales?from=dashboard"
+                    href={`${portalBase}/app/services/reporting/sales?from=dashboard`}
                     className={dashboardPrimaryButtonClass}
                   >
                     View details
@@ -1015,7 +1027,7 @@ export function PortalDashboardClient() {
                 {salesError ? <div className="text-xs text-zinc-500">{salesError}</div> : null}
                 <div className="flex flex-col gap-2 sm:flex-row">
                   <Link
-                    href="/portal/app/services/reporting/sales?from=dashboard"
+                    href={`${portalBase}/app/services/reporting/sales?from=dashboard`}
                     className={dashboardSecondaryButtonClass}
                   >
                     Open sales dashboard
@@ -1067,27 +1079,27 @@ export function PortalDashboardClient() {
               <div>Next step: run the quick setup checklist.</div>
               <div className="flex flex-col gap-2 sm:flex-row">
                 <Link
-                  href="/portal/app/onboarding"
+                  href={`${portalBase}/app/onboarding`}
                   className={dashboardPrimaryButtonClass}
                 >
                   Open setup checklist
                 </Link>
                 {me.entitlements.blog ? (
                   <Link
-                    href="/portal/app/services/blogs"
+                    href={`${portalBase}/app/services/blogs`}
                     className={dashboardSecondaryButtonClass}
                   >
                     Open blogs
                   </Link>
                 ) : null}
                 <Link
-                  href="/portal/app/billing"
+                  href={`${portalBase}/app/billing`}
                   className={dashboardSecondaryButtonClass}
                 >
                   Billing
                 </Link>
                 <Link
-                  href="/portal/app/services/reporting"
+                  href={`${portalBase}/app/services/reporting`}
                   className={dashboardSecondaryButtonClass}
                 >
                   Reporting
@@ -1106,7 +1118,7 @@ export function PortalDashboardClient() {
             <div className="text-3xl font-bold text-brand-ink">{compactNum(items)}</div>
             <div className="mt-1 text-xs text-zinc-500">Items · {compactNum(folders)} folders</div>
             <div className="mt-3">
-              <Link href="/portal/app/services/media-library" className="text-sm font-semibold text-brand-ink hover:underline">
+              <Link href={`${portalBase}/app/services/media-library`} className="text-sm font-semibold text-brand-ink hover:underline">
                 Open media library
               </Link>
             </div>
@@ -1120,7 +1132,7 @@ export function PortalDashboardClient() {
             <div className="text-3xl font-bold text-brand-ink">{compactNum(reporting?.creditsRemaining ?? 0)}</div>
             <div className="mt-2 text-xs text-zinc-500">Usage-based services pull from credits.</div>
             <div className="mt-3">
-              <Link href="/portal/app/billing" className="text-sm font-semibold text-brand-ink hover:underline">
+              <Link href={`${portalBase}/app/billing`} className="text-sm font-semibold text-brand-ink hover:underline">
                 Top up in Billing
               </Link>
             </div>
@@ -1133,7 +1145,7 @@ export function PortalDashboardClient() {
             <div className="text-3xl font-bold text-brand-ink">{compactNum(k?.blogGenerations ?? 0)}</div>
             <div className="mt-2 text-xs text-zinc-500">Generated blog posts (last 30 days)</div>
             <div className="mt-3">
-              <Link href="/portal/app/services/blogs" className="text-sm font-semibold text-brand-ink hover:underline">
+              <Link href={`${portalBase}/app/services/blogs`} className="text-sm font-semibold text-brand-ink hover:underline">
                 Open blogs
               </Link>
             </div>
@@ -1146,7 +1158,7 @@ export function PortalDashboardClient() {
             <div className="text-3xl font-bold text-brand-ink">{compactNum(k?.blogCreditsUsed ?? 0)}</div>
             <div className="mt-2 text-xs text-zinc-500">Credits used by blog generation (last 30 days)</div>
             <div className="mt-3">
-              <Link href="/portal/app/services/reporting" className="text-sm font-semibold text-brand-ink hover:underline">
+              <Link href={`${portalBase}/app/services/reporting`} className="text-sm font-semibold text-brand-ink hover:underline">
                 View reporting
               </Link>
             </div>
@@ -1204,7 +1216,7 @@ export function PortalDashboardClient() {
               />
             </div>
             <div className="mt-3">
-              <Link href="/portal/app/billing" className="text-sm font-semibold text-brand-ink hover:underline">
+              <Link href={`${portalBase}/app/billing`} className="text-sm font-semibold text-brand-ink hover:underline">
                 Top up in Billing
               </Link>
             </div>
@@ -1387,7 +1399,7 @@ export function PortalDashboardClient() {
               <StatLine label="Success rate" value={formatPct(derived.aiSuccessRate)} />
             </div>
             <div className="mt-3">
-              <Link href="/portal/app/services/ai-receptionist" className="text-sm font-semibold text-brand-ink hover:underline">
+              <Link href={`${portalBase}/app/services/ai-receptionist`} className="text-sm font-semibold text-brand-ink hover:underline">
                 Go to AI Receptionist
               </Link>
             </div>
@@ -1404,7 +1416,7 @@ export function PortalDashboardClient() {
               <StatLine label="Text success" value={formatPct(derived.textSuccessRate)} />
             </div>
             <div className="mt-3">
-              <Link href="/portal/app/services/missed-call-textback" className="text-sm font-semibold text-brand-ink hover:underline">
+              <Link href={`${portalBase}/app/services/missed-call-textback`} className="text-sm font-semibold text-brand-ink hover:underline">
                 Go to Missed-Call Text Back
               </Link>
             </div>
@@ -1421,7 +1433,7 @@ export function PortalDashboardClient() {
               <StatLine label="Credits used" value={compactNum(k?.leadScrapeChargedCredits ?? 0)} />
             </div>
             <div className="mt-3">
-              <Link href="/portal/app/services/lead-scraping" className="text-sm font-semibold text-brand-ink hover:underline">
+              <Link href={`${portalBase}/app/services/lead-scraping`} className="text-sm font-semibold text-brand-ink hover:underline">
                 Go to Lead Scraping
               </Link>
             </div>
@@ -1440,7 +1452,7 @@ export function PortalDashboardClient() {
               <StatLine label="Bookings" value={compactNum(k?.bookingsCreated ?? 0)} />
             </div>
             <div className="mt-3">
-              <Link href="/portal/app/services/reviews" className="text-sm font-semibold text-brand-ink hover:underline">
+              <Link href={`${portalBase}/app/services/reviews`} className="text-sm font-semibold text-brand-ink hover:underline">
                 Go to Reviews
               </Link>
             </div>
@@ -1458,6 +1470,121 @@ export function PortalDashboardClient() {
   }
 
   const showEditControls = Boolean(dashboard);
+  const showCreditStarter = isCreditApp && !dashboardPersisted && !showCreditStarterGrid;
+
+  if (showCreditStarter) {
+    return (
+      <div className="space-y-6">
+        <div className="overflow-hidden rounded-4xl border border-zinc-200 bg-[radial-gradient(circle_at_top_left,rgba(29,78,216,0.12),transparent_36%),radial-gradient(circle_at_top_right,rgba(251,113,133,0.12),transparent_32%),linear-gradient(180deg,#ffffff_0%,#f8fafc_100%)] p-6 shadow-sm sm:p-8">
+          <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
+            <div className="max-w-3xl">
+              <div className="inline-flex items-center rounded-full border border-zinc-200 bg-white/80 px-3 py-1 text-xs font-semibold uppercase tracking-[0.24em] text-zinc-500">
+                Credit command center
+              </div>
+              <h2 className="mt-4 text-3xl font-bold tracking-tight text-brand-ink sm:text-4xl">Start with reports, disputes, and a clean client workflow.</h2>
+              <p className="mt-3 max-w-2xl text-sm leading-6 text-zinc-600 sm:text-base">
+                Import a report, audit the problem items, generate dispute rounds, and keep Pura one click away for the credit work you want handled inside the app.
+              </p>
+            </div>
+            <div className="flex flex-col gap-2 sm:flex-row">
+              <Link href={`${portalBase}/app/services/credit-reports`} className={dashboardPrimaryButtonClass}>
+                Import first report
+              </Link>
+              <Link href={`${portalBase}/app/services/dispute-letters`} className={dashboardSecondaryButtonClass}>
+                Open dispute letters
+              </Link>
+              <button
+                type="button"
+                className={dashboardSecondaryButtonClass}
+                onClick={() => setShowCreditStarterGrid(true)}
+              >
+                Customize dashboard
+              </button>
+            </div>
+          </div>
+
+          <div className="mt-6 grid gap-4 lg:grid-cols-4 sm:grid-cols-2">
+            {[
+              {
+                title: "Credit reports",
+                body: "Import or re-import reports, audit tradelines, and tag items as pending, negative, or positive.",
+                href: `${portalBase}/app/services/credit-reports`,
+                cta: "Open reports",
+              },
+              {
+                title: "Dispute letters",
+                body: "Draft letters by round, keep a reusable letter library, and export the finished package for delivery.",
+                href: `${portalBase}/app/services/dispute-letters`,
+                cta: "Open disputes",
+              },
+              {
+                title: "Pura actions",
+                body: "Use Pura to find reports, review disputes, draft letters, and jump straight into the credit workspace.",
+                href: `${portalBase}/app/ai-chat`,
+                cta: "Open Pura",
+              },
+              {
+                title: "Business setup",
+                body: "Finish business + appearance settings so templates, exports, and outbound messaging look production-ready.",
+                href: `${portalBase}/app/settings/business`,
+                cta: "Open settings",
+              },
+            ].map((card) => (
+              <Link
+                key={card.title}
+                href={card.href}
+                className="group rounded-3xl border border-zinc-200 bg-white/90 p-5 shadow-sm transition-all duration-150 hover:-translate-y-0.5 hover:border-zinc-300 hover:shadow-md"
+              >
+                <div className="text-lg font-semibold text-brand-ink">{card.title}</div>
+                <p className="mt-2 text-sm leading-6 text-zinc-600">{card.body}</p>
+                <div className="mt-4 text-sm font-semibold text-(--color-brand-blue) group-hover:underline">{card.cta}</div>
+              </Link>
+            ))}
+          </div>
+        </div>
+
+        <div className="grid gap-4 lg:grid-cols-[1.4fr_1fr]">
+          <div className="rounded-3xl border border-zinc-200 bg-white p-6 shadow-sm">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <div className="text-sm font-semibold text-zinc-900">Quick stats</div>
+                <div className="mt-1 text-xs text-zinc-500">Your default launch snapshot for a new credit workspace.</div>
+              </div>
+              <Link href={`${portalBase}/app/billing`} className="text-sm font-semibold text-brand-ink hover:underline">
+                Billing
+              </Link>
+            </div>
+            <div className="mt-4 grid gap-3 sm:grid-cols-3">
+              <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+                <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Credits</div>
+                <div className="mt-2 text-2xl font-bold text-brand-ink">{compactNum(reporting?.creditsRemaining ?? 0)}</div>
+                <div className="mt-1 text-xs text-zinc-500">Available for imports and automations</div>
+              </div>
+              <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+                <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Hours saved</div>
+                <div className="mt-2 text-2xl font-bold text-brand-ink">{formatSavedTime(me.metrics.hoursSavedThisWeek)}</div>
+                <div className="mt-1 text-xs text-zinc-500">This week</div>
+              </div>
+              <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+                <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Next move</div>
+                <div className="mt-2 text-base font-semibold text-brand-ink">Pull or import a report</div>
+                <div className="mt-1 text-xs text-zinc-500">Then audit + draft round one letters</div>
+              </div>
+            </div>
+          </div>
+
+          <div className="rounded-3xl border border-zinc-200 bg-white p-6 shadow-sm">
+            <div className="text-sm font-semibold text-zinc-900">Recommended first run</div>
+            <div className="mt-4 space-y-3 text-sm text-zinc-700">
+              <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">1. Import or re-import the client’s latest credit report.</div>
+              <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">2. Mark each item pending, negative, or positive and keep dispute status updated.</div>
+              <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">3. Generate the next dispute round, edit placeholders/templates, and export the letter package.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div>

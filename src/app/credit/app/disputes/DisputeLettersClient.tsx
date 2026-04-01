@@ -55,6 +55,37 @@ type PdfResponse =
     }
   | { ok: false; error?: string };
 
+const DISPUTE_ROUND_OPTIONS: PortalListboxOption<string>[] = [
+  { value: "1", label: "Round 1" },
+  { value: "2", label: "Round 2" },
+  { value: "3", label: "Round 3" },
+  { value: "custom", label: "Custom escalation" },
+];
+
+const LETTER_LIBRARY = [
+  {
+    key: "bureau-general",
+    label: "General bureau dispute",
+    prompt: "Dispute inaccurate tradelines and request investigation under the FCRA.",
+    bodyStarter:
+      "I am writing to dispute inaccurate information appearing on my credit report. Please investigate the following items and remove or correct any information that cannot be verified.\n\nItems in dispute:\n- {{dispute_items}}\n\nSincerely,\n{{consumer_name}}",
+  },
+  {
+    key: "late-payment",
+    label: "Late payment challenge",
+    prompt: "Challenge reported late payments that were paid on time or reported inaccurately.",
+    bodyStarter:
+      "I am disputing late-payment reporting that appears inaccurate or incomplete. Please review the supporting records for the items below and correct any error immediately.\n\nItems in dispute:\n- {{dispute_items}}\n\nSincerely,\n{{consumer_name}}",
+  },
+  {
+    key: "identity-theft",
+    label: "Identity theft / not mine",
+    prompt: "Challenge accounts or inquiries the consumer does not recognize.",
+    bodyStarter:
+      "I am writing to dispute items that do not belong to me and may be the result of identity theft or mixed information. Please block, remove, or verify the following items.\n\nItems in dispute:\n- {{dispute_items}}\n\nSincerely,\n{{consumer_name}}",
+  },
+] as const;
+
 function classNames(...xs: Array<string | false | null | undefined>) {
   return xs.filter(Boolean).join(" ");
 }
@@ -85,6 +116,8 @@ export default function DisputeLettersClient() {
 
   const [pulls, setPulls] = useState<CreditPullLite[]>([]);
   const [selectedPullId, setSelectedPullId] = useState<string>("");
+  const [selectedRound, setSelectedRound] = useState<string>("1");
+  const [selectedTemplateKey, setSelectedTemplateKey] = useState<string>(LETTER_LIBRARY[0]?.key || "bureau-general");
 
   const [recipientName, setRecipientName] = useState<string>("");
   const [recipientAddress, setRecipientAddress] = useState<string>("");
@@ -97,6 +130,10 @@ export default function DisputeLettersClient() {
   const [pdfDownloadUrl, setPdfDownloadUrl] = useState<string>("");
 
   const selectedLetter = useMemo(() => letters.find((l) => l.id === selectedLetterId) || null, [letters, selectedLetterId]);
+  const selectedTemplate = useMemo(
+    () => LETTER_LIBRARY.find((entry) => entry.key === selectedTemplateKey) || LETTER_LIBRARY[0],
+    [selectedTemplateKey],
+  );
 
   const loadContacts = useCallback(async (q: string) => {
     const url = `/api/portal/credit/contacts${q.trim() ? `?q=${encodeURIComponent(q.trim())}` : ""}`;
@@ -208,7 +245,13 @@ export default function DisputeLettersClient() {
           contactId: selectedContactId,
           recipientName: recipientName.trim() || undefined,
           recipientAddress: recipientAddress.trim() || undefined,
-          disputesText: disputesText.trim(),
+          disputesText: [
+            `Dispute round: ${selectedRound === "custom" ? "Custom escalation" : `Round ${selectedRound}`}`,
+            `Template: ${selectedTemplate.label}`,
+            disputesText.trim(),
+          ]
+            .filter(Boolean)
+            .join("\n\n"),
           creditPullId: selectedPullId || undefined,
         }),
       });
@@ -303,9 +346,9 @@ export default function DisputeLettersClient() {
         <div className="mb-6 flex flex-wrap items-end justify-between gap-3">
           <div>
             <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Credit</div>
-            <h1 className="text-2xl font-bold">Dispute letter generator</h1>
+            <h1 className="text-2xl font-bold">Dispute letters</h1>
             <p className="mt-1 text-sm text-zinc-600">
-              Select a contact, generate a dispute letter with AI, edit it, then email it to the contact.
+              Build dispute rounds, reuse letter templates, edit placeholders, export PDFs, and track every dispute from one workspace.
             </p>
           </div>
         </div>
@@ -373,9 +416,9 @@ export default function DisputeLettersClient() {
                   onClick={pullCredit}
                   className="rounded-xl bg-zinc-900 px-3 py-2 text-sm font-semibold text-white hover:bg-zinc-800 disabled:opacity-60"
                 >
-                  Pull credit (stub)
+                  Re-import / pull latest (stub)
                 </button>
-                <div className="min-w-[160px] flex-1">
+                <div className="min-w-40 flex-1">
                   <PortalListboxDropdown
                     value={selectedPullId}
                     onChange={(v) => setSelectedPullId(v)}
@@ -448,7 +491,80 @@ export default function DisputeLettersClient() {
           </aside>
 
           <main className="rounded-3xl border border-zinc-200 bg-white p-5">
-            <div className="text-sm font-semibold">Generate</div>
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <div className="text-sm font-semibold">Generate + track rounds</div>
+                <div className="mt-1 text-xs text-zinc-600">Choose a round, use a library template, then edit the final letter before export or send.</div>
+              </div>
+              <div className="rounded-2xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs text-zinc-600">
+                Library + placeholders stay visible even before the API-side bureau integration is live.
+              </div>
+            </div>
+
+            <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
+              <label className="block">
+                <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Dispute round</div>
+                <PortalListboxDropdown
+                  value={selectedRound}
+                  onChange={(v) => setSelectedRound(String(v || "1"))}
+                  disabled={busy}
+                  buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50"
+                  options={DISPUTE_ROUND_OPTIONS}
+                />
+              </label>
+              <label className="block">
+                <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Letter library template</div>
+                <PortalListboxDropdown
+                  value={selectedTemplateKey}
+                  onChange={(v) => setSelectedTemplateKey(String(v || LETTER_LIBRARY[0]?.key || ""))}
+                  disabled={busy}
+                  buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50"
+                  options={LETTER_LIBRARY.map((entry) => ({ value: entry.key, label: entry.label }))}
+                />
+              </label>
+            </div>
+
+            <div className="mt-3 grid grid-cols-1 gap-3 xl:grid-cols-[1.15fr_0.85fr]">
+              <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+                <div className="text-sm font-semibold text-zinc-900">Selected template</div>
+                <div className="mt-1 text-sm text-zinc-600">{selectedTemplate.prompt}</div>
+                <div className="mt-3 text-xs font-semibold uppercase tracking-wide text-zinc-500">Common placeholders</div>
+                <div className="mt-2 flex flex-wrap gap-2 text-xs text-zinc-600">
+                  {["{{consumer_name}}", "{{consumer_address}}", "{{bureau_name}}", "{{dispute_items}}", "{{report_date}}"].map((token) => (
+                    <span key={token} className="rounded-full border border-zinc-200 bg-white px-2.5 py-1 font-mono">
+                      {token}
+                    </span>
+                  ))}
+                </div>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold hover:bg-zinc-50"
+                    onClick={() => setDisputesText((prev) => (prev.trim() ? `${prev}\n\nTemplate notes: ${selectedTemplate.prompt}` : selectedTemplate.prompt))}
+                  >
+                    Add template notes
+                  </button>
+                  <button
+                    type="button"
+                    className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold hover:bg-zinc-50"
+                    onClick={() => setLetterDraftBody((prev) => (prev.trim() ? `${selectedTemplate.bodyStarter}\n\n${prev}` : selectedTemplate.bodyStarter))}
+                    disabled={!selectedLetterId}
+                    title={selectedLetterId ? "" : "Select or generate a letter first"}
+                  >
+                    Load into editor
+                  </button>
+                </div>
+              </div>
+
+              <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+                <div className="text-sm font-semibold text-zinc-900">Letter workflow</div>
+                <div className="mt-3 space-y-2 text-sm text-zinc-700">
+                  <div className="rounded-xl border border-zinc-200 bg-white px-3 py-2">1. Re-import the latest report or pick the correct pull.</div>
+                  <div className="rounded-xl border border-zinc-200 bg-white px-3 py-2">2. Tag negatives, pending items, and positives before drafting the next round.</div>
+                  <div className="rounded-xl border border-zinc-200 bg-white px-3 py-2">3. Generate, edit placeholders/templates, then export or send.</div>
+                </div>
+              </div>
+            </div>
 
             <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
               <label className="block">
@@ -476,7 +592,7 @@ export default function DisputeLettersClient() {
               <textarea
                 value={disputesText}
                 onChange={(e) => setDisputesText(e.target.value)}
-                className="min-h-[140px] w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                className="min-h-35 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
                 placeholder="Example:\n- Account XXXX reported 60 days late in Jan 2025, but payment was on time\n- Inquiry from ABC Bank on 02/10/2025 is not mine"
               />
               <div className="mt-1 text-xs text-zinc-500">Tip: paste bullet points; we’ll turn it into a letter.</div>
@@ -487,7 +603,7 @@ export default function DisputeLettersClient() {
                 type="button"
                 disabled={busy || !selectedContactId || disputesText.trim().length < 3}
                 onClick={generateLetter}
-                className="rounded-xl bg-[color:var(--color-brand-blue)] px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
+                className="rounded-xl bg-(--color-brand-blue) px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
               >
                 {busy ? "Working…" : "Generate letter"}
               </button>
@@ -509,7 +625,7 @@ export default function DisputeLettersClient() {
                   {pdfDownloadUrl ? (
                     <a
                       href={pdfDownloadUrl}
-                      className="rounded-xl bg-[color:var(--color-brand-blue)] px-3 py-2 text-sm font-semibold text-white hover:bg-blue-700"
+                      className="rounded-xl bg-(--color-brand-blue) px-3 py-2 text-sm font-semibold text-white hover:bg-blue-700"
                       target="_blank"
                       rel="noreferrer"
                     >
@@ -556,7 +672,7 @@ export default function DisputeLettersClient() {
                     <textarea
                       value={letterDraftBody}
                       onChange={(e) => setLetterDraftBody(e.target.value)}
-                      className="min-h-[420px] w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 font-mono text-xs"
+                      className="min-h-105 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 font-mono text-xs"
                     />
                     <div className="mt-1 text-xs text-zinc-500">
                       Status: {selectedLetter.status}

@@ -442,7 +442,7 @@ export const PORTAL_SUPPORT_MANUAL: PortalSupportServiceGuide[] = [
   {
     slug: "dispute-letters",
     title: "Dispute Letters",
-    urlPath: "/portal/app/services/dispute-letters",
+    urlPath: "/credit/app/services/dispute-letters",
     clickPath: "Sidebar → Services → Dispute Letters (credit mode)",
     tags: ["credit", "dispute", "letters"],
     quickStartSteps: [
@@ -454,7 +454,7 @@ export const PORTAL_SUPPORT_MANUAL: PortalSupportServiceGuide[] = [
   {
     slug: "credit-reports",
     title: "Credit Reports",
-    urlPath: "/portal/app/services/credit-reports",
+    urlPath: "/credit/app/services/credit-reports",
     clickPath: "Sidebar → Services → Credit Reports (credit mode)",
     tags: ["credit", "reports", "audit"],
     quickStartSteps: [

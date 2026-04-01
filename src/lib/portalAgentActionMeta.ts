@@ -247,10 +247,10 @@ export function portalCanvasUrlForAction(action: PortalAgentActionKey, args?: Re
 
   // Credit.
   if (a.startsWith("credit.disputes.") || a.startsWith("credit.pulls.")) {
-    return "/portal/app/services/dispute-letters";
+    return "/credit/app/services/dispute-letters";
   }
   if (a.startsWith("credit.reports.")) {
-    return "/portal/app/services/credit-reports";
+    return "/credit/app/services/credit-reports";
   }
 
   return null;
