@@ -20,7 +20,8 @@ export default async function CreditLayout({
   children: React.ReactNode;
 }) {
   const user = await getPortalUser({ variant: "credit" });
-  const themeMode = await getPortalThemeMode(user?.id ?? null);
+  const themePreferenceUserId = user?.memberId ?? user?.id ?? null;
+  const themeMode = await getPortalThemeMode(themePreferenceUserId);
   const canOpenPortalApp = user?.role === "CLIENT" || user?.role === "ADMIN";
   const businessName = user?.id
     ? await getPortalBusinessProfile({ ownerId: user.id })

@@ -28,7 +28,8 @@ export default async function PortalLayout({
   const getStartedHref = variant === "credit" ? "/credit/get-started" : "/portal/get-started";
 
   const user = await getPortalUser();
-  const themeMode = await getPortalThemeMode(user?.id ?? null);
+  const themePreferenceUserId = user?.memberId ?? user?.id ?? null;
+  const themeMode = await getPortalThemeMode(themePreferenceUserId);
   const canOpenPortalApp = user?.role === "CLIENT" || user?.role === "ADMIN";
   const businessName = user?.id
     ? await getPortalBusinessProfile({ ownerId: user.id })
