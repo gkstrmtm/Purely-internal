@@ -1404,55 +1404,22 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
           }}
         >
           {/* Top header (single header in embedded mode) */}
-          <header className="shrink-0 border-b border-zinc-200 bg-white">
-            <div className="mx-auto flex h-16 w-full max-w-md items-center gap-2 px-3">
-              <div className="flex min-w-0 flex-1 items-center gap-2">
-                <button
-                  type="button"
-                  className="inline-flex h-10 w-10 items-center justify-center rounded-xl bg-transparent text-zinc-900 transition-colors hover:text-zinc-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--color-brand-blue)"
-                  aria-label="Open menu"
-                  onClick={() => setMobileOpen(true)}
-                >
-                  <IconHamburger />
-                </button>
-
-                <Link href={`${basePath}/app`} className="flex min-w-0 items-center" aria-label="Go to Dashboard">
-                  <Image
-                    src={sidebarLogoSrc}
-                    alt="Purely Automation"
-                    width={180}
-                    height={44}
-                    className="h-8 w-auto max-w-42 object-contain"
-                    priority
-                  />
-                </Link>
-              </div>
-
-              <div className="ml-auto flex items-center gap-2">
-                <Link
-                  href={toPurelyHostedUrl("/book-a-call")}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex h-10 w-10 items-center justify-center rounded-xl bg-transparent text-zinc-700 transition-transform duration-150 hover:scale-110 hover:text-zinc-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/20"
-                  aria-label="Book a call"
-                >
-                  <IconCalendar size={22} />
-                </Link>
-                <Link
-                  href={`${basePath}/tutorials/getting-started?embed=1`}
-                  className="inline-flex h-10 w-10 items-center justify-center rounded-xl bg-transparent text-zinc-700 transition-transform duration-150 hover:scale-110 hover:text-zinc-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/20"
-                  aria-label="Help"
-                >
-                  <IconHelpCircle size={22} />
-                </Link>
-              </div>
-            </div>
-          </header>
+          <div className="pointer-events-none fixed inset-x-0 top-0 z-90 flex items-start justify-between px-3 pt-[calc(env(safe-area-inset-top)+0.75rem)] sm:hidden">
+            <button
+              type="button"
+              className="pointer-events-auto inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-zinc-200 bg-white/95 text-zinc-900 shadow-sm backdrop-blur focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--color-brand-blue)"
+              aria-label="Open menu"
+              onClick={() => setMobileOpen(true)}
+            >
+              <IconHamburger />
+            </button>
+            <div aria-hidden className="h-10 w-10" />
+          </div>
 
           {/* Embedded drawer (secondary navigation only) */}
           <div
             className={classNames(
-              "fixed inset-0 z-40",
+              "fixed inset-0 z-120",
               mobileOpen ? "" : "pointer-events-none",
             )}
             aria-hidden={!mobileOpen}
@@ -1469,7 +1436,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
 
             <aside
               className={classNames(
-                "absolute left-0 top-0 flex h-full w-72 flex-col overflow-hidden border-r border-zinc-200 bg-white shadow-xl transition-transform",
+                "absolute left-0 top-0 z-121 flex h-full w-72 flex-col overflow-hidden border-r border-zinc-200 bg-white shadow-xl transition-transform",
                 mobileOpen ? "translate-x-0" : "-translate-x-full",
               )}
             >
@@ -1533,8 +1500,28 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                   ))}
                 </div>
 
-                <div className="mt-6 px-3">
-                  <SignOutButton className="w-full justify-center rounded-2xl px-4 py-3" />
+                <div className="mt-6 border-t border-zinc-200 px-3 pb-[calc(env(safe-area-inset-bottom)+0.75rem)] pt-3">
+                  <div className="flex items-center justify-end gap-2">
+                    <Link
+                      href={toPurelyHostedUrl("/book-a-call")}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-zinc-200 bg-white text-zinc-700 transition-transform duration-150 hover:scale-105 hover:bg-zinc-50 hover:text-zinc-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/20"
+                      aria-label="Book a call"
+                      title="Book a call"
+                    >
+                      <IconCalendar size={18} />
+                    </Link>
+                    <Link
+                      href={`${basePath}/tutorials/getting-started?embed=1`}
+                      className="inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-zinc-200 bg-white text-zinc-700 transition-transform duration-150 hover:scale-105 hover:bg-zinc-50 hover:text-zinc-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/20"
+                      aria-label="Help"
+                      title="Help"
+                    >
+                      <IconHelpCircle size={18} />
+                    </Link>
+                    <SignOutButton className="w-full max-w-38 justify-center rounded-2xl px-4 py-3" />
+                  </div>
                 </div>
               </div>
             </aside>
@@ -1542,7 +1529,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
 
           {/* Main content */}
           <main className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain">
-            <div className="mx-auto w-full max-w-md px-3 pb-[calc(env(safe-area-inset-bottom)+1rem)] pt-3">
+            <div className="mx-auto w-full max-w-md px-3 pb-[calc(env(safe-area-inset-bottom)+1rem)] pt-[calc(env(safe-area-inset-top)+3.75rem)] sm:pt-3">
               {children}
             </div>
           </main>
@@ -1703,7 +1690,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
         {/* Mobile drawer */}
         <div
           className={classNames(
-            "fixed inset-0 z-40 sm:hidden",
+            "fixed inset-0 z-120 sm:hidden",
             mobileOpen ? "" : "pointer-events-none",
           )}
           aria-hidden={!mobileOpen}
@@ -1720,7 +1707,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
 
           <aside
             className={classNames(
-              "absolute left-0 top-0 flex h-full w-72.5 flex-col overflow-hidden border-r border-zinc-200 bg-white shadow-xl transition-transform",
+              "absolute left-0 top-0 z-121 flex h-full w-72.5 flex-col overflow-hidden border-r border-zinc-200 bg-white shadow-xl transition-transform",
               mobileOpen ? "translate-x-0" : "-translate-x-full",
             )}
             role="dialog"
@@ -2131,7 +2118,25 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
             </div>
 
             <div className="shrink-0 border-t border-zinc-200 px-3 pb-[calc(env(safe-area-inset-bottom)+0.75rem)] pt-3">
-              <div className="flex items-center justify-end">
+              <div className="flex items-center justify-end gap-2">
+                <Link
+                  href={toPurelyHostedUrl("/book-a-call")}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-zinc-200 bg-white text-zinc-700 transition-transform duration-150 hover:scale-105 hover:bg-zinc-50 hover:text-zinc-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/20"
+                  aria-label="Book a call"
+                  title="Book a call"
+                >
+                  <IconCalendar size={18} />
+                </Link>
+                <Link
+                  href={`${basePath}/tutorials/getting-started`}
+                  className="inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-zinc-200 bg-white text-zinc-700 transition-transform duration-150 hover:scale-105 hover:bg-zinc-50 hover:text-zinc-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/20"
+                  aria-label="Help"
+                  title="Help"
+                >
+                  <IconHelpCircle size={18} />
+                </Link>
                 <SignOutButton variant="sidebar" collapsed />
               </div>
             </div>
@@ -2830,31 +2835,25 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
         </aside>
 
         <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto overscroll-y-contain">
-          <header className="sticky top-0 z-10 border-b border-zinc-200 bg-white/80 pt-[env(safe-area-inset-top)] backdrop-blur sm:hidden">
-            <div className="flex items-center justify-between px-4 py-3">
-              <button
-                type="button"
-                onClick={() => setMobileOpen(true)}
-                className="inline-flex items-center justify-center rounded-xl border border-zinc-200 bg-white p-2 text-zinc-700 hover:bg-zinc-50"
-                aria-label="Open menu"
-              >
-                <IconChevron />
-              </button>
+          <div className="pointer-events-none fixed inset-x-0 top-0 z-90 flex items-start justify-between px-3 pt-[calc(env(safe-area-inset-top)+0.75rem)] sm:hidden">
+            <button
+              type="button"
+              onClick={() => setMobileOpen(true)}
+              className="pointer-events-auto inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white/95 p-2 text-zinc-700 shadow-sm backdrop-blur hover:bg-zinc-50"
+              aria-label="Open menu"
+            >
+              <IconChevron />
+            </button>
 
-              <div className="min-w-0 flex-1 px-3 text-center">
-                <div className="truncate text-base font-semibold tracking-tight text-brand-ink">{mobileHeaderTitle}</div>
-              </div>
-
-              <div className="flex items-center gap-2">
-                {sidebarOverride?.mobileHeaderActions ? sidebarOverride.mobileHeaderActions : <div className="h-10 w-10" aria-hidden />}
-              </div>
+            <div className="pointer-events-auto flex items-center gap-2">
+              {sidebarOverride?.mobileHeaderActions ? sidebarOverride.mobileHeaderActions : <div className="h-10 w-10" aria-hidden />}
             </div>
-          </header>
+          </div>
 
           <main
             className={classNames(
               "min-h-0 min-w-0 flex-1",
-              isAiChat ? "p-0" : "p-4 pb-4 sm:p-8 sm:pb-6",
+              isAiChat ? "pt-[calc(env(safe-area-inset-top)+3.75rem)] sm:p-0" : "p-4 pb-4 pt-[calc(env(safe-area-inset-top)+4.25rem)] sm:p-8 sm:pb-6 sm:pt-8",
             )}
           >
             {topBannerCampaign ? (

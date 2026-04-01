@@ -2735,7 +2735,7 @@ export function PortalAiChatClient() {
                 <div ref={endRef} />
               </>
             ) : showWelcomeComposer ? (
-              <div className="flex min-h-[calc(100dvh-12rem)] items-start justify-center pt-8 sm:min-h-[60vh] sm:items-center sm:pt-0">
+              <div className="flex min-h-[calc(100dvh-10rem-env(safe-area-inset-top))] items-center justify-center sm:min-h-[60vh]">
                 <div className="w-full max-w-2xl">
                   <div className="mb-5 px-1 text-center sm:mb-6 sm:px-0">
                     <div className="text-[1.75rem] font-semibold tracking-tight text-zinc-900 sm:text-3xl">Let Pura work for you</div>
@@ -2760,7 +2760,7 @@ export function PortalAiChatClient() {
                       </button>
                     ))}
                   </div>
-                  <div className="rounded-[28px] border border-zinc-200 bg-white p-2.5 shadow-[0_12px_34px_rgba(0,0,0,0.06)] sm:rounded-3xl sm:border-0 sm:p-3 sm:shadow-[0_18px_50px_rgba(0,0,0,0.08)]">
+                  <div className="rounded-[28px] bg-transparent p-0 shadow-none sm:rounded-3xl sm:bg-white sm:p-3 sm:shadow-[0_18px_50px_rgba(0,0,0,0.08)]">
                     {composerInner}
                   </div>
                 </div>
