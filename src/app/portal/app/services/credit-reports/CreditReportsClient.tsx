@@ -632,36 +632,61 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
       ) : !selectedReport ? (
         <div className="mt-6 rounded-3xl border border-zinc-200 bg-white p-6 text-sm text-zinc-600">Report not found.</div>
       ) : (
-        <div className="mt-6 space-y-4">
-          <section className="rounded-[28px] border border-zinc-200 bg-white p-5 shadow-sm">
-            <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-              <div>
-                <div className="text-sm font-semibold text-zinc-900">Selected report</div>
-                <div className="mt-2 flex flex-wrap items-center gap-2">
-                  <div className="text-xl font-semibold text-zinc-900">{selectedReport.contact?.name || selectedReport.provider}</div>
-                  <div className="rounded-full border border-zinc-200 bg-zinc-50 px-2.5 py-1 text-[11px] font-semibold text-zinc-600">{readinessLabel}</div>
+        <div className="mt-6 space-y-5">
+          <section className="overflow-hidden rounded-[30px] border border-zinc-200 bg-white shadow-sm">
+            <div className="grid gap-0 lg:grid-cols-[minmax(0,1.15fr)_360px]">
+              <div className="bg-linear-to-r from-[rgba(29,78,216,0.07)] via-white to-[rgba(251,113,133,0.08)] p-6 sm:p-7">
+                <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-500">Selected report</div>
+                <div className="mt-3 flex flex-wrap items-center gap-2">
+                  <div className="text-2xl font-semibold tracking-tight text-zinc-900 sm:text-3xl">{selectedReport.contact?.name || selectedReport.provider}</div>
+                  <div className="rounded-full border border-zinc-200 bg-white/90 px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-600">{readinessLabel}</div>
                 </div>
-                <div className="mt-1 text-sm text-zinc-600">
+                <div className="mt-2 text-sm text-zinc-600">
                   {selectedReport.provider} • Imported {new Date(selectedReport.importedAt).toLocaleString()}
                 </div>
-              </div>
-              <div className="grid gap-3 sm:grid-cols-2">
-                <div className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3">
-                  <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Tracked items</div>
-                  <div className="mt-1 text-sm font-semibold text-zinc-900">{selectedReportSummary.tracked} in motion</div>
+
+                <div className="mt-5 grid gap-3 sm:grid-cols-3">
+                  <div className="rounded-2xl border border-white/70 bg-white/85 px-4 py-3 backdrop-blur-sm">
+                    <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Contact email</div>
+                    <div className="mt-1 truncate text-sm font-semibold text-zinc-900">{selectedReport.contact?.email || "No email on file"}</div>
+                  </div>
+                  <div className="rounded-2xl border border-white/70 bg-white/85 px-4 py-3 backdrop-blur-sm">
+                    <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Items on file</div>
+                    <div className="mt-1 text-sm font-semibold text-zinc-900">{selectedReport.items.length} total items</div>
+                  </div>
+                  <div className="rounded-2xl border border-white/70 bg-white/85 px-4 py-3 backdrop-blur-sm">
+                    <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Dispute lane</div>
+                    <div className="mt-1 text-sm font-semibold text-zinc-900">Open from any report item</div>
+                  </div>
                 </div>
-                <div className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3">
-                  <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Dispute lane</div>
-                  <div className="mt-1 text-sm font-semibold text-zinc-900">Open from any report item</div>
+              </div>
+
+              <div className="grid gap-px bg-zinc-200">
+                <div className="bg-white px-5 py-5">
+                  <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Tracked items</div>
+                  <div className="mt-2 text-2xl font-bold text-brand-ink">{selectedReportSummary.tracked}</div>
+                  <div className="mt-1 text-sm text-zinc-600">Items already moving through disputes or follow-up.</div>
+                </div>
+                <div className="bg-white px-5 py-5">
+                  <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Current posture</div>
+                  <div className="mt-2 text-base font-semibold text-zinc-900">{readinessLabel}</div>
+                  <div className="mt-1 text-sm text-zinc-600">Use this page to review the file, pick the right lane, and move directly into disputes.</div>
                 </div>
               </div>
             </div>
           </section>
 
-          <section className="rounded-[28px] border border-zinc-200 bg-white p-5 shadow-sm">
-            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <section className="rounded-[30px] border border-zinc-200 bg-white p-5 shadow-sm sm:p-6">
+            <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+              <div>
+                <div className="text-sm font-semibold text-zinc-900">Snapshot</div>
+                <div className="mt-1 text-sm text-zinc-600">Quick read on the file before you move into disputes or funding lanes.</div>
+              </div>
+            </div>
+
+            <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
               {statCards.map((stat) => (
-                <div key={stat.label} className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+                <div key={stat.label} className="rounded-3xl border border-zinc-200 bg-white p-4 shadow-sm shadow-zinc-950/2">
                   <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">{stat.label}</div>
                   <div className="mt-1 text-2xl font-bold text-brand-ink">{stat.value}</div>
                   <div className={"mt-1 text-xs font-semibold " + (stat.up ? "text-emerald-600" : "text-rose-500")}>{stat.change}</div>
@@ -678,10 +703,11 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
               ))}
             </div>
 
-            <div className="mt-5 grid gap-4 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
-              <div className="rounded-3xl border border-zinc-200 bg-zinc-50 p-4">
+            <div className="mt-5 grid gap-4 lg:grid-cols-[minmax(0,0.82fr)_minmax(0,1.18fr)]">
+              <div className="rounded-3xl border border-zinc-200 bg-zinc-50/80 p-5">
                 <div className="text-sm font-semibold text-zinc-900">Profile mix</div>
-                <div className="mt-3 space-y-3">
+                <div className="mt-1 text-sm text-zinc-600">How the current report splits across negatives, pending reviews, and positives.</div>
+                <div className="mt-4 space-y-3">
                   {reportMix.map((entry) => (
                     <div key={entry.key}>
                       <div className="flex items-center justify-between text-xs font-semibold text-zinc-600">
@@ -695,21 +721,21 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
                   ))}
                 </div>
               </div>
-              <div className="rounded-3xl border border-zinc-200 bg-zinc-50 p-4">
+              <div className="rounded-3xl border border-zinc-200 bg-zinc-50/80 p-5">
                 <div className="text-sm font-semibold text-zinc-900">Report notes</div>
                 <div className="mt-2 text-sm text-zinc-700">
                   {selectedReport.contact ? `${selectedReport.contact.name} is the active contact on this file.` : "This report is not attached to a contact yet."}
                 </div>
-                <div className="mt-3 grid gap-2 text-xs font-semibold text-zinc-600 sm:grid-cols-3">
-                  <div className="rounded-2xl border border-zinc-200 bg-white px-3 py-2">{selectedReport.provider}</div>
-                  <div className="rounded-2xl border border-zinc-200 bg-white px-3 py-2">{filteredItems.length} visible items</div>
-                  <div className="rounded-2xl border border-zinc-200 bg-white px-3 py-2">{readinessLabel}</div>
+                <div className="mt-4 grid gap-2 text-xs font-semibold text-zinc-600 sm:grid-cols-3">
+                  <div className="rounded-2xl border border-zinc-200 bg-white px-3 py-2.5">{selectedReport.provider}</div>
+                  <div className="rounded-2xl border border-zinc-200 bg-white px-3 py-2.5">{filteredItems.length} visible items</div>
+                  <div className="rounded-2xl border border-zinc-200 bg-white px-3 py-2.5">{readinessLabel}</div>
                 </div>
               </div>
             </div>
           </section>
 
-          <section className="rounded-[28px] border border-zinc-200 bg-white p-5 shadow-sm">
+          <section className="rounded-[30px] border border-zinc-200 bg-white p-5 shadow-sm sm:p-6">
             <div className="flex flex-col gap-2 lg:flex-row lg:items-end lg:justify-between">
               <div>
                 <div className="text-sm font-semibold text-zinc-900">Funding lanes</div>
@@ -720,13 +746,13 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
               </div>
             </div>
 
-            <div className="mt-4 grid gap-4 xl:grid-cols-2">
+            <div className="mt-5 grid gap-4 xl:grid-cols-2">
               {opportunityPlans.map((plan) => (
-                <div key={plan.key} className={"rounded-3xl border bg-white p-4 shadow-sm " + readinessAccentClasses(plan.readinessTone)}>
+                <div key={plan.key} className={"rounded-[26px] border bg-white p-5 shadow-sm " + readinessAccentClasses(plan.readinessTone)}>
                   <div>
                     <div className="text-base font-semibold text-zinc-900">{plan.title}</div>
-                    <div className="mt-1 text-sm text-zinc-700">{plan.summary}</div>
-                    <div className="mt-3 text-xs font-semibold uppercase tracking-wide text-zinc-500">{plan.readinessLabel}</div>
+                    <div className="mt-1 text-sm leading-6 text-zinc-700">{plan.summary}</div>
+                    <div className="mt-4 border-t border-zinc-200 pt-3 text-xs font-semibold uppercase tracking-wide text-zinc-500">{plan.readinessLabel}</div>
                   </div>
 
                   <div className="mt-4 grid gap-3 sm:grid-cols-2">
@@ -736,7 +762,7 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
                         href={offer.href}
                         target="_blank"
                         rel="noreferrer"
-                        className="rounded-2xl border border-zinc-200 bg-zinc-50 px-3 py-3 transition-transform duration-150 hover:-translate-y-0.5 hover:border-zinc-300 hover:bg-white"
+                        className="rounded-2xl border border-zinc-200 bg-zinc-50 px-3 py-3 hover:border-zinc-300 hover:bg-white"
                       >
                         <div className="text-sm font-semibold text-zinc-900">{offer.label}</div>
                         <div className="mt-1 text-xs font-semibold uppercase tracking-wide text-zinc-500">{offer.source}</div>
@@ -749,7 +775,7 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
             </div>
           </section>
 
-          <section className="rounded-[28px] border border-zinc-200 bg-white p-5 shadow-sm">
+          <section className="rounded-[30px] border border-zinc-200 bg-white p-5 shadow-sm sm:p-6">
             <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
               <div>
                 <div className="text-sm font-semibold text-zinc-900">Report items</div>
@@ -766,7 +792,7 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
               </div>
             </div>
 
-            <div className="mt-3 flex flex-wrap gap-2">
+            <div className="mt-4 flex flex-wrap gap-2">
               {([
                 ["ALL", `All ${selectedReport.items.length}`],
                 ["PENDING", `Pending ${selectedReportSummary.pending}`],
@@ -785,12 +811,12 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
               ))}
             </div>
 
-            <div className="mt-4 space-y-3">
+            <div className="mt-5 space-y-3">
               {filteredItems.length === 0 ? (
                 <div className="rounded-2xl border border-dashed border-zinc-300 bg-zinc-50 p-5 text-sm text-zinc-600">No matching items.</div>
               ) : (
                 filteredItems.map((it) => (
-                  <div key={it.id} className="rounded-3xl border border-zinc-200 bg-zinc-50 p-4">
+                  <div key={it.id} className="rounded-[26px] border border-zinc-200 bg-zinc-50/80 p-4">
                     <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
                       <div className="min-w-0 flex-1">
                         <div className="truncate text-sm font-semibold text-zinc-900">{it.label}</div>
