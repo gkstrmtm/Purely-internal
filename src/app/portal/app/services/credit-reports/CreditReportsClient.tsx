@@ -34,12 +34,125 @@ type ReportFull = ReportLite & {
   items: ReportItemLite[];
 };
 
+type OpportunityPlan = {
+  key: string;
+  title: string;
+  fitLabel: string;
+  summary: string;
+  whyNow: string;
+  clientActions: string[];
+  operatorActions: string[];
+};
+
 function reportReadinessLabel(summary: { pending: number; negative: number; positive: number }) {
   if (summary.negative >= 3) return "Needs active dispute work";
   if (summary.pending >= 2) return "Needs review and tagging";
   if (summary.negative >= 1) return "Close to ready for follow-up";
   if (summary.positive >= 2) return "Mostly stable";
   return "Just getting started";
+}
+
+function buildOpportunityPlans(report: ReportFull | null, summary: { pending: number; negative: number; positive: number; tracked: number }) {
+  const items = report?.items || [];
+  const lowerText = items
+    .map((item) => [item.label, item.kind, item.bureau, item.disputeStatus].map((value) => String(value || "").toLowerCase()).join(" "))
+    .join(" ");
+
+  const hasCollections = lowerText.includes("collection");
+  const hasLatePayments = lowerText.includes("late") || lowerText.includes("delinquent");
+  const hasUtilizationSignals = lowerText.includes("revolving") || lowerText.includes("credit card") || lowerText.includes("utilization");
+  const isCleanEnoughForOffers = summary.negative <= 2 && summary.pending <= 1;
+  const isStillRepairHeavy = summary.negative >= 3 || summary.pending >= 3;
+
+  const businessFunding: OpportunityPlan = {
+    key: "business-funding",
+    title: "Business funding",
+    fitLabel: isCleanEnoughForOffers ? "Build offers now" : "Prep the file first",
+    summary: isCleanEnoughForOffers
+      ? "Good lane for starter business funding once the file stays stable and the business profile is documented cleanly."
+      : "Keep business funding in the plan, but treat this as a preparation lane until the report has fewer unresolved negatives.",
+    whyNow: hasCollections || hasLatePayments
+      ? "The report still shows repair pressure, so business funding should be sequenced behind cleanup and profile stabilization."
+      : "The file looks stable enough to start structuring business-funding prep instead of waiting until everything is perfect.",
+    clientActions: [
+      "Keep business and personal spending separate and route revenue through the business account consistently.",
+      "Make sure the business profile is complete: entity, EIN, business banking, business phone, and matching public records.",
+      "Avoid new missed payments or balance spikes while funding prep is happening.",
+    ],
+    operatorActions: [
+      "Review business readiness before sending the client into underwriting: entity age, revenue pattern, bank-account stability, and profile consistency.",
+      "Map the client into the right lane first: starter vendor credit, term loan prep, or revenue-based options depending on file quality.",
+      "Sequence funding asks after the most damaging negatives are disputed or stabilized so applications are not wasted.",
+    ],
+  };
+
+  const personalFunding: OpportunityPlan = {
+    key: "personal-funding",
+    title: "Personal funding",
+    fitLabel: isCleanEnoughForOffers ? "Near-term option" : "Secondary priority",
+    summary: isCleanEnoughForOffers
+      ? "Personal funding can be pursued in a controlled way if the client keeps utilization down and avoids stacking applications."
+      : "Treat personal funding as a later-phase move until the report is cleaner and the client’s file is less volatile.",
+    whyNow: summary.tracked > 0
+      ? "There is already active repair motion, so the best move is to time personal funding around dispute outcomes instead of rushing into applications."
+      : "This lane depends on keeping the bureau file calm and showing a consistent on-time pattern.",
+    clientActions: [
+      "Keep all current accounts paid on time and do not add avoidable hard inquiries.",
+      "Gather income, employment, and bank-statement documentation early so timing does not slip later.",
+      "Pay revolving balances down before statement dates to show cleaner utilization on the next refresh.",
+    ],
+    operatorActions: [
+      "Pre-screen likely approval lanes before suggesting any application path to the client.",
+      "Decide whether the client should wait for score improvement or use a relationship lender / narrower approval box first.",
+      "Track inquiry velocity and make sure personal funding does not interfere with the repair timeline.",
+    ],
+  };
+
+  const creditCards: OpportunityPlan = {
+    key: "credit-cards",
+    title: "Credit cards",
+    fitLabel: hasUtilizationSignals || isCleanEnoughForOffers ? "Strong tactical lever" : "Use carefully",
+    summary: hasUtilizationSignals
+      ? "Credit-card strategy is one of the fastest levers here because balance management and the right product mix can change the file quickly."
+      : "Card strategy still matters here, especially if the goal is to add positive revolving history without over-applying.",
+    whyNow: summary.positive >= 1
+      ? "There is already some positive history to build on, so the right card timing and utilization discipline can help faster than random funding attempts."
+      : "The file needs controlled positive revolving behavior, not a burst of new accounts.",
+    clientActions: [
+      "Keep utilization low before statement close, not just by due date.",
+      "Do not submit multiple card applications close together.",
+      "Use any new or existing card for small, controlled spend that can be paid cleanly every cycle.",
+    ],
+    operatorActions: [
+      "Recommend the right lane: secured, starter unsecured, relationship card, or business card depending on the file and stated goals.",
+      "Set a utilization target for the client and monitor whether statement balances are following the plan.",
+      "Use card strategy to support future funding, not just to chase approvals today.",
+    ],
+  };
+
+  const otherActions: OpportunityPlan = {
+    key: "other-actions",
+    title: "Other actions",
+    fitLabel: isStillRepairHeavy ? "Do these now" : "Keep these active",
+    summary: isStillRepairHeavy
+      ? "The file still needs operational cleanup, follow-up, and monitoring before bigger funding moves should take priority."
+      : "Even when the file improves, disciplined follow-up and monitoring keep the client from backsliding.",
+    whyNow: hasCollections
+      ? "Collection and derogatory pressure means documentation, tracking, and follow-up matter just as much as product selection right now."
+      : "A stable report still needs a controlled next-step plan so progress compounds instead of stalling.",
+    clientActions: [
+      "Upload any supporting proof for late payments, identity issues, balances, or ownership mismatches.",
+      "Respond quickly when updated disputes, verification requests, or creditor follow-ups are needed.",
+      "Stop any behavior that adds instability to the file: late payments, unnecessary inquiries, or high balances.",
+    ],
+    operatorActions: [
+      "Turn negative and pending items into a dated action queue with dispute timing, follow-up windows, and next-owner status.",
+      "Decide which items should stay in bureau disputes versus direct furnisher or collector follow-up.",
+      "Use the report to brief the client on what to do personally versus what the team will handle operationally.",
+    ],
+  };
+
+  return [businessFunding, personalFunding, creditCards, otherActions];
 }
 
 
@@ -176,6 +289,10 @@ export default function CreditReportsClient() {
       return haystack.includes(query);
     });
   }, [itemFilter, itemQuery, selectedReport]);
+  const opportunityPlans = useMemo(
+    () => buildOpportunityPlans(selectedReport, selectedReportSummary),
+    [selectedReport, selectedReportSummary],
+  );
 
   const importReport = async () => {
     setBusy(true);
@@ -468,6 +585,66 @@ export default function CreditReportsClient() {
                   </div>
                 </div>
 
+              </section>
+
+              <section className="rounded-3xl border border-zinc-200 bg-white p-5">
+                <div className="flex flex-col gap-2 lg:flex-row lg:items-end lg:justify-between">
+                  <div>
+                    <div className="text-sm font-semibold text-zinc-900">Funding and action plan</div>
+                    <div className="mt-1 text-sm text-zinc-600">
+                      Use the report to drive funding lanes for the client and a concrete operator workflow for the team.
+                    </div>
+                  </div>
+                  <div className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm text-zinc-700">
+                    {selectedReport.contact ? `Built for ${selectedReport.contact.name}` : "Built from the selected report"}
+                  </div>
+                </div>
+
+                <div className="mt-4 grid gap-4 xl:grid-cols-2">
+                  {opportunityPlans.map((plan) => (
+                    <div key={plan.key} className="rounded-3xl border border-zinc-200 bg-zinc-50 p-4">
+                      <div className="flex flex-wrap items-start justify-between gap-3">
+                        <div>
+                          <div className="text-base font-semibold text-zinc-900">{plan.title}</div>
+                          <div className="mt-1 text-sm text-zinc-700">{plan.summary}</div>
+                        </div>
+                        <div className="rounded-full border border-zinc-200 bg-white px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-600">
+                          {plan.fitLabel}
+                        </div>
+                      </div>
+
+                      <div className="mt-3 rounded-2xl border border-blue-200 bg-blue-50 p-3 text-sm text-blue-900">
+                        <div className="text-[11px] font-semibold uppercase tracking-wide text-blue-700">Why this matters now</div>
+                        <div className="mt-1">{plan.whyNow}</div>
+                      </div>
+
+                      <div className="mt-4 grid gap-3 md:grid-cols-2">
+                        <div className="rounded-2xl border border-zinc-200 bg-white p-3">
+                          <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Client actions</div>
+                          <ul className="mt-2 space-y-2 text-sm text-zinc-700">
+                            {plan.clientActions.map((action) => (
+                              <li key={action} className="flex gap-2">
+                                <span className="mt-0.5 text-zinc-400">•</span>
+                                <span>{action}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                        <div className="rounded-2xl border border-zinc-200 bg-white p-3">
+                          <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">User actions</div>
+                          <ul className="mt-2 space-y-2 text-sm text-zinc-700">
+                            {plan.operatorActions.map((action) => (
+                              <li key={action} className="flex gap-2">
+                                <span className="mt-0.5 text-zinc-400">•</span>
+                                <span>{action}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
               </section>
 
               <section className="rounded-3xl border border-zinc-200 bg-white p-5">
