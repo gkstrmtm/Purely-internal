@@ -1996,12 +1996,12 @@ export function PortalBillingClient({
                           {serviceMenu && serviceMenu.slug === s.slug ? (
                             <>
                               <div
-                                className="fixed inset-0 z-40"
+                                className="fixed inset-0 z-30"
                                 onMouseDown={() => setServiceMenu(null)}
                                 onTouchStart={() => setServiceMenu(null)}
                               />
                               <div
-                                className="fixed z-50 w-48 overflow-auto rounded-2xl border border-zinc-200 bg-white p-1 shadow-lg"
+                                className="fixed z-40 w-48 overflow-auto rounded-2xl border border-zinc-200 bg-white p-1 shadow-lg"
                                 style={{ left: serviceMenu.left, top: serviceMenu.top, maxHeight: serviceMenu.maxHeight }}
                                 onMouseDown={(e) => e.stopPropagation()}
                                 onTouchStart={(e) => e.stopPropagation()}

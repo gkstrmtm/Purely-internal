@@ -1304,13 +1304,13 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
             {emailFiltersMenu ? (
               <>
                 <div
-                  className="fixed inset-0 z-50"
+                  className="fixed inset-0 z-30"
                   onMouseDown={() => setEmailFiltersMenu(null)}
                   onTouchStart={() => setEmailFiltersMenu(null)}
                   aria-hidden
                 />
                 <div
-                  className="fixed z-60 w-72 overflow-auto rounded-2xl border border-zinc-200 bg-white shadow-xl"
+                  className="fixed z-40 w-72 overflow-auto rounded-2xl border border-zinc-200 bg-white shadow-xl"
                   style={{ left: emailFiltersMenu.left, top: emailFiltersMenu.top, maxHeight: emailFiltersMenu.maxHeight }}
                   onMouseDown={(e) => e.stopPropagation()}
                   onTouchStart={(e) => e.stopPropagation()}

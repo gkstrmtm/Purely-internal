@@ -10,10 +10,11 @@ function classNames(...xs: Array<string | false | null | undefined>) {
 export function PortalPeopleTabs() {
   const pathname = usePathname();
   const active = typeof pathname === "string" ? pathname : "";
+  const basePath = active.startsWith("/credit") ? "/credit" : "/portal";
 
   const tabs = [
-    { href: "/portal/app/people/contacts", label: "Contacts/Leads" },
-    { href: "/portal/app/people/users", label: "Users & Invites" },
+    { href: `${basePath}/app/people/contacts`, label: "Contacts/Leads" },
+    { href: `${basePath}/app/people/users`, label: "Users & Invites" },
   ];
 
   return (
@@ -21,7 +22,7 @@ export function PortalPeopleTabs() {
       {tabs.map((t) => {
         const isActive = active === t.href || active.startsWith(t.href + "/");
         const activeClass =
-          t.href === "/portal/app/people/contacts"
+          t.href.endsWith("/people/contacts")
             ? "bg-[color:var(--color-brand-blue)] text-white"
             : "bg-[color:var(--color-brand-pink)] text-white";
         return (

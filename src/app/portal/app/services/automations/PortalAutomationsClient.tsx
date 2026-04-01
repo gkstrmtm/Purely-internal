@@ -365,7 +365,7 @@ function ActionKindDropdown(props: {
       </button>
 
       {open ? (
-        <div className="absolute z-50 mt-2 w-full overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-lg">
+        <div className="absolute z-40 mt-2 w-full overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-lg">
           <div className="max-h-[260px] overflow-auto p-1">
             {props.options.map((o) => {
               const isSel = o.value === props.value;
@@ -2557,9 +2557,9 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
 
         {openListMenu ? (
           <>
-            <div className="fixed inset-0 z-40" onMouseDown={() => setOpenListMenu(null)} onTouchStart={() => setOpenListMenu(null)} />
+            <div className="fixed inset-0 z-30" onMouseDown={() => setOpenListMenu(null)} onTouchStart={() => setOpenListMenu(null)} />
             <div
-              className="fixed z-50 w-[220px] overflow-auto rounded-2xl border border-zinc-200 bg-white shadow-xl"
+              className="fixed z-40 w-[220px] overflow-auto rounded-2xl border border-zinc-200 bg-white shadow-xl"
               style={{ left: openListMenu.left, top: openListMenu.top, maxHeight: openListMenu.maxHeight }}
               onMouseDown={(e) => e.stopPropagation()}
               onTouchStart={(e) => e.stopPropagation()}
@@ -3272,7 +3272,7 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
 
                         {libraryMenuFor?.automationId === a.id ? (
                           <div
-                            className="fixed z-50 w-40 overflow-auto rounded-2xl border border-zinc-200 bg-white shadow-xl"
+                            className="fixed z-40 w-40 overflow-auto rounded-2xl border border-zinc-200 bg-white shadow-xl"
                             style={{ left: libraryMenuFor.left, top: libraryMenuFor.top, maxHeight: libraryMenuFor.maxHeight }}
                             onMouseDown={(e) => e.stopPropagation()}
                           >

@@ -553,7 +553,7 @@ function MenuButton({
 
       {open ? (
         <div
-          className="fixed z-50 w-56 overflow-auto rounded-2xl border border-zinc-200 bg-white p-2 shadow-lg"
+          className="fixed z-40 w-56 overflow-auto rounded-2xl border border-zinc-200 bg-white p-2 shadow-lg"
           style={menuStyle ?? undefined}
         >
           <button
@@ -908,7 +908,7 @@ export function PortalReportingClient() {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search metrics or services…"
-            className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm text-zinc-900 outline-none focus:border-[color:var(--color-brand-blue)]"
+            className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm text-zinc-900 outline-none focus:border-(--color-brand-blue)"
           />
         </div>
         <div className="flex items-center gap-2">
@@ -922,7 +922,7 @@ export function PortalReportingClient() {
                 onChange={(e) => setActiveOnly(e.target.checked)}
                 aria-label="Active only"
               />
-              <span className="h-6 w-11 rounded-full bg-zinc-200 transition peer-checked:bg-[color:var(--color-brand-blue)] peer-focus-visible:ring-2 peer-focus-visible:ring-brand-ink/40 peer-focus-visible:ring-offset-2 peer-focus-visible:ring-offset-white" />
+              <span className="h-6 w-11 rounded-full bg-zinc-200 transition peer-checked:bg-(--color-brand-blue) peer-focus-visible:ring-2 peer-focus-visible:ring-brand-ink/40 peer-focus-visible:ring-offset-2 peer-focus-visible:ring-offset-white" />
               <span className="pointer-events-none absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow-sm transition peer-checked:translate-x-5" />
             </span>
           </label>
@@ -931,7 +931,7 @@ export function PortalReportingClient() {
             value={serviceFilter}
             onChange={(v) => setServiceFilter(v as ServiceKey)}
             options={SERVICE_INFOS.map((s) => ({ value: s.key as any, label: s.name }))}
-            className="min-w-[200px]"
+            className="min-w-50"
             buttonClassName="flex w-full items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
           />
         </div>
@@ -1526,7 +1526,7 @@ export function PortalReportingClient() {
               <div className="mt-4 overflow-x-auto">
                 <table className="w-full text-left text-sm">
                   <thead>
-                    <tr className="border-b border-zinc-200 bg-[color:rgba(29,78,216,0.04)] text-xs text-zinc-600">
+                    <tr className="border-b border-zinc-200 bg-[rgba(29,78,216,0.04)] text-xs text-zinc-600">
                       <th className="py-2 pr-3">Day</th>
                       <th className="py-2 pr-3">AI calls</th>
                       <th className="py-2 pr-3">Missed calls</th>
@@ -1541,12 +1541,12 @@ export function PortalReportingClient() {
                       <tr key={r.day} className="border-b border-zinc-100">
                         <td className="py-2 pr-3 whitespace-nowrap text-zinc-700">{formatIsoDay(r.day)}</td>
                         <td className="py-2 pr-3 text-zinc-700">
-                          <span className="inline-flex rounded-full bg-[color:rgba(29,78,216,0.08)] px-2 py-0.5 text-xs font-semibold text-[color:var(--color-brand-blue)]">
+                          <span className="inline-flex rounded-full bg-[rgba(29,78,216,0.08)] px-2 py-0.5 text-xs font-semibold text-(--color-brand-blue)">
                             {r.aiCalls}
                           </span>
                         </td>
                         <td className="py-2 pr-3 text-zinc-700">
-                          <span className="inline-flex rounded-full bg-[color:rgba(251,113,133,0.10)] px-2 py-0.5 text-xs font-semibold text-[color:var(--color-brand-pink)]">
+                          <span className="inline-flex rounded-full bg-[rgba(251,113,133,0.10)] px-2 py-0.5 text-xs font-semibold text-(--color-brand-pink)">
                             {r.missedCalls}
                           </span>
                         </td>

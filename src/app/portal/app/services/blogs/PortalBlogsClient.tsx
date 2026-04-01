@@ -1542,10 +1542,10 @@ export function PortalBlogsClient({
 
       {openPostMenu && openPostMenuPost && typeof document !== "undefined"
         ? createPortal(
-            <div className="fixed inset-0 z-50" aria-hidden>
+            <div className="fixed inset-0 z-30" aria-hidden>
               <div className="absolute inset-0" onMouseDown={() => setOpenPostMenu(null)} onTouchStart={() => setOpenPostMenu(null)} />
               <div
-                className="fixed z-60 w-56 overflow-auto rounded-2xl border border-zinc-200 bg-white shadow-lg"
+                className="fixed z-40 w-56 overflow-auto rounded-2xl border border-zinc-200 bg-white shadow-lg"
                 style={{ left: openPostMenu.left, top: openPostMenu.top, maxHeight: openPostMenu.maxHeight }}
                 onMouseDown={(e) => e.stopPropagation()}
                 onTouchStart={(e) => e.stopPropagation()}
@@ -1630,10 +1630,10 @@ export function PortalBlogsClient({
 
       {openPreviewMenu && typeof document !== "undefined"
         ? createPortal(
-            <div className="fixed inset-0 z-50" aria-hidden>
+            <div className="fixed inset-0 z-30" aria-hidden>
               <div className="absolute inset-0" onMouseDown={() => setOpenPreviewMenu(null)} onTouchStart={() => setOpenPreviewMenu(null)} />
               <div
-                className="fixed z-60 w-72 overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-lg"
+                className="fixed z-40 w-72 overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-lg"
                 style={{ left: openPreviewMenu.left, top: openPreviewMenu.top }}
                 onMouseDown={(e) => e.stopPropagation()}
                 onTouchStart={(e) => e.stopPropagation()}

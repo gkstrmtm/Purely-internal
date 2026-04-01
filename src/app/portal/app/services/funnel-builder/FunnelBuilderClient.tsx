@@ -1028,7 +1028,7 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                           <div
                             ref={funnelMenuElRef}
                             className={classNames(
-                              "fixed z-50 w-56 overflow-auto rounded-2xl border border-zinc-200 bg-white shadow-xl",
+                              "fixed z-40 w-56 overflow-auto rounded-2xl border border-zinc-200 bg-white shadow-xl",
                               funnelMenuStyle?.anchorId === f.id ? "opacity-100" : "pointer-events-none opacity-0",
                             )}
                             style={
@@ -1204,7 +1204,7 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                         <div
                           ref={formMenuElRef}
                           className={classNames(
-                            "fixed z-50 w-56 overflow-auto rounded-2xl border border-zinc-200 bg-white shadow-xl",
+                            "fixed z-40 w-56 overflow-auto rounded-2xl border border-zinc-200 bg-white shadow-xl",
                             formMenuStyle?.anchorId === f.id ? "opacity-100" : "pointer-events-none opacity-0",
                           )}
                           style={

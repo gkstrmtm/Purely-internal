@@ -1708,6 +1708,10 @@ export function PortalPeopleContactsClient() {
           )}
         >
           <div
+            role="dialog"
+            aria-modal="true"
+            aria-label="Add contacts"
+            data-overlay-root="true"
             className={classNames(
               "w-full max-w-3xl rounded-3xl border border-zinc-200 bg-white p-5 shadow-xl",
               "max-h-[calc(100dvh-var(--pa-modal-safe-top,0px)-var(--pa-modal-safe-bottom,0px)-2rem)] overflow-y-auto",
@@ -1726,9 +1730,10 @@ export function PortalPeopleContactsClient() {
               <button
                 type="button"
                 onClick={() => setImportOpen(false)}
-                className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
+                aria-label="Close add contacts"
+                className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-zinc-200 bg-white text-lg font-semibold text-zinc-800 hover:bg-zinc-50"
               >
-                Close
+                ×
               </button>
             </div>
 
@@ -2355,7 +2360,7 @@ export function PortalPeopleContactsClient() {
             paddingBottom: "calc(var(--pa-modal-safe-bottom, 0px) + 16px)",
           }}
         >
-          <div className="w-full max-w-3xl max-h-[calc(100dvh-var(--pa-modal-safe-top,0px)-var(--pa-modal-safe-bottom,0px)-32px)] overflow-y-auto rounded-3xl border border-zinc-200 bg-white p-6 shadow-xl">
+          <div role="dialog" aria-modal="true" aria-label="Contact details" data-overlay-root="true" className="w-full max-w-3xl max-h-[calc(100dvh-var(--pa-modal-safe-top,0px)-var(--pa-modal-safe-bottom,0px)-32px)] overflow-y-auto rounded-3xl border border-zinc-200 bg-white p-6 shadow-xl">
             <div className="flex items-start justify-between gap-3">
               <div>
                 <div className="text-base font-semibold text-zinc-900">Contact details</div>
@@ -2363,7 +2368,8 @@ export function PortalPeopleContactsClient() {
               </div>
               <button
                 type="button"
-                className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold hover:bg-zinc-50"
+                aria-label="Close contact details"
+                className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-zinc-200 bg-white text-lg font-semibold text-zinc-800 hover:bg-zinc-50"
                 onClick={() => {
                   setDetailOpen(false);
                   setSelectedContactId(null);
@@ -2372,7 +2378,7 @@ export function PortalPeopleContactsClient() {
                   clearContactIdFromUrl();
                 }}
               >
-                Close
+                ×
               </button>
             </div>
 
@@ -2818,7 +2824,7 @@ export function PortalPeopleContactsClient() {
             paddingBottom: "calc(var(--pa-modal-safe-bottom, 0px) + 16px)",
           }}
         >
-          <div className="w-full max-w-xl max-h-[calc(100dvh-var(--pa-modal-safe-top,0px)-var(--pa-modal-safe-bottom,0px)-32px)] overflow-y-auto rounded-3xl border border-zinc-200 bg-white p-6 shadow-xl">
+          <div role="dialog" aria-modal="true" aria-label="Lead details" data-overlay-root="true" className="w-full max-w-xl max-h-[calc(100dvh-var(--pa-modal-safe-top,0px)-var(--pa-modal-safe-bottom,0px)-32px)] overflow-y-auto rounded-3xl border border-zinc-200 bg-white p-6 shadow-xl">
             <div className="flex items-start justify-between gap-3">
               <div>
                 <div className="text-base font-semibold text-zinc-900">Lead</div>
@@ -2826,13 +2832,14 @@ export function PortalPeopleContactsClient() {
               </div>
               <button
                 type="button"
-                className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold hover:bg-zinc-50"
+                aria-label="Close lead editor"
+                className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-zinc-200 bg-white text-lg font-semibold text-zinc-800 hover:bg-zinc-50"
                 onClick={() => {
                   setLeadModalOpen(false);
                   setActiveLeadId(null);
                 }}
               >
-                Close
+                ×
               </button>
             </div>
 

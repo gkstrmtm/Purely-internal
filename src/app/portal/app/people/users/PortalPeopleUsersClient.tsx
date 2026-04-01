@@ -754,9 +754,10 @@ export function PortalPeopleUsersClient() {
               <button
                 type="button"
                 onClick={() => closeMemberEditor()}
-                className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
+                aria-label="Close member permissions"
+                className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-zinc-200 bg-white text-lg font-semibold text-zinc-800 hover:bg-zinc-50"
               >
-                Close
+                ×
               </button>
             </div>
 
