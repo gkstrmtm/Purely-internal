@@ -1,8 +1,7 @@
 "use client";
 
-import Link from "next/link";
-import { usePathname } from "next/navigation";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { usePathname, useSearchParams } from "next/navigation";
+import { useCallback, useEffect, useId, useMemo, useState } from "react";
 
 import { PortalListboxDropdown, type PortalListboxOption } from "@/components/PortalListboxDropdown";
 
@@ -62,6 +61,22 @@ function reportReadinessLabel(summary: { pending: number; negative: number; posi
   return "Just getting started";
 }
 
+function reportRoutesFor(pathname: string | null) {
+  const current = String(pathname || "");
+  if (current.startsWith("/credit/app/services/credit-reports")) {
+    return {
+      listHref: "/credit/app/services/credit-reports",
+      detailHref: (reportId: string) => `/credit/app/services/credit-reports/${encodeURIComponent(reportId)}`,
+      disputeHref: "/credit/app/services/dispute-letters",
+    };
+  }
+  return {
+    listHref: "/portal/app/services/credit-reports",
+    detailHref: (reportId: string) => `/portal/app/services/credit-reports/${encodeURIComponent(reportId)}`,
+    disputeHref: "/portal/app/services/dispute-letters",
+  };
+}
+
 function buildOpportunityPlans(report: ReportFull | null, summary: { pending: number; negative: number; positive: number; tracked: number }) {
   const items = report?.items || [];
   const lowerText = items
@@ -82,8 +97,8 @@ function buildOpportunityPlans(report: ReportFull | null, summary: { pending: nu
     readinessTone: isCleanEnoughForOffers ? "amber" : "red",
     offerTier: isCleanEnoughForOffers ? "Offer tier: Starter business funding" : "Offer tier: Business profile prep only",
     offerExamples: isCleanEnoughForOffers
-      ? ["Starter vendor accounts", "Entry business cards", "Light-doc revenue products after cleanup"]
-      : ["Business profile cleanup", "Vendor-credit groundwork", "No broad underwriting push yet"],
+      ? ["Amex Blue Business Cash", "Capital on Tap Business Credit Card", "Fundbox line of credit", "Bluevine business line"]
+      : ["Nav Prime", "Tillful builder lane", "Vendor tradelines before underwriting", "No broad lender push yet"],
     summary: isCleanEnoughForOffers
       ? "Good lane for starter business funding once the file stays stable and the business profile is documented cleanly."
       : "Keep business funding in the plan, but treat this as a preparation lane until the report has fewer unresolved negatives.",
@@ -110,8 +125,8 @@ function buildOpportunityPlans(report: ReportFull | null, summary: { pending: nu
     readinessTone: isCleanEnoughForOffers ? "amber" : "red",
     offerTier: isCleanEnoughForOffers ? "Offer tier: Conservative personal funding" : "Offer tier: Wait and prepare",
     offerExamples: isCleanEnoughForOffers
-      ? ["Relationship lenders", "Narrow approval-box installment products", "Selective personal-line options"]
-      : ["Documentation prep", "Utilization cleanup first", "Delay applications until file settles"],
+      ? ["Upgrade personal loan", "LendingClub", "Prosper", "Upstart"]
+      : ["OneMain Financial", "Avant", "Upgrade after cleanup", "Delay broader applications until file settles"],
     summary: isCleanEnoughForOffers
       ? "Personal funding can be pursued in a controlled way if the client keeps utilization down and avoids stacking applications."
       : "Treat personal funding as a later-phase move until the report is cleaner and the client’s file is less volatile.",
@@ -138,8 +153,8 @@ function buildOpportunityPlans(report: ReportFull | null, summary: { pending: nu
     readinessTone: hasUtilizationSignals || isCleanEnoughForOffers ? "green" : "amber",
     offerTier: hasUtilizationSignals || isCleanEnoughForOffers ? "Offer tier: Tactical card strategy" : "Offer tier: Starter card positioning",
     offerExamples: hasUtilizationSignals || isCleanEnoughForOffers
-      ? ["Secured-to-unsecured graduation path", "Selective unsecured cards", "Business cards after profile review"]
-      : ["Secured cards", "Starter relationship cards", "Single-card rebuild plan"],
+      ? ["Capital One QuicksilverOne", "Mission Lane Visa", "Merrick Bank Double Your Line", "Amex Blue Business Cash after profile review"]
+      : ["Discover it Secured", "Capital One Platinum Secured", "OpenSky Secured", "Self Visa Secured"] ,
     summary: hasUtilizationSignals
       ? "Credit-card strategy is one of the fastest levers here because balance management and the right product mix can change the file quickly."
       : "Card strategy still matters here, especially if the goal is to add positive revolving history without over-applying.",
@@ -166,8 +181,8 @@ function buildOpportunityPlans(report: ReportFull | null, summary: { pending: nu
     readinessTone: isStillRepairHeavy ? "red" : "amber",
     offerTier: isStillRepairHeavy ? "Offer tier: No expansion push" : "Offer tier: Controlled next-step mode",
     offerExamples: isStillRepairHeavy
-      ? ["Disputes first", "Documentation cleanup", "Monitoring before applications"]
-      : ["Measured follow-up", "Selective expansion only", "Protect gains already made"],
+      ? ["Experian dispute follow-up", "Equifax follow-up", "TransUnion follow-up", "AnnualCreditReport monitoring"]
+      : ["Selective bureau refresh", "Dispute letter follow-up", "Furnisher escalation only where needed", "Protect current positives"],
     summary: isStillRepairHeavy
       ? "The file still needs operational cleanup, follow-up, and monitoring before bigger funding moves should take priority."
       : "Even when the file improves, disciplined follow-up and monitoring keep the client from backsliding.",
@@ -206,14 +221,16 @@ async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
   return json;
 }
 
-export default function CreditReportsClient() {
+export default function CreditReportsClient({ mode = "list", initialReportId = "" }: { mode?: "list" | "detail"; initialReportId?: string }) {
   const pathname = usePathname() || "";
-  const portalBase = pathname.startsWith("/credit") ? "/credit" : "/portal";
+  const searchParams = useSearchParams();
+  const routeSet = useMemo(() => reportRoutesFor(pathname), [pathname]);
+  const contactDatalistId = useId();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const [reports, setReports] = useState<ReportLite[]>([]);
-  const [selectedReportId, setSelectedReportId] = useState<string>("");
+  const [selectedReportId, setSelectedReportId] = useState<string>(initialReportId);
   const [selectedReport, setSelectedReport] = useState<ReportFull | null>(null);
 
   const [contactQuery, setContactQuery] = useState("");
@@ -293,6 +310,10 @@ export default function CreditReportsClient() {
     () => contacts.find((c) => c.id === selectedContactId) || null,
     [contacts, selectedContactId],
   );
+  const contactSuggestions = useMemo(
+    () => contacts.map((contact) => ({ id: contact.id, label: `${contact.name}${contact.email ? ` - ${contact.email}` : ""}` })),
+    [contacts],
+  );
   const selectedReportSummary = useMemo(() => {
     const items = selectedReport?.items || [];
     const pending = items.filter((item) => item.auditTag === "PENDING").length;
@@ -327,6 +348,32 @@ export default function CreditReportsClient() {
     () => buildOpportunityPlans(selectedReport, selectedReportSummary),
     [selectedReport, selectedReportSummary],
   );
+  const reportMix = useMemo(() => {
+    const total = Math.max(1, selectedReportSummary.pending + selectedReportSummary.negative + selectedReportSummary.positive);
+    return [
+      { key: "negative", label: "Negative", value: selectedReportSummary.negative, width: `${Math.max(8, (selectedReportSummary.negative / total) * 100)}%`, barClass: "bg-rose-500" },
+      { key: "pending", label: "Pending", value: selectedReportSummary.pending, width: `${Math.max(8, (selectedReportSummary.pending / total) * 100)}%`, barClass: "bg-amber-500" },
+      { key: "positive", label: "Positive", value: selectedReportSummary.positive, width: `${Math.max(8, (selectedReportSummary.positive / total) * 100)}%`, barClass: "bg-emerald-500" },
+    ];
+  }, [selectedReportSummary]);
+
+  useEffect(() => {
+    if (!initialReportId) return;
+    setSelectedReportId(initialReportId);
+  }, [initialReportId]);
+
+  useEffect(() => {
+    const query = (searchParams.get("contact") || "").trim();
+    if (!query) return;
+    setContactQuery(query);
+  }, [searchParams]);
+
+  useEffect(() => {
+    const normalized = contactQuery.trim().toLowerCase();
+    if (!normalized) return;
+    const match = contactSuggestions.find((entry) => entry.label.toLowerCase() === normalized) || contactSuggestions.find((entry) => entry.label.toLowerCase().startsWith(normalized));
+    if (match) setSelectedContactId(match.id);
+  }, [contactQuery, contactSuggestions]);
 
   const importReport = async () => {
     setBusy(true);
@@ -397,406 +444,379 @@ export default function CreditReportsClient() {
       <div className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-end">
         <div>
           <h1 className="text-2xl font-bold text-brand-ink sm:text-3xl">Credit reports</h1>
-          <p className="mt-1 max-w-2xl text-sm text-zinc-600">Pull a report, review the items, then move into disputes.</p>
+          <p className="mt-1 max-w-2xl text-sm text-zinc-600">
+            {mode === "detail" ? "Review one report, act on the items, and jump straight into disputes." : "Pull a report, scan the queue, and open a cleaner detail workspace when you need it."}
+          </p>
         </div>
-        {selectedReport ? (
-          <Link
-            href={`${portalBase}/app/services/dispute-letters`}
+        {mode === "detail" ? (
+          <button
+            type="button"
+            onClick={() => {
+              window.location.href = routeSet.listHref;
+            }}
             className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
           >
-            Open dispute letters
-          </Link>
-        ) : null}
+            Back to reports
+          </button>
+        ) : (
+          <div className="rounded-full border border-zinc-200 bg-white px-3 py-1 text-xs font-semibold text-zinc-600">{reports.length} saved</div>
+        )}
       </div>
 
-      {error ? (
-        <div className="mt-4 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">{error}</div>
-      ) : null}
+      {error ? <div className="mt-4 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">{error}</div> : null}
 
-      <div className="mt-6 grid grid-cols-1 gap-4 xl:grid-cols-[320px_minmax(0,1fr)]">
-        <aside className="rounded-3xl border border-zinc-200 bg-white p-5">
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <div className="text-sm font-semibold text-zinc-900">Report intake</div>
-            </div>
-            <div className="rounded-full border border-zinc-200 bg-white px-3 py-1 text-xs font-semibold text-zinc-600">{reports.length} saved</div>
-          </div>
+      {mode === "list" ? (
+        <div className="mt-6 space-y-5">
+          <section className="rounded-[28px] border border-zinc-200 bg-white p-5 shadow-sm">
+            <div className="grid gap-4 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)]">
+              <div>
+                <div className="text-sm font-semibold text-zinc-900">Report intake</div>
+                <div className="mt-1 text-sm text-zinc-600">Pick a contact, choose the provider, and pull a fresh report without the extra clutter.</div>
 
-          <label className="mt-3 block">
-            <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Contact</div>
-            <div className="flex gap-2">
-              <input
-                value={contactQuery}
-                onChange={(e) => setContactQuery(e.target.value)}
-                className="flex-1 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                placeholder="Search contacts…"
-              />
-              <button
-                type="button"
-                disabled={busy}
-                onClick={() => loadContacts(contactQuery)}
-                className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold hover:bg-zinc-50 disabled:opacity-60"
-              >
-                Search
-              </button>
-            </div>
-            <div className="mt-2">
-              <PortalListboxDropdown
-                value={selectedContactId}
-                onChange={(v) => setSelectedContactId(v)}
-                disabled={busy}
-                buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50"
-                options={([
-                  { value: "", label: "No contact" },
-                  ...contacts.map(
-                    (c): PortalListboxOption<string> => ({
-                      value: c.id,
-                      label: `${c.name}${c.email ? ` - ${c.email}` : ""}`,
-                    }),
-                  ),
-                ] as PortalListboxOption<string>[])}
-              />
-            </div>
-            {selectedContact ? <div className="mt-1 text-xs text-zinc-500">Selected: {selectedContact.name}</div> : null}
-          </label>
+                <label className="mt-4 block">
+                  <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Contact</div>
+                  <input
+                    value={contactQuery}
+                    onChange={(e) => setContactQuery(e.target.value)}
+                    list={contactDatalistId}
+                    className="w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2.5 text-sm"
+                    placeholder="Search or select a contact"
+                  />
+                  <datalist id={contactDatalistId}>
+                    {contactSuggestions.map((entry) => (
+                      <option key={entry.id} value={entry.label} />
+                    ))}
+                  </datalist>
+                  {selectedContact ? <div className="mt-1 text-xs text-zinc-500">Selected: {selectedContact.name}</div> : null}
+                </label>
 
-          <label className="mt-3 block">
-            <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Provider</div>
-            <PortalListboxDropdown
-              value={provider}
-              onChange={(v) => setProvider(v)}
-              disabled={busy}
-              buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50"
-              options={(
-                [
-                  { value: "IdentityIQ", label: "IdentityIQ" },
-                  { value: "SmartCredit", label: "SmartCredit" },
-                  { value: "MyScoreIQ", label: "MyScoreIQ" },
-                  { value: "Experian", label: "Experian" },
-                  { value: "TransUnion", label: "TransUnion" },
-                  { value: "Equifax", label: "Equifax" },
-                  { value: "Other", label: "Other" },
-                ] as PortalListboxOption<string>[]
-              )}
-            />
-          </label>
+                <label className="mt-3 block">
+                  <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Provider</div>
+                  <PortalListboxDropdown
+                    value={provider}
+                    onChange={(v) => setProvider(v)}
+                    disabled={busy}
+                    buttonClassName="flex w-full items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-white px-3 py-2.5 text-sm hover:bg-zinc-50"
+                    options={(
+                      [
+                        { value: "IdentityIQ", label: "IdentityIQ" },
+                        { value: "SmartCredit", label: "SmartCredit" },
+                        { value: "MyScoreIQ", label: "MyScoreIQ" },
+                        { value: "Experian", label: "Experian" },
+                        { value: "TransUnion", label: "TransUnion" },
+                        { value: "Equifax", label: "Equifax" },
+                        { value: "Other", label: "Other" },
+                      ] as PortalListboxOption<string>[]
+                    )}
+                  />
+                </label>
 
-          <div className="mt-3 flex gap-2">
-            <button
-              type="button"
-              disabled={busy}
-              onClick={requestProviderPull}
-              className="rounded-2xl bg-brand-ink px-4 py-2.5 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
-            >
-              {busy ? "Working…" : reports.some((report) => report.contactId === selectedContactId) ? "Re-import latest" : "Pull latest report"}
-            </button>
-          </div>
+                <div className="mt-4 flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={requestProviderPull}
+                    className="rounded-2xl bg-brand-ink px-4 py-2.5 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
+                  >
+                    {busy ? "Working…" : reports.some((report) => report.contactId === selectedContactId) ? "Re-import latest" : "Pull latest report"}
+                  </button>
+                </div>
+              </div>
 
-          {selectedContact ? (
-            <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
-              <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Current focus</div>
-              <div className="mt-1 text-sm font-semibold text-zinc-900">{selectedContact.name}</div>
-              <div className="mt-1 text-xs text-zinc-600">
-                {selectedContact.email ? selectedContact.email : "No email on file"}
+              <div className="grid gap-3 sm:grid-cols-3 lg:grid-cols-1 xl:grid-cols-3">
+                <div className="rounded-3xl border border-zinc-200 bg-zinc-50 p-4">
+                  <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Saved reports</div>
+                  <div className="mt-1 text-2xl font-bold text-brand-ink">{reports.length}</div>
+                </div>
+                <div className="rounded-3xl border border-zinc-200 bg-zinc-50 p-4">
+                  <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Contacts loaded</div>
+                  <div className="mt-1 text-2xl font-bold text-brand-ink">{contacts.length}</div>
+                </div>
+                <div className="rounded-3xl border border-zinc-200 bg-zinc-50 p-4">
+                  <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Current focus</div>
+                  <div className="mt-1 truncate text-sm font-semibold text-zinc-900">{selectedContact ? selectedContact.name : "No contact selected"}</div>
+                  <div className="mt-1 text-xs text-zinc-500">{selectedContact?.email || "Pick a contact before pulling a report."}</div>
+                </div>
               </div>
             </div>
-          ) : (
-            <div className="mt-4 rounded-2xl border border-dashed border-zinc-300 bg-zinc-50 p-4 text-sm text-zinc-600">
-              No contact selected.
-            </div>
-          )}
 
-          {showAdvancedImport ? (
-            <details className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
-              <summary className="cursor-pointer text-sm font-semibold text-zinc-800">Advanced (dev only)</summary>
-              <div className="mt-2 text-xs text-zinc-600">
-                For local development only. Production uses provider integrations.
-              </div>
-              <label className="mt-3 block">
-                <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Report JSON</div>
-                <textarea
-                  value={rawText}
-                  onChange={(e) => setRawText(e.target.value)}
-                  className="min-h-45 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 font-mono text-xs"
-                  placeholder="Paste JSON here"
-                />
-              </label>
-              <div className="mt-3 flex gap-2">
-                <button
-                  type="button"
-                  disabled={busy || rawText.trim().length < 2}
-                  onClick={importReport}
-                  className="rounded-xl bg-white px-4 py-2 text-sm font-semibold text-zinc-900 ring-1 ring-inset ring-zinc-200 hover:bg-zinc-50 disabled:opacity-60"
-                >
-                  {busy ? "Working…" : "Import report"}
-                </button>
-              </div>
-            </details>
-          ) : null}
+            {showAdvancedImport ? (
+              <details className="mt-4 rounded-3xl border border-zinc-200 bg-zinc-50 p-4">
+                <summary className="cursor-pointer text-sm font-semibold text-zinc-800">Advanced import</summary>
+                <label className="mt-3 block">
+                  <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Report JSON</div>
+                  <textarea
+                    value={rawText}
+                    onChange={(e) => setRawText(e.target.value)}
+                    className="min-h-45 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 font-mono text-xs"
+                    placeholder="Paste JSON here"
+                  />
+                </label>
+                <div className="mt-3 flex gap-2">
+                  <button
+                    type="button"
+                    disabled={busy || rawText.trim().length < 2}
+                    onClick={importReport}
+                    className="rounded-xl bg-white px-4 py-2 text-sm font-semibold text-zinc-900 ring-1 ring-inset ring-zinc-200 hover:bg-zinc-50 disabled:opacity-60"
+                  >
+                    {busy ? "Working…" : "Import report"}
+                  </button>
+                </div>
+              </details>
+            ) : null}
+          </section>
 
-          <div className="mt-6 border-t border-zinc-200 pt-4">
+          <section className="rounded-[28px] border border-zinc-200 bg-white p-5 shadow-sm">
             <div className="flex items-center justify-between gap-3">
-              <div className="text-sm font-semibold text-zinc-900">Saved reports</div>
+              <div>
+                <div className="text-sm font-semibold text-zinc-900">Saved reports</div>
+                <div className="mt-1 text-sm text-zinc-600">Click a report to open its own detail page instead of cramming everything into one screen.</div>
+              </div>
               <div className="text-xs text-zinc-500">Newest first</div>
             </div>
+
             {reports.length === 0 ? (
-              <div className="mt-2 text-sm text-zinc-600">No reports yet.</div>
+              <div className="mt-4 rounded-2xl border border-dashed border-zinc-300 bg-zinc-50 p-5 text-sm text-zinc-600">No reports yet.</div>
             ) : (
-              <div className="mt-2 space-y-2">
-                {reports.map((r) => (
+              <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                {reports.map((report) => (
                   <button
-                    key={r.id}
+                    key={report.id}
                     type="button"
-                    onClick={() => setSelectedReportId(r.id)}
-                    className={
-                      "w-full rounded-2xl border px-3 py-3 text-left transition-colors " +
-                      (selectedReportId === r.id
-                        ? "border-zinc-900 bg-zinc-50"
-                        : "border-zinc-200 bg-white hover:bg-zinc-50")
-                    }
+                    onClick={() => {
+                      window.location.href = routeSet.detailHref(report.id);
+                    }}
+                    className={["rounded-3xl", "border", "border-zinc-200", "bg-white", "p-4", "text-left", "transition", "hover:-translate-y-0.5", "hover:border-zinc-300", "hover:shadow-sm"].join(" ")}
                   >
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="truncate text-sm font-semibold">{r.provider}</div>
-                      <div className="shrink-0 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">
-                        {r._count.items} items
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="truncate text-base font-semibold text-zinc-900">{report.contact?.name || "Unassigned contact"}</div>
+                        <div className="mt-1 text-sm text-zinc-600">{report.provider}</div>
+                      </div>
+                      <div className="rounded-full border border-zinc-200 bg-zinc-50 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">
+                        {report._count.items} items
                       </div>
                     </div>
-                    <div className="mt-1 text-xs text-zinc-500">{new Date(r.importedAt).toLocaleString()}</div>
-                    {r.contact ? <div className="mt-1 text-xs text-zinc-600">Contact: {r.contact.name}</div> : null}
+                    <div className="mt-3 text-xs text-zinc-500">Imported {new Date(report.importedAt).toLocaleString()}</div>
+                    <div className="mt-4 flex items-center justify-between text-xs font-semibold text-zinc-600">
+                      <span>{report.contact?.email || "No email on file"}</span>
+                      <span>Open →</span>
+                    </div>
                   </button>
                 ))}
               </div>
             )}
-          </div>
-        </aside>
-
-        <main className="space-y-4">
-          {!selectedReport ? (
-            <div className="rounded-3xl border border-zinc-200 bg-white p-6 text-sm text-zinc-600">
-              Select a report from the left to open the audit workspace.
+          </section>
+        </div>
+      ) : !selectedReport ? (
+        <div className="mt-6 rounded-3xl border border-zinc-200 bg-white p-6 text-sm text-zinc-600">Report not found.</div>
+      ) : (
+        <div className="mt-6 space-y-4">
+          <section className="rounded-[28px] border border-zinc-200 bg-white p-5 shadow-sm">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+              <div>
+                <div className="text-sm font-semibold text-zinc-900">Selected report</div>
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  <div className="text-xl font-semibold text-zinc-900">{selectedReport.contact?.name || selectedReport.provider}</div>
+                  <div className="rounded-full border border-zinc-200 bg-zinc-50 px-2.5 py-1 text-[11px] font-semibold text-zinc-600">{readinessLabel}</div>
+                </div>
+                <div className="mt-1 text-sm text-zinc-600">
+                  {selectedReport.provider} • Imported {new Date(selectedReport.importedAt).toLocaleString()}
+                </div>
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3">
+                  <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Tracked items</div>
+                  <div className="mt-1 text-sm font-semibold text-zinc-900">{selectedReportSummary.tracked} in motion</div>
+                </div>
+                <div className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3">
+                  <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Dispute lane</div>
+                  <div className="mt-1 text-sm font-semibold text-zinc-900">Open from any report item</div>
+                </div>
+              </div>
             </div>
-          ) : (
-            <>
-              <section className="rounded-3xl border border-zinc-200 bg-white p-5">
-                <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-                  <div>
-                    <div className="text-sm font-semibold text-zinc-900">Selected report</div>
-                    <div className="mt-2 flex flex-wrap items-center gap-2">
-                      <div className="text-xl font-semibold text-zinc-900">{selectedReport.provider}</div>
-                      <div className="rounded-full border border-zinc-200 bg-zinc-50 px-2.5 py-1 text-[11px] font-semibold text-zinc-600">
-                        {readinessLabel}
+          </section>
+
+          <section className="rounded-[28px] border border-zinc-200 bg-white p-5 shadow-sm">
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+              <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4"><div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Pending</div><div className="mt-1 text-xl font-bold text-brand-ink">{selectedReportSummary.pending}</div></div>
+              <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4"><div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Negative</div><div className="mt-1 text-xl font-bold text-brand-ink">{selectedReportSummary.negative}</div></div>
+              <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4"><div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Positive</div><div className="mt-1 text-xl font-bold text-brand-ink">{selectedReportSummary.positive}</div></div>
+              <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4"><div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Tracked</div><div className="mt-1 text-xl font-bold text-brand-ink">{selectedReportSummary.tracked}</div></div>
+            </div>
+
+            <div className="mt-5 grid gap-4 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
+              <div className="rounded-3xl border border-zinc-200 bg-zinc-50 p-4">
+                <div className="text-sm font-semibold text-zinc-900">Profile mix</div>
+                <div className="mt-3 space-y-3">
+                  {reportMix.map((entry) => (
+                    <div key={entry.key}>
+                      <div className="flex items-center justify-between text-xs font-semibold text-zinc-600">
+                        <span>{entry.label}</span>
+                        <span>{entry.value}</span>
                       </div>
-                    </div>
-                    <div className="mt-1 text-sm text-zinc-600">
-                      Imported {new Date(selectedReport.importedAt).toLocaleString()}
-                      {selectedReport.contact ? ` • ${selectedReport.contact.name}` : ""}
-                    </div>
-                  </div>
-                  <div className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3">
-                    <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Tracked items</div>
-                    <div className="mt-1 text-sm font-semibold text-zinc-900">{selectedReportSummary.tracked} in motion</div>
-                  </div>
-                </div>
-              </section>
-
-              <section className="rounded-3xl border border-zinc-200 bg-white p-5">
-                <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-                  <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
-                    <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Pending</div>
-                    <div className="mt-1 text-xl font-bold text-brand-ink">{selectedReportSummary.pending}</div>
-                  </div>
-                  <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
-                    <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Negative</div>
-                    <div className="mt-1 text-xl font-bold text-brand-ink">{selectedReportSummary.negative}</div>
-                  </div>
-                  <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
-                    <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Positive</div>
-                    <div className="mt-1 text-xl font-bold text-brand-ink">{selectedReportSummary.positive}</div>
-                  </div>
-                  <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
-                    <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Tracked disputes</div>
-                    <div className="mt-1 text-xl font-bold text-brand-ink">{selectedReportSummary.tracked}</div>
-                  </div>
-                </div>
-
-              </section>
-
-              <section className="rounded-3xl border border-zinc-200 bg-white p-5">
-                <div className="flex flex-col gap-2 lg:flex-row lg:items-end lg:justify-between">
-                  <div>
-                    <div className="text-sm font-semibold text-zinc-900">Funding and action plan</div>
-                    <div className="mt-1 text-sm text-zinc-600">
-                      Use the report to drive funding lanes, readiness, and concrete next actions for both the client and you.
-                    </div>
-                  </div>
-                  <div className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm text-zinc-700">
-                    {selectedReport.contact ? `Built for ${selectedReport.contact.name}` : "Built from the selected report"}
-                  </div>
-                </div>
-
-                <div className="mt-4 grid gap-4 xl:grid-cols-2">
-                  {opportunityPlans.map((plan) => (
-                    <div key={plan.key} className="rounded-3xl border border-zinc-200 bg-zinc-50 p-4">
-                      <div className="flex flex-wrap items-start justify-between gap-3">
-                        <div>
-                          <div className="text-base font-semibold text-zinc-900">{plan.title}</div>
-                          <div className="mt-1 text-sm text-zinc-700">{plan.summary}</div>
-                        </div>
-                        <div className="flex flex-wrap items-center gap-2">
-                          <div className={"rounded-full border px-3 py-1 text-[11px] font-semibold uppercase tracking-wide " + readinessClasses(plan.readinessTone)}>
-                            {plan.readinessLabel}
-                          </div>
-                          <div className="rounded-full border border-zinc-200 bg-white px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-600">
-                            {plan.fitLabel}
-                          </div>
-                        </div>
-                      </div>
-
-                      <div className="mt-3 rounded-2xl border border-blue-200 bg-blue-50 p-3 text-sm text-blue-900">
-                        <div className="text-[11px] font-semibold uppercase tracking-wide text-blue-700">Why this matters now</div>
-                        <div className="mt-1">{plan.whyNow}</div>
-                      </div>
-
-                      <div className="mt-3 rounded-2xl border border-zinc-200 bg-white p-3">
-                        <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Offer tier</div>
-                        <div className="mt-1 text-sm font-semibold text-zinc-900">{plan.offerTier}</div>
-                        <div className="mt-2 flex flex-wrap gap-2">
-                          {plan.offerExamples.map((example) => (
-                            <div key={example} className="rounded-full border border-zinc-200 bg-zinc-50 px-3 py-1 text-xs font-semibold text-zinc-600">
-                              {example}
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-
-                      <div className="mt-4 grid gap-3 md:grid-cols-2">
-                        <div className="rounded-2xl border border-zinc-200 bg-white p-3">
-                          <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Client actions</div>
-                          <ul className="mt-2 space-y-2 text-sm text-zinc-700">
-                            {plan.clientActions.map((action) => (
-                              <li key={action} className="flex gap-2">
-                                <span className="mt-0.5 text-zinc-400">•</span>
-                                <span>{action}</span>
-                              </li>
-                            ))}
-                          </ul>
-                        </div>
-                        <div className="rounded-2xl border border-zinc-200 bg-white p-3">
-                          <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Your actions</div>
-                          <ul className="mt-2 space-y-2 text-sm text-zinc-700">
-                            {plan.userActions.map((action) => (
-                              <li key={action} className="flex gap-2">
-                                <span className="mt-0.5 text-zinc-400">•</span>
-                                <span>{action}</span>
-                              </li>
-                            ))}
-                          </ul>
-                        </div>
+                      <div className="mt-1 h-2 rounded-full bg-zinc-200">
+                        <div className={`h-2 rounded-full ${entry.barClass}`} style={{ width: entry.width }} />
                       </div>
                     </div>
                   ))}
                 </div>
-              </section>
+              </div>
+              <div className="rounded-3xl border border-zinc-200 bg-zinc-50 p-4">
+                <div className="text-sm font-semibold text-zinc-900">Report notes</div>
+                <div className="mt-2 text-sm text-zinc-700">
+                  {selectedReport.contact ? `${selectedReport.contact.name} is the active contact on this file.` : "This report is not attached to a contact yet."}
+                </div>
+                <div className="mt-3 flex flex-wrap gap-2 text-xs font-semibold text-zinc-600">
+                  <div className="rounded-full border border-zinc-200 bg-white px-3 py-1">{selectedReport.provider}</div>
+                  <div className="rounded-full border border-zinc-200 bg-white px-3 py-1">{filteredItems.length} visible items</div>
+                  <div className="rounded-full border border-zinc-200 bg-white px-3 py-1">{readinessLabel}</div>
+                </div>
+              </div>
+            </div>
+          </section>
 
-              <section className="rounded-3xl border border-zinc-200 bg-white p-5">
-                <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
-                  <div>
-                    <div className="text-sm font-semibold text-zinc-900">Items</div>
+          <section className="rounded-[28px] border border-zinc-200 bg-white p-5 shadow-sm">
+            <div className="flex flex-col gap-2 lg:flex-row lg:items-end lg:justify-between">
+              <div>
+                <div className="text-sm font-semibold text-zinc-900">Funding lanes</div>
+                <div className="mt-1 text-sm text-zinc-600">Named products and sources instead of generic filler.</div>
+              </div>
+              <div className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm text-zinc-700">
+                {selectedReport.contact ? `Built for ${selectedReport.contact.name}` : "Built from the selected report"}
+              </div>
+            </div>
+
+            <div className="mt-4 grid gap-4 xl:grid-cols-2">
+              {opportunityPlans.map((plan) => (
+                <div key={plan.key} className="rounded-3xl border border-zinc-200 bg-zinc-50 p-4">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <div className="text-base font-semibold text-zinc-900">{plan.title}</div>
+                      <div className="mt-1 text-sm text-zinc-700">{plan.summary}</div>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <div className={"rounded-full border px-3 py-1 text-[11px] font-semibold uppercase tracking-wide " + readinessClasses(plan.readinessTone)}>{plan.readinessLabel}</div>
+                      <div className="rounded-full border border-zinc-200 bg-white px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-600">{plan.offerTier}</div>
+                    </div>
                   </div>
-                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-                    <input
-                      value={itemQuery}
-                      onChange={(e) => setItemQuery(e.target.value)}
-                      className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm sm:w-56"
-                      placeholder="Search items…"
-                    />
-                    <div className="text-xs text-zinc-500">{filteredItems.length} shown</div>
+
+                  <div className="mt-4 grid gap-2 sm:grid-cols-2">
+                    {plan.offerExamples.map((example) => (
+                      <div key={example} className="rounded-2xl border border-zinc-200 bg-white px-3 py-3 text-sm font-semibold text-zinc-800">
+                        {example}
+                      </div>
+                    ))}
                   </div>
                 </div>
+              ))}
+            </div>
+          </section>
 
-                <div className="mt-3 flex flex-wrap gap-2">
-                  {([
-                    ["ALL", `All ${selectedReport.items.length}`],
-                    ["PENDING", `Pending ${selectedReportSummary.pending}`],
-                    ["NEGATIVE", `Negative ${selectedReportSummary.negative}`],
-                    ["POSITIVE", `Positive ${selectedReportSummary.positive}`],
-                    ["TRACKED", `Tracked ${selectedReportSummary.tracked}`],
-                  ] as const).map(([value, label]) => (
-                    <button
-                      key={value}
-                      type="button"
-                      onClick={() => setItemFilter(value)}
-                      className={
-                        itemFilter === value
-                          ? "rounded-full bg-zinc-900 px-3 py-1.5 text-xs font-semibold text-white"
-                          : "rounded-full border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-600 hover:bg-zinc-50"
-                      }
-                    >
-                      {label}
-                    </button>
-                  ))}
-                </div>
+          <section className="rounded-[28px] border border-zinc-200 bg-white p-5 shadow-sm">
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+              <div>
+                <div className="text-sm font-semibold text-zinc-900">Report items</div>
+                <div className="mt-1 text-sm text-zinc-600">Filter the report, tag the item, or jump straight into a dispute letter.</div>
+              </div>
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                <input
+                  value={itemQuery}
+                  onChange={(e) => setItemQuery(e.target.value)}
+                  className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm sm:w-56"
+                  placeholder="Search items…"
+                />
+                <div className="text-xs text-zinc-500">{filteredItems.length} shown</div>
+              </div>
+            </div>
 
-                <div className="scrollbar-none mt-3 overflow-x-auto rounded-3xl border border-zinc-200">
-                  <div className="min-w-160">
-                    <div className="grid grid-cols-[1fr_140px_160px] gap-0 border-b border-zinc-200 bg-zinc-50 px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">
-                      <div>Item</div>
-                      <div>Audit tag</div>
-                      <div>Dispute status</div>
+            <div className="mt-3 flex flex-wrap gap-2">
+              {([
+                ["ALL", `All ${selectedReport.items.length}`],
+                ["PENDING", `Pending ${selectedReportSummary.pending}`],
+                ["NEGATIVE", `Negative ${selectedReportSummary.negative}`],
+                ["POSITIVE", `Positive ${selectedReportSummary.positive}`],
+                ["TRACKED", `Tracked ${selectedReportSummary.tracked}`],
+              ] as const).map(([value, label]) => (
+                <button
+                  key={value}
+                  type="button"
+                  onClick={() => setItemFilter(value)}
+                  className={itemFilter === value ? "rounded-full bg-zinc-900 px-3 py-1.5 text-xs font-semibold text-white" : "rounded-full border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-600 hover:bg-zinc-50"}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+
+            <div className="mt-4 space-y-3">
+              {filteredItems.length === 0 ? (
+                <div className="rounded-2xl border border-dashed border-zinc-300 bg-zinc-50 p-5 text-sm text-zinc-600">No matching items.</div>
+              ) : (
+                filteredItems.map((it) => (
+                  <div key={it.id} className="rounded-3xl border border-zinc-200 bg-zinc-50 p-4">
+                    <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate text-sm font-semibold text-zinc-900">{it.label}</div>
+                        <div className="mt-1 text-xs text-zinc-500">{(it.bureau ? `${it.bureau} • ` : "") + (it.kind || "Uncategorized")}</div>
+                      </div>
+                      <div className="flex flex-col gap-2 sm:flex-row xl:w-auto">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const params = new URLSearchParams();
+                            if (selectedReport.contactId) params.set("contactId", selectedReport.contactId);
+                            params.set("compose", "1");
+                            params.set("issue", it.label);
+                            if (it.bureau) params.set("bureau", it.bureau);
+                            window.location.href = `${routeSet.disputeHref}?${params.toString()}`;
+                          }}
+                          className="rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95"
+                        >
+                          Create dispute
+                        </button>
+                      </div>
                     </div>
 
-                    {filteredItems.length === 0 ? (
-                      <div className="px-3 py-3 text-sm text-zinc-600">No matching items.</div>
-                    ) : (
-                      <div className="divide-y divide-zinc-200">
-                        {filteredItems.map((it) => (
-                          <div key={it.id} className="grid grid-cols-[1fr_140px_160px] items-center gap-3 px-3 py-2">
-                            <div className="min-w-0">
-                              <div className="truncate text-sm font-medium text-zinc-900">{it.label}</div>
-                              <div className="mt-0.5 text-xs text-zinc-500">
-                                {(it.bureau ? `${it.bureau} • ` : "") + (it.kind ? it.kind : "")}
-                              </div>
-                            </div>
-                            <PortalListboxDropdown
-                              value={it.auditTag}
-                              onChange={(v) => updateItem(it.id, { auditTag: v })}
-                              disabled={busy}
-                              buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-2 py-2 text-sm hover:bg-zinc-50"
-                              options={(
-                                [
-                                  { value: "PENDING", label: "Pending" },
-                                  { value: "NEGATIVE", label: "Negative" },
-                                  { value: "POSITIVE", label: "Positive" },
-                                ] as PortalListboxOption<ReportItemLite["auditTag"]>[]
-                              )}
-                            />
-                            <input
-                              className="w-full rounded-xl border border-zinc-200 bg-white px-2 py-2 text-sm"
-                              value={it.disputeStatus || ""}
-                              disabled={busy}
-                              placeholder="e.g., OPEN"
-                              onChange={(e) => updateItem(it.id, { disputeStatus: e.target.value })}
-                            />
-                          </div>
-                        ))}
+                    <div className="mt-4 grid gap-3 lg:grid-cols-[180px_220px_minmax(0,1fr)]">
+                      <PortalListboxDropdown
+                        value={it.auditTag}
+                        onChange={(v) => updateItem(it.id, { auditTag: v })}
+                        disabled={busy}
+                        buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50"
+                        options={(
+                          [
+                            { value: "PENDING", label: "Pending" },
+                            { value: "NEGATIVE", label: "Negative" },
+                            { value: "POSITIVE", label: "Positive" },
+                          ] as PortalListboxOption<ReportItemLite["auditTag"]>[]
+                        )}
+                      />
+                      <input
+                        className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                        value={it.disputeStatus || ""}
+                        disabled={busy}
+                        placeholder="Dispute status"
+                        onChange={(e) => updateItem(it.id, { disputeStatus: e.target.value })}
+                      />
+                      <div className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-600">
+                        {it.disputeStatus ? `Current dispute status: ${it.disputeStatus}` : "No dispute status recorded yet."}
                       </div>
-                    )}
+                    </div>
                   </div>
-                </div>
-              </section>
+                ))
+              )}
+            </div>
+          </section>
 
-              {showAdvancedImport ? (
-                <details className="mt-4">
-                  <summary className="cursor-pointer text-sm font-semibold text-zinc-800">Raw JSON (dev)</summary>
-                  <pre className="scrollbar-none mt-2 max-h-105 overflow-auto rounded-2xl border border-zinc-200 bg-zinc-50 p-3 text-xs text-zinc-800">
-                    {JSON.stringify(selectedReport.rawJson, null, 2)}
-                  </pre>
-                </details>
-              ) : null}
-            </>
-          )}
-        </main>
-      </div>
+          {showAdvancedImport ? (
+            <details className="mt-4">
+              <summary className="cursor-pointer text-sm font-semibold text-zinc-800">Raw JSON (dev)</summary>
+              <pre className="scrollbar-none mt-2 max-h-105 overflow-auto rounded-2xl border border-zinc-200 bg-zinc-50 p-3 text-xs text-zinc-800">{JSON.stringify(selectedReport.rawJson, null, 2)}</pre>
+            </details>
+          ) : null}
+        </div>
+      )}
     </div>
   );
 }

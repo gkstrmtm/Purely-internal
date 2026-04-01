@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useId, useMemo, useState } from "react";
-import { usePathname } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 
 import { PortalListboxDropdown, type PortalListboxOption } from "@/components/PortalListboxDropdown";
 
@@ -217,8 +217,10 @@ async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
 
 export default function DisputeLettersClient({ mode = "list", initialLetterId = "" }: { mode?: "list" | "editor"; initialLetterId?: string }) {
   const pathname = usePathname();
+  const searchParams = useSearchParams();
   const routeSet = useMemo(() => routesFor(pathname), [pathname]);
-  const datalistId = useId();
+  const recipientDatalistId = useId();
+  const contactDatalistId = useId();
 
   const [error, setError] = useState<string | null>(null);
   const [letters, setLetters] = useState<LetterLite[]>([]);
@@ -256,11 +258,27 @@ export default function DisputeLettersClient({ mode = "list", initialLetterId = 
     return letters.filter((letter) => [letter.subject, letter.contact.name, letter.contact.email, letter.status].map((value) => String(value || "").toLowerCase()).join(" ").includes(q));
   }, [letters, search]);
   const cleanItems = useMemo(() => items.map((item) => item.trim()).filter(Boolean), [items]);
+  const selectedContact = useMemo(() => contacts.find((entry) => entry.id === contactId) || selectedLetter?.contact || null, [contactId, contacts, selectedLetter?.contact]);
   const recipientSuggestions = useMemo(() => {
     const q = normalize(recipientName);
     if (!q) return RECIPIENT_PRESETS;
     return RECIPIENT_PRESETS.filter((preset) => [preset.label, ...preset.aliases].map(normalize).join(" ").includes(q));
   }, [recipientName]);
+  const recipientSuggestionValues = useMemo(() => {
+    const seen = new Set<string>();
+    return recipientSuggestions
+      .map((preset) => preset.label)
+      .filter((label) => {
+        const key = normalize(label);
+        if (!key || seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+  }, [recipientSuggestions]);
+  const contactSuggestionValues = useMemo(() => contacts.map((contact) => ({
+    id: contact.id,
+    label: `${contact.name}${contact.email ? ` - ${contact.email}` : ""}`,
+  })), [contacts]);
   const templateOptions = useMemo(() => TEMPLATES.map((entry) => ({ value: entry.key, label: entry.label })), []);
   const canGenerate = Boolean(contactId && recipientName.trim() && cleanItems.length);
 
@@ -324,18 +342,61 @@ export default function DisputeLettersClient({ mode = "list", initialLetterId = 
     setRecipientAddress(recipientPreset.address);
   }, [recipientAddressManual, recipientPreset]);
 
-  const openComposer = useCallback(() => {
+  useEffect(() => {
+    if (!composerOpen) return;
+    const handle = window.setTimeout(() => {
+      void loadContacts(contactQuery).catch(() => undefined);
+    }, contactQuery.trim() ? 180 : 0);
+    return () => window.clearTimeout(handle);
+  }, [composerOpen, contactQuery, loadContacts]);
+
+  useEffect(() => {
+    if (!composerOpen || !contactQuery.trim()) return;
+    const normalized = normalize(contactQuery);
+    const match = contactSuggestionValues.find((entry) => normalize(entry.label) === normalized) ||
+      contactSuggestionValues.find((entry) => normalize(entry.label.split(" - ")[0]) === normalized) || null;
+    if (match && match.id !== contactId) setContactId(match.id);
+  }, [composerOpen, contactId, contactQuery, contactSuggestionValues]);
+
+  useEffect(() => {
+    if (!composerOpen) return;
+    if (!selectedContact) return;
+    const nextLabel = `${selectedContact.name}${selectedContact.email ? ` - ${selectedContact.email}` : ""}`;
+    if (normalize(contactQuery) !== normalize(nextLabel)) setContactQuery(nextLabel);
+  }, [composerOpen, contactId, contactQuery, selectedContact]);
+
+  const openComposer = useCallback((preset?: { contactId?: string; recipientName?: string; items?: string[] }) => {
     setComposerOpen(true);
-    setContactId(selectedLetter?.contactId || "");
+    const nextContactId = preset?.contactId ?? selectedLetter?.contactId ?? "";
+    setContactId(nextContactId);
+    const matchedContact = contacts.find((entry) => entry.id === nextContactId) || selectedLetter?.contact || null;
+    setContactQuery(matchedContact ? `${matchedContact.name}${matchedContact.email ? ` - ${matchedContact.email}` : ""}` : "");
     setStrategy("initial");
     setRound("1");
     setTemplateKey(TEMPLATES[0].key);
-    setRecipientName("");
+    setRecipientName(preset?.recipientName || "");
     setRecipientAddress("");
     setRecipientAddressManual(false);
     setCadenceDays(String(TEMPLATES[0].cadenceDays));
-    setItems([""]);
-  }, [selectedLetter?.contactId]);
+    setItems(preset?.items?.length ? preset.items : [""]);
+  }, [contacts, selectedLetter?.contact, selectedLetter?.contactId]);
+
+  useEffect(() => {
+    if (mode !== "list") return;
+    if (searchParams.get("compose") !== "1") return;
+    const issue = (searchParams.get("issue") || "").trim();
+    const bureau = (searchParams.get("bureau") || "").trim();
+    const targetContactId = (searchParams.get("contactId") || "").trim();
+    openComposer({
+      contactId: targetContactId || undefined,
+      recipientName: bureau || undefined,
+      items: issue ? [issue] : undefined,
+    });
+  }, [mode, openComposer, searchParams]);
+
+  const handleOpenComposer = useCallback(() => {
+    openComposer();
+  }, [openComposer]);
 
   const generateLetter = useCallback(async () => {
     setWorking("generate");
@@ -416,27 +477,18 @@ export default function DisputeLettersClient({ mode = "list", initialLetterId = 
   }, [loadLetter, loadLetters, selectedLetterId]);
 
   const composer = composerOpen ? (
-    <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/30 p-4" onMouseDown={() => working !== "generate" && setComposerOpen(false)}>
-      <div className="w-full max-w-5xl rounded-3xl border border-zinc-200 bg-white p-6 shadow-xl" onMouseDown={(event) => event.stopPropagation()}>
+    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/30 p-4" onMouseDown={() => working !== "generate" && setComposerOpen(false)}>
+      <div className="my-auto w-full max-w-4xl max-h-[calc(100dvh-2rem)] overflow-y-auto rounded-3xl border border-zinc-200 bg-white p-6 shadow-xl" onMouseDown={(event) => event.stopPropagation()}>
         <div className="flex items-start justify-between gap-4">
           <div>
             <div className="text-lg font-semibold text-zinc-900">New dispute letter</div>
-            <div className="mt-1 text-sm text-zinc-600">Workflow rounds stay in setup, not in the final letter.</div>
-          </div>
-          <div className="rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-700">
-            Next likely move: {nextTemplate.label}
           </div>
         </div>
         <div className="mt-5 grid gap-4 md:grid-cols-2">
           <label className="block md:col-span-2">
             <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Contact</div>
-            <div className="flex gap-2">
-              <input value={contactQuery} onChange={(event) => setContactQuery(event.target.value)} className="flex-1 rounded-2xl border border-zinc-200 px-4 py-3 text-sm outline-none focus:border-zinc-300" placeholder="Search contacts" />
-              <button type="button" onClick={() => void loadContacts(contactQuery).catch((cause: unknown) => setError(cause instanceof Error ? cause.message : "Failed to search contacts"))} className="rounded-2xl border border-zinc-200 px-4 py-3 text-sm font-semibold text-zinc-800 hover:bg-zinc-50">{contactsLoading ? "Searching…" : "Search"}</button>
-            </div>
-            <div className="mt-2">
-              <PortalListboxDropdown value={contactId} onChange={setContactId} options={contacts.length ? contacts.map((contact) => ({ value: contact.id, label: `${contact.name}${contact.email ? ` - ${contact.email}` : ""}` })) : [{ value: "", label: "No contacts found", disabled: true }]} placeholder="Select a contact" disabled={contactsLoading} buttonClassName="flex w-full items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm hover:bg-zinc-50" />
-            </div>
+            <input value={contactQuery} onChange={(event) => { setContactQuery(event.target.value); if (!event.target.value.trim()) setContactId(""); }} list={contactDatalistId} className="w-full rounded-2xl border border-zinc-200 px-4 py-3 text-sm outline-none focus:border-zinc-300" placeholder={contactsLoading ? "Searching contacts…" : "Search or select a contact"} />
+            <datalist id={contactDatalistId}>{contactSuggestionValues.map((contact) => <option key={contact.id} value={contact.label} />)}</datalist>
           </label>
           <label className="block">
             <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Round</div>
@@ -456,38 +508,25 @@ export default function DisputeLettersClient({ mode = "list", initialLetterId = 
           </label>
           <label className="block md:col-span-2">
             <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Recipient</div>
-            <input value={recipientName} onChange={(event) => { setRecipientName(event.target.value); if (!event.target.value.trim()) { setRecipientAddress(""); setRecipientAddressManual(false); } }} list={datalistId} className="w-full rounded-2xl border border-zinc-200 px-4 py-3 text-sm outline-none focus:border-zinc-300" placeholder="Type or select Experian, Equifax, TransUnion, furnisher, collection agency…" />
-            <datalist id={datalistId}>{recipientSuggestions.flatMap((preset) => [preset.label, ...preset.aliases]).map((value) => <option key={value} value={value} />)}</datalist>
+            <input value={recipientName} onChange={(event) => { setRecipientName(event.target.value); if (!event.target.value.trim()) { setRecipientAddress(""); setRecipientAddressManual(false); } }} list={recipientDatalistId} className="w-full rounded-2xl border border-zinc-200 px-4 py-3 text-sm outline-none focus:border-zinc-300" placeholder="Type or select a recipient" />
+            <datalist id={recipientDatalistId}>{recipientSuggestionValues.map((value) => <option key={value} value={value} />)}</datalist>
           </label>
           <label className="block md:col-span-2">
             <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Recipient address</div>
             <textarea value={recipientAddress} onChange={(event) => { setRecipientAddress(event.target.value); setRecipientAddressManual(true); }} className="min-h-24 w-full rounded-2xl border border-zinc-200 px-4 py-3 text-sm outline-none focus:border-zinc-300" />
           </label>
         </div>
-        <div className="mt-5 grid gap-4 lg:grid-cols-[1.3fr_0.7fr]">
-          <div>
-            <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Dispute items</div>
-            <div className="space-y-2">
-              {items.map((item, index) => (
-                <div key={index} className="flex gap-2">
-                  <input value={item} onChange={(event) => setItems((current) => current.map((entry, entryIndex) => entryIndex === index ? event.target.value : entry))} className="flex-1 rounded-2xl border border-zinc-200 px-4 py-3 text-sm outline-none focus:border-zinc-300" placeholder={index === 0 ? "Account XXXX reported late but was paid on time" : "Add another dispute item"} />
-                  <button type="button" onClick={() => setItems((current) => { const next = current.filter((_, entryIndex) => entryIndex !== index); return next.length ? next : [""]; })} className="rounded-2xl border border-zinc-200 px-3 py-3 text-sm font-semibold text-zinc-700 hover:bg-zinc-50">Remove</button>
-                </div>
-              ))}
-            </div>
-            <button type="button" onClick={() => setItems((current) => [...current, ""])} className="mt-3 rounded-2xl border border-zinc-200 px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50">Add dispute item</button>
+        <div className="mt-5">
+          <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Dispute items</div>
+          <div className="space-y-2">
+            {items.map((item, index) => (
+              <div key={index} className="flex gap-2">
+                <input value={item} onChange={(event) => setItems((current) => current.map((entry, entryIndex) => entryIndex === index ? event.target.value : entry))} className="flex-1 rounded-2xl border border-zinc-200 px-4 py-3 text-sm outline-none focus:border-zinc-300" placeholder={index === 0 ? "Account XXXX reported late but was paid on time" : "Add another dispute item"} />
+                <button type="button" onClick={() => setItems((current) => { const next = current.filter((_, entryIndex) => entryIndex !== index); return next.length ? next : [""]; })} className="rounded-2xl border border-zinc-200 px-3 py-3 text-sm font-semibold text-zinc-700 hover:bg-zinc-50">Remove</button>
+              </div>
+            ))}
           </div>
-          <div className="space-y-4">
-            <div className="rounded-3xl border border-zinc-200 bg-zinc-50 p-4">
-              <div className="text-sm font-semibold text-zinc-900">Template guidance</div>
-              <div className="mt-2 text-sm text-zinc-700">{template.summary}</div>
-              <div className="mt-3 text-xs leading-5 text-zinc-600">{template.education}</div>
-            </div>
-            <div className="rounded-3xl border border-blue-200 bg-blue-50 p-4">
-              <div className="text-sm font-semibold text-blue-900">Round plan</div>
-              <div className="mt-2 text-sm text-blue-900">If this still is not corrected, queue Round {Math.min(8, roundNumber + 1)} in about {cadenceNumber} days and pivot into {nextTemplate.label.toLowerCase()}.</div>
-            </div>
-          </div>
+          <button type="button" onClick={() => setItems((current) => [...current, ""])} className="mt-3 rounded-2xl border border-zinc-200 px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50">Add dispute item</button>
         </div>
         <div className="mt-6 flex justify-end gap-2">
           <button type="button" onClick={() => setComposerOpen(false)} className="rounded-2xl border border-zinc-200 px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50">Cancel</button>
@@ -510,7 +549,7 @@ export default function DisputeLettersClient({ mode = "list", initialLetterId = 
             </div>
           </div>
           <div className="flex flex-wrap gap-2">
-            <button type="button" onClick={openComposer} className="rounded-2xl border border-zinc-200 px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50">New Letter</button>
+            <button type="button" onClick={handleOpenComposer} className="rounded-2xl border border-zinc-200 px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50">New Letter</button>
             <button type="button" disabled={!selectedLetterId || working !== null} onClick={() => void refreshPdf()} className="rounded-2xl border border-zinc-200 px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-60">{working === "pdf" ? "Working…" : pdfDownloadUrl ? "Refresh PDF" : "Generate PDF"}</button>
             {pdfDownloadUrl ? <a href={pdfDownloadUrl} target="_blank" rel="noreferrer" className="rounded-2xl border border-zinc-200 px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50">Download PDF</a> : null}
             <button type="button" disabled={!selectedLetterId || working !== null} onClick={() => void saveLetter()} className="rounded-2xl bg-zinc-900 px-4 py-2 text-sm font-semibold text-white disabled:opacity-60">{working === "save" ? "Saving…" : "Save"}</button>
@@ -555,7 +594,7 @@ export default function DisputeLettersClient({ mode = "list", initialLetterId = 
           <h1 className="text-2xl font-bold text-zinc-900">Dispute letters</h1>
           <p className="mt-1 text-sm text-zinc-600">Click any row to open it. New letters now use round planning, stronger templates, and recipient autofill.</p>
         </div>
-        <button type="button" onClick={openComposer} className="rounded-2xl bg-zinc-900 px-4 py-2.5 text-sm font-semibold text-white">New Letter</button>
+        <button type="button" onClick={handleOpenComposer} className="rounded-2xl bg-zinc-900 px-4 py-2.5 text-sm font-semibold text-white">New Letter</button>
       </div>
       {error ? <div className="mt-4 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">{error}</div> : null}
       <section className="mt-6 rounded-3xl border border-zinc-200 bg-white p-6 shadow-sm">

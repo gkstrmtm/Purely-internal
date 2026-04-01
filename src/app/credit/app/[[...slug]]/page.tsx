@@ -206,7 +206,11 @@ export default async function CreditAppCatchallPage({
   }
 
   if (slug.length === 2 && slug[0] === "services" && slug[1] === "credit-reports") {
-    return <CreditReportsClient />;
+    return <CreditReportsClient mode="list" />;
+  }
+
+  if (slug.length === 3 && slug[0] === "services" && slug[1] === "credit-reports") {
+    return <CreditReportsClient mode="detail" initialReportId={slug[2] || ""} />;
   }
 
   if (slug.length === 2 && slug[0] === "services") {

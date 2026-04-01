@@ -1356,11 +1356,11 @@ export function PortalPeopleContactsClient() {
                               <div className="min-w-0">
                                 <div className="font-semibold text-zinc-900 truncate">{c.name || "N/A"}</div>
                                 {c.tags?.length ? (
-                                  <div className="mt-1 flex flex-wrap gap-1">
+                                  <div className="mt-1 flex max-w-full flex-wrap gap-1 overflow-hidden">
                                     {c.tags.slice(0, 3).map((t) => (
                                       <span
                                         key={t.id}
-                                        className="inline-flex items-center rounded-full border border-zinc-200 bg-white px-2 py-0.5 text-[11px] font-semibold text-zinc-700"
+                                        className="inline-flex max-w-40 items-center truncate rounded-full border border-zinc-200 bg-white px-2 py-0.5 text-[11px] font-semibold text-zinc-700 sm:max-w-52"
                                         title={t.name}
                                       >
                                         {t.name}
@@ -1493,11 +1493,11 @@ export function PortalPeopleContactsClient() {
                             <div className="min-w-0">
                               <div className="font-semibold text-zinc-900 truncate">{c.name || "N/A"}</div>
                               {c.tags?.length ? (
-                                <div className="mt-1 flex flex-wrap gap-1">
+                                <div className="mt-1 flex max-w-full flex-wrap gap-1 overflow-hidden">
                                   {c.tags.slice(0, 3).map((t) => (
                                     <span
                                       key={t.id}
-                                      className="inline-flex items-center rounded-full border border-zinc-200 bg-white px-2 py-0.5 text-[11px] font-semibold text-zinc-700"
+                                      className="inline-flex max-w-40 items-center truncate rounded-full border border-zinc-200 bg-white px-2 py-0.5 text-[11px] font-semibold text-zinc-700 sm:max-w-52"
                                       title={t.name}
                                     >
                                       {t.name}
@@ -2628,14 +2628,14 @@ export function PortalPeopleContactsClient() {
                   </div>
                 </div>
 
-                <div className="mt-3 flex flex-wrap gap-2">
+                <div className="mt-3 flex flex-wrap gap-2 overflow-hidden">
                   {detailTags.length ? (
                     detailTags.map((t) => (
                       <button
                         key={t.id}
                         type="button"
                         disabled={tagBusyId === t.id}
-                        className="inline-flex items-center gap-2 rounded-full border border-zinc-200 bg-white px-3 py-1 text-xs font-semibold text-zinc-700 hover:bg-zinc-50 disabled:opacity-60"
+                        className="inline-flex max-w-full items-center gap-2 rounded-full border border-zinc-200 bg-white px-3 py-1 text-xs font-semibold text-zinc-700 hover:bg-zinc-50 disabled:opacity-60"
                         title="Remove tag"
                         onClick={() => removeTagFromSelected(t.id)}
                       >
@@ -2643,7 +2643,7 @@ export function PortalPeopleContactsClient() {
                           className="h-2 w-2 rounded-full"
                           style={{ backgroundColor: t.color || "#e4e4e7" }}
                         />
-                        {t.name}
+                        <span className="max-w-52 truncate">{t.name}</span>
                         <span className="text-zinc-400">×</span>
                       </button>
                     ))
