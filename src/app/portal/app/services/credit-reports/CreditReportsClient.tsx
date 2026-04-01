@@ -121,7 +121,7 @@ function buildOpportunityPlans(report: ReportFull | null, summary: { pending: nu
   const businessFunding: OpportunityPlan = {
     key: "business-funding",
     title: "Business funding",
-    readinessLabel: isCleanEnoughForOffers ? "Moderate approval shot" : "Prep first before broad applications",
+    readinessLabel: isCleanEnoughForOffers ? "Shortlist business options" : "Build the file before applying",
     readinessTone: isCleanEnoughForOffers ? "amber" : "red",
     offers: isCleanEnoughForOffers
       ? [
@@ -137,14 +137,14 @@ function buildOpportunityPlans(report: ReportFull | null, summary: { pending: nu
           { label: "Uline", href: "https://www.uline.com/", source: "Starter vendor" },
         ],
     summary: isCleanEnoughForOffers
-      ? "Good lane for starter business funding once the file stays stable and the business profile is documented cleanly."
-      : "Keep business funding in the plan, but treat this as a preparation lane until the report has fewer unresolved negatives.",
+      ? "The file looks clean enough to shortlist a few business options, but keep the application count tight and the business profile consistent."
+      : "Keep business funding on deck, but stay in build mode until the report has fewer unresolved negatives and less review work.",
   };
 
   const personalFunding: OpportunityPlan = {
     key: "personal-funding",
     title: "Personal funding",
-    readinessLabel: isCleanEnoughForOffers ? "Near-term if the file stays calm" : "Wait for cleanup before bigger asks",
+    readinessLabel: isCleanEnoughForOffers ? "Shortlist personal options" : "Hold off until cleanup lands",
     readinessTone: isCleanEnoughForOffers ? "amber" : "red",
     offers: isCleanEnoughForOffers
       ? [
@@ -160,14 +160,14 @@ function buildOpportunityPlans(report: ReportFull | null, summary: { pending: nu
           { label: "Achieve", href: "https://www.achieve.com/personal-loans", source: "Achieve" },
         ],
     summary: isCleanEnoughForOffers
-      ? "Personal funding can be pursued in a controlled way if the client keeps utilization down and avoids stacking applications."
-      : "Treat personal funding as a later-phase move until the report is cleaner and the client’s file is less volatile.",
+      ? "Personal funding is reasonable if utilization stays controlled and applications stay selective."
+      : "Treat personal funding as phase two. Clean the report first so the file is not taking unnecessary new hits.",
   };
 
   const creditCards: OpportunityPlan = {
     key: "credit-cards",
     title: creditScope === "BUSINESS" ? "Business credit cards" : creditScope === "PERSONAL" ? "Personal credit cards" : "Credit cards",
-    readinessLabel: hasUtilizationSignals || isCleanEnoughForOffers ? "Useful leverage if utilization is controlled" : "Use rebuild cards first",
+    readinessLabel: hasUtilizationSignals || isCleanEnoughForOffers ? "Use cards carefully" : "Start with rebuild cards",
     readinessTone: hasUtilizationSignals || isCleanEnoughForOffers ? "green" : "amber",
     offers: creditScope === "BUSINESS"
       ? [
@@ -190,14 +190,14 @@ function buildOpportunityPlans(report: ReportFull | null, summary: { pending: nu
           { label: "Self Visa Secured", href: "https://www.self.inc/credit-builder-credit-card", source: "Self" },
         ],
     summary: hasUtilizationSignals
-      ? "Credit-card strategy is one of the fastest levers here because balance management and the right product mix can change the file quickly."
-      : "Card strategy still matters here, especially if the goal is to add positive revolving history without over-applying.",
+      ? "This is the fastest lane to influence the file, but only if balances stay low and new accounts stay deliberate."
+      : "Use this lane to add clean revolving history without over-applying or chasing limits too early.",
   };
 
   const otherActions: OpportunityPlan = {
     key: "other-actions",
     title: "Other actions",
-    readinessLabel: isStillRepairHeavy ? "Handle cleanup before pushing apps" : "Keep these live while the file stabilizes",
+    readinessLabel: isStillRepairHeavy ? "Stay in repair mode" : "Keep monitoring live",
     readinessTone: isStillRepairHeavy ? "red" : "amber",
     offers: isStillRepairHeavy
       ? [
@@ -213,8 +213,8 @@ function buildOpportunityPlans(report: ReportFull | null, summary: { pending: nu
           { label: "IdentityTheft.gov", href: "https://www.identitytheft.gov/", source: "FTC" },
         ],
     summary: isStillRepairHeavy
-      ? "The file still needs operational cleanup, follow-up, and monitoring before bigger funding moves should take priority."
-      : "Even when the file improves, disciplined follow-up and monitoring keep the client from backsliding.",
+      ? "The report still needs cleanup, follow-up, and bureau monitoring before bigger funding moves should take the lead."
+      : "Even when the file improves, steady monitoring and follow-up keep it from sliding backward.",
   };
 
   if (creditScope === "BUSINESS") return [businessFunding, creditCards, otherActions];
@@ -1019,10 +1019,10 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
             <div className="flex flex-col gap-2 lg:flex-row lg:items-end lg:justify-between">
               <div>
                 <div className="text-sm font-semibold text-zinc-900">Funding lanes</div>
-                <div className="mt-1 text-sm text-zinc-600">Recommendations filtered to the file scope you selected for this report.</div>
+                <div className="mt-1 text-sm text-zinc-600">Use these after the repair queue is under control, not before.</div>
               </div>
               <div className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm text-zinc-700">
-                {selectedReport.contact ? `Built for ${selectedReport.contact.name}` : "Built from the selected report"}
+                {selectedReport.contact ? `Planned for ${selectedReport.contact.name}` : "Planned from this report"}
               </div>
             </div>
 
@@ -1046,7 +1046,7 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
                       >
                         <div className="text-sm font-semibold text-zinc-900">{offer.label}</div>
                         <div className="mt-1 text-xs font-semibold uppercase tracking-wide text-zinc-500">{offer.source}</div>
-                        <div className="mt-3 text-xs font-semibold text-brand-ink">Open site →</div>
+                        <div className="mt-3 text-xs font-semibold text-brand-ink">View option →</div>
                       </a>
                     ))}
                   </div>
