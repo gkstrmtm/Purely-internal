@@ -3,6 +3,23 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
+const BASE_DROPDOWN_Z_INDEX = 40;
+const OVERLAY_DROPDOWN_Z_INDEX = 130060;
+
+function hasOverlayAncestor(node: HTMLElement | null) {
+  let current = node?.parentElement || null;
+  while (current) {
+    if (current.getAttribute("aria-modal") === "true" || current.getAttribute("role") === "dialog" || current.dataset.overlayRoot === "true") {
+      return true;
+    }
+    if (current.classList.contains("fixed") && current.classList.contains("inset-0") && Array.from(current.classList).some((token) => token.startsWith("z-"))) {
+      return true;
+    }
+    current = current.parentElement;
+  }
+  return false;
+}
+
 export type PortalMultiSelectOption = {
   value: string;
   label: string;
@@ -55,10 +72,12 @@ export function PortalMultiSelectDropdown(props: {
   const selectedSet = useMemo(() => new Set(selected), [selected]);
 
   const [menuRect, setMenuRect] = useState<null | { left: number; top: number; width: number; placement: "down" | "up" }>(null);
+  const [menuZIndex, setMenuZIndex] = useState(BASE_DROPDOWN_Z_INDEX);
 
   const updateMenuRect = () => {
     const btn = buttonRef.current;
     if (!btn) return;
+    setMenuZIndex(hasOverlayAncestor(btn) ? OVERLAY_DROPDOWN_Z_INDEX : BASE_DROPDOWN_Z_INDEX);
     const r = btn.getBoundingClientRect();
     const vw = Math.max(0, window.innerWidth || 0);
     const vh = Math.max(0, window.innerHeight || 0);
@@ -129,7 +148,7 @@ export function PortalMultiSelectDropdown(props: {
         className="overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-lg"
         style={{
           position: portal ? "fixed" : ("absolute" as any),
-          zIndex: 100000,
+          zIndex: menuZIndex,
           left: portal ? (menuRect?.left ?? 0) : undefined,
           top: portal ? (menuRect?.top ?? 0) : undefined,
           transform: portal && menuRect?.placement === "up" ? "translateY(-100%)" : undefined,
@@ -156,7 +175,7 @@ export function PortalMultiSelectDropdown(props: {
           {showAddCustom ? (
             <button
               type="button"
-              className="mt-2 w-full rounded-xl bg-[color:var(--color-brand-blue)] px-3 py-2 text-left text-sm font-semibold text-white hover:opacity-95"
+              className="mt-2 w-full rounded-xl bg-(--color-brand-blue) px-3 py-2 text-left text-sm font-semibold text-white hover:opacity-95"
               onClick={() => addCustom()}
             >
               Add “{normalizeValue(q)}”
@@ -164,7 +183,7 @@ export function PortalMultiSelectDropdown(props: {
           ) : null}
         </div>
 
-        <div className="max-h-[260px] overflow-auto p-1">
+        <div className="max-h-65 overflow-auto p-1">
           {filtered.length ? (
             filtered.map((o) => {
               const isSel = selectedSet.has(o.value);
@@ -179,7 +198,7 @@ export function PortalMultiSelectDropdown(props: {
                     (isDisabled
                       ? "cursor-not-allowed text-zinc-400"
                       : isSel
-                        ? "bg-[color:var(--color-brand-blue)] text-white"
+                        ? "bg-(--color-brand-blue) text-white"
                         : "hover:bg-zinc-50 text-zinc-900")
                   }
                   onClick={() => {
@@ -211,10 +230,10 @@ export function PortalMultiSelectDropdown(props: {
       </div>
     );
 
-    if (!portal) return <div className="absolute z-50 mt-2 w-full">{menu}</div>;
+    if (!portal) return <div className="absolute mt-2 w-full" style={{ zIndex: menuZIndex }}>{menu}</div>;
     if (typeof document === "undefined") return null;
     return createPortal(menu, document.body);
-  }, [addCustom, allowCustom, emptyLabel, filtered, menuRect, open, options, placeholder, portal, q, selectedSet, toggle]);
+  }, [addCustom, allowCustom, emptyLabel, filtered, menuRect, menuZIndex, open, options, placeholder, portal, q, selectedSet, toggle]);
 
   useEffect(() => {
     if (!open) return;
@@ -278,7 +297,7 @@ export function PortalMultiSelectDropdown(props: {
         <span
           className={classNames(
             "truncate",
-            selected.length ? "font-semibold text-[color:var(--color-brand-blue)]" : "text-zinc-500",
+            selected.length ? "font-semibold text-(--color-brand-blue)" : "text-zinc-500",
           )}
         >
           {summary}
@@ -296,7 +315,7 @@ export function PortalMultiSelectDropdown(props: {
                 key={v}
                 className="inline-flex items-center gap-1 rounded-full border border-zinc-200 bg-zinc-50 px-2 py-1 text-xs text-zinc-700"
               >
-                <span className="max-w-[240px] truncate font-semibold">{label}</span>
+                <span className="max-w-60 truncate font-semibold">{label}</span>
                 <button
                   type="button"
                   className="ml-1 rounded-full px-1 text-xs text-zinc-500 hover:text-zinc-900"

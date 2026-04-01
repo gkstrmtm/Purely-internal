@@ -554,13 +554,13 @@ export default function DisputeLettersClient({ mode = "list", initialLetterId = 
 
   const composer = composerOpen ? (
     <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/30 p-4" onMouseDown={() => working !== "generate" && setComposerOpen(false)}>
-      <div className="my-auto w-full max-w-5xl max-h-[calc(100dvh-2rem)] overflow-y-auto rounded-4xl border border-zinc-200 bg-white p-6 shadow-xl sm:p-7" onMouseDown={(event) => event.stopPropagation()}>
+      <div className="my-auto w-full max-w-5xl max-h-[calc(100dvh-2rem)] overflow-y-auto rounded-4xl border border-zinc-200 bg-white p-6 shadow-xl sm:p-7" onMouseDown={(event) => event.stopPropagation()} role="dialog" aria-modal="true" aria-label="New dispute letter" data-overlay-root="true">
         <div className="flex items-start justify-between gap-4">
           <div>
             <div className="text-lg font-semibold text-zinc-900">New dispute letter</div>
             <div className="mt-1 text-sm text-zinc-600">Pick the contact, choose the recipient, load exact report items, and generate a letter without the clutter.</div>
           </div>
-          <button type="button" onClick={() => setComposerOpen(false)} className="rounded-2xl border border-zinc-200 px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50">Close</button>
+          <button type="button" onClick={() => setComposerOpen(false)} aria-label="Close dispute letter composer" className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-zinc-200 text-lg font-semibold text-zinc-700 hover:bg-zinc-50">×</button>
         </div>
         <div className="mt-6 grid gap-5 xl:grid-cols-[minmax(0,1fr)_320px]">
           <div className="space-y-4">

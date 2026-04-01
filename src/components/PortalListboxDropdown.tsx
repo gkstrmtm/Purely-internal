@@ -4,6 +4,23 @@ import type { CSSProperties, ReactNode } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
+const BASE_DROPDOWN_Z_INDEX = 40;
+const OVERLAY_DROPDOWN_Z_INDEX = 130060;
+
+function hasOverlayAncestor(node: HTMLElement | null) {
+  let current = node?.parentElement || null;
+  while (current) {
+    if (current.getAttribute("aria-modal") === "true" || current.getAttribute("role") === "dialog" || current.dataset.overlayRoot === "true") {
+      return true;
+    }
+    if (current.classList.contains("fixed") && current.classList.contains("inset-0") && Array.from(current.classList).some((token) => token.startsWith("z-"))) {
+      return true;
+    }
+    current = current.parentElement;
+  }
+  return false;
+}
+
 export type PortalListboxOption<T extends string> = {
   value: T;
   label: string;
@@ -52,6 +69,7 @@ export function PortalListboxDropdown<T extends string>(props: {
     maxHeight: number;
   }>(null);
   const [menuHeightPx, setMenuHeightPx] = useState<number | null>(null);
+  const [menuZIndex, setMenuZIndex] = useState(BASE_DROPDOWN_Z_INDEX);
 
   const current = options.find((o) => o.value === value) ?? null;
   const currentLabel = current ? current.label : placeholder ? placeholder : String(value ?? "");
@@ -63,6 +81,7 @@ export function PortalListboxDropdown<T extends string>(props: {
   const updateMenuRect = useCallback(() => {
     const btn = buttonRef.current;
     if (!btn) return;
+    setMenuZIndex(hasOverlayAncestor(btn) ? OVERLAY_DROPDOWN_Z_INDEX : BASE_DROPDOWN_Z_INDEX);
     const r = btn.getBoundingClientRect();
     const vw = Math.max(0, window.innerWidth || 0);
     const vh = Math.max(0, window.innerHeight || 0);
@@ -104,7 +123,7 @@ export function PortalListboxDropdown<T extends string>(props: {
         role="listbox"
         style={{
           position: portal ? "fixed" : ("static" as any),
-          zIndex: 120100,
+          zIndex: menuZIndex,
           left: portal ? (menuRect?.left ?? 0) : undefined,
           top: portal ? (menuRect?.top ?? 0) : undefined,
           width: portal ? (menuRect?.width ?? 0) : undefined,
@@ -162,13 +181,13 @@ export function PortalListboxDropdown<T extends string>(props: {
     if (!portal) {
       const placement = menuRect?.placement ?? "down";
       return (
-        <div className={"absolute z-50 w-full " + (placement === "up" ? "bottom-full mb-2" : "top-full mt-2")}>{menu}</div>
+        <div className={"absolute w-full " + (placement === "up" ? "bottom-full mb-2" : "top-full mt-2")} style={{ zIndex: menuZIndex }}>{menu}</div>
       );
     }
 
     if (typeof document === "undefined") return null;
     return createPortal(menu, document.body);
-  }, [getOptionStyle, menuRect, onChange, open, options, portal, renderOptionRight, value]);
+  }, [getOptionStyle, menuRect, menuZIndex, onChange, open, options, portal, renderOptionRight, value]);
 
   useEffect(() => {
     if (!open) return;
@@ -222,7 +241,7 @@ export function PortalListboxDropdown<T extends string>(props: {
   }, [open, options.length]);
 
   return (
-    <div ref={rootRef} className={"relative z-120000 " + (className || "")}> 
+    <div ref={rootRef} className={"relative " + (className || "")}> 
       <button
         ref={buttonRef}
         type="button"

@@ -141,7 +141,7 @@ export function PortalSearchableCombobox(props: {
       {open ? (
         <div
           className={
-            (menuClassName || "pa-portal-combobox-menu absolute left-0 right-0 top-full z-60 mt-2 overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-lg")
+            (menuClassName || "pa-portal-combobox-menu absolute left-0 right-0 top-full z-40 mt-2 overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-lg")
           }
         >
           <div className="max-h-64 overflow-auto p-1">
