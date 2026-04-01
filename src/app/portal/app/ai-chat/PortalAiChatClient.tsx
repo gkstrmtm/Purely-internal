@@ -2736,7 +2736,7 @@ export function PortalAiChatClient() {
               </>
             ) : showWelcomeComposer ? (
               <div className="flex min-h-[calc(100dvh-10rem-env(safe-area-inset-top))] items-center justify-center sm:min-h-[60vh]">
-                <div className="w-full max-w-2xl">
+                <div className="w-full max-w-2xl -translate-y-8 sm:translate-y-0">
                   <div className="mb-5 px-1 text-center sm:mb-6 sm:px-0">
                     <div className="text-[1.75rem] font-semibold tracking-tight text-zinc-900 sm:text-3xl">Let Pura work for you</div>
                     <div className="mt-2 text-sm leading-relaxed text-zinc-500">Start with a question, a task, or the next workflow you want off your plate.</div>
