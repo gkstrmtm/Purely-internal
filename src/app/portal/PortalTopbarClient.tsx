@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import { useEffect, useRef } from "react";
 
 import { PortalHeaderCta } from "@/app/portal/PortalHeaderCta";
@@ -51,11 +51,13 @@ export function PortalTopbarClient(props: {
 }) {
   const { logoSrc, homeHref, signInHref, getStartedHref, businessName, userEmail, canOpenPortalApp } = props;
   const pathname = usePathname();
+  const searchParams = useSearchParams();
   const topbarRef = useRef<HTMLElement | null>(null);
 
   const isAiChat =
     typeof pathname === "string" && (pathname.startsWith("/portal/app/ai-chat") || pathname.startsWith("/credit/app/ai-chat"));
-  const hidden = isAiChat;
+  const isMobileApp = (searchParams?.get("pa_mobileapp") || "").trim() === "1";
+  const hidden = isAiChat || isMobileApp;
   const signedInLabel = (businessName || userEmail || "").trim();
 
   useEffect(() => {
