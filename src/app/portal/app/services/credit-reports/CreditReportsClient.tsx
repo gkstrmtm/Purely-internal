@@ -61,9 +61,9 @@ const CREDIT_SCOPE_SEGMENTS: Array<{ value: CreditScope; label: string; summary:
 const REPORT_FILTER_LABELS: Record<"ALL" | "PENDING" | "NEGATIVE" | "POSITIVE" | "TRACKED", string> = {
   ALL: "All items",
   PENDING: "Needs review",
-  NEGATIVE: "Challenge",
+  NEGATIVE: "Needs dispute",
   POSITIVE: "Positive",
-  TRACKED: "Has note",
+  TRACKED: "Follow-up",
 };
 
 function creditScopeLabel(scope: CreditScope) {
@@ -85,11 +85,11 @@ function readinessAccentClasses(tone: OpportunityPlan["readinessTone"]) {
 }
 
 function reportReadinessLabel(summary: { pending: number; negative: number; positive: number }) {
-  if (summary.negative >= 3) return "Heavy cleanup in progress";
-  if (summary.pending >= 2) return "Needs manual review";
-  if (summary.negative >= 1) return "Target disputes before applying";
-  if (summary.positive >= 2) return "Stable enough to shop carefully";
-  return "New file — classify items first";
+  if (summary.negative >= 3) return "Cleanup first";
+  if (summary.pending >= 2) return "Needs review before sending";
+  if (summary.negative >= 1) return "Dispute-ready";
+  if (summary.positive >= 2) return "Stable enough to monitor";
+  return "New file. Classify items first";
 }
 
 function reportRoutesFor(pathname: string | null) {
@@ -376,43 +376,117 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
     const percentLabel = (value: number) => total > 0 ? `${Math.round((value / total) * 100)}% of file` : "0% of file";
     return [
       {
-        label: "Needs review",
-        value: String(selectedReportSummary.pending),
-        helper: selectedReportSummary.pending > 0 ? "Still needs classification or manual review." : "Nothing sitting unclassified.",
-        share: percentLabel(selectedReportSummary.pending),
-        toneClass: "border-amber-200 bg-amber-50/60 text-amber-700",
-      },
-      {
-        label: "Challenge",
+        label: "Needs dispute",
         value: String(selectedReportSummary.negative),
-        helper: selectedReportSummary.negative > 0 ? "These items likely need dispute work first." : "No challenged items tagged right now.",
+        helper: selectedReportSummary.negative > 0 ? "These are the items to push into disputes first." : "No dispute-ready items tagged right now.",
         share: percentLabel(selectedReportSummary.negative),
         toneClass: "border-rose-200 bg-rose-50/60 text-rose-700",
       },
       {
-        label: "Positive",
+        label: "Needs review",
+        value: String(selectedReportSummary.pending),
+        helper: selectedReportSummary.pending > 0 ? "Still needs sorting before you decide whether to dispute, monitor, or leave it alone." : "Nothing is waiting on first-pass review.",
+        share: percentLabel(selectedReportSummary.pending),
+        toneClass: "border-amber-200 bg-amber-50/60 text-amber-700",
+      },
+      {
+        label: "Follow-up active",
+        value: String(selectedReportSummary.tracked),
+        helper: selectedReportSummary.tracked > 0 ? "Items already tied to a note, letter, or bureau follow-up." : "No follow-up notes saved yet.",
+        share: percentLabel(selectedReportSummary.tracked),
+        toneClass: "border-sky-200 bg-sky-50/60 text-sky-700",
+      },
+      {
+        label: "Positive anchors",
         value: String(selectedReportSummary.positive),
-        helper: selectedReportSummary.positive > 0 ? "Accounts helping the file today." : "No supporting items tagged yet.",
+        helper: selectedReportSummary.positive > 0 ? "These accounts help steady the file while cleanup continues." : "No supportive items tagged yet.",
         share: percentLabel(selectedReportSummary.positive),
         toneClass: "border-emerald-200 bg-emerald-50/60 text-emerald-700",
       },
-      {
-        label: "Has note",
-        value: String(selectedReportSummary.tracked),
-        helper: selectedReportSummary.tracked > 0 ? "Items already linked to a note or dispute update." : "No follow-through note saved yet.",
-        share: percentLabel(selectedReportSummary.tracked),
-        toneClass: "border-zinc-200 bg-zinc-50 text-zinc-700",
-      },
     ];
   }, [selectedReport, selectedReportSummary]);
-  const reportMix = useMemo(() => {
-    const total = Math.max(1, selectedReportSummary.pending + selectedReportSummary.negative + selectedReportSummary.positive);
-    return [
-      { key: "negative", label: "Challenge", value: selectedReportSummary.negative, percentage: Math.round((selectedReportSummary.negative / total) * 100), chipClass: "bg-rose-500" },
-      { key: "pending", label: "Needs review", value: selectedReportSummary.pending, percentage: Math.round((selectedReportSummary.pending / total) * 100), chipClass: "bg-amber-500" },
-      { key: "positive", label: "Positive", value: selectedReportSummary.positive, percentage: Math.round((selectedReportSummary.positive / total) * 100), chipClass: "bg-emerald-500" },
-    ];
+  const bureauBreakdown = useMemo(() => {
+    const items = selectedReport?.items || [];
+    const total = Math.max(1, items.length);
+    const counts = items.reduce<Record<string, number>>((acc, item) => {
+      const key = String(item.bureau || "Unassigned").trim() || "Unassigned";
+      acc[key] = (acc[key] || 0) + 1;
+      return acc;
+    }, {});
+    return Object.entries(counts)
+      .map(([bureau, count]) => ({ bureau, count, percentage: Math.round((count / total) * 100) }))
+      .sort((a, b) => b.count - a.count);
+  }, [selectedReport]);
+  const kindBreakdown = useMemo(() => {
+    const items = selectedReport?.items || [];
+    const counts = items.reduce<Record<string, number>>((acc, item) => {
+      const key = String(item.kind || "Other").trim() || "Other";
+      acc[key] = (acc[key] || 0) + 1;
+      return acc;
+    }, {});
+    return Object.entries(counts)
+      .map(([kind, count]) => ({ kind, count }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 4);
+  }, [selectedReport]);
+  const nextSteps = useMemo(() => {
+    const steps: Array<{ key: string; title: string; detail: string; toneClass: string }> = [];
+    if (selectedReportSummary.negative > 0) {
+      steps.push({
+        key: "dispute",
+        title: "Open disputes first",
+        detail: `${selectedReportSummary.negative} item${selectedReportSummary.negative === 1 ? " is" : "s are"} already tagged as needing dispute work.`,
+        toneClass: "border-rose-200 bg-rose-50/70 text-rose-700",
+      });
+    }
+    if (selectedReportSummary.pending > 0) {
+      steps.push({
+        key: "review",
+        title: "Finish the manual review",
+        detail: `${selectedReportSummary.pending} item${selectedReportSummary.pending === 1 ? " still needs" : "s still need"} classification before you act.`,
+        toneClass: "border-amber-200 bg-amber-50/70 text-amber-700",
+      });
+    }
+    if (selectedReportSummary.tracked > 0) {
+      steps.push({
+        key: "follow-up",
+        title: "Follow up on active work",
+        detail: `${selectedReportSummary.tracked} item${selectedReportSummary.tracked === 1 ? " has" : "s have"} notes or dispute tracking that should stay moving.`,
+        toneClass: "border-sky-200 bg-sky-50/70 text-sky-700",
+      });
+    }
+    if (selectedReportSummary.positive > 0) {
+      steps.push({
+        key: "positive",
+        title: "Protect the good accounts",
+        detail: `${selectedReportSummary.positive} positive item${selectedReportSummary.positive === 1 ? " is" : "s are"} helping stabilize the file.`,
+        toneClass: "border-emerald-200 bg-emerald-50/70 text-emerald-700",
+      });
+    }
+    if (!steps.length) {
+      steps.push({
+        key: "start",
+        title: "Start classifying the file",
+        detail: "Sort each line into review, dispute, or positive support so the report becomes actionable.",
+        toneClass: "border-zinc-200 bg-zinc-50 text-zinc-700",
+      });
+    }
+    return steps.slice(0, 4);
   }, [selectedReportSummary]);
+  const priorityItems = useMemo(() => {
+    const items = selectedReport?.items || [];
+    const score = (item: ReportItemLite) => {
+      let total = 0;
+      if (item.auditTag === "NEGATIVE") total += 30;
+      if (item.auditTag === "PENDING") total += 20;
+      if (String(item.disputeStatus || "").trim()) total += 10;
+      if (item.bureau) total += 3;
+      return total;
+    };
+    return [...items]
+      .sort((a, b) => score(b) - score(a) || new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
+      .slice(0, 4);
+  }, [selectedReport]);
 
   useEffect(() => {
     if (!initialReportId) return;
@@ -724,25 +798,25 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
                   </div>
                   <div className="rounded-2xl border border-white/70 bg-white/85 px-4 py-3 backdrop-blur-sm">
                     <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Items on file</div>
-                    <div className="mt-1 text-sm font-semibold text-zinc-900">{selectedReport.items.length} total items</div>
+                    <div className="mt-1 text-sm font-semibold text-zinc-900">{selectedReport.items.length} total lines</div>
                   </div>
                   <div className="rounded-2xl border border-white/70 bg-white/85 px-4 py-3 backdrop-blur-sm">
-                    <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">File scope</div>
-                    <div className="mt-1 text-sm font-semibold text-zinc-900">{creditScopeLabel(selectedReport.creditScope)}</div>
+                    <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Bureaus touched</div>
+                    <div className="mt-1 text-sm font-semibold text-zinc-900">{bureauBreakdown.length || 0} bureau views</div>
                   </div>
                 </div>
               </div>
 
               <div className="grid gap-px bg-zinc-200">
                 <div className="bg-white px-5 py-5">
-                  <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Tracked items</div>
-                  <div className="mt-2 text-2xl font-bold text-brand-ink">{selectedReportSummary.tracked}</div>
-                  <div className="mt-1 text-sm text-zinc-600">Items already carrying a note, letter, or follow-through state.</div>
+                  <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Next move</div>
+                  <div className="mt-2 text-base font-semibold text-zinc-900">{nextSteps[0]?.title || "Start classifying the file"}</div>
+                  <div className="mt-1 text-sm text-zinc-600">{nextSteps[0]?.detail || "Get the report sorted into dispute, review, and positive support lanes."}</div>
                 </div>
                 <div className="bg-white px-5 py-5">
                   <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Current posture</div>
                   <div className="mt-2 text-base font-semibold text-zinc-900">{readinessLabel}</div>
-                  <div className="mt-1 text-sm text-zinc-600">Use this page to review the file, pick the right lane, and move directly into disputes.</div>
+                  <div className="mt-1 text-sm text-zinc-600">This page now leads with repair work first, then funding options after the queue is clear.</div>
                 </div>
               </div>
             </div>
@@ -751,8 +825,8 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
           <section className="rounded-[30px] border border-zinc-200 bg-white p-5 shadow-sm sm:p-6">
             <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
               <div>
-                <div className="text-sm font-semibold text-zinc-900">Snapshot</div>
-                <div className="mt-1 text-sm text-zinc-600">Quick read on the file before you move into disputes or funding lanes.</div>
+                <div className="text-sm font-semibold text-zinc-900">Repair snapshot</div>
+                <div className="mt-1 text-sm text-zinc-600">The fastest read on what needs disputes, what still needs review, and what is already helping the file.</div>
               </div>
             </div>
 
@@ -769,78 +843,54 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
               ))}
             </div>
 
-            <div className="mt-5 grid gap-4 lg:grid-cols-[minmax(0,0.82fr)_minmax(0,1.18fr)]">
+            <div className="mt-5 grid gap-4 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
               <div className="rounded-3xl border border-zinc-200 bg-zinc-50/80 p-5">
-                <div className="text-sm font-semibold text-zinc-900">File breakdown</div>
-                <div className="mt-1 text-sm text-zinc-600">Exact tagged counts from this report, without synthetic charts.</div>
+                <div className="text-sm font-semibold text-zinc-900">Do next</div>
+                <div className="mt-1 text-sm text-zinc-600">A repair-first queue based on the actual tags and follow-up state in this report.</div>
                 <div className="mt-4 space-y-3">
-                  {reportMix.map((entry) => (
-                    <div key={entry.key} className="rounded-2xl border border-zinc-200 bg-white px-3 py-3">
-                      <div className="flex items-center justify-between gap-3">
-                        <div className="flex items-center gap-2 text-sm font-semibold text-zinc-900">
-                          <span className={`h-2.5 w-2.5 rounded-full ${entry.chipClass}`} />
-                          <span>{entry.label}</span>
+                  {nextSteps.map((step) => (
+                    <div key={step.key} className="rounded-2xl border border-zinc-200 bg-white px-4 py-3">
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <div className="text-sm font-semibold text-zinc-900">{step.title}</div>
+                          <div className="mt-1 text-sm text-zinc-600">{step.detail}</div>
                         </div>
-                        <div className="text-right">
-                          <div className="text-sm font-semibold text-zinc-900">{entry.value}</div>
-                          <div className="text-xs text-zinc-500">{entry.percentage}%</div>
-                        </div>
+                        <div className={"inline-flex rounded-full border px-2.5 py-1 text-[11px] font-semibold " + step.toneClass}>{step.title}</div>
                       </div>
                     </div>
                   ))}
                 </div>
               </div>
               <div className="rounded-3xl border border-zinc-200 bg-zinc-50/80 p-5">
-                <div className="text-sm font-semibold text-zinc-900">Report notes</div>
-                <div className="mt-2 text-sm text-zinc-700">
-                  {selectedReport.contact ? `${selectedReport.contact.name} is the active contact on this file.` : "This report is not attached to a contact yet."}
+                <div className="text-sm font-semibold text-zinc-900">Where the file is concentrated</div>
+                <div className="mt-1 text-sm text-zinc-600">Real bureau and account-type distribution so you can see where the work is clustered.</div>
+                <div className="mt-4 space-y-3">
+                  {bureauBreakdown.length ? bureauBreakdown.map((entry, index) => (
+                    <div key={entry.bureau} className="rounded-2xl border border-zinc-200 bg-white px-4 py-3">
+                      <div className="flex items-center justify-between gap-3 text-sm font-semibold text-zinc-900">
+                        <span>{entry.bureau}</span>
+                        <span>{entry.count} item{entry.count === 1 ? "" : "s"}</span>
+                      </div>
+                      <div className="mt-2 h-2 overflow-hidden rounded-full bg-zinc-100">
+                        <div
+                          className={index % 3 === 0 ? "h-full rounded-full bg-brand-ink" : index % 3 === 1 ? "h-full rounded-full bg-rose-500" : "h-full rounded-full bg-amber-500"}
+                          style={{ width: `${entry.percentage}%` }}
+                        />
+                      </div>
+                      <div className="mt-2 text-xs text-zinc-500">{entry.percentage}% of this file</div>
+                    </div>
+                  )) : (
+                    <div className="rounded-2xl border border-dashed border-zinc-300 bg-white px-4 py-3 text-sm text-zinc-600">No bureau data is attached to this report yet.</div>
+                  )}
                 </div>
-                <div className="mt-4 grid gap-2 text-xs font-semibold text-zinc-600 sm:grid-cols-3">
-                  <div className="rounded-2xl border border-zinc-200 bg-white px-3 py-2.5">{selectedReport.provider}</div>
-                  <div className="rounded-2xl border border-zinc-200 bg-white px-3 py-2.5">{creditScopeLabel(selectedReport.creditScope)}</div>
-                  <div className="rounded-2xl border border-zinc-200 bg-white px-3 py-2.5">{filteredItems.length} visible items</div>
+                <div className="mt-4 flex flex-wrap gap-2">
+                  {kindBreakdown.map((entry) => (
+                    <div key={entry.kind} className="rounded-full border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-600">
+                      {entry.kind} · {entry.count}
+                    </div>
+                  ))}
                 </div>
               </div>
-            </div>
-          </section>
-
-          <section className="rounded-[30px] border border-zinc-200 bg-white p-5 shadow-sm sm:p-6">
-            <div className="flex flex-col gap-2 lg:flex-row lg:items-end lg:justify-between">
-              <div>
-                <div className="text-sm font-semibold text-zinc-900">Funding lanes</div>
-                <div className="mt-1 text-sm text-zinc-600">Recommendations filtered to the file scope you selected for this report.</div>
-              </div>
-              <div className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm text-zinc-700">
-                {selectedReport.contact ? `Built for ${selectedReport.contact.name}` : "Built from the selected report"}
-              </div>
-            </div>
-
-            <div className="mt-5 grid gap-4 xl:grid-cols-2">
-              {opportunityPlans.map((plan) => (
-                <div key={plan.key} className={"rounded-[26px] border bg-white p-5 shadow-sm " + readinessAccentClasses(plan.readinessTone)}>
-                  <div>
-                    <div className="text-base font-semibold text-zinc-900">{plan.title}</div>
-                    <div className="mt-1 text-sm leading-6 text-zinc-700">{plan.summary}</div>
-                    <div className="mt-4 border-t border-zinc-200 pt-3 text-xs font-semibold uppercase tracking-wide text-zinc-500">{plan.readinessLabel}</div>
-                  </div>
-
-                  <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                    {plan.offers.map((offer) => (
-                      <a
-                        key={offer.label}
-                        href={offer.href}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="rounded-2xl border border-zinc-200 bg-zinc-50 px-3 py-3 hover:border-zinc-300 hover:bg-white"
-                      >
-                        <div className="text-sm font-semibold text-zinc-900">{offer.label}</div>
-                        <div className="mt-1 text-xs font-semibold uppercase tracking-wide text-zinc-500">{offer.source}</div>
-                        <div className="mt-3 text-xs font-semibold text-brand-ink">Open site →</div>
-                      </a>
-                    ))}
-                  </div>
-                </div>
-              ))}
             </div>
           </section>
 
@@ -848,7 +898,7 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
             <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
               <div>
                 <div className="text-sm font-semibold text-zinc-900">Report items</div>
-                <div className="mt-1 text-sm text-zinc-600">Filter the file, tag it accurately, add a note, or jump straight into a dispute letter.</div>
+                <div className="mt-1 text-sm text-zinc-600">Work the file from highest-priority items down, then move into disputes or notes.</div>
               </div>
               <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
                 <input
@@ -859,6 +909,25 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
                 />
                 <div className="text-xs text-zinc-500">{filteredItems.length} shown</div>
               </div>
+            </div>
+
+            <div className="mt-4 grid gap-3 xl:grid-cols-2">
+              {priorityItems.map((it) => (
+                <div key={it.id} className="rounded-3xl border border-zinc-200 bg-zinc-50/80 p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="truncate text-sm font-semibold text-zinc-900">{it.label}</div>
+                      <div className="mt-1 text-xs text-zinc-500">{(it.bureau ? `${it.bureau} • ` : "") + (it.kind || "Uncategorized")}</div>
+                    </div>
+                    <div className={it.auditTag === "NEGATIVE" ? "rounded-full border border-rose-200 bg-rose-50 px-2.5 py-1 text-[11px] font-semibold text-rose-700" : it.auditTag === "PENDING" ? "rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-[11px] font-semibold text-amber-700" : "rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[11px] font-semibold text-emerald-700"}>
+                      {REPORT_FILTER_LABELS[it.auditTag]}
+                    </div>
+                  </div>
+                  <div className="mt-3 text-sm text-zinc-600">
+                    {it.disputeStatus ? `Latest follow-up: ${it.disputeStatus}` : it.auditTag === "NEGATIVE" ? "Ready to move into a dispute letter." : it.auditTag === "PENDING" ? "Review this item before deciding the next move." : "Keep this account steady while cleanup continues."}
+                  </div>
+                </div>
+              ))}
             </div>
 
             <div className="mt-4 flex flex-wrap gap-2">
@@ -943,6 +1012,46 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
                   </div>
                 ))
               )}
+            </div>
+          </section>
+
+          <section className="rounded-[30px] border border-zinc-200 bg-white p-5 shadow-sm sm:p-6">
+            <div className="flex flex-col gap-2 lg:flex-row lg:items-end lg:justify-between">
+              <div>
+                <div className="text-sm font-semibold text-zinc-900">Funding lanes</div>
+                <div className="mt-1 text-sm text-zinc-600">Recommendations filtered to the file scope you selected for this report.</div>
+              </div>
+              <div className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm text-zinc-700">
+                {selectedReport.contact ? `Built for ${selectedReport.contact.name}` : "Built from the selected report"}
+              </div>
+            </div>
+
+            <div className="mt-5 grid gap-4 xl:grid-cols-2">
+              {opportunityPlans.map((plan) => (
+                <div key={plan.key} className={"rounded-[26px] border bg-white p-5 shadow-sm " + readinessAccentClasses(plan.readinessTone)}>
+                  <div>
+                    <div className="text-base font-semibold text-zinc-900">{plan.title}</div>
+                    <div className="mt-1 text-sm leading-6 text-zinc-700">{plan.summary}</div>
+                    <div className="mt-4 border-t border-zinc-200 pt-3 text-xs font-semibold uppercase tracking-wide text-zinc-500">{plan.readinessLabel}</div>
+                  </div>
+
+                  <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                    {plan.offers.map((offer) => (
+                      <a
+                        key={offer.label}
+                        href={offer.href}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="rounded-2xl border border-zinc-200 bg-zinc-50 px-3 py-3 hover:border-zinc-300 hover:bg-white"
+                      >
+                        <div className="text-sm font-semibold text-zinc-900">{offer.label}</div>
+                        <div className="mt-1 text-xs font-semibold uppercase tracking-wide text-zinc-500">{offer.source}</div>
+                        <div className="mt-3 text-xs font-semibold text-brand-ink">Open site →</div>
+                      </a>
+                    ))}
+                  </div>
+                </div>
+              ))}
             </div>
           </section>
 

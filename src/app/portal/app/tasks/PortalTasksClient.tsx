@@ -199,7 +199,7 @@ export function PortalTasksClient() {
           <button
             type="button"
             onClick={() => setCreateOpen(true)}
-            className="rounded-2xl bg-[color:var(--color-brand-blue)] px-4 py-2 text-sm font-semibold text-white hover:brightness-95"
+            className="rounded-2xl bg-(--color-brand-blue) px-4 py-2 text-sm font-semibold text-white hover:brightness-95"
           >
             + Task
           </button>
@@ -259,7 +259,7 @@ export function PortalTasksClient() {
                             "rounded-2xl px-3 py-2 text-xs font-semibold hover:brightness-95",
                             !t.assignedToUserId && t.viewerDoneAtIso
                               ? "border border-zinc-200 bg-white text-zinc-800 hover:bg-zinc-50"
-                              : "bg-[color:var(--color-brand-blue)] text-white",
+                              : "bg-(--color-brand-blue) text-white",
                           )}
                         >
                           {!t.assignedToUserId && t.viewerDoneAtIso ? "Undo" : "Mark done"}
@@ -305,7 +305,7 @@ export function PortalTasksClient() {
       ) : null}
 
       {createOpen ? (
-        <div className="fixed inset-0 z-[9998] flex items-end justify-center bg-black/30 px-4 pt-[calc(var(--pa-modal-safe-top,0px)+1rem)] pb-[calc(var(--pa-modal-safe-bottom,0px)+1rem)] sm:items-center">
+        <div className="fixed inset-0 z-9998 flex items-end justify-center bg-black/30 px-4 pt-[calc(var(--pa-modal-safe-top,0px)+1rem)] pb-[calc(var(--pa-modal-safe-bottom,0px)+1rem)] sm:items-center" role="dialog" aria-modal="true" data-overlay-root="true">
           <div className="w-full max-w-2xl max-h-[calc(100dvh-var(--pa-modal-safe-top,0px)-var(--pa-modal-safe-bottom,0px)-2rem)] overflow-y-auto rounded-3xl border border-zinc-200 bg-white p-5 shadow-xl">
             <div className="flex items-start justify-between gap-3">
               <div>
@@ -315,9 +315,10 @@ export function PortalTasksClient() {
               <button
                 type="button"
                 onClick={() => setCreateOpen(false)}
-                className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
+                aria-label="Close create task"
+                className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-zinc-200 bg-white text-lg font-semibold text-zinc-800 hover:bg-zinc-50"
               >
-                Close
+                ×
               </button>
             </div>
 
@@ -326,7 +327,7 @@ export function PortalTasksClient() {
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
                 placeholder="Task title"
-                className="w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-[color:var(--color-brand-blue)]"
+                className="w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-(--color-brand-blue)"
               />
               <div>
                 <div className="text-xs font-semibold text-zinc-700">Assignee</div>
@@ -339,7 +340,7 @@ export function PortalTasksClient() {
                 onChange={(e) => setDescription(e.target.value)}
                 rows={4}
                 placeholder="Description (optional)"
-                className="w-full resize-none rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-[color:var(--color-brand-blue)]"
+                className="w-full resize-none rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-(--color-brand-blue)"
               />
             </div>
 
@@ -359,7 +360,7 @@ export function PortalTasksClient() {
                   "rounded-2xl px-4 py-2 text-sm font-semibold",
                   creating || !title.trim()
                     ? "cursor-not-allowed bg-zinc-200 text-zinc-600"
-                    : "bg-[color:var(--color-brand-blue)] text-white hover:brightness-95",
+                    : "bg-(--color-brand-blue) text-white hover:brightness-95",
                 )}
               >
                 {creating ? "Creating…" : "Create"}
