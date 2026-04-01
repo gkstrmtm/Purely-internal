@@ -15,7 +15,7 @@ function normalizeDefaultLoginPath(input: unknown): string | null {
   const path = typeof input === "string" ? input.trim().slice(0, 240) : "";
   if (!path) return null;
   if (!path.startsWith("/") || path.startsWith("//")) return null;
-  if (!/^\/(portal|credit)\/app(?:\/.*)?$/i.test(path)) return null;
+  if (!/^\/(portal|credit)\/app(?:$|\/(ai-chat|services))$/i.test(path)) return null;
   return path;
 }
 

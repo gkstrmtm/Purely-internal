@@ -11,16 +11,6 @@ type ContactLite = {
   phone: string | null;
 };
 
-type CreditPullLite = {
-  id: string;
-  status: "PENDING" | "SUCCESS" | "FAILED";
-  provider: string;
-  requestedAt: string;
-  completedAt: string | null;
-  error: string | null;
-  contactId: string;
-};
-
 type LetterLite = {
   id: string;
   status: "DRAFT" | "GENERATED" | "SENT";
@@ -164,8 +154,6 @@ export default function DisputeLettersClient() {
   const [contacts, setContacts] = useState<ContactLite[]>([]);
   const [selectedContactId, setSelectedContactId] = useState<string>("");
 
-  const [pulls, setPulls] = useState<CreditPullLite[]>([]);
-  const [selectedPullId, setSelectedPullId] = useState<string>("");
   const [selectedStage, setSelectedStage] = useState<string>("initial-review");
   const [selectedTemplateKey, setSelectedTemplateKey] = useState<string>(LETTER_LIBRARY[0]?.key || "bureau-general");
 
@@ -209,12 +197,6 @@ export default function DisputeLettersClient() {
     setLetters(json.letters || []);
   }, []);
 
-  const loadPulls = useCallback(async (contactId: string) => {
-    const url = `/api/portal/credit/credit-pulls${contactId ? `?contactId=${encodeURIComponent(contactId)}` : ""}`;
-    const json = await fetchJson<{ ok: true; pulls: CreditPullLite[] }>(url);
-    setPulls(json.pulls || []);
-  }, []);
-
   useEffect(() => {
     let cancelled = false;
 
@@ -240,10 +222,9 @@ export default function DisputeLettersClient() {
 
     void (async () => {
       try {
-        await Promise.all([loadLetters(selectedContactId), loadPulls(selectedContactId)]);
+        await loadLetters(selectedContactId);
         if (cancelled) return;
         setSelectedLetterId("");
-        setSelectedPullId("");
       } catch (e: any) {
         if (cancelled) return;
         setError(e?.message ? String(e.message) : "Failed to load" );
@@ -253,7 +234,7 @@ export default function DisputeLettersClient() {
     return () => {
       cancelled = true;
     };
-  }, [loadLetters, loadPulls, selectedContactId]);
+  }, [loadLetters, selectedContactId]);
 
   useEffect(() => {
     if (!selectedLetterId) return;
@@ -305,7 +286,6 @@ export default function DisputeLettersClient() {
           templateLabel: selectedTemplate.label,
           templatePrompt: selectedTemplate.prompt,
           templateBodyStarter: selectedTemplate.bodyStarter,
-          creditPullId: selectedPullId || undefined,
         }),
       });
       await loadLetters(selectedContactId);
@@ -334,23 +314,6 @@ export default function DisputeLettersClient() {
       if (json.ok === true) setPdfDownloadUrl(json.pdf.downloadUrl);
     } catch (e: any) {
       setError(e?.message ? String(e.message) : "Failed to generate PDF");
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const pullCredit = async () => {
-    if (!selectedContactId) return;
-    setBusy(true);
-    setError(null);
-    try {
-      await fetchJson<{ ok: true }>("/api/portal/credit/credit-pulls", {
-        method: "POST",
-        body: JSON.stringify({ contactId: selectedContactId }),
-      });
-      await loadPulls(selectedContactId);
-    } catch (e: any) {
-      setError(e?.message ? String(e.message) : "Failed to pull credit");
     } finally {
       setBusy(false);
     }
@@ -395,13 +358,13 @@ export default function DisputeLettersClient() {
 
   return (
     <div className="min-h-screen bg-zinc-50 text-zinc-900">
-      <div className="mx-auto max-w-7xl px-4 py-8">
+      <div className="mx-auto max-w-5xl px-4 py-8">
         <div className="mb-6 flex flex-wrap items-end justify-between gap-3">
           <div>
             <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Credit</div>
             <h1 className="text-2xl font-bold">Dispute letters</h1>
             <p className="mt-1 text-sm text-zinc-600">
-              Build cleaner dispute letters, reuse stronger templates, export PDFs, and track every dispute from one workspace.
+              Draft, edit, and export dispute letters from one cleaner workspace.
             </p>
           </div>
         </div>
@@ -410,10 +373,16 @@ export default function DisputeLettersClient() {
           <div className="mb-4 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">{error}</div>
         ) : null}
 
-        <div className="grid grid-cols-1 gap-4 lg:grid-cols-[360px_1fr]">
-          <aside className="rounded-3xl border border-zinc-200 bg-white p-4">
-            <div className="text-sm font-semibold">Contact</div>
-            <div className="mt-2 flex flex-col gap-2 sm:flex-row">
+        <div className="space-y-4">
+          <section className="rounded-3xl border border-zinc-200 bg-white p-5">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+              <div>
+                <div className="text-sm font-semibold">Contact</div>
+                <div className="mt-1 text-xs text-zinc-500">Choose who this letter is for before drafting.</div>
+              </div>
+            </div>
+
+            <div className="mt-3 flex flex-col gap-2 sm:flex-row">
               <input
                 value={contactQuery}
                 onChange={(e) => setContactQuery(e.target.value)}
@@ -430,7 +399,7 @@ export default function DisputeLettersClient() {
               </button>
             </div>
 
-            <div className="mt-2">
+            <div className="mt-3">
               <PortalListboxDropdown
                 value={selectedContactId}
                 onChange={(v) => setSelectedContactId(v)}
@@ -451,66 +420,19 @@ export default function DisputeLettersClient() {
             </div>
 
             {selectedContact ? (
-              <div className="mt-3 rounded-2xl border border-zinc-200 bg-zinc-50 p-3 text-sm">
-                <div className="font-semibold text-zinc-900">{selectedContact.name}</div>
-                <div className="mt-1 text-xs text-zinc-600">
-                  {selectedContact.email ? `Email: ${selectedContact.email}` : "No email"}
-                  {selectedContact.phone ? ` • Phone: ${selectedContact.phone}` : ""}
+              <div className="mt-3 grid gap-3 md:grid-cols-[1fr_auto]">
+                <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4 text-sm">
+                  <div className="font-semibold text-zinc-900">{selectedContact.name}</div>
+                  <div className="mt-1 text-xs text-zinc-600">
+                    {selectedContact.email ? `Email: ${selectedContact.email}` : "No email"}
+                    {selectedContact.phone ? ` • Phone: ${selectedContact.phone}` : ""}
+                  </div>
+                </div>
+                <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">
+                  {letters.length ? `${letters.length} saved letter${letters.length === 1 ? "" : "s"}` : "No saved letters yet"}
                 </div>
               </div>
             ) : null}
-
-            <div className="mt-5 border-t border-zinc-200 pt-4">
-              <div className="text-sm font-semibold">Credit pulls</div>
-              <div className="mt-2 flex flex-wrap items-center gap-2">
-                <button
-                  type="button"
-                  disabled={busy || !selectedContactId}
-                  onClick={pullCredit}
-                  className="rounded-xl bg-zinc-900 px-3 py-2 text-sm font-semibold text-white hover:bg-zinc-800 disabled:opacity-60"
-                >
-                  Re-import / pull latest (stub)
-                </button>
-                <div className="min-w-40 flex-1">
-                  <PortalListboxDropdown
-                    value={selectedPullId}
-                    onChange={(v) => setSelectedPullId(v)}
-                    disabled={busy || pulls.length === 0}
-                    buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50"
-                    options={([
-                      {
-                        value: "",
-                        label: pulls.length ? "No pull selected" : "No pulls yet",
-                        disabled: pulls.length === 0,
-                      },
-                      ...pulls.map(
-                        (p): PortalListboxOption<string> => ({
-                          value: p.id,
-                          label: `${p.status} • ${p.provider} • ${new Date(p.requestedAt).toLocaleString()}`,
-                        }),
-                      ),
-                    ] as PortalListboxOption<string>[])}
-                  />
-                </div>
-              </div>
-              {pulls.length ? (
-                <div className="mt-2 space-y-1 text-xs text-zinc-600">
-                  {pulls.slice(0, 3).map((p) => (
-                    <div key={p.id}>
-                      <span className={classNames(
-                        "inline-block rounded-lg px-2 py-0.5 font-semibold",
-                        p.status === "SUCCESS" ? "bg-emerald-50 text-emerald-800" : p.status === "FAILED" ? "bg-red-50 text-red-800" : "bg-zinc-100 text-zinc-800",
-                      )}>
-                        {p.status}
-                      </span>
-                      <span className="ml-2">{p.error ? p.error : ""}</span>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <div className="mt-2 text-xs text-zinc-500">No pulls yet.</div>
-              )}
-            </div>
 
             <div className="mt-5 border-t border-zinc-200 pt-4">
               <div className="text-sm font-semibold">Letters</div>
@@ -541,15 +463,15 @@ export default function DisputeLettersClient() {
                 </div>
               )}
             </div>
-          </aside>
+          </section>
 
           <main className="rounded-3xl border border-zinc-200 bg-white p-5">
             <div>
               <div className="text-sm font-semibold">Compose</div>
-              <div className="mt-1 text-xs text-zinc-600">Pick the letter strategy, review the template guidance, then generate or edit the finished letter.</div>
+              <div className="mt-1 text-xs text-zinc-600">Pick a strategy, choose a template, and draft the letter in one place.</div>
             </div>
 
-            <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
+            <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-3">
               <label className="block">
                 <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Letter strategy</div>
                 <PortalListboxDropdown
@@ -561,20 +483,21 @@ export default function DisputeLettersClient() {
                 />
                 <div className="mt-1 text-xs text-zinc-500">{stageSupportCopy(selectedStage)}</div>
               </label>
-              <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
-                <div className="text-sm font-semibold text-zinc-900">Before you generate</div>
-                <div className="mt-2 space-y-2 text-xs leading-5 text-zinc-600">
-                  <div>List each tradeline or inquiry clearly, including what is wrong with it and what outcome you want investigated.</div>
-                  <div>Keep the facts specific. The strongest drafts usually reference dates, balances, late marks, ownership issues, or inquiry details directly.</div>
-                  <div>After generating, edit the draft before sending so the final letter matches the exact facts for this contact.</div>
-                </div>
-              </div>
+              <label className="block md:col-span-2">
+                <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Recipient name</div>
+                <input
+                  value={recipientName}
+                  onChange={(e) => setRecipientName(e.target.value)}
+                  className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                  placeholder="e.g., Experian"
+                />
+              </label>
             </div>
 
-            <div className="mt-3 grid grid-cols-1 gap-3 xl:grid-cols-[280px_1fr]">
+            <div className="mt-3 grid grid-cols-1 gap-3">
               <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
                 <div className="text-sm font-semibold text-zinc-900">Templates</div>
-                <div className="mt-3 space-y-2">
+                <div className="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-3">
                   {LETTER_LIBRARY.map((template) => {
                     const active = template.key === selectedTemplateKey;
                     return (
@@ -611,18 +534,6 @@ export default function DisputeLettersClient() {
                     Load starter into editor
                   </button>
                 </div>
-                <div className="mt-3 grid gap-3 lg:grid-cols-2">
-                  <div className="rounded-2xl border border-zinc-200 bg-white p-4">
-                    <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">When to use it</div>
-                    <div className="mt-2 text-sm leading-6 text-zinc-700">{selectedTemplate.education}</div>
-                  </div>
-                  <div className="rounded-2xl border border-zinc-200 bg-white p-4">
-                    <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">What the button does</div>
-                    <div className="mt-2 text-sm leading-6 text-zinc-700">
-                      It drops this template starter into the editor below so you can customize the final draft before saving or sending.
-                    </div>
-                  </div>
-                </div>
                 <div className="mt-3 rounded-2xl border border-zinc-200 bg-white p-4">
                   <pre className="scrollbar-none overflow-auto whitespace-pre-wrap text-sm leading-6 text-zinc-700">{selectedTemplatePreview}</pre>
                 </div>
@@ -630,15 +541,6 @@ export default function DisputeLettersClient() {
             </div>
 
             <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
-              <label className="block">
-                <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Recipient name</div>
-                <input
-                  value={recipientName}
-                  onChange={(e) => setRecipientName(e.target.value)}
-                  className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                  placeholder="e.g., Experian"
-                />
-              </label>
               <label className="block">
                 <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Recipient address</div>
                 <input
@@ -648,6 +550,9 @@ export default function DisputeLettersClient() {
                   placeholder="Mailing address (optional)"
                 />
               </label>
+              <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">
+                Use the editor below to tighten wording before saving or sending.
+              </div>
             </div>
 
             <label className="mt-3 block">

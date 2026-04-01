@@ -84,7 +84,7 @@ export async function PUT(req: Request) {
       if (!isDashboardWidgetId(id)) {
         return NextResponse.json({ error: "Unknown widget" }, { status: 400 });
       }
-      const data = await addPortalDashboardWidget(ownerId, scope, id);
+      const data = await addPortalDashboardWidget(ownerId, scope, id, variant);
       return NextResponse.json({ ok: true, data });
     }
 
@@ -93,12 +93,12 @@ export async function PUT(req: Request) {
       if (!isDashboardWidgetId(id)) {
         return NextResponse.json({ error: "Unknown widget" }, { status: 400 });
       }
-      const data = await removePortalDashboardWidget(ownerId, scope, id);
+      const data = await removePortalDashboardWidget(ownerId, scope, id, variant);
       return NextResponse.json({ ok: true, data });
     }
 
     case "save": {
-      const data = await savePortalDashboardData(ownerId, scope, parsed.data.data as any);
+      const data = await savePortalDashboardData(ownerId, scope, parsed.data.data as any, variant);
       return NextResponse.json({ ok: true, data });
     }
 

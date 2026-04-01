@@ -46,18 +46,17 @@ export function PortalAppearanceSettingsClient() {
   const pathname = usePathname() || "";
   const toast = useToast();
   const portalBase = pathname.startsWith("/credit") ? "/credit" : "/portal";
+  const defaultLandingPath = `${portalBase}/app`;
 
   const pageOptions = useMemo(
     () => [
       { value: `${portalBase}/app`, label: "Dashboard" },
       { value: `${portalBase}/app/ai-chat`, label: "Pura" },
       { value: `${portalBase}/app/services`, label: "Services" },
-      { value: `${portalBase}/app/profile`, label: "Profile" },
-      { value: `${portalBase}/app/billing`, label: "Billing" },
-      { value: `${portalBase}/app/settings/appearance`, label: "Appearance" },
     ],
     [portalBase],
   );
+  const allowedDefaultLoginPaths = useMemo(() => new Set(pageOptions.map((option) => option.value)), [pageOptions]);
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -69,8 +68,8 @@ export function PortalAppearanceSettingsClient() {
   const [voiceLibraryVoices, setVoiceLibraryVoices] = useState<VoiceLibraryVoice[]>([]);
   const [selectedVoiceId, setSelectedVoiceId] = useState("");
   const [savedVoiceId, setSavedVoiceId] = useState("");
-  const [defaultLoginPath, setDefaultLoginPath] = useState(`${portalBase}/app`);
-  const [savedDefaultLoginPath, setSavedDefaultLoginPath] = useState(`${portalBase}/app`);
+  const [defaultLoginPath, setDefaultLoginPath] = useState(defaultLandingPath);
+  const [savedDefaultLoginPath, setSavedDefaultLoginPath] = useState(defaultLandingPath);
   const [themeMode, setThemeMode] = useState<"device" | "light" | "dark" | null>(null);
   const [savedThemeMode, setSavedThemeMode] = useState<"device" | "light" | "dark" | null>(null);
   const [themeSaving, setThemeSaving] = useState(false);
@@ -110,6 +109,14 @@ export function PortalAppearanceSettingsClient() {
     }
   }, []);
 
+  const normalizeDefaultLoginPathValue = useCallback(
+    (input: unknown) => {
+      const value = typeof input === "string" ? input.trim() : "";
+      return allowedDefaultLoginPaths.has(value) ? value : defaultLandingPath;
+    },
+    [allowedDefaultLoginPaths, defaultLandingPath],
+  );
+
   const loadProfile = useCallback(async () => {
     setLoading(true);
     const res = await fetch("/api/portal/profile", { cache: "no-store" }).catch(() => null as any);
@@ -121,12 +128,12 @@ export function PortalAppearanceSettingsClient() {
     }
 
     const nextVoiceId = String(json.user.voiceId || "").trim();
-    const nextDefaultLoginPath = String(json.user.defaultLoginPath || pageOptions[0]?.value || `${portalBase}/app`).trim();
+    const nextDefaultLoginPath = normalizeDefaultLoginPathValue(json.user.defaultLoginPath);
     setVoiceAgentApiKeyConfigured(Boolean(json.user.voiceAgentApiKeyConfigured));
     setSelectedVoiceId(nextVoiceId);
     setSavedVoiceId(nextVoiceId);
-    setDefaultLoginPath(nextDefaultLoginPath || `${portalBase}/app`);
-    setSavedDefaultLoginPath(nextDefaultLoginPath || `${portalBase}/app`);
+    setDefaultLoginPath(nextDefaultLoginPath);
+    setSavedDefaultLoginPath(nextDefaultLoginPath);
     const nextThemeMode = json.user.themeMode === "light" || json.user.themeMode === "dark" ? json.user.themeMode : "device";
     const nextHideFloatingTools = Boolean(json.user.hideFloatingTools);
     setThemeMode(nextThemeMode);
@@ -135,7 +142,7 @@ export function PortalAppearanceSettingsClient() {
     setSavedHideFloatingTools(nextHideFloatingTools);
     syncFloatingToolsPreference(nextHideFloatingTools);
     setLoading(false);
-  }, [pageOptions, portalBase, syncFloatingToolsPreference, toast]);
+  }, [normalizeDefaultLoginPathValue, syncFloatingToolsPreference, toast]);
 
   const loadVoiceLibrary = useCallback(async () => {
     if (!voiceAgentApiKeyConfigured) return;
@@ -274,7 +281,7 @@ export function PortalAppearanceSettingsClient() {
     }
 
     const nextVoiceId = String(json.user.voiceId || "").trim();
-    const nextDefaultLoginPath = String(json.user.defaultLoginPath || defaultLoginPath).trim() || defaultLoginPath;
+    const nextDefaultLoginPath = normalizeDefaultLoginPathValue(json.user.defaultLoginPath || defaultLoginPath);
     const nextHideFloatingTools = Boolean(json.user.hideFloatingTools);
     setSelectedVoiceId(nextVoiceId);
     setSavedVoiceId(nextVoiceId);
@@ -457,7 +464,7 @@ export function PortalAppearanceSettingsClient() {
 
       <div className="rounded-3xl border border-zinc-200 bg-white p-6">
         <h2 className="text-lg font-semibold text-brand-ink">Default page on login</h2>
-        <p className="mt-1 text-sm text-zinc-600">Choose where you land after sign-in when nothing else is redirecting you.</p>
+        <p className="mt-1 text-sm text-zinc-600">Choose which main page opens first after sign-in when nothing else is redirecting you.</p>
         <div className="mt-4 max-w-md">
           <PortalListboxDropdown
             value={defaultLoginPath}

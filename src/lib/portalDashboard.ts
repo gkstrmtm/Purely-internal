@@ -76,6 +76,7 @@ type StoredDashboardJson =
   | {
       version: 1;
       scopes: Partial<Record<DashboardScope, unknown>>;
+      variants?: Partial<Record<DashboardVariant, { scopes: Partial<Record<DashboardScope, unknown>> }>>;
       meta?: unknown;
     }
   | unknown;
@@ -277,21 +278,38 @@ function parseDashboardJson(raw: unknown): PortalDashboardData {
   };
 }
 
-function dashboardsByScopeFromStored(raw: StoredDashboardJson | null | undefined): Record<DashboardScope, PortalDashboardData> {
+function dashboardsByScopeFromStored(
+  raw: StoredDashboardJson | null | undefined,
+  variant: DashboardVariant = "portal",
+): Record<DashboardScope, PortalDashboardData> {
   if (raw && typeof raw === "object" && !Array.isArray(raw)) {
     const rec = raw as Record<string, unknown>;
+    const variants = asObjectOrNull(rec.variants);
+    const variantRec = asObjectOrNull(variants?.[variant]);
+    const variantScopes = asObjectOrNull(variantRec?.scopes);
+    if (variantScopes) {
+      const defaultRaw = variantScopes.default ?? null;
+      const embeddedRaw = variantScopes.embedded ?? defaultRaw ?? null;
+      const fallback = defaultDashboard(variant);
+      const d = defaultRaw ? parseDashboardJson(defaultRaw) : fallback;
+      const e = embeddedRaw ? parseDashboardJson(embeddedRaw) : d;
+      return { default: d, embedded: e };
+    }
+
     const scopes = rec.scopes;
     if (scopes && typeof scopes === "object" && !Array.isArray(scopes)) {
       const scoped = scopes as Record<string, unknown>;
       const defaultRaw = scoped.default ?? null;
       const embeddedRaw = scoped.embedded ?? defaultRaw ?? null;
-      const d = parseDashboardJson(defaultRaw);
-      const e = parseDashboardJson(embeddedRaw);
+      const fallback = defaultDashboard(variant);
+      const d = defaultRaw ? parseDashboardJson(defaultRaw) : fallback;
+      const e = embeddedRaw ? parseDashboardJson(embeddedRaw) : d;
       return { default: d, embedded: e };
     }
   }
 
-  const d = parseDashboardJson(raw ?? null);
+  const fallback = defaultDashboard(variant);
+  const d = raw ? parseDashboardJson(raw ?? null) : fallback;
   return { default: d, embedded: d };
 }
 
@@ -316,7 +334,7 @@ export async function getPortalDashboardState(
   if (!row) {
     return { data: defaultDashboard(variant), isPersisted: false };
   }
-  const byScope = dashboardsByScopeFromStored((row?.dataJson ?? null) as any);
+  const byScope = dashboardsByScopeFromStored((row?.dataJson ?? null) as any, variant);
   return { data: byScope[s], isPersisted: true };
 }
 
@@ -324,6 +342,7 @@ export async function savePortalDashboardData(
   ownerId: string,
   scope: DashboardScope | string | null | undefined,
   data: PortalDashboardData,
+  variant: DashboardVariant = "portal",
 ): Promise<PortalDashboardData> {
   const s = normalizeScope(scope);
   const next = parseDashboardJson(data);
@@ -333,21 +352,26 @@ export async function savePortalDashboardData(
     select: { dataJson: true },
   });
   const existingObj = asObjectOrNull((existing?.dataJson ?? null) as any) ?? {};
-  const byScope = dashboardsByScopeFromStored((existing?.dataJson ?? null) as any);
+  const byScope = dashboardsByScopeFromStored((existing?.dataJson ?? null) as any, variant);
   const merged: Record<DashboardScope, PortalDashboardData> = {
     default: s === "default" ? next : byScope.default,
     embedded: s === "embedded" ? next : byScope.embedded,
   };
+  const existingVariants = asObjectOrNull(existingObj.variants) ?? {};
 
   // Preserve any other keys stored under this serviceSlug (meta, etc.) while updating layouts.
   const nextStored: Record<string, unknown> = {
     ...existingObj,
     version: 1,
-    scopes: merged,
+    ...(variant === "portal" ? { scopes: merged } : {}),
+    variants: {
+      ...existingVariants,
+      [variant]: { scopes: merged },
+    },
   };
 
   const row = await upsertDashboardStored(ownerId, nextStored);
-  const out = dashboardsByScopeFromStored(row.dataJson as any);
+  const out = dashboardsByScopeFromStored(row.dataJson as any, variant);
   return out[s];
 }
 
@@ -416,8 +440,9 @@ export async function addPortalDashboardWidget(
   ownerId: string,
   scope: DashboardScope | string | null | undefined,
   widgetId: DashboardWidgetId,
+  variant: DashboardVariant = "portal",
 ): Promise<PortalDashboardData> {
-  const current = await getPortalDashboardData(ownerId, scope);
+  const current = await getPortalDashboardState(ownerId, scope, variant).then((state) => state.data);
   if (current.widgets.some((w) => w.id === widgetId)) return current;
 
   const next: PortalDashboardData = {
@@ -453,15 +478,16 @@ export async function addPortalDashboardWidget(
     ],
   };
 
-  return await savePortalDashboardData(ownerId, scope, next);
+  return await savePortalDashboardData(ownerId, scope, next, variant);
 }
 
 export async function removePortalDashboardWidget(
   ownerId: string,
   scope: DashboardScope | string | null | undefined,
   widgetId: DashboardWidgetId,
+  variant: DashboardVariant = "portal",
 ): Promise<PortalDashboardData> {
-  const current = await getPortalDashboardData(ownerId, scope);
+  const current = await getPortalDashboardState(ownerId, scope, variant).then((state) => state.data);
 
   // Don’t allow removing the base widgets; keeps dashboard usable.
   const protectedIds: DashboardWidgetId[] = ["hoursSaved", "billing", "services"];
@@ -473,7 +499,7 @@ export async function removePortalDashboardWidget(
     layout: current.layout.filter((l) => l.i !== widgetId),
   };
 
-  return await savePortalDashboardData(ownerId, scope, next);
+  return await savePortalDashboardData(ownerId, scope, next, variant);
 }
 
 export async function resetPortalDashboard(
@@ -481,5 +507,5 @@ export async function resetPortalDashboard(
   scope: DashboardScope | string | null | undefined,
   variant: DashboardVariant = "portal",
 ): Promise<PortalDashboardData> {
-  return await savePortalDashboardData(ownerId, scope, defaultDashboard(variant));
+  return await savePortalDashboardData(ownerId, scope, defaultDashboard(variant), variant);
 }
