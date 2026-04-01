@@ -11,8 +11,15 @@ export const revalidate = 0;
 const importSchema = z.object({
   contactId: z.string().trim().min(1).optional().nullable(),
   provider: z.string().trim().max(40).optional().nullable(),
+  creditScope: z.enum(["PERSONAL", "BUSINESS", "BOTH"]).optional().nullable(),
   rawJson: z.unknown(),
 });
+
+function normalizeCreditScope(raw: unknown): "PERSONAL" | "BUSINESS" | "BOTH" {
+  const value = typeof raw === "string" ? raw.trim().toUpperCase() : "";
+  if (value === "BUSINESS" || value === "BOTH") return value;
+  return "PERSONAL";
+}
 
 function extractItems(raw: any): any[] {
   if (!raw) return [];
@@ -66,12 +73,19 @@ export async function GET() {
       importedAt: true,
       createdAt: true,
       contactId: true,
+      rawJson: true,
       contact: { select: { id: true, name: true, email: true } },
       _count: { select: { items: true } },
     },
   });
 
-  return NextResponse.json({ ok: true, reports });
+  return NextResponse.json({
+    ok: true,
+    reports: reports.map((report) => ({
+      ...report,
+      creditScope: normalizeCreditScope((report.rawJson as any)?.creditScope ?? (report.rawJson as any)?.scope),
+    })),
+  });
 }
 
 export async function POST(req: Request) {
@@ -84,6 +98,7 @@ export async function POST(req: Request) {
 
   const ownerId = session.session.user.id;
   const provider = (parsed.data.provider || "UPLOAD").trim() || "UPLOAD";
+  const creditScope = normalizeCreditScope(parsed.data.creditScope);
 
   const contactId = parsed.data.contactId ? String(parsed.data.contactId).trim() : "";
   if (contactId) {
@@ -92,13 +107,16 @@ export async function POST(req: Request) {
   }
 
   const rawJson = parsed.data.rawJson;
+  const storedRawJson = rawJson && typeof rawJson === "object" && !Array.isArray(rawJson)
+    ? { ...(rawJson as Record<string, unknown>), creditScope }
+    : { creditScope, payload: rawJson };
 
   const created = await prisma.creditReport.create({
     data: {
       ownerId,
       contactId: contactId || null,
       provider,
-      rawJson: rawJson as any,
+      rawJson: storedRawJson as any,
       importedAt: new Date(),
       createdAt: new Date(),
     },
@@ -139,5 +157,5 @@ export async function POST(req: Request) {
     },
   });
 
-  return NextResponse.json({ ok: true, report });
+  return NextResponse.json({ ok: true, report: report ? { ...report, creditScope } : report });
 }

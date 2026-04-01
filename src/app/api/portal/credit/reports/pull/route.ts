@@ -11,12 +11,19 @@ export const revalidate = 0;
 const schema = z.object({
   contactId: z.string().trim().min(1),
   provider: z.string().trim().max(40).optional().nullable(),
+  creditScope: z.enum(["PERSONAL", "BUSINESS", "BOTH"]).optional().nullable(),
 });
 
 function normalizeProvider(raw: unknown) {
   const s = typeof raw === "string" ? raw.trim() : "";
   if (!s) return "IdentityIQ";
   return s.slice(0, 40);
+}
+
+function normalizeCreditScope(raw: unknown): "PERSONAL" | "BUSINESS" | "BOTH" {
+  const value = typeof raw === "string" ? raw.trim().toUpperCase() : "";
+  if (value === "BUSINESS" || value === "BOTH") return value;
+  return "PERSONAL";
 }
 
 export async function POST(req: Request) {
@@ -30,6 +37,7 @@ export async function POST(req: Request) {
   const ownerId = session.session.user.id;
   const contactId = parsed.data.contactId;
   const provider = normalizeProvider(parsed.data.provider);
+  const creditScope = normalizeCreditScope(parsed.data.creditScope);
 
   const contact = await prisma.portalContact.findFirst({
     where: { id: contactId, ownerId },
@@ -51,6 +59,7 @@ export async function POST(req: Request) {
       rawJson: {
         status: "PENDING",
         provider,
+        creditScope,
         requestedAt: now.toISOString(),
         contact: { id: contact.id, name: contact.name, email: contact.email },
         note: "Provider pull integration not configured yet",
@@ -67,5 +76,5 @@ export async function POST(req: Request) {
     },
   });
 
-  return NextResponse.json({ ok: true, report: created });
+  return NextResponse.json({ ok: true, report: { ...created, creditScope } });
 }

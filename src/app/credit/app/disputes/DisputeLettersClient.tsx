@@ -80,8 +80,8 @@ const ROUND_OPTIONS: PortalListboxOption<string>[] = Array.from({ length: 8 }, (
 
 const STRATEGY_OPTIONS: PortalListboxOption<string>[] = [
   { value: "initial", label: "Initial investigation" },
-  { value: "followup", label: "Follow-up demand" },
-  { value: "escalated", label: "Escalated reinvestigation" },
+  { value: "followup", label: "Second notice" },
+  { value: "escalated", label: "Final escalation" },
   { value: "custom", label: "Custom strategy" },
 ];
 
@@ -554,102 +554,160 @@ export default function DisputeLettersClient({ mode = "list", initialLetterId = 
 
   const composer = composerOpen ? (
     <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/30 p-4" onMouseDown={() => working !== "generate" && setComposerOpen(false)}>
-      <div className="my-auto w-full max-w-4xl max-h-[calc(100dvh-2rem)] overflow-y-auto rounded-3xl border border-zinc-200 bg-white p-6 shadow-xl" onMouseDown={(event) => event.stopPropagation()}>
+      <div className="my-auto w-full max-w-5xl max-h-[calc(100dvh-2rem)] overflow-y-auto rounded-4xl border border-zinc-200 bg-white p-6 shadow-xl sm:p-7" onMouseDown={(event) => event.stopPropagation()}>
         <div className="flex items-start justify-between gap-4">
           <div>
             <div className="text-lg font-semibold text-zinc-900">New dispute letter</div>
+            <div className="mt-1 text-sm text-zinc-600">Pick the contact, choose the recipient, load exact report items, and generate a letter without the clutter.</div>
           </div>
+          <button type="button" onClick={() => setComposerOpen(false)} className="rounded-2xl border border-zinc-200 px-3 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50">Close</button>
         </div>
-        <div className="mt-5 grid gap-4 md:grid-cols-2">
-          <label className="block md:col-span-2">
-            <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Contact</div>
-            <PortalSearchableCombobox
-              query={contactQuery}
-              onQueryChange={(value) => {
-                setContactQuery(value);
-                if (!value.trim()) setContactId("");
-              }}
-              options={contactOptions}
-              selectedValue={contactId}
-              onSelect={(option) => {
-                setContactId(option.value);
-                setContactQuery(option.label);
-              }}
-              placeholder={contactsLoading ? "Searching contacts…" : "Search or select a contact"}
-              emptyLabel={contactsLoading ? "Searching contacts…" : "No contacts found"}
-              inputClassName="pa-portal-listbox-button w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 pr-10 text-sm text-zinc-900 outline-none focus:border-zinc-300"
-            />
-          </label>
-          <label className="block">
-            <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Round</div>
-            <PortalListboxDropdown value={round} onChange={setRound} options={ROUND_OPTIONS} buttonClassName="flex w-full items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm hover:bg-zinc-50" />
-          </label>
-          <label className="block">
-            <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Strategy</div>
-            <PortalListboxDropdown value={strategy} onChange={setStrategy} options={STRATEGY_OPTIONS} buttonClassName="flex w-full items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm hover:bg-zinc-50" />
-          </label>
-          <label className="block">
-            <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Template</div>
-            <PortalListboxDropdown value={templateKey} onChange={setTemplateKey} options={templateOptions} buttonClassName="flex w-full items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm hover:bg-zinc-50" />
-          </label>
-          <label className="block">
-            <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Follow-up timing</div>
-            <PortalListboxDropdown value={cadenceDays} onChange={setCadenceDays} options={CADENCE_OPTIONS} buttonClassName="flex w-full items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm hover:bg-zinc-50" />
-          </label>
-          <label className="block md:col-span-2">
-            <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Recipient</div>
-            <PortalSearchableCombobox
-              query={recipientName}
-              onQueryChange={(value) => {
-                setRecipientName(value);
-                if (!value.trim()) {
-                  setRecipientAddress("");
-                  setRecipientAddressManual(false);
-                }
-              }}
-              options={recipientOptions}
-              selectedValue={recipientPreset?.key}
-              onSelect={(option) => {
-                setRecipientName(option.label);
-                setRecipientAddressManual(false);
-              }}
-              placeholder="Type or select a recipient"
-              emptyLabel="Keep typing to use a custom recipient"
-              inputClassName="pa-portal-listbox-button w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 pr-10 text-sm text-zinc-900 outline-none focus:border-zinc-300"
-            />
-          </label>
-          <label className="block md:col-span-2">
-            <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Recipient address</div>
-            <textarea value={recipientAddress} onChange={(event) => { setRecipientAddress(event.target.value); setRecipientAddressManual(true); }} className="min-h-24 w-full rounded-2xl border border-zinc-200 px-4 py-3 text-sm outline-none focus:border-zinc-300" />
-          </label>
-        </div>
-        <div className="mt-5">
-          <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Dispute items</div>
-          <div className="mb-3 rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
-            <div className="mb-2 flex items-center justify-between gap-2">
-              <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Add from latest credit report</div>
-              <div className="text-[11px] text-zinc-500">{composerReportLabel || (contactId ? "No report found yet" : "Select a contact first")}</div>
-            </div>
-            <PortalSearchableCombobox
-              query={reportItemQuery}
-              onQueryChange={setReportItemQuery}
-              options={reportItemOptions}
-              onSelect={addComposerReportItem}
-              placeholder={composerItemsLoading ? "Loading report items…" : "Search report items to add"}
-              emptyLabel={composerItemsLoading ? "Loading report items…" : "No report items available"}
-              inputClassName="pa-portal-listbox-button w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 pr-10 text-sm text-zinc-900 outline-none focus:border-zinc-300"
-              disabled={!contactId || composerItemsLoading}
-            />
-          </div>
-          <div className="space-y-2">
-            {items.map((item, index) => (
-              <div key={index} className="flex gap-2">
-                <input value={item} onChange={(event) => setItems((current) => current.map((entry, entryIndex) => entryIndex === index ? event.target.value : entry))} className="flex-1 rounded-2xl border border-zinc-200 px-4 py-3 text-sm outline-none focus:border-zinc-300" placeholder={index === 0 ? "Account XXXX reported late but was paid on time" : "Add another dispute item"} />
-                <button type="button" onClick={() => setItems((current) => { const next = current.filter((_, entryIndex) => entryIndex !== index); return next.length ? next : [""]; })} className="rounded-2xl border border-zinc-200 px-3 py-3 text-sm font-semibold text-zinc-700 hover:bg-zinc-50">Remove</button>
+        <div className="mt-6 grid gap-5 xl:grid-cols-[minmax(0,1fr)_320px]">
+          <div className="space-y-4">
+            <section className="rounded-3xl border border-zinc-200 bg-zinc-50/70 p-5">
+              <div className="text-sm font-semibold text-zinc-900">Case</div>
+              <div className="mt-1 text-sm text-zinc-600">Set the contact and the recipient first so the rest of the draft stays tied to the right file.</div>
+              <div className="mt-4 grid gap-4 md:grid-cols-2">
+                <label className="block md:col-span-2">
+                  <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Contact</div>
+                  <PortalSearchableCombobox
+                    query={contactQuery}
+                    onQueryChange={(value) => {
+                      setContactQuery(value);
+                      if (!value.trim()) setContactId("");
+                    }}
+                    options={contactOptions}
+                    selectedValue={contactId}
+                    onSelect={(option) => {
+                      setContactId(option.value);
+                      setContactQuery(option.label);
+                    }}
+                    placeholder={contactsLoading ? "Searching contacts…" : "Search or select a contact"}
+                    emptyLabel={contactsLoading ? "Searching contacts…" : "No contacts found"}
+                    inputClassName="pa-portal-listbox-button w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 pr-10 text-sm text-zinc-900 outline-none focus:border-zinc-300"
+                  />
+                </label>
+                <label className="block md:col-span-2">
+                  <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Recipient</div>
+                  <PortalSearchableCombobox
+                    query={recipientName}
+                    onQueryChange={(value) => {
+                      setRecipientName(value);
+                      if (!value.trim()) {
+                        setRecipientAddress("");
+                        setRecipientAddressManual(false);
+                      }
+                    }}
+                    options={recipientOptions}
+                    selectedValue={recipientPreset?.key}
+                    onSelect={(option) => {
+                      setRecipientName(option.label);
+                      setRecipientAddressManual(false);
+                    }}
+                    placeholder="Type or select a recipient"
+                    emptyLabel="Keep typing to use a custom recipient"
+                    inputClassName="pa-portal-listbox-button w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 pr-10 text-sm text-zinc-900 outline-none focus:border-zinc-300"
+                  />
+                </label>
+                <label className="block md:col-span-2">
+                  <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Recipient address</div>
+                  <textarea value={recipientAddress} onChange={(event) => { setRecipientAddress(event.target.value); setRecipientAddressManual(true); }} className="min-h-24 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300" />
+                </label>
               </div>
-            ))}
+            </section>
+
+            <section className="rounded-3xl border border-zinc-200 bg-white p-5">
+              <div className="text-sm font-semibold text-zinc-900">Letter setup</div>
+              <div className="mt-1 text-sm text-zinc-600">Keep the drafting controls grouped instead of mixing them into the issue list.</div>
+              <div className="mt-4 grid gap-4 md:grid-cols-2">
+                <label className="block">
+                  <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Round</div>
+                  <PortalListboxDropdown value={round} onChange={setRound} options={ROUND_OPTIONS} buttonClassName="flex w-full items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm hover:bg-zinc-50" />
+                </label>
+                <label className="block">
+                  <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Strategy</div>
+                  <PortalListboxDropdown value={strategy} onChange={setStrategy} options={STRATEGY_OPTIONS} buttonClassName="flex w-full items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm hover:bg-zinc-50" />
+                </label>
+                <label className="block">
+                  <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Template</div>
+                  <PortalListboxDropdown value={templateKey} onChange={setTemplateKey} options={templateOptions} buttonClassName="flex w-full items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm hover:bg-zinc-50" />
+                </label>
+                <label className="block">
+                  <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Next touchpoint</div>
+                  <PortalListboxDropdown value={cadenceDays} onChange={setCadenceDays} options={CADENCE_OPTIONS} buttonClassName="flex w-full items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm hover:bg-zinc-50" />
+                </label>
+              </div>
+            </section>
+
+            <section className="rounded-3xl border border-zinc-200 bg-white p-5">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <div className="text-sm font-semibold text-zinc-900">Dispute items</div>
+                  <div className="mt-1 text-sm text-zinc-600">Pull exact report items in, then clean up the wording only where you need to.</div>
+                </div>
+                <div className="rounded-full border border-zinc-200 bg-zinc-50 px-3 py-1 text-xs font-semibold text-zinc-600">{cleanItems.length} issue{cleanItems.length === 1 ? "" : "s"}</div>
+              </div>
+
+              <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
+                <div className="mb-2 flex items-center justify-between gap-2">
+                  <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Add from latest credit report</div>
+                  <div className="text-[11px] text-zinc-500">{composerReportLabel || (contactId ? "No report found yet" : "Select a contact first")}</div>
+                </div>
+                <PortalSearchableCombobox
+                  query={reportItemQuery}
+                  onQueryChange={setReportItemQuery}
+                  options={reportItemOptions}
+                  onSelect={addComposerReportItem}
+                  placeholder={composerItemsLoading ? "Loading report items…" : "Search report items to add"}
+                  emptyLabel={composerItemsLoading ? "Loading report items…" : "No report items available"}
+                  inputClassName="pa-portal-listbox-button w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 pr-10 text-sm text-zinc-900 outline-none focus:border-zinc-300"
+                  disabled={!contactId || composerItemsLoading}
+                />
+              </div>
+
+              <div className="mt-4 space-y-2">
+                {items.map((item, index) => (
+                  <div key={index} className="flex gap-2">
+                    <input value={item} onChange={(event) => setItems((current) => current.map((entry, entryIndex) => entryIndex === index ? event.target.value : entry))} className="flex-1 rounded-2xl border border-zinc-200 bg-zinc-50/40 px-4 py-3 text-sm outline-none focus:border-zinc-300" placeholder={index === 0 ? "Account XXXX reported late but was paid on time" : "Add another dispute item"} />
+                    <button type="button" onClick={() => setItems((current) => { const next = current.filter((_, entryIndex) => entryIndex !== index); return next.length ? next : [""]; })} className="rounded-2xl border border-zinc-200 px-3 py-3 text-sm font-semibold text-zinc-700 hover:bg-zinc-50">Remove</button>
+                  </div>
+                ))}
+              </div>
+              <button type="button" onClick={() => setItems((current) => [...current, ""])} className="mt-3 rounded-2xl border border-zinc-200 px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50">Add dispute item</button>
+            </section>
           </div>
-          <button type="button" onClick={() => setItems((current) => [...current, ""])} className="mt-3 rounded-2xl border border-zinc-200 px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50">Add dispute item</button>
+
+          <aside className="space-y-4">
+            <section className="rounded-3xl border border-zinc-200 bg-zinc-50/70 p-5">
+              <div className="text-sm font-semibold text-zinc-900">Draft summary</div>
+              <div className="mt-4 space-y-3 text-sm text-zinc-700">
+                <div>
+                  <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Contact</div>
+                  <div className="mt-1 font-semibold text-zinc-900">{selectedContact?.name || "No contact selected"}</div>
+                  <div className="mt-1 text-xs text-zinc-500">{selectedContact?.email || selectedContact?.phone || "Pick a contact to load the right report items."}</div>
+                </div>
+                <div>
+                  <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Recipient</div>
+                  <div className="mt-1 font-semibold text-zinc-900">{recipientName || "No recipient yet"}</div>
+                </div>
+                <div>
+                  <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Report source</div>
+                  <div className="mt-1 text-zinc-700">{composerReportLabel || "No linked report loaded"}</div>
+                </div>
+              </div>
+            </section>
+
+            <section className="rounded-3xl border border-zinc-200 bg-white p-5">
+              <div className="text-sm font-semibold text-zinc-900">Template</div>
+              <div className="mt-2 text-sm text-zinc-700">{template.summary}</div>
+              <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm text-zinc-700">{template.education}</div>
+              <div className="mt-4 grid gap-2 text-xs font-semibold text-zinc-600">
+                <div className="rounded-2xl border border-zinc-200 bg-white px-3 py-2">{STRATEGY_OPTIONS.find((entry) => entry.value === strategy)?.label || "Initial investigation"}</div>
+                <div className="rounded-2xl border border-zinc-200 bg-white px-3 py-2">Round {roundNumber}</div>
+                <div className="rounded-2xl border border-zinc-200 bg-white px-3 py-2">Next touchpoint in {cadenceNumber} days</div>
+              </div>
+            </section>
+          </aside>
         </div>
         <div className="mt-6 flex justify-end gap-2">
           <button type="button" onClick={() => setComposerOpen(false)} className="rounded-2xl border border-zinc-200 px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50">Cancel</button>

@@ -7,6 +7,12 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
+function normalizeCreditScope(raw: unknown): "PERSONAL" | "BUSINESS" | "BOTH" {
+  const value = typeof raw === "string" ? raw.trim().toUpperCase() : "";
+  if (value === "BUSINESS" || value === "BOTH") return value;
+  return "PERSONAL";
+}
+
 export async function GET(_req: Request, ctx: { params: Promise<{ reportId: string }> }) {
   const session = await requireCreditClientSession();
   if (!session.ok) return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: session.status });
@@ -46,5 +52,11 @@ export async function GET(_req: Request, ctx: { params: Promise<{ reportId: stri
 
   if (!report) return NextResponse.json({ ok: false, error: "Not found" }, { status: 404 });
 
-  return NextResponse.json({ ok: true, report });
+  return NextResponse.json({
+    ok: true,
+    report: {
+      ...report,
+      creditScope: normalizeCreditScope((report.rawJson as any)?.creditScope ?? (report.rawJson as any)?.scope),
+    },
+  });
 }
