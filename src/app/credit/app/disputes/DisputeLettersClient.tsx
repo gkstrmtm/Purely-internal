@@ -55,34 +55,67 @@ type PdfResponse =
     }
   | { ok: false; error?: string };
 
-const DISPUTE_ROUND_OPTIONS: PortalListboxOption<string>[] = [
-  { value: "1", label: "Round 1" },
-  { value: "2", label: "Round 2" },
-  { value: "3", label: "Round 3" },
-  { value: "custom", label: "Custom escalation" },
+const LETTER_STAGE_OPTIONS: PortalListboxOption<string>[] = [
+  { value: "initial-review", label: "Initial review" },
+  { value: "follow-up", label: "Follow-up review" },
+  { value: "escalated", label: "Escalated review" },
+  { value: "custom", label: "Custom strategy" },
 ];
 
 const LETTER_LIBRARY = [
   {
     key: "bureau-general",
-    label: "General bureau dispute",
-    prompt: "Dispute inaccurate tradelines and request investigation under the FCRA.",
+    label: "General bureau investigation request",
+    summary: "Use when the report has inaccurate balances, dates, statuses, or other bureau-reporting errors.",
+    education: "Best when you want a clean investigation request that lists the items and asks the bureau to verify each one carefully.",
+    prompt: "Draft a professional bureau dispute letter that requests reinvestigation of inaccurate reporting under the FCRA without sounding aggressive or generic.",
     bodyStarter:
-      "I am writing to dispute inaccurate information appearing on my credit report. Please investigate the following items and remove or correct any information that cannot be verified.\n\nItems in dispute:\n- {{dispute_items}}\n\nSincerely,\n{{consumer_name}}",
+      "Date: {{today}}\n\n{{recipient_name}}\n{{recipient_address}}\n\nRe: Request for investigation of inaccurate credit reporting\n\nTo whom it may concern,\n\nI am writing to request an investigation of information appearing on my credit file that I believe is inaccurate or incomplete. Please review the items listed below, verify them against your records, and delete or correct any information that cannot be fully verified.\n\nItems I am disputing:\n{{dispute_items}}\n\nPlease send me the results of your investigation and an updated copy of my report after your review is complete. Thank you for your prompt attention to this matter.\n\nSincerely,\n{{consumer_name}}",
   },
   {
     key: "late-payment",
-    label: "Late payment challenge",
-    prompt: "Challenge reported late payments that were paid on time or reported inaccurately.",
+    label: "Late payment correction request",
+    summary: "Use when a late mark was reported incorrectly, paid on time, or should be updated after supporting proof.",
+    education: "Strong when you have payment proof, bank records, or account history showing the late status is wrong or overstated.",
+    prompt: "Draft a dispute letter focused on inaccurate late-payment reporting and request correction or deletion after investigation.",
     bodyStarter:
-      "I am disputing late-payment reporting that appears inaccurate or incomplete. Please review the supporting records for the items below and correct any error immediately.\n\nItems in dispute:\n- {{dispute_items}}\n\nSincerely,\n{{consumer_name}}",
+      "Date: {{today}}\n\n{{recipient_name}}\n{{recipient_address}}\n\nRe: Inaccurate late-payment reporting\n\nTo whom it may concern,\n\nI am disputing late-payment information that appears to be inaccurate on my credit report. I am requesting that you review the payment history, account records, and reporting details for the items below and correct any late marks that cannot be verified as accurate.\n\nItems I am disputing:\n{{dispute_items}}\n\nIf your investigation confirms the reporting is incomplete or incorrect, please update the account history and send me written confirmation of the correction.\n\nSincerely,\n{{consumer_name}}",
   },
   {
     key: "identity-theft",
-    label: "Identity theft / not mine",
-    prompt: "Challenge accounts or inquiries the consumer does not recognize.",
+    label: "Identity theft or not-mine account dispute",
+    summary: "Use when the consumer does not recognize the account, inquiry, or personal information showing on the report.",
+    education: "Works best when paired with an identity theft report, FTC affidavit, police report, or a clear statement that the item is not theirs.",
+    prompt: "Draft a dispute letter for accounts, inquiries, or personal information the consumer states are not theirs or may be identity theft related.",
     bodyStarter:
-      "I am writing to dispute items that do not belong to me and may be the result of identity theft or mixed information. Please block, remove, or verify the following items.\n\nItems in dispute:\n- {{dispute_items}}\n\nSincerely,\n{{consumer_name}}",
+      "Date: {{today}}\n\n{{recipient_name}}\n{{recipient_address}}\n\nRe: Dispute of accounts or inquiries not belonging to me\n\nTo whom it may concern,\n\nI am writing to dispute information on my credit report that does not belong to me. The items below are unfamiliar to me and may be the result of identity theft, mixed file information, or reporting error. Please investigate these items, block or remove any information that is not mine, and send me written confirmation once your review is complete.\n\nItems I am disputing:\n{{dispute_items}}\n\nThank you for your prompt attention to this matter.\n\nSincerely,\n{{consumer_name}}",
+  },
+  {
+    key: "collection-account",
+    label: "Collection account verification request",
+    summary: "Use when a collection account lacks clear ownership, amount accuracy, dates, or complete verification.",
+    education: "Helpful when the collection agency data is inconsistent, incomplete, duplicated, or unsupported by the file details you have.",
+    prompt: "Draft a dispute letter requesting investigation and verification of collection-account reporting that appears inaccurate, incomplete, or unsupported.",
+    bodyStarter:
+      "Date: {{today}}\n\n{{recipient_name}}\n{{recipient_address}}\n\nRe: Request to investigate collection-account reporting\n\nTo whom it may concern,\n\nI am requesting an investigation of collection-account information reported on my credit file that appears inaccurate, incomplete, or unsupported. Please review the ownership details, balance, dates, and reporting history for the items below and remove or correct any information that cannot be properly verified.\n\nItems I am disputing:\n{{dispute_items}}\n\nPlease provide the results of your investigation and an updated report once the review has been completed.\n\nSincerely,\n{{consumer_name}}",
+  },
+  {
+    key: "mixed-file",
+    label: "Mixed file / personal information mismatch",
+    summary: "Use when addresses, employers, aliases, or accounts appear to belong to another person with a similar identity.",
+    education: "Useful when the profile itself looks crossed with someone else and the reporting errors trace back to personal-information mismatches.",
+    prompt: "Draft a dispute letter focused on mixed-file issues, incorrect personal information, and the need to separate another consumer's data from this file.",
+    bodyStarter:
+      "Date: {{today}}\n\n{{recipient_name}}\n{{recipient_address}}\n\nRe: Mixed file and inaccurate identifying information\n\nTo whom it may concern,\n\nI am disputing identifying information and related reporting on my credit file that appears to be mixed with another consumer. Please review the personal information and associated accounts listed below and remove, correct, or separate any information that does not belong on my file.\n\nItems I am disputing:\n{{dispute_items}}\n\nPlease confirm the corrections made after your investigation is complete.\n\nSincerely,\n{{consumer_name}}",
+  },
+  {
+    key: "inquiry",
+    label: "Unauthorized inquiry challenge",
+    summary: "Use when a hard inquiry is unfamiliar, unauthorized, or should not have been reported to the file.",
+    education: "Best for inquiry disputes where the consumer does not recognize the lender, did not authorize the pull, or believes it is attached to the wrong file.",
+    prompt: "Draft a concise credit-bureau dispute letter challenging unauthorized or inaccurate hard inquiries.",
+    bodyStarter:
+      "Date: {{today}}\n\n{{recipient_name}}\n{{recipient_address}}\n\nRe: Dispute of unauthorized inquiry reporting\n\nTo whom it may concern,\n\nI am disputing one or more inquiries appearing on my credit report that I do not recognize or did not authorize. Please investigate the items below and remove any inquiry that cannot be verified as permissible and accurate.\n\nItems I am disputing:\n{{dispute_items}}\n\nPlease send me written confirmation after your investigation is complete.\n\nSincerely,\n{{consumer_name}}",
   },
 ] as const;
 
@@ -90,9 +123,21 @@ function classNames(...xs: Array<string | false | null | undefined>) {
   return xs.filter(Boolean).join(" ");
 }
 
-function templatePreviewText(template: (typeof LETTER_LIBRARY)[number], round: string) {
-  const roundLabel = round === "custom" ? "Custom escalation" : `Round ${round}`;
-  return `${template.bodyStarter}\n\nRound: ${roundLabel}`;
+function stageSupportCopy(stage: string) {
+  switch (stage) {
+    case "follow-up":
+      return "Use a follow-up tone when the first request did not lead to a clear correction or the bureau response was incomplete.";
+    case "escalated":
+      return "Use an escalated tone when the file still contains the same issue after prior review and you need a firmer reinvestigation request.";
+    case "custom":
+      return "Use custom strategy when you need to tailor the letter around a very specific fact pattern or supporting documentation set.";
+    default:
+      return "Use an initial review tone when you are opening the first clean investigation request for the disputed items.";
+  }
+}
+
+function templatePreviewText(template: (typeof LETTER_LIBRARY)[number]) {
+  return template.bodyStarter;
 }
 
 async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
@@ -121,7 +166,7 @@ export default function DisputeLettersClient() {
 
   const [pulls, setPulls] = useState<CreditPullLite[]>([]);
   const [selectedPullId, setSelectedPullId] = useState<string>("");
-  const [selectedRound, setSelectedRound] = useState<string>("1");
+  const [selectedStage, setSelectedStage] = useState<string>("initial-review");
   const [selectedTemplateKey, setSelectedTemplateKey] = useState<string>(LETTER_LIBRARY[0]?.key || "bureau-general");
 
   const [recipientName, setRecipientName] = useState<string>("");
@@ -139,7 +184,11 @@ export default function DisputeLettersClient() {
     () => LETTER_LIBRARY.find((entry) => entry.key === selectedTemplateKey) || LETTER_LIBRARY[0],
     [selectedTemplateKey],
   );
-  const selectedTemplatePreview = useMemo(() => templatePreviewText(selectedTemplate, selectedRound), [selectedRound, selectedTemplate]);
+  const selectedTemplatePreview = useMemo(() => templatePreviewText(selectedTemplate), [selectedTemplate]);
+  const selectedStageLabel = useMemo(
+    () => LETTER_STAGE_OPTIONS.find((entry) => entry.value === selectedStage)?.label || "Initial review",
+    [selectedStage],
+  );
 
   const loadContacts = useCallback(async (q: string) => {
     const url = `/api/portal/credit/contacts${q.trim() ? `?q=${encodeURIComponent(q.trim())}` : ""}`;
@@ -251,13 +300,11 @@ export default function DisputeLettersClient() {
           contactId: selectedContactId,
           recipientName: recipientName.trim() || undefined,
           recipientAddress: recipientAddress.trim() || undefined,
-          disputesText: [
-            `Dispute round: ${selectedRound === "custom" ? "Custom escalation" : `Round ${selectedRound}`}`,
-            `Template: ${selectedTemplate.label}`,
-            disputesText.trim(),
-          ]
-            .filter(Boolean)
-            .join("\n\n"),
+          disputesText: disputesText.trim(),
+          letterStageLabel: selectedStageLabel,
+          templateLabel: selectedTemplate.label,
+          templatePrompt: selectedTemplate.prompt,
+          templateBodyStarter: selectedTemplate.bodyStarter,
           creditPullId: selectedPullId || undefined,
         }),
       });
@@ -354,7 +401,7 @@ export default function DisputeLettersClient() {
             <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Credit</div>
             <h1 className="text-2xl font-bold">Dispute letters</h1>
             <p className="mt-1 text-sm text-zinc-600">
-              Build dispute rounds, reuse letter templates, edit placeholders, export PDFs, and track every dispute from one workspace.
+              Build cleaner dispute letters, reuse stronger templates, export PDFs, and track every dispute from one workspace.
             </p>
           </div>
         </div>
@@ -499,30 +546,29 @@ export default function DisputeLettersClient() {
           <main className="rounded-3xl border border-zinc-200 bg-white p-5">
             <div>
               <div className="text-sm font-semibold">Compose</div>
-              <div className="mt-1 text-xs text-zinc-600">Choose the round, review the template, then generate or edit the finished letter.</div>
+              <div className="mt-1 text-xs text-zinc-600">Pick the letter strategy, review the template guidance, then generate or edit the finished letter.</div>
             </div>
 
             <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
               <label className="block">
-                <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Dispute round</div>
+                <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Letter strategy</div>
                 <PortalListboxDropdown
-                  value={selectedRound}
-                  onChange={(v) => setSelectedRound(String(v || "1"))}
+                  value={selectedStage}
+                  onChange={(v) => setSelectedStage(String(v || "initial-review"))}
                   disabled={busy}
                   buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50"
-                  options={DISPUTE_ROUND_OPTIONS}
+                  options={LETTER_STAGE_OPTIONS}
                 />
+                <div className="mt-1 text-xs text-zinc-500">{stageSupportCopy(selectedStage)}</div>
               </label>
-              <label className="block">
-                <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Letter library template</div>
-                <PortalListboxDropdown
-                  value={selectedTemplateKey}
-                  onChange={(v) => setSelectedTemplateKey(String(v || LETTER_LIBRARY[0]?.key || ""))}
-                  disabled={busy}
-                  buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50"
-                  options={LETTER_LIBRARY.map((entry) => ({ value: entry.key, label: entry.label }))}
-                />
-              </label>
+              <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+                <div className="text-sm font-semibold text-zinc-900">Before you generate</div>
+                <div className="mt-2 space-y-2 text-xs leading-5 text-zinc-600">
+                  <div>List each tradeline or inquiry clearly, including what is wrong with it and what outcome you want investigated.</div>
+                  <div>Keep the facts specific. The strongest drafts usually reference dates, balances, late marks, ownership issues, or inquiry details directly.</div>
+                  <div>After generating, edit the draft before sending so the final letter matches the exact facts for this contact.</div>
+                </div>
+              </div>
             </div>
 
             <div className="mt-3 grid grid-cols-1 gap-3 xl:grid-cols-[280px_1fr]">
@@ -542,7 +588,7 @@ export default function DisputeLettersClient() {
                         )}
                       >
                         <div className="text-sm font-semibold text-zinc-900">{template.label}</div>
-                        <div className="mt-1 text-xs leading-5 text-zinc-600">{template.prompt}</div>
+                        <div className="mt-1 text-xs leading-5 text-zinc-600">{template.summary}</div>
                       </button>
                     );
                   })}
@@ -553,7 +599,7 @@ export default function DisputeLettersClient() {
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>
                     <div className="text-sm font-semibold text-zinc-900">{selectedTemplate.label}</div>
-                    <div className="mt-1 text-xs leading-5 text-zinc-600">{selectedTemplate.prompt}</div>
+                    <div className="mt-1 text-xs leading-5 text-zinc-600">{selectedTemplate.summary}</div>
                   </div>
                   <button
                     type="button"
@@ -562,8 +608,20 @@ export default function DisputeLettersClient() {
                     disabled={!selectedLetterId}
                     title={selectedLetterId ? "" : "Generate or select a letter first"}
                   >
-                    Use in editor
+                    Load starter into editor
                   </button>
+                </div>
+                <div className="mt-3 grid gap-3 lg:grid-cols-2">
+                  <div className="rounded-2xl border border-zinc-200 bg-white p-4">
+                    <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">When to use it</div>
+                    <div className="mt-2 text-sm leading-6 text-zinc-700">{selectedTemplate.education}</div>
+                  </div>
+                  <div className="rounded-2xl border border-zinc-200 bg-white p-4">
+                    <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">What the button does</div>
+                    <div className="mt-2 text-sm leading-6 text-zinc-700">
+                      It drops this template starter into the editor below so you can customize the final draft before saving or sending.
+                    </div>
+                  </div>
                 </div>
                 <div className="mt-3 rounded-2xl border border-zinc-200 bg-white p-4">
                   <pre className="scrollbar-none overflow-auto whitespace-pre-wrap text-sm leading-6 text-zinc-700">{selectedTemplatePreview}</pre>
@@ -600,7 +658,7 @@ export default function DisputeLettersClient() {
                 className="min-h-35 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
                 placeholder="Example:\n- Account XXXX reported 60 days late in Jan 2025, but payment was on time\n- Inquiry from ABC Bank on 02/10/2025 is not mine"
               />
-              <div className="mt-1 text-xs text-zinc-500">Paste the tradelines, inquiries, or notes you want included in this round.</div>
+              <div className="mt-1 text-xs text-zinc-500">Paste the tradelines, inquiries, dates, balances, or notes you want included in this letter.</div>
             </label>
 
             <div className="mt-3 flex flex-wrap gap-2">

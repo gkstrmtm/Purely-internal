@@ -16,6 +16,10 @@ const createSchema = z.object({
   recipientName: z.string().trim().max(120).optional().nullable(),
   recipientAddress: z.string().trim().max(600).optional().nullable(),
   disputesText: z.string().trim().min(3).max(5000),
+  letterStageLabel: z.string().trim().optional(),
+  templateLabel: z.string().trim().optional(),
+  templatePrompt: z.string().trim().optional(),
+  templateBodyStarter: z.string().trim().optional(),
   creditPullId: z.string().trim().optional().nullable(),
 });
 
@@ -86,7 +90,12 @@ export async function POST(req: Request) {
   const system =
     "You draft consumer credit dispute letters. Output ONLY a plain-text letter. " +
     "Do not invent facts. If a needed detail is missing, include a placeholder in double braces like {{placeholder}}. " +
-    "Keep it professional and concise.";
+    "Keep it professional, concise, and natural. " +
+    "Do not mention internal workflow labels such as round, stage, template, escalation, or strategy unless the consumer explicitly used those terms in the dispute facts.";
+  const letterStageLabel = parsed.data.letterStageLabel;
+  const templateLabel = parsed.data.templateLabel;
+  const templatePrompt = parsed.data.templatePrompt;
+  const templateBodyStarter = parsed.data.templateBodyStarter;
 
   const user = [
     `Date: ${isoDate}`,
@@ -98,6 +107,11 @@ export async function POST(req: Request) {
     contact.email ? `Consumer email: ${contact.email}` : "Consumer email: {{email}}",
     contact.phone ? `Consumer phone: ${contact.phone}` : "Consumer phone: {{phone}}",
     "",
+    letterStageLabel ? `Letter strategy: ${letterStageLabel}` : null,
+    templateLabel ? `Template selected: ${templateLabel}` : null,
+    templatePrompt ? `Draft direction:\n${templatePrompt}` : null,
+    templateBodyStarter ? `Optional sample structure:\n${templateBodyStarter}` : null,
+    "",
     "Dispute context:",
     disputesText,
     "",
@@ -106,7 +120,10 @@ export async function POST(req: Request) {
       : "Credit data: (not available yet)",
     "",
     "Write the letter now.",
-  ].join("\n");
+    "The final letter must read like normal mailed correspondence and should not expose the drafting metadata above.",
+  ]
+    .filter(Boolean)
+    .join("\n");
 
   const model = (process.env.CREDIT_AI_MODEL || "gpt-4o-mini").trim() || "gpt-4o-mini";
   const bodyTextRaw = await generateCreditText({ system, user, model });
