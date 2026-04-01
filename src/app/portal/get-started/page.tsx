@@ -10,6 +10,7 @@ import { useToast } from "@/components/ToastProvider";
 import { PortalListboxDropdown, type PortalListboxOption } from "@/components/PortalListboxDropdown";
 import { PortalMultiSelectDropdown } from "@/components/PortalMultiSelectDropdown";
 import { PortalSingleSelectDropdown } from "@/components/PortalSingleSelectDropdown";
+import { PORTAL_VARIANT_HEADER } from "@/lib/portalVariant";
 import {
   GET_STARTED_GOALS,
   goalLabelsFromIds,
@@ -109,8 +110,7 @@ function PortalGetStartedInner() {
   const toast = useToast();
 
   const portalBase = pathname.startsWith("/credit") ? "/credit" : "/portal";
-  // The authenticated app lives under /portal; /credit is a branded entrypoint.
-  const appBase = "/portal";
+  const appBase = portalBase;
   const logoSrc = portalBase === "/credit" ? "/brand/2.png" : "/brand/1.png";
 
   const checkoutState = (search?.get("checkout") || "").trim().toLowerCase();
@@ -329,7 +329,7 @@ function PortalGetStartedInner() {
     try {
       res = await fetch("/api/auth/client-signup", {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", [PORTAL_VARIANT_HEADER]: portalBase === "/credit" ? "credit" : "portal" },
         credentials: "include",
         body: JSON.stringify({
           name,
@@ -414,7 +414,7 @@ function PortalGetStartedInner() {
 
     const checkoutRes = await fetch("/api/portal/billing/onboarding-checkout", {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", [PORTAL_VARIANT_HEADER]: portalBase === "/credit" ? "credit" : "portal" },
       credentials: "include",
       body: JSON.stringify({
         planIds: upfrontPaidPlanIds,
@@ -429,7 +429,7 @@ function PortalGetStartedInner() {
     if (checkoutJson?.ok && checkoutJson?.bypass) {
       const confirmRes = await fetch("/api/portal/billing/onboarding-confirm", {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", [PORTAL_VARIANT_HEADER]: portalBase === "/credit" ? "credit" : "portal" },
         credentials: "include",
         body: JSON.stringify({ bypass: true }),
       });

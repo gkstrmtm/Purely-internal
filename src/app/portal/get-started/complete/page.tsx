@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
 import { AppModal } from "@/components/AppModal";
+import { PORTAL_VARIANT_HEADER } from "@/lib/portalVariant";
 
 export default function PortalGetStartedCompletePage() {
   return (
@@ -45,7 +46,7 @@ function PortalGetStartedCompleteInner() {
 
       const res = await fetch("/api/portal/billing/onboarding-confirm", {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", [PORTAL_VARIANT_HEADER]: portalBase === "/credit" ? "credit" : "portal" },
         body: JSON.stringify(bypass ? { bypass: true } : { sessionId }),
       });
 

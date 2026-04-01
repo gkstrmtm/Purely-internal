@@ -32,6 +32,8 @@ export default function PortalLoginClient() {
   const from = useMemo(() => safeInternalPath(fromRaw, defaultFrom), [fromRaw, defaultFrom]);
   const portalVariant = useMemo(() => (pathnameVariant === "credit" || from.startsWith("/credit") ? "credit" : "portal"), [from, pathnameVariant]);
   const apiBase = useMemo(() => (portalVariant === "credit" ? "/credit" : "/portal"), [portalVariant]);
+  const loginTitle = portalVariant === "credit" ? "Pure Credit Login" : "Client Portal Login";
+  const loginSubtitle = portalVariant === "credit" ? "Sign in to your Pure Credit account." : "Sign in to your client portal.";
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -58,7 +60,7 @@ export default function PortalLoginClient() {
     setLoading(false);
 
     if (!res.ok) {
-      toast.error("Incorrect username or incorrect password");
+      toast.error("Incorrect email or password");
       setFailedOnce(true);
       return;
     }
@@ -85,8 +87,8 @@ export default function PortalLoginClient() {
             />
           </div>
 
-          <h1 className="mt-6 text-xl font-semibold text-zinc-900">Client Portal Login</h1>
-          <p className="mt-2 text-base text-zinc-600">Sign in to your client portal.</p>
+          <h1 className="mt-6 text-xl font-semibold text-zinc-900">{loginTitle}</h1>
+          <p className="mt-2 text-base text-zinc-600">{loginSubtitle}</p>
 
           <form className="mt-6 space-y-5" onSubmit={onSubmit}>
             <div>
