@@ -34,6 +34,103 @@ type ReportFull = ReportLite & {
   items: ReportItemLite[];
 };
 
+type CreditRecommendation = {
+  title: string;
+  detail: string;
+};
+
+type CreditCardSuggestion = {
+  title: string;
+  detail: string;
+};
+
+function buildCreditRecommendations(args: {
+  contact: ContactLite | null;
+  report: ReportFull | null;
+  summary: { pending: number; negative: number; positive: number; tracked: number };
+}): {
+  actions: CreditRecommendation[];
+  cards: CreditCardSuggestion[];
+} {
+  const { report, summary } = args;
+  if (!report) return { actions: [], cards: [] };
+
+  const negativeItems = report.items.filter((item) => item.auditTag === "NEGATIVE");
+  const disputedItems = report.items.filter((item) => String(item.disputeStatus || "").trim().length > 0);
+  const bureauSet = new Set(
+    negativeItems
+      .map((item) => String(item.bureau || "").trim())
+      .filter(Boolean),
+  );
+
+  const actions: CreditRecommendation[] = [];
+  const cards: CreditCardSuggestion[] = [];
+
+  if (summary.negative > 0) {
+    actions.push({
+      title: `Open the next dispute round for ${summary.negative} negative item${summary.negative === 1 ? "" : "s"}`,
+      detail:
+        summary.negative >= 3
+          ? "Start with the highest-friction negatives first so the next letter batch stays focused and easier to track."
+          : "Move the remaining negatives into the next letter batch before they sit too long without follow-up.",
+    });
+  }
+
+  if (summary.pending > 0) {
+    actions.push({
+      title: `Finish auditing ${summary.pending} pending item${summary.pending === 1 ? "" : "s"}`,
+      detail: "Mark each pending line positive or negative so dispute tracking and next-step suggestions stay accurate.",
+    });
+  }
+
+  if (disputedItems.length > 0) {
+    actions.push({
+      title: "Refresh the report after bureau responses land",
+      detail: "Re-import the latest pull once tracked disputes update so you can clear resolved lines and focus the next round.",
+    });
+  }
+
+  if (bureauSet.size >= 2) {
+    actions.push({
+      title: "Split follow-up by bureau",
+      detail: "Negative lines are spread across multiple bureaus, so grouping letters by bureau will usually keep responses cleaner.",
+    });
+  }
+
+  if (summary.positive >= 2 && summary.negative <= 1) {
+    cards.push({
+      title: "Starter unsecured cashback card",
+      detail: "Worth comparing once this report stays mostly clean and the current positive history keeps aging in place.",
+    });
+  }
+
+  if (summary.negative >= 2 || summary.positive === 0) {
+    cards.push({
+      title: "Deposit-backed secured card",
+      detail: "A secured option can help add fresh positive history while older negatives are still being worked through.",
+    });
+  }
+
+  if (summary.positive >= 1 && summary.tracked >= 1) {
+    cards.push({
+      title: "Low-fee credit-builder card",
+      detail: "Useful to compare after at least one dispute batch is already tracked and one or more positive lines are established.",
+    });
+  }
+
+  if (cards.length === 0) {
+    cards.push({
+      title: "Pause new applications for now",
+      detail: "Finish tagging and dispute follow-up first, then compare card options once the report picture is cleaner.",
+    });
+  }
+
+  return {
+    actions: actions.slice(0, 3),
+    cards: cards.slice(0, 3),
+  };
+}
+
 async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
   const res = await fetch(url, {
     ...init,
@@ -143,6 +240,15 @@ export default function CreditReportsClient() {
     const tracked = items.filter((item) => String(item.disputeStatus || "").trim().length > 0).length;
     return { pending, negative, positive, tracked };
   }, [selectedReport]);
+  const recommendations = useMemo(
+    () =>
+      buildCreditRecommendations({
+        contact: selectedContact,
+        report: selectedReport,
+        summary: selectedReportSummary,
+      }),
+    [selectedContact, selectedReport, selectedReportSummary],
+  );
 
   const importReport = async () => {
     setBusy(true);
@@ -290,7 +396,6 @@ export default function CreditReportsClient() {
               {busy ? "Working…" : reports.some((report) => report.contactId === selectedContactId) ? "Re-import latest" : "Pull latest report"}
             </button>
           </div>
-          <div className="mt-2 text-xs text-zinc-500">Provider pull is ready for API credentials later; the workflow stays visible in the UI now.</div>
 
           {showAdvancedImport ? (
             <details className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
@@ -392,6 +497,45 @@ export default function CreditReportsClient() {
                   <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Tracked disputes</div>
                   <div className="mt-1 text-xl font-bold text-brand-ink">{selectedReportSummary.tracked}</div>
                 </div>
+              </div>
+
+              <div className="mt-4 grid gap-3 xl:grid-cols-[1.2fr_0.8fr]">
+                <section className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <div className="text-sm font-semibold text-zinc-900">Recommended next steps</div>
+                      <div className="mt-1 text-xs text-zinc-600">
+                        {selectedContact ? `Focused on ${selectedContact.name}.` : "Focused on the currently selected report."}
+                      </div>
+                    </div>
+                    <div className="rounded-full bg-white px-2.5 py-1 text-[11px] font-semibold text-zinc-500 ring-1 ring-inset ring-zinc-200">
+                      Live from this report
+                    </div>
+                  </div>
+                  <div className="mt-3 space-y-2.5">
+                    {recommendations.actions.map((item) => (
+                      <div key={item.title} className="rounded-2xl border border-zinc-200 bg-white p-3">
+                        <div className="text-sm font-semibold text-zinc-900">{item.title}</div>
+                        <div className="mt-1 text-sm text-zinc-600">{item.detail}</div>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+
+                <section className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+                  <div className="text-sm font-semibold text-zinc-900">Card options to compare later</div>
+                  <div className="mt-1 text-xs text-zinc-600">
+                    These are directional fits based on the current report mix here, not lender approvals or financial advice.
+                  </div>
+                  <div className="mt-3 space-y-2.5">
+                    {recommendations.cards.map((item) => (
+                      <div key={item.title} className="rounded-2xl border border-zinc-200 bg-white p-3">
+                        <div className="text-sm font-semibold text-zinc-900">{item.title}</div>
+                        <div className="mt-1 text-sm text-zinc-600">{item.detail}</div>
+                      </div>
+                    ))}
+                  </div>
+                </section>
               </div>
 
               <div className="scrollbar-none mt-4 overflow-x-auto rounded-2xl border border-zinc-200 pb-1">

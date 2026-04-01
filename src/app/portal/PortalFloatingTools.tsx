@@ -864,7 +864,9 @@ export function PortalFloatingTools() {
   function continueWithPura() {
     if (typeof window === "undefined") return;
     const target = chatThreadId ? `${portalBase}/app/ai-chat?thread=${encodeURIComponent(chatThreadId)}` : `${portalBase}/app/ai-chat`;
-    window.location.href = target;
+    window.dispatchEvent(new CustomEvent("pa.portal.topbar.intent", { detail: { hidden: true } }));
+    void router.prefetch(target);
+    router.push(target);
   }
 
   async function submit() {

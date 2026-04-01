@@ -31,18 +31,23 @@ export function PortalThemeClient({
   preferredMode: PortalThemeMode;
   children: ReactNode;
 }) {
-  const [previewMode, setPreviewMode] = useState<PortalThemeMode | null>(null);
+  const [activeMode, setActiveMode] = useState<PortalThemeMode>(preferredMode);
   const [deviceTheme, setDeviceTheme] = useState<"light" | "dark">(() => resolveTheme("device"));
   const [transitionsReady, setTransitionsReady] = useState(false);
-  const effectiveMode = previewMode ?? preferredMode;
+  const effectiveMode = activeMode;
   const resolvedTheme = effectiveMode === "device" ? deviceTheme : effectiveMode;
+
+  useEffect(() => {
+    setActiveMode(preferredMode);
+  }, [preferredMode]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
 
     const onPreview = (event: Event) => {
       const detail = (event as CustomEvent<PortalThemePreviewDetail>).detail;
-      setPreviewMode(normalizePreviewMode(detail?.mode));
+      const nextMode = normalizePreviewMode(detail?.mode);
+      if (nextMode) setActiveMode(nextMode);
     };
 
     window.addEventListener("pa.portal.theme-preview", onPreview as EventListener);
