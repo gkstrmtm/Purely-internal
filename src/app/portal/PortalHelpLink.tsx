@@ -10,7 +10,7 @@ function computeHelpHref(pathname: string | null): string {
 
   const isCredit = path.startsWith("/credit");
   const base = isCredit ? "/credit" : "/portal";
-  const internal = isCredit ? path.replace("/credit", "/portal") : path;
+  const internal = isCredit ? `/portal${path.slice("/credit".length) || ""}` : path;
 
   if (!internal.startsWith("/portal")) {
     return `${base}/tutorials`;

@@ -1,5 +1,6 @@
 "use client";
 
+import { usePathname } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { PortalListboxDropdown } from "@/components/PortalListboxDropdown";
 import { PortalMediaPickerModal } from "@/components/PortalMediaPickerModal";
@@ -253,6 +254,8 @@ function idFromLabel(label: string) {
 }
 
 export default function PortalReviewsClient() {
+  const pathname = usePathname();
+  const appBase = String(pathname || "").startsWith("/credit") ? "/credit/app" : "/portal/app";
   const toast = useToast();
 
   const isMobileApp = useMemo(() => {
@@ -1658,7 +1661,7 @@ export default function PortalReviewsClient() {
                   <div className="mt-2 flex flex-col items-start justify-between gap-2 sm:flex-row sm:items-center">
                     <div className="text-xs text-zinc-500">Domains come from Funnel Builder → Settings → Custom domains.</div>
                     <a
-                      href="/portal/app/services/funnel-builder/settings"
+                      href={`${appBase}/services/funnel-builder/settings`}
                       className="text-xs font-semibold text-(--color-brand-blue) hover:underline"
                     >
                       Add / manage domains

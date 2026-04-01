@@ -252,7 +252,7 @@ function AccentCard({
         <div className="text-sm font-semibold text-zinc-900">{title}</div>
         {showHandle ? <div className="drag-handle cursor-grab select-none text-zinc-400">⋮⋮</div> : null}
       </div>
-      <div className="mt-3 min-h-0 flex-1 overflow-auto pr-1 text-sm text-zinc-700">{children}</div>
+      <div className="scrollbar-gutter-stable mt-3 min-h-0 flex-1 overflow-auto pr-2 text-sm text-zinc-700">{children}</div>
     </div>
   );
 }
@@ -343,13 +343,10 @@ export function PortalDashboardClient() {
   const pathname = usePathname() || "";
   const toast = useToast();
   const portalBase = useMemo(() => (pathname.startsWith("/credit") ? "/credit" : "/portal"), [pathname]);
-  const isCreditApp = portalBase === "/credit";
   const [data, setData] = useState<MeResponse | null>(null);
   const [reporting, setReporting] = useState<ReportingPayload | null>(null);
   const [mediaStats, setMediaStats] = useState<MediaStatsPayload | null>(null);
   const [dashboard, setDashboard] = useState<DashboardPayload["data"] | null>(null);
-  const [dashboardPersisted, setDashboardPersisted] = useState(true);
-  const [showCreditStarterGrid, setShowCreditStarterGrid] = useState(false);
   const [salesStatus, setSalesStatus] = useState<SalesIntegrationStatusPayload | null>(null);
   const [salesReport, setSalesReport] = useState<SalesReportPayload | null>(null);
   const [salesError, setSalesError] = useState<string | null>(null);
@@ -452,7 +449,6 @@ export function PortalDashboardClient() {
         if (dashRes.ok) {
           const body = (await dashRes.json().catch(() => null)) as DashboardPayload | null;
           if (body?.ok && body.data) {
-            setDashboardPersisted(body.isPersisted !== false);
             setDashboard(body.data);
 
             const base: LayoutItem[] = (body.data.layout ?? []).map((l) => ({
@@ -1470,121 +1466,6 @@ export function PortalDashboardClient() {
   }
 
   const showEditControls = Boolean(dashboard);
-  const showCreditStarter = isCreditApp && !dashboardPersisted && !showCreditStarterGrid;
-
-  if (showCreditStarter) {
-    return (
-      <div className="space-y-6">
-        <div className="overflow-hidden rounded-4xl border border-zinc-200 bg-[radial-gradient(circle_at_top_left,rgba(29,78,216,0.12),transparent_36%),radial-gradient(circle_at_top_right,rgba(251,113,133,0.12),transparent_32%),linear-gradient(180deg,#ffffff_0%,#f8fafc_100%)] p-6 shadow-sm sm:p-8">
-          <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
-            <div className="max-w-3xl">
-              <div className="inline-flex items-center rounded-full border border-zinc-200 bg-white/80 px-3 py-1 text-xs font-semibold uppercase tracking-[0.24em] text-zinc-500">
-                Credit command center
-              </div>
-              <h2 className="mt-4 text-3xl font-bold tracking-tight text-brand-ink sm:text-4xl">Start with reports, disputes, and a clean client workflow.</h2>
-              <p className="mt-3 max-w-2xl text-sm leading-6 text-zinc-600 sm:text-base">
-                Import a report, audit the problem items, generate dispute rounds, and keep Pura one click away for the credit work you want handled inside the app.
-              </p>
-            </div>
-            <div className="flex flex-col gap-2 sm:flex-row">
-              <Link href={`${portalBase}/app/services/credit-reports`} className={dashboardPrimaryButtonClass}>
-                Import first report
-              </Link>
-              <Link href={`${portalBase}/app/services/dispute-letters`} className={dashboardSecondaryButtonClass}>
-                Open dispute letters
-              </Link>
-              <button
-                type="button"
-                className={dashboardSecondaryButtonClass}
-                onClick={() => setShowCreditStarterGrid(true)}
-              >
-                Customize dashboard
-              </button>
-            </div>
-          </div>
-
-          <div className="mt-6 grid gap-4 lg:grid-cols-4 sm:grid-cols-2">
-            {[
-              {
-                title: "Credit reports",
-                body: "Import or re-import reports, audit tradelines, and tag items as pending, negative, or positive.",
-                href: `${portalBase}/app/services/credit-reports`,
-                cta: "Open reports",
-              },
-              {
-                title: "Dispute letters",
-                body: "Draft letters by round, keep a reusable letter library, and export the finished package for delivery.",
-                href: `${portalBase}/app/services/dispute-letters`,
-                cta: "Open disputes",
-              },
-              {
-                title: "Pura actions",
-                body: "Use Pura to find reports, review disputes, draft letters, and jump straight into the credit workspace.",
-                href: `${portalBase}/app/ai-chat`,
-                cta: "Open Pura",
-              },
-              {
-                title: "Business setup",
-                body: "Finish business + appearance settings so templates, exports, and outbound messaging look production-ready.",
-                href: `${portalBase}/app/settings/business`,
-                cta: "Open settings",
-              },
-            ].map((card) => (
-              <Link
-                key={card.title}
-                href={card.href}
-                className="group rounded-3xl border border-zinc-200 bg-white/90 p-5 shadow-sm transition-all duration-150 hover:-translate-y-0.5 hover:border-zinc-300 hover:shadow-md"
-              >
-                <div className="text-lg font-semibold text-brand-ink">{card.title}</div>
-                <p className="mt-2 text-sm leading-6 text-zinc-600">{card.body}</p>
-                <div className="mt-4 text-sm font-semibold text-(--color-brand-blue) group-hover:underline">{card.cta}</div>
-              </Link>
-            ))}
-          </div>
-        </div>
-
-        <div className="grid gap-4 lg:grid-cols-[1.4fr_1fr]">
-          <div className="rounded-3xl border border-zinc-200 bg-white p-6 shadow-sm">
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <div className="text-sm font-semibold text-zinc-900">Quick stats</div>
-                <div className="mt-1 text-xs text-zinc-500">Your default launch snapshot for a new credit workspace.</div>
-              </div>
-              <Link href={`${portalBase}/app/billing`} className="text-sm font-semibold text-brand-ink hover:underline">
-                Billing
-              </Link>
-            </div>
-            <div className="mt-4 grid gap-3 sm:grid-cols-3">
-              <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
-                <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Credits</div>
-                <div className="mt-2 text-2xl font-bold text-brand-ink">{compactNum(reporting?.creditsRemaining ?? 0)}</div>
-                <div className="mt-1 text-xs text-zinc-500">Available for imports and automations</div>
-              </div>
-              <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
-                <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Hours saved</div>
-                <div className="mt-2 text-2xl font-bold text-brand-ink">{formatSavedTime(me.metrics.hoursSavedThisWeek)}</div>
-                <div className="mt-1 text-xs text-zinc-500">This week</div>
-              </div>
-              <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
-                <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Next move</div>
-                <div className="mt-2 text-base font-semibold text-brand-ink">Pull or import a report</div>
-                <div className="mt-1 text-xs text-zinc-500">Then audit + draft round one letters</div>
-              </div>
-            </div>
-          </div>
-
-          <div className="rounded-3xl border border-zinc-200 bg-white p-6 shadow-sm">
-            <div className="text-sm font-semibold text-zinc-900">Recommended first run</div>
-            <div className="mt-4 space-y-3 text-sm text-zinc-700">
-              <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">1. Import or re-import the client’s latest credit report.</div>
-              <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">2. Mark each item pending, negative, or positive and keep dispute status updated.</div>
-              <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">3. Generate the next dispute round, edit placeholders/templates, and export the letter package.</div>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div>

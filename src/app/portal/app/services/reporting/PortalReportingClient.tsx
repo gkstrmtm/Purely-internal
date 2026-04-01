@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { CSSProperties, useEffect, useMemo, useRef, useState } from "react";
 
 import { InlineSpinner } from "@/components/InlineSpinner";
@@ -127,6 +128,16 @@ type ServiceKey =
   | "inbox";
 
 type ServiceInfo = { key: ServiceKey; name: string; href: string | null };
+
+function currentPortalBase(pathname: string | null | undefined): "/portal" | "/credit" {
+  return String(pathname || "").startsWith("/credit") ? "/credit" : "/portal";
+}
+
+function toCurrentPortalHref(href: string | null, pathname: string | null | undefined) {
+  if (!href) return href;
+  const portalBase = currentPortalBase(pathname);
+  return href.startsWith("/portal") ? `${portalBase}${href.slice("/portal".length)}` : href;
+}
 
 const SERVICE_INFOS: ServiceInfo[] = [
   { key: "all", name: "All services", href: null },
@@ -578,6 +589,7 @@ function MenuButton({
 }
 
 export function PortalReportingClient() {
+  const pathname = usePathname() || "";
   const toast = useToast();
   const [range, setRange] = useState<RangeKey>("30d");
   const [data, setData] = useState<ReportingPayload | null>(null);
@@ -847,13 +859,13 @@ export function PortalReportingClient() {
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <Link
-            href="/portal/app/services/reporting/sales"
+            href={toCurrentPortalHref("/portal/app/services/reporting/sales", pathname) || "/portal/app/services/reporting/sales"}
             className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
           >
             Sales
           </Link>
           <Link
-            href="/portal/app/services"
+            href={toCurrentPortalHref("/portal/app/services", pathname) || "/portal/app/services"}
             className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
           >
             All services
@@ -1689,7 +1701,7 @@ export function PortalReportingClient() {
                   <ServicePerfCard
                     title="AI Receptionist"
                     tone="blue"
-                    href="/portal/app/services/ai-receptionist"
+                    href={toCurrentPortalHref("/portal/app/services/ai-receptionist", pathname) || "/portal/app/services/ai-receptionist"}
                     menu={
                       <MenuButton
                         id="perfAiReceptionist"
@@ -1713,7 +1725,7 @@ export function PortalReportingClient() {
                   <ServicePerfCard
                     title="Missed-Call Text Back"
                     tone="pink"
-                    href="/portal/app/services/missed-call-textback"
+                    href={toCurrentPortalHref("/portal/app/services/missed-call-textback", pathname) || "/portal/app/services/missed-call-textback"}
                     menu={
                       <MenuButton
                         id="perfMissedCallTextBack"
@@ -1737,7 +1749,7 @@ export function PortalReportingClient() {
                   <ServicePerfCard
                     title="Lead Scraping"
                     tone="emerald"
-                    href="/portal/app/services/lead-scraping"
+                    href={toCurrentPortalHref("/portal/app/services/lead-scraping", pathname) || "/portal/app/services/lead-scraping"}
                     menu={
                       <MenuButton
                         id="perfLeadScraping"
@@ -1761,7 +1773,7 @@ export function PortalReportingClient() {
                   <ServicePerfCard
                     title="Reviews"
                     tone="violet"
-                    href="/portal/app/services/reviews"
+                    href={toCurrentPortalHref("/portal/app/services/reviews", pathname) || "/portal/app/services/reviews"}
                     menu={
                       <MenuButton
                         id="perfReviews"

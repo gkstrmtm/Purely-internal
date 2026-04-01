@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { useToast } from "@/components/ToastProvider";
@@ -84,7 +85,9 @@ function buildBlocksFromSlots(slotKeys: string[]) {
 }
 
 export function PortalBookingAvailabilityClient({ variant = "page" }: { variant?: "page" | "modal" } = {}) {
+  const pathname = usePathname() || "";
   const toast = useToast();
+  const portalBase = useMemo(() => (pathname.startsWith("/credit") ? "/credit" : "/portal"), [pathname]);
   const [blocks, setBlocks] = useState<Block[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
@@ -231,7 +234,7 @@ export function PortalBookingAvailabilityClient({ variant = "page" }: { variant?
             </p>
           </div>
           <Link
-            href="/portal/app/services/booking"
+            href={`${portalBase}/app/services/booking`}
             className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink transition-all duration-150 hover:-translate-y-0.5 hover:bg-zinc-50"
           >
             Back

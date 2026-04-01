@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { headers } from "next/headers";
 
 export const dynamic = "force-dynamic";
 
@@ -20,6 +21,9 @@ export default async function PortalDiscountChooserPage({
 }: {
   searchParams: Promise<{ promoCode?: string; services?: string; campaignId?: string }>;
 }) {
+  const headerList = await headers();
+  const portalBase = headerList.get("x-portal-variant") === "credit" ? "/credit" : "/portal";
+  const appBase = `${portalBase}/app`;
   const sp = await searchParams;
   const promoCode = typeof sp?.promoCode === "string" ? sp.promoCode.trim() : "";
   const campaignId = typeof sp?.campaignId === "string" ? sp.campaignId.trim() : "";
@@ -43,7 +47,7 @@ export default async function PortalDiscountChooserPage({
             const qs = new URLSearchParams();
             if (promoCode) qs.set("promoCode", promoCode);
             if (campaignId) qs.set("campaignId", campaignId);
-            const href = `/portal/app/discount/${encodeURIComponent(slug)}?${qs.toString()}`;
+            const href = `${appBase}/discount/${encodeURIComponent(slug)}?${qs.toString()}`;
             return (
               <Link
                 key={slug}
@@ -57,7 +61,7 @@ export default async function PortalDiscountChooserPage({
         </div>
 
         <div className="mt-4">
-          <Link href="/portal/app/billing" className="text-sm font-semibold text-zinc-700 hover:text-zinc-900">
+          <Link href={`${appBase}/billing`} className="text-sm font-semibold text-zinc-700 hover:text-zinc-900">
             Back to Billing
           </Link>
         </div>

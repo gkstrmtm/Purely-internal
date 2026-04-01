@@ -100,6 +100,8 @@ function benefitCopyForService(serviceSlug: string, entitlementKey?: string) {
 export function PortalServicePageClient({ slug }: { slug: string }) {
   const pathname = usePathname();
   const variant = pathname === "/credit" || pathname.startsWith("/credit/") ? "credit" : "portal";
+  const portalBase = variant === "credit" ? "/credit" : "/portal";
+  const appBase = `${portalBase}/app`;
 
   const service = useMemo(
     () => {
@@ -167,10 +169,10 @@ export function PortalServicePageClient({ slug }: { slug: string }) {
 
   const billingUnlockHref =
     isPaused || isCanceled
-      ? "/portal/app/billing"
+      ? `${appBase}/billing`
       : entitlementKey
-        ? `/portal/app/billing?buy=${encodeURIComponent(entitlementKey)}&autostart=1`
-        : "/portal/app/billing";
+        ? `${appBase}/billing?buy=${encodeURIComponent(entitlementKey)}&autostart=1`
+        : `${appBase}/billing`;
 
   if (!service) {
     return (
@@ -261,7 +263,7 @@ export function PortalServicePageClient({ slug }: { slug: string }) {
               Unlock in Billing
             </Link>
             <Link
-              href="/portal/app/services"
+              href={`${appBase}/services`}
               className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-5 py-3 text-sm font-semibold text-brand-ink transition-all duration-150 hover:-translate-y-0.5 hover:border-zinc-300 hover:bg-zinc-50"
             >
               Back to services
@@ -288,7 +290,7 @@ export function PortalServicePageClient({ slug }: { slug: string }) {
           <p className="mt-2 max-w-2xl text-sm text-zinc-600">{service.description}</p>
         </div>
         <Link
-          href="/portal/app/services"
+          href={`${appBase}/services`}
           className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink transition-all duration-150 hover:-translate-y-0.5 hover:border-zinc-300 hover:bg-zinc-50"
         >
           All services
@@ -305,13 +307,13 @@ export function PortalServicePageClient({ slug }: { slug: string }) {
               </div>
               <div className="mt-5 flex flex-col gap-3 sm:flex-row">
                 <Link
-                  href="/portal/app/services/blogs"
+                  href={`${appBase}/services/blogs`}
                   className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-5 py-3 text-sm font-semibold text-white transition-transform duration-150 hover:-translate-y-0.5 hover:opacity-95"
                 >
                   Open Blogs
                 </Link>
                 <Link
-                  href="/portal/app/onboarding"
+                  href={`${appBase}/onboarding`}
                   className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-5 py-3 text-sm font-semibold text-brand-ink transition-all duration-150 hover:-translate-y-0.5 hover:border-zinc-300 hover:bg-zinc-50"
                 >
                   Onboarding
@@ -325,13 +327,13 @@ export function PortalServicePageClient({ slug }: { slug: string }) {
               </div>
               <div className="mt-5 flex flex-col gap-3 sm:flex-row">
                 <Link
-                  href="/portal/app/services/booking"
+                  href={`${appBase}/services/booking`}
                   className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-5 py-3 text-sm font-semibold text-white transition-transform duration-150 hover:-translate-y-0.5 hover:opacity-95"
                 >
                   Open Booking
                 </Link>
                 <Link
-                  href="/portal/app/onboarding"
+                  href={`${appBase}/onboarding`}
                   className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-5 py-3 text-sm font-semibold text-brand-ink transition-all duration-150 hover:-translate-y-0.5 hover:border-zinc-300 hover:bg-zinc-50"
                 >
                   Onboarding
@@ -345,13 +347,13 @@ export function PortalServicePageClient({ slug }: { slug: string }) {
               </div>
               <div className="mt-5 flex flex-col gap-3 sm:flex-row">
                 <Link
-                  href="/portal/app/services/lead-scraping"
+                  href={`${appBase}/services/lead-scraping`}
                   className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-5 py-3 text-sm font-semibold text-white transition-transform duration-150 hover:-translate-y-0.5 hover:opacity-95"
                 >
                   Open Lead Scraping
                 </Link>
                 <Link
-                  href="/portal/app/billing"
+                  href={`${appBase}/billing`}
                   className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-5 py-3 text-sm font-semibold text-brand-ink transition-all duration-150 hover:-translate-y-0.5 hover:border-zinc-300 hover:bg-zinc-50"
                 >
                   Billing
@@ -365,13 +367,13 @@ export function PortalServicePageClient({ slug }: { slug: string }) {
               </div>
               <div className="mt-5 flex flex-col gap-3 sm:flex-row">
                 <Link
-                  href="/portal/app/services/reporting"
+                  href={`${appBase}/services/reporting`}
                   className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-5 py-3 text-sm font-semibold text-white transition-transform duration-150 hover:-translate-y-0.5 hover:opacity-95"
                 >
                   Open Reporting
                 </Link>
                 <Link
-                  href="/portal/app/billing"
+                  href={`${appBase}/billing`}
                   className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-5 py-3 text-sm font-semibold text-brand-ink transition-all duration-150 hover:-translate-y-0.5 hover:border-zinc-300 hover:bg-zinc-50"
                 >
                   Billing
@@ -385,13 +387,13 @@ export function PortalServicePageClient({ slug }: { slug: string }) {
               </div>
               <div className="mt-5 flex flex-col gap-3 sm:flex-row">
                 <Link
-                  href="/portal/app/services/inbox"
+                  href={`${appBase}/services/inbox`}
                   className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-5 py-3 text-sm font-semibold text-white transition-transform duration-150 hover:-translate-y-0.5 hover:opacity-95"
                 >
                   Open Inbox
                 </Link>
                 <Link
-                  href="/portal/app/onboarding"
+                  href={`${appBase}/onboarding`}
                   className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-5 py-3 text-sm font-semibold text-brand-ink transition-all duration-150 hover:-translate-y-0.5 hover:border-zinc-300 hover:bg-zinc-50"
                 >
                   Onboarding
@@ -406,13 +408,13 @@ export function PortalServicePageClient({ slug }: { slug: string }) {
 
               <div className="mt-5 flex flex-col gap-3 sm:flex-row">
                 <Link
-                  href="/portal/app/onboarding"
+                  href={`${appBase}/onboarding`}
                   className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-5 py-3 text-sm font-semibold text-white transition-transform duration-150 hover:-translate-y-0.5 hover:opacity-95"
                 >
                   Complete onboarding
                 </Link>
                 <Link
-                  href="/portal/app/billing"
+                  href={`${appBase}/billing`}
                   className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-5 py-3 text-sm font-semibold text-brand-ink transition-all duration-150 hover:-translate-y-0.5 hover:border-zinc-300 hover:bg-zinc-50"
                 >
                   Billing

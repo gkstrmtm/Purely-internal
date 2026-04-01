@@ -3060,7 +3060,7 @@ export function PortalNewsletterClient({ initialAudience }: { initialAudience: A
                 <div className="mt-2 flex flex-col items-start justify-between gap-2 sm:flex-row sm:items-center">
                   <div className="text-xs text-zinc-500">Domains come from Funnel Builder → Settings → Custom domains.</div>
                   <Link
-                    href="/portal/app/services/funnel-builder/settings"
+                    href={`${basePath}/app/services/funnel-builder/settings`}
                     className="text-xs font-semibold text-[color:var(--color-brand-blue)] hover:underline"
                   >
                     Add / manage domains

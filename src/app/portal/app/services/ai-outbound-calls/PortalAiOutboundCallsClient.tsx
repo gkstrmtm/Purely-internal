@@ -2413,7 +2413,7 @@ export function PortalAiOutboundCallsClient(props: { initialTab?: OutboundTabKey
                         </div>
                       </div>
                       <Link
-                        href="/portal/app/services/inbox/email"
+                        href={pathname.startsWith("/credit") ? "/credit/app/services/inbox/email" : "/portal/app/services/inbox/email"}
                         className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
                       >
                         Open Inbox

@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { PortalMissedCallTextBackClient } from "@/app/portal/app/services/missed-call-textback/PortalMissedCallTextBackClient";
@@ -373,7 +374,9 @@ function MiniAudioPlayer(props: { src: string; durationHintSec?: number | null }
 }
 
 export function PortalAiReceptionistClient() {
+  const pathname = usePathname() || "";
   const toast = useToast();
+  const portalBase = useMemo(() => (pathname.startsWith("/credit") ? "/credit" : "/portal"), [pathname]);
 
   const isMobileApp = useMemo(() => {
     try {
@@ -439,7 +442,7 @@ export function PortalAiReceptionistClient() {
   }, [error, toast]);
 
   const [credits, setCredits] = useState<number | null>(null);
-  const [billingPath, setBillingPath] = useState<string>("/portal/app/billing");
+  const [billingPath, setBillingPath] = useState<string>(`${portalBase}/app/billing`);
 
   const [tab, setTab] = useState<"settings" | "testing" | "activity" | "missed-call-textback">("activity");
   const [settingsSubTab, setSettingsSubTab] = useState<"voice" | "sms">("voice");
@@ -840,14 +843,14 @@ export function PortalAiReceptionistClient() {
     const res = await fetch("/api/portal/credits", { cache: "no-store" }).catch(() => null as any);
     if (!res?.ok) {
       setCredits(0);
-      setBillingPath("/portal/app/billing");
+      setBillingPath(`${portalBase}/app/billing`);
       return;
     }
 
     const data = (await res.json().catch(() => ({}))) as { credits?: number; billingPath?: string };
     setCredits(typeof data.credits === "number" && Number.isFinite(data.credits) ? data.credits : 0);
-    setBillingPath(typeof data.billingPath === "string" && data.billingPath.trim() ? data.billingPath : "/portal/app/billing");
-  }, []);
+    setBillingPath(typeof data.billingPath === "string" && data.billingPath.trim() ? data.billingPath : `${portalBase}/app/billing`);
+  }, [portalBase]);
 
   const loadContactTags = useCallback(async () => {
     const res = await fetch("/api/portal/contact-tags", { cache: "no-store" }).catch(() => null as any);
@@ -1403,7 +1406,7 @@ export function PortalAiReceptionistClient() {
           <div className="mt-1 text-amber-900/80">
             Add your Twilio details in your Profile to enable inbound calls.
             <span className="ml-2">
-              <Link href="/portal/profile" className="underline">
+              <Link href={`${portalBase}/app/profile`} className="underline">
                 Open Profile
               </Link>
             </span>

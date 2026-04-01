@@ -394,7 +394,7 @@ export default function CreditReportsClient() {
                 </div>
               </div>
 
-              <div className="mt-4 overflow-x-auto rounded-2xl border border-zinc-200">
+              <div className="scrollbar-none mt-4 overflow-x-auto rounded-2xl border border-zinc-200 pb-1">
                 <div className="min-w-160">
                   <div className="grid grid-cols-[1fr_140px_160px] gap-0 border-b border-zinc-200 bg-zinc-50 px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">
                     <div>Item</div>
@@ -444,7 +444,7 @@ export default function CreditReportsClient() {
               {showAdvancedImport ? (
                 <details className="mt-4">
                   <summary className="cursor-pointer text-sm font-semibold text-zinc-800">Raw JSON (dev)</summary>
-                  <pre className="mt-2 max-h-105 overflow-auto rounded-2xl border border-zinc-200 bg-zinc-50 p-3 text-xs text-zinc-800">
+                  <pre className="scrollbar-none mt-2 max-h-105 overflow-auto rounded-2xl border border-zinc-200 bg-zinc-50 p-3 text-xs text-zinc-800">
                     {JSON.stringify(selectedReport.rawJson, null, 2)}
                   </pre>
                 </details>

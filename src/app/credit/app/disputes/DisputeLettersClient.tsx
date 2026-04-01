@@ -90,6 +90,11 @@ function classNames(...xs: Array<string | false | null | undefined>) {
   return xs.filter(Boolean).join(" ");
 }
 
+function templatePreviewText(template: (typeof LETTER_LIBRARY)[number], round: string) {
+  const roundLabel = round === "custom" ? "Custom escalation" : `Round ${round}`;
+  return `${template.bodyStarter}\n\nRound: ${roundLabel}`;
+}
+
 async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
   const res = await fetch(url, {
     ...init,
@@ -134,6 +139,7 @@ export default function DisputeLettersClient() {
     () => LETTER_LIBRARY.find((entry) => entry.key === selectedTemplateKey) || LETTER_LIBRARY[0],
     [selectedTemplateKey],
   );
+  const selectedTemplatePreview = useMemo(() => templatePreviewText(selectedTemplate, selectedRound), [selectedRound, selectedTemplate]);
 
   const loadContacts = useCallback(async (q: string) => {
     const url = `/api/portal/credit/contacts${q.trim() ? `?q=${encodeURIComponent(q.trim())}` : ""}`;
@@ -491,14 +497,9 @@ export default function DisputeLettersClient() {
           </aside>
 
           <main className="rounded-3xl border border-zinc-200 bg-white p-5">
-            <div className="flex flex-wrap items-start justify-between gap-3">
-              <div>
-                <div className="text-sm font-semibold">Generate + track rounds</div>
-                <div className="mt-1 text-xs text-zinc-600">Choose a round, use a library template, then edit the final letter before export or send.</div>
-              </div>
-              <div className="rounded-2xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs text-zinc-600">
-                Library + placeholders stay visible even before the API-side bureau integration is live.
-              </div>
+            <div>
+              <div className="text-sm font-semibold">Compose</div>
+              <div className="mt-1 text-xs text-zinc-600">Choose the round, review the template, then generate or edit the finished letter.</div>
             </div>
 
             <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
@@ -524,44 +525,48 @@ export default function DisputeLettersClient() {
               </label>
             </div>
 
-            <div className="mt-3 grid grid-cols-1 gap-3 xl:grid-cols-[1.15fr_0.85fr]">
+            <div className="mt-3 grid grid-cols-1 gap-3 xl:grid-cols-[280px_1fr]">
               <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
-                <div className="text-sm font-semibold text-zinc-900">Selected template</div>
-                <div className="mt-1 text-sm text-zinc-600">{selectedTemplate.prompt}</div>
-                <div className="mt-3 text-xs font-semibold uppercase tracking-wide text-zinc-500">Common placeholders</div>
-                <div className="mt-2 flex flex-wrap gap-2 text-xs text-zinc-600">
-                  {["{{consumer_name}}", "{{consumer_address}}", "{{bureau_name}}", "{{dispute_items}}", "{{report_date}}"].map((token) => (
-                    <span key={token} className="rounded-full border border-zinc-200 bg-white px-2.5 py-1 font-mono">
-                      {token}
-                    </span>
-                  ))}
+                <div className="text-sm font-semibold text-zinc-900">Templates</div>
+                <div className="mt-3 space-y-2">
+                  {LETTER_LIBRARY.map((template) => {
+                    const active = template.key === selectedTemplateKey;
+                    return (
+                      <button
+                        key={template.key}
+                        type="button"
+                        onClick={() => setSelectedTemplateKey(template.key)}
+                        className={classNames(
+                          "w-full rounded-2xl border px-3 py-3 text-left transition-colors",
+                          active ? "border-blue-300 bg-blue-50" : "border-zinc-200 bg-white hover:bg-zinc-50",
+                        )}
+                      >
+                        <div className="text-sm font-semibold text-zinc-900">{template.label}</div>
+                        <div className="mt-1 text-xs leading-5 text-zinc-600">{template.prompt}</div>
+                      </button>
+                    );
+                  })}
                 </div>
-                <div className="mt-3 flex flex-wrap gap-2">
-                  <button
-                    type="button"
-                    className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold hover:bg-zinc-50"
-                    onClick={() => setDisputesText((prev) => (prev.trim() ? `${prev}\n\nTemplate notes: ${selectedTemplate.prompt}` : selectedTemplate.prompt))}
-                  >
-                    Add template notes
-                  </button>
+              </div>
+
+              <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <div className="text-sm font-semibold text-zinc-900">{selectedTemplate.label}</div>
+                    <div className="mt-1 text-xs leading-5 text-zinc-600">{selectedTemplate.prompt}</div>
+                  </div>
                   <button
                     type="button"
                     className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold hover:bg-zinc-50"
                     onClick={() => setLetterDraftBody((prev) => (prev.trim() ? `${selectedTemplate.bodyStarter}\n\n${prev}` : selectedTemplate.bodyStarter))}
                     disabled={!selectedLetterId}
-                    title={selectedLetterId ? "" : "Select or generate a letter first"}
+                    title={selectedLetterId ? "" : "Generate or select a letter first"}
                   >
-                    Load into editor
+                    Use in editor
                   </button>
                 </div>
-              </div>
-
-              <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
-                <div className="text-sm font-semibold text-zinc-900">Letter workflow</div>
-                <div className="mt-3 space-y-2 text-sm text-zinc-700">
-                  <div className="rounded-xl border border-zinc-200 bg-white px-3 py-2">1. Re-import the latest report or pick the correct pull.</div>
-                  <div className="rounded-xl border border-zinc-200 bg-white px-3 py-2">2. Tag negatives, pending items, and positives before drafting the next round.</div>
-                  <div className="rounded-xl border border-zinc-200 bg-white px-3 py-2">3. Generate, edit placeholders/templates, then export or send.</div>
+                <div className="mt-3 rounded-2xl border border-zinc-200 bg-white p-4">
+                  <pre className="scrollbar-none overflow-auto whitespace-pre-wrap text-sm leading-6 text-zinc-700">{selectedTemplatePreview}</pre>
                 </div>
               </div>
             </div>
@@ -588,14 +593,14 @@ export default function DisputeLettersClient() {
             </div>
 
             <label className="mt-3 block">
-              <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">What are you disputing?</div>
+              <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Items to include</div>
               <textarea
                 value={disputesText}
                 onChange={(e) => setDisputesText(e.target.value)}
                 className="min-h-35 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
                 placeholder="Example:\n- Account XXXX reported 60 days late in Jan 2025, but payment was on time\n- Inquiry from ABC Bank on 02/10/2025 is not mine"
               />
-              <div className="mt-1 text-xs text-zinc-500">Tip: paste bullet points; we’ll turn it into a letter.</div>
+              <div className="mt-1 text-xs text-zinc-500">Paste the tradelines, inquiries, or notes you want included in this round.</div>
             </label>
 
             <div className="mt-3 flex flex-wrap gap-2">

@@ -41,6 +41,45 @@ html {
   background: var(--background);
   -webkit-text-size-adjust: 100%;
   text-size-adjust: 100%;
+  scrollbar-gutter: stable both-edges;
+}
+
+* {
+  scrollbar-color: rgba(100, 116, 139, 0.45) transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: rgba(100, 116, 139, 0.38);
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background-clip: padding-box;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: rgba(71, 85, 105, 0.52);
+  background-clip: padding-box;
+}
+
+.scrollbar-none {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
+}
+
+.scrollbar-gutter-stable {
+  scrollbar-gutter: stable both-edges;
 }
 
 img,
@@ -78,6 +117,23 @@ pre {
 :is([data-portal-theme="dark"], html[data-portal-theme="dark"]) body {
   background: var(--pa-portal-bg);
   color: var(--pa-portal-text);
+}
+
+[data-portal-theme="dark"] *,
+html[data-portal-theme="dark"] * {
+  scrollbar-color: rgba(148, 163, 184, 0.35) transparent;
+}
+
+[data-portal-theme="dark"] *::-webkit-scrollbar-thumb,
+html[data-portal-theme="dark"] *::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.3);
+  background-clip: padding-box;
+}
+
+[data-portal-theme="dark"] *::-webkit-scrollbar-thumb:hover,
+html[data-portal-theme="dark"] *::-webkit-scrollbar-thumb:hover {
+  background: rgba(148, 163, 184, 0.42);
+  background-clip: padding-box;
 }
 
 :is([data-portal-theme-ready="true"], html[data-portal-theme-ready="true"]) :is(

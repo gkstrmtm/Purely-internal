@@ -1,4 +1,5 @@
 "use client";
+import { usePathname } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { LocalTimePicker } from "@/components/LocalDateTimePicker";
@@ -574,6 +575,7 @@ function shouldAutolabel(currentLabel: string) {
 
 export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
   const mode = props.mode ?? "editor";
+  const pathname = usePathname();
   const toast = useToast();
   const isMobileApp = useMemo(() => {
     if (typeof window === "undefined") return false;
@@ -2025,7 +2027,8 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
   }
 
   function openAutomationEditorWindow(automationId: string) {
-    const url = `/portal/app/services/automations/editor?automation=${encodeURIComponent(automationId)}`;
+    const appBase = String(pathname || "").startsWith("/credit") ? "/credit/app" : "/portal/app";
+    const url = `${appBase}/services/automations/editor?automation=${encodeURIComponent(automationId)}`;
     window.open(url, "_blank", "noopener,noreferrer");
   }
 
@@ -2662,7 +2665,9 @@ export function PortalAutomationsClient(props: { mode?: "list" | "editor" }) {
               type="button"
               className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold hover:bg-zinc-50"
               onClick={() => {
-                window.location.href = "/portal/app/services/automations";
+                window.location.href = String(pathname || "").startsWith("/credit")
+                  ? "/credit/app/services/automations"
+                  : "/portal/app/services/automations";
               }}
             >
               Back

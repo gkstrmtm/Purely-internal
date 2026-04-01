@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { PortalPeopleTabs } from "@/app/portal/app/people/PortalPeopleTabs";
@@ -34,7 +35,9 @@ async function readJsonBody(res: Response): Promise<any | null> {
 }
 
 export function PortalPeopleContactDuplicatesClient() {
+  const pathname = usePathname() || "";
   const toast = useToast();
+  const portalBase = pathname.startsWith("/credit") ? "/credit" : "/portal";
   const [loading, setLoading] = useState(true);
   const [groups, setGroups] = useState<DuplicateGroup[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -153,7 +156,7 @@ export function PortalPeopleContactDuplicatesClient() {
         </div>
         <div className="flex items-center gap-2">
           <Link
-            href="/portal/app/people/contacts"
+            href={`${portalBase}/app/people/contacts`}
             className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
           >
             Back to contacts

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { PortalSettingsSection } from "@/components/PortalSettingsSection";
@@ -15,6 +15,10 @@ import { toPurelyHostedUrl } from "@/lib/publicHostedOrigin";
 import { IconEdit } from "@/app/portal/PortalIcons";
 
 export type BlogsTab = "posts" | "automation" | "settings";
+function currentAppBase(pathname: string | null | undefined) {
+  return String(pathname || "").startsWith("/credit") ? "/credit/app" : "/portal/app";
+}
+
 type FrequencyUnit = "days" | "weeks" | "months";
 
 type Me = {
@@ -127,6 +131,8 @@ export function PortalBlogsClient({
   onTabChange: (tab: BlogsTab) => void;
 }) {
   const toast = useToast();
+  const pathname = usePathname();
+  const appBase = currentAppBase(pathname);
   const searchParams = useSearchParams();
   const fromOnboarding = (searchParams?.get("from") || "").trim().toLowerCase() === "onboarding";
 
@@ -650,7 +656,7 @@ export function PortalBlogsClient({
       return;
     }
 
-    window.location.href = `/portal/app/services/blogs/${json.post.id}`;
+    window.location.href = `${appBase}/services/blogs/${json.post.id}`;
   }
 
   async function saveAutomation() {
@@ -743,13 +749,13 @@ export function PortalBlogsClient({
 
           <div className="mt-6 flex flex-col gap-3 sm:flex-row">
             <Link
-              href={withFromOnboarding("/portal/app/billing?buy=blog&autostart=1")}
+                      href={withFromOnboarding(`${appBase}/billing?buy=blog&autostart=1`)}
               className="inline-flex items-center justify-center rounded-2xl bg-(--color-brand-blue) px-5 py-3 text-sm font-semibold text-white hover:opacity-95"
             >
               Unlock in Billing
             </Link>
             <Link
-              href={withFromOnboarding("/portal/app/services")}
+                      href={withFromOnboarding(`${appBase}/services`)}
               className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-5 py-3 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
             >
               Back to services
@@ -922,7 +928,7 @@ export function PortalBlogsClient({
                       return (
                         <tr key={p.id} className="border-t border-zinc-200">
                           <td className="px-4 py-3">
-                            <Link href={`/portal/app/services/blogs/${p.id}`} className="font-semibold text-brand-ink hover:underline">
+                            <Link href={`${appBase}/services/blogs/${p.id}`} className="font-semibold text-brand-ink hover:underline">
                               {p.title || "Untitled"}
                             </Link>
                             <div className="mt-1 truncate text-xs text-zinc-500">/{p.slug}</div>
@@ -1147,7 +1153,7 @@ export function PortalBlogsClient({
                     return;
                   }
 
-                  window.location.href = `/portal/app/services/blogs/${json.postId}`;
+                  window.location.href = `${appBase}/services/blogs/${json.postId}`;
                 }}
                 className="inline-flex w-full items-center justify-center rounded-2xl bg-linear-to-r from-(--color-brand-blue) to-(--color-brand-pink) px-5 py-3 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
               >
@@ -1412,7 +1418,7 @@ export function PortalBlogsClient({
                       {!site ? "Pick a domain now and it will be applied when you create your blog workspace." : "Manage domains in Funnel Builder."}
                     </div>
                     <Link
-                      href="/portal/app/services/funnel-builder/settings"
+                      href={`${appBase}/services/funnel-builder/settings`}
                       className="text-xs font-semibold text-(--color-brand-blue) hover:underline"
                     >
                       Add / manage domains
@@ -1560,7 +1566,7 @@ export function PortalBlogsClient({
                         className="w-full px-4 py-3 text-left text-sm font-semibold text-brand-ink hover:bg-zinc-50"
                         onClick={() => {
                           setOpenPostMenu(null);
-                          window.location.href = `/portal/app/services/blogs/${p.id}`;
+                          window.location.href = `${appBase}/services/blogs/${p.id}`;
                         }}
                         aria-label="Edit"
                         title="Edit"

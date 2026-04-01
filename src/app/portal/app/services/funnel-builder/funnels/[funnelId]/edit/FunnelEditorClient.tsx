@@ -1114,7 +1114,7 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                 <div className="flex flex-col gap-2 px-4 py-3 lg:flex-row lg:items-center lg:justify-between">
                   <div className="flex flex-wrap items-center gap-3">
                     <Link
-                      href="/portal/app/services/funnel-builder"
+                      href={pathname.startsWith("/credit") ? "/credit/app/services/funnel-builder" : "/portal/app/services/funnel-builder"}
                       className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-zinc-900 hover:bg-zinc-50"
                     >
                       ← Back

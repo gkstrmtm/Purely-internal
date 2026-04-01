@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import { PORTAL_SERVICES } from "@/app/portal/services/catalog";
@@ -200,7 +201,9 @@ function ToggleSwitch({
 }
 
 export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) {
+  const pathname = usePathname() || "";
   const toast = useToast();
+  const portalBase = useMemo(() => (pathname.startsWith("/credit") ? "/credit" : "/portal"), [pathname]);
   const [knownContactCustomVarKeys, setKnownContactCustomVarKeys] = useState<string[]>([]);
 
   const isMobileApp = useMemo(() => {
@@ -871,13 +874,13 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
           </div>
           <div className="mt-6 flex flex-col gap-3 sm:flex-row">
             <Link
-              href="/portal/app/billing?buy=booking"
+              href={`${portalBase}/app/billing?buy=booking`}
               className="inline-flex items-center justify-center rounded-2xl bg-(--color-brand-blue) px-5 py-3 text-sm font-semibold text-white hover:opacity-95"
             >
               Enable booking to unlock
             </Link>
             <Link
-              href={isEmbedded ? "/portal/app/services/booking?tab=follow-up" : "/portal/app/services"}
+              href={isEmbedded ? `${portalBase}/app/services/booking?tab=follow-up` : `${portalBase}/app/services`}
               className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-5 py-3 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
             >
               {isEmbedded ? "Back to booking" : "Back to services"}
@@ -903,7 +906,7 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
             ) : null}
           </div>
           <Link
-            href="/portal/app/services"
+            href={`${portalBase}/app/services`}
             className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
           >
             All services
@@ -1965,7 +1968,7 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
                     const Row = ({ children }: { children: ReactNode }) =>
                       canLink ? (
                         <a
-                          href={`/portal/app/services/inbox/${q.channel === "SMS" ? "sms" : "email"}?to=${encodeURIComponent(q.to || "")}`}
+                          href={`${portalBase}/app/services/inbox/${q.channel === "SMS" ? "sms" : "email"}?to=${encodeURIComponent(q.to || "")}`}
                           className="grid grid-cols-12 gap-2 px-4 py-3 text-sm hover:bg-zinc-50"
                           title="Open thread in Inbox"
                         >
@@ -2016,7 +2019,7 @@ export function PortalFollowUpClient({ embedded }: { embedded?: boolean } = {}) 
             </div>
             <div className="mt-5">
               <Link
-                href="/portal/app/services/booking/appointments"
+                href={`${portalBase}/app/services/booking/appointments`}
                 className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
               >
                 View bookings

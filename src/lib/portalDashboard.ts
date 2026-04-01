@@ -206,17 +206,17 @@ function creditDefaultDashboard(): PortalDashboardData {
     version: 1,
     widgets: [
       { id: "hoursSaved" },
-      { id: "billing" },
       { id: "creditsRemaining" },
       { id: "services" },
+      { id: "billing" },
       { id: "dailyActivity" },
     ],
     layout: [
-      { i: "hoursSaved", x: 0, y: 0, w: 3, h: 8, minW: 3, minH: 6 },
-      { i: "billing", x: 3, y: 0, w: 3, h: 8, minW: 3, minH: 6 },
-      { i: "creditsRemaining", x: 6, y: 0, w: 3, h: 8, minW: 3, minH: 6 },
-      { i: "services", x: 9, y: 0, w: 3, h: 8, minW: 3, minH: 6 },
-      { i: "dailyActivity", x: 0, y: 8, w: 12, h: 16, minW: 6, minH: 12 },
+      { i: "hoursSaved", x: 0, y: 0, w: 4, h: 8, minW: 3, minH: 6 },
+      { i: "creditsRemaining", x: 4, y: 0, w: 4, h: 8, minW: 3, minH: 6 },
+      { i: "billing", x: 8, y: 0, w: 4, h: 8, minW: 3, minH: 6 },
+      { i: "services", x: 0, y: 8, w: 5, h: 14, minW: 4, minH: 8 },
+      { i: "dailyActivity", x: 5, y: 8, w: 7, h: 14, minW: 6, minH: 10 },
     ],
   };
 }

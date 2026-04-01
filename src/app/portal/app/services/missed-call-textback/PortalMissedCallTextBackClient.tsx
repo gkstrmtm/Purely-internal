@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { PortalMediaPickerModal, type PortalMediaPickItem } from "@/components/PortalMediaPickerModal";
@@ -73,7 +74,9 @@ function badgeClass(kind: string) {
 }
 
 export function PortalMissedCallTextBackClient({ embedded }: { embedded?: boolean } = {}) {
+  const pathname = usePathname() || "";
   const toast = useToast();
+  const portalBase = useMemo(() => (pathname.startsWith("/credit") ? "/credit" : "/portal"), [pathname]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const hasLoadedOnceRef = useRef(false);
@@ -390,7 +393,7 @@ export function PortalMissedCallTextBackClient({ embedded }: { embedded?: boolea
             ) : null}
           </div>
           <Link
-            href="/portal/app/services"
+            href={`${portalBase}/app/services`}
             className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
           >
             All services
@@ -405,7 +408,7 @@ export function PortalMissedCallTextBackClient({ embedded }: { embedded?: boolea
             Configure Twilio in your Profile to enable texting.
             {twilioReason ? ` (${twilioReason})` : ""}
             <span className="ml-2">
-              <Link href="/portal/profile" className="underline">
+              <Link href={`${portalBase}/app/profile`} className="underline">
                 Open Profile
               </Link>
             </span>

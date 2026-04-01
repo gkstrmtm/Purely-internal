@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { InlineSpinner } from "@/components/InlineSpinner";
@@ -66,6 +67,8 @@ function classNames(...xs: Array<string | false | null | undefined>) {
 
 export function PortalStripeSalesClient() {
   const toast = useToast();
+  const pathname = usePathname();
+  const appBase = String(pathname || "").startsWith("/credit") ? "/credit/app" : "/portal/app";
 
   const [status, setStatus] = useState<StripeIntegrationStatus | null>(null);
   const [range, setRange] = useState<RangeKey>("30d");
@@ -147,13 +150,13 @@ export function PortalStripeSalesClient() {
         </div>
         <div className="flex gap-2">
           <Link
-            href="/portal/app/services/reporting"
+            href={`${appBase}/services/reporting`}
             className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
           >
             Back to Reporting
           </Link>
           <Link
-            href="/portal/app/profile"
+            href={`${appBase}/profile`}
             className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
           >
             Stripe settings
@@ -167,7 +170,7 @@ export function PortalStripeSalesClient() {
           <div className="mt-2 text-sm text-zinc-600">Connect your Stripe secret key in Profile to enable this dashboard.</div>
           <div className="mt-4">
             <Link
-              href="/portal/app/profile"
+              href={`${appBase}/profile`}
               className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-5 py-3 text-sm font-semibold text-white hover:opacity-95"
             >
               Connect Stripe

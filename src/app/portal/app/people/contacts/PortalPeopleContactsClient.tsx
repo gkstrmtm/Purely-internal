@@ -1,6 +1,6 @@
 "use client";
 
-import { useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { PortalPeopleTabs } from "@/app/portal/app/people/PortalPeopleTabs";
@@ -286,8 +286,10 @@ async function readJsonBody(res: Response): Promise<any | null> {
 
 export function PortalPeopleContactsClient() {
   const toast = useToast();
+  const pathname = usePathname() || "";
   const router = useRouter();
   const searchParams = useSearchParams();
+  const portalBase = pathname.startsWith("/credit") ? "/credit" : "/portal";
   const lastLoadedAtRef = useRef<number>(0);
   const createdCustomVarRef = useRef<{ key: string; value: string } | null>(null);
   const [loading, setLoading] = useState(true);
@@ -1241,7 +1243,7 @@ export function PortalPeopleContactsClient() {
                   duplicateGroupsCount > 0 ? (
                     <button
                       type="button"
-                      onClick={() => router.push("/portal/app/people/contacts/duplicates")}
+                      onClick={() => router.push(`${portalBase}/app/people/contacts/duplicates`)}
                       className="rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-900 hover:bg-amber-100"
                       title="Duplicates are grouped by phone number"
                     >
@@ -1407,7 +1409,7 @@ export function PortalPeopleContactsClient() {
                   {duplicateGroupsCount > 0 ? (
                     <button
                       type="button"
-                      onClick={() => router.push("/portal/app/people/contacts/duplicates")}
+                      onClick={() => router.push(`${portalBase}/app/people/contacts/duplicates`)}
                       className="rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-900 hover:bg-amber-100"
                       title="Duplicates are grouped by phone number"
                     >
@@ -2534,8 +2536,8 @@ export function PortalPeopleContactsClient() {
                     href={(() => {
                       const to = (detail?.phone || "").trim();
                       return to
-                        ? `/portal/app/services/inbox?channel=sms&compose=1&to=${encodeURIComponent(to)}`
-                        : "/portal/app/services/inbox?channel=sms&compose=1";
+                        ? `${portalBase}/app/services/inbox?channel=sms&compose=1&to=${encodeURIComponent(to)}`
+                        : `${portalBase}/app/services/inbox?channel=sms&compose=1`;
                     })()}
                   >
                     New SMS
@@ -2545,8 +2547,8 @@ export function PortalPeopleContactsClient() {
                     href={(() => {
                       const to = (detail?.email || "").trim();
                       return to
-                        ? `/portal/app/services/inbox?channel=email&compose=1&to=${encodeURIComponent(to)}`
-                        : "/portal/app/services/inbox?channel=email&compose=1";
+                        ? `${portalBase}/app/services/inbox?channel=email&compose=1&to=${encodeURIComponent(to)}`
+                        : `${portalBase}/app/services/inbox?channel=email&compose=1`;
                     })()}
                   >
                     New Email
@@ -2790,7 +2792,7 @@ export function PortalPeopleContactsClient() {
                           <div className="mt-2">
                             <a
                               className="text-xs font-semibold text-brand-ink hover:underline"
-                              href={`/portal/app/services/inbox?channel=${String(t.channel).toLowerCase() === "sms" ? "sms" : "email"}&threadId=${encodeURIComponent(t.id)}`}
+                              href={`${portalBase}/app/services/inbox?channel=${String(t.channel).toLowerCase() === "sms" ? "sms" : "email"}&threadId=${encodeURIComponent(t.id)}`}
                             >
                               Open thread
                             </a>

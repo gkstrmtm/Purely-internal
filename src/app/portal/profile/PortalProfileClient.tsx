@@ -1889,7 +1889,7 @@ export function PortalProfileClient({ embedded, mode = "all" }: { embedded?: boo
                           </button>
                           <div className="flex flex-wrap items-center gap-2">
                             <Link
-                              href="/portal/app/services/reporting/sales"
+                              href={`${portalBase}/app/services/reporting/sales`}
                               className="inline-flex items-center justify-center rounded-2xl px-2 py-1 text-sm font-semibold text-(--color-brand-blue) underline underline-offset-4 transition-transform duration-150 hover:-translate-y-0.5"
                             >
                               Open Sales Dashboard →

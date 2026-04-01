@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { InlineSpinner } from "@/components/InlineSpinner";
@@ -63,9 +63,11 @@ function classNames(...xs: Array<string | false | null | undefined>) {
 
 export function PortalSalesReportingClient() {
   const toast = useToast();
+  const pathname = usePathname() || "";
   const searchParams = useSearchParams();
+  const portalBase = useMemo(() => (pathname.startsWith("/credit") ? "/credit" : "/portal"), [pathname]);
   const from = String(searchParams?.get("from") || "").toLowerCase();
-  const backHref = from === "dashboard" ? "/portal/app" : "/portal/app/services/reporting";
+  const backHref = from === "dashboard" ? `${portalBase}/app` : `${portalBase}/app/services/reporting`;
   const backLabel = from === "dashboard" ? "Back to Dashboard" : "Back to Reporting";
 
   const [status, setStatus] = useState<SalesStatusPayload | null>(null);
@@ -154,7 +156,7 @@ export function PortalSalesReportingClient() {
             {backLabel}
           </Link>
           <Link
-            href="/portal/app/profile"
+            href={`${portalBase}/app/profile`}
             className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
           >
             Sales settings
@@ -288,7 +290,7 @@ export function PortalSalesReportingClient() {
           <div className="mt-2 text-sm text-zinc-600">Connect a payment processor in Profile to enable sales reporting.</div>
           <div className="mt-4">
             <Link
-              href="/portal/app/profile"
+              href={`${portalBase}/app/profile`}
               className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-5 py-3 text-sm font-semibold text-white hover:opacity-95"
             >
               Connect a provider

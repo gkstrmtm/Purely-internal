@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { PortalFollowUpClient } from "@/app/portal/app/services/follow-up/PortalFollowUpClient";
@@ -310,6 +311,8 @@ function toAvailabilityPathname(pathname: string) {
 }
 
 export function PortalBookingClient() {
+  const pathname = usePathname();
+  const appBase = String(pathname || "").startsWith("/credit") ? "/credit/app" : "/portal/app";
   const toast = useToast();
   const [knownContactCustomVarKeys, setKnownContactCustomVarKeys] = useState<string[]>([]);
 
@@ -1525,13 +1528,13 @@ export function PortalBookingClient() {
 
           <div className="mt-6 flex flex-col gap-3 sm:flex-row">
             <Link
-              href="/portal/app/billing?buy=booking&autostart=1"
+              href={`${appBase}/billing?buy=booking&autostart=1`}
               className="inline-flex items-center justify-center rounded-2xl bg-[color:var(--color-brand-blue)] px-5 py-3 text-sm font-semibold text-white hover:opacity-95"
             >
               Unlock in Billing
             </Link>
             <Link
-              href="/portal/app/services"
+              href={`${appBase}/services`}
               className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-5 py-3 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
             >
               Back to services
@@ -2578,11 +2581,11 @@ export function PortalBookingClient() {
                   (() => {
                     const inboxHref =
                       e.channel === "EMAIL" && e.to
-                        ? `/portal/app/services/inbox/email?to=${encodeURIComponent(e.to)}`
+                        ? `${appBase}/services/inbox/email?to=${encodeURIComponent(e.to)}`
                         : e.smsTo
-                          ? `/portal/app/services/inbox/sms?to=${encodeURIComponent(e.smsTo)}`
+                          ? `${appBase}/services/inbox/sms?to=${encodeURIComponent(e.smsTo)}`
                           : e.contactPhoneRaw
-                            ? `/portal/app/services/inbox/sms?to=${encodeURIComponent(e.contactPhoneRaw)}`
+                            ? `${appBase}/services/inbox/sms?to=${encodeURIComponent(e.contactPhoneRaw)}`
                             : null;
 
                     const Card = (
@@ -3000,7 +3003,7 @@ export function PortalBookingClient() {
 
             <div className="mt-2 flex flex-col items-start justify-between gap-2 sm:flex-row sm:items-center">
               <div className="text-xs text-zinc-500">Domains come from Funnel Builder → Settings → Custom domains.</div>
-              <a href="/portal/app/services/funnel-builder/settings" className="text-xs font-semibold text-[color:var(--color-brand-blue)] hover:underline">
+              <a href={`${appBase}/services/funnel-builder/settings`} className="text-xs font-semibold text-[color:var(--color-brand-blue)] hover:underline">
                 Add / manage domains
               </a>
             </div>
