@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useState } from "react";
 import { usePathname } from "next/navigation";
 
 import { PortalListboxDropdown, type PortalListboxOption } from "@/components/PortalListboxDropdown";
@@ -33,97 +33,110 @@ type LetterFull = LetterLite & {
   pdfMediaItem?: { id: string; publicToken: string } | null;
 };
 
-type PdfResponse =
-  | {
-      ok: true;
-      pdf: {
-        mediaItemId: string;
-        openUrl: string;
-        downloadUrl: string;
-        shareUrl: string;
-        generatedAt?: string | null;
-      };
-    }
-  | { ok: false; error?: string };
+type RecipientPreset = {
+  key: string;
+  label: string;
+  aliases: string[];
+  address: string;
+};
 
-const LETTER_STAGE_OPTIONS: PortalListboxOption<string>[] = [
-  { value: "initial-review", label: "Initial review" },
-  { value: "follow-up", label: "Follow-up review" },
-  { value: "escalated", label: "Escalated review" },
+type TemplateConfig = {
+  key: string;
+  label: string;
+  summary: string;
+  education: string;
+  prompt: string;
+  starter: string;
+  cadenceDays: number;
+  nextTemplateKey: string;
+};
+
+const ROUND_OPTIONS: PortalListboxOption<string>[] = Array.from({ length: 8 }, (_, index) => ({
+  value: String(index + 1),
+  label: `Round ${index + 1}`,
+}));
+
+const STRATEGY_OPTIONS: PortalListboxOption<string>[] = [
+  { value: "initial", label: "Initial investigation" },
+  { value: "followup", label: "Follow-up demand" },
+  { value: "escalated", label: "Escalated reinvestigation" },
   { value: "custom", label: "Custom strategy" },
 ];
 
-const LETTER_LIBRARY = [
+const CADENCE_OPTIONS: PortalListboxOption<string>[] = [
+  { value: "15", label: "15 days" },
+  { value: "21", label: "21 days" },
+  { value: "30", label: "30 days" },
+  { value: "45", label: "45 days" },
+];
+
+const RECIPIENT_PRESETS: RecipientPreset[] = [
+  { key: "experian", label: "Experian", aliases: ["experian"], address: "Experian\nP.O. Box 4500\nAllen, TX 75013" },
+  { key: "equifax", label: "Equifax", aliases: ["equifax"], address: "Equifax Information Services LLC\nP.O. Box 740256\nAtlanta, GA 30374-0256" },
+  { key: "transunion", label: "TransUnion", aliases: ["transunion", "trans union"], address: "TransUnion Consumer Solutions\nP.O. Box 2000\nChester, PA 19016-2000" },
+  { key: "furnisher", label: "Original Creditor / Furnisher", aliases: ["furnisher", "creditor"], address: "{{furnisher_name}}\n{{furnisher_address}}" },
+  { key: "collector", label: "Collection Agency", aliases: ["collector", "collection agency"], address: "{{collection_agency_name}}\n{{collection_agency_address}}" },
+];
+
+const TEMPLATES: TemplateConfig[] = [
   {
     key: "bureau-general",
-    label: "General bureau investigation request",
-    summary: "Use when the report has inaccurate balances, dates, statuses, or other bureau-reporting errors.",
-    education: "Best when you want a clean investigation request that lists the items and asks the bureau to verify each one carefully.",
-    prompt: "Draft a professional bureau dispute letter that requests reinvestigation of inaccurate reporting under the FCRA without sounding aggressive or generic.",
-    bodyStarter:
-      "Date: {{today}}\n\n{{recipient_name}}\n{{recipient_address}}\n\nRe: Request for investigation of inaccurate credit reporting\n\nTo whom it may concern,\n\nI am writing to request an investigation of information appearing on my credit file that I believe is inaccurate or incomplete. Please review the items listed below, verify them against your records, and delete or correct any information that cannot be fully verified.\n\nItems I am disputing:\n{{dispute_items}}\n\nPlease send me the results of your investigation and an updated copy of my report after your review is complete. Thank you for your prompt attention to this matter.\n\nSincerely,\n{{consumer_name}}",
+    label: "General bureau investigation demand",
+    summary: "Use for inaccurate balances, dates, statuses, ownership details, or incomplete reporting.",
+    education: "This prompt is built to generate a real mailed dispute with a clear opening, specific factual framing, and a direct reinvestigation request instead of a short generic note.",
+    prompt: "Write a substantive bureau dispute letter under the FCRA. Make it specific, professional, and natural. Ask for a meaningful reinvestigation and deletion or correction of any item that cannot be verified accurately and completely.",
+    starter: "Re: Formal dispute and request for reinvestigation of inaccurate credit reporting",
+    cadenceDays: 21,
+    nextTemplateKey: "bureau-followup",
+  },
+  {
+    key: "bureau-followup",
+    label: "Follow-up after weak bureau response",
+    summary: "Use when a previous dispute did not fix the reporting or produced a vague response.",
+    education: "This pushes for a more documented reinvestigation and asks what records were actually reviewed.",
+    prompt: "Write a firm follow-up bureau dispute letter after prior notice failed to resolve the issue. Reference prior correspondence naturally, but do not use internal workflow labels like round numbers.",
+    starter: "Re: Follow-up dispute regarding unresolved inaccurate credit reporting",
+    cadenceDays: 21,
+    nextTemplateKey: "furnisher-direct",
   },
   {
     key: "late-payment",
-    label: "Late payment correction request",
-    summary: "Use when a late mark was reported incorrectly, paid on time, or should be updated after supporting proof.",
-    education: "Strong when you have payment proof, bank records, or account history showing the late status is wrong or overstated.",
-    prompt: "Draft a dispute letter focused on inaccurate late-payment reporting and request correction or deletion after investigation.",
-    bodyStarter:
-      "Date: {{today}}\n\n{{recipient_name}}\n{{recipient_address}}\n\nRe: Inaccurate late-payment reporting\n\nTo whom it may concern,\n\nI am disputing late-payment information that appears to be inaccurate on my credit report. I am requesting that you review the payment history, account records, and reporting details for the items below and correct any late marks that cannot be verified as accurate.\n\nItems I am disputing:\n{{dispute_items}}\n\nIf your investigation confirms the reporting is incomplete or incorrect, please update the account history and send me written confirmation of the correction.\n\nSincerely,\n{{consumer_name}}",
+    label: "Late-payment accuracy challenge",
+    summary: "Use for incorrect delinquency marks, overstated late history, or payment timing issues.",
+    education: "A strong late-payment dispute should ask for review of posting history, account notes, and furnished payment data.",
+    prompt: "Write a detailed dispute letter focused on inaccurate late-payment reporting. Ask for review of payment history, posting records, and furnished status details.",
+    starter: "Re: Dispute of inaccurate late-payment reporting",
+    cadenceDays: 15,
+    nextTemplateKey: "bureau-followup",
   },
   {
     key: "identity-theft",
-    label: "Identity theft or not-mine account dispute",
-    summary: "Use when the consumer does not recognize the account, inquiry, or personal information showing on the report.",
-    education: "Works best when paired with an identity theft report, FTC affidavit, police report, or a clear statement that the item is not theirs.",
-    prompt: "Draft a dispute letter for accounts, inquiries, or personal information the consumer states are not theirs or may be identity theft related.",
-    bodyStarter:
-      "Date: {{today}}\n\n{{recipient_name}}\n{{recipient_address}}\n\nRe: Dispute of accounts or inquiries not belonging to me\n\nTo whom it may concern,\n\nI am writing to dispute information on my credit report that does not belong to me. The items below are unfamiliar to me and may be the result of identity theft, mixed file information, or reporting error. Please investigate these items, block or remove any information that is not mine, and send me written confirmation once your review is complete.\n\nItems I am disputing:\n{{dispute_items}}\n\nThank you for your prompt attention to this matter.\n\nSincerely,\n{{consumer_name}}",
+    label: "Identity theft / not-mine dispute",
+    summary: "Use when the account, inquiry, or personal information does not belong to the consumer.",
+    education: "This should clearly state the consumer disputes ownership and expects the item to be investigated, blocked, deleted, or corrected.",
+    prompt: "Write a detailed identity theft or not-mine dispute letter. Make the ownership dispute clear and ask for investigation and removal of any information that does not belong to the consumer.",
+    starter: "Re: Dispute of accounts or information not belonging to me",
+    cadenceDays: 15,
+    nextTemplateKey: "bureau-followup",
   },
   {
-    key: "collection-account",
-    label: "Collection account verification request",
-    summary: "Use when a collection account lacks clear ownership, amount accuracy, dates, or complete verification.",
-    education: "Helpful when the collection agency data is inconsistent, incomplete, duplicated, or unsupported by the file details you have.",
-    prompt: "Draft a dispute letter requesting investigation and verification of collection-account reporting that appears inaccurate, incomplete, or unsupported.",
-    bodyStarter:
-      "Date: {{today}}\n\n{{recipient_name}}\n{{recipient_address}}\n\nRe: Request to investigate collection-account reporting\n\nTo whom it may concern,\n\nI am requesting an investigation of collection-account information reported on my credit file that appears inaccurate, incomplete, or unsupported. Please review the ownership details, balance, dates, and reporting history for the items below and remove or correct any information that cannot be properly verified.\n\nItems I am disputing:\n{{dispute_items}}\n\nPlease provide the results of your investigation and an updated report once the review has been completed.\n\nSincerely,\n{{consumer_name}}",
+    key: "furnisher-direct",
+    label: "Direct dispute to furnisher or creditor",
+    summary: "Use when the next move should go to the furnisher instead of another bureau-only request.",
+    education: "This asks the furnisher to investigate source records and correct downstream furnishing if the account data is wrong.",
+    prompt: "Write a direct dispute letter to a creditor or furnisher asking for review of source account records, balances, dates, account ownership, and payment history.",
+    starter: "Re: Direct dispute of inaccurate furnished account information",
+    cadenceDays: 30,
+    nextTemplateKey: "bureau-followup",
   },
-  {
-    key: "mixed-file",
-    label: "Mixed file / personal information mismatch",
-    summary: "Use when addresses, employers, aliases, or accounts appear to belong to another person with a similar identity.",
-    education: "Useful when the profile itself looks crossed with someone else and the reporting errors trace back to personal-information mismatches.",
-    prompt: "Draft a dispute letter focused on mixed-file issues, incorrect personal information, and the need to separate another consumer's data from this file.",
-    bodyStarter:
-      "Date: {{today}}\n\n{{recipient_name}}\n{{recipient_address}}\n\nRe: Mixed file and inaccurate identifying information\n\nTo whom it may concern,\n\nI am disputing identifying information and related reporting on my credit file that appears to be mixed with another consumer. Please review the personal information and associated accounts listed below and remove, correct, or separate any information that does not belong on my file.\n\nItems I am disputing:\n{{dispute_items}}\n\nPlease confirm the corrections made after your investigation is complete.\n\nSincerely,\n{{consumer_name}}",
-  },
-  {
-    key: "inquiry",
-    label: "Unauthorized inquiry challenge",
-    summary: "Use when a hard inquiry is unfamiliar, unauthorized, or should not have been reported to the file.",
-    education: "Best for inquiry disputes where the consumer does not recognize the lender, did not authorize the pull, or believes it is attached to the wrong file.",
-    prompt: "Draft a concise credit-bureau dispute letter challenging unauthorized or inaccurate hard inquiries.",
-    bodyStarter:
-      "Date: {{today}}\n\n{{recipient_name}}\n{{recipient_address}}\n\nRe: Dispute of unauthorized inquiry reporting\n\nTo whom it may concern,\n\nI am disputing one or more inquiries appearing on my credit report that I do not recognize or did not authorize. Please investigate the items below and remove any inquiry that cannot be verified as permissible and accurate.\n\nItems I am disputing:\n{{dispute_items}}\n\nPlease send me written confirmation after your investigation is complete.\n\nSincerely,\n{{consumer_name}}",
-  },
-] as const;
+];
 
-function classNames(...xs: Array<string | false | null | undefined>) {
-  return xs.filter(Boolean).join(" ");
+function classNames(...values: Array<string | false | null | undefined>) {
+  return values.filter(Boolean).join(" ");
 }
 
-function statusLabel(status: LetterLite["status"]) {
-  if (status === "GENERATED") return "Generated";
-  if (status === "SENT") return "Sent";
-  return "Draft";
-}
-
-function statusClasses(status: LetterLite["status"]) {
-  if (status === "GENERATED") return "border-emerald-200 bg-emerald-50 text-emerald-700";
-  if (status === "SENT") return "border-blue-200 bg-blue-50 text-blue-700";
-  return "border-zinc-200 bg-zinc-100 text-zinc-700";
+function normalize(value: string | null | undefined) {
+  return String(value || "").trim().toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
 }
 
 function formatDateTime(value: string | null | undefined) {
@@ -135,15 +148,19 @@ function formatDateTime(value: string | null | undefined) {
   }
 }
 
-function buildDisputesText(items: string[]) {
-  return items
-    .map((item) => String(item || "").trim())
-    .filter(Boolean)
-    .map((item) => `- ${item}`)
-    .join("\n");
+function statusLabel(status: LetterLite["status"]) {
+  if (status === "GENERATED") return "Generated";
+  if (status === "SENT") return "Sent";
+  return "Draft";
 }
 
-function buildLetterRoutes(pathname: string | null) {
+function statusClasses(status: LetterLite["status"]) {
+  if (status === "GENERATED") return "border-emerald-200 bg-emerald-50 text-emerald-700";
+  if (status === "SENT") return "border-sky-200 bg-sky-50 text-sky-700";
+  return "border-zinc-200 bg-zinc-100 text-zinc-700";
+}
+
+function routesFor(pathname: string | null) {
   const current = String(pathname || "");
   if (current.startsWith("/credit/app/disputes")) {
     return {
@@ -163,135 +180,95 @@ function buildLetterRoutes(pathname: string | null) {
   };
 }
 
-function toLetterLite(letter: LetterFull): LetterLite {
-  return {
-    id: letter.id,
-    status: letter.status,
-    subject: letter.subject,
-    createdAt: letter.createdAt,
-    updatedAt: letter.updatedAt,
-    generatedAt: letter.generatedAt,
-    sentAt: letter.sentAt,
-    lastSentTo: letter.lastSentTo,
-    contactId: letter.contactId,
-    creditPullId: letter.creditPullId,
-    contact: letter.contact,
-  };
+function findRecipientPreset(recipientName: string) {
+  const q = normalize(recipientName);
+  if (!q) return null;
+  return RECIPIENT_PRESETS.find((preset) => normalize(preset.label) === q || preset.aliases.some((alias) => normalize(alias) === q)) || null;
+}
+
+function toPrompt(template: TemplateConfig, round: number, cadenceDays: number, nextTemplateLabel: string, recipientName: string) {
+  const roundLine = round <= 1
+    ? "This is the first dispute attempt for these issues."
+    : `Treat this as follow-up correspondence after prior notice. This is the ${round}th internal round, but do not mention round numbers in the final letter.`;
+  return [
+    template.prompt,
+    roundLine,
+    `Recipient context: ${recipientName || "custom recipient"}.`,
+    `If the problem is not corrected, the next follow-up target is about ${cadenceDays} days away.`,
+    `If unresolved, the likely next template is ${nextTemplateLabel}.`,
+    "Make the output longer and more specific than a stock template.",
+  ].join("\n\n");
 }
 
 async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(url, {
+  const response = await fetch(url, {
     ...init,
     headers: {
       "content-type": "application/json",
       ...(init?.headers || {}),
     },
   });
-  const json = (await res.json().catch(() => null)) as T | null;
-  if (!res.ok || !json) {
-    const msg = (json as any)?.error ? String((json as any).error) : `Request failed (${res.status})`;
-    throw new Error(msg);
+  const json = (await response.json().catch(() => null)) as T | null;
+  if (!response.ok || !json) {
+    throw new Error((json as { error?: string } | null)?.error || `Request failed (${response.status})`);
   }
   return json;
 }
 
-export default function DisputeLettersClient({
-  mode = "list",
-  initialLetterId = "",
-}: {
-  mode?: "list" | "editor";
-  initialLetterId?: string;
-}) {
+export default function DisputeLettersClient({ mode = "list", initialLetterId = "" }: { mode?: "list" | "editor"; initialLetterId?: string }) {
   const pathname = usePathname();
-  const routes = useMemo(() => buildLetterRoutes(pathname), [pathname]);
+  const routeSet = useMemo(() => routesFor(pathname), [pathname]);
+  const datalistId = useId();
 
   const [error, setError] = useState<string | null>(null);
+  const [letters, setLetters] = useState<LetterLite[]>([]);
+  const [contacts, setContacts] = useState<ContactLite[]>([]);
   const [lettersLoading, setLettersLoading] = useState(false);
   const [contactsLoading, setContactsLoading] = useState(false);
   const [letterLoading, setLetterLoading] = useState(false);
-  const [working, setWorking] = useState<null | "generate" | "save" | "send" | "pdf">(null);
+  const [working, setWorking] = useState<"generate" | "save" | "send" | "pdf" | null>(null);
+  const [selectedLetterId, setSelectedLetterId] = useState(initialLetterId);
+  const [selectedLetter, setSelectedLetter] = useState<LetterFull | null>(null);
+  const [subject, setSubject] = useState("");
+  const [bodyText, setBodyText] = useState("");
+  const [pdfDownloadUrl, setPdfDownloadUrl] = useState("");
+  const [search, setSearch] = useState("");
+  const [contactQuery, setContactQuery] = useState("");
+  const [composerOpen, setComposerOpen] = useState(false);
+  const [contactId, setContactId] = useState("");
+  const [strategy, setStrategy] = useState("initial");
+  const [round, setRound] = useState("1");
+  const [templateKey, setTemplateKey] = useState(TEMPLATES[0].key);
+  const [recipientName, setRecipientName] = useState("");
+  const [recipientAddress, setRecipientAddress] = useState("");
+  const [recipientAddressManual, setRecipientAddressManual] = useState(false);
+  const [cadenceDays, setCadenceDays] = useState(String(TEMPLATES[0].cadenceDays));
+  const [items, setItems] = useState([""]);
 
-  const [contacts, setContacts] = useState<ContactLite[]>([]);
-  const [draftContactQuery, setDraftContactQuery] = useState("");
-  const [draftContactId, setDraftContactId] = useState("");
-  const [selectedContactId, setSelectedContactId] = useState("");
-
-  const [selectedStage, setSelectedStage] = useState<string>("initial-review");
-  const [selectedTemplateKey, setSelectedTemplateKey] = useState<string>(LETTER_LIBRARY[0]?.key || "bureau-general");
-  const [recipientName, setRecipientName] = useState<string>("");
-  const [recipientAddress, setRecipientAddress] = useState<string>("");
-  const [disputeItems, setDisputeItems] = useState<string[]>([""]);
-  const [isComposerOpen, setIsComposerOpen] = useState(false);
-
-  const [letters, setLetters] = useState<LetterLite[]>([]);
-  const [letterQuery, setLetterQuery] = useState("");
-  const [selectedLetterId, setSelectedLetterId] = useState<string>(initialLetterId);
-  const [selectedLetterSnapshot, setSelectedLetterSnapshot] = useState<LetterFull | null>(null);
-  const [letterDraftSubject, setLetterDraftSubject] = useState<string>("");
-  const [letterDraftBody, setLetterDraftBody] = useState<string>("");
-  const [pdfDownloadUrl, setPdfDownloadUrl] = useState<string>("");
-
-  const templateOptions = useMemo(
-    () => LETTER_LIBRARY.map((template) => ({ value: template.key, label: template.label })) as PortalListboxOption<string>[],
-    [],
-  );
-  const selectedTemplate = useMemo(
-    () => LETTER_LIBRARY.find((entry) => entry.key === selectedTemplateKey) || LETTER_LIBRARY[0],
-    [selectedTemplateKey],
-  );
-
-  const selectedLetter = useMemo(() => {
-    const fromList = letters.find((letter) => letter.id === selectedLetterId);
-    if (fromList) return fromList;
-    if (selectedLetterSnapshot && selectedLetterSnapshot.id === selectedLetterId) return toLetterLite(selectedLetterSnapshot);
-    return null;
-  }, [letters, selectedLetterId, selectedLetterSnapshot]);
-
-  const selectedContact = useMemo(() => {
-    const fromContacts = contacts.find((contact) => contact.id === selectedContactId);
-    if (fromContacts) return fromContacts;
-    if (selectedLetterSnapshot?.contact && selectedLetterSnapshot.contact.id === selectedContactId) return selectedLetterSnapshot.contact;
-    return null;
-  }, [contacts, selectedContactId, selectedLetterSnapshot]);
-
-  const draftContact = useMemo(() => {
-    const fromContacts = contacts.find((contact) => contact.id === draftContactId);
-    if (fromContacts) return fromContacts;
-    if (selectedLetterSnapshot?.contact && selectedLetterSnapshot.contact.id === draftContactId) return selectedLetterSnapshot.contact;
-    return null;
-  }, [contacts, draftContactId, selectedLetterSnapshot]);
-
+  const template = useMemo(() => TEMPLATES.find((entry) => entry.key === templateKey) || TEMPLATES[0], [templateKey]);
+  const roundNumber = useMemo(() => Math.max(1, Number.parseInt(round, 10) || 1), [round]);
+  const cadenceNumber = useMemo(() => Math.max(1, Number.parseInt(cadenceDays, 10) || template.cadenceDays), [cadenceDays, template.cadenceDays]);
+  const recipientPreset = useMemo(() => findRecipientPreset(recipientName), [recipientName]);
+  const nextTemplate = useMemo(() => TEMPLATES.find((entry) => entry.key === template.nextTemplateKey) || template, [template]);
   const filteredLetters = useMemo(() => {
-    const query = letterQuery.trim().toLowerCase();
-    if (!query) return letters;
-    return letters.filter((letter) => {
-      const haystack = [letter.subject, letter.contact?.name, letter.contact?.email, letter.status]
-        .map((value) => String(value || "").toLowerCase())
-        .join(" ");
-      return haystack.includes(query);
-    });
-  }, [letterQuery, letters]);
+    const q = search.trim().toLowerCase();
+    if (!q) return letters;
+    return letters.filter((letter) => [letter.subject, letter.contact.name, letter.contact.email, letter.status].map((value) => String(value || "").toLowerCase()).join(" ").includes(q));
+  }, [letters, search]);
+  const cleanItems = useMemo(() => items.map((item) => item.trim()).filter(Boolean), [items]);
+  const recipientSuggestions = useMemo(() => {
+    const q = normalize(recipientName);
+    if (!q) return RECIPIENT_PRESETS;
+    return RECIPIENT_PRESETS.filter((preset) => [preset.label, ...preset.aliases].map(normalize).join(" ").includes(q));
+  }, [recipientName]);
+  const templateOptions = useMemo(() => TEMPLATES.map((entry) => ({ value: entry.key, label: entry.label })), []);
+  const canGenerate = Boolean(contactId && recipientName.trim() && cleanItems.length);
 
-  const cleanDisputeItems = useMemo(
-    () => disputeItems.map((item) => String(item || "").trim()).filter(Boolean),
-    [disputeItems],
-  );
-
-  const canGenerate = Boolean(draftContactId && cleanDisputeItems.length > 0);
-  const editorReady = mode === "editor" && Boolean(selectedLetterId);
-
-  const loadContacts = useCallback(async (query: string) => {
+  const loadContacts = useCallback(async (query = "") => {
     setContactsLoading(true);
-    const url = `/api/portal/credit/contacts${query.trim() ? `?q=${encodeURIComponent(query.trim())}` : ""}`;
     try {
-      const json = await fetchJson<{ ok: true; contacts: Array<any> }>(url, { cache: "no-store" as any });
-      const next: ContactLite[] = (json.contacts || []).map((contact: any) => ({
-        id: String(contact.id),
-        name: String(contact.name || ""),
-        email: contact.email ? String(contact.email) : null,
-        phone: contact.phone ? String(contact.phone) : null,
-      }));
-      setContacts(next);
+      const data = await fetchJson<{ ok: true; contacts: ContactLite[] }>(`/api/portal/credit/contacts${query.trim() ? `?q=${encodeURIComponent(query.trim())}` : ""}`, { cache: "no-store" });
+      setContacts(data.contacts || []);
     } finally {
       setContactsLoading(false);
     }
@@ -300,8 +277,8 @@ export default function DisputeLettersClient({
   const loadLetters = useCallback(async () => {
     setLettersLoading(true);
     try {
-      const json = await fetchJson<{ ok: true; letters: LetterLite[] }>("/api/portal/credit/disputes", { cache: "no-store" as any });
-      setLetters(json.letters || []);
+      const data = await fetchJson<{ ok: true; letters: LetterLite[] }>("/api/portal/credit/disputes", { cache: "no-store" });
+      setLetters(data.letters || []);
     } finally {
       setLettersLoading(false);
     }
@@ -310,23 +287,15 @@ export default function DisputeLettersClient({
   const loadLetter = useCallback(async (letterId: string) => {
     if (!letterId) return;
     setLetterLoading(true);
-    setPdfDownloadUrl("");
     try {
-      const json = await fetchJson<{ ok: true; letter: LetterFull }>(
-        `/api/portal/credit/disputes/${encodeURIComponent(letterId)}`,
-        { cache: "no-store" as any },
-      );
-      const letter = json.letter;
-      setSelectedLetterSnapshot(letter);
-      setSelectedLetterId(letter.id);
-      setSelectedContactId(letter.contactId);
-      setLetterDraftSubject(letter.subject || "");
-      setLetterDraftBody(letter.bodyText || "");
-
-      const media = letter.pdfMediaItem;
-      if (media?.id && media?.publicToken) {
-        const openUrl = `/api/public/media/item/${media.id}/${media.publicToken}`;
-        setPdfDownloadUrl(`${openUrl}?download=1`);
+      const data = await fetchJson<{ ok: true; letter: LetterFull }>(`/api/portal/credit/disputes/${encodeURIComponent(letterId)}`, { cache: "no-store" });
+      setSelectedLetter(data.letter);
+      setSubject(data.letter.subject || "");
+      setBodyText(data.letter.bodyText || "");
+      if (data.letter.pdfMediaItem?.id && data.letter.pdfMediaItem?.publicToken) {
+        setPdfDownloadUrl(`/api/public/media/item/${data.letter.pdfMediaItem.id}/${data.letter.pdfMediaItem.publicToken}?download=1`);
+      } else {
+        setPdfDownloadUrl("");
       }
     } finally {
       setLetterLoading(false);
@@ -334,546 +303,266 @@ export default function DisputeLettersClient({
   }, []);
 
   useEffect(() => {
-    let cancelled = false;
-    setError(null);
-    void (async () => {
-      try {
-        await Promise.all([loadContacts(""), loadLetters()]);
-      } catch (e: any) {
-        if (cancelled) return;
-        setError(e?.message ? String(e.message) : "Failed to load");
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
+    void Promise.all([loadContacts(), loadLetters()]).catch((cause: unknown) => {
+      setError(cause instanceof Error ? cause.message : "Failed to load dispute letters");
+    });
   }, [loadContacts, loadLetters]);
 
   useEffect(() => {
-    if (!selectedLetterId) {
-      if (mode === "editor") {
-        setSelectedLetterSnapshot(null);
-        setLetterDraftSubject("");
-        setLetterDraftBody("");
-        setPdfDownloadUrl("");
-      }
-      return;
-    }
-    let cancelled = false;
-    setError(null);
-    void (async () => {
-      try {
-        await loadLetter(selectedLetterId);
-      } catch (e: any) {
-        if (cancelled) return;
-        setError(e?.message ? String(e.message) : "Failed to load letter");
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [loadLetter, mode, selectedLetterId]);
+    if (!selectedLetterId) return;
+    void loadLetter(selectedLetterId).catch((cause: unknown) => {
+      setError(cause instanceof Error ? cause.message : "Failed to load letter");
+    });
+  }, [loadLetter, selectedLetterId]);
+
+  useEffect(() => {
+    setCadenceDays(String(template.cadenceDays));
+  }, [template]);
+
+  useEffect(() => {
+    if (!recipientPreset || recipientAddressManual) return;
+    setRecipientAddress(recipientPreset.address);
+  }, [recipientAddressManual, recipientPreset]);
 
   const openComposer = useCallback(() => {
-    setDraftContactId(selectedContactId || "");
-    setDraftContactQuery("");
-    setSelectedStage("initial-review");
-    setSelectedTemplateKey(LETTER_LIBRARY[0]?.key || "bureau-general");
+    setComposerOpen(true);
+    setContactId(selectedLetter?.contactId || "");
+    setStrategy("initial");
+    setRound("1");
+    setTemplateKey(TEMPLATES[0].key);
     setRecipientName("");
     setRecipientAddress("");
-    setDisputeItems([""]);
-    setIsComposerOpen(true);
-  }, [selectedContactId]);
-
-  const closeComposer = useCallback(() => {
-    if (working === "generate") return;
-    setIsComposerOpen(false);
-  }, [working]);
-
-  const updateDisputeItem = useCallback((index: number, value: string) => {
-    setDisputeItems((prev) => {
-      const next = [...prev];
-      next[index] = value;
-      return next;
-    });
-  }, []);
-
-  const removeDisputeItem = useCallback((index: number) => {
-    setDisputeItems((prev) => {
-      const next = prev.filter((_, itemIndex) => itemIndex !== index);
-      return next.length ? next : [""];
-    });
-  }, []);
+    setRecipientAddressManual(false);
+    setCadenceDays(String(TEMPLATES[0].cadenceDays));
+    setItems([""]);
+  }, [selectedLetter?.contactId]);
 
   const generateLetter = useCallback(async () => {
-    if (!canGenerate) return;
     setWorking("generate");
     setError(null);
     try {
-      const disputesText = buildDisputesText(cleanDisputeItems);
-      const json = await fetchJson<{ ok: true; letter: LetterFull; pdf?: { downloadUrl?: string | null } }>(
-        "/api/portal/credit/disputes",
-        {
-          method: "POST",
-          body: JSON.stringify({
-            contactId: draftContactId,
-            recipientName: recipientName.trim() || undefined,
-            recipientAddress: recipientAddress.trim() || undefined,
-            disputesText,
-            letterStageLabel:
-              LETTER_STAGE_OPTIONS.find((entry) => entry.value === selectedStage)?.label || "Initial review",
-            templateLabel: selectedTemplate.label,
-            templatePrompt: selectedTemplate.prompt,
-            templateBodyStarter: selectedTemplate.bodyStarter,
-          }),
-        },
-      );
+      const selectedContact = contacts.find((entry) => entry.id === contactId);
+      const data = await fetchJson<{ ok: true; letter: LetterFull; pdf?: { downloadUrl?: string | null } }>("/api/portal/credit/disputes", {
+        method: "POST",
+        body: JSON.stringify({
+          contactId,
+          recipientName: recipientName.trim(),
+          recipientAddress: recipientAddress.trim(),
+          disputesText: cleanItems.map((item) => `- ${item}`).join("\n"),
+          letterStageLabel: `${STRATEGY_OPTIONS.find((entry) => entry.value === strategy)?.label || "Initial investigation"} • Round ${roundNumber}`,
+          templateLabel: template.label,
+          templatePrompt: toPrompt(template, roundNumber, cadenceNumber, nextTemplate.label, recipientName.trim()),
+          templateBodyStarter: template.starter,
+          subjectLine: `${selectedContact?.name || "Contact"} - ${recipientName.trim()} - Round ${roundNumber} - ${template.label}`,
+          roundNumber,
+          followUpDays: cadenceNumber,
+          nextRoundNumber: Math.min(12, roundNumber + 1),
+          recommendedNextTemplateLabel: nextTemplate.label,
+          recipientPresetLabel: recipientPreset?.label,
+        }),
+      });
       await loadLetters();
-      setIsComposerOpen(false);
-      setSelectedLetterSnapshot(json.letter);
-      setSelectedLetterId(json.letter.id);
-      setSelectedContactId(json.letter.contactId);
-      setLetterDraftSubject(json.letter.subject || "");
-      setLetterDraftBody(json.letter.bodyText || "");
-      setPdfDownloadUrl(typeof json.pdf?.downloadUrl === "string" ? json.pdf.downloadUrl : "");
-      window.location.href = routes.editorHref(json.letter.id);
-    } catch (e: any) {
-      setError(e?.message ? String(e.message) : "Failed to generate");
+      setComposerOpen(false);
+      setSelectedLetterId(data.letter.id);
+      window.location.href = routeSet.editorHref(data.letter.id);
+    } catch (cause: unknown) {
+      setError(cause instanceof Error ? cause.message : "Failed to generate letter");
     } finally {
       setWorking(null);
     }
-  }, [
-    canGenerate,
-    cleanDisputeItems,
-    draftContactId,
-    loadLetters,
-    recipientAddress,
-    recipientName,
-    routes,
-    selectedStage,
-    selectedTemplate,
-  ]);
-
-  const ensurePdf = useCallback(async () => {
-    if (!selectedLetterId) return;
-    setWorking("pdf");
-    setError(null);
-    try {
-      const json = await fetchJson<PdfResponse>(
-        `/api/portal/credit/disputes/${encodeURIComponent(selectedLetterId)}/pdf`,
-        { method: "POST", body: JSON.stringify({}) },
-      );
-      if (json.ok) setPdfDownloadUrl(json.pdf.downloadUrl);
-      await loadLetter(selectedLetterId);
-      await loadLetters();
-    } catch (e: any) {
-      setError(e?.message ? String(e.message) : "Failed to generate PDF");
-    } finally {
-      setWorking(null);
-    }
-  }, [loadLetter, loadLetters, selectedLetterId]);
+  }, [cadenceNumber, cleanItems, contactId, contacts, loadLetters, nextTemplate.label, recipientAddress, recipientName, recipientPreset?.label, roundNumber, routeSet, strategy, template]);
 
   const saveLetter = useCallback(async () => {
     if (!selectedLetterId) return;
     setWorking("save");
-    setError(null);
     try {
-      const json = await fetchJson<{ ok: true; letter: Partial<LetterFull> & { contact?: ContactLite } }>(
-        `/api/portal/credit/disputes/${encodeURIComponent(selectedLetterId)}`,
-        {
-          method: "PATCH",
-          body: JSON.stringify({
-            subject: letterDraftSubject.trim(),
-            bodyText: letterDraftBody,
-          }),
-        },
-      );
-      setSelectedLetterSnapshot((prev) => {
-        if (!prev) return prev;
-        return {
-          ...prev,
-          ...json.letter,
-          contactId: prev.contactId,
-          creditPullId: prev.creditPullId,
-          contact: json.letter.contact || prev.contact,
-          subject: typeof json.letter.subject === "string" ? json.letter.subject : prev.subject,
-          bodyText: typeof json.letter.bodyText === "string" ? json.letter.bodyText : prev.bodyText,
-          status: (json.letter.status as LetterLite["status"] | undefined) || prev.status,
-          updatedAt: typeof json.letter.updatedAt === "string" ? json.letter.updatedAt : prev.updatedAt,
-        };
+      await fetchJson(`/api/portal/credit/disputes/${encodeURIComponent(selectedLetterId)}`, {
+        method: "PATCH",
+        body: JSON.stringify({ subject: subject.trim(), bodyText }),
       });
-      await loadLetters();
       await loadLetter(selectedLetterId);
-    } catch (e: any) {
-      setError(e?.message ? String(e.message) : "Failed to save");
+      await loadLetters();
     } finally {
       setWorking(null);
     }
-  }, [letterDraftBody, letterDraftSubject, loadLetter, loadLetters, selectedLetterId]);
+  }, [bodyText, loadLetter, loadLetters, selectedLetterId, subject]);
 
   const sendLetter = useCallback(async () => {
     if (!selectedLetterId) return;
     setWorking("send");
-    setError(null);
     try {
-      await fetchJson<{ ok: true }>(`/api/portal/credit/disputes/${encodeURIComponent(selectedLetterId)}/send`, {
-        method: "POST",
-        body: JSON.stringify({}),
-      });
-      await loadLetters();
+      await fetchJson(`/api/portal/credit/disputes/${encodeURIComponent(selectedLetterId)}/send`, { method: "POST", body: JSON.stringify({}) });
       await loadLetter(selectedLetterId);
-    } catch (e: any) {
-      setError(e?.message ? String(e.message) : "Failed to send");
+      await loadLetters();
     } finally {
       setWorking(null);
     }
   }, [loadLetter, loadLetters, selectedLetterId]);
 
+  const refreshPdf = useCallback(async () => {
+    if (!selectedLetterId) return;
+    setWorking("pdf");
+    try {
+      const data = await fetchJson<{ ok: true; pdf: { downloadUrl: string } }>(`/api/portal/credit/disputes/${encodeURIComponent(selectedLetterId)}/pdf`, {
+        method: "POST",
+        body: JSON.stringify({}),
+      });
+      setPdfDownloadUrl(data.pdf.downloadUrl);
+      await loadLetter(selectedLetterId);
+      await loadLetters();
+    } finally {
+      setWorking(null);
+    }
+  }, [loadLetter, loadLetters, selectedLetterId]);
+
+  const composer = composerOpen ? (
+    <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/30 p-4" onMouseDown={() => working !== "generate" && setComposerOpen(false)}>
+      <div className="w-full max-w-5xl rounded-3xl border border-zinc-200 bg-white p-6 shadow-xl" onMouseDown={(event) => event.stopPropagation()}>
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <div className="text-lg font-semibold text-zinc-900">New dispute letter</div>
+            <div className="mt-1 text-sm text-zinc-600">Workflow rounds stay in setup, not in the final letter.</div>
+          </div>
+          <div className="rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-700">
+            Next likely move: {nextTemplate.label}
+          </div>
+        </div>
+        <div className="mt-5 grid gap-4 md:grid-cols-2">
+          <label className="block md:col-span-2">
+            <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Contact</div>
+            <div className="flex gap-2">
+              <input value={contactQuery} onChange={(event) => setContactQuery(event.target.value)} className="flex-1 rounded-2xl border border-zinc-200 px-4 py-3 text-sm outline-none focus:border-zinc-300" placeholder="Search contacts" />
+              <button type="button" onClick={() => void loadContacts(contactQuery).catch((cause: unknown) => setError(cause instanceof Error ? cause.message : "Failed to search contacts"))} className="rounded-2xl border border-zinc-200 px-4 py-3 text-sm font-semibold text-zinc-800 hover:bg-zinc-50">{contactsLoading ? "Searching…" : "Search"}</button>
+            </div>
+            <div className="mt-2">
+              <PortalListboxDropdown value={contactId} onChange={setContactId} options={contacts.length ? contacts.map((contact) => ({ value: contact.id, label: `${contact.name}${contact.email ? ` - ${contact.email}` : ""}` })) : [{ value: "", label: "No contacts found", disabled: true }]} placeholder="Select a contact" disabled={contactsLoading} buttonClassName="flex w-full items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm hover:bg-zinc-50" />
+            </div>
+          </label>
+          <label className="block">
+            <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Round</div>
+            <PortalListboxDropdown value={round} onChange={setRound} options={ROUND_OPTIONS} buttonClassName="flex w-full items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm hover:bg-zinc-50" />
+          </label>
+          <label className="block">
+            <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Strategy</div>
+            <PortalListboxDropdown value={strategy} onChange={setStrategy} options={STRATEGY_OPTIONS} buttonClassName="flex w-full items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm hover:bg-zinc-50" />
+          </label>
+          <label className="block">
+            <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Template</div>
+            <PortalListboxDropdown value={templateKey} onChange={setTemplateKey} options={templateOptions} buttonClassName="flex w-full items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm hover:bg-zinc-50" />
+          </label>
+          <label className="block">
+            <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Follow-up timing</div>
+            <PortalListboxDropdown value={cadenceDays} onChange={setCadenceDays} options={CADENCE_OPTIONS} buttonClassName="flex w-full items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm hover:bg-zinc-50" />
+          </label>
+          <label className="block md:col-span-2">
+            <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Recipient</div>
+            <input value={recipientName} onChange={(event) => { setRecipientName(event.target.value); if (!event.target.value.trim()) { setRecipientAddress(""); setRecipientAddressManual(false); } }} list={datalistId} className="w-full rounded-2xl border border-zinc-200 px-4 py-3 text-sm outline-none focus:border-zinc-300" placeholder="Type or select Experian, Equifax, TransUnion, furnisher, collection agency…" />
+            <datalist id={datalistId}>{recipientSuggestions.flatMap((preset) => [preset.label, ...preset.aliases]).map((value) => <option key={value} value={value} />)}</datalist>
+          </label>
+          <label className="block md:col-span-2">
+            <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Recipient address</div>
+            <textarea value={recipientAddress} onChange={(event) => { setRecipientAddress(event.target.value); setRecipientAddressManual(true); }} className="min-h-24 w-full rounded-2xl border border-zinc-200 px-4 py-3 text-sm outline-none focus:border-zinc-300" />
+          </label>
+        </div>
+        <div className="mt-5 grid gap-4 lg:grid-cols-[1.3fr_0.7fr]">
+          <div>
+            <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Dispute items</div>
+            <div className="space-y-2">
+              {items.map((item, index) => (
+                <div key={index} className="flex gap-2">
+                  <input value={item} onChange={(event) => setItems((current) => current.map((entry, entryIndex) => entryIndex === index ? event.target.value : entry))} className="flex-1 rounded-2xl border border-zinc-200 px-4 py-3 text-sm outline-none focus:border-zinc-300" placeholder={index === 0 ? "Account XXXX reported late but was paid on time" : "Add another dispute item"} />
+                  <button type="button" onClick={() => setItems((current) => { const next = current.filter((_, entryIndex) => entryIndex !== index); return next.length ? next : [""]; })} className="rounded-2xl border border-zinc-200 px-3 py-3 text-sm font-semibold text-zinc-700 hover:bg-zinc-50">Remove</button>
+                </div>
+              ))}
+            </div>
+            <button type="button" onClick={() => setItems((current) => [...current, ""])} className="mt-3 rounded-2xl border border-zinc-200 px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50">Add dispute item</button>
+          </div>
+          <div className="space-y-4">
+            <div className="rounded-3xl border border-zinc-200 bg-zinc-50 p-4">
+              <div className="text-sm font-semibold text-zinc-900">Template guidance</div>
+              <div className="mt-2 text-sm text-zinc-700">{template.summary}</div>
+              <div className="mt-3 text-xs leading-5 text-zinc-600">{template.education}</div>
+            </div>
+            <div className="rounded-3xl border border-blue-200 bg-blue-50 p-4">
+              <div className="text-sm font-semibold text-blue-900">Round plan</div>
+              <div className="mt-2 text-sm text-blue-900">If this still is not corrected, queue Round {Math.min(8, roundNumber + 1)} in about {cadenceNumber} days and pivot into {nextTemplate.label.toLowerCase()}.</div>
+            </div>
+          </div>
+        </div>
+        <div className="mt-6 flex justify-end gap-2">
+          <button type="button" onClick={() => setComposerOpen(false)} className="rounded-2xl border border-zinc-200 px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50">Cancel</button>
+          <button type="button" disabled={!canGenerate || working !== null} onClick={() => void generateLetter()} className="rounded-2xl bg-zinc-900 px-4 py-2 text-sm font-semibold text-white disabled:opacity-60">{working === "generate" ? "Generating…" : "Generate"}</button>
+        </div>
+      </div>
+    </div>
+  ) : null;
+
   if (mode === "editor") {
     return (
       <div className="mx-auto w-full max-w-6xl">
-        <div className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-end">
+        <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
-            <button
-              type="button"
-              onClick={() => {
-                window.location.href = routes.listHref;
-              }}
-              className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
-            >
-              Back
-            </button>
-            <h1 className="mt-3 text-2xl font-bold text-brand-ink sm:text-3xl">
-              {selectedLetter?.subject || "Dispute letter"}
-            </h1>
+            <button type="button" onClick={() => { window.location.href = routeSet.listHref; }} className="rounded-2xl border border-zinc-200 px-3 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50">Back</button>
+            <h1 className="mt-3 text-2xl font-bold text-zinc-900">{selectedLetter?.subject || "Dispute letter"}</h1>
             <div className="mt-1 flex flex-wrap items-center gap-2 text-sm text-zinc-600">
-              {selectedLetter ? (
-                <span className={classNames("rounded-full border px-2.5 py-1 text-xs font-semibold", statusClasses(selectedLetter.status))}>
-                  {statusLabel(selectedLetter.status)}
-                </span>
-              ) : null}
-              <span>{selectedLetter ? `Last saved ${formatDateTime(selectedLetter.updatedAt)}` : "Loading letter"}</span>
+              {selectedLetter ? <span className={classNames("rounded-full border px-2.5 py-1 text-xs font-semibold", statusClasses(selectedLetter.status))}>{statusLabel(selectedLetter.status)}</span> : null}
+              <span>{selectedLetter ? `Updated ${formatDateTime(selectedLetter.updatedAt)}` : letterLoading ? "Loading letter…" : "No letter selected"}</span>
             </div>
           </div>
-
-          <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:justify-end">
-            <button
-              type="button"
-              onClick={openComposer}
-              className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
-            >
-              New Letter
-            </button>
-            <button
-              type="button"
-              disabled={!selectedLetterId || working !== null}
-              onClick={ensurePdf}
-              className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50 disabled:opacity-60"
-            >
-              {working === "pdf" ? "Working…" : pdfDownloadUrl ? "Refresh PDF" : "Generate PDF"}
-            </button>
-            {pdfDownloadUrl ? (
-              <a
-                href={pdfDownloadUrl}
-                target="_blank"
-                rel="noreferrer"
-                className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
-              >
-                Download PDF
-              </a>
-            ) : null}
-            <button
-              type="button"
-              disabled={!selectedLetterId || working !== null}
-              onClick={saveLetter}
-              className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
-            >
-              {working === "save" ? "Saving…" : "Save"}
-            </button>
-            <button
-              type="button"
-              disabled={!selectedLetterId || !selectedContact?.email || working !== null}
-              onClick={sendLetter}
-              className="inline-flex items-center justify-center rounded-2xl bg-(--color-brand-blue) px-4 py-2 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
-              title={selectedContact?.email ? "" : "Contact needs an email"}
-            >
-              {working === "send" ? "Sending…" : "Send"}
-            </button>
+          <div className="flex flex-wrap gap-2">
+            <button type="button" onClick={openComposer} className="rounded-2xl border border-zinc-200 px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50">New Letter</button>
+            <button type="button" disabled={!selectedLetterId || working !== null} onClick={() => void refreshPdf()} className="rounded-2xl border border-zinc-200 px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-60">{working === "pdf" ? "Working…" : pdfDownloadUrl ? "Refresh PDF" : "Generate PDF"}</button>
+            {pdfDownloadUrl ? <a href={pdfDownloadUrl} target="_blank" rel="noreferrer" className="rounded-2xl border border-zinc-200 px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50">Download PDF</a> : null}
+            <button type="button" disabled={!selectedLetterId || working !== null} onClick={() => void saveLetter()} className="rounded-2xl bg-zinc-900 px-4 py-2 text-sm font-semibold text-white disabled:opacity-60">{working === "save" ? "Saving…" : "Save"}</button>
+            <button type="button" disabled={!selectedLetterId || !selectedLetter?.contact.email || working !== null} onClick={() => void sendLetter()} className="rounded-2xl bg-sky-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-60">{working === "send" ? "Sending…" : "Send"}</button>
           </div>
         </div>
-
         {error ? <div className="mt-4 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">{error}</div> : null}
-
-        {!editorReady ? (
-          <div className="mt-6 rounded-3xl border border-zinc-200 bg-white p-6 text-sm text-zinc-600">
-            {letterLoading ? "Loading letter…" : "No letter selected."}
-          </div>
-        ) : (
-          <div className="mt-6 grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
-            <section className="rounded-3xl border border-zinc-200 bg-white p-6">
-              <label className="block">
-                <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Subject</div>
-                <input
-                  value={letterDraftSubject}
-                  onChange={(e) => setLetterDraftSubject(e.target.value)}
-                  className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300"
-                />
-              </label>
-
-              <label className="mt-4 block">
-                <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Letter</div>
-                <textarea
-                  value={letterDraftBody}
-                  onChange={(e) => setLetterDraftBody(e.target.value)}
-                  className="min-h-140 w-full rounded-3xl border border-zinc-200 bg-white px-4 py-4 font-mono text-sm text-zinc-800 outline-none focus:border-zinc-300"
-                />
-              </label>
+        <div className="mt-6 grid gap-4 xl:grid-cols-[1fr_320px]">
+          <section className="rounded-3xl border border-zinc-200 bg-white p-6">
+            <label className="block">
+              <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Subject</div>
+              <input value={subject} onChange={(event) => setSubject(event.target.value)} className="w-full rounded-2xl border border-zinc-200 px-4 py-3 text-sm outline-none focus:border-zinc-300" />
+            </label>
+            <label className="mt-4 block">
+              <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Letter</div>
+              <textarea value={bodyText} onChange={(event) => setBodyText(event.target.value)} className="min-h-175 w-full rounded-3xl border border-zinc-200 px-4 py-4 font-mono text-sm text-zinc-800 outline-none focus:border-zinc-300" />
+            </label>
+          </section>
+          <aside className="space-y-4">
+            <section className="rounded-3xl border border-zinc-200 bg-white p-5">
+              <div className="text-sm font-semibold text-zinc-900">Contact</div>
+              {selectedLetter?.contact ? (
+                <div className="mt-3 rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+                  <div className="text-sm font-semibold text-zinc-900">{selectedLetter.contact.name}</div>
+                  <div className="mt-1 text-xs text-zinc-600">{selectedLetter.contact.email || "No email"}{selectedLetter.contact.phone ? ` • ${selectedLetter.contact.phone}` : ""}</div>
+                </div>
+              ) : (
+                <div className="mt-3 rounded-2xl border border-dashed border-zinc-300 bg-zinc-50 p-4 text-sm text-zinc-600">No contact linked.</div>
+              )}
             </section>
-
-            <aside className="space-y-4">
-              <section className="rounded-3xl border border-zinc-200 bg-white p-5">
-                <div className="text-sm font-semibold text-zinc-900">Contact</div>
-                {selectedContact ? (
-                  <div className="mt-3 rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
-                    <div className="text-sm font-semibold text-zinc-900">{selectedContact.name}</div>
-                    <div className="mt-1 text-xs text-zinc-600">
-                      {selectedContact.email || "No email"}
-                      {selectedContact.phone ? ` • ${selectedContact.phone}` : ""}
-                    </div>
-                  </div>
-                ) : (
-                  <div className="mt-3 rounded-2xl border border-dashed border-zinc-300 bg-zinc-50 p-4 text-sm text-zinc-600">
-                    No contact linked.
-                  </div>
-                )}
-              </section>
-
-              <section className="rounded-3xl border border-zinc-200 bg-white p-5">
-                <div className="text-sm font-semibold text-zinc-900">Activity</div>
-                <div className="mt-3 space-y-3 text-sm text-zinc-600">
-                  <div className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3">
-                    <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Created</div>
-                    <div className="mt-1 text-sm font-medium text-zinc-900">{formatDateTime(selectedLetter?.createdAt)}</div>
-                  </div>
-                  <div className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3">
-                    <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Generated</div>
-                    <div className="mt-1 text-sm font-medium text-zinc-900">{formatDateTime(selectedLetter?.generatedAt)}</div>
-                  </div>
-                  <div className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3">
-                    <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Sent</div>
-                    <div className="mt-1 text-sm font-medium text-zinc-900">{formatDateTime(selectedLetter?.sentAt)}</div>
-                    {selectedLetter?.lastSentTo ? <div className="mt-1 text-xs text-zinc-500">{selectedLetter.lastSentTo}</div> : null}
-                  </div>
-                </div>
-              </section>
-            </aside>
-          </div>
-        )}
-
-        {isComposerOpen ? (
-          <div
-            className="fixed inset-0 z-50 flex items-start justify-center bg-black/25 px-4 pt-[calc(var(--pa-modal-safe-top,0px)+1rem)] pb-[calc(var(--pa-modal-safe-bottom,0px)+1rem)]"
-            role="dialog"
-            aria-modal="true"
-            onMouseDown={closeComposer}
-          >
-            <div
-              className="w-full max-w-3xl max-h-[calc(100dvh-var(--pa-modal-safe-top,0px)-var(--pa-modal-safe-bottom,0px)-2rem)] overflow-y-auto rounded-3xl border border-zinc-200 bg-white p-6 shadow-xl"
-              onMouseDown={(event) => event.stopPropagation()}
-            >
-              <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
-                <div>
-                  <div className="text-sm font-semibold text-zinc-900">New Letter</div>
-                  <div className="mt-1 text-sm text-zinc-600">Build the draft, then jump straight into the editor.</div>
-                </div>
-                <div className="rounded-full border border-zinc-200 bg-zinc-50 px-3 py-1 text-xs font-semibold text-zinc-600">
-                  {cleanDisputeItems.length} item{cleanDisputeItems.length === 1 ? "" : "s"}
-                </div>
-              </div>
-
-              <div className="mt-5 grid gap-4 md:grid-cols-2">
-                <label className="block md:col-span-2">
-                  <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Contact</div>
-                  <div className="flex gap-2">
-                    <input
-                      value={draftContactQuery}
-                      onChange={(e) => setDraftContactQuery(e.target.value)}
-                      className="flex-1 rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300"
-                      placeholder="Search contacts"
-                    />
-                    <button
-                      type="button"
-                      disabled={contactsLoading}
-                      onClick={() => {
-                        setError(null);
-                        void loadContacts(draftContactQuery).catch((e: any) => {
-                          setError(e?.message ? String(e.message) : "Failed to load contacts");
-                        });
-                      }}
-                      className="rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm font-semibold text-brand-ink hover:bg-zinc-50 disabled:opacity-60"
-                    >
-                      {contactsLoading ? "Searching…" : "Search"}
-                    </button>
-                  </div>
-                  <div className="mt-2">
-                    <PortalListboxDropdown
-                      value={draftContactId}
-                      onChange={(value) => setDraftContactId(String(value || ""))}
-                      disabled={contactsLoading || contacts.length === 0}
-                      placeholder="Select a contact"
-                      buttonClassName="flex w-full items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm hover:bg-zinc-50"
-                      options={
-                        contacts.length
-                          ? contacts.map(
-                              (contact): PortalListboxOption<string> => ({
-                                value: contact.id,
-                                label: `${contact.name}${contact.email ? ` - ${contact.email}` : ""}`,
-                              }),
-                            )
-                          : ([{ value: "", label: "No contacts found", disabled: true }] as PortalListboxOption<string>[])
-                      }
-                    />
-                  </div>
-                  {draftContact ? (
-                    <div className="mt-2 text-xs text-zinc-500">
-                      {draftContact.email || "No email"}
-                      {draftContact.phone ? ` • ${draftContact.phone}` : ""}
-                    </div>
-                  ) : null}
-                </label>
-
-                <label className="block">
-                  <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Strategy</div>
-                  <PortalListboxDropdown
-                    value={selectedStage}
-                    onChange={(value) => setSelectedStage(String(value || "initial-review"))}
-                    buttonClassName="flex w-full items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm hover:bg-zinc-50"
-                    options={LETTER_STAGE_OPTIONS}
-                  />
-                </label>
-
-                <label className="block">
-                  <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Template</div>
-                  <PortalListboxDropdown
-                    value={selectedTemplateKey}
-                    onChange={(value) => setSelectedTemplateKey(String(value || LETTER_LIBRARY[0]?.key || "bureau-general"))}
-                    buttonClassName="flex w-full items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm hover:bg-zinc-50"
-                    options={templateOptions}
-                  />
-                </label>
-
-                <label className="block">
-                  <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Recipient</div>
-                  <input
-                    value={recipientName}
-                    onChange={(e) => setRecipientName(e.target.value)}
-                    className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300"
-                    placeholder="Experian"
-                  />
-                </label>
-
-                <label className="block">
-                  <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Address</div>
-                  <input
-                    value={recipientAddress}
-                    onChange={(e) => setRecipientAddress(e.target.value)}
-                    className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300"
-                    placeholder="Mailing address"
-                  />
-                </label>
-              </div>
-
-              <div className="mt-5">
-                <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Dispute Items</div>
-                <div className="space-y-2">
-                  {disputeItems.map((item, index) => (
-                    <div key={index} className="flex items-center gap-2">
-                      <input
-                        value={item}
-                        onChange={(e) => updateDisputeItem(index, e.target.value)}
-                        className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300"
-                        placeholder={index === 0 ? "Account XXXX reported late but was paid on time" : "Add another dispute item"}
-                      />
-                      <button
-                        type="button"
-                        onClick={() => removeDisputeItem(index)}
-                        className="rounded-2xl border border-zinc-200 bg-white px-3 py-3 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
-                        aria-label="Remove dispute item"
-                      >
-                        Remove
-                      </button>
-                    </div>
-                  ))}
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setDisputeItems((prev) => [...prev, ""])}
-                  className="mt-3 inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
-                >
-                  + Add dispute item
-                </button>
-              </div>
-
-              <div className="mt-6 flex flex-col gap-2 sm:flex-row sm:justify-end">
-                <button
-                  type="button"
-                  onClick={closeComposer}
-                  className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  disabled={!canGenerate || working !== null}
-                  onClick={generateLetter}
-                  className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
-                >
-                  {working === "generate" ? "Generating…" : "Generate"}
-                </button>
-              </div>
-            </div>
-          </div>
-        ) : null}
+          </aside>
+        </div>
+        {composer}
       </div>
     );
   }
 
   return (
     <div className="mx-auto w-full max-w-6xl">
-      <div className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-end">
+      <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold text-brand-ink sm:text-3xl">Dispute letters</h1>
-          <p className="mt-1 text-sm text-zinc-600">Open a draft or start a new one.</p>
+          <h1 className="text-2xl font-bold text-zinc-900">Dispute letters</h1>
+          <p className="mt-1 text-sm text-zinc-600">Click any row to open it. New letters now use round planning, stronger templates, and recipient autofill.</p>
         </div>
-        <button
-          type="button"
-          onClick={openComposer}
-          className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-4 py-2.5 text-sm font-semibold text-white hover:opacity-95"
-        >
-          New Letter
-        </button>
+        <button type="button" onClick={openComposer} className="rounded-2xl bg-zinc-900 px-4 py-2.5 text-sm font-semibold text-white">New Letter</button>
       </div>
-
       {error ? <div className="mt-4 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">{error}</div> : null}
-
       <section className="mt-6 rounded-3xl border border-zinc-200 bg-white p-6 shadow-sm">
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-          <div className="flex w-full flex-col gap-3 sm:flex-row sm:items-center lg:max-w-xl">
-            <input
-              value={letterQuery}
-              onChange={(e) => setLetterQuery(e.target.value)}
-              className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300"
-              placeholder="Search letters"
-            />
-            <div className="rounded-full border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs font-semibold text-zinc-600">
-              {lettersLoading ? "Loading…" : `${filteredLetters.length} shown`}
-            </div>
-          </div>
-          <div className="rounded-full border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-600">
-            {letters.length} total
-          </div>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <input value={search} onChange={(event) => setSearch(event.target.value)} className="w-full max-w-xl rounded-2xl border border-zinc-200 px-4 py-3 text-sm outline-none focus:border-zinc-300" placeholder="Search letters" />
+          <div className="rounded-full border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs font-semibold text-zinc-600">{lettersLoading ? "Loading…" : `${filteredLetters.length} shown`}</div>
         </div>
-
         <div className="mt-5 overflow-x-auto rounded-3xl border border-zinc-200">
           <table className="min-w-full text-left text-sm">
             <thead className="bg-zinc-50 text-xs font-semibold uppercase tracking-wide text-zinc-500">
@@ -882,43 +571,28 @@ export default function DisputeLettersClient({
                 <th className="px-4 py-3">Contact</th>
                 <th className="px-4 py-3">Status</th>
                 <th className="px-4 py-3">Updated</th>
-                <th className="px-4 py-3 text-right"></th>
               </tr>
             </thead>
             <tbody>
               {filteredLetters.length === 0 ? (
                 <tr>
-                  <td className="px-4 py-10 text-center text-sm text-zinc-600" colSpan={5}>
-                    {lettersLoading ? "Loading letters…" : "No letters yet."}
-                  </td>
+                  <td colSpan={4} className="px-4 py-10 text-center text-zinc-600">{lettersLoading ? "Loading letters…" : "No letters yet."}</td>
                 </tr>
               ) : (
                 filteredLetters.map((letter) => (
-                  <tr key={letter.id} className="border-t border-zinc-200">
+                  <tr key={letter.id} tabIndex={0} role="button" onClick={() => { window.location.href = routeSet.editorHref(letter.id); }} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); window.location.href = routeSet.editorHref(letter.id); } }} className="cursor-pointer border-t border-zinc-200 hover:bg-zinc-50 focus:bg-zinc-50">
                     <td className="px-4 py-3">
-                      <div className="font-semibold text-brand-ink">{letter.subject || "Untitled"}</div>
+                      <div className="font-semibold text-zinc-900">{letter.subject || "Untitled"}</div>
                       <div className="mt-1 text-xs text-zinc-500">Created {formatDateTime(letter.createdAt)}</div>
                     </td>
-                    <td className="px-4 py-3 text-zinc-700">
+                    <td className="px-4 py-3">
                       <div className="font-medium text-zinc-900">{letter.contact.name}</div>
                       <div className="mt-1 text-xs text-zinc-500">{letter.contact.email || "No email"}</div>
                     </td>
-                    <td className="px-4 py-3">
-                      <span className={classNames("inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold", statusClasses(letter.status))}>
-                        {statusLabel(letter.status)}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-zinc-600">{formatDateTime(letter.updatedAt)}</td>
-                    <td className="px-4 py-3 text-right">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          window.location.href = routes.editorHref(letter.id);
-                        }}
-                        className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
-                      >
-                        Open
-                      </button>
+                    <td className="px-4 py-3"><span className={classNames("inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold", statusClasses(letter.status))}>{statusLabel(letter.status)}</span></td>
+                    <td className="px-4 py-3 text-zinc-600">
+                      <div>{formatDateTime(letter.updatedAt)}</div>
+                      <div className="mt-1 text-xs text-zinc-400">Click to open</div>
                     </td>
                   </tr>
                 ))
@@ -927,171 +601,7 @@ export default function DisputeLettersClient({
           </table>
         </div>
       </section>
-
-      {isComposerOpen ? (
-        <div
-          className="fixed inset-0 z-50 flex items-start justify-center bg-black/25 px-4 pt-[calc(var(--pa-modal-safe-top,0px)+1rem)] pb-[calc(var(--pa-modal-safe-bottom,0px)+1rem)]"
-          role="dialog"
-          aria-modal="true"
-          onMouseDown={closeComposer}
-        >
-          <div
-            className="w-full max-w-3xl max-h-[calc(100dvh-var(--pa-modal-safe-top,0px)-var(--pa-modal-safe-bottom,0px)-2rem)] overflow-y-auto rounded-3xl border border-zinc-200 bg-white p-6 shadow-xl"
-            onMouseDown={(event) => event.stopPropagation()}
-          >
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
-              <div>
-                <div className="text-sm font-semibold text-zinc-900">New Letter</div>
-                <div className="mt-1 text-sm text-zinc-600">Build the draft, then jump straight into the editor.</div>
-              </div>
-              <div className="rounded-full border border-zinc-200 bg-zinc-50 px-3 py-1 text-xs font-semibold text-zinc-600">
-                {cleanDisputeItems.length} item{cleanDisputeItems.length === 1 ? "" : "s"}
-              </div>
-            </div>
-
-            <div className="mt-5 grid gap-4 md:grid-cols-2">
-              <label className="block md:col-span-2">
-                <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Contact</div>
-                <div className="flex gap-2">
-                  <input
-                    value={draftContactQuery}
-                    onChange={(e) => setDraftContactQuery(e.target.value)}
-                    className="flex-1 rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300"
-                    placeholder="Search contacts"
-                  />
-                  <button
-                    type="button"
-                    disabled={contactsLoading}
-                    onClick={() => {
-                      setError(null);
-                      void loadContacts(draftContactQuery).catch((e: any) => {
-                        setError(e?.message ? String(e.message) : "Failed to load contacts");
-                      });
-                    }}
-                    className="rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm font-semibold text-brand-ink hover:bg-zinc-50 disabled:opacity-60"
-                  >
-                    {contactsLoading ? "Searching…" : "Search"}
-                  </button>
-                </div>
-                <div className="mt-2">
-                  <PortalListboxDropdown
-                    value={draftContactId}
-                    onChange={(value) => setDraftContactId(String(value || ""))}
-                    disabled={contactsLoading || contacts.length === 0}
-                    placeholder="Select a contact"
-                    buttonClassName="flex w-full items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm hover:bg-zinc-50"
-                    options={
-                      contacts.length
-                        ? contacts.map(
-                            (contact): PortalListboxOption<string> => ({
-                              value: contact.id,
-                              label: `${contact.name}${contact.email ? ` - ${contact.email}` : ""}`,
-                            }),
-                          )
-                        : ([{ value: "", label: "No contacts found", disabled: true }] as PortalListboxOption<string>[])
-                    }
-                  />
-                </div>
-                {draftContact ? (
-                  <div className="mt-2 text-xs text-zinc-500">
-                    {draftContact.email || "No email"}
-                    {draftContact.phone ? ` • ${draftContact.phone}` : ""}
-                  </div>
-                ) : null}
-              </label>
-
-              <label className="block">
-                <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Strategy</div>
-                <PortalListboxDropdown
-                  value={selectedStage}
-                  onChange={(value) => setSelectedStage(String(value || "initial-review"))}
-                  buttonClassName="flex w-full items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm hover:bg-zinc-50"
-                  options={LETTER_STAGE_OPTIONS}
-                />
-              </label>
-
-              <label className="block">
-                <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Template</div>
-                <PortalListboxDropdown
-                  value={selectedTemplateKey}
-                  onChange={(value) => setSelectedTemplateKey(String(value || LETTER_LIBRARY[0]?.key || "bureau-general"))}
-                  buttonClassName="flex w-full items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm hover:bg-zinc-50"
-                  options={templateOptions}
-                />
-              </label>
-
-              <label className="block">
-                <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Recipient</div>
-                <input
-                  value={recipientName}
-                  onChange={(e) => setRecipientName(e.target.value)}
-                  className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300"
-                  placeholder="Experian"
-                />
-              </label>
-
-              <label className="block">
-                <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Address</div>
-                <input
-                  value={recipientAddress}
-                  onChange={(e) => setRecipientAddress(e.target.value)}
-                  className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300"
-                  placeholder="Mailing address"
-                />
-              </label>
-            </div>
-
-            <div className="mt-5">
-              <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Dispute Items</div>
-              <div className="space-y-2">
-                {disputeItems.map((item, index) => (
-                  <div key={index} className="flex items-center gap-2">
-                    <input
-                      value={item}
-                      onChange={(e) => updateDisputeItem(index, e.target.value)}
-                      className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm outline-none focus:border-zinc-300"
-                      placeholder={index === 0 ? "Account XXXX reported late but was paid on time" : "Add another dispute item"}
-                    />
-                    <button
-                      type="button"
-                      onClick={() => removeDisputeItem(index)}
-                      className="rounded-2xl border border-zinc-200 bg-white px-3 py-3 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
-                      aria-label="Remove dispute item"
-                    >
-                      Remove
-                    </button>
-                  </div>
-                ))}
-              </div>
-              <button
-                type="button"
-                onClick={() => setDisputeItems((prev) => [...prev, ""])}
-                className="mt-3 inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
-              >
-                + Add dispute item
-              </button>
-            </div>
-
-            <div className="mt-6 flex flex-col gap-2 sm:flex-row sm:justify-end">
-              <button
-                type="button"
-                onClick={closeComposer}
-                className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                disabled={!canGenerate || working !== null}
-                onClick={generateLetter}
-                className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
-              >
-                {working === "generate" ? "Generating…" : "Generate"}
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
+      {composer}
     </div>
   );
 }

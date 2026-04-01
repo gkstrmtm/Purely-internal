@@ -21,7 +21,23 @@ const createSchema = z.object({
   templatePrompt: z.string().trim().optional(),
   templateBodyStarter: z.string().trim().optional(),
   creditPullId: z.string().trim().optional().nullable(),
+  subjectLine: z.string().trim().max(200).optional(),
+  roundNumber: z.number().int().min(1).max(12).optional(),
+  followUpDays: z.number().int().min(1).max(120).optional(),
+  nextRoundNumber: z.number().int().min(1).max(12).optional(),
+  recommendedNextTemplateLabel: z.string().trim().max(160).optional(),
+  recipientPresetLabel: z.string().trim().max(120).optional(),
 });
+
+function numberToOrdinal(value: number) {
+  const n = Math.max(1, Math.floor(value));
+  const mod10 = n % 10;
+  const mod100 = n % 100;
+  if (mod10 === 1 && mod100 !== 11) return `${n}st`;
+  if (mod10 === 2 && mod100 !== 12) return `${n}nd`;
+  if (mod10 === 3 && mod100 !== 13) return `${n}rd`;
+  return `${n}th`;
+}
 
 export async function GET(req: Request) {
   const session = await requireCreditClientSession();
@@ -87,15 +103,23 @@ export async function POST(req: Request) {
   const recipientName = (parsed.data.recipientName || "").trim();
   const recipientAddress = (parsed.data.recipientAddress || "").trim();
 
-  const system =
-    "You draft consumer credit dispute letters. Output ONLY a plain-text letter. " +
-    "Do not invent facts. If a needed detail is missing, include a placeholder in double braces like {{placeholder}}. " +
-    "Keep it professional, concise, and natural. " +
-    "Do not mention internal workflow labels such as round, stage, template, escalation, or strategy unless the consumer explicitly used those terms in the dispute facts.";
   const letterStageLabel = parsed.data.letterStageLabel;
   const templateLabel = parsed.data.templateLabel;
   const templatePrompt = parsed.data.templatePrompt;
   const templateBodyStarter = parsed.data.templateBodyStarter;
+  const roundNumber = parsed.data.roundNumber;
+  const followUpDays = parsed.data.followUpDays;
+  const nextRoundNumber = parsed.data.nextRoundNumber;
+  const recommendedNextTemplateLabel = parsed.data.recommendedNextTemplateLabel;
+  const recipientPresetLabel = parsed.data.recipientPresetLabel;
+
+  const system =
+    "You draft consumer credit dispute letters. Output ONLY a plain-text letter. " +
+    "Do not invent facts. If a needed detail is missing, include a placeholder in double braces like {{placeholder}}. " +
+    "Keep it professional, natural, and specific. " +
+    "Write a fuller letter, not a stub: use a real correspondence structure with a clear opening, meaningful dispute framing, a concrete itemized section, and a firm closing request. " +
+    "If this is follow-up correspondence, acknowledge prior notice naturally without using internal workflow labels. " +
+    "Do not mention internal workflow labels such as round, stage, template, escalation, or strategy unless the consumer explicitly used those terms in the dispute facts.";
 
   const user = [
     `Date: ${isoDate}`,
@@ -108,9 +132,14 @@ export async function POST(req: Request) {
     contact.phone ? `Consumer phone: ${contact.phone}` : "Consumer phone: {{phone}}",
     "",
     letterStageLabel ? `Letter strategy: ${letterStageLabel}` : null,
+    roundNumber ? `Workflow round: ${numberToOrdinal(roundNumber)} correspondence` : null,
     templateLabel ? `Template selected: ${templateLabel}` : null,
+    recipientPresetLabel ? `Recipient preset: ${recipientPresetLabel}` : null,
     templatePrompt ? `Draft direction:\n${templatePrompt}` : null,
     templateBodyStarter ? `Optional sample structure:\n${templateBodyStarter}` : null,
+    followUpDays ? `Recommended time before the next follow-up: about ${followUpDays} days.` : null,
+    nextRoundNumber ? `If unresolved, the internal next step is ${numberToOrdinal(nextRoundNumber)} correspondence.` : null,
+    recommendedNextTemplateLabel ? `If unresolved, the next likely template is: ${recommendedNextTemplateLabel}.` : null,
     "",
     "Dispute context:",
     disputesText,
@@ -129,7 +158,7 @@ export async function POST(req: Request) {
   const bodyTextRaw = await generateCreditText({ system, user, model });
   const bodyText = String(bodyTextRaw || "").trim();
 
-  const subject = "Credit Report Dispute Letter";
+  const subject = parsed.data.subjectLine?.trim() || `${contact.name} - ${recipientName || templateLabel || "Credit dispute letter"}`;
 
   const created = await prisma.creditDisputeLetter.create({
     data: {
