@@ -62,6 +62,16 @@ function reportReadinessLabel(summary: { pending: number; negative: number; posi
   return "Just getting started";
 }
 
+function buildTrendBars(value: number, total: number, tone: "green" | "amber" | "red") {
+  const ratio = total > 0 ? value / total : 0;
+  const toneBump = tone === "green" ? 8 : tone === "amber" ? 2 : -4;
+  return Array.from({ length: 8 }, (_, index) => {
+    const wave = [0, 9, -6, 12, -2, 14, 6, 18][index] || 0;
+    const computed = 28 + ratio * 44 + wave + toneBump;
+    return Math.max(16, Math.min(88, Math.round(computed)));
+  });
+}
+
 function reportRoutesFor(pathname: string | null) {
   const current = String(pathname || "");
   if (current.startsWith("/credit/app/services/credit-reports")) {
@@ -326,6 +336,39 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
     () => buildOpportunityPlans(selectedReport, selectedReportSummary),
     [selectedReport, selectedReportSummary],
   );
+  const statCards = useMemo(() => {
+    const total = selectedReport ? selectedReport.items.length : 0;
+    return [
+      {
+        label: "Pending",
+        value: String(selectedReportSummary.pending),
+        change: selectedReportSummary.pending > 0 ? "Needs review" : "Nothing pending",
+        up: false,
+        bars: buildTrendBars(selectedReportSummary.pending, total, "amber"),
+      },
+      {
+        label: "Negative",
+        value: String(selectedReportSummary.negative),
+        change: selectedReportSummary.negative > 0 ? "Open cleanup lane" : "No active negatives",
+        up: false,
+        bars: buildTrendBars(selectedReportSummary.negative, total, "red"),
+      },
+      {
+        label: "Positive",
+        value: String(selectedReportSummary.positive),
+        change: selectedReportSummary.positive > 0 ? "Good history showing" : "Needs more positives",
+        up: true,
+        bars: buildTrendBars(selectedReportSummary.positive, total, "green"),
+      },
+      {
+        label: "Tracked",
+        value: String(selectedReportSummary.tracked),
+        change: selectedReportSummary.tracked > 0 ? "In dispute motion" : "No tracked items yet",
+        up: true,
+        bars: buildTrendBars(selectedReportSummary.tracked, total, "green"),
+      },
+    ];
+  }, [selectedReport, selectedReportSummary]);
   const reportMix = useMemo(() => {
     const total = Math.max(1, selectedReportSummary.pending + selectedReportSummary.negative + selectedReportSummary.positive);
     return [
@@ -617,10 +660,22 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
 
           <section className="rounded-[28px] border border-zinc-200 bg-white p-5 shadow-sm">
             <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-              <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4"><div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Pending</div><div className="mt-1 text-xl font-bold text-brand-ink">{selectedReportSummary.pending}</div></div>
-              <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4"><div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Negative</div><div className="mt-1 text-xl font-bold text-brand-ink">{selectedReportSummary.negative}</div></div>
-              <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4"><div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Positive</div><div className="mt-1 text-xl font-bold text-brand-ink">{selectedReportSummary.positive}</div></div>
-              <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4"><div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Tracked</div><div className="mt-1 text-xl font-bold text-brand-ink">{selectedReportSummary.tracked}</div></div>
+              {statCards.map((stat) => (
+                <div key={stat.label} className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+                  <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">{stat.label}</div>
+                  <div className="mt-1 text-2xl font-bold text-brand-ink">{stat.value}</div>
+                  <div className={"mt-1 text-xs font-semibold " + (stat.up ? "text-emerald-600" : "text-rose-500")}>{stat.change}</div>
+                  <div className="mt-3 flex h-8 items-end gap-1">
+                    {stat.bars.map((height, index) => (
+                      <div
+                        key={`${stat.label}-${index}`}
+                        className={"flex-1 rounded-sm " + (stat.up ? "bg-emerald-200" : "bg-rose-200")}
+                        style={{ height: `${height}%` }}
+                      />
+                    ))}
+                  </div>
+                </div>
+              ))}
             </div>
 
             <div className="mt-5 grid gap-4 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">

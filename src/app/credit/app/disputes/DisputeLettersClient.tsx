@@ -1,9 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useId, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { usePathname, useSearchParams } from "next/navigation";
 
 import { PortalListboxDropdown, type PortalListboxOption } from "@/components/PortalListboxDropdown";
+import { PortalSearchableCombobox, type PortalSearchableOption } from "@/components/PortalSearchableCombobox";
 
 type ContactLite = {
   id: string;
@@ -31,6 +32,27 @@ type LetterFull = LetterLite & {
   pdfMediaItemId?: string | null;
   pdfGeneratedAt?: string | null;
   pdfMediaItem?: { id: string; publicToken: string } | null;
+};
+
+type CreditReportLite = {
+  id: string;
+  contactId: string | null;
+  provider: string;
+  importedAt: string;
+};
+
+type CreditReportItem = {
+  id: string;
+  bureau: string | null;
+  kind: string | null;
+  label: string;
+};
+
+type CreditReportFull = {
+  id: string;
+  provider: string;
+  importedAt: string;
+  items: CreditReportItem[];
 };
 
 type RecipientPreset = {
@@ -219,8 +241,6 @@ export default function DisputeLettersClient({ mode = "list", initialLetterId = 
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const routeSet = useMemo(() => routesFor(pathname), [pathname]);
-  const recipientDatalistId = useId();
-  const contactDatalistId = useId();
 
   const [error, setError] = useState<string | null>(null);
   const [letters, setLetters] = useState<LetterLite[]>([]);
@@ -246,6 +266,10 @@ export default function DisputeLettersClient({ mode = "list", initialLetterId = 
   const [recipientAddressManual, setRecipientAddressManual] = useState(false);
   const [cadenceDays, setCadenceDays] = useState(String(TEMPLATES[0].cadenceDays));
   const [items, setItems] = useState([""]);
+  const [composerReportItems, setComposerReportItems] = useState<CreditReportItem[]>([]);
+  const [composerReportLabel, setComposerReportLabel] = useState("");
+  const [composerItemsLoading, setComposerItemsLoading] = useState(false);
+  const [reportItemQuery, setReportItemQuery] = useState("");
 
   const template = useMemo(() => TEMPLATES.find((entry) => entry.key === templateKey) || TEMPLATES[0], [templateKey]);
   const roundNumber = useMemo(() => Math.max(1, Number.parseInt(round, 10) || 1), [round]);
@@ -264,21 +288,29 @@ export default function DisputeLettersClient({ mode = "list", initialLetterId = 
     if (!q) return RECIPIENT_PRESETS;
     return RECIPIENT_PRESETS.filter((preset) => [preset.label, ...preset.aliases].map(normalize).join(" ").includes(q));
   }, [recipientName]);
-  const recipientSuggestionValues = useMemo(() => {
+  const recipientOptions = useMemo<PortalSearchableOption[]>(() => {
     const seen = new Set<string>();
     return recipientSuggestions
-      .map((preset) => preset.label)
-      .filter((label) => {
-        const key = normalize(label);
+      .map((preset) => ({ value: preset.key, label: preset.label, hint: preset.aliases.join(" • "), keywords: [preset.label, ...preset.aliases] }))
+      .filter((option) => {
+        const key = normalize(option.label);
         if (!key || seen.has(key)) return false;
         seen.add(key);
         return true;
       });
   }, [recipientSuggestions]);
-  const contactSuggestionValues = useMemo(() => contacts.map((contact) => ({
-    id: contact.id,
-    label: `${contact.name}${contact.email ? ` - ${contact.email}` : ""}`,
+  const contactOptions = useMemo<PortalSearchableOption[]>(() => contacts.map((contact) => ({
+    value: contact.id,
+    label: contact.name,
+    hint: [contact.email, contact.phone].filter(Boolean).join(" • "),
+    keywords: [contact.name, contact.email || "", contact.phone || ""],
   })), [contacts]);
+  const reportItemOptions = useMemo<PortalSearchableOption[]>(() => composerReportItems.map((item) => ({
+    value: item.id,
+    label: item.label,
+    hint: [item.bureau, item.kind].filter(Boolean).join(" • "),
+    keywords: [item.label, item.bureau || "", item.kind || ""],
+  })), [composerReportItems]);
   const templateOptions = useMemo(() => TEMPLATES.map((entry) => ({ value: entry.key, label: entry.label })), []);
   const canGenerate = Boolean(contactId && recipientName.trim() && cleanItems.length);
 
@@ -320,6 +352,32 @@ export default function DisputeLettersClient({ mode = "list", initialLetterId = 
     }
   }, []);
 
+  const loadComposerReportItems = useCallback(async (nextContactId: string) => {
+    if (!nextContactId) {
+      setComposerReportItems([]);
+      setComposerReportLabel("");
+      return;
+    }
+    setComposerItemsLoading(true);
+    try {
+      const reportList = await fetchJson<{ ok: true; reports: CreditReportLite[] }>("/api/portal/credit/reports", { cache: "no-store" });
+      const latestReport = (reportList.reports || []).find((report) => report.contactId === nextContactId) || null;
+      if (!latestReport) {
+        setComposerReportItems([]);
+        setComposerReportLabel("");
+        return;
+      }
+      const reportDetail = await fetchJson<{ ok: true; report: CreditReportFull }>(`/api/portal/credit/reports/${encodeURIComponent(latestReport.id)}`, { cache: "no-store" });
+      setComposerReportItems(reportDetail.report.items || []);
+      setComposerReportLabel(`${reportDetail.report.provider} • ${formatDateTime(reportDetail.report.importedAt)}`);
+    } catch {
+      setComposerReportItems([]);
+      setComposerReportLabel("");
+    } finally {
+      setComposerItemsLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     void Promise.all([loadContacts(), loadLetters()]).catch((cause: unknown) => {
       setError(cause instanceof Error ? cause.message : "Failed to load dispute letters");
@@ -353,17 +411,22 @@ export default function DisputeLettersClient({ mode = "list", initialLetterId = 
   useEffect(() => {
     if (!composerOpen || !contactQuery.trim()) return;
     const normalized = normalize(contactQuery);
-    const match = contactSuggestionValues.find((entry) => normalize(entry.label) === normalized) ||
-      contactSuggestionValues.find((entry) => normalize(entry.label.split(" - ")[0]) === normalized) || null;
-    if (match && match.id !== contactId) setContactId(match.id);
-  }, [composerOpen, contactId, contactQuery, contactSuggestionValues]);
+    const match = contactOptions.find((entry) => normalize(entry.label) === normalized) ||
+      contactOptions.find((entry) => normalize(entry.label).startsWith(normalized)) || null;
+    if (match && match.value !== contactId) setContactId(match.value);
+  }, [composerOpen, contactId, contactOptions, contactQuery]);
 
   useEffect(() => {
     if (!composerOpen) return;
     if (!selectedContact) return;
-    const nextLabel = `${selectedContact.name}${selectedContact.email ? ` - ${selectedContact.email}` : ""}`;
+    const nextLabel = selectedContact.name;
     if (normalize(contactQuery) !== normalize(nextLabel)) setContactQuery(nextLabel);
   }, [composerOpen, contactId, contactQuery, selectedContact]);
+
+  useEffect(() => {
+    if (!composerOpen) return;
+    void loadComposerReportItems(contactId);
+  }, [composerOpen, contactId, loadComposerReportItems]);
 
   const openComposer = useCallback((preset?: { contactId?: string; recipientName?: string; items?: string[] }) => {
     setComposerOpen(true);
@@ -379,6 +442,7 @@ export default function DisputeLettersClient({ mode = "list", initialLetterId = 
     setRecipientAddressManual(false);
     setCadenceDays(String(TEMPLATES[0].cadenceDays));
     setItems(preset?.items?.length ? preset.items : [""]);
+    setReportItemQuery("");
   }, [contacts, selectedLetter?.contact, selectedLetter?.contactId]);
 
   useEffect(() => {
@@ -397,6 +461,18 @@ export default function DisputeLettersClient({ mode = "list", initialLetterId = 
   const handleOpenComposer = useCallback(() => {
     openComposer();
   }, [openComposer]);
+
+  const addComposerReportItem = useCallback((option: PortalSearchableOption) => {
+    const nextLabel = option.label.trim();
+    if (!nextLabel) return;
+    setItems((current) => {
+      const alreadyIncluded = current.some((entry) => normalize(entry) === normalize(nextLabel));
+      if (alreadyIncluded) return current;
+      const normalizedItems = current.map((entry) => entry.trim()).filter(Boolean);
+      return [...normalizedItems, nextLabel];
+    });
+    setReportItemQuery("");
+  }, []);
 
   const generateLetter = useCallback(async () => {
     setWorking("generate");
@@ -487,8 +563,22 @@ export default function DisputeLettersClient({ mode = "list", initialLetterId = 
         <div className="mt-5 grid gap-4 md:grid-cols-2">
           <label className="block md:col-span-2">
             <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Contact</div>
-            <input value={contactQuery} onChange={(event) => { setContactQuery(event.target.value); if (!event.target.value.trim()) setContactId(""); }} list={contactDatalistId} className="w-full rounded-2xl border border-zinc-200 px-4 py-3 text-sm outline-none focus:border-zinc-300" placeholder={contactsLoading ? "Searching contacts…" : "Search or select a contact"} />
-            <datalist id={contactDatalistId}>{contactSuggestionValues.map((contact) => <option key={contact.id} value={contact.label} />)}</datalist>
+            <PortalSearchableCombobox
+              query={contactQuery}
+              onQueryChange={(value) => {
+                setContactQuery(value);
+                if (!value.trim()) setContactId("");
+              }}
+              options={contactOptions}
+              selectedValue={contactId}
+              onSelect={(option) => {
+                setContactId(option.value);
+                setContactQuery(option.label);
+              }}
+              placeholder={contactsLoading ? "Searching contacts…" : "Search or select a contact"}
+              emptyLabel={contactsLoading ? "Searching contacts…" : "No contacts found"}
+              inputClassName="pa-portal-listbox-button w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 pr-10 text-sm text-zinc-900 outline-none focus:border-zinc-300"
+            />
           </label>
           <label className="block">
             <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Round</div>
@@ -508,8 +598,25 @@ export default function DisputeLettersClient({ mode = "list", initialLetterId = 
           </label>
           <label className="block md:col-span-2">
             <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Recipient</div>
-            <input value={recipientName} onChange={(event) => { setRecipientName(event.target.value); if (!event.target.value.trim()) { setRecipientAddress(""); setRecipientAddressManual(false); } }} list={recipientDatalistId} className="w-full rounded-2xl border border-zinc-200 px-4 py-3 text-sm outline-none focus:border-zinc-300" placeholder="Type or select a recipient" />
-            <datalist id={recipientDatalistId}>{recipientSuggestionValues.map((value) => <option key={value} value={value} />)}</datalist>
+            <PortalSearchableCombobox
+              query={recipientName}
+              onQueryChange={(value) => {
+                setRecipientName(value);
+                if (!value.trim()) {
+                  setRecipientAddress("");
+                  setRecipientAddressManual(false);
+                }
+              }}
+              options={recipientOptions}
+              selectedValue={recipientPreset?.key}
+              onSelect={(option) => {
+                setRecipientName(option.label);
+                setRecipientAddressManual(false);
+              }}
+              placeholder="Type or select a recipient"
+              emptyLabel="Keep typing to use a custom recipient"
+              inputClassName="pa-portal-listbox-button w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 pr-10 text-sm text-zinc-900 outline-none focus:border-zinc-300"
+            />
           </label>
           <label className="block md:col-span-2">
             <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Recipient address</div>
@@ -518,6 +625,22 @@ export default function DisputeLettersClient({ mode = "list", initialLetterId = 
         </div>
         <div className="mt-5">
           <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Dispute items</div>
+          <div className="mb-3 rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
+            <div className="mb-2 flex items-center justify-between gap-2">
+              <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Add from latest credit report</div>
+              <div className="text-[11px] text-zinc-500">{composerReportLabel || (contactId ? "No report found yet" : "Select a contact first")}</div>
+            </div>
+            <PortalSearchableCombobox
+              query={reportItemQuery}
+              onQueryChange={setReportItemQuery}
+              options={reportItemOptions}
+              onSelect={addComposerReportItem}
+              placeholder={composerItemsLoading ? "Loading report items…" : "Search report items to add"}
+              emptyLabel={composerItemsLoading ? "Loading report items…" : "No report items available"}
+              inputClassName="pa-portal-listbox-button w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 pr-10 text-sm text-zinc-900 outline-none focus:border-zinc-300"
+              disabled={!contactId || composerItemsLoading}
+            />
+          </div>
           <div className="space-y-2">
             {items.map((item, index) => (
               <div key={index} className="flex gap-2">
