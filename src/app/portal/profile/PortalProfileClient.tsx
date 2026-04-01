@@ -187,11 +187,14 @@ function ToggleChip({ checked }: { checked: boolean }) {
   return (
     <span
       aria-hidden="true"
-      className={classNames(
-        "relative inline-flex h-6 w-11 shrink-0 items-center rounded-full border transition-all duration-200",
-        checked ? "border-brand-blue bg-brand-blue shadow-[inset_0_0_0_1px_rgba(37,99,235,0.18)]" : "border-zinc-300 bg-zinc-200",
-      )}
+      className="relative inline-flex h-6 w-11 shrink-0 items-center"
     >
+      <span
+        className={classNames(
+          "pa-portal-toggle-track pointer-events-none absolute inset-0 rounded-full bg-zinc-200 transition-colors duration-200",
+          checked && "bg-[color:var(--color-brand-blue)]",
+        )}
+      />
       <span
         className={classNames(
           "absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow-sm transition-transform duration-200",
