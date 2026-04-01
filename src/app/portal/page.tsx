@@ -8,7 +8,7 @@ export default async function PortalDashboardPage() {
   const h = await headers();
   const variant = normalizePortalVariant(h.get(PORTAL_VARIANT_HEADER)) || "portal";
   const getStartedHref = variant === "credit" ? "/credit/get-started" : "/portal/get-started";
-  const signInHref = variant === "credit" ? "/credit/login" : "/login";
+  const signInHref = variant === "credit" ? "/credit/login" : "/portal/login";
   const getStartedPackageHref = (pkg: string) => `${getStartedHref}?package=${encodeURIComponent(pkg)}`;
 
   const directoryItems = [

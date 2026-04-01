@@ -39,8 +39,29 @@ async function portalVariantFromHeaders(): Promise<PortalVariant | null> {
   return normalizePortalVariant(h.get(PORTAL_VARIANT_HEADER));
 }
 
+async function portalVariantFromRequestContext(): Promise<PortalVariant | null> {
+  const h = await headers();
+
+  const explicit = normalizePortalVariant(h.get(PORTAL_VARIANT_HEADER));
+  if (explicit) return explicit;
+
+  const referer = String(h.get("referer") || "").trim();
+  if (referer) {
+    try {
+      const pathname = new URL(referer).pathname || "";
+      if (pathname === "/credit" || pathname.startsWith("/credit/")) return "credit";
+      if (pathname === "/portal" || pathname.startsWith("/portal/")) return "portal";
+    } catch {
+      if (referer === "/credit" || referer.startsWith("/credit/")) return "credit";
+      if (referer === "/portal" || referer.startsWith("/portal/")) return "portal";
+    }
+  }
+
+  return null;
+}
+
 async function portalBaseFromHeaders(): Promise<string> {
-  const variant = (await portalVariantFromHeaders()) || "portal";
+  const variant = (await portalVariantFromRequestContext()) || "portal";
   return portalBasePath(variant);
 }
 
@@ -48,7 +69,7 @@ export async function getPortalUser(opts?: { variant?: PortalVariant | "auto" })
   const cookieStore = await cookies();
   const requestedVariant = opts?.variant ?? "auto";
 
-  const headerVariant = requestedVariant === "auto" ? await portalVariantFromHeaders() : null;
+  const headerVariant = requestedVariant === "auto" ? await portalVariantFromRequestContext() : null;
   const variant: PortalVariant =
     requestedVariant === "portal" || requestedVariant === "credit"
       ? requestedVariant
@@ -83,7 +104,7 @@ export async function getPortalUser(opts?: { variant?: PortalVariant | "auto" })
 
 export async function requirePortalUser() {
   const user = await getPortalUser();
-  const variant = (await portalVariantFromHeaders()) || "portal";
+  const variant = (await portalVariantFromRequestContext()) || "portal";
   const base = portalBasePath(variant);
   const loginPath = `${base}/login`;
   if (!user) redirect(loginPath);

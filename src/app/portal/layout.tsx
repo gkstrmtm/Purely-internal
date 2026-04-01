@@ -27,7 +27,7 @@ export default async function PortalLayout({
   const variant = normalizePortalVariant(h.get(PORTAL_VARIANT_HEADER)) || "portal";
   const logoSrc = variant === "credit" ? "/brand/2.png" : "/brand/1.png";
   const homeHref = variant === "credit" ? "/credit" : "/portal";
-  const signInHref = variant === "credit" ? "/credit/login" : "/login";
+  const signInHref = variant === "credit" ? "/credit/login" : "/portal/login";
   const getStartedHref = variant === "credit" ? "/credit/get-started" : "/portal/get-started";
 
   const user = await getPortalUser();

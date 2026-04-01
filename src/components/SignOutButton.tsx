@@ -49,7 +49,7 @@ export function SignOutButton(
   async function doSignOut() {
     if (isPortal || isCredit) {
       await fetch(`${portalBase}/api/logout`, { method: "POST" }).catch(() => null);
-      router.push(isCredit ? "/credit/login" : "/login");
+      router.push(isCredit ? "/credit/login" : "/portal/login");
       router.refresh();
       return;
     }

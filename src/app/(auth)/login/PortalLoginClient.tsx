@@ -32,8 +32,8 @@ export default function PortalLoginClient() {
   const from = useMemo(() => safeInternalPath(fromRaw, defaultFrom), [fromRaw, defaultFrom]);
   const portalVariant = useMemo(() => (pathnameVariant === "credit" || from.startsWith("/credit") ? "credit" : "portal"), [from, pathnameVariant]);
   const apiBase = useMemo(() => (portalVariant === "credit" ? "/credit" : "/portal"), [portalVariant]);
-  const loginTitle = portalVariant === "credit" ? "Pure Credit Login" : "Client Portal Login";
-  const loginSubtitle = portalVariant === "credit" ? "Sign in to your Pure Credit account." : "Sign in to your client portal.";
+  const loginTitle = portalVariant === "credit" ? "Purely Credit Login" : "Purely Portal Login";
+  const loginSubtitle = portalVariant === "credit" ? "Sign in to your Purely Credit account." : "Sign in to your Purely portal account.";
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
