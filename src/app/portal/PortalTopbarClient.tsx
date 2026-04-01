@@ -3,7 +3,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { PortalHeaderCta } from "@/app/portal/PortalHeaderCta";
 import { PortalHelpLink } from "@/app/portal/PortalHelpLink";
@@ -34,33 +34,12 @@ function PortalPublicNav({ signInHref, getStartedHref }: { signInHref: string; g
   );
 }
 
-function syncTopbarHeightWithTransition(topbar: HTMLElement | null, hidden: boolean) {
+function syncTopbarHeight(height: number, hidden: boolean) {
   if (typeof document === "undefined") return;
   const root = document.documentElement;
-  const currentHeight = !topbar ? 0 : Math.ceil(topbar.getBoundingClientRect().height);
-
-  const prevTimer = root.getAttribute("data-pa-portal-topbar-hide-timer");
-  if (prevTimer) {
-    window.clearTimeout(Number(prevTimer));
-    root.removeAttribute("data-pa-portal-topbar-hide-timer");
-  }
-
-  if (!hidden) {
-    root.style.setProperty("--pa-portal-topbar-height", `${currentHeight}px`);
-    root.removeAttribute("data-pa-portal-topbar-hidden");
-    return;
-  }
-
-  if (currentHeight > 0) {
-    root.style.setProperty("--pa-portal-topbar-height", `${currentHeight}px`);
-  }
-  root.setAttribute("data-pa-portal-topbar-hidden", "1");
-
-  const timer = window.setTimeout(() => {
-    root.style.setProperty("--pa-portal-topbar-height", "0px");
-    root.removeAttribute("data-pa-portal-topbar-hide-timer");
-  }, TOPBAR_TRANSITION_MS);
-  root.setAttribute("data-pa-portal-topbar-hide-timer", String(timer));
+  root.style.setProperty("--pa-portal-topbar-height", `${hidden ? 0 : height}px`);
+  if (hidden) root.setAttribute("data-pa-portal-topbar-hidden", "1");
+  else root.removeAttribute("data-pa-portal-topbar-hidden");
 }
 
 export function PortalTopbarClient(props: {
@@ -76,7 +55,9 @@ export function PortalTopbarClient(props: {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const topbarRef = useRef<HTMLElement | null>(null);
+  const topbarInnerRef = useRef<HTMLDivElement | null>(null);
   const [isSmallScreen, setIsSmallScreen] = useState(false);
+  const [measuredHeight, setMeasuredHeight] = useState(0);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -94,56 +75,53 @@ export function PortalTopbarClient(props: {
   const isMobileApp = (searchParams?.get("pa_mobileapp") || "").trim() === "1";
   const hidden = isAiChat || isMobileApp || (isPortalAppRoute && isSmallScreen);
   const signedInLabel = (businessName || userEmail || "").trim();
+  const animatedHeight = useMemo(() => (hidden ? 0 : measuredHeight), [hidden, measuredHeight]);
 
   useEffect(() => {
-    const topbar = topbarRef.current;
-    syncTopbarHeightWithTransition(topbar, hidden);
+    const inner = topbarInnerRef.current;
+    if (!inner) return;
 
-    if (!topbar) return;
+    const update = () => setMeasuredHeight(Math.ceil(inner.getBoundingClientRect().height));
+    update();
 
-    const update = () => syncTopbarHeightWithTransition(topbarRef.current, hidden);
     const ro = typeof ResizeObserver !== "undefined" ? new ResizeObserver(() => update()) : null;
-    ro?.observe(topbar);
+    ro?.observe(inner);
     window.addEventListener("resize", update, { passive: true });
     window.requestAnimationFrame(update);
 
     return () => {
       ro?.disconnect();
       window.removeEventListener("resize", update);
-      if (typeof document !== "undefined") {
-        const root = document.documentElement;
-        const prevTimer = root.getAttribute("data-pa-portal-topbar-hide-timer");
-        if (prevTimer) {
-          window.clearTimeout(Number(prevTimer));
-          root.removeAttribute("data-pa-portal-topbar-hide-timer");
-        }
-      }
     };
-  }, [hidden, pathname]);
+  }, [pathname, signedInLabel, userEmail]);
+
+  useEffect(() => {
+    syncTopbarHeight(measuredHeight, hidden);
+  }, [hidden, measuredHeight]);
 
   return (
     <header
       ref={topbarRef}
       aria-hidden={hidden}
       style={{
+        height: `${animatedHeight}px`,
         transitionDuration: `${TOPBAR_TRANSITION_MS}ms`,
         transitionTimingFunction: TOPBAR_TRANSITION_EASING,
       }}
       className={classNames(
-        "pa-portal-topbar sticky top-0 z-20 overflow-hidden bg-white/80 backdrop-blur transition-[max-height,opacity,transform,border-color]",
-        hidden
-          ? "pointer-events-none max-h-0 -translate-y-4 border-b border-transparent opacity-0"
-          : "max-h-32 translate-y-0 border-b border-zinc-200 opacity-100",
+        "pa-portal-topbar sticky top-0 z-20 overflow-hidden bg-white/80 backdrop-blur transition-[height,border-color]",
+        hidden ? "pointer-events-none border-b border-transparent" : "border-b border-zinc-200",
       )}
     >
       <div
+        ref={topbarInnerRef}
         style={{
           transitionDuration: `${TOPBAR_TRANSITION_MS}ms`,
           transitionTimingFunction: TOPBAR_TRANSITION_EASING,
         }}
         className={classNames(
-          "mx-auto flex max-w-6xl items-center justify-between gap-4 px-4 py-4 transition-[transform,opacity] sm:gap-6 sm:px-6",
-          hidden ? "-translate-y-2 opacity-0" : "translate-y-0 opacity-100",
+          "mx-auto flex max-w-6xl items-center justify-between gap-4 px-4 py-4 transition-[transform,opacity] will-change-transform sm:gap-6 sm:px-6",
+          hidden ? "-translate-y-full opacity-0" : "translate-y-0 opacity-100",
         )}
       >
         <Link href={homeHref} className="flex shrink-0 items-center gap-3">
