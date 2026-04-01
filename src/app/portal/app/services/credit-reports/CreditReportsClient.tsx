@@ -38,11 +38,21 @@ type OpportunityPlan = {
   key: string;
   title: string;
   fitLabel: string;
+  readinessLabel: string;
+  readinessTone: "red" | "amber" | "green";
+  offerTier: string;
+  offerExamples: string[];
   summary: string;
   whyNow: string;
   clientActions: string[];
-  operatorActions: string[];
+  userActions: string[];
 };
+
+function readinessClasses(tone: OpportunityPlan["readinessTone"]) {
+  if (tone === "green") return "border-emerald-200 bg-emerald-50 text-emerald-700";
+  if (tone === "amber") return "border-amber-200 bg-amber-50 text-amber-700";
+  return "border-red-200 bg-red-50 text-red-700";
+}
 
 function reportReadinessLabel(summary: { pending: number; negative: number; positive: number }) {
   if (summary.negative >= 3) return "Needs active dispute work";
@@ -68,6 +78,12 @@ function buildOpportunityPlans(report: ReportFull | null, summary: { pending: nu
     key: "business-funding",
     title: "Business funding",
     fitLabel: isCleanEnoughForOffers ? "Build offers now" : "Prep the file first",
+    readinessLabel: isCleanEnoughForOffers ? "Approval readiness: Moderate" : "Approval readiness: Low",
+    readinessTone: isCleanEnoughForOffers ? "amber" : "red",
+    offerTier: isCleanEnoughForOffers ? "Offer tier: Starter business funding" : "Offer tier: Business profile prep only",
+    offerExamples: isCleanEnoughForOffers
+      ? ["Starter vendor accounts", "Entry business cards", "Light-doc revenue products after cleanup"]
+      : ["Business profile cleanup", "Vendor-credit groundwork", "No broad underwriting push yet"],
     summary: isCleanEnoughForOffers
       ? "Good lane for starter business funding once the file stays stable and the business profile is documented cleanly."
       : "Keep business funding in the plan, but treat this as a preparation lane until the report has fewer unresolved negatives.",
@@ -79,10 +95,10 @@ function buildOpportunityPlans(report: ReportFull | null, summary: { pending: nu
       "Make sure the business profile is complete: entity, EIN, business banking, business phone, and matching public records.",
       "Avoid new missed payments or balance spikes while funding prep is happening.",
     ],
-    operatorActions: [
-      "Review business readiness before sending the client into underwriting: entity age, revenue pattern, bank-account stability, and profile consistency.",
-      "Map the client into the right lane first: starter vendor credit, term loan prep, or revenue-based options depending on file quality.",
-      "Sequence funding asks after the most damaging negatives are disputed or stabilized so applications are not wasted.",
+    userActions: [
+      "Review business readiness before moving this client into underwriting: entity age, revenue pattern, bank-account stability, and profile consistency.",
+      "Choose the right lane first: starter vendor credit, business cards, term-loan prep, or revenue-based options depending on file quality.",
+      "Sequence applications after the biggest negatives are stabilized so you do not waste funding attempts.",
     ],
   };
 
@@ -90,6 +106,12 @@ function buildOpportunityPlans(report: ReportFull | null, summary: { pending: nu
     key: "personal-funding",
     title: "Personal funding",
     fitLabel: isCleanEnoughForOffers ? "Near-term option" : "Secondary priority",
+    readinessLabel: isCleanEnoughForOffers ? "Approval readiness: Moderate" : "Approval readiness: Low",
+    readinessTone: isCleanEnoughForOffers ? "amber" : "red",
+    offerTier: isCleanEnoughForOffers ? "Offer tier: Conservative personal funding" : "Offer tier: Wait and prepare",
+    offerExamples: isCleanEnoughForOffers
+      ? ["Relationship lenders", "Narrow approval-box installment products", "Selective personal-line options"]
+      : ["Documentation prep", "Utilization cleanup first", "Delay applications until file settles"],
     summary: isCleanEnoughForOffers
       ? "Personal funding can be pursued in a controlled way if the client keeps utilization down and avoids stacking applications."
       : "Treat personal funding as a later-phase move until the report is cleaner and the client’s file is less volatile.",
@@ -101,10 +123,10 @@ function buildOpportunityPlans(report: ReportFull | null, summary: { pending: nu
       "Gather income, employment, and bank-statement documentation early so timing does not slip later.",
       "Pay revolving balances down before statement dates to show cleaner utilization on the next refresh.",
     ],
-    operatorActions: [
-      "Pre-screen likely approval lanes before suggesting any application path to the client.",
-      "Decide whether the client should wait for score improvement or use a relationship lender / narrower approval box first.",
-      "Track inquiry velocity and make sure personal funding does not interfere with the repair timeline.",
+    userActions: [
+      "Pre-screen likely approval lanes before suggesting any application path.",
+      "Decide whether this client should wait for score improvement or use a relationship lender / narrower approval box first.",
+      "Track inquiry velocity so personal funding does not interfere with the repair timeline.",
     ],
   };
 
@@ -112,6 +134,12 @@ function buildOpportunityPlans(report: ReportFull | null, summary: { pending: nu
     key: "credit-cards",
     title: "Credit cards",
     fitLabel: hasUtilizationSignals || isCleanEnoughForOffers ? "Strong tactical lever" : "Use carefully",
+    readinessLabel: hasUtilizationSignals || isCleanEnoughForOffers ? "Approval readiness: Moderate to strong" : "Approval readiness: Cautious",
+    readinessTone: hasUtilizationSignals || isCleanEnoughForOffers ? "green" : "amber",
+    offerTier: hasUtilizationSignals || isCleanEnoughForOffers ? "Offer tier: Tactical card strategy" : "Offer tier: Starter card positioning",
+    offerExamples: hasUtilizationSignals || isCleanEnoughForOffers
+      ? ["Secured-to-unsecured graduation path", "Selective unsecured cards", "Business cards after profile review"]
+      : ["Secured cards", "Starter relationship cards", "Single-card rebuild plan"],
     summary: hasUtilizationSignals
       ? "Credit-card strategy is one of the fastest levers here because balance management and the right product mix can change the file quickly."
       : "Card strategy still matters here, especially if the goal is to add positive revolving history without over-applying.",
@@ -123,7 +151,7 @@ function buildOpportunityPlans(report: ReportFull | null, summary: { pending: nu
       "Do not submit multiple card applications close together.",
       "Use any new or existing card for small, controlled spend that can be paid cleanly every cycle.",
     ],
-    operatorActions: [
+    userActions: [
       "Recommend the right lane: secured, starter unsecured, relationship card, or business card depending on the file and stated goals.",
       "Set a utilization target for the client and monitor whether statement balances are following the plan.",
       "Use card strategy to support future funding, not just to chase approvals today.",
@@ -134,6 +162,12 @@ function buildOpportunityPlans(report: ReportFull | null, summary: { pending: nu
     key: "other-actions",
     title: "Other actions",
     fitLabel: isStillRepairHeavy ? "Do these now" : "Keep these active",
+    readinessLabel: isStillRepairHeavy ? "Approval readiness: Not ready yet" : "Approval readiness: Stabilizing",
+    readinessTone: isStillRepairHeavy ? "red" : "amber",
+    offerTier: isStillRepairHeavy ? "Offer tier: No expansion push" : "Offer tier: Controlled next-step mode",
+    offerExamples: isStillRepairHeavy
+      ? ["Disputes first", "Documentation cleanup", "Monitoring before applications"]
+      : ["Measured follow-up", "Selective expansion only", "Protect gains already made"],
     summary: isStillRepairHeavy
       ? "The file still needs operational cleanup, follow-up, and monitoring before bigger funding moves should take priority."
       : "Even when the file improves, disciplined follow-up and monitoring keep the client from backsliding.",
@@ -145,10 +179,10 @@ function buildOpportunityPlans(report: ReportFull | null, summary: { pending: nu
       "Respond quickly when updated disputes, verification requests, or creditor follow-ups are needed.",
       "Stop any behavior that adds instability to the file: late payments, unnecessary inquiries, or high balances.",
     ],
-    operatorActions: [
-      "Turn negative and pending items into a dated action queue with dispute timing, follow-up windows, and next-owner status.",
+    userActions: [
+      "Turn negative and pending items into the next concrete actions with dispute timing and follow-up windows.",
       "Decide which items should stay in bureau disputes versus direct furnisher or collector follow-up.",
-      "Use the report to brief the client on what to do personally versus what the team will handle operationally.",
+      "Use the report to clearly separate what the client must do personally from what you will handle for them.",
     ],
   };
 
@@ -592,7 +626,7 @@ export default function CreditReportsClient() {
                   <div>
                     <div className="text-sm font-semibold text-zinc-900">Funding and action plan</div>
                     <div className="mt-1 text-sm text-zinc-600">
-                      Use the report to drive funding lanes for the client and a concrete operator workflow for the team.
+                      Use the report to drive funding lanes, readiness, and concrete next actions for both the client and you.
                     </div>
                   </div>
                   <div className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm text-zinc-700">
@@ -608,14 +642,31 @@ export default function CreditReportsClient() {
                           <div className="text-base font-semibold text-zinc-900">{plan.title}</div>
                           <div className="mt-1 text-sm text-zinc-700">{plan.summary}</div>
                         </div>
-                        <div className="rounded-full border border-zinc-200 bg-white px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-600">
-                          {plan.fitLabel}
+                        <div className="flex flex-wrap items-center gap-2">
+                          <div className={"rounded-full border px-3 py-1 text-[11px] font-semibold uppercase tracking-wide " + readinessClasses(plan.readinessTone)}>
+                            {plan.readinessLabel}
+                          </div>
+                          <div className="rounded-full border border-zinc-200 bg-white px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-600">
+                            {plan.fitLabel}
+                          </div>
                         </div>
                       </div>
 
                       <div className="mt-3 rounded-2xl border border-blue-200 bg-blue-50 p-3 text-sm text-blue-900">
                         <div className="text-[11px] font-semibold uppercase tracking-wide text-blue-700">Why this matters now</div>
                         <div className="mt-1">{plan.whyNow}</div>
+                      </div>
+
+                      <div className="mt-3 rounded-2xl border border-zinc-200 bg-white p-3">
+                        <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Offer tier</div>
+                        <div className="mt-1 text-sm font-semibold text-zinc-900">{plan.offerTier}</div>
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          {plan.offerExamples.map((example) => (
+                            <div key={example} className="rounded-full border border-zinc-200 bg-zinc-50 px-3 py-1 text-xs font-semibold text-zinc-600">
+                              {example}
+                            </div>
+                          ))}
+                        </div>
                       </div>
 
                       <div className="mt-4 grid gap-3 md:grid-cols-2">
@@ -631,9 +682,9 @@ export default function CreditReportsClient() {
                           </ul>
                         </div>
                         <div className="rounded-2xl border border-zinc-200 bg-white p-3">
-                          <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">User actions</div>
+                          <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Your actions</div>
                           <ul className="mt-2 space-y-2 text-sm text-zinc-700">
-                            {plan.operatorActions.map((action) => (
+                            {plan.userActions.map((action) => (
                               <li key={action} className="flex gap-2">
                                 <span className="mt-0.5 text-zinc-400">•</span>
                                 <span>{action}</span>
