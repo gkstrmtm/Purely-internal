@@ -177,6 +177,10 @@ export default function DisputeLettersClient() {
     () => LETTER_STAGE_OPTIONS.find((entry) => entry.value === selectedStage)?.label || "Initial review",
     [selectedStage],
   );
+  const templateOptions = useMemo(
+    () => LETTER_LIBRARY.map((template) => ({ value: template.key, label: template.label })) as PortalListboxOption<string>[],
+    [],
+  );
 
   const loadContacts = useCallback(async (q: string) => {
     const url = `/api/portal/credit/contacts${q.trim() ? `?q=${encodeURIComponent(q.trim())}` : ""}`;
@@ -361,36 +365,26 @@ export default function DisputeLettersClient() {
   };
 
   return (
-    <div className="min-h-screen bg-zinc-50 text-zinc-900">
-      <div className="mx-auto max-w-5xl px-4 py-8">
-        <div className="mb-6 flex flex-wrap items-end justify-between gap-3">
-          <div>
-            <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Credit</div>
-            <h1 className="text-2xl font-bold">Dispute letters</h1>
-            <p className="mt-1 text-sm text-zinc-600">
-              Draft, refine, and export dispute letters from one calmer workspace.
-            </p>
-          </div>
+    <div className="mx-auto w-full max-w-6xl">
+      <div className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-end">
+        <div>
+          <h1 className="text-2xl font-bold text-brand-ink sm:text-3xl">Dispute letters</h1>
+          <p className="mt-1 max-w-2xl text-sm text-zinc-600">Create, edit, export, and send dispute letters from the same clean credit workspace.</p>
         </div>
+        <div className="inline-flex rounded-full border border-zinc-200 bg-white px-3 py-1 text-xs font-semibold text-zinc-600">
+          {letters.length} saved
+        </div>
+      </div>
 
-        {error ? (
-          <div className="mb-4 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">{error}</div>
-        ) : null}
+      {error ? <div className="mt-4 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">{error}</div> : null}
 
-        <div className="space-y-4">
-          <section className="rounded-[28px] border border-zinc-200 bg-white p-5 shadow-sm shadow-zinc-200/40">
-            <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-              <div>
-                <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-500">Letter setup</div>
-                <div className="mt-2 text-lg font-semibold text-zinc-900">Start with the right contact</div>
-                <div className="mt-1 text-sm leading-6 text-zinc-600">Pick the client first so every draft, export, and saved letter stays grounded in the right file.</div>
-              </div>
-              <div className="rounded-full bg-zinc-100 px-3 py-1 text-[11px] font-semibold text-zinc-600 ring-1 ring-inset ring-zinc-200">
-                {letters.length} saved
-              </div>
-            </div>
+      <div className="mt-6 grid grid-cols-1 gap-4 xl:grid-cols-[320px_minmax(0,1fr)]">
+        <aside className="rounded-3xl border border-zinc-200 bg-white p-5">
+          <div className="text-sm font-semibold text-zinc-900">Contact</div>
+          <div className="mt-1 text-sm text-zinc-600">Pick the file you want this letter history tied to.</div>
 
-            <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+          <div className="mt-4 flex flex-col gap-2">
+            <div className="flex gap-2">
               <input
                 value={contactQuery}
                 onChange={(e) => setContactQuery(e.target.value)}
@@ -401,305 +395,245 @@ export default function DisputeLettersClient() {
                 type="button"
                 disabled={busy}
                 onClick={() => loadContacts(contactQuery)}
-                className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold hover:bg-zinc-50 disabled:opacity-60"
+                className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50 disabled:opacity-60"
               >
                 Search
               </button>
             </div>
+            <PortalListboxDropdown
+              value={selectedContactId}
+              onChange={(v) => setSelectedContactId(v)}
+              disabled={busy || contacts.length === 0}
+              placeholder="Select a contact…"
+              buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50"
+              options={
+                contacts.length
+                  ? contacts.map(
+                      (c): PortalListboxOption<string> => ({
+                        value: c.id,
+                        label: `${c.name}${c.email ? ` - ${c.email}` : ""}`,
+                      }),
+                    )
+                  : ([{ value: "", label: "No contacts yet", disabled: true }] as PortalListboxOption<string>[])
+              }
+            />
+          </div>
 
-            <div className="mt-3">
-              <PortalListboxDropdown
-                value={selectedContactId}
-                onChange={(v) => setSelectedContactId(v)}
-                disabled={busy || contacts.length === 0}
-                placeholder="Select a contact…"
-                buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50"
-                options={
-                  (contacts.length
-                    ? contacts.map(
-                        (c): PortalListboxOption<string> => ({
-                          value: c.id,
-                          label: `${c.name}${c.email ? ` - ${c.email}` : ""}`,
-                        }),
-                      )
-                    : ([{ value: "", label: "No contacts yet", disabled: true }] as PortalListboxOption<string>[]))
-                }
-              />
-            </div>
-
-            {selectedContact ? (
-              <div className="mt-4 grid gap-3 lg:grid-cols-[1.2fr_0.8fr]">
-                <div className="rounded-2xl border border-blue-100 bg-linear-to-br from-blue-50 to-white p-4 text-sm">
-                  <div className="text-[11px] font-semibold uppercase tracking-wide text-blue-700">Active contact</div>
-                  <div className="mt-1 font-semibold text-zinc-900">{selectedContact.name}</div>
-                  <div className="mt-1 text-xs text-zinc-600">
-                    {selectedContact.email ? `Email: ${selectedContact.email}` : "No email"}
-                    {selectedContact.phone ? ` • Phone: ${selectedContact.phone}` : ""}
-                  </div>
-                </div>
-                <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">
-                  <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Letter activity</div>
-                  <div className="mt-1 font-semibold text-zinc-900">
-                    {letters.length ? `${letters.length} saved letter${letters.length === 1 ? "" : "s"}` : "No saved letters yet"}
-                  </div>
-                  <div className="mt-1 text-xs text-zinc-500">Generated drafts will appear here for quick reopen and editing.</div>
-                </div>
+          {selectedContact ? (
+            <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+              <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Active contact</div>
+              <div className="mt-1 text-sm font-semibold text-zinc-900">{selectedContact.name}</div>
+              <div className="mt-1 text-xs text-zinc-600">
+                {selectedContact.email ? `Email: ${selectedContact.email}` : "No email"}
+                {selectedContact.phone ? ` • Phone: ${selectedContact.phone}` : ""}
               </div>
+            </div>
+          ) : (
+            <div className="mt-4 rounded-2xl border border-dashed border-zinc-300 bg-zinc-50 p-4 text-sm text-zinc-600">
+              Select a contact before generating a letter.
+            </div>
+          )}
+
+          <div className="mt-5 border-t border-zinc-200 pt-4">
+            <div className="flex items-center justify-between gap-2">
+              <div className="text-sm font-semibold text-zinc-900">Saved letters</div>
+              <div className="text-xs text-zinc-500">Newest first</div>
+            </div>
+            {letters.length === 0 ? (
+              <div className="mt-2 text-sm text-zinc-600">No letters yet.</div>
             ) : (
-              <div className="mt-4 rounded-2xl border border-dashed border-zinc-300 bg-zinc-50 p-4 text-sm text-zinc-600">
-                Select a contact before drafting so the workspace can keep the right letters and exports together.
+              <div className="mt-3 space-y-2">
+                {letters.map((l) => (
+                  <button
+                    key={l.id}
+                    type="button"
+                    onClick={() => setSelectedLetterId(l.id)}
+                    className={classNames(
+                      "w-full rounded-2xl border px-3 py-3 text-left transition-colors",
+                      selectedLetterId === l.id ? "border-zinc-900 bg-zinc-50" : "border-zinc-200 bg-white hover:bg-zinc-50",
+                    )}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="truncate text-sm font-semibold text-zinc-900">{l.subject}</div>
+                      <div className="shrink-0 rounded-full border border-zinc-200 bg-white px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-zinc-500">
+                        {l.status}
+                      </div>
+                    </div>
+                    <div className="mt-1 text-xs text-zinc-500">{new Date(l.createdAt).toLocaleString()}</div>
+                    {l.lastSentTo ? <div className="mt-1 text-xs text-zinc-600">Sent to: {l.lastSentTo}</div> : null}
+                  </button>
+                ))}
               </div>
             )}
+          </div>
+        </aside>
 
-            <div className="mt-5 border-t border-zinc-200 pt-4">
-              <div className="flex items-center justify-between gap-3">
-                <div className="text-sm font-semibold text-zinc-900">Saved letters</div>
-                <div className="text-xs text-zinc-500">Most recent drafts first</div>
+        <main className="space-y-4">
+          <section className="rounded-3xl border border-zinc-200 bg-white p-5">
+            <div className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-center">
+              <div>
+                <div className="text-sm font-semibold text-zinc-900">New letter</div>
+                <div className="mt-1 text-sm text-zinc-600">Choose the framing, drop in the dispute facts, then generate the first draft.</div>
               </div>
-              {letters.length === 0 ? (
-                <div className="mt-2 text-sm text-zinc-600">No letters yet.</div>
-              ) : (
-                <div className="mt-2 space-y-2">
-                  {letters.map((l) => (
-                    <button
-                      key={l.id}
-                      type="button"
-                      onClick={() => setSelectedLetterId(l.id)}
-                      className={classNames(
-                        "w-full rounded-2xl border px-3 py-3 text-left transition-colors",
-                        selectedLetterId === l.id
-                          ? "border-blue-300 bg-linear-to-br from-blue-50 to-white shadow-sm shadow-blue-100"
-                          : "border-zinc-200 bg-white hover:bg-zinc-50",
-                      )}
-                    >
-                      <div className="flex items-center justify-between gap-2">
-                        <div className="truncate text-sm font-semibold">{l.subject}</div>
-                        <div className="shrink-0 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">
-                          {l.status}
-                        </div>
-                      </div>
-                      <div className="mt-1 text-xs text-zinc-500">{new Date(l.createdAt).toLocaleString()}</div>
-                      {l.lastSentTo ? <div className="mt-1 text-xs text-zinc-600">Sent to: {l.lastSentTo}</div> : null}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-          </section>
-
-          <main className="rounded-[28px] border border-zinc-200 bg-white p-5 shadow-sm shadow-zinc-200/40">
-            <div>
-              <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-500">Compose</div>
-              <div className="mt-2 text-lg font-semibold text-zinc-900">Build a cleaner starter draft</div>
-              <div className="mt-1 text-sm leading-6 text-zinc-600">Choose the tone, pull in the right structure, then edit the draft before saving, exporting, or sending.</div>
+              <button
+                type="button"
+                disabled={busy || !selectedContactId || disputesText.trim().length < 3}
+                onClick={generateLetter}
+                className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-4 py-2.5 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
+              >
+                {busy ? "Working…" : "Generate letter"}
+              </button>
             </div>
 
-            <div className="mt-4 grid gap-4 xl:grid-cols-[0.9fr_1.1fr]">
-              <section className="rounded-3xl border border-zinc-200 bg-zinc-50 p-4">
-                <div className="grid gap-3 md:grid-cols-3 xl:grid-cols-1">
-                  <label className="block md:col-span-1 xl:col-span-1">
-                    <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Letter strategy</div>
-                    <PortalListboxDropdown
-                      value={selectedStage}
-                      onChange={(v) => setSelectedStage(String(v || "initial-review"))}
-                      disabled={busy}
-                      buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50"
-                      options={LETTER_STAGE_OPTIONS}
-                    />
-                    <div className="mt-2 text-xs leading-5 text-zinc-500">{stageSupportCopy(selectedStage)}</div>
-                  </label>
+            <div className="mt-4 grid gap-4 lg:grid-cols-[0.9fr_1.1fr]">
+              <div className="space-y-4">
+                <label className="block">
+                  <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Letter strategy</div>
+                  <PortalListboxDropdown
+                    value={selectedStage}
+                    onChange={(v) => setSelectedStage(String(v || "initial-review"))}
+                    disabled={busy}
+                    buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50"
+                    options={LETTER_STAGE_OPTIONS}
+                  />
+                  <div className="mt-2 text-xs text-zinc-500">{stageSupportCopy(selectedStage)}</div>
+                </label>
 
-                  <label className="block md:col-span-2 xl:col-span-1">
-                    <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Recipient name</div>
-                    <input
-                      value={recipientName}
-                      onChange={(e) => setRecipientName(e.target.value)}
-                      className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                      placeholder="e.g., Experian"
-                    />
-                  </label>
+                <label className="block">
+                  <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Template</div>
+                  <PortalListboxDropdown
+                    value={selectedTemplateKey}
+                    onChange={(v) => setSelectedTemplateKey(String(v || LETTER_LIBRARY[0]?.key || "bureau-general"))}
+                    disabled={busy}
+                    buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50"
+                    options={templateOptions}
+                  />
+                </label>
 
-                  <label className="block md:col-span-3 xl:col-span-1">
-                    <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Recipient address</div>
-                    <input
-                      value={recipientAddress}
-                      onChange={(e) => setRecipientAddress(e.target.value)}
-                      className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                      placeholder="Mailing address (optional)"
-                    />
-                  </label>
-                </div>
+                <label className="block">
+                  <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Recipient name</div>
+                  <input
+                    value={recipientName}
+                    onChange={(e) => setRecipientName(e.target.value)}
+                    className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                    placeholder="e.g., Experian"
+                  />
+                </label>
 
-                <div className="mt-4 rounded-2xl border border-zinc-200 bg-white p-4 text-sm text-zinc-600">
-                  Pick a strategy first, then choose the template whose framing best matches the facts you want investigated.
-                </div>
-              </section>
-
-              <section className="rounded-3xl border border-zinc-200 bg-zinc-50 p-4">
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <div className="text-sm font-semibold text-zinc-900">Template library</div>
-                    <div className="mt-1 text-xs leading-5 text-zinc-600">Choose the starter that best matches the dispute pattern before generating the draft.</div>
-                  </div>
-                  <div className="rounded-full bg-white px-2.5 py-1 text-[11px] font-semibold text-zinc-500 ring-1 ring-inset ring-zinc-200">
-                    {LETTER_LIBRARY.length} options
-                  </div>
-                </div>
-                <div className="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-2">
-                  {LETTER_LIBRARY.map((template) => {
-                    const active = template.key === selectedTemplateKey;
-                    return (
-                      <button
-                        key={template.key}
-                        type="button"
-                        onClick={() => setSelectedTemplateKey(template.key)}
-                        className={classNames(
-                          "w-full rounded-2xl border px-3 py-3 text-left transition-colors",
-                          active ? "border-blue-300 bg-linear-to-br from-blue-50 to-white shadow-sm shadow-blue-100" : "border-zinc-200 bg-white hover:bg-zinc-50",
-                        )}
-                      >
-                        <div className="text-sm font-semibold text-zinc-900">{template.label}</div>
-                        <div className="mt-1 text-xs leading-5 text-zinc-600">{template.summary}</div>
-                      </button>
-                    );
-                  })}
-                </div>
-              </section>
-            </div>
-
-            <div className="mt-4 grid gap-4 xl:grid-cols-[1.05fr_0.95fr]">
-              <div className="rounded-3xl border border-zinc-200 bg-zinc-50 p-4">
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div>
-                    <div className="text-sm font-semibold text-zinc-900">{selectedTemplate.label}</div>
-                    <div className="mt-1 text-xs leading-5 text-zinc-600">{selectedTemplate.summary}</div>
-                  </div>
-                  <button
-                    type="button"
-                    className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold hover:bg-zinc-50"
-                    onClick={() => setLetterDraftBody((prev) => (prev.trim() ? `${selectedTemplate.bodyStarter}\n\n${prev}` : selectedTemplate.bodyStarter))}
-                    disabled={!selectedLetterId}
-                    title={selectedLetterId ? "" : "Generate or select a letter first"}
-                  >
-                    Load starter into editor
-                  </button>
-                </div>
-                <div className="mt-2 rounded-2xl border border-emerald-100 bg-emerald-50 px-3 py-2 text-xs leading-5 text-emerald-800">
-                  {selectedTemplate.education}
-                </div>
-                <div className="mt-3 rounded-2xl border border-zinc-200 bg-white p-4">
-                  <pre className="scrollbar-none overflow-auto whitespace-pre-wrap text-sm leading-6 text-zinc-700">{selectedTemplatePreview}</pre>
-                </div>
+                <label className="block">
+                  <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Recipient address</div>
+                  <input
+                    value={recipientAddress}
+                    onChange={(e) => setRecipientAddress(e.target.value)}
+                    className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                    placeholder="Mailing address (optional)"
+                  />
+                </label>
               </div>
 
-              <div className="rounded-3xl border border-zinc-200 bg-zinc-50 p-4">
-                <div className="text-sm font-semibold text-zinc-900">Dispute details</div>
-                <div className="mt-1 text-xs leading-5 text-zinc-600">List the exact accounts, inquiries, dates, balances, or facts that should appear in the letter.</div>
-                <label className="mt-3 block">
+              <div className="space-y-4">
+                <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+                  <div className="text-sm font-semibold text-zinc-900">{selectedTemplate.label}</div>
+                  <div className="mt-1 text-sm text-zinc-600">{selectedTemplate.summary}</div>
+                  <div className="mt-3 rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-xs leading-5 text-zinc-600">
+                    {selectedTemplate.education}
+                  </div>
+                  <pre className="mt-3 max-h-48 overflow-auto whitespace-pre-wrap rounded-2xl border border-zinc-200 bg-white p-3 text-xs leading-5 text-zinc-700">
+                    {selectedTemplatePreview}
+                  </pre>
+                </div>
+
+                <label className="block">
                   <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Items to include</div>
                   <textarea
                     value={disputesText}
                     onChange={(e) => setDisputesText(e.target.value)}
-                    className="min-h-48 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                    className="min-h-52 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
                     placeholder="Example:\n- Account XXXX reported 60 days late in Jan 2025, but payment was on time\n- Inquiry from ABC Bank on 02/10/2025 is not mine"
                   />
-                  <div className="mt-2 text-xs leading-5 text-zinc-500">
-                    Paste the tradelines, inquiry notes, status mismatches, or supporting facts you want included in this draft.
-                  </div>
+                  <div className="mt-2 text-xs text-zinc-500">Paste the tradelines, dates, inquiry notes, or reporting errors you want the draft to address.</div>
+                </label>
+              </div>
+            </div>
+          </section>
+
+          <section className="rounded-3xl border border-zinc-200 bg-white p-5">
+            <div className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-center">
+              <div>
+                <div className="text-sm font-semibold text-zinc-900">Editor</div>
+                <div className="mt-1 text-sm text-zinc-600">{selectedLetterUpdatedAtLabel}</div>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  disabled={busy || !selectedLetterId}
+                  onClick={ensurePdf}
+                  className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50 disabled:opacity-60"
+                  title={selectedLetterId ? "" : "Select a letter first"}
+                >
+                  {pdfDownloadUrl ? "Regenerate PDF" : "Generate PDF"}
+                </button>
+                {pdfDownloadUrl ? (
+                  <a
+                    href={pdfDownloadUrl}
+                    className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95"
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    Download PDF
+                  </a>
+                ) : null}
+                <button
+                  type="button"
+                  disabled={busy || !selectedLetterId}
+                  onClick={saveLetter}
+                  className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50 disabled:opacity-60"
+                >
+                  Save
+                </button>
+                <button
+                  type="button"
+                  disabled={busy || !selectedLetterId || !selectedContact?.email}
+                  onClick={sendLetter}
+                  className="inline-flex items-center justify-center rounded-2xl bg-zinc-900 px-4 py-2 text-sm font-semibold text-white hover:bg-zinc-800 disabled:opacity-60"
+                  title={selectedContact?.email ? "" : "Contact needs an email"}
+                >
+                  Send to contact
+                </button>
+              </div>
+            </div>
+
+            {!selectedLetter ? (
+              <div className="mt-4 rounded-2xl border border-dashed border-zinc-300 bg-zinc-50 p-6 text-sm text-zinc-600">
+                Generate a letter, then select it from the saved list to edit, export, or send it.
+              </div>
+            ) : (
+              <div className="mt-4 space-y-4">
+                <label className="block">
+                  <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Subject</div>
+                  <input
+                    value={letterDraftSubject}
+                    onChange={(e) => setLetterDraftSubject(e.target.value)}
+                    className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                  />
                 </label>
 
-                <div className="mt-4 flex flex-wrap items-center gap-2">
-                  <button
-                    type="button"
-                    disabled={busy || !selectedContactId || disputesText.trim().length < 3}
-                    onClick={generateLetter}
-                    className="rounded-xl bg-(--color-brand-blue) px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
-                  >
-                    {busy ? "Working…" : "Generate letter"}
-                  </button>
-                  <div className="text-xs text-zinc-500">Generate the starter, then refine it in the editor before sending or exporting.</div>
-                </div>
+                <label className="block">
+                  <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Letter body</div>
+                  <textarea
+                    value={letterDraftBody}
+                    onChange={(e) => setLetterDraftBody(e.target.value)}
+                    className="min-h-105 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 font-mono text-xs text-zinc-800"
+                  />
+                  <div className="mt-2 text-xs text-zinc-500">
+                    Status: {selectedLetter.status}
+                    {selectedLetter.sentAt ? ` • Sent: ${new Date(selectedLetter.sentAt).toLocaleString()}` : ""}
+                  </div>
+                </label>
               </div>
-            </div>
-
-            <div className="mt-6 border-t border-zinc-200 pt-5">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div>
-                  <div className="text-sm font-semibold text-zinc-900">Editor</div>
-                  <div className="mt-1 text-xs text-zinc-500">{selectedLetterUpdatedAtLabel}</div>
-                </div>
-                <div className="flex flex-wrap items-center justify-end gap-2">
-                  <button
-                    type="button"
-                    disabled={busy || !selectedLetterId}
-                    onClick={ensurePdf}
-                    className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold hover:bg-zinc-50 disabled:opacity-60"
-                    title={selectedLetterId ? "" : "Select a letter first"}
-                  >
-                    {pdfDownloadUrl ? "Regenerate PDF" : "Generate PDF"}
-                  </button>
-                  {pdfDownloadUrl ? (
-                    <a
-                      href={pdfDownloadUrl}
-                      className="rounded-xl bg-(--color-brand-blue) px-3 py-2 text-sm font-semibold text-white hover:bg-blue-700"
-                      target="_blank"
-                      rel="noreferrer"
-                    >
-                      Download PDF
-                    </a>
-                  ) : null}
-                  <button
-                    type="button"
-                    disabled={busy || !selectedLetterId}
-                    onClick={saveLetter}
-                    className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold hover:bg-zinc-50 disabled:opacity-60"
-                  >
-                    Save
-                  </button>
-                  <button
-                    type="button"
-                    disabled={busy || !selectedLetterId || !selectedContact?.email}
-                    onClick={sendLetter}
-                    className="rounded-xl bg-zinc-900 px-3 py-2 text-sm font-semibold text-white hover:bg-zinc-800 disabled:opacity-60"
-                    title={selectedContact?.email ? "" : "Contact needs an email"}
-                  >
-                    Send to contact
-                  </button>
-                </div>
-              </div>
-
-              {!selectedLetter ? (
-                <div className="mt-3 rounded-2xl border border-dashed border-zinc-300 bg-zinc-50 p-6 text-sm text-zinc-600">
-                  Generate a letter, then select it from the saved list to edit, export, or send it.
-                </div>
-              ) : (
-                <div className="mt-3 space-y-3">
-                  <label className="block">
-                    <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Subject</div>
-                    <input
-                      value={letterDraftSubject}
-                      onChange={(e) => setLetterDraftSubject(e.target.value)}
-                      className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                    />
-                  </label>
-
-                  <label className="block">
-                    <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Letter body</div>
-                    <textarea
-                      value={letterDraftBody}
-                      onChange={(e) => setLetterDraftBody(e.target.value)}
-                      className="min-h-105 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 font-mono text-xs"
-                    />
-                    <div className="mt-1 text-xs text-zinc-500">
-                      Status: {selectedLetter.status}
-                      {selectedLetter.sentAt ? ` • Sent: ${new Date(selectedLetter.sentAt).toLocaleString()}` : ""}
-                    </div>
-                  </label>
-                </div>
-              )}
-            </div>
-          </main>
-        </div>
+            )}
+          </section>
+        </main>
       </div>
     </div>
   );

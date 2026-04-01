@@ -327,28 +327,38 @@ export default function CreditReportsClient() {
   };
 
   return (
-    <div className="mx-auto w-full max-w-7xl">
+    <div className="mx-auto w-full max-w-6xl">
+      <div className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-end">
+        <div>
+          <h1 className="text-2xl font-bold text-brand-ink sm:text-3xl">Credit reports</h1>
+          <p className="mt-1 max-w-2xl text-sm text-zinc-600">Import the latest pull, tag the items that matter, and move straight into dispute work.</p>
+        </div>
+        {selectedReport ? (
+          <Link
+            href={`${portalBase}/app/services/dispute-letters`}
+            className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+          >
+            Open dispute letters
+          </Link>
+        ) : null}
+      </div>
+
       {error ? (
-        <div className="mb-4 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">{error}</div>
+        <div className="mt-4 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">{error}</div>
       ) : null}
 
-      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[370px_minmax(0,1fr)]">
-        <aside className="rounded-[28px] border border-zinc-200 bg-white p-5 shadow-sm shadow-zinc-200/40">
-          <div className="flex items-start justify-between gap-3">
+      <div className="mt-6 grid grid-cols-1 gap-4 xl:grid-cols-[320px_minmax(0,1fr)]">
+        <aside className="rounded-3xl border border-zinc-200 bg-white p-5">
+          <div className="flex items-center justify-between gap-3">
             <div>
-              <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-500">Report intake</div>
-              <div className="mt-2 text-lg font-semibold text-zinc-900">Pull or refresh a report</div>
-              <div className="mt-1 text-sm leading-6 text-zinc-600">
-                Bring in the latest bureau data, connect it to a contact, and keep the audit queue current.
-              </div>
+              <div className="text-sm font-semibold text-zinc-900">Report intake</div>
+              <div className="mt-1 text-sm text-zinc-600">Pull a fresh report or reopen an existing one.</div>
             </div>
-            <div className="rounded-full bg-zinc-100 px-3 py-1 text-[11px] font-semibold text-zinc-600 ring-1 ring-inset ring-zinc-200">
-              {reports.length} saved
-            </div>
+            <div className="rounded-full border border-zinc-200 bg-white px-3 py-1 text-xs font-semibold text-zinc-600">{reports.length} saved</div>
           </div>
 
           <label className="mt-3 block">
-            <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Contact (optional)</div>
+            <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Contact</div>
             <div className="flex gap-2">
               <input
                 value={contactQuery}
@@ -411,17 +421,17 @@ export default function CreditReportsClient() {
               type="button"
               disabled={busy}
               onClick={requestProviderPull}
-              className="rounded-xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
+              className="rounded-2xl bg-brand-ink px-4 py-2.5 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
             >
               {busy ? "Working…" : reports.some((report) => report.contactId === selectedContactId) ? "Re-import latest" : "Pull latest report"}
             </button>
           </div>
 
           {selectedContact ? (
-            <div className="mt-4 rounded-2xl border border-blue-100 bg-linear-to-br from-blue-50 to-white p-4">
-              <div className="text-[11px] font-semibold uppercase tracking-wide text-blue-700">Current focus</div>
+            <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+              <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Current focus</div>
               <div className="mt-1 text-sm font-semibold text-zinc-900">{selectedContact.name}</div>
-              <div className="mt-1 text-xs leading-5 text-zinc-600">
+              <div className="mt-1 text-xs text-zinc-600">
                 {selectedContact.email ? selectedContact.email : "No email on file"}
               </div>
             </div>
@@ -461,7 +471,7 @@ export default function CreditReportsClient() {
 
           <div className="mt-6 border-t border-zinc-200 pt-4">
             <div className="flex items-center justify-between gap-3">
-              <div className="text-sm font-semibold text-zinc-900">Reports</div>
+              <div className="text-sm font-semibold text-zinc-900">Saved reports</div>
               <div className="text-xs text-zinc-500">Newest first</div>
             </div>
             {reports.length === 0 ? (
@@ -476,7 +486,7 @@ export default function CreditReportsClient() {
                     className={
                       "w-full rounded-2xl border px-3 py-3 text-left transition-colors " +
                       (selectedReportId === r.id
-                        ? "border-blue-300 bg-linear-to-br from-blue-50 to-white shadow-sm shadow-blue-100"
+                        ? "border-zinc-900 bg-zinc-50"
                         : "border-zinc-200 bg-white hover:bg-zinc-50")
                     }
                   >
@@ -495,35 +505,20 @@ export default function CreditReportsClient() {
           </div>
         </aside>
 
-        <main className="rounded-[28px] border border-zinc-200 bg-white p-5 shadow-sm shadow-zinc-200/40">
-          <div className="flex flex-wrap items-end justify-between gap-3">
-            <div>
-              <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-500">Report workspace</div>
-              <div className="mt-2 text-lg font-semibold text-zinc-900">Audit and plan the next move</div>
-              <div className="mt-1 text-sm leading-6 text-zinc-600">
-                Review every tradeline, mark what needs attention, and hand the report into dispute letters without losing context.
-              </div>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              <Link href={`${portalBase}/app/services/dispute-letters`} className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold hover:bg-zinc-50">
-                Open dispute letters
-              </Link>
-            </div>
-          </div>
-
+        <main className="space-y-4">
           {!selectedReport ? (
-            <div className="mt-3 rounded-2xl border border-dashed border-zinc-300 bg-zinc-50 p-6 text-sm text-zinc-600">
+            <div className="rounded-3xl border border-zinc-200 bg-white p-6 text-sm text-zinc-600">
               Select a report from the left to open the audit workspace.
             </div>
           ) : (
-            <div className="mt-4">
-              <div className="rounded-3xl border border-zinc-200 bg-linear-to-r from-zinc-50 to-white p-4">
+            <>
+              <section className="rounded-3xl border border-zinc-200 bg-white p-5">
                 <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
                   <div>
-                    <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Selected report</div>
+                    <div className="text-sm font-semibold text-zinc-900">Selected report</div>
                     <div className="mt-2 flex flex-wrap items-center gap-2">
                       <div className="text-xl font-semibold text-zinc-900">{selectedReport.provider}</div>
-                      <div className="rounded-full bg-white px-2.5 py-1 text-[11px] font-semibold text-zinc-600 ring-1 ring-inset ring-zinc-200">
+                      <div className="rounded-full border border-zinc-200 bg-zinc-50 px-2.5 py-1 text-[11px] font-semibold text-zinc-600">
                         {readinessLabel}
                       </div>
                     </div>
@@ -533,51 +528,47 @@ export default function CreditReportsClient() {
                     </div>
                   </div>
                   <div className="grid gap-2 sm:grid-cols-2">
-                    <div className="rounded-2xl border border-zinc-200 bg-white px-4 py-3">
+                    <div className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3">
                       <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Primary focus</div>
                       <div className="mt-1 text-sm font-semibold text-zinc-900">
                         {selectedReportSummary.negative > 0 ? "Clear negatives first" : "Finish review and keep momentum"}
                       </div>
                     </div>
-                    <div className="rounded-2xl border border-zinc-200 bg-white px-4 py-3">
+                    <div className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3">
                       <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Tracked items</div>
                       <div className="mt-1 text-sm font-semibold text-zinc-900">{selectedReportSummary.tracked} already in motion</div>
                     </div>
                   </div>
                 </div>
-              </div>
+              </section>
 
-              <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-                <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
-                  <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Pending</div>
-                  <div className="mt-1 text-xl font-bold text-brand-ink">{selectedReportSummary.pending}</div>
+              <section className="rounded-3xl border border-zinc-200 bg-white p-5">
+                <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                  <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+                    <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Pending</div>
+                    <div className="mt-1 text-xl font-bold text-brand-ink">{selectedReportSummary.pending}</div>
+                  </div>
+                  <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+                    <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Negative</div>
+                    <div className="mt-1 text-xl font-bold text-brand-ink">{selectedReportSummary.negative}</div>
+                  </div>
+                  <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+                    <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Positive</div>
+                    <div className="mt-1 text-xl font-bold text-brand-ink">{selectedReportSummary.positive}</div>
+                  </div>
+                  <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+                    <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Tracked disputes</div>
+                    <div className="mt-1 text-xl font-bold text-brand-ink">{selectedReportSummary.tracked}</div>
+                  </div>
                 </div>
-                <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
-                  <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Negative</div>
-                  <div className="mt-1 text-xl font-bold text-brand-ink">{selectedReportSummary.negative}</div>
-                </div>
-                <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
-                  <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Positive</div>
-                  <div className="mt-1 text-xl font-bold text-brand-ink">{selectedReportSummary.positive}</div>
-                </div>
-                <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
-                  <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Tracked disputes</div>
-                  <div className="mt-1 text-xl font-bold text-brand-ink">{selectedReportSummary.tracked}</div>
-                </div>
-              </div>
 
-              <div className="mt-4 grid gap-3 xl:grid-cols-[1.2fr_0.8fr]">
-                <section className="rounded-3xl border border-zinc-200 bg-zinc-50 p-4">
-                  <div className="flex items-start justify-between gap-3">
+                <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+                  <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                     <div>
                       <div className="text-sm font-semibold text-zinc-900">Recommended next steps</div>
-                      <div className="mt-1 text-xs text-zinc-600">
-                        {selectedContact ? `Focused on ${selectedContact.name}.` : "Focused on the currently selected report."}
-                      </div>
+                      <div className="mt-1 text-sm text-zinc-600">{selectedContact ? `Focused on ${selectedContact.name}.` : "Focused on the selected report."}</div>
                     </div>
-                    <div className="rounded-full bg-white px-2.5 py-1 text-[11px] font-semibold text-zinc-500 ring-1 ring-inset ring-zinc-200">
-                      Live from this report
-                    </div>
+                    <div className="rounded-full border border-zinc-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-zinc-500">Live from this report</div>
                   </div>
                   <div className="mt-3 space-y-2.5">
                     {recommendations.actions.length ? (
@@ -600,78 +591,78 @@ export default function CreditReportsClient() {
                       </div>
                     )}
                   </div>
-                </section>
-
-                <section className="rounded-3xl border border-zinc-200 bg-zinc-50 p-4">
-                  <div className="text-sm font-semibold text-zinc-900">Card options to compare later</div>
-                  <div className="mt-1 text-xs text-zinc-600">
-                    These are directional fits based on the current report mix here, not lender approvals or financial advice.
-                  </div>
-                  <div className="mt-3 space-y-2.5">
-                    {recommendations.cards.map((item) => (
-                      <div key={item.title} className="rounded-2xl border border-zinc-200 bg-white p-3.5">
-                        <div className="text-sm font-semibold text-zinc-900">{item.title}</div>
-                        <div className="mt-1 text-sm leading-6 text-zinc-600">{item.detail}</div>
-                      </div>
-                    ))}
-                  </div>
-                </section>
-              </div>
-
-              <div className="mt-5 flex items-end justify-between gap-3">
-                <div>
-                  <div className="text-sm font-semibold text-zinc-900">Report items</div>
-                  <div className="mt-1 text-xs text-zinc-600">Update the audit tag and dispute status inline as you review each line.</div>
-                </div>
-                <div className="text-xs text-zinc-500">{selectedReport.items.length} total item{selectedReport.items.length === 1 ? "" : "s"}</div>
-              </div>
-
-              <div className="scrollbar-none mt-3 overflow-x-auto rounded-3xl border border-zinc-200 pb-1 shadow-sm shadow-zinc-200/20">
-                <div className="min-w-160">
-                  <div className="grid grid-cols-[1fr_140px_160px] gap-0 border-b border-zinc-200 bg-zinc-50 px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">
-                    <div>Item</div>
-                    <div>Audit tag</div>
-                    <div>Dispute status</div>
-                  </div>
-
-                  {selectedReport.items.length === 0 ? (
-                    <div className="px-3 py-3 text-sm text-zinc-600">No items detected in JSON yet.</div>
-                  ) : (
-                    <div className="divide-y divide-zinc-200">
-                      {selectedReport.items.map((it) => (
-                        <div key={it.id} className="grid grid-cols-[1fr_140px_160px] items-center gap-3 px-3 py-2">
-                          <div className="min-w-0">
-                            <div className="truncate text-sm font-medium text-zinc-900">{it.label}</div>
-                            <div className="mt-0.5 text-xs text-zinc-500">
-                              {(it.bureau ? `${it.bureau} • ` : "") + (it.kind ? it.kind : "")}
-                            </div>
+                  {recommendations.cards.length ? (
+                    <div className="mt-4 rounded-2xl border border-zinc-200 bg-white p-4">
+                      <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Card watchlist</div>
+                      <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                        {recommendations.cards.map((item) => (
+                          <div key={item.title} className="rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
+                            <div className="text-sm font-semibold text-zinc-900">{item.title}</div>
+                            <div className="mt-1 text-xs leading-5 text-zinc-600">{item.detail}</div>
                           </div>
-                          <PortalListboxDropdown
-                            value={it.auditTag}
-                            onChange={(v) => updateItem(it.id, { auditTag: v })}
-                            disabled={busy}
-                            buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-2 py-2 text-sm hover:bg-zinc-50"
-                            options={(
-                              [
-                                { value: "PENDING", label: "Pending" },
-                                { value: "NEGATIVE", label: "Negative" },
-                                { value: "POSITIVE", label: "Positive" },
-                              ] as PortalListboxOption<ReportItemLite["auditTag"]>[]
-                            )}
-                          />
-                          <input
-                            className="w-full rounded-xl border border-zinc-200 bg-white px-2 py-2 text-sm"
-                            value={it.disputeStatus || ""}
-                            disabled={busy}
-                            placeholder="e.g., OPEN"
-                            onChange={(e) => updateItem(it.id, { disputeStatus: e.target.value })}
-                          />
-                        </div>
-                      ))}
+                        ))}
+                      </div>
                     </div>
-                  )}
+                  ) : null}
                 </div>
-              </div>
+              </section>
+
+              <section className="rounded-3xl border border-zinc-200 bg-white p-5">
+                <div className="flex items-end justify-between gap-3">
+                  <div>
+                    <div className="text-sm font-semibold text-zinc-900">Report items</div>
+                    <div className="mt-1 text-xs text-zinc-600">Update the audit tag and dispute status inline as you review each line.</div>
+                  </div>
+                  <div className="text-xs text-zinc-500">{selectedReport.items.length} total item{selectedReport.items.length === 1 ? "" : "s"}</div>
+                </div>
+
+                <div className="scrollbar-none mt-3 overflow-x-auto rounded-3xl border border-zinc-200">
+                  <div className="min-w-160">
+                    <div className="grid grid-cols-[1fr_140px_160px] gap-0 border-b border-zinc-200 bg-zinc-50 px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">
+                      <div>Item</div>
+                      <div>Audit tag</div>
+                      <div>Dispute status</div>
+                    </div>
+
+                    {selectedReport.items.length === 0 ? (
+                      <div className="px-3 py-3 text-sm text-zinc-600">No items detected in JSON yet.</div>
+                    ) : (
+                      <div className="divide-y divide-zinc-200">
+                        {selectedReport.items.map((it) => (
+                          <div key={it.id} className="grid grid-cols-[1fr_140px_160px] items-center gap-3 px-3 py-2">
+                            <div className="min-w-0">
+                              <div className="truncate text-sm font-medium text-zinc-900">{it.label}</div>
+                              <div className="mt-0.5 text-xs text-zinc-500">
+                                {(it.bureau ? `${it.bureau} • ` : "") + (it.kind ? it.kind : "")}
+                              </div>
+                            </div>
+                            <PortalListboxDropdown
+                              value={it.auditTag}
+                              onChange={(v) => updateItem(it.id, { auditTag: v })}
+                              disabled={busy}
+                              buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-2 py-2 text-sm hover:bg-zinc-50"
+                              options={(
+                                [
+                                  { value: "PENDING", label: "Pending" },
+                                  { value: "NEGATIVE", label: "Negative" },
+                                  { value: "POSITIVE", label: "Positive" },
+                                ] as PortalListboxOption<ReportItemLite["auditTag"]>[]
+                              )}
+                            />
+                            <input
+                              className="w-full rounded-xl border border-zinc-200 bg-white px-2 py-2 text-sm"
+                              value={it.disputeStatus || ""}
+                              disabled={busy}
+                              placeholder="e.g., OPEN"
+                              onChange={(e) => updateItem(it.id, { disputeStatus: e.target.value })}
+                            />
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </section>
 
               {showAdvancedImport ? (
                 <details className="mt-4">
@@ -681,7 +672,7 @@ export default function CreditReportsClient() {
                   </pre>
                 </details>
               ) : null}
-            </div>
+            </>
           )}
         </main>
       </div>
