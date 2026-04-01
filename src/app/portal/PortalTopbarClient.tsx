@@ -3,7 +3,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { PortalHeaderCta } from "@/app/portal/PortalHeaderCta";
 import { PortalHelpLink } from "@/app/portal/PortalHelpLink";
@@ -53,11 +53,23 @@ export function PortalTopbarClient(props: {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const topbarRef = useRef<HTMLElement | null>(null);
+  const [isSmallScreen, setIsSmallScreen] = useState(false);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const media = window.matchMedia("(max-width: 639px)");
+    const sync = () => setIsSmallScreen(media.matches);
+    sync();
+    media.addEventListener("change", sync);
+    return () => media.removeEventListener("change", sync);
+  }, []);
 
   const isAiChat =
     typeof pathname === "string" && (pathname.startsWith("/portal/app/ai-chat") || pathname.startsWith("/credit/app/ai-chat"));
+  const isPortalAppRoute =
+    typeof pathname === "string" && (pathname.startsWith("/portal/app") || pathname.startsWith("/credit/app"));
   const isMobileApp = (searchParams?.get("pa_mobileapp") || "").trim() === "1";
-  const hidden = isAiChat || isMobileApp;
+  const hidden = isAiChat || isMobileApp || (isPortalAppRoute && isSmallScreen);
   const signedInLabel = (businessName || userEmail || "").trim();
 
   useEffect(() => {

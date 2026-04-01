@@ -1929,7 +1929,7 @@ export function PortalAiChatClient() {
 
   const mobileSidebar = useMemo(
     () => (
-      <div className="flex h-full flex-col overflow-hidden">
+      <div className="flex h-full min-h-0 flex-col overflow-hidden">
         <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain p-2 pb-[calc(env(safe-area-inset-bottom)+0.75rem)]">
           {threadsLoading ? (
             <div className="p-3 text-sm text-zinc-500">Loading…</div>

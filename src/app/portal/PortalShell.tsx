@@ -1419,7 +1419,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
           {/* Embedded drawer (secondary navigation only) */}
           <div
             className={classNames(
-              "fixed inset-0 z-120",
+              "fixed inset-0 z-[130040]",
               mobileOpen ? "" : "pointer-events-none",
             )}
             aria-hidden={!mobileOpen}
@@ -1436,7 +1436,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
 
             <aside
               className={classNames(
-                "absolute left-0 top-0 z-121 flex h-full w-72 flex-col overflow-hidden border-r border-zinc-200 bg-white shadow-xl transition-transform",
+                "absolute left-0 top-0 z-[130041] flex h-full w-72 flex-col overflow-hidden border-r border-zinc-200 bg-white shadow-xl transition-transform",
                 mobileOpen ? "translate-x-0" : "-translate-x-full",
               )}
             >
@@ -1506,7 +1506,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                       href={toPurelyHostedUrl("/book-a-call")}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-zinc-200 bg-white text-zinc-700 transition-transform duration-150 hover:scale-105 hover:bg-zinc-50 hover:text-zinc-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/20"
+                      className="inline-flex h-10 w-10 items-center justify-center rounded-2xl bg-transparent text-zinc-700 transition-transform duration-150 hover:scale-105 hover:bg-zinc-50 hover:text-zinc-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/20"
                       aria-label="Book a call"
                       title="Book a call"
                     >
@@ -1514,13 +1514,13 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                     </Link>
                     <Link
                       href={`${basePath}/tutorials/getting-started?embed=1`}
-                      className="inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-zinc-200 bg-white text-zinc-700 transition-transform duration-150 hover:scale-105 hover:bg-zinc-50 hover:text-zinc-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/20"
+                      className="inline-flex h-10 w-10 items-center justify-center rounded-2xl bg-transparent text-zinc-700 transition-transform duration-150 hover:scale-105 hover:bg-zinc-50 hover:text-zinc-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/20"
                       aria-label="Help"
                       title="Help"
                     >
                       <IconHelpCircle size={18} />
                     </Link>
-                    <SignOutButton className="w-full max-w-38 justify-center rounded-2xl px-4 py-3" />
+                    <SignOutButton variant="sidebar" collapsed />
                   </div>
                 </div>
               </div>
@@ -1690,7 +1690,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
         {/* Mobile drawer */}
         <div
           className={classNames(
-            "fixed inset-0 z-120 sm:hidden",
+            "fixed inset-0 z-[130040] sm:hidden",
             mobileOpen ? "" : "pointer-events-none",
           )}
           aria-hidden={!mobileOpen}
@@ -1707,7 +1707,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
 
           <aside
             className={classNames(
-              "absolute left-0 top-0 z-121 flex h-full w-72.5 flex-col overflow-hidden border-r border-zinc-200 bg-white shadow-xl transition-transform",
+              "absolute left-0 top-0 z-[130041] flex h-full w-72.5 flex-col overflow-hidden border-r border-zinc-200 bg-white shadow-xl transition-transform",
               mobileOpen ? "translate-x-0" : "-translate-x-full",
             )}
             role="dialog"
@@ -1779,9 +1779,14 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                 })}
               </div>
 
-              <div className="mt-4 min-h-0 flex-1 overflow-y-auto overscroll-y-contain pb-4">
+              <div
+                className={classNames(
+                  "mt-4 min-h-0 flex-1 pb-4",
+                  activeTopKey === "pura" ? "overflow-hidden" : "overflow-y-auto overscroll-y-contain",
+                )}
+              >
                 {activeTopKey === "pura" ? (
-                  <div className="min-h-0 overflow-hidden rounded-2xl bg-white">
+                  <div className="h-full min-h-0 overflow-hidden rounded-2xl bg-white">
                     {sidebarOverride?.mobileSidebarContent || sidebarOverride?.desktopSidebarContent || (
                       <div className="p-3 text-sm text-zinc-500">Loading chats…</div>
                     )}
@@ -2123,7 +2128,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                   href={toPurelyHostedUrl("/book-a-call")}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-zinc-200 bg-white text-zinc-700 transition-transform duration-150 hover:scale-105 hover:bg-zinc-50 hover:text-zinc-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/20"
+                  className="inline-flex h-10 w-10 items-center justify-center rounded-2xl bg-transparent text-zinc-700 transition-transform duration-150 hover:scale-105 hover:bg-zinc-50 hover:text-zinc-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/20"
                   aria-label="Book a call"
                   title="Book a call"
                 >
@@ -2131,7 +2136,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                 </Link>
                 <Link
                   href={`${basePath}/tutorials/getting-started`}
-                  className="inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-zinc-200 bg-white text-zinc-700 transition-transform duration-150 hover:scale-105 hover:bg-zinc-50 hover:text-zinc-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/20"
+                  className="inline-flex h-10 w-10 items-center justify-center rounded-2xl bg-transparent text-zinc-700 transition-transform duration-150 hover:scale-105 hover:bg-zinc-50 hover:text-zinc-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/20"
                   aria-label="Help"
                   title="Help"
                 >
