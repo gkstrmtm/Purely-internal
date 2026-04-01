@@ -12,6 +12,9 @@ function classNames(...xs: Array<string | false | null | undefined>) {
   return xs.filter(Boolean).join(" ");
 }
 
+const TOPBAR_TRANSITION_MS = 360;
+const TOPBAR_TRANSITION_EASING = "cubic-bezier(0.22, 1, 0.36, 1)";
+
 function PortalPublicNav({ signInHref, getStartedHref }: { signInHref: string; getStartedHref: string }) {
   return (
     <nav className="flex flex-nowrap items-center gap-2 overflow-x-auto whitespace-nowrap text-sm sm:text-base">
@@ -29,15 +32,6 @@ function PortalPublicNav({ signInHref, getStartedHref }: { signInHref: string; g
       </Link>
     </nav>
   );
-}
-
-function syncTopbarHeight(topbar: HTMLElement | null, hidden: boolean) {
-  if (typeof document === "undefined") return;
-  const root = document.documentElement;
-  const height = hidden || !topbar ? 0 : Math.ceil(topbar.getBoundingClientRect().height);
-  root.style.setProperty("--pa-portal-topbar-height", `${height}px`);
-  if (hidden) root.setAttribute("data-pa-portal-topbar-hidden", "1");
-  else root.removeAttribute("data-pa-portal-topbar-hidden");
 }
 
 function syncTopbarHeightWithTransition(topbar: HTMLElement | null, hidden: boolean) {
@@ -65,7 +59,7 @@ function syncTopbarHeightWithTransition(topbar: HTMLElement | null, hidden: bool
   const timer = window.setTimeout(() => {
     root.style.setProperty("--pa-portal-topbar-height", "0px");
     root.removeAttribute("data-pa-portal-topbar-hide-timer");
-  }, 240);
+  }, TOPBAR_TRANSITION_MS);
   root.setAttribute("data-pa-portal-topbar-hide-timer", String(timer));
 }
 
@@ -131,14 +125,27 @@ export function PortalTopbarClient(props: {
     <header
       ref={topbarRef}
       aria-hidden={hidden}
+      style={{
+        transitionDuration: `${TOPBAR_TRANSITION_MS}ms`,
+        transitionTimingFunction: TOPBAR_TRANSITION_EASING,
+      }}
       className={classNames(
-        "pa-portal-topbar sticky top-0 z-20 overflow-hidden bg-white/80 backdrop-blur transition-[max-height,opacity,transform,border-color] duration-250 ease-out",
+        "pa-portal-topbar sticky top-0 z-20 overflow-hidden bg-white/80 backdrop-blur transition-[max-height,opacity,transform,border-color]",
         hidden
-          ? "pointer-events-none max-h-0 -translate-y-2 border-b border-transparent opacity-0"
+          ? "pointer-events-none max-h-0 -translate-y-4 border-b border-transparent opacity-0"
           : "max-h-32 translate-y-0 border-b border-zinc-200 opacity-100",
       )}
     >
-      <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-4 py-4 sm:gap-6 sm:px-6">
+      <div
+        style={{
+          transitionDuration: `${TOPBAR_TRANSITION_MS}ms`,
+          transitionTimingFunction: TOPBAR_TRANSITION_EASING,
+        }}
+        className={classNames(
+          "mx-auto flex max-w-6xl items-center justify-between gap-4 px-4 py-4 transition-[transform,opacity] sm:gap-6 sm:px-6",
+          hidden ? "-translate-y-2 opacity-0" : "translate-y-0 opacity-100",
+        )}
+      >
         <Link href={homeHref} className="flex shrink-0 items-center gap-3">
           <Image
             src={logoSrc}

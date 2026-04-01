@@ -1612,7 +1612,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
 
   return (
     <div
-      className="h-[calc(100dvh-var(--pa-portal-topbar-height,0px))] overflow-hidden bg-brand-mist text-brand-ink transition-[height] duration-250 ease-out"
+      className="h-[calc(100dvh-var(--pa-portal-topbar-height,0px))] overflow-hidden bg-brand-mist text-brand-ink transition-[height] duration-350 ease-[cubic-bezier(0.22,1,0.36,1)]"
       style={{
         ["--pa-modal-safe-bottom" as any]: `calc(env(safe-area-inset-bottom) + ${floatingToolsReserve})`,
       }}
@@ -2151,7 +2151,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
         <aside
           style={{ top: "var(--pa-portal-topbar-height,0px)" }}
           className={classNames(
-            "hidden shrink-0 overflow-hidden bg-white transition-[width,height,top] duration-250 ease-out sm:flex sm:h-[calc(100dvh-var(--pa-portal-topbar-height,0px))] sm:flex-col sm:sticky",
+            "hidden shrink-0 overflow-hidden bg-white transition-[width,height,top] duration-350 ease-[cubic-bezier(0.22,1,0.36,1)] sm:flex sm:h-[calc(100dvh-var(--pa-portal-topbar-height,0px))] sm:flex-col sm:sticky",
             collapsed ? "w-19" : "w-70",
             activeTopKey === "pura" ? "border-r border-zinc-200 shadow-[2px_0_12px_rgba(0,0,0,0.06)]" : "border-r border-zinc-200",
           )}
@@ -2857,7 +2857,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
 
           <main
             className={classNames(
-              "min-h-0 min-w-0 flex-1",
+              "min-h-0 min-w-0 flex-1 sm:transition-[padding] sm:duration-350 sm:ease-[cubic-bezier(0.22,1,0.36,1)]",
               isAiChat ? "pt-[calc(env(safe-area-inset-top)+3.75rem)] sm:p-0" : "p-4 pb-4 pt-[calc(env(safe-area-inset-top)+4.25rem)] sm:p-8 sm:pb-6 sm:pt-8",
             )}
           >
