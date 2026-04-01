@@ -40,6 +40,35 @@ function syncTopbarHeight(topbar: HTMLElement | null, hidden: boolean) {
   else root.removeAttribute("data-pa-portal-topbar-hidden");
 }
 
+function syncTopbarHeightWithTransition(topbar: HTMLElement | null, hidden: boolean) {
+  if (typeof document === "undefined") return;
+  const root = document.documentElement;
+  const currentHeight = !topbar ? 0 : Math.ceil(topbar.getBoundingClientRect().height);
+
+  const prevTimer = root.getAttribute("data-pa-portal-topbar-hide-timer");
+  if (prevTimer) {
+    window.clearTimeout(Number(prevTimer));
+    root.removeAttribute("data-pa-portal-topbar-hide-timer");
+  }
+
+  if (!hidden) {
+    root.style.setProperty("--pa-portal-topbar-height", `${currentHeight}px`);
+    root.removeAttribute("data-pa-portal-topbar-hidden");
+    return;
+  }
+
+  if (currentHeight > 0) {
+    root.style.setProperty("--pa-portal-topbar-height", `${currentHeight}px`);
+  }
+  root.setAttribute("data-pa-portal-topbar-hidden", "1");
+
+  const timer = window.setTimeout(() => {
+    root.style.setProperty("--pa-portal-topbar-height", "0px");
+    root.removeAttribute("data-pa-portal-topbar-hide-timer");
+  }, 240);
+  root.setAttribute("data-pa-portal-topbar-hide-timer", String(timer));
+}
+
 export function PortalTopbarClient(props: {
   logoSrc: string;
   homeHref: string;
@@ -74,11 +103,11 @@ export function PortalTopbarClient(props: {
 
   useEffect(() => {
     const topbar = topbarRef.current;
-    syncTopbarHeight(topbar, hidden);
+    syncTopbarHeightWithTransition(topbar, hidden);
 
     if (!topbar) return;
 
-    const update = () => syncTopbarHeight(topbarRef.current, hidden);
+    const update = () => syncTopbarHeightWithTransition(topbarRef.current, hidden);
     const ro = typeof ResizeObserver !== "undefined" ? new ResizeObserver(() => update()) : null;
     ro?.observe(topbar);
     window.addEventListener("resize", update, { passive: true });
@@ -87,6 +116,14 @@ export function PortalTopbarClient(props: {
     return () => {
       ro?.disconnect();
       window.removeEventListener("resize", update);
+      if (typeof document !== "undefined") {
+        const root = document.documentElement;
+        const prevTimer = root.getAttribute("data-pa-portal-topbar-hide-timer");
+        if (prevTimer) {
+          window.clearTimeout(Number(prevTimer));
+          root.removeAttribute("data-pa-portal-topbar-hide-timer");
+        }
+      }
     };
   }, [hidden, pathname]);
 
