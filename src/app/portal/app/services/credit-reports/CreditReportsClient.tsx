@@ -33,24 +33,25 @@ type ReportFull = ReportLite & {
   items: ReportItemLite[];
 };
 
+type FundingOffer = {
+  label: string;
+  href: string;
+  source: string;
+};
+
 type OpportunityPlan = {
   key: string;
   title: string;
-  fitLabel: string;
   readinessLabel: string;
   readinessTone: "red" | "amber" | "green";
-  offerTier: string;
-  offerExamples: string[];
+  offers: FundingOffer[];
   summary: string;
-  whyNow: string;
-  clientActions: string[];
-  userActions: string[];
 };
 
-function readinessClasses(tone: OpportunityPlan["readinessTone"]) {
-  if (tone === "green") return "border-emerald-200 bg-emerald-50 text-emerald-700";
-  if (tone === "amber") return "border-amber-200 bg-amber-50 text-amber-700";
-  return "border-red-200 bg-red-50 text-red-700";
+function readinessAccentClasses(tone: OpportunityPlan["readinessTone"]) {
+  if (tone === "green") return "border-emerald-300 bg-emerald-50/70";
+  if (tone === "amber") return "border-amber-300 bg-amber-50/70";
+  return "border-rose-300 bg-rose-50/70";
 }
 
 function reportReadinessLabel(summary: { pending: number; negative: number; positive: number }) {
@@ -83,8 +84,6 @@ function buildOpportunityPlans(report: ReportFull | null, summary: { pending: nu
     .map((item) => [item.label, item.kind, item.bureau, item.disputeStatus].map((value) => String(value || "").toLowerCase()).join(" "))
     .join(" ");
 
-  const hasCollections = lowerText.includes("collection");
-  const hasLatePayments = lowerText.includes("late") || lowerText.includes("delinquent");
   const hasUtilizationSignals = lowerText.includes("revolving") || lowerText.includes("credit card") || lowerText.includes("utilization");
   const isCleanEnoughForOffers = summary.negative <= 2 && summary.pending <= 1;
   const isStillRepairHeavy = summary.negative >= 3 || summary.pending >= 3;
@@ -92,118 +91,97 @@ function buildOpportunityPlans(report: ReportFull | null, summary: { pending: nu
   const businessFunding: OpportunityPlan = {
     key: "business-funding",
     title: "Business funding",
-    fitLabel: isCleanEnoughForOffers ? "Build offers now" : "Prep the file first",
-    readinessLabel: isCleanEnoughForOffers ? "Approval readiness: Moderate" : "Approval readiness: Low",
+    readinessLabel: isCleanEnoughForOffers ? "Moderate approval shot" : "Prep first before broad applications",
     readinessTone: isCleanEnoughForOffers ? "amber" : "red",
-    offerTier: isCleanEnoughForOffers ? "Offer tier: Starter business funding" : "Offer tier: Business profile prep only",
-    offerExamples: isCleanEnoughForOffers
-      ? ["Amex Blue Business Cash", "Capital on Tap Business Credit Card", "Fundbox line of credit", "Bluevine business line"]
-      : ["Nav Prime", "Tillful builder lane", "Vendor tradelines before underwriting", "No broad lender push yet"],
+    offers: isCleanEnoughForOffers
+      ? [
+          { label: "Amex Blue Business Cash", href: "https://www.americanexpress.com/us/credit-cards/business/business-credit-cards/american-express-blue-business-cash-card-amex/", source: "American Express" },
+          { label: "Capital on Tap Business Card", href: "https://www.capitalontap.com/en/", source: "Capital on Tap" },
+          { label: "Fundbox Line of Credit", href: "https://fundbox.com/line-of-credit/", source: "Fundbox" },
+          { label: "Bluevine Business Line", href: "https://www.bluevine.com/line-of-credit/", source: "Bluevine" },
+        ]
+      : [
+          { label: "Nav Prime", href: "https://www.nav.com/nav-prime/", source: "Nav" },
+          { label: "Tillful", href: "https://www.tillful.com/", source: "Tillful" },
+          { label: "Quill", href: "https://www.quill.com/", source: "Starter vendor" },
+          { label: "Uline", href: "https://www.uline.com/", source: "Starter vendor" },
+        ],
     summary: isCleanEnoughForOffers
       ? "Good lane for starter business funding once the file stays stable and the business profile is documented cleanly."
       : "Keep business funding in the plan, but treat this as a preparation lane until the report has fewer unresolved negatives.",
-    whyNow: hasCollections || hasLatePayments
-      ? "The report still shows repair pressure, so business funding should be sequenced behind cleanup and profile stabilization."
-      : "The file looks stable enough to start structuring business-funding prep instead of waiting until everything is perfect.",
-    clientActions: [
-      "Keep business and personal spending separate and route revenue through the business account consistently.",
-      "Make sure the business profile is complete: entity, EIN, business banking, business phone, and matching public records.",
-      "Avoid new missed payments or balance spikes while funding prep is happening.",
-    ],
-    userActions: [
-      "Review business readiness before moving this client into underwriting: entity age, revenue pattern, bank-account stability, and profile consistency.",
-      "Choose the right lane first: starter vendor credit, business cards, term-loan prep, or revenue-based options depending on file quality.",
-      "Sequence applications after the biggest negatives are stabilized so you do not waste funding attempts.",
-    ],
   };
 
   const personalFunding: OpportunityPlan = {
     key: "personal-funding",
     title: "Personal funding",
-    fitLabel: isCleanEnoughForOffers ? "Near-term option" : "Secondary priority",
-    readinessLabel: isCleanEnoughForOffers ? "Approval readiness: Moderate" : "Approval readiness: Low",
+    readinessLabel: isCleanEnoughForOffers ? "Near-term if the file stays calm" : "Wait for cleanup before bigger asks",
     readinessTone: isCleanEnoughForOffers ? "amber" : "red",
-    offerTier: isCleanEnoughForOffers ? "Offer tier: Conservative personal funding" : "Offer tier: Wait and prepare",
-    offerExamples: isCleanEnoughForOffers
-      ? ["Upgrade personal loan", "LendingClub", "Prosper", "Upstart"]
-      : ["OneMain Financial", "Avant", "Upgrade after cleanup", "Delay broader applications until file settles"],
+    offers: isCleanEnoughForOffers
+      ? [
+          { label: "Upgrade Personal Loan", href: "https://www.upgrade.com/personal-loans/", source: "Upgrade" },
+          { label: "LendingClub Personal Loan", href: "https://www.lendingclub.com/personal-loans", source: "LendingClub" },
+          { label: "Prosper Personal Loan", href: "https://www.prosper.com/personal-loans/", source: "Prosper" },
+          { label: "Upstart Personal Loan", href: "https://www.upstart.com/loans/personal-loans", source: "Upstart" },
+        ]
+      : [
+          { label: "OneMain Financial", href: "https://www.onemainfinancial.com/personal-loans", source: "OneMain" },
+          { label: "Avant", href: "https://www.avant.com/personal-loans", source: "Avant" },
+          { label: "Best Egg", href: "https://www.bestegg.com/personal-loans/", source: "Best Egg" },
+          { label: "Achieve", href: "https://www.achieve.com/personal-loans", source: "Achieve" },
+        ],
     summary: isCleanEnoughForOffers
       ? "Personal funding can be pursued in a controlled way if the client keeps utilization down and avoids stacking applications."
       : "Treat personal funding as a later-phase move until the report is cleaner and the client’s file is less volatile.",
-    whyNow: summary.tracked > 0
-      ? "There is already active repair motion, so the best move is to time personal funding around dispute outcomes instead of rushing into applications."
-      : "This lane depends on keeping the bureau file calm and showing a consistent on-time pattern.",
-    clientActions: [
-      "Keep all current accounts paid on time and do not add avoidable hard inquiries.",
-      "Gather income, employment, and bank-statement documentation early so timing does not slip later.",
-      "Pay revolving balances down before statement dates to show cleaner utilization on the next refresh.",
-    ],
-    userActions: [
-      "Pre-screen likely approval lanes before suggesting any application path.",
-      "Decide whether this client should wait for score improvement or use a relationship lender / narrower approval box first.",
-      "Track inquiry velocity so personal funding does not interfere with the repair timeline.",
-    ],
   };
 
   const creditCards: OpportunityPlan = {
     key: "credit-cards",
     title: "Credit cards",
-    fitLabel: hasUtilizationSignals || isCleanEnoughForOffers ? "Strong tactical lever" : "Use carefully",
-    readinessLabel: hasUtilizationSignals || isCleanEnoughForOffers ? "Approval readiness: Moderate to strong" : "Approval readiness: Cautious",
+    readinessLabel: hasUtilizationSignals || isCleanEnoughForOffers ? "Useful leverage if utilization is controlled" : "Use rebuild cards first",
     readinessTone: hasUtilizationSignals || isCleanEnoughForOffers ? "green" : "amber",
-    offerTier: hasUtilizationSignals || isCleanEnoughForOffers ? "Offer tier: Tactical card strategy" : "Offer tier: Starter card positioning",
-    offerExamples: hasUtilizationSignals || isCleanEnoughForOffers
-      ? ["Capital One QuicksilverOne", "Mission Lane Visa", "Merrick Bank Double Your Line", "Amex Blue Business Cash after profile review"]
-      : ["Discover it Secured", "Capital One Platinum Secured", "OpenSky Secured", "Self Visa Secured"] ,
+    offers: hasUtilizationSignals || isCleanEnoughForOffers
+      ? [
+          { label: "Capital One QuicksilverOne", href: "https://www.capitalone.com/credit-cards/quicksilverone/", source: "Capital One" },
+          { label: "Mission Lane Visa", href: "https://www.missionlane.com/", source: "Mission Lane" },
+          { label: "Merrick Bank Double Your Line", href: "https://www.merrickbank.com/Credit-Cards/", source: "Merrick Bank" },
+          { label: "Amex Blue Business Cash", href: "https://www.americanexpress.com/us/credit-cards/business/business-credit-cards/american-express-blue-business-cash-card-amex/", source: "American Express" },
+        ]
+      : [
+          { label: "Discover it Secured", href: "https://www.discover.com/credit-cards/secured-credit-card/", source: "Discover" },
+          { label: "Capital One Platinum Secured", href: "https://www.capitalone.com/credit-cards/platinum-secured/", source: "Capital One" },
+          { label: "OpenSky Secured", href: "https://www.openskycc.com/", source: "OpenSky" },
+          { label: "Self Visa Secured", href: "https://www.self.inc/credit-builder-credit-card", source: "Self" },
+        ],
     summary: hasUtilizationSignals
       ? "Credit-card strategy is one of the fastest levers here because balance management and the right product mix can change the file quickly."
       : "Card strategy still matters here, especially if the goal is to add positive revolving history without over-applying.",
-    whyNow: summary.positive >= 1
-      ? "There is already some positive history to build on, so the right card timing and utilization discipline can help faster than random funding attempts."
-      : "The file needs controlled positive revolving behavior, not a burst of new accounts.",
-    clientActions: [
-      "Keep utilization low before statement close, not just by due date.",
-      "Do not submit multiple card applications close together.",
-      "Use any new or existing card for small, controlled spend that can be paid cleanly every cycle.",
-    ],
-    userActions: [
-      "Recommend the right lane: secured, starter unsecured, relationship card, or business card depending on the file and stated goals.",
-      "Set a utilization target for the client and monitor whether statement balances are following the plan.",
-      "Use card strategy to support future funding, not just to chase approvals today.",
-    ],
   };
 
   const otherActions: OpportunityPlan = {
     key: "other-actions",
     title: "Other actions",
-    fitLabel: isStillRepairHeavy ? "Do these now" : "Keep these active",
-    readinessLabel: isStillRepairHeavy ? "Approval readiness: Not ready yet" : "Approval readiness: Stabilizing",
+    readinessLabel: isStillRepairHeavy ? "Handle cleanup before pushing apps" : "Keep these live while the file stabilizes",
     readinessTone: isStillRepairHeavy ? "red" : "amber",
-    offerTier: isStillRepairHeavy ? "Offer tier: No expansion push" : "Offer tier: Controlled next-step mode",
-    offerExamples: isStillRepairHeavy
-      ? ["Experian dispute follow-up", "Equifax follow-up", "TransUnion follow-up", "AnnualCreditReport monitoring"]
-      : ["Selective bureau refresh", "Dispute letter follow-up", "Furnisher escalation only where needed", "Protect current positives"],
+    offers: isStillRepairHeavy
+      ? [
+          { label: "Experian Dispute Center", href: "https://www.experian.com/disputes/main.html", source: "Experian" },
+          { label: "Equifax Dispute Portal", href: "https://www.equifax.com/personal/credit-report-services/credit-dispute/", source: "Equifax" },
+          { label: "TransUnion Dispute Center", href: "https://dispute.transunion.com/", source: "TransUnion" },
+          { label: "AnnualCreditReport", href: "https://www.annualcreditreport.com/", source: "Bureau refresh" },
+        ]
+      : [
+          { label: "CFPB Complaint Portal", href: "https://www.consumerfinance.gov/complaint/", source: "CFPB" },
+          { label: "CFPB Credit Help", href: "https://www.consumerfinance.gov/consumer-tools/credit-reports-and-scores/", source: "CFPB" },
+          { label: "AnnualCreditReport", href: "https://www.annualcreditreport.com/", source: "Monitoring" },
+          { label: "IdentityTheft.gov", href: "https://www.identitytheft.gov/", source: "FTC" },
+        ],
     summary: isStillRepairHeavy
       ? "The file still needs operational cleanup, follow-up, and monitoring before bigger funding moves should take priority."
       : "Even when the file improves, disciplined follow-up and monitoring keep the client from backsliding.",
-    whyNow: hasCollections
-      ? "Collection and derogatory pressure means documentation, tracking, and follow-up matter just as much as product selection right now."
-      : "A stable report still needs a controlled next-step plan so progress compounds instead of stalling.",
-    clientActions: [
-      "Upload any supporting proof for late payments, identity issues, balances, or ownership mismatches.",
-      "Respond quickly when updated disputes, verification requests, or creditor follow-ups are needed.",
-      "Stop any behavior that adds instability to the file: late payments, unnecessary inquiries, or high balances.",
-    ],
-    userActions: [
-      "Turn negative and pending items into the next concrete actions with dispute timing and follow-up windows.",
-      "Decide which items should stay in bureau disputes versus direct furnisher or collector follow-up.",
-      "Use the report to clearly separate what the client must do personally from what you will handle for them.",
-    ],
   };
 
   return [businessFunding, personalFunding, creditCards, otherActions];
 }
-
 
 async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
   const res = await fetch(url, {
@@ -667,10 +645,10 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
                 <div className="mt-2 text-sm text-zinc-700">
                   {selectedReport.contact ? `${selectedReport.contact.name} is the active contact on this file.` : "This report is not attached to a contact yet."}
                 </div>
-                <div className="mt-3 flex flex-wrap gap-2 text-xs font-semibold text-zinc-600">
-                  <div className="rounded-full border border-zinc-200 bg-white px-3 py-1">{selectedReport.provider}</div>
-                  <div className="rounded-full border border-zinc-200 bg-white px-3 py-1">{filteredItems.length} visible items</div>
-                  <div className="rounded-full border border-zinc-200 bg-white px-3 py-1">{readinessLabel}</div>
+                <div className="mt-3 grid gap-2 text-xs font-semibold text-zinc-600 sm:grid-cols-3">
+                  <div className="rounded-2xl border border-zinc-200 bg-white px-3 py-2">{selectedReport.provider}</div>
+                  <div className="rounded-2xl border border-zinc-200 bg-white px-3 py-2">{filteredItems.length} visible items</div>
+                  <div className="rounded-2xl border border-zinc-200 bg-white px-3 py-2">{readinessLabel}</div>
                 </div>
               </div>
             </div>
@@ -689,23 +667,26 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
 
             <div className="mt-4 grid gap-4 xl:grid-cols-2">
               {opportunityPlans.map((plan) => (
-                <div key={plan.key} className="rounded-3xl border border-zinc-200 bg-zinc-50 p-4">
-                  <div className="flex flex-wrap items-start justify-between gap-3">
-                    <div>
-                      <div className="text-base font-semibold text-zinc-900">{plan.title}</div>
-                      <div className="mt-1 text-sm text-zinc-700">{plan.summary}</div>
-                    </div>
-                    <div className="flex flex-wrap items-center gap-2">
-                      <div className={"rounded-full border px-3 py-1 text-[11px] font-semibold uppercase tracking-wide " + readinessClasses(plan.readinessTone)}>{plan.readinessLabel}</div>
-                      <div className="rounded-full border border-zinc-200 bg-white px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-600">{plan.offerTier}</div>
-                    </div>
+                <div key={plan.key} className={"rounded-3xl border bg-white p-4 shadow-sm " + readinessAccentClasses(plan.readinessTone)}>
+                  <div>
+                    <div className="text-base font-semibold text-zinc-900">{plan.title}</div>
+                    <div className="mt-1 text-sm text-zinc-700">{plan.summary}</div>
+                    <div className="mt-3 text-xs font-semibold uppercase tracking-wide text-zinc-500">{plan.readinessLabel}</div>
                   </div>
 
-                  <div className="mt-4 grid gap-2 sm:grid-cols-2">
-                    {plan.offerExamples.map((example) => (
-                      <div key={example} className="rounded-2xl border border-zinc-200 bg-white px-3 py-3 text-sm font-semibold text-zinc-800">
-                        {example}
-                      </div>
+                  <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                    {plan.offers.map((offer) => (
+                      <a
+                        key={offer.label}
+                        href={offer.href}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="rounded-2xl border border-zinc-200 bg-zinc-50 px-3 py-3 transition-transform duration-150 hover:-translate-y-0.5 hover:border-zinc-300 hover:bg-white"
+                      >
+                        <div className="text-sm font-semibold text-zinc-900">{offer.label}</div>
+                        <div className="mt-1 text-xs font-semibold uppercase tracking-wide text-zinc-500">{offer.source}</div>
+                        <div className="mt-3 text-xs font-semibold text-brand-ink">Open site →</div>
+                      </a>
                     ))}
                   </div>
                 </div>
