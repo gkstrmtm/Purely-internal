@@ -1746,11 +1746,11 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                   const isSidebarOnly = key === "services" || key === "settings";
                   const iconClass = sidebarIconButtonClass(active, "h-10 w-10");
                   const onClick = () => {
-                    dispatchTopbarIntent(key === "pura");
                     if (isSidebarOnly) {
                       setSidebarModeOverride(key);
                       return;
                     }
+                    dispatchTopbarIntent(key === "pura");
                     setSidebarModeOverride(null);
                     setMobileOpen(false);
                   };
@@ -2211,7 +2211,6 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                   const iconClass = sidebarIconButtonClass(active);
 
                   const onSidebarOnlyClick = () => {
-                    dispatchTopbarIntent(false);
                     if (key === "settings") {
                       setCollapsed(false);
                       setSidebarModeOverride("settings");
@@ -2243,7 +2242,9 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                   }
 
                   const onNavigate = () => {
-                    dispatchTopbarIntent(key === "pura");
+                    if (derivedTopKey === "pura" || key === "pura") {
+                      dispatchTopbarIntent(key === "pura");
+                    }
                     if (key === "pura" || key === "dashboard" || key === "settings") setCollapsed(false);
                     setSidebarModeOverride(null);
                   };
