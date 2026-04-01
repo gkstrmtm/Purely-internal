@@ -781,7 +781,7 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
           <section className="overflow-hidden rounded-[30px] border border-zinc-200 bg-white shadow-sm">
             <div className="grid gap-0 lg:grid-cols-[minmax(0,1.15fr)_360px]">
               <div className="bg-linear-to-r from-[rgba(29,78,216,0.07)] via-white to-[rgba(251,113,133,0.08)] p-6 sm:p-7">
-                <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-500">Selected report</div>
+                <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-zinc-500">File overview</div>
                 <div className="mt-3 flex flex-wrap items-center gap-2">
                   <div className="text-2xl font-semibold tracking-tight text-zinc-900 sm:text-3xl">{selectedReport.contact?.name || selectedReport.provider}</div>
                   <div className="rounded-full border border-zinc-200 bg-white/90 px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-600">{readinessLabel}</div>
@@ -789,6 +789,30 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
                 </div>
                 <div className="mt-2 text-sm text-zinc-600">
                   {selectedReport.provider} • Imported {new Date(selectedReport.importedAt).toLocaleString()}
+                </div>
+
+                <div className="mt-4 flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const params = new URLSearchParams();
+                      if (selectedReport.contactId) params.set("contactId", selectedReport.contactId);
+                      params.set("compose", "1");
+                      window.location.href = `${routeSet.disputeHref}?${params.toString()}`;
+                    }}
+                    className="rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95"
+                  >
+                    Open dispute workflow
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      document.getElementById("credit-report-items")?.scrollIntoView({ behavior: "smooth", block: "start" });
+                    }}
+                    className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
+                  >
+                    Jump to items
+                  </button>
                 </div>
 
                 <div className="mt-5 grid gap-3 sm:grid-cols-3">
@@ -816,7 +840,7 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
                 <div className="bg-white px-5 py-5">
                   <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Current posture</div>
                   <div className="mt-2 text-base font-semibold text-zinc-900">{readinessLabel}</div>
-                  <div className="mt-1 text-sm text-zinc-600">This page now leads with repair work first, then funding options after the queue is clear.</div>
+                  <div className="mt-1 text-sm text-zinc-600">Handle the repair queue first, then use the funding section once the file is calmer.</div>
                 </div>
               </div>
             </div>
@@ -894,11 +918,11 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
             </div>
           </section>
 
-          <section className="rounded-[30px] border border-zinc-200 bg-white p-5 shadow-sm sm:p-6">
+          <section id="credit-report-items" className="rounded-[30px] border border-zinc-200 bg-white p-5 shadow-sm sm:p-6">
             <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
               <div>
                 <div className="text-sm font-semibold text-zinc-900">Report items</div>
-                <div className="mt-1 text-sm text-zinc-600">Work the file from highest-priority items down, then move into disputes or notes.</div>
+                <div className="mt-1 text-sm text-zinc-600">Work the highest-priority lines first, tag them cleanly, and keep dispute follow-up attached to each item.</div>
               </div>
               <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
                 <input
@@ -996,7 +1020,7 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
                         />
                       </label>
                       <label className="block">
-                        <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Tracking note</div>
+                        <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Dispute note</div>
                         <input
                           className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
                           value={it.disputeStatus || ""}
@@ -1006,7 +1030,7 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
                         />
                       </label>
                       <div className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-600">
-                        {it.disputeStatus ? `Latest note: ${it.disputeStatus}` : "No tracking note saved yet."}
+                        {it.disputeStatus ? `Latest dispute note: ${it.disputeStatus}` : "No dispute note saved yet."}
                       </div>
                     </div>
                   </div>
