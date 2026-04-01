@@ -34,16 +34,6 @@ type ReportFull = ReportLite & {
   items: ReportItemLite[];
 };
 
-type CreditRecommendation = {
-  title: string;
-  detail: string;
-};
-
-type CreditCardSuggestion = {
-  title: string;
-  detail: string;
-};
-
 function reportReadinessLabel(summary: { pending: number; negative: number; positive: number }) {
   if (summary.negative >= 3) return "Needs active dispute work";
   if (summary.pending >= 2) return "Needs review and tagging";
@@ -52,92 +42,6 @@ function reportReadinessLabel(summary: { pending: number; negative: number; posi
   return "Just getting started";
 }
 
-function buildCreditRecommendations(args: {
-  contact: ContactLite | null;
-  report: ReportFull | null;
-  summary: { pending: number; negative: number; positive: number; tracked: number };
-}): {
-  actions: CreditRecommendation[];
-  cards: CreditCardSuggestion[];
-} {
-  const { report, summary } = args;
-  if (!report) return { actions: [], cards: [] };
-
-  const negativeItems = report.items.filter((item) => item.auditTag === "NEGATIVE");
-  const disputedItems = report.items.filter((item) => String(item.disputeStatus || "").trim().length > 0);
-  const bureauSet = new Set(
-    negativeItems
-      .map((item) => String(item.bureau || "").trim())
-      .filter(Boolean),
-  );
-
-  const actions: CreditRecommendation[] = [];
-  const cards: CreditCardSuggestion[] = [];
-
-  if (summary.negative > 0) {
-    actions.push({
-      title: `Open the next dispute round for ${summary.negative} negative item${summary.negative === 1 ? "" : "s"}`,
-      detail:
-        summary.negative >= 3
-          ? "Start with the highest-friction negatives first so the next letter batch stays focused and easier to track."
-          : "Move the remaining negatives into the next letter batch before they sit too long without follow-up.",
-    });
-  }
-
-  if (summary.pending > 0) {
-    actions.push({
-      title: `Finish auditing ${summary.pending} pending item${summary.pending === 1 ? "" : "s"}`,
-      detail: "Mark each pending line positive or negative so dispute tracking and next-step suggestions stay accurate.",
-    });
-  }
-
-  if (disputedItems.length > 0) {
-    actions.push({
-      title: "Refresh the report after bureau responses land",
-      detail: "Re-import the latest pull once tracked disputes update so you can clear resolved lines and focus the next round.",
-    });
-  }
-
-  if (bureauSet.size >= 2) {
-    actions.push({
-      title: "Split follow-up by bureau",
-      detail: "Negative lines are spread across multiple bureaus, so grouping letters by bureau will usually keep responses cleaner.",
-    });
-  }
-
-  if (summary.positive >= 2 && summary.negative <= 1) {
-    cards.push({
-      title: "Starter unsecured cashback card",
-      detail: "Worth comparing once this report stays mostly clean and the current positive history keeps aging in place.",
-    });
-  }
-
-  if (summary.negative >= 2 || summary.positive === 0) {
-    cards.push({
-      title: "Deposit-backed secured card",
-      detail: "A secured option can help add fresh positive history while older negatives are still being worked through.",
-    });
-  }
-
-  if (summary.positive >= 1 && summary.tracked >= 1) {
-    cards.push({
-      title: "Low-fee credit-builder card",
-      detail: "Useful to compare after at least one dispute batch is already tracked and one or more positive lines are established.",
-    });
-  }
-
-  if (cards.length === 0) {
-    cards.push({
-      title: "Pause new applications for now",
-      detail: "Finish tagging and dispute follow-up first, then compare card options once the report picture is cleaner.",
-    });
-  }
-
-  return {
-    actions: actions.slice(0, 3),
-    cards: cards.slice(0, 3),
-  };
-}
 
 async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
   const res = await fetch(url, {
@@ -170,6 +74,8 @@ export default function CreditReportsClient() {
   const [selectedContactId, setSelectedContactId] = useState<string>("");
 
   const [provider, setProvider] = useState<string>("IdentityIQ");
+  const [itemFilter, setItemFilter] = useState<"ALL" | "PENDING" | "NEGATIVE" | "POSITIVE" | "TRACKED">("ALL");
+  const [itemQuery, setItemQuery] = useState("");
   const [rawText, setRawText] = useState<string>("{");
   const showAdvancedImport = useMemo(() => {
     if (typeof window === "undefined") return false;
@@ -248,19 +154,28 @@ export default function CreditReportsClient() {
     const tracked = items.filter((item) => String(item.disputeStatus || "").trim().length > 0).length;
     return { pending, negative, positive, tracked };
   }, [selectedReport]);
-  const recommendations = useMemo(
-    () =>
-      buildCreditRecommendations({
-        contact: selectedContact,
-        report: selectedReport,
-        summary: selectedReportSummary,
-      }),
-    [selectedContact, selectedReport, selectedReportSummary],
-  );
   const readinessLabel = useMemo(
     () => reportReadinessLabel(selectedReportSummary),
     [selectedReportSummary],
   );
+  const filteredItems = useMemo(() => {
+    const items = selectedReport?.items || [];
+    const query = itemQuery.trim().toLowerCase();
+    return items.filter((item) => {
+      const matchesFilter =
+        itemFilter === "ALL"
+          ? true
+          : itemFilter === "TRACKED"
+            ? Boolean(String(item.disputeStatus || "").trim())
+            : item.auditTag === itemFilter;
+
+      if (!matchesFilter) return false;
+      if (!query) return true;
+
+      const haystack = [item.label, item.bureau, item.kind, item.disputeStatus].map((part) => String(part || "").toLowerCase()).join(" ");
+      return haystack.includes(query);
+    });
+  }, [itemFilter, itemQuery, selectedReport]);
 
   const importReport = async () => {
     setBusy(true);
@@ -331,7 +246,7 @@ export default function CreditReportsClient() {
       <div className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-end">
         <div>
           <h1 className="text-2xl font-bold text-brand-ink sm:text-3xl">Credit reports</h1>
-          <p className="mt-1 max-w-2xl text-sm text-zinc-600">Import the latest pull, tag the items that matter, and move straight into dispute work.</p>
+          <p className="mt-1 max-w-2xl text-sm text-zinc-600">Pull a report, review the items, then move into disputes.</p>
         </div>
         {selectedReport ? (
           <Link
@@ -352,7 +267,6 @@ export default function CreditReportsClient() {
           <div className="flex items-center justify-between gap-3">
             <div>
               <div className="text-sm font-semibold text-zinc-900">Report intake</div>
-              <div className="mt-1 text-sm text-zinc-600">Pull a fresh report or reopen an existing one.</div>
             </div>
             <div className="rounded-full border border-zinc-200 bg-white px-3 py-1 text-xs font-semibold text-zinc-600">{reports.length} saved</div>
           </div>
@@ -437,7 +351,7 @@ export default function CreditReportsClient() {
             </div>
           ) : (
             <div className="mt-4 rounded-2xl border border-dashed border-zinc-300 bg-zinc-50 p-4 text-sm text-zinc-600">
-              Select a contact if you want this report and the next-step guidance anchored to one person.
+              No contact selected.
             </div>
           )}
 
@@ -527,17 +441,9 @@ export default function CreditReportsClient() {
                       {selectedReport.contact ? ` • ${selectedReport.contact.name}` : ""}
                     </div>
                   </div>
-                  <div className="grid gap-2 sm:grid-cols-2">
-                    <div className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3">
-                      <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Primary focus</div>
-                      <div className="mt-1 text-sm font-semibold text-zinc-900">
-                        {selectedReportSummary.negative > 0 ? "Clear negatives first" : "Finish review and keep momentum"}
-                      </div>
-                    </div>
-                    <div className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3">
-                      <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Tracked items</div>
-                      <div className="mt-1 text-sm font-semibold text-zinc-900">{selectedReportSummary.tracked} already in motion</div>
-                    </div>
+                  <div className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3">
+                    <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Tracked items</div>
+                    <div className="mt-1 text-sm font-semibold text-zinc-900">{selectedReportSummary.tracked} in motion</div>
                   </div>
                 </div>
               </section>
@@ -562,58 +468,45 @@ export default function CreditReportsClient() {
                   </div>
                 </div>
 
-                <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
-                  <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-                    <div>
-                      <div className="text-sm font-semibold text-zinc-900">Recommended next steps</div>
-                      <div className="mt-1 text-sm text-zinc-600">{selectedContact ? `Focused on ${selectedContact.name}.` : "Focused on the selected report."}</div>
-                    </div>
-                    <div className="rounded-full border border-zinc-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-zinc-500">Live from this report</div>
-                  </div>
-                  <div className="mt-3 space-y-2.5">
-                    {recommendations.actions.length ? (
-                      recommendations.actions.map((item, index) => (
-                        <div key={item.title} className="rounded-2xl border border-zinc-200 bg-white p-3.5">
-                          <div className="flex items-start gap-3">
-                            <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-zinc-900 text-xs font-semibold text-white">
-                              {index + 1}
-                            </div>
-                            <div>
-                              <div className="text-sm font-semibold text-zinc-900">{item.title}</div>
-                              <div className="mt-1 text-sm leading-6 text-zinc-600">{item.detail}</div>
-                            </div>
-                          </div>
-                        </div>
-                      ))
-                    ) : (
-                      <div className="rounded-2xl border border-dashed border-zinc-300 bg-white p-4 text-sm text-zinc-600">
-                        No recommendations yet. Start tagging items so this workspace can guide the next action.
-                      </div>
-                    )}
-                  </div>
-                  {recommendations.cards.length ? (
-                    <div className="mt-4 rounded-2xl border border-zinc-200 bg-white p-4">
-                      <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Card watchlist</div>
-                      <div className="mt-2 grid gap-2 sm:grid-cols-2">
-                        {recommendations.cards.map((item) => (
-                          <div key={item.title} className="rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
-                            <div className="text-sm font-semibold text-zinc-900">{item.title}</div>
-                            <div className="mt-1 text-xs leading-5 text-zinc-600">{item.detail}</div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  ) : null}
-                </div>
               </section>
 
               <section className="rounded-3xl border border-zinc-200 bg-white p-5">
-                <div className="flex items-end justify-between gap-3">
+                <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
                   <div>
-                    <div className="text-sm font-semibold text-zinc-900">Report items</div>
-                    <div className="mt-1 text-xs text-zinc-600">Update the audit tag and dispute status inline as you review each line.</div>
+                    <div className="text-sm font-semibold text-zinc-900">Items</div>
                   </div>
-                  <div className="text-xs text-zinc-500">{selectedReport.items.length} total item{selectedReport.items.length === 1 ? "" : "s"}</div>
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                    <input
+                      value={itemQuery}
+                      onChange={(e) => setItemQuery(e.target.value)}
+                      className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm sm:w-56"
+                      placeholder="Search items…"
+                    />
+                    <div className="text-xs text-zinc-500">{filteredItems.length} shown</div>
+                  </div>
+                </div>
+
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {([
+                    ["ALL", `All ${selectedReport.items.length}`],
+                    ["PENDING", `Pending ${selectedReportSummary.pending}`],
+                    ["NEGATIVE", `Negative ${selectedReportSummary.negative}`],
+                    ["POSITIVE", `Positive ${selectedReportSummary.positive}`],
+                    ["TRACKED", `Tracked ${selectedReportSummary.tracked}`],
+                  ] as const).map(([value, label]) => (
+                    <button
+                      key={value}
+                      type="button"
+                      onClick={() => setItemFilter(value)}
+                      className={
+                        itemFilter === value
+                          ? "rounded-full bg-zinc-900 px-3 py-1.5 text-xs font-semibold text-white"
+                          : "rounded-full border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-600 hover:bg-zinc-50"
+                      }
+                    >
+                      {label}
+                    </button>
+                  ))}
                 </div>
 
                 <div className="scrollbar-none mt-3 overflow-x-auto rounded-3xl border border-zinc-200">
@@ -624,11 +517,11 @@ export default function CreditReportsClient() {
                       <div>Dispute status</div>
                     </div>
 
-                    {selectedReport.items.length === 0 ? (
-                      <div className="px-3 py-3 text-sm text-zinc-600">No items detected in JSON yet.</div>
+                    {filteredItems.length === 0 ? (
+                      <div className="px-3 py-3 text-sm text-zinc-600">No matching items.</div>
                     ) : (
                       <div className="divide-y divide-zinc-200">
-                        {selectedReport.items.map((it) => (
+                        {filteredItems.map((it) => (
                           <div key={it.id} className="grid grid-cols-[1fr_140px_160px] items-center gap-3 px-3 py-2">
                             <div className="min-w-0">
                               <div className="truncate text-sm font-medium text-zinc-900">{it.label}</div>

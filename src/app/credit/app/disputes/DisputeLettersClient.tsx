@@ -168,6 +168,7 @@ export default function DisputeLettersClient() {
   const [pdfDownloadUrl, setPdfDownloadUrl] = useState<string>("");
 
   const selectedLetter = useMemo(() => letters.find((l) => l.id === selectedLetterId) || null, [letters, selectedLetterId]);
+  const isEditingLetter = Boolean(selectedLetter);
   const selectedTemplate = useMemo(
     () => LETTER_LIBRARY.find((entry) => entry.key === selectedTemplateKey) || LETTER_LIBRARY[0],
     [selectedTemplateKey],
@@ -278,6 +279,13 @@ export default function DisputeLettersClient() {
     return `Updated ${new Date(selectedLetter.updatedAt).toLocaleString()}`;
   }, [selectedLetter]);
 
+  const startNewDraft = useCallback(() => {
+    setSelectedLetterId("");
+    setLetterDraftSubject("");
+    setLetterDraftBody("");
+    setPdfDownloadUrl("");
+  }, []);
+
   const generateLetter = async () => {
     if (!selectedContactId) return;
     setBusy(true);
@@ -369,7 +377,7 @@ export default function DisputeLettersClient() {
       <div className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-end">
         <div>
           <h1 className="text-2xl font-bold text-brand-ink sm:text-3xl">Dispute letters</h1>
-          <p className="mt-1 max-w-2xl text-sm text-zinc-600">Create, edit, export, and send dispute letters from the same clean credit workspace.</p>
+          <p className="mt-1 max-w-2xl text-sm text-zinc-600">Create drafts fast, then edit and send from one place.</p>
         </div>
         <div className="inline-flex rounded-full border border-zinc-200 bg-white px-3 py-1 text-xs font-semibold text-zinc-600">
           {letters.length} saved
@@ -381,7 +389,6 @@ export default function DisputeLettersClient() {
       <div className="mt-6 grid grid-cols-1 gap-4 xl:grid-cols-[320px_minmax(0,1fr)]">
         <aside className="rounded-3xl border border-zinc-200 bg-white p-5">
           <div className="text-sm font-semibold text-zinc-900">Contact</div>
-          <div className="mt-1 text-sm text-zinc-600">Pick the file you want this letter history tied to.</div>
 
           <div className="mt-4 flex flex-col gap-2">
             <div className="flex gap-2">
@@ -430,7 +437,7 @@ export default function DisputeLettersClient() {
             </div>
           ) : (
             <div className="mt-4 rounded-2xl border border-dashed border-zinc-300 bg-zinc-50 p-4 text-sm text-zinc-600">
-              Select a contact before generating a letter.
+              No contact selected.
             </div>
           )}
 
@@ -469,101 +476,107 @@ export default function DisputeLettersClient() {
         </aside>
 
         <main className="space-y-4">
-          <section className="rounded-3xl border border-zinc-200 bg-white p-5">
-            <div className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-center">
-              <div>
-                <div className="text-sm font-semibold text-zinc-900">New letter</div>
-                <div className="mt-1 text-sm text-zinc-600">Choose the framing, drop in the dispute facts, then generate the first draft.</div>
-              </div>
-              <button
-                type="button"
-                disabled={busy || !selectedContactId || disputesText.trim().length < 3}
-                onClick={generateLetter}
-                className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-4 py-2.5 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
-              >
-                {busy ? "Working…" : "Generate letter"}
-              </button>
-            </div>
-
-            <div className="mt-4 grid gap-4 lg:grid-cols-[0.9fr_1.1fr]">
-              <div className="space-y-4">
-                <label className="block">
-                  <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Letter strategy</div>
-                  <PortalListboxDropdown
-                    value={selectedStage}
-                    onChange={(v) => setSelectedStage(String(v || "initial-review"))}
-                    disabled={busy}
-                    buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50"
-                    options={LETTER_STAGE_OPTIONS}
-                  />
-                  <div className="mt-2 text-xs text-zinc-500">{stageSupportCopy(selectedStage)}</div>
-                </label>
-
-                <label className="block">
-                  <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Template</div>
-                  <PortalListboxDropdown
-                    value={selectedTemplateKey}
-                    onChange={(v) => setSelectedTemplateKey(String(v || LETTER_LIBRARY[0]?.key || "bureau-general"))}
-                    disabled={busy}
-                    buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50"
-                    options={templateOptions}
-                  />
-                </label>
-
-                <label className="block">
-                  <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Recipient name</div>
-                  <input
-                    value={recipientName}
-                    onChange={(e) => setRecipientName(e.target.value)}
-                    className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                    placeholder="e.g., Experian"
-                  />
-                </label>
-
-                <label className="block">
-                  <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Recipient address</div>
-                  <input
-                    value={recipientAddress}
-                    onChange={(e) => setRecipientAddress(e.target.value)}
-                    className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                    placeholder="Mailing address (optional)"
-                  />
-                </label>
+          {!isEditingLetter ? (
+            <section className="rounded-3xl border border-zinc-200 bg-white p-5">
+              <div className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-center">
+                <div className="text-sm font-semibold text-zinc-900">New draft</div>
+                <button
+                  type="button"
+                  disabled={busy || !selectedContactId || disputesText.trim().length < 3}
+                  onClick={generateLetter}
+                  className="inline-flex items-center justify-center rounded-2xl bg-brand-ink px-4 py-2.5 text-sm font-semibold text-white hover:opacity-95 disabled:opacity-60"
+                >
+                  {busy ? "Working…" : "Generate letter"}
+                </button>
               </div>
 
-              <div className="space-y-4">
-                <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
-                  <div className="text-sm font-semibold text-zinc-900">{selectedTemplate.label}</div>
-                  <div className="mt-1 text-sm text-zinc-600">{selectedTemplate.summary}</div>
-                  <div className="mt-3 rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-xs leading-5 text-zinc-600">
-                    {selectedTemplate.education}
+              <div className="mt-4 grid gap-4 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <label className="block sm:col-span-1">
+                    <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Strategy</div>
+                    <PortalListboxDropdown
+                      value={selectedStage}
+                      onChange={(v) => setSelectedStage(String(v || "initial-review"))}
+                      disabled={busy}
+                      buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50"
+                      options={LETTER_STAGE_OPTIONS}
+                    />
+                  </label>
+
+                  <label className="block sm:col-span-1">
+                    <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Template</div>
+                    <PortalListboxDropdown
+                      value={selectedTemplateKey}
+                      onChange={(v) => setSelectedTemplateKey(String(v || LETTER_LIBRARY[0]?.key || "bureau-general"))}
+                      disabled={busy}
+                      buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50"
+                      options={templateOptions}
+                    />
+                  </label>
+
+                  <label className="block sm:col-span-1">
+                    <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Recipient</div>
+                    <input
+                      value={recipientName}
+                      onChange={(e) => setRecipientName(e.target.value)}
+                      className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                      placeholder="Experian"
+                    />
+                  </label>
+
+                  <label className="block sm:col-span-1">
+                    <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Address</div>
+                    <input
+                      value={recipientAddress}
+                      onChange={(e) => setRecipientAddress(e.target.value)}
+                      className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                      placeholder="Mailing address"
+                    />
+                  </label>
+
+                  <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4 sm:col-span-2">
+                    <div className="text-sm font-semibold text-zinc-900">{selectedTemplate.label}</div>
+                    <div className="mt-1 text-sm text-zinc-600">{selectedTemplate.summary}</div>
+                    <pre className="mt-3 max-h-40 overflow-auto whitespace-pre-wrap rounded-2xl border border-zinc-200 bg-white p-3 text-xs leading-5 text-zinc-700">
+                      {selectedTemplatePreview}
+                    </pre>
                   </div>
-                  <pre className="mt-3 max-h-48 overflow-auto whitespace-pre-wrap rounded-2xl border border-zinc-200 bg-white p-3 text-xs leading-5 text-zinc-700">
-                    {selectedTemplatePreview}
-                  </pre>
                 </div>
 
                 <label className="block">
-                  <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Items to include</div>
+                  <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Dispute items</div>
                   <textarea
                     value={disputesText}
                     onChange={(e) => setDisputesText(e.target.value)}
-                    className="min-h-52 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                    placeholder="Example:\n- Account XXXX reported 60 days late in Jan 2025, but payment was on time\n- Inquiry from ABC Bank on 02/10/2025 is not mine"
+                    className="min-h-80 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                    placeholder="- Account XXXX reported 60 days late in Jan 2025, but payment was on time\n- Inquiry from ABC Bank on 02/10/2025 is not mine"
                   />
-                  <div className="mt-2 text-xs text-zinc-500">Paste the tradelines, dates, inquiry notes, or reporting errors you want the draft to address.</div>
                 </label>
               </div>
-            </div>
-          </section>
+            </section>
+          ) : null}
 
           <section className="rounded-3xl border border-zinc-200 bg-white p-5">
             <div className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-center">
               <div>
-                <div className="text-sm font-semibold text-zinc-900">Editor</div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <div className="text-sm font-semibold text-zinc-900">{isEditingLetter ? "Draft" : "Editor"}</div>
+                  {selectedLetter ? (
+                    <div className="rounded-full border border-zinc-200 bg-zinc-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-zinc-500">
+                      {selectedLetter.status}
+                    </div>
+                  ) : null}
+                </div>
                 <div className="mt-1 text-sm text-zinc-600">{selectedLetterUpdatedAtLabel}</div>
               </div>
               <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={startNewDraft}
+                  className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+                >
+                  New draft
+                </button>
                 <button
                   type="button"
                   disabled={busy || !selectedLetterId}
@@ -605,7 +618,7 @@ export default function DisputeLettersClient() {
 
             {!selectedLetter ? (
               <div className="mt-4 rounded-2xl border border-dashed border-zinc-300 bg-zinc-50 p-6 text-sm text-zinc-600">
-                Generate a letter, then select it from the saved list to edit, export, or send it.
+                No draft selected.
               </div>
             ) : (
               <div className="mt-4 space-y-4">
