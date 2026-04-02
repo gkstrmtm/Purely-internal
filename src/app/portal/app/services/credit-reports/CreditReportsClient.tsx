@@ -1175,67 +1175,45 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
                     <div className="text-lg font-semibold text-zinc-900">{priorityItemOpen.label}</div>
                     <div className="mt-1 text-sm text-zinc-600">{[priorityItemOpen.bureau, priorityItemOpen.kind].filter(Boolean).join(" • ") || "Uncategorized"}</div>
                   </div>
+                  <button type="button" onClick={() => setPriorityItemOpen(null)} aria-label="Close priority item" className={ICON_BUTTON_CLASS}>×</button>
                 </div>
 
-                <div className="mt-5 rounded-3xl border border-zinc-200 bg-zinc-50 p-4">
+                <div className="mt-5 space-y-3 text-sm text-zinc-700">
                   <div className="flex flex-wrap items-center gap-3 text-xs font-semibold uppercase tracking-wide text-zinc-500">
                     <div>{REPORT_FILTER_LABELS[priorityItemOpen.auditTag]}</div>
+                    <div>{priorityItemOpen.bureau || "No bureau"}</div>
+                    <div>{priorityItemOpen.kind || "Uncategorized"}</div>
                     {priorityItemOpen.disputeStatus ? <div className="normal-case tracking-normal text-zinc-600">{priorityItemOpen.disputeStatus}</div> : null}
                   </div>
-                  <div className="mt-3 text-sm text-zinc-700">
-                    {priorityItemOpen.auditReason || itemSummaryText(priorityItemOpen)}
-                  </div>
+                  <div>{priorityItemOpen.auditReason || itemSummaryText(priorityItemOpen)}</div>
                   {priorityItemOpen.auditTag === "PENDING" ? (
-                    <div className="mt-4 rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-700">
-                      Review the facts on this item. If it belongs in the next letter, move it to dispute. If not, mark that no dispute is needed so it leaves the review queue.
-                    </div>
+                    <div>Review the details below. If it belongs in the next letter, move it to dispute.</div>
                   ) : null}
                 </div>
 
-                <div className="mt-5 grid gap-4 lg:grid-cols-[220px_minmax(0,1fr)]">
-                  <div className="rounded-3xl border border-zinc-200 bg-white p-4">
-                    <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Review summary</div>
-                    <div className="mt-3 space-y-3 text-sm text-zinc-700">
-                      <div>
-                        <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Bureau</div>
-                        <div className="mt-1 font-medium text-zinc-900">{priorityItemOpen.bureau || "Not specified"}</div>
-                      </div>
-                      <div>
-                        <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Category</div>
-                        <div className="mt-1 font-medium text-zinc-900">{priorityItemOpen.kind || "Uncategorized"}</div>
-                      </div>
-                      <div>
-                        <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Last updated</div>
-                        <div className="mt-1 font-medium text-zinc-900">{new Date(priorityItemOpen.updatedAt).toLocaleString()}</div>
-                      </div>
-                    </div>
+                <div className="mt-5 rounded-3xl border border-zinc-200 bg-white p-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Item details</div>
+                    <div className="text-xs text-zinc-500">Updated {new Date(priorityItemOpen.updatedAt).toLocaleString()}</div>
                   </div>
 
-                  <div className="rounded-3xl border border-zinc-200 bg-white p-4">
-                    <div className="flex items-center justify-between gap-3">
-                      <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">What to review</div>
-                      <div className="text-xs text-zinc-500">{readReviewDetails(priorityItemOpen.detailsJson).length ? `${readReviewDetails(priorityItemOpen.detailsJson).length} fields found` : "No extra fields found"}</div>
+                  {readReviewDetails(priorityItemOpen.detailsJson).length ? (
+                    <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                      {readReviewDetails(priorityItemOpen.detailsJson).map((entry) => (
+                        <div key={entry.key} className="rounded-2xl border border-zinc-200 bg-zinc-50 px-3 py-3">
+                          <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">{entry.key}</div>
+                          <div className="mt-2 text-sm text-zinc-800 wrap-break-word">{entry.value}</div>
+                        </div>
+                      ))}
                     </div>
-
-                    {readReviewDetails(priorityItemOpen.detailsJson).length ? (
-                      <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                        {readReviewDetails(priorityItemOpen.detailsJson).map((entry) => (
-                          <div key={entry.key} className="rounded-2xl border border-zinc-200 bg-zinc-50 px-3 py-3">
-                            <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">{entry.key}</div>
-                            <div className="mt-2 text-sm text-zinc-800 wrap-break-word">{entry.value}</div>
-                          </div>
-                        ))}
-                      </div>
-                    ) : (
-                      <div className="mt-3 rounded-2xl border border-dashed border-zinc-300 bg-zinc-50 px-4 py-4 text-sm text-zinc-600">
-                        This item does not have extra imported detail fields on file yet. Use the bureau, category, and audit reason above to decide whether it should move into dispute.
-                      </div>
-                    )}
-                  </div>
+                  ) : (
+                    <div className="mt-3 rounded-2xl border border-dashed border-zinc-300 bg-zinc-50 px-4 py-4 text-sm text-zinc-600">
+                      This item does not have extra imported detail fields on file yet. Use the details above to decide whether it should move into dispute.
+                    </div>
+                  )}
                 </div>
 
                 <div className="mt-6 flex flex-wrap justify-end gap-2">
-                  <button type="button" onClick={() => setPriorityItemOpen(null)} className={SECONDARY_BUTTON_CLASS} disabled={itemDecisionBusyId === priorityItemOpen.id}>Close</button>
                   {priorityItemOpen.auditTag === "NEGATIVE" ? (
                     <button type="button" onClick={() => {
                       openDisputeComposer(priorityItemOpen);

@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
-import { IconFunnel } from "@/app/portal/PortalIcons";
+import { IconExport, IconFunnel } from "@/app/portal/PortalIcons";
+import { AiSparkIcon } from "@/components/AiSparkIcon";
 import { PortalListboxDropdown, type PortalListboxOption } from "@/components/PortalListboxDropdown";
 import { PortalSearchableCombobox, type PortalSearchableOption } from "@/components/PortalSearchableCombobox";
 import { normalizeDisputeLetterText, readContactSignature } from "@/lib/creditDisputeLetters";
@@ -245,6 +246,7 @@ function formatDisputeItemText(item: Pick<CreditReportItem, "label" | "detailsJs
 const BUTTON_MOTION_CLASS = "transition-all duration-150 hover:-translate-y-0.5 focus-visible:outline-none";
 const PRIMARY_BUTTON_CLASS = `${BUTTON_MOTION_CLASS} rounded-2xl bg-brand-blue px-4 py-2 text-sm font-semibold text-white shadow-sm hover:opacity-95 focus-visible:ring-2 focus-visible:ring-brand-blue/30 disabled:opacity-60`;
 const SECONDARY_BUTTON_CLASS = `${BUTTON_MOTION_CLASS} rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:border-zinc-300 hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-brand-blue/20 disabled:opacity-60`;
+const AI_GRADIENT_BUTTON_CLASS = `${BUTTON_MOTION_CLASS} inline-flex items-center gap-2 rounded-2xl px-4 py-2 text-sm font-semibold text-white shadow-sm focus-visible:ring-2 focus-visible:ring-brand-blue/30`;
 
 async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
   const response = await fetch(url, {
@@ -383,6 +385,8 @@ export default function DisputeLettersClient({ mode = "list", initialLetterId = 
       setBodyText(normalizeDisputeLetterText(data.letter.bodyText || "", {
         contactName: data.letter.contact?.name || "",
         signature: readContactSignature(data.letter.contact?.customVariables) || data.letter.contact?.name || "",
+        email: data.letter.contact?.email || "",
+        phone: data.letter.contact?.phone || "",
       }));
       if (data.letter.pdfMediaItem?.id && data.letter.pdfMediaItem?.publicToken) {
         setPdfDownloadUrl(`/api/public/media/item/${data.letter.pdfMediaItem.id}/${data.letter.pdfMediaItem.publicToken}?download=1`);
@@ -753,7 +757,20 @@ export default function DisputeLettersClient({ mode = "list", initialLetterId = 
         </div>
         <div className="mt-6 flex justify-end gap-2">
           <button type="button" onClick={closeComposer} className={SECONDARY_BUTTON_CLASS}>Cancel</button>
-          <button type="button" disabled={!canGenerate || working !== null} onClick={() => void generateLetter()} className={PRIMARY_BUTTON_CLASS}>{working === "generate" ? "Generating..." : "Generate"}</button>
+          <button
+            type="button"
+            disabled={!canGenerate || working !== null}
+            onClick={() => void generateLetter()}
+            className={classNames(
+              AI_GRADIENT_BUTTON_CLASS,
+              !canGenerate || working !== null
+                ? "bg-zinc-200 text-zinc-600"
+                : "bg-linear-to-r from-(--color-brand-blue) via-violet-500 to-(--color-brand-pink) hover:opacity-90",
+            )}
+          >
+            <AiSparkIcon className="h-4 w-4" />
+            <span>{working === "generate" ? "Generating…" : "Generate with AI"}</span>
+          </button>
         </div>
       </div>
     </div>
@@ -772,7 +789,18 @@ export default function DisputeLettersClient({ mode = "list", initialLetterId = 
             </div>
           </div>
           <div className="flex flex-wrap gap-2">
-            {pdfDownloadUrl ? <a href={pdfDownloadUrl} target="_blank" rel="noreferrer" className={SECONDARY_BUTTON_CLASS}>Download PDF</a> : null}
+            {pdfDownloadUrl ? (
+              <a
+                href={pdfDownloadUrl}
+                target="_blank"
+                rel="noreferrer"
+                className={`${BUTTON_MOTION_CLASS} inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-zinc-200 bg-white text-zinc-800 hover:border-zinc-300 hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-brand-blue/20`}
+                aria-label="Download PDF"
+                title="Download PDF"
+              >
+                <IconExport size={18} />
+              </a>
+            ) : null}
             <button type="button" disabled={!selectedLetterId || working !== null} onClick={() => void saveLetter()} className={SECONDARY_BUTTON_CLASS}>{working === "save" ? "Saving..." : "Save draft"}</button>
             <button type="button" disabled={!selectedLetterId || working !== null} onClick={() => void markLetterMailed()} className={PRIMARY_BUTTON_CLASS}>{working === "mail" ? "Marking..." : "Mark mailed"}</button>
           </div>
@@ -782,7 +810,7 @@ export default function DisputeLettersClient({ mode = "list", initialLetterId = 
           <section className="rounded-3xl border border-zinc-200 bg-white p-6">
             <label className="block">
               <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Letter</div>
-              <textarea value={bodyText} onChange={(event) => setBodyText(normalizeDisputeLetterText(event.target.value, { contactName: selectedLetter?.contact?.name || "", signature: readContactSignature(selectedLetter?.contact?.customVariables) || selectedLetter?.contact?.name || "" }))} className="min-h-175 w-full rounded-3xl border border-zinc-200 px-4 py-4 text-sm leading-6 text-zinc-800 outline-none focus:border-zinc-300" />
+              <textarea value={bodyText} onChange={(event) => setBodyText(normalizeDisputeLetterText(event.target.value, { contactName: selectedLetter?.contact?.name || "", signature: readContactSignature(selectedLetter?.contact?.customVariables) || selectedLetter?.contact?.name || "", email: selectedLetter?.contact?.email || "", phone: selectedLetter?.contact?.phone || "" }))} className="min-h-175 w-full rounded-3xl border border-zinc-200 px-4 py-4 text-sm leading-6 text-zinc-800 outline-none focus:border-zinc-300" />
             </label>
             <div className="mt-3 text-xs text-zinc-500">Plain-text mailed letter only. Clean the contact signature/address, download the PDF, then mark it mailed.</div>
           </section>

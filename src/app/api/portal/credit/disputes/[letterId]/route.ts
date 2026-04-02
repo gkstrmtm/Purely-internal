@@ -64,7 +64,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ letterId: str
 
   const existing = await prisma.creditDisputeLetter.findFirst({
     where: { id, ownerId: session.session.user.id },
-    select: { contact: { select: { name: true, customVariables: true } } },
+    select: { contact: { select: { name: true, email: true, phone: true, customVariables: true } } },
   });
   if (!existing) return NextResponse.json({ ok: false, error: "Not found" }, { status: 404 });
 
@@ -77,6 +77,8 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ letterId: str
             bodyText: normalizeDisputeLetterText(nextBodyText, {
               contactName: existing.contact?.name || "",
               signature: readContactSignature(existing.contact?.customVariables) || existing.contact?.name || "",
+              email: existing.contact?.email || "",
+              phone: existing.contact?.phone || "",
             }),
           }
         : {}),

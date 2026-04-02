@@ -59,7 +59,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ slug: string }
   if (!form) return NextResponse.json({ ok: false, error: "Not found" }, { status: 404 });
 
   const body = (await req.json().catch(() => null)) as any;
-  const payload = safeJson(body?.data ?? body ?? {}, 50_000);
+  const payload = safeJson(body?.data ?? body ?? {}, 200_000);
 
   const firstString = (v: any): string | null => {
     if (typeof v === "string") {

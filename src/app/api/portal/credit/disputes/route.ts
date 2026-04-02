@@ -142,6 +142,8 @@ export async function POST(req: Request) {
   const bodyText = normalizeDisputeLetterText(String(bodyTextRaw || "").trim(), {
     contactName: contact.name,
     signature: signature || contact.name,
+    email: contact.email,
+    phone: contact.phone,
   });
 
   const subject = parsed.data.subjectLine?.trim() || `Dispute letter - ${contact.name}`;

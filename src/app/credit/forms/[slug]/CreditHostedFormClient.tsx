@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { googleFontImportCss } from "@/lib/fontPresets";
 
@@ -14,6 +14,7 @@ export type Field = {
     | "email"
     | "phone"
     | "name"
+    | "signature"
     | "checklist"
     | "radio"
     // legacy/back-compat
@@ -51,6 +52,124 @@ function normalizeInputType(t: Field["type"]): "text" | "email" | "tel" {
   return "text";
 }
 
+function SignatureField({
+  name,
+  busy,
+  radiusPx,
+  inputBg,
+  inputBorder,
+  textColor,
+  resetNonce,
+}: {
+  name: string;
+  busy: boolean;
+  radiusPx: number;
+  inputBg: string;
+  inputBorder: string;
+  textColor: string;
+  resetNonce: number;
+}) {
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const [value, setValue] = useState("");
+  const drawingRef = useRef(false);
+  const lastPointRef = useRef<{ x: number; y: number } | null>(null);
+
+  const clearCanvas = () => {
+    const canvas = canvasRef.current;
+    const context = canvas?.getContext("2d");
+    if (!canvas || !context) return;
+    context.clearRect(0, 0, canvas.width, canvas.height);
+    context.lineCap = "round";
+    context.lineJoin = "round";
+    context.lineWidth = 3;
+    context.strokeStyle = "#18181b";
+    context.fillStyle = "#18181b";
+    drawingRef.current = false;
+    lastPointRef.current = null;
+    setValue("");
+  };
+
+  useEffect(() => {
+    clearCanvas();
+  }, [resetNonce]);
+
+  const getPoint = (event: React.PointerEvent<HTMLCanvasElement>) => {
+    const rect = event.currentTarget.getBoundingClientRect();
+    const scaleX = event.currentTarget.width / Math.max(rect.width, 1);
+    const scaleY = event.currentTarget.height / Math.max(rect.height, 1);
+    return {
+      x: (event.clientX - rect.left) * scaleX,
+      y: (event.clientY - rect.top) * scaleY,
+    };
+  };
+
+  const commitSignature = () => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    setValue(canvas.toDataURL("image/png"));
+  };
+
+  return (
+    <div
+      className="rounded-2xl border p-3"
+      style={{
+        borderRadius: radiusPx,
+        borderColor: inputBorder,
+        backgroundColor: inputBg,
+      }}
+    >
+      <canvas
+        ref={canvasRef}
+        width={960}
+        height={280}
+        className="h-40 w-full touch-none rounded-xl bg-white"
+        onPointerDown={(event) => {
+          if (busy) return;
+          const context = event.currentTarget.getContext("2d");
+          if (!context) return;
+          const point = getPoint(event);
+          drawingRef.current = true;
+          lastPointRef.current = point;
+          event.currentTarget.setPointerCapture(event.pointerId);
+          context.beginPath();
+          context.arc(point.x, point.y, 1.5, 0, Math.PI * 2);
+          context.fill();
+        }}
+        onPointerMove={(event) => {
+          if (!drawingRef.current || busy) return;
+          const context = event.currentTarget.getContext("2d");
+          const previousPoint = lastPointRef.current;
+          if (!context || !previousPoint) return;
+          const point = getPoint(event);
+          context.beginPath();
+          context.moveTo(previousPoint.x, previousPoint.y);
+          context.lineTo(point.x, point.y);
+          context.stroke();
+          lastPointRef.current = point;
+        }}
+        onPointerUp={(event) => {
+          if (!drawingRef.current) return;
+          drawingRef.current = false;
+          lastPointRef.current = null;
+          event.currentTarget.releasePointerCapture(event.pointerId);
+          commitSignature();
+        }}
+        onPointerLeave={() => {
+          if (!drawingRef.current) return;
+          drawingRef.current = false;
+          lastPointRef.current = null;
+          commitSignature();
+        }}
+      />
+      <input type="hidden" name={name} value={value} />
+      <div className="mt-2 flex items-center justify-between gap-3">
+        <div className="text-xs text-zinc-500" style={{ color: textColor }}>{value ? "Signature captured" : "Draw your signature above"}</div>
+        <button type="button" onClick={clearCanvas} disabled={busy} className="rounded-xl border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-700 hover:bg-zinc-50 disabled:opacity-60">Clear</button>
+      </div>
+    </div>
+  );
+}
+
 export function CreditHostedFormClient({
   slug,
   formName,
@@ -69,6 +188,7 @@ export function CreditHostedFormClient({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
+  const [resetNonce, setResetNonce] = useState(0);
 
   const actionUrl = useMemo(() => {
     const base = submitBasePath === "/portal" ? "/portal" : "/credit";
@@ -141,6 +261,16 @@ export function CreditHostedFormClient({
             }
           }
 
+          for (const f of fields) {
+            if (f.type !== "signature" || !f.required) continue;
+            const selected = formData.get(f.name);
+            if (typeof selected !== "string" || !selected.trim()) {
+              setError(`Please add your signature for “${f.label}”.`);
+              setBusy(false);
+              return;
+            }
+          }
+
           for (const [k, v] of formData.entries()) {
             if (Object.prototype.hasOwnProperty.call(data, k)) {
               const existing = data[k];
@@ -163,6 +293,7 @@ export function CreditHostedFormClient({
             .then(() => {
               el.reset();
               setSuccess(true);
+              setResetNonce((current) => current + 1);
             })
             .catch((err) => {
               setError(err?.message ? String(err.message) : "Submission failed");
@@ -218,6 +349,16 @@ export function CreditHostedFormClient({
                   <div className="text-sm text-zinc-500">No options configured.</div>
                 ) : null}
               </div>
+            ) : f.type === "signature" ? (
+              <SignatureField
+                name={f.name}
+                busy={busy}
+                radiusPx={radiusPx}
+                inputBg={inputBg}
+                inputBorder={inputBorder}
+                textColor={textColor}
+                resetNonce={resetNonce}
+              />
             ) : isTextareaField(f.type) ? (
               <textarea
                 name={f.name}

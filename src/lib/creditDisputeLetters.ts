@@ -19,10 +19,12 @@ function escapeRegExp(value: string) {
 
 export function normalizeDisputeLetterText(
   value: string,
-  options?: { contactName?: string | null; signature?: string | null },
+  options?: { contactName?: string | null; signature?: string | null; email?: string | null; phone?: string | null },
 ) {
   const contactName = String(options?.contactName || "").trim();
   const signature = String(options?.signature || "").trim();
+  const email = String(options?.email || "").trim();
+  const phone = String(options?.phone || "").trim();
 
   let text = String(value || "")
     .replace(/\r\n?/g, "\n")
@@ -35,6 +37,8 @@ export function normalizeDisputeLetterText(
     .replace(/^recipient address\s*:\s*not provided\s*$/gim, "")
     .replace(/^consumer email\s*:\s*not provided\s*$/gim, "")
     .replace(/^consumer phone\s*:\s*not provided\s*$/gim, "")
+    .replace(/\{\{\s*email\s*\}\}/gi, email)
+    .replace(/\{\{\s*phone\s*\}\}/gi, phone)
     .replace(/\{\{\s*(signature|consumer signature|your signature if sending a hard copy)[^}]*\}\}/gi, signature || "________________")
     .replace(/your signature if sending a hard copy/gi, signature || "________________")
     .replace(/\b(i hope this letter finds you well)\b[:,]?/gi, "")
@@ -44,6 +48,18 @@ export function normalizeDisputeLetterText(
     .replace(/[ \t]+\n/g, "\n")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
+
+  if (email) {
+    text = text
+      .replace(/\byour email address\b/gi, email)
+      .replace(/\byour email\b/gi, email);
+  }
+
+  if (phone) {
+    text = text
+      .replace(/\byour phone number\b/gi, phone)
+      .replace(/\byour phone\b/gi, phone);
+  }
 
   const tail = text.slice(-500);
   const hasClosing = /\b(sincerely|regards|respectfully|thank you)\b/i.test(tail);

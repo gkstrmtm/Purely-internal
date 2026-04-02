@@ -27,6 +27,7 @@ type FieldType =
   | "email"
   | "phone"
   | "name"
+  | "signature"
   | "checklist"
   | "radio"
   // legacy
@@ -88,6 +89,7 @@ function normalizeFields(rawSchema: any): Field[] {
       type === "email" ||
       type === "phone" ||
       type === "name" ||
+      type === "signature" ||
       type === "checklist" ||
       type === "radio" ||
       type === "text" ||
@@ -140,6 +142,8 @@ function fieldTypeLabel(t: FieldType) {
       return "Phone number";
     case "name":
       return "Name";
+    case "signature":
+      return "Signature";
     case "checklist":
       return "Checklist";
     case "radio":
@@ -621,6 +625,7 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
                 { value: "name", label: "Name" },
                 { value: "email", label: "Email" },
                 { value: "phone", label: "Phone number" },
+                { value: "signature", label: "Signature" },
                 { value: "checklist", label: "Checklist" },
                 { value: "radio", label: "Multiple choice" },
               ]}
@@ -939,6 +944,7 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
                           { value: "name", label: "Name" },
                           { value: "email", label: "Email" },
                           { value: "phone", label: "Phone number" },
+                          { value: "signature", label: "Signature" },
                           { value: "checklist", label: "Checklist" },
                           { value: "radio", label: "Multiple choice" },
                         ]}
@@ -1043,6 +1049,19 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
                                 <span>{opt}</span>
                               </label>
                             ))}
+                          </div>
+                        ) : selected.type === "signature" ? (
+                          <div
+                            className="rounded-2xl border border-dashed px-4 py-4"
+                            style={{
+                              borderRadius: style.radiusPx ?? 16,
+                              backgroundColor: style.inputBg || "#ffffff",
+                              borderColor: style.inputBorder || "#e4e4e7",
+                              color: style.textColor || "#18181b",
+                            }}
+                          >
+                            <div className="h-24 w-full rounded-xl border border-zinc-200 bg-white" />
+                            <div className="mt-3 text-xs font-semibold uppercase tracking-wide text-zinc-500">Draw signature here</div>
                           </div>
                         ) : isTextareaField(selected.type) ? (
                           <textarea

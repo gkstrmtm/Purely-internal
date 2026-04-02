@@ -68,16 +68,45 @@ function normalizeSchema(schema: unknown): any {
   const fields = (schema as any).fields;
   const style = normalizeStyle((schema as any).style);
   if (!Array.isArray(fields)) return { fields: [] };
+  const allowedTypes = new Set([
+    "short_answer",
+    "long_answer",
+    "paragraph",
+    "email",
+    "phone",
+    "name",
+    "signature",
+    "checklist",
+    "radio",
+    "text",
+    "tel",
+    "textarea",
+  ]);
   const out: any[] = [];
   for (const f of fields) {
     if (!f || typeof f !== "object") continue;
     const name = typeof (f as any).name === "string" ? (f as any).name.trim() : "";
     const label = typeof (f as any).label === "string" ? (f as any).label.trim() : "";
-    const type = (f as any).type;
+    const type = typeof (f as any).type === "string" ? (f as any).type.trim() : "";
     const required = (f as any).required === true;
     if (!name || !label) continue;
-    if (type !== "text" && type !== "email" && type !== "tel" && type !== "textarea") continue;
-    out.push({ name: name.slice(0, 64), label: label.slice(0, 160), type, required });
+    if (!allowedTypes.has(type)) continue;
+    const options = type === "checklist" || type === "radio"
+      ? Array.isArray((f as any).options)
+        ? (f as any).options
+            .filter((entry: unknown) => typeof entry === "string")
+            .map((entry: string) => entry.trim())
+            .filter(Boolean)
+            .slice(0, 50)
+        : []
+      : undefined;
+    out.push({
+      name: name.slice(0, 64),
+      label: label.slice(0, 160),
+      type,
+      required,
+      ...(options ? { options } : {}),
+    });
   }
 
   const normalized: any = { fields: out.slice(0, 50) };
