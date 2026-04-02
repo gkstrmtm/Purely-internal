@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
+import { normalizeDisputeLetterText, readContactSignature } from "@/lib/creditDisputeLetters";
 import { prisma } from "@/lib/db";
 import { requireCreditClientSession } from "@/lib/creditPortalAccess";
 
@@ -37,7 +38,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ letterId: stri
       lastSentTo: true,
       contactId: true,
       creditPullId: true,
-      contact: { select: { id: true, name: true, email: true, phone: true } },
+      contact: { select: { id: true, name: true, email: true, phone: true, customVariables: true } },
       pdfMediaItem: { select: { id: true, publicToken: true } },
     },
   });
@@ -61,11 +62,24 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ letterId: str
   const nextSubject = typeof parsed.data.subject === "string" ? parsed.data.subject : undefined;
   const nextBodyText = typeof parsed.data.bodyText === "string" ? parsed.data.bodyText : undefined;
 
+  const existing = await prisma.creditDisputeLetter.findFirst({
+    where: { id, ownerId: session.session.user.id },
+    select: { contact: { select: { name: true, customVariables: true } } },
+  });
+  if (!existing) return NextResponse.json({ ok: false, error: "Not found" }, { status: 404 });
+
   const updated = await prisma.creditDisputeLetter.updateMany({
     where: { id, ownerId: session.session.user.id },
     data: {
       ...(nextSubject !== undefined ? { subject: nextSubject } : {}),
-      ...(nextBodyText !== undefined ? { bodyText: nextBodyText } : {}),
+      ...(nextBodyText !== undefined
+        ? {
+            bodyText: normalizeDisputeLetterText(nextBodyText, {
+              contactName: existing.contact?.name || "",
+              signature: readContactSignature(existing.contact?.customVariables) || existing.contact?.name || "",
+            }),
+          }
+        : {}),
       status: "DRAFT",
       updatedAt: new Date(),
     },
@@ -88,7 +102,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ letterId: str
       sentAt: true,
       lastSentTo: true,
       creditPullId: true,
-      contact: { select: { id: true, name: true, email: true, phone: true } },
+      contact: { select: { id: true, name: true, email: true, phone: true, customVariables: true } },
       pdfMediaItem: { select: { id: true, publicToken: true } },
     },
   });

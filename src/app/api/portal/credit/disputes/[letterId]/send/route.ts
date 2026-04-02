@@ -3,14 +3,13 @@ import { z } from "zod";
 
 import { prisma } from "@/lib/db";
 import { requireCreditClientSession } from "@/lib/creditPortalAccess";
-import { sendTransactionalEmail } from "@/lib/emailSender";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 const sendSchema = z.object({
-  to: z.string().trim().email().optional().nullable(),
+  to: z.string().trim().max(160).optional().nullable(),
 });
 
 export async function POST(req: Request, ctx: { params: Promise<{ letterId: string }> }) {
@@ -33,31 +32,23 @@ export async function POST(req: Request, ctx: { params: Promise<{ letterId: stri
       id: true,
       subject: true,
       bodyText: true,
+      lastSentTo: true,
       contact: { select: { id: true, name: true, email: true } },
     },
   });
   if (!letter) return NextResponse.json({ ok: false, error: "Not found" }, { status: 404 });
 
-  const fallbackTo = letter.contact.email ? String(letter.contact.email) : "";
-  const to = (parsed.data.to || "").trim() || fallbackTo;
-  if (!to) return NextResponse.json({ ok: false, error: "Contact has no email" }, { status: 400 });
-
-  const subject = (letter.subject || "Credit report dispute letter").trim() || "Credit report dispute letter";
   const text = String(letter.bodyText || "").trim();
   if (!text) return NextResponse.json({ ok: false, error: "Letter is empty" }, { status: 400 });
 
-  await sendTransactionalEmail({
-    to,
-    subject,
-    text,
-  });
+  const mailedTo = (parsed.data.to || "").trim() || letter.lastSentTo || "Mailed copy";
 
   await prisma.creditDisputeLetter.updateMany({
     where: { id, ownerId },
     data: {
       status: "SENT",
       sentAt: new Date(),
-      lastSentTo: to,
+      lastSentTo: mailedTo,
       updatedAt: new Date(),
     },
   });

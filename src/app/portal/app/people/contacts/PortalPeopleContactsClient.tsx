@@ -14,7 +14,7 @@ import { normalizePortalContactCustomVarKey, type TemplateVariable } from "@/lib
 import { DEFAULT_TAG_COLORS } from "@/lib/tagColors.shared";
 
 const DEFAULT_CONTACT_CUSTOM_VAR_KEYS = ["business_name", "city", "state", "website", "niche", "location"];
-const CREDIT_CONTACT_CUSTOM_VAR_KEYS = ["business_name", "ssn_last_four", "birth_date", "address"] as const;
+const CREDIT_CONTACT_CUSTOM_VAR_KEYS = ["business_name", "ssn_last_four", "birth_date", "address", "signature"] as const;
 
 type ContactTag = { id: string; name: string; color: string | null };
 
@@ -358,6 +358,7 @@ export function PortalPeopleContactsClient() {
   const [manualBirthDate, setManualBirthDate] = useState("");
   const [manualAddress, setManualAddress] = useState("");
   const [manualBusinessName, setManualBusinessName] = useState("");
+  const [manualSignature, setManualSignature] = useState("");
   const [manualTagValues, setManualTagValues] = useState<string[]>([]);
   const [manualCreateTagOpen, setManualCreateTagOpen] = useState(false);
   const [manualCreateTagName, setManualCreateTagName] = useState("");
@@ -428,6 +429,7 @@ export function PortalPeopleContactsClient() {
       ssnLastFour: getCustomVariableValue(detail?.customVariables, "ssn_last_four"),
       birthDate: getCustomVariableValue(detail?.customVariables, "birth_date"),
       address: getCustomVariableValue(detail?.customVariables, "address"),
+      signature: getCustomVariableValue(detail?.customVariables, "signature"),
     }),
     [detail?.customVariables],
   );
@@ -437,6 +439,7 @@ export function PortalPeopleContactsClient() {
       ssnLastFour: getCustomVariableValue(customVariablesFromRows(editCustomVarRows), "ssn_last_four"),
       birthDate: getCustomVariableValue(customVariablesFromRows(editCustomVarRows), "birth_date"),
       address: getCustomVariableValue(customVariablesFromRows(editCustomVarRows), "address"),
+      signature: getCustomVariableValue(customVariablesFromRows(editCustomVarRows), "signature"),
     }),
     [editCustomVarRows],
   );
@@ -606,6 +609,7 @@ export function PortalPeopleContactsClient() {
     setManualBirthDate("");
     setManualAddress("");
     setManualBusinessName("");
+    setManualSignature("");
     setManualTagValues([]);
     setManualCreateTagOpen(false);
     setManualCreateTagName("");
@@ -618,6 +622,7 @@ export function PortalPeopleContactsClient() {
               { key: "ssn_last_four", value: "" },
               { key: "birth_date", value: "" },
               { key: "address", value: "" },
+              { key: "signature", value: "" },
             ]
           : [{ key: "business_name", value: "" }],
         knownCustomVarKeys,
@@ -1958,6 +1963,18 @@ export function PortalPeopleContactsClient() {
                           Templates: <span className="font-mono">{`{contact.custom.business_name}`}</span>
                         </div>
                       </label>
+                      <label className="block md:col-span-2">
+                        <div className="text-xs font-semibold text-zinc-700">Signature</div>
+                        <input
+                          value={manualSignature}
+                          onChange={(e) => setManualSignature(e.target.value)}
+                          placeholder="Typed signature for mailed letters"
+                          className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                        />
+                        <div className="mt-1 text-[11px] text-zinc-500">
+                          Templates: <span className="font-mono">{`{contact.custom.signature}`}</span>
+                        </div>
+                      </label>
                     </>
                   ) : null}
                   <div className="block">
@@ -2161,6 +2178,7 @@ export function PortalPeopleContactsClient() {
                                 { key: "birth_date", value: manualBirthDate },
                                 { key: "address", value: manualAddress },
                                 { key: "business_name", value: manualBusinessName },
+                                { key: "signature", value: manualSignature },
                               ])
                             : manualCustomVarRows;
 
@@ -2693,6 +2711,22 @@ export function PortalPeopleContactsClient() {
                         )}
                         <div className="mt-1 text-[11px] text-zinc-500">
                           Template: <span className="font-mono">{`{contact.custom.address}`}</span>
+                        </div>
+                      </div>
+                      <div className="sm:col-span-2">
+                        <div className="text-xs font-semibold text-zinc-600">Signature</div>
+                        {editingContact ? (
+                          <input
+                            className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-800 outline-none focus:border-(--color-brand-blue)"
+                            value={editCreditValues.signature}
+                            onChange={(e) => setEditCustomVarRows((prev) => upsertCustomVariableRow(prev, "signature", e.target.value))}
+                            placeholder="Typed signature for mailed letters"
+                          />
+                        ) : (
+                          <div className="mt-1 text-sm text-zinc-800">{creditDetailValues.signature || "N/A"}</div>
+                        )}
+                        <div className="mt-1 text-[11px] text-zinc-500">
+                          Template: <span className="font-mono">{`{contact.custom.signature}`}</span>
                         </div>
                       </div>
                     </div>

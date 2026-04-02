@@ -43,7 +43,7 @@ type ReportFull = ReportLite & {
 
 type FundingOffer = {
   label: string;
-  href: string;
+  href?: string;
   source: string;
 };
 
@@ -59,7 +59,7 @@ type FixedMenuStyle = { left: number; top: number; maxHeight: number };
 
 const REPORT_FILTER_LABELS: Record<"ALL" | "PENDING" | "NEGATIVE" | "POSITIVE" | "TRACKED", string> = {
   ALL: "All items",
-  PENDING: "Review now",
+  PENDING: "Needs review",
   NEGATIVE: "Needs dispute",
   POSITIVE: "Clean items",
   TRACKED: "Follow-up",
@@ -148,61 +148,49 @@ function buildOpportunityPlans(
   const currentScore = snapshot?.currentScore ?? null;
   const scoreGap = snapshot?.scoreDelta ?? null;
   const utilization = snapshot?.utilizationPercent ?? null;
-  const goals = snapshot?.goals || [];
+  const goalHint = snapshot?.goals?.[0] || "Protect score gains and stay selective.";
   const cleanupHeavy = summary.negative >= 2 || summary.pending >= 2;
   const fundingReady = currentScore !== null && currentScore >= 680 && summary.negative <= 1 && summary.pending <= 1;
 
   return [
     {
-      key: "goal-stack",
-      title: "Client goals",
-      readinessLabel: goals.length ? `${goals.length} active goals` : "Goals need to be set",
-      offers: goals.length
-        ? goals.map((goal, index) => ({ label: goal, href: "#", source: index === 0 ? "Primary" : "Goal" }))
-        : [
-            { label: "Clear negative accounts", href: "#", source: "Suggested" },
-            { label: "Raise score into approval range", href: "#", source: "Suggested" },
-          ],
-      summary: snapshot?.nextMilestone || "Tie the report to what this client is actually trying to accomplish next.",
-    },
-    {
-      key: "score-strategy",
-      title: "Score strategy",
-      readinessLabel: scoreGap && scoreGap > 0 ? `${scoreGap} points to target` : "Target is within reach",
-      offers: [
-        { label: utilization !== null ? `Utilization ${utilization}%` : "Utilization pending", href: "#", source: "Current" },
-        { label: `${summary.negative} dispute priorities`, href: "#", source: "Cleanup" },
-        { label: `${summary.pending} review items`, href: "#", source: "Review" },
-        { label: `${summary.tracked} tracked disputes`, href: "#", source: "Follow-up" },
-      ],
-      summary:
-        utilization !== null && utilization > 10
-          ? "Bring revolving balances down first, then protect the file from extra inquiries while the score improves."
-          : cleanupHeavy
-            ? "Cleanup still drives the biggest score gains here. Finish the negatives and reviews before broad applications."
-            : "The file is stabilizing. Keep the score gains by staying selective and keeping balances low.",
-    },
-    {
       key: "funding-lane",
-      title: creditScope === "BUSINESS" ? "Business funding lane" : creditScope === "BOTH" ? "Funding lanes" : "Personal funding lane",
+      title: creditScope === "BUSINESS" ? "Business funding lane" : creditScope === "BOTH" ? "Funding lane" : "Personal funding lane",
       readinessLabel: fundingReady ? "Ready to shortlist options" : "Not ready for a broad application push",
       offers: fundingReady
         ? creditScope === "BUSINESS"
           ? [
-              { label: "Amex Blue Business Cash", href: "https://www.americanexpress.com/us/credit-cards/business/business-credit-cards/american-express-blue-business-cash-card-amex/", source: "American Express" },
-              { label: "Capital on Tap", href: "https://www.capitalontap.com/en/", source: "Capital on Tap" },
+              { label: "Amex Blue Business Cash", source: "American Express" },
+              { label: "Capital on Tap", source: "Capital on Tap" },
             ]
           : [
-              { label: "Upgrade Personal Loan", href: "https://www.upgrade.com/personal-loans/", source: "Upgrade" },
-              { label: "LendingClub Personal Loan", href: "https://www.lendingclub.com/personal-loans", source: "LendingClub" },
+              { label: "Upgrade Personal Loan", source: "Upgrade" },
+              { label: "LendingClub Personal Loan", source: "LendingClub" },
             ]
         : [
-            { label: "Experian dispute center", href: "https://www.experian.com/disputes/main.html", source: "Cleanup" },
-            { label: "AnnualCreditReport", href: "https://www.annualcreditreport.com/", source: "Refresh" },
+            { label: `Score gap ${scoreGap ?? 0} points`, source: "Current" },
+            { label: `${summary.negative} dispute priorities`, source: "Cleanup" },
           ],
       summary: fundingReady
         ? "Applications should stay selective and matched to the score band so the file keeps moving forward."
-        : "Do not widen applications yet. Clean the file and close the score gap first.",
+        : snapshot?.nextMilestone || "Do not widen applications yet. Clean the file and close the score gap first.",
+    },
+    {
+      key: "card-lane",
+      title: creditScope === "BUSINESS" ? "Business cards" : creditScope === "BOTH" ? "Card lane" : "Personal cards",
+      readinessLabel: utilization !== null && utilization <= 10 && !cleanupHeavy ? "Cards can support the file" : "Keep cards tight right now",
+      offers: creditScope === "BUSINESS"
+        ? [
+            { label: fundingReady ? "Amex Blue Business Cash" : "Nav Prime / vendor lines first", source: fundingReady ? "Business card" : "Build" },
+            { label: fundingReady ? "Capital on Tap" : "Keep utilization under 10%", source: fundingReady ? "Business card" : "Score" },
+          ]
+        : [
+            { label: fundingReady ? "One personal card only" : "Wait on new cards until cleanup lands", source: fundingReady ? "Discipline" : "Hold" },
+            { label: utilization !== null ? `Utilization ${utilization}%` : "Utilization pending", source: "Revolving" },
+          ],
+      summary: cleanupHeavy
+        ? "Review items and dispute priorities still come first. Add cards only when the file stops leaking points."
+        : goalHint,
     },
   ];
 }
@@ -418,6 +406,7 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
     }),
     [selectedReportSummary],
   );
+
   useEffect(() => {
     if (!initialReportId) return;
     setSelectedReportId(initialReportId);
@@ -448,7 +437,9 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
   useEffect(() => {
     const normalized = contactQuery.trim().toLowerCase();
     if (!normalized) return;
-    const match = contactSuggestions.find((entry) => entry.label.toLowerCase() === normalized) || contactSuggestions.find((entry) => entry.label.toLowerCase().startsWith(normalized));
+    const match =
+      contactSuggestions.find((entry) => entry.label.toLowerCase() === normalized) ||
+      contactSuggestions.find((entry) => entry.label.toLowerCase().startsWith(normalized));
     if (match) setSelectedContactId(match.id);
   }, [contactQuery, contactSuggestions]);
 
@@ -457,12 +448,10 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
     setError(null);
     try {
       const rawJson = JSON.parse(rawText);
-      const json = await fetchJson<{ ok: true; report: ReportLite }>("/api/portal/credit/reports", {
+      const json = await fetchJson<{ ok: true; report: ReportLite }>("/api/portal/credit/reports/import", {
         method: "POST",
         body: JSON.stringify({
           contactId: selectedContactId || undefined,
-          provider: provider.trim() || undefined,
-          creditScope,
           rawJson,
         }),
       });
@@ -505,6 +494,16 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
       setBusy(false);
     }
   };
+
+  const openDisputeComposer = useCallback((item: ReportItemLite) => {
+    if (!selectedReport) return;
+    const params = new URLSearchParams();
+    if (selectedReport.contactId) params.set("contactId", selectedReport.contactId);
+    params.set("compose", "1");
+    params.set("issue", item.label);
+    if (item.bureau) params.set("bureau", item.bureau);
+    window.location.href = `${routeSet.disputeHref}?${params.toString()}`;
+  }, [routeSet.disputeHref, selectedReport]);
 
   return (
     <div className="mx-auto w-full max-w-6xl">
@@ -823,7 +822,7 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
             <div className="mt-5 flex flex-wrap gap-2">
               {([
                 ["items", "Items"],
-                ["plan", "Plan"],
+                ["plan", "Funding"],
               ] as const).map(([value, label]) => (
                 <button
                   key={value}
@@ -856,7 +855,7 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
                   </div>
                   <div className="space-y-2 text-sm text-zinc-700">
                     <div className="flex items-center gap-2"><span className="h-2.5 w-2.5 rounded-full bg-brand-pink" />Needs dispute: {selectedReportSummary.negative}</div>
-                    <div className="flex items-center gap-2"><span className="h-2.5 w-2.5 rounded-full bg-[#2563eb]" />Review now: {selectedReportSummary.pending}</div>
+                    <div className="flex items-center gap-2"><span className="h-2.5 w-2.5 rounded-full bg-[#2563eb]" />Needs review: {selectedReportSummary.pending}</div>
                     <div className="flex items-center gap-2"><span className="h-2.5 w-2.5 rounded-full bg-zinc-300" />Clean items: {selectedReportSummary.positive}</div>
                     <div className="flex items-center gap-2"><span className="h-2.5 w-2.5 rounded-full bg-zinc-800" />Open disputes: {selectedReport.creditSnapshot?.openDisputes ?? selectedReportSummary.tracked}</div>
                   </div>
@@ -974,18 +973,13 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
                         {it.auditTag === "NEGATIVE" ? (
                           <button
                             type="button"
-                            onClick={() => {
-                              const params = new URLSearchParams();
-                              if (selectedReport.contactId) params.set("contactId", selectedReport.contactId);
-                              params.set("compose", "1");
-                              params.set("issue", it.label);
-                              if (it.bureau) params.set("bureau", it.bureau);
-                              window.location.href = `${routeSet.disputeHref}?${params.toString()}`;
-                            }}
+                            onClick={() => openDisputeComposer(it)}
                             className={PRIMARY_BUTTON_CLASS}
                           >
                             Create dispute
                           </button>
+                        ) : it.auditTag === "PENDING" ? (
+                          <button type="button" onClick={() => setPriorityItemOpen(it)} className={SECONDARY_BUTTON_CLASS}>Review item</button>
                         ) : null}
                       </div>
                     </div>
@@ -994,7 +988,7 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
                       <div className="rounded-2xl border border-zinc-200 bg-zinc-50 px-3 py-3">
                         <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Automatic classification</div>
                         <div className="mt-2 text-sm font-semibold text-zinc-900">{REPORT_FILTER_LABELS[it.auditTag]}</div>
-                        <div className="mt-1 text-sm text-zinc-600">{it.auditReason || "Classification is derived from the account status and dispute signals in the report."}</div>
+                        <div className="mt-1 text-sm text-zinc-600">{it.auditTag === "PENDING" ? "Review the item details, then either move it into a dispute or leave it out of the letter." : it.auditReason || "Classification is derived from the account status and dispute signals in the report."}</div>
                       </div>
                       <div className="rounded-2xl border border-zinc-200 bg-white px-3 py-3">
                         <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Dispute status</div>
@@ -1012,7 +1006,7 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
             <div className="mt-5 border-t border-zinc-200 pt-5">
             <div className="flex flex-col gap-2 lg:flex-row lg:items-end lg:justify-between">
               <div>
-                <div className="text-sm font-semibold text-zinc-900">Application plan</div>
+                <div className="text-sm font-semibold text-zinc-900">Funding lanes</div>
               </div>
             </div>
 
@@ -1026,27 +1020,12 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
                   </div>
 
                   <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                    {plan.offers.map((offer) =>
-                      offer.href ? (
-                        <a
-                          key={offer.label}
-                          href={offer.href}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="rounded-2xl border border-zinc-200 bg-zinc-50 px-3 py-3 transition-all duration-150 hover:-translate-y-0.5 hover:border-zinc-300 hover:bg-white"
-                        >
-                          <div className="text-sm font-semibold text-zinc-900">{offer.label}</div>
-                          <div className="mt-1 text-xs font-semibold uppercase tracking-wide text-zinc-500">{offer.source}</div>
-                          <div className="mt-3 text-xs font-semibold text-brand-ink">View option →</div>
-                        </a>
-                      ) : (
-                        <div key={offer.label} className="rounded-2xl border border-zinc-200 bg-zinc-50 px-3 py-3">
-                          <div className="text-sm font-semibold text-zinc-900">{offer.label}</div>
-                          <div className="mt-1 text-xs font-semibold uppercase tracking-wide text-zinc-500">{offer.source}</div>
-                          <div className="mt-3 text-xs text-zinc-600">Handled inside the report workflow.</div>
-                        </div>
-                      ),
-                    )}
+                    {plan.offers.map((offer) => (
+                      <div key={offer.label} className="rounded-2xl border border-zinc-200 bg-zinc-50 px-3 py-3">
+                        <div className="text-sm font-semibold text-zinc-900">{offer.label}</div>
+                        <div className="mt-1 text-xs font-semibold uppercase tracking-wide text-zinc-500">{offer.source}</div>
+                      </div>
+                    ))}
                   </div>
                 </div>
               ))}
@@ -1074,19 +1053,23 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
                   <div className="mt-3 text-sm text-zinc-700">
                     {priorityItemOpen.auditReason || itemSummaryText(priorityItemOpen)}
                   </div>
+                  {priorityItemOpen.auditTag === "PENDING" ? (
+                    <div className="mt-4 rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-700">
+                      Review the facts on this item. If it belongs in the next letter, move it into dispute. If not, leave it in review and close this panel.
+                    </div>
+                  ) : null}
                 </div>
 
                 <div className="mt-6 flex flex-wrap justify-end gap-2">
                   <button type="button" onClick={() => setPriorityItemOpen(null)} className={SECONDARY_BUTTON_CLASS}>Done</button>
                   {priorityItemOpen.auditTag === "NEGATIVE" ? (
                     <button type="button" onClick={() => {
-                      const params = new URLSearchParams();
-                      if (selectedReport?.contactId) params.set("contactId", selectedReport.contactId);
-                      params.set("compose", "1");
-                      params.set("issue", priorityItemOpen.label);
-                      if (priorityItemOpen.bureau) params.set("bureau", priorityItemOpen.bureau);
-                      window.location.href = `${routeSet.disputeHref}?${params.toString()}`;
+                      openDisputeComposer(priorityItemOpen);
                     }} className={PRIMARY_BUTTON_CLASS}>Create dispute</button>
+                  ) : priorityItemOpen.auditTag === "PENDING" ? (
+                    <button type="button" onClick={() => {
+                      openDisputeComposer(priorityItemOpen);
+                    }} className={PRIMARY_BUTTON_CLASS}>Move to dispute</button>
                   ) : null}
                 </div>
               </div>

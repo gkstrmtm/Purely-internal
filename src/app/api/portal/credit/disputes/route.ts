@@ -4,6 +4,7 @@ import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { requireCreditClientSession } from "@/lib/creditPortalAccess";
 import { generateText } from "@/lib/ai";
+import { normalizeDisputeLetterText, readContactSignature } from "@/lib/creditDisputeLetters";
 import { mirrorUploadToMediaLibrary } from "@/lib/portalMediaUploads";
 import { renderTextToPdfBytes } from "@/lib/simplePdf";
 
@@ -23,16 +24,6 @@ const createSchema = z.object({
   subjectLine: z.string().trim().max(200).optional(),
   roundNumber: z.number().int().min(1).max(12).optional(),
 });
-
-function numberToOrdinal(value: number) {
-  const n = Math.max(1, Math.floor(value));
-  const mod10 = n % 10;
-  const mod100 = n % 100;
-  if (mod10 === 1 && mod100 !== 11) return `${n}st`;
-  if (mod10 === 2 && mod100 !== 12) return `${n}nd`;
-  if (mod10 === 3 && mod100 !== 13) return `${n}rd`;
-  return `${n}th`;
-}
 
 export async function GET(req: Request) {
   const session = await requireCreditClientSession();
@@ -81,7 +72,7 @@ export async function POST(req: Request) {
 
   const contact = await prisma.portalContact.findFirst({
     where: { id: contactId, ownerId },
-    select: { id: true, name: true, email: true, phone: true },
+    select: { id: true, name: true, email: true, phone: true, customVariables: true },
   });
   if (!contact) return NextResponse.json({ ok: false, error: "Contact not found" }, { status: 404 });
 
@@ -102,13 +93,15 @@ export async function POST(req: Request) {
   const templatePrompt = parsed.data.templatePrompt;
   const templateBodyStarter = parsed.data.templateBodyStarter;
   const roundNumber = parsed.data.roundNumber;
+  const signature = readContactSignature(contact.customVariables);
 
   const system =
-    "You draft consumer credit dispute letters. Output ONLY a plain-text letter. " +
-    "Do not invent facts. If a needed detail is missing, include a placeholder in double braces like {{placeholder}}. " +
+    "You draft consumer credit dispute letters. Output ONLY a plain-text mailed letter. " +
+    "Do not invent facts. If a needed detail is missing, leave a simple blank line instead of writing placeholder text. " +
     "Keep it professional, natural, and specific. " +
     "Write a fuller letter, not a stub: use a real correspondence structure with a clear opening, meaningful dispute framing, a concrete itemized section, and a firm closing request. " +
     "If this is follow-up correspondence, acknowledge prior notice naturally without using internal workflow labels. " +
+    "Do not use markdown, asterisks, bullet-star formatting, or placeholder words. " +
     "Do not mention internal workflow labels such as round, stage, template, escalation, or strategy unless the consumer explicitly used those terms in the dispute facts.";
 
   const user = [
@@ -120,6 +113,7 @@ export async function POST(req: Request) {
     `Consumer/contact name: ${contact.name}`,
     contact.email ? `Consumer email: ${contact.email}` : "Consumer email: {{email}}",
     contact.phone ? `Consumer phone: ${contact.phone}` : "Consumer phone: {{phone}}",
+    signature ? `Consumer signature on file: ${signature}` : "Consumer signature on file: (none stored)",
     "",
     roundNumber && roundNumber > 1 ? `This is follow-up correspondence after an earlier dispute attempt.` : "This is the first dispute letter for these items.",
     templateLabel ? `Template selected: ${templateLabel}` : null,
@@ -141,9 +135,12 @@ export async function POST(req: Request) {
 
   const model = (process.env.AI_MODEL || "gpt-4o-mini").trim() || "gpt-4o-mini";
   const bodyTextRaw = await generateText({ system, user, model });
-  const bodyText = String(bodyTextRaw || "").trim();
+  const bodyText = normalizeDisputeLetterText(String(bodyTextRaw || "").trim(), {
+    contactName: contact.name,
+    signature: signature || contact.name,
+  });
 
-  const subject = parsed.data.subjectLine?.trim() || `${contact.name} - ${recipientName || templateLabel || "Credit dispute letter"}`;
+  const subject = parsed.data.subjectLine?.trim() || `Dispute letter - ${contact.name}`;
 
   const created = await prisma.creditDisputeLetter.create({
     data: {
