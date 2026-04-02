@@ -7,7 +7,7 @@ import { IconFunnel } from "@/app/portal/PortalIcons";
 import { PortalListboxDropdown, type PortalListboxOption } from "@/components/PortalListboxDropdown";
 import { PortalSearchableCombobox, type PortalSearchableOption } from "@/components/PortalSearchableCombobox";
 import { useToast } from "@/components/ToastProvider";
-import { creditScopeLabel, type CreditReportSnapshot, type CreditScope } from "@/lib/creditReports";
+import { creditScopeLabel, extractCreditInquiryDate, type CreditReportSnapshot, type CreditScope } from "@/lib/creditReports";
 
 type ContactLite = { id: string; name: string; email: string | null };
 
@@ -543,7 +543,8 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
     const params = new URLSearchParams();
     if (selectedReport.contactId) params.set("contactId", selectedReport.contactId);
     params.set("compose", "1");
-    params.set("issue", item.label);
+    const inquiryDate = extractCreditInquiryDate(item.detailsJson);
+    params.set("issue", inquiryDate ? `${item.label} (Inquiry date: ${inquiryDate})` : item.label);
     if (item.bureau) params.set("bureau", item.bureau);
     window.location.href = `${routeSet.disputeHref}?${params.toString()}`;
   }, [routeSet.disputeHref, selectedReport]);
@@ -1174,7 +1175,6 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
                     <div className="text-lg font-semibold text-zinc-900">{priorityItemOpen.label}</div>
                     <div className="mt-1 text-sm text-zinc-600">{[priorityItemOpen.bureau, priorityItemOpen.kind].filter(Boolean).join(" • ") || "Uncategorized"}</div>
                   </div>
-                  <button type="button" onClick={() => setPriorityItemOpen(null)} aria-label="Close priority item" className={ICON_BUTTON_CLASS}>×</button>
                 </div>
 
                 <div className="mt-5 rounded-3xl border border-zinc-200 bg-zinc-50 p-4">

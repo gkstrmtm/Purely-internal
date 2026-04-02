@@ -7,6 +7,7 @@ import { IconFunnel } from "@/app/portal/PortalIcons";
 import { PortalListboxDropdown, type PortalListboxOption } from "@/components/PortalListboxDropdown";
 import { PortalSearchableCombobox, type PortalSearchableOption } from "@/components/PortalSearchableCombobox";
 import { normalizeDisputeLetterText, readContactSignature } from "@/lib/creditDisputeLetters";
+import { extractCreditInquiryDate } from "@/lib/creditReports";
 
 type ContactLite = {
   id: string;
@@ -49,6 +50,7 @@ type CreditReportItem = {
   bureau: string | null;
   kind: string | null;
   label: string;
+  detailsJson?: unknown;
 };
 
 type CreditReportFull = {
@@ -231,6 +233,13 @@ function suggestTemplateKey(items: string[], round: number, recipientName: strin
   if (normalize(recipientName).includes("creditor") || normalize(recipientName).includes("furnisher") || normalize(recipientName).includes("collector")) return "furnisher-direct";
   if (round > 1) return "bureau-followup";
   return "bureau-general";
+}
+
+function formatDisputeItemText(item: Pick<CreditReportItem, "label" | "detailsJson">) {
+  const inquiryDate = extractCreditInquiryDate(item.detailsJson);
+  if (!inquiryDate) return item.label.trim();
+  if (item.label.toLowerCase().includes("inquiry date:")) return item.label.trim();
+  return `${item.label.trim()} (Inquiry date: ${inquiryDate})`;
 }
 
 const BUTTON_MOTION_CLASS = "transition-all duration-150 hover:-translate-y-0.5 focus-visible:outline-none";
@@ -517,7 +526,8 @@ export default function DisputeLettersClient({ mode = "list", initialLetterId = 
   }, [openComposer]);
 
   const addComposerReportItem = useCallback((option: PortalSearchableOption) => {
-    const nextLabel = option.label.trim();
+    const matchedItem = composerReportItems.find((item) => item.id === option.value) || null;
+    const nextLabel = matchedItem ? formatDisputeItemText(matchedItem) : option.label.trim();
     if (!nextLabel) return;
     setItems((current) => {
       const alreadyIncluded = current.some((entry) => normalize(entry) === normalize(nextLabel));
@@ -526,7 +536,7 @@ export default function DisputeLettersClient({ mode = "list", initialLetterId = 
       return [...normalizedItems, nextLabel];
     });
     setReportItemQuery("");
-  }, []);
+  }, [composerReportItems]);
 
   const generateLetter = useCallback(async () => {
     setWorking("generate");

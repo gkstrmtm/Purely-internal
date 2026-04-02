@@ -48,6 +48,28 @@ function readObject(value: unknown): Record<string, unknown> | null {
   return value as Record<string, unknown>;
 }
 
+export function extractCreditInquiryDate(details: unknown): string | null {
+  const object = readObject(details);
+  if (!object) return null;
+
+  const directKeys = ["inquiryDate", "dateOfInquiry", "date_of_inquiry", "inquiry_date", "inquiredOn", "date"];
+  for (const key of directKeys) {
+    const value = normalizeText(object[key]);
+    if (value) return value;
+  }
+
+  for (const value of Object.values(object)) {
+    const nested = readObject(value);
+    if (!nested) continue;
+    for (const key of directKeys) {
+      const nestedValue = normalizeText(nested[key]);
+      if (nestedValue) return nestedValue;
+    }
+  }
+
+  return null;
+}
+
 function readStringArray(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
   return value
