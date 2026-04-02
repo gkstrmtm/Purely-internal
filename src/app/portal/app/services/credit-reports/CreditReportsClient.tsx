@@ -48,7 +48,6 @@ type OpportunityPlan = {
   key: string;
   title: string;
   readinessLabel: string;
-  readinessTone: "red" | "amber" | "green";
   offers: FundingOffer[];
   summary: string;
 };
@@ -65,18 +64,6 @@ function creditScopeLabel(scope: CreditScope) {
   if (scope === "BUSINESS") return "Business credit";
   if (scope === "BOTH") return "Personal + business credit";
   return "Personal credit";
-}
-
-function scopeChipClasses(scope: CreditScope) {
-  if (scope === "BUSINESS") return "border-violet-200 bg-violet-50 text-violet-700";
-  if (scope === "BOTH") return "border-brand-200 bg-brand-50 text-brand-ink";
-  return "border-sky-200 bg-sky-50 text-sky-700";
-}
-
-function readinessAccentClasses(tone: OpportunityPlan["readinessTone"]) {
-  if (tone === "green") return "border-emerald-300 bg-emerald-50/70";
-  if (tone === "amber") return "border-amber-300 bg-amber-50/70";
-  return "border-rose-300 bg-rose-50/70";
 }
 
 function classNames(...values: Array<string | false | null | undefined>) {
@@ -116,9 +103,8 @@ function buildOpportunityPlans(report: ReportFull | null, summary: { pending: nu
 
   const businessFunding: OpportunityPlan = {
     key: "business-funding",
-    title: "Business funding",
+    title: "Business options",
     readinessLabel: isCleanEnoughForOffers ? "Shortlist business options" : "Build the file before applying",
-    readinessTone: isCleanEnoughForOffers ? "amber" : "red",
     offers: isCleanEnoughForOffers
       ? [
           { label: "Amex Blue Business Cash", href: "https://www.americanexpress.com/us/credit-cards/business/business-credit-cards/american-express-blue-business-cash-card-amex/", source: "American Express" },
@@ -134,14 +120,13 @@ function buildOpportunityPlans(report: ReportFull | null, summary: { pending: nu
         ],
     summary: isCleanEnoughForOffers
       ? "The file looks clean enough to shortlist a few business options, but keep the application count tight and the business profile consistent."
-      : "Keep business funding on deck, but stay in build mode until the report has fewer unresolved negatives and less review work.",
+      : "Stay in build mode until the report has fewer unresolved negatives and less review work, then reopen business options.",
   };
 
   const personalFunding: OpportunityPlan = {
     key: "personal-funding",
-    title: "Personal funding",
+    title: "Personal options",
     readinessLabel: isCleanEnoughForOffers ? "Shortlist personal options" : "Hold off until cleanup lands",
-    readinessTone: isCleanEnoughForOffers ? "amber" : "red",
     offers: isCleanEnoughForOffers
       ? [
           { label: "Upgrade Personal Loan", href: "https://www.upgrade.com/personal-loans/", source: "Upgrade" },
@@ -156,15 +141,14 @@ function buildOpportunityPlans(report: ReportFull | null, summary: { pending: nu
           { label: "Achieve", href: "https://www.achieve.com/personal-loans", source: "Achieve" },
         ],
     summary: isCleanEnoughForOffers
-      ? "Personal funding is reasonable if utilization stays controlled and applications stay selective."
-      : "Treat personal funding as phase two. Clean the report first so the file is not taking unnecessary new hits.",
+      ? "Personal options are reasonable if utilization stays controlled and applications stay selective."
+      : "Treat personal applications as phase two. Clean the report first so the file is not taking unnecessary new hits.",
   };
 
   const creditCards: OpportunityPlan = {
     key: "credit-cards",
     title: creditScope === "BUSINESS" ? "Business credit cards" : creditScope === "PERSONAL" ? "Personal credit cards" : "Credit cards",
     readinessLabel: hasUtilizationSignals || isCleanEnoughForOffers ? "Use cards carefully" : "Start with rebuild cards",
-    readinessTone: hasUtilizationSignals || isCleanEnoughForOffers ? "green" : "amber",
     offers: creditScope === "BUSINESS"
       ? [
           { label: "Amex Blue Business Cash", href: "https://www.americanexpress.com/us/credit-cards/business/business-credit-cards/american-express-blue-business-cash-card-amex/", source: "American Express" },
@@ -191,10 +175,9 @@ function buildOpportunityPlans(report: ReportFull | null, summary: { pending: nu
   };
 
   const otherActions: OpportunityPlan = {
-    key: "other-actions",
-    title: "Other actions",
+    key: "monitoring",
+    title: "Monitoring",
     readinessLabel: isStillRepairHeavy ? "Stay in repair mode" : "Keep monitoring live",
-    readinessTone: isStillRepairHeavy ? "red" : "amber",
     offers: isStillRepairHeavy
       ? [
           { label: "Experian Dispute Center", href: "https://www.experian.com/disputes/main.html", source: "Experian" },
@@ -203,13 +186,13 @@ function buildOpportunityPlans(report: ReportFull | null, summary: { pending: nu
           { label: "AnnualCreditReport", href: "https://www.annualcreditreport.com/", source: "Bureau refresh" },
         ]
       : [
-          { label: "CFPB Complaint Portal", href: "https://www.consumerfinance.gov/complaint/", source: "CFPB" },
-          { label: "CFPB Credit Help", href: "https://www.consumerfinance.gov/consumer-tools/credit-reports-and-scores/", source: "CFPB" },
           { label: "AnnualCreditReport", href: "https://www.annualcreditreport.com/", source: "Monitoring" },
-          { label: "IdentityTheft.gov", href: "https://www.identitytheft.gov/", source: "FTC" },
+          { label: "Experian Account", href: "https://www.experian.com/", source: "Experian" },
+          { label: "Equifax Account", href: "https://www.equifax.com/", source: "Equifax" },
+          { label: "TransUnion Account", href: "https://www.transunion.com/", source: "TransUnion" },
         ],
     summary: isStillRepairHeavy
-      ? "The report still needs cleanup, follow-up, and bureau monitoring before bigger funding moves should take the lead."
+      ? "The report still needs cleanup, follow-up, and bureau monitoring before bigger applications should take the lead."
       : "Even when the file improves, steady monitoring and follow-up keep it from sliding backward.",
   };
 
@@ -248,9 +231,10 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
   const [selectedReportId, setSelectedReportId] = useState<string>(initialReportId);
   const [selectedReport, setSelectedReport] = useState<ReportFull | null>(null);
   const [newReportOpen, setNewReportOpen] = useState(false);
-  const [detailTab, setDetailTab] = useState<"overview" | "items" | "funding">("overview");
+  const [detailTab, setDetailTab] = useState<"overview" | "items" | "plan">("overview");
   const [priorityItemOpen, setPriorityItemOpen] = useState<ReportItemLite | null>(null);
   const [reportSearch, setReportSearch] = useState("");
+  const [reportView, setReportView] = useState<"ALL" | "PERSONAL" | "BUSINESS" | "BOTH">("ALL");
   const [providerFilter, setProviderFilter] = useState<string>("ALL");
 
   const [contactQuery, setContactQuery] = useState("");
@@ -373,6 +357,7 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
   const filteredReports = useMemo(() => {
     const query = reportSearch.trim().toLowerCase();
     return reports.filter((report) => {
+      if (reportView !== "ALL" && report.creditScope !== reportView) return false;
       if (providerFilter !== "ALL" && report.provider !== providerFilter) return false;
       if (!query) return true;
       const haystack = [report.contact?.name, report.contact?.email, report.provider, report.creditScope]
@@ -380,15 +365,12 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
         .join(" ");
       return haystack.includes(query);
     });
-  }, [providerFilter, reportSearch, reports]);
-  const latestReport = useMemo(() => reports[0] || null, [reports]);
+  }, [providerFilter, reportSearch, reportView, reports]);
   const reportScopeCounts = useMemo(() => ({
     personal: reports.filter((report) => report.creditScope === "PERSONAL").length,
     business: reports.filter((report) => report.creditScope === "BUSINESS").length,
     both: reports.filter((report) => report.creditScope === "BOTH").length,
   }), [reports]);
-  const providerCount = useMemo(() => new Set(reports.map((report) => String(report.provider || "").trim()).filter(Boolean)).size, [reports]);
-  const contactCount = useMemo(() => new Set(reports.map((report) => report.contactId).filter(Boolean)).size, [reports]);
   const selectedReportSummary = useMemo(() => {
     const items = selectedReport?.items || [];
     const pending = items.filter((item) => item.auditTag === "PENDING").length;
@@ -567,9 +549,9 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
             onClick={() => {
               window.location.href = routeSet.listHref;
             }}
-            className="group inline-flex items-center gap-2 rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-brand-ink transition-all duration-150 hover:-translate-y-0.5 hover:border-zinc-300 hover:bg-zinc-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/20"
+            className="group inline-flex items-center gap-2 text-sm font-semibold text-brand-ink transition-all duration-150 hover:-translate-y-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/20"
           >
-            <span className="inline-flex h-8 w-8 items-center justify-center rounded-xl bg-zinc-100 text-zinc-700 transition-all duration-150 group-hover:-translate-x-0.5 group-hover:bg-zinc-200 group-hover:text-zinc-900">
+            <span className="inline-flex items-center justify-center text-zinc-700 transition-all duration-150 group-hover:-translate-x-0.5 group-hover:text-zinc-900">
               <svg viewBox="0 0 20 20" fill="none" aria-hidden="true" className="h-4 w-4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M12.5 4.5 7 10l5.5 5.5" />
               </svg>
@@ -578,7 +560,7 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
           </button>
         ) : (
           <div className="flex items-center gap-2">
-            <div className="rounded-full border border-zinc-200 bg-white px-3 py-1 text-xs font-semibold text-zinc-600">{reports.length} saved</div>
+            <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">{reports.length} saved</div>
             <button
               type="button"
               onClick={() => setNewReportOpen(true)}
@@ -594,71 +576,7 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
 
       {mode === "list" ? (
         <>
-          <section className="mt-6 grid gap-4 lg:grid-cols-[minmax(0,1.35fr)_320px]">
-            <div className="rounded-3xl border border-zinc-200 bg-linear-to-br from-white via-zinc-50 to-brand-blue/5 p-6 shadow-sm">
-              <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-                <div>
-                  <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Workspace</div>
-                  <div className="mt-2 text-xl font-semibold text-zinc-900 sm:text-2xl">Keep report pulls organized by contact, provider, and file type.</div>
-                  <div className="mt-2 max-w-2xl text-sm text-zinc-600">
-                    {latestReport
-                      ? `Latest report: ${latestReport.contact?.name || latestReport.provider} via ${latestReport.provider} on ${new Date(latestReport.importedAt).toLocaleString()}.`
-                      : "Pull the first report to start building the dispute and funding queue."}
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setNewReportOpen(true)}
-                  className={PRIMARY_BUTTON_CLASS + " px-4 py-2.5"}
-                >
-                  Pull a report
-                </button>
-              </div>
-
-              <div className="mt-5 grid gap-3 sm:grid-cols-3">
-                <div className="rounded-2xl border border-zinc-200 bg-white px-4 py-4 shadow-sm">
-                  <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Saved reports</div>
-                  <div className="mt-2 text-2xl font-bold text-zinc-900">{reports.length}</div>
-                  <div className="mt-1 text-xs text-zinc-500">Total reports in this queue</div>
-                </div>
-                <div className="rounded-2xl border border-zinc-200 bg-white px-4 py-4 shadow-sm">
-                  <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Contacts covered</div>
-                  <div className="mt-2 text-2xl font-bold text-zinc-900">{contactCount}</div>
-                  <div className="mt-1 text-xs text-zinc-500">Unique contacts with saved pulls</div>
-                </div>
-                <div className="rounded-2xl border border-zinc-200 bg-white px-4 py-4 shadow-sm">
-                  <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Providers</div>
-                  <div className="mt-2 text-2xl font-bold text-zinc-900">{providerCount}</div>
-                  <div className="mt-1 text-xs text-zinc-500">Providers represented in the queue</div>
-                </div>
-              </div>
-            </div>
-
-            <div className="rounded-3xl border border-zinc-200 bg-white p-5 shadow-sm">
-              <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Queue health</div>
-              <div className="mt-4 space-y-3">
-                <div className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3">
-                  <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Personal</div>
-                  <div className="mt-2 text-xl font-bold text-zinc-900">{reportScopeCounts.personal}</div>
-                </div>
-                <div className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3">
-                  <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Business</div>
-                  <div className="mt-2 text-xl font-bold text-zinc-900">{reportScopeCounts.business}</div>
-                </div>
-                <div className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3">
-                  <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Combined</div>
-                  <div className="mt-2 text-xl font-bold text-zinc-900">{reportScopeCounts.both}</div>
-                </div>
-                <div className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm text-zinc-700">
-                  <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Latest provider</div>
-                  <div className="mt-2 font-semibold text-zinc-900">{latestReport?.provider || "No reports yet"}</div>
-                  <div className="mt-1 text-xs text-zinc-500">{latestReport ? new Date(latestReport.importedAt).toLocaleString() : "Pull a report to populate the queue."}</div>
-                </div>
-              </div>
-            </div>
-          </section>
-
-          <section className="mt-4 rounded-3xl border border-zinc-200 bg-white p-6 shadow-sm">
+          <section className="mt-6 rounded-3xl border border-zinc-200 bg-white p-6 shadow-sm">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
                 <div className="text-sm font-semibold text-zinc-900">Report queue</div>
@@ -667,19 +585,43 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
               <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">{loading ? "Loading" : `${filteredReports.length} reports`}</div>
             </div>
 
-            <div className="mt-4 flex w-full max-w-3xl flex-col gap-3 sm:flex-row sm:items-center">
+            <div className="mt-4 flex flex-wrap gap-2">
+              {([
+                ["ALL", `All ${reports.length}`],
+                ["PERSONAL", `Personal ${reportScopeCounts.personal}`],
+                ["BUSINESS", `Business ${reportScopeCounts.business}`],
+                ["BOTH", `Combined ${reportScopeCounts.both}`],
+              ] as const).map(([value, label]) => (
+                <button
+                  key={value}
+                  type="button"
+                  onClick={() => setReportView(value)}
+                  aria-current={reportView === value ? "page" : undefined}
+                  className={classNames(
+                    "h-11 shrink-0 rounded-full border px-4 text-sm font-semibold transition-transform duration-150 hover:-translate-y-0.5 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60",
+                    reportView === value
+                      ? "border-brand-ink bg-brand-ink text-white shadow-sm focus-visible:ring-brand-ink/40"
+                      : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50",
+                  )}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+
+            <div className="mt-3 flex w-full max-w-4xl flex-col gap-3 sm:flex-row sm:items-center">
               <input
                 value={reportSearch}
                 onChange={(event) => setReportSearch(event.target.value)}
-                className="w-full rounded-2xl border border-zinc-200 px-4 py-3 text-sm outline-none transition focus:border-zinc-300 focus-visible:ring-2 focus-visible:ring-brand-blue/20 sm:flex-1"
+                className="h-11 w-full rounded-full border border-zinc-200 px-4 text-sm outline-none transition focus:border-zinc-300 focus-visible:ring-2 focus-visible:ring-brand-blue/20 sm:flex-1"
                 placeholder="Search reports"
               />
-              <div className="w-full sm:w-56">
+              <div className="w-full sm:w-60">
                 <PortalListboxDropdown
                   value={providerFilter}
                   onChange={setProviderFilter}
                   options={providerFilterOptions}
-                  buttonClassName="flex w-full items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm transition-all duration-150 hover:-translate-y-0.5 hover:border-zinc-300 hover:bg-zinc-50"
+                  buttonClassName="flex h-11 w-full items-center justify-between gap-2 rounded-full border border-zinc-200 bg-white px-4 text-sm transition-all duration-150 hover:-translate-y-0.5 hover:border-zinc-300 hover:bg-zinc-50"
                 />
               </div>
             </div>
@@ -736,9 +678,7 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
                       >
                         <td className="px-4 py-3">
                           <div className="font-semibold text-zinc-900">{report.contact?.name || report.provider}</div>
-                          <div className="mt-1 inline-flex rounded-full border px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-600">
-                            {creditScopeLabel(report.creditScope)}
-                          </div>
+                          <div className="mt-1 text-xs font-medium text-zinc-500">{creditScopeLabel(report.creditScope)}</div>
                         </td>
                         <td className="px-4 py-3">
                           <div className="font-medium text-zinc-900">{report.contact?.name || "Unassigned"}</div>
@@ -850,12 +790,8 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
           <section className="rounded-3xl border border-zinc-200 bg-white p-6 shadow-sm">
             <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
               <div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <h2 className="text-2xl font-semibold text-zinc-900">{selectedReport.contact?.name || selectedReport.provider}</h2>
-                  <div className={"rounded-full border px-3 py-1 text-[11px] font-semibold uppercase tracking-wide " + scopeChipClasses(selectedReport.creditScope)}>{creditScopeLabel(selectedReport.creditScope)}</div>
-                  <div className="rounded-full border border-zinc-200 bg-zinc-50 px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-600">{selectedReport.items.length} items</div>
-                </div>
-                <div className="mt-2 text-sm text-zinc-600">{selectedReport.provider} • Imported {new Date(selectedReport.importedAt).toLocaleString()}</div>
+                <h2 className="text-2xl font-semibold text-zinc-900">{selectedReport.contact?.name || selectedReport.provider}</h2>
+                <div className="mt-2 text-sm text-zinc-600">{creditScopeLabel(selectedReport.creditScope)} • {selectedReport.provider} • Imported {new Date(selectedReport.importedAt).toLocaleString()} • {selectedReport.items.length} items</div>
               </div>
               <div className="flex flex-wrap gap-2">
                 <button
@@ -884,7 +820,7 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
               {([
                 ["overview", "Overview"],
                 ["items", "Items"],
-                ["funding", "Funding"],
+                ["plan", "Plan"],
               ] as const).map(([value, label]) => (
                 <button
                   key={value}
@@ -924,7 +860,7 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
 
             {detailTab === "overview" ? (
             <div className="mt-5 grid gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
-              <div className="rounded-3xl border border-zinc-200 bg-zinc-50/60 p-5">
+              <div className="rounded-3xl border border-zinc-200 bg-white p-5">
                 <div className="text-sm font-semibold text-zinc-900">Priority queue</div>
                 <div className="mt-4 space-y-3">
                   {priorityItems.length ? priorityItems.map((item) => (
@@ -939,7 +875,7 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
                           <div className="truncate text-sm font-semibold text-zinc-900">{item.label}</div>
                           <div className="mt-1 text-xs text-zinc-500">{[item.bureau, item.kind].filter(Boolean).join(" • ") || "Uncategorized"}</div>
                         </div>
-                        <div className={item.auditTag === "NEGATIVE" ? "rounded-full border border-rose-200 bg-rose-50 px-2.5 py-1 text-[11px] font-semibold text-rose-700" : item.auditTag === "PENDING" ? "rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-[11px] font-semibold text-amber-700" : "rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[11px] font-semibold text-emerald-700"}>
+                        <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
                           {REPORT_FILTER_LABELS[item.auditTag]}
                         </div>
                       </div>
@@ -949,7 +885,7 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
                 </div>
               </div>
 
-              <div className="rounded-3xl border border-zinc-200 bg-zinc-50/60 p-5">
+              <div className="rounded-3xl border border-zinc-200 bg-white p-5">
                 <div className="text-sm font-semibold text-zinc-900">Report info</div>
                 <div className="mt-4 space-y-3 text-sm text-zinc-700">
                   <div className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3">
@@ -961,7 +897,7 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
                     <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Bureaus</div>
                     <div className="mt-2 flex flex-wrap gap-2">
                       {bureauBreakdown.length ? bureauBreakdown.map((entry) => (
-                        <div key={entry.bureau} className="rounded-full border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-600">{entry.bureau} · {entry.count}</div>
+                        <div key={entry.bureau} className="text-xs font-semibold text-zinc-600">{entry.bureau} · {entry.count}</div>
                       )) : <div className="text-xs text-zinc-500">No bureau data</div>}
                     </div>
                   </div>
@@ -969,7 +905,7 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
                     <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Account types</div>
                     <div className="mt-2 flex flex-wrap gap-2">
                       {kindBreakdown.length ? kindBreakdown.map((entry) => (
-                        <div key={entry.kind} className="rounded-full border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-600">{entry.kind} · {entry.count}</div>
+                        <div key={entry.kind} className="text-xs font-semibold text-zinc-600">{entry.kind} · {entry.count}</div>
                       )) : <div className="text-xs text-zinc-500">No account types</div>}
                     </div>
                   </div>
@@ -1010,20 +946,25 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
 
             <div className="mt-4 grid gap-3 xl:grid-cols-2">
               {priorityItems.map((it) => (
-                <div key={it.id} className="rounded-3xl border border-zinc-200 bg-zinc-50/80 p-4">
+                <button
+                  key={it.id}
+                  type="button"
+                  onClick={() => setPriorityItemOpen(it)}
+                  className="rounded-3xl border border-zinc-200 bg-white p-4 text-left transition-all duration-150 hover:-translate-y-0.5 hover:border-zinc-300 hover:bg-zinc-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/20"
+                >
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
                       <div className="truncate text-sm font-semibold text-zinc-900">{it.label}</div>
                       <div className="mt-1 text-xs text-zinc-500">{(it.bureau ? `${it.bureau} • ` : "") + (it.kind || "Uncategorized")}</div>
                     </div>
-                    <div className={it.auditTag === "NEGATIVE" ? "rounded-full border border-rose-200 bg-rose-50 px-2.5 py-1 text-[11px] font-semibold text-rose-700" : it.auditTag === "PENDING" ? "rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-[11px] font-semibold text-amber-700" : "rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[11px] font-semibold text-emerald-700"}>
+                    <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
                       {REPORT_FILTER_LABELS[it.auditTag]}
                     </div>
                   </div>
                   <div className="mt-3 text-sm text-zinc-600">
                     {it.disputeStatus ? `Latest follow-up: ${it.disputeStatus}` : it.auditTag === "NEGATIVE" ? "Ready to move into a dispute letter." : it.auditTag === "PENDING" ? "Review this item before deciding the next move." : "Keep this account steady while cleanup continues."}
                   </div>
-                </div>
+                </button>
               ))}
             </div>
 
@@ -1032,13 +973,27 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
                 <div className="rounded-2xl border border-dashed border-zinc-300 bg-zinc-50 p-5 text-sm text-zinc-600">No matching items.</div>
               ) : (
                 filteredItems.map((it) => (
-                  <div key={it.id} className="rounded-[26px] border border-zinc-200 bg-zinc-50/80 p-4">
-                    <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
-                      <div className="min-w-0 flex-1">
-                        <div className="truncate text-sm font-semibold text-zinc-900">{it.label}</div>
-                        <div className="mt-1 text-xs text-zinc-500">{(it.bureau ? `${it.bureau} • ` : "") + (it.kind || "Uncategorized")}</div>
-                      </div>
-                      <div className="flex flex-col gap-2 sm:flex-row xl:w-auto">
+                  <div key={it.id} className="rounded-[26px] border border-zinc-200 bg-white p-4 transition-all duration-150 hover:-translate-y-0.5 hover:border-zinc-300">
+                    <div className="flex flex-col gap-4">
+                      <button
+                        type="button"
+                        onClick={() => setPriorityItemOpen(it)}
+                        className="flex w-full flex-col gap-2 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/20"
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0 flex-1">
+                            <div className="truncate text-sm font-semibold text-zinc-900">{it.label}</div>
+                            <div className="mt-1 text-xs text-zinc-500">{(it.bureau ? `${it.bureau} • ` : "") + (it.kind || "Uncategorized")}</div>
+                          </div>
+                          <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">{REPORT_FILTER_LABELS[it.auditTag]}</div>
+                        </div>
+                        <div className="text-xs font-semibold text-brand-ink">Open quick actions →</div>
+                      </button>
+
+                      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                        <div className="text-sm text-zinc-600">
+                          {it.disputeStatus ? `Latest follow-up: ${it.disputeStatus}` : "No dispute note saved yet."}
+                        </div>
                         <button
                           type="button"
                           onClick={() => {
@@ -1056,7 +1011,7 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
                       </div>
                     </div>
 
-                    <div className="mt-4 grid gap-3 lg:grid-cols-[180px_220px_minmax(0,1fr)]">
+                    <div className="mt-4 grid gap-3 lg:grid-cols-[180px_minmax(0,1fr)]">
                       <label className="block">
                         <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Classification</div>
                         <PortalListboxDropdown
@@ -1083,9 +1038,6 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
                           onChange={(e) => updateItem(it.id, { disputeStatus: e.target.value })}
                         />
                       </label>
-                      <div className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-600">
-                        {it.disputeStatus ? `Latest dispute note: ${it.disputeStatus}` : "No dispute note saved yet."}
-                      </div>
                     </div>
                   </div>
                 ))
@@ -1094,20 +1046,20 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
           </section>
           ) : null}
 
-          {detailTab === "funding" ? (
+          {detailTab === "plan" ? (
           <section className="rounded-[30px] border border-zinc-200 bg-white p-5 shadow-sm sm:p-6">
             <div className="flex flex-col gap-2 lg:flex-row lg:items-end lg:justify-between">
               <div>
-                <div className="text-sm font-semibold text-zinc-900">Funding lanes</div>
+                <div className="text-sm font-semibold text-zinc-900">Application plan</div>
               </div>
-              <div className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm text-zinc-700">
+              <div className="text-sm text-zinc-700">
                 {selectedReport.contact ? `Planned for ${selectedReport.contact.name}` : "Planned from this report"}
               </div>
             </div>
 
             <div className="mt-5 grid gap-4 xl:grid-cols-2">
               {opportunityPlans.map((plan) => (
-                <div key={plan.key} className={"rounded-[26px] border bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md " + readinessAccentClasses(plan.readinessTone)}>
+                <div key={plan.key} className="rounded-[26px] border border-zinc-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">
                   <div>
                     <div className="text-base font-semibold text-zinc-900">{plan.title}</div>
                     <div className="mt-1 text-sm leading-6 text-zinc-700">{plan.summary}</div>
@@ -1147,11 +1099,9 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
                 </div>
 
                 <div className="mt-5 rounded-3xl border border-zinc-200 bg-zinc-50 p-4">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <div className={priorityItemOpen.auditTag === "NEGATIVE" ? "rounded-full border border-rose-200 bg-rose-50 px-2.5 py-1 text-[11px] font-semibold text-rose-700" : priorityItemOpen.auditTag === "PENDING" ? "rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-[11px] font-semibold text-amber-700" : "rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[11px] font-semibold text-emerald-700"}>
-                      {REPORT_FILTER_LABELS[priorityItemOpen.auditTag]}
-                    </div>
-                    {priorityItemOpen.disputeStatus ? <div className="rounded-full border border-zinc-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-zinc-600">{priorityItemOpen.disputeStatus}</div> : null}
+                  <div className="flex flex-wrap items-center gap-3 text-xs font-semibold uppercase tracking-wide text-zinc-500">
+                    <div>{REPORT_FILTER_LABELS[priorityItemOpen.auditTag]}</div>
+                    {priorityItemOpen.disputeStatus ? <div className="normal-case tracking-normal text-zinc-600">{priorityItemOpen.disputeStatus}</div> : null}
                   </div>
                   <div className="mt-3 text-sm text-zinc-700">
                     {priorityItemOpen.disputeStatus ? `Latest follow-up: ${priorityItemOpen.disputeStatus}` : "No dispute note saved yet for this item."}
