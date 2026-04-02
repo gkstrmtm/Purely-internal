@@ -102,17 +102,19 @@ export async function POST(req: Request) {
     "Write a fuller letter, not a stub: use a real correspondence structure with a clear opening, meaningful dispute framing, a concrete itemized section, and a firm closing request. " +
     "If this is follow-up correspondence, acknowledge prior notice naturally without using internal workflow labels. " +
     "Do not use markdown, asterisks, bullet-star formatting, or placeholder words. " +
+    "Avoid generic AI filler, exaggerated threats, or cinematic legal language. " +
+    "Prefer plain business wording that sounds like a real mailed consumer dispute. " +
     "Do not mention internal workflow labels such as round, stage, template, escalation, or strategy unless the consumer explicitly used those terms in the dispute facts.";
 
   const user = [
     `Date: ${isoDate}`,
     "",
-    recipientName ? `Recipient: ${recipientName}` : "Recipient: {{credit bureau / creditor name}}",
-    recipientAddress ? `Recipient address: ${recipientAddress}` : "Recipient address: {{recipient address}}",
+    recipientName ? `Recipient: ${recipientName}` : "Recipient: not provided",
+    recipientAddress ? `Recipient address: ${recipientAddress}` : "Recipient address: not provided",
     "",
     `Consumer/contact name: ${contact.name}`,
-    contact.email ? `Consumer email: ${contact.email}` : "Consumer email: {{email}}",
-    contact.phone ? `Consumer phone: ${contact.phone}` : "Consumer phone: {{phone}}",
+    contact.email ? `Consumer email: ${contact.email}` : "Consumer email: not provided",
+    contact.phone ? `Consumer phone: ${contact.phone}` : "Consumer phone: not provided",
     signature ? `Consumer signature on file: ${signature}` : "Consumer signature on file: (none stored)",
     "",
     roundNumber && roundNumber > 1 ? `This is follow-up correspondence after an earlier dispute attempt.` : "This is the first dispute letter for these items.",
@@ -128,6 +130,8 @@ export async function POST(req: Request) {
       : "Credit data: (not available yet)",
     "",
     "Write the letter now.",
+    "If recipient details are missing, use a normal generic salutation and keep the missing fields blank rather than naming placeholders.",
+    "If an itemized section helps clarity, use short numbered lines instead of markdown bullets.",
     "The final letter must read like normal mailed correspondence and should not expose the drafting metadata above.",
   ]
     .filter(Boolean)
