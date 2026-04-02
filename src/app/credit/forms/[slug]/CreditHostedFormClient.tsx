@@ -71,23 +71,29 @@ function SignatureField({
   resetNonce: number;
 }) {
   const [value, setValue] = useState("");
+  const hiddenInputRef = useRef<HTMLInputElement | null>(null);
+
+  const commitValue = (nextValue: string) => {
+    if (hiddenInputRef.current) hiddenInputRef.current.value = nextValue;
+    setValue(nextValue);
+  };
 
   useEffect(() => {
-    setValue("");
+    commitValue("");
   }, [resetNonce]);
 
   return (
     <div>
       <SignaturePad
         value={value}
-        onChange={setValue}
+        onChange={commitValue}
         disabled={busy}
         radiusPx={radiusPx}
         borderColor={inputBorder}
         backgroundColor={inputBg}
         textColor={textColor}
       />
-      <input type="hidden" name={name} value={value} />
+      <input ref={hiddenInputRef} type="hidden" name={name} value={value} readOnly />
     </div>
   );
 }

@@ -78,6 +78,9 @@ export function AppModal({
           style={{ zIndex: baseZ + 10 }}
           onMouseDown={(e) => e.stopPropagation()}
           onTouchStart={(e) => e.stopPropagation()}
+          role="dialog"
+          aria-modal="true"
+          data-overlay-root="true"
         >
           <div
             className={classNames(
