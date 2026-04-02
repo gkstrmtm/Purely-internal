@@ -4,22 +4,7 @@ import type { CSSProperties, ReactNode } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
-const BASE_DROPDOWN_Z_INDEX = 40;
-const OVERLAY_DROPDOWN_Z_INDEX = 130060;
-
-function hasOverlayAncestor(node: HTMLElement | null) {
-  let current = node?.parentElement || null;
-  while (current) {
-    if (current.getAttribute("aria-modal") === "true" || current.getAttribute("role") === "dialog" || current.dataset.overlayRoot === "true") {
-      return true;
-    }
-    if (current.classList.contains("fixed") && current.classList.contains("inset-0") && Array.from(current.classList).some((token) => token.startsWith("z-"))) {
-      return true;
-    }
-    current = current.parentElement;
-  }
-  return false;
-}
+import { BASE_POPUP_Z_INDEX, popupZIndexForAnchor } from "@/components/popupLayering";
 
 export type PortalListboxOption<T extends string> = {
   value: T;
@@ -69,7 +54,7 @@ export function PortalListboxDropdown<T extends string>(props: {
     maxHeight: number;
   }>(null);
   const [menuHeightPx, setMenuHeightPx] = useState<number | null>(null);
-  const [menuZIndex, setMenuZIndex] = useState(BASE_DROPDOWN_Z_INDEX);
+  const [menuZIndex, setMenuZIndex] = useState(BASE_POPUP_Z_INDEX);
 
   const current = options.find((o) => o.value === value) ?? null;
   const currentLabel = current ? current.label : placeholder ? placeholder : String(value ?? "");
@@ -81,7 +66,7 @@ export function PortalListboxDropdown<T extends string>(props: {
   const updateMenuRect = useCallback(() => {
     const btn = buttonRef.current;
     if (!btn) return;
-    setMenuZIndex(hasOverlayAncestor(btn) ? OVERLAY_DROPDOWN_Z_INDEX : BASE_DROPDOWN_Z_INDEX);
+    setMenuZIndex(popupZIndexForAnchor(btn));
     const r = btn.getBoundingClientRect();
     const vw = Math.max(0, window.innerWidth || 0);
     const vh = Math.max(0, window.innerHeight || 0);

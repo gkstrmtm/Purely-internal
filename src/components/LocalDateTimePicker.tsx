@@ -2,6 +2,8 @@
 
 import { CSSProperties, useEffect, useMemo, useRef, useState, type RefObject } from "react";
 
+import { popupZIndexForAnchor } from "@/components/popupLayering";
+
 function clamp(n: number, min: number, max: number) {
   return Math.min(Math.max(n, min), max);
 }
@@ -39,7 +41,10 @@ function useFixedPopoverStyle(open: boolean, rootRef: RefObject<HTMLElement | nu
       const el = rootRef.current;
       if (!el) return;
       const rect = el.getBoundingClientRect();
-      setStyle(computeFixedPopoverStyleForRect(rect));
+      setStyle({
+        ...computeFixedPopoverStyleForRect(rect),
+        zIndex: popupZIndexForAnchor(el),
+      });
     };
 
     let raf = 0;
@@ -299,7 +304,7 @@ export function LocalDateTimePicker(props: {
         <div
           className={
             (popoverClassName ||
-              "fixed z-[200] overflow-auto rounded-2xl border border-zinc-200 bg-white shadow-lg")
+              "fixed overflow-auto rounded-2xl border border-zinc-200 bg-white shadow-lg")
           }
           style={popoverClassName ? undefined : fixedPopoverStyle ?? { visibility: "hidden" }}
           onMouseDown={(e) => e.stopPropagation()}
@@ -393,9 +398,9 @@ export function LocalDateTimePicker(props: {
           ) : null}
 
           {!dateFirst || step === "time" ? (
-          <div className={"border-t border-zinc-200 p-3" + (dateFirst ? " border-t-0" : "")}>
+            <div className={"border-t border-zinc-200 p-3" + (dateFirst ? " border-t-0" : "")}>
             <div className="text-xs font-semibold text-zinc-600">Time</div>
-            <div className="mt-2 max-h-[160px] overflow-auto rounded-2xl border border-zinc-200 p-1">
+            <div className="mt-2 max-h-40 overflow-auto rounded-2xl border border-zinc-200 p-1">
               <div className="grid grid-cols-4 gap-1">
                 {timeOptions.map((hm) => {
                   const selected = hm === draftHm;
@@ -448,7 +453,7 @@ export function LocalDateTimePicker(props: {
                 disabled={!canSet}
                 className={
                   "rounded-xl px-4 py-2 text-xs font-semibold text-white hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-60 " +
-                  "bg-[color:var(--color-brand-blue)]"
+                  "bg-(--color-brand-blue)"
                 }
                 onClick={() => {
                   if (!draftDate) return;
@@ -460,7 +465,7 @@ export function LocalDateTimePicker(props: {
                 Set
               </button>
             </div>
-          </div>
+            </div>
           ) : null}
         </div>
       ) : null}
@@ -549,7 +554,7 @@ export function LocalDatePicker(props: {
 
       {open ? (
         <div
-          className="fixed z-[200] overflow-auto rounded-2xl border border-zinc-200 bg-white shadow-lg"
+          className="fixed overflow-auto rounded-2xl border border-zinc-200 bg-white shadow-lg"
           style={fixedPopoverStyle ?? { visibility: "hidden" }}
           onMouseDown={(e) => e.stopPropagation()}
         >
@@ -690,11 +695,11 @@ export function LocalTimePicker(props: {
 
       {open ? (
         <div
-          className="fixed z-[200] overflow-auto rounded-2xl border border-zinc-200 bg-white shadow-lg"
+          className="fixed overflow-auto rounded-2xl border border-zinc-200 bg-white shadow-lg"
           style={fixedPopoverStyle ?? { visibility: "hidden" }}
           onMouseDown={(e) => e.stopPropagation()}
         >
-          <div className="max-h-[240px] overflow-auto p-2">
+          <div className="max-h-60 overflow-auto p-2">
             <div className="grid grid-cols-4 gap-1">
               {timeOptions.map((hm) => {
                 const selected = hm === draft;

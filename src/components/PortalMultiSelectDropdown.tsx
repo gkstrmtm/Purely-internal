@@ -3,22 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
-const BASE_DROPDOWN_Z_INDEX = 40;
-const OVERLAY_DROPDOWN_Z_INDEX = 130060;
-
-function hasOverlayAncestor(node: HTMLElement | null) {
-  let current = node?.parentElement || null;
-  while (current) {
-    if (current.getAttribute("aria-modal") === "true" || current.getAttribute("role") === "dialog" || current.dataset.overlayRoot === "true") {
-      return true;
-    }
-    if (current.classList.contains("fixed") && current.classList.contains("inset-0") && Array.from(current.classList).some((token) => token.startsWith("z-"))) {
-      return true;
-    }
-    current = current.parentElement;
-  }
-  return false;
-}
+import { BASE_POPUP_Z_INDEX, popupZIndexForAnchor } from "@/components/popupLayering";
 
 export type PortalMultiSelectOption = {
   value: string;
@@ -72,12 +57,12 @@ export function PortalMultiSelectDropdown(props: {
   const selectedSet = useMemo(() => new Set(selected), [selected]);
 
   const [menuRect, setMenuRect] = useState<null | { left: number; top: number; width: number; placement: "down" | "up" }>(null);
-  const [menuZIndex, setMenuZIndex] = useState(BASE_DROPDOWN_Z_INDEX);
+  const [menuZIndex, setMenuZIndex] = useState(BASE_POPUP_Z_INDEX);
 
   const updateMenuRect = () => {
     const btn = buttonRef.current;
     if (!btn) return;
-    setMenuZIndex(hasOverlayAncestor(btn) ? OVERLAY_DROPDOWN_Z_INDEX : BASE_DROPDOWN_Z_INDEX);
+    setMenuZIndex(popupZIndexForAnchor(btn));
     const r = btn.getBoundingClientRect();
     const vw = Math.max(0, window.innerWidth || 0);
     const vh = Math.max(0, window.innerHeight || 0);

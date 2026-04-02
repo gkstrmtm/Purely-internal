@@ -3,6 +3,8 @@
 import { createPortal } from "react-dom";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 
+import { popupZIndexForAnchor } from "@/components/popupLayering";
+
 type Props = {
   value: string;
   onChange: (next: string) => void;
@@ -32,6 +34,7 @@ export function PortalTypeaheadInput(props: Props) {
   const inputRef = useRef<HTMLInputElement | null>(null);
   const [open, setOpen] = useState(false);
   const [pos, setPos] = useState<{ top: number; left: number; width: number } | null>(null);
+  const [popupZIndex, setPopupZIndex] = useState(() => popupZIndexForAnchor(null));
 
   const list = useMemo(() => {
     const q = (props.value || "").trim().toLowerCase();
@@ -47,6 +50,7 @@ export function PortalTypeaheadInput(props: Props) {
     if (!el) return;
     const r = el.getBoundingClientRect();
     setPos({ top: r.bottom + 6, left: r.left, width: r.width });
+    setPopupZIndex(popupZIndexForAnchor(el));
   }
 
   useEffect(() => {
@@ -96,7 +100,7 @@ export function PortalTypeaheadInput(props: Props) {
                 top: pos.top,
                 left: pos.left,
                 width: pos.width,
-                zIndex: 100000,
+                zIndex: popupZIndex,
               }}
               className="rounded-xl border border-zinc-200 bg-white shadow-xl"
               onMouseDown={(e) => {
@@ -104,7 +108,7 @@ export function PortalTypeaheadInput(props: Props) {
                 e.preventDefault();
               }}
             >
-              <div className="max-h-[220px] overflow-auto p-1">
+              <div className="max-h-55 overflow-auto p-1">
                 {list.map((s) => (
                   <button
                     key={s}
