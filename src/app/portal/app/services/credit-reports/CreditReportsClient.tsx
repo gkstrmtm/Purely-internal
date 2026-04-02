@@ -53,12 +53,6 @@ type OpportunityPlan = {
   summary: string;
 };
 
-const CREDIT_SCOPE_SEGMENTS: Array<{ value: CreditScope; label: string; summary: string }> = [
-  { value: "PERSONAL", label: "Personal", summary: "Consumer file and personal approvals" },
-  { value: "BUSINESS", label: "Business", summary: "Business credit and vendor/funding lanes" },
-  { value: "BOTH", label: "Both", summary: "Review both personal and business angles" },
-];
-
 const REPORT_FILTER_LABELS: Record<"ALL" | "PENDING" | "NEGATIVE" | "POSITIVE" | "TRACKED", string> = {
   ALL: "All items",
   PENDING: "Needs review",
@@ -83,14 +77,6 @@ function readinessAccentClasses(tone: OpportunityPlan["readinessTone"]) {
   if (tone === "green") return "border-emerald-300 bg-emerald-50/70";
   if (tone === "amber") return "border-amber-300 bg-amber-50/70";
   return "border-rose-300 bg-rose-50/70";
-}
-
-function reportReadinessLabel(summary: { pending: number; negative: number; positive: number }) {
-  if (summary.negative >= 3) return "Cleanup first";
-  if (summary.pending >= 2) return "Needs review before sending";
-  if (summary.negative >= 1) return "Dispute-ready";
-  if (summary.positive >= 2) return "Stable enough to monitor";
-  return "New file. Classify items first";
 }
 
 function reportRoutesFor(pathname: string | null) {
@@ -388,10 +374,6 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
     const tracked = items.filter((item) => String(item.disputeStatus || "").trim().length > 0).length;
     return { pending, negative, positive, tracked };
   }, [selectedReport]);
-  const readinessLabel = useMemo(
-    () => reportReadinessLabel(selectedReportSummary),
-    [selectedReportSummary],
-  );
   const filteredItems = useMemo(() => {
     const items = selectedReport?.items || [];
     const query = itemQuery.trim().toLowerCase();
@@ -414,40 +396,6 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
     () => buildOpportunityPlans(selectedReport, selectedReportSummary, selectedReport?.creditScope || creditScope),
     [creditScope, selectedReport, selectedReportSummary],
   );
-  const statCards = useMemo(() => {
-    const total = selectedReport ? selectedReport.items.length : 0;
-    const percentLabel = (value: number) => total > 0 ? `${Math.round((value / total) * 100)}% of file` : "0% of file";
-    return [
-      {
-        label: "Needs dispute",
-        value: String(selectedReportSummary.negative),
-        helper: selectedReportSummary.negative > 0 ? "These are the items to push into disputes first." : "No dispute-ready items tagged right now.",
-        share: percentLabel(selectedReportSummary.negative),
-        toneClass: "border-rose-200 bg-rose-50/60 text-rose-700",
-      },
-      {
-        label: "Needs review",
-        value: String(selectedReportSummary.pending),
-        helper: selectedReportSummary.pending > 0 ? "Still needs sorting before you decide whether to dispute, monitor, or leave it alone." : "Nothing is waiting on first-pass review.",
-        share: percentLabel(selectedReportSummary.pending),
-        toneClass: "border-amber-200 bg-amber-50/60 text-amber-700",
-      },
-      {
-        label: "Follow-up active",
-        value: String(selectedReportSummary.tracked),
-        helper: selectedReportSummary.tracked > 0 ? "Items already tied to a note, letter, or bureau follow-up." : "No follow-up notes saved yet.",
-        share: percentLabel(selectedReportSummary.tracked),
-        toneClass: "border-sky-200 bg-sky-50/60 text-sky-700",
-      },
-      {
-        label: "Positive anchors",
-        value: String(selectedReportSummary.positive),
-        helper: selectedReportSummary.positive > 0 ? "These accounts help steady the file while cleanup continues." : "No supportive items tagged yet.",
-        share: percentLabel(selectedReportSummary.positive),
-        toneClass: "border-emerald-200 bg-emerald-50/60 text-emerald-700",
-      },
-    ];
-  }, [selectedReport, selectedReportSummary]);
   const bureauBreakdown = useMemo(() => {
     const items = selectedReport?.items || [];
     const total = Math.max(1, items.length);
@@ -472,50 +420,6 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
       .sort((a, b) => b.count - a.count)
       .slice(0, 4);
   }, [selectedReport]);
-  const nextSteps = useMemo(() => {
-    const steps: Array<{ key: string; title: string; detail: string; toneClass: string }> = [];
-    if (selectedReportSummary.negative > 0) {
-      steps.push({
-        key: "dispute",
-        title: "Open disputes first",
-        detail: `${selectedReportSummary.negative} item${selectedReportSummary.negative === 1 ? " is" : "s are"} already tagged as needing dispute work.`,
-        toneClass: "border-rose-200 bg-rose-50/70 text-rose-700",
-      });
-    }
-    if (selectedReportSummary.pending > 0) {
-      steps.push({
-        key: "review",
-        title: "Finish the manual review",
-        detail: `${selectedReportSummary.pending} item${selectedReportSummary.pending === 1 ? " still needs" : "s still need"} classification before you act.`,
-        toneClass: "border-amber-200 bg-amber-50/70 text-amber-700",
-      });
-    }
-    if (selectedReportSummary.tracked > 0) {
-      steps.push({
-        key: "follow-up",
-        title: "Follow up on active work",
-        detail: `${selectedReportSummary.tracked} item${selectedReportSummary.tracked === 1 ? " has" : "s have"} notes or dispute tracking that should stay moving.`,
-        toneClass: "border-sky-200 bg-sky-50/70 text-sky-700",
-      });
-    }
-    if (selectedReportSummary.positive > 0) {
-      steps.push({
-        key: "positive",
-        title: "Protect the good accounts",
-        detail: `${selectedReportSummary.positive} positive item${selectedReportSummary.positive === 1 ? " is" : "s are"} helping stabilize the file.`,
-        toneClass: "border-emerald-200 bg-emerald-50/70 text-emerald-700",
-      });
-    }
-    if (!steps.length) {
-      steps.push({
-        key: "start",
-        title: "Start classifying the file",
-        detail: "Sort each line into review, dispute, or positive support so the report becomes actionable.",
-        toneClass: "border-zinc-200 bg-zinc-50 text-zinc-700",
-      });
-    }
-    return steps.slice(0, 4);
-  }, [selectedReportSummary]);
   const priorityItems = useMemo(() => {
     const items = selectedReport?.items || [];
     const score = (item: ReportItemLite) => {
@@ -626,7 +530,7 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
         <div>
           <h1 className="text-2xl font-bold text-brand-ink sm:text-3xl">Credit reports</h1>
           <p className="mt-1 max-w-2xl text-sm text-zinc-600">
-            {mode === "detail" ? "Review one report, act on the items, and jump straight into disputes." : "Pull a report, scan the queue, and open a cleaner detail workspace when you need it."}
+            {mode === "detail" ? "Review the report, update item tags, and move straight into disputes." : "Pull reports, keep the file queue organized, and open the detail view when you need to work items."}
           </p>
         </div>
         {mode === "detail" ? (
@@ -663,7 +567,7 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
                 <input
                   value={reportSearch}
                   onChange={(event) => setReportSearch(event.target.value)}
-                  className="w-full rounded-2xl border border-zinc-200 px-4 py-3 text-sm outline-none focus:border-zinc-300 sm:flex-1"
+                  className="w-full rounded-2xl border border-zinc-200 px-4 py-3 text-sm outline-none transition focus:border-zinc-300 focus-visible:ring-2 focus-visible:ring-brand-blue/20 sm:flex-1"
                   placeholder="Search reports"
                 />
                 <div className="w-full sm:w-56">
@@ -676,6 +580,21 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
                 </div>
               </div>
               <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">{`${filteredReports.length} reports`}</div>
+            </div>
+
+            <div className="mt-4 grid gap-3 sm:grid-cols-3">
+              <div className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3">
+                <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Saved reports</div>
+                <div className="mt-2 text-xl font-bold text-zinc-900">{reports.length}</div>
+              </div>
+              <div className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3">
+                <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Contacts</div>
+                <div className="mt-2 text-xl font-bold text-zinc-900">{new Set(reports.map((report) => report.contactId).filter(Boolean)).size}</div>
+              </div>
+              <div className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3">
+                <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Providers</div>
+                <div className="mt-2 text-xl font-bold text-zinc-900">{providerFilterOptions.length - 1}</div>
+              </div>
             </div>
 
             <div className="mt-5 overflow-x-auto rounded-3xl border border-zinc-200">
@@ -708,7 +627,7 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
                             window.location.href = routeSet.detailHref(report.id);
                           }
                         }}
-                        className="cursor-pointer border-t border-zinc-200 hover:bg-zinc-50 focus:bg-zinc-50"
+                        className="cursor-pointer border-t border-zinc-200 transition hover:bg-zinc-50 focus:bg-zinc-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-blue/20"
                       >
                         <td className="px-4 py-3">
                           <div className="font-semibold text-zinc-900">{report.contact?.name || report.provider}</div>
@@ -742,6 +661,7 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
                 <div className="flex items-start justify-between gap-4">
                   <div>
                     <div className="text-lg font-semibold text-zinc-900">New report</div>
+                    <div className="mt-1 text-sm text-zinc-600">Choose the contact and provider, then pull the latest report into the queue.</div>
                   </div>
                   <button type="button" onClick={() => setNewReportOpen(false)} aria-label="Close new report" className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-zinc-200 text-lg font-semibold text-zinc-700 hover:bg-zinc-50">×</button>
                 </div>
@@ -778,6 +698,12 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
                     />
                   </label>
 
+                  <div className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm text-zinc-700">
+                    <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Selection</div>
+                    <div className="mt-2 font-semibold text-zinc-900">{selectedContact?.name || "No contact selected"}</div>
+                    <div className="mt-1 text-xs text-zinc-500">{selectedContact?.email || provider}</div>
+                  </div>
+
                   {showAdvancedImport ? (
                     <details className="rounded-3xl border border-zinc-200 bg-zinc-50 p-4">
                       <summary className="cursor-pointer text-sm font-semibold text-zinc-800">Advanced import</summary>
@@ -806,7 +732,7 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
 
                 <div className="mt-6 flex justify-end gap-2">
                   <button type="button" onClick={() => setNewReportOpen(false)} className="rounded-2xl border border-zinc-200 px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50">Cancel</button>
-                  <button type="button" disabled={busy || !selectedContactId} onClick={requestProviderPull} className="rounded-2xl bg-brand-blue px-4 py-2 text-sm font-semibold text-white disabled:opacity-60">{busy ? "Working..." : "Pull report"}</button>
+                  <button type="button" disabled={busy || !selectedContactId} onClick={requestProviderPull} className="rounded-2xl bg-brand-blue px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:opacity-95 focus-visible:ring-2 focus-visible:ring-brand-blue/30 disabled:opacity-60">{busy ? "Working..." : "Pull report"}</button>
                 </div>
               </div>
             </div>
@@ -822,6 +748,7 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
                 <div className="flex flex-wrap items-center gap-2">
                   <h2 className="text-2xl font-semibold text-zinc-900">{selectedReport.contact?.name || selectedReport.provider}</h2>
                   <div className={"rounded-full border px-3 py-1 text-[11px] font-semibold uppercase tracking-wide " + scopeChipClasses(selectedReport.creditScope)}>{creditScopeLabel(selectedReport.creditScope)}</div>
+                  <div className="rounded-full border border-zinc-200 bg-zinc-50 px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-600">{selectedReport.items.length} items</div>
                 </div>
                 <div className="mt-2 text-sm text-zinc-600">{selectedReport.provider} • Imported {new Date(selectedReport.importedAt).toLocaleString()}</div>
               </div>
@@ -834,7 +761,7 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
                     params.set("compose", "1");
                     window.location.href = `${routeSet.disputeHref}?${params.toString()}`;
                   }}
-                  className="rounded-2xl bg-brand-blue px-4 py-2 text-sm font-semibold text-white hover:opacity-95"
+                  className="rounded-2xl bg-brand-blue px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:opacity-95 focus-visible:ring-2 focus-visible:ring-brand-blue/30"
                 >
                   Open dispute
                 </button>
@@ -868,7 +795,7 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
             </div>
 
             <div className="mt-5 grid gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
-              <div className="rounded-3xl border border-zinc-200 p-5">
+              <div className="rounded-3xl border border-zinc-200 bg-zinc-50/60 p-5">
                 <div className="text-sm font-semibold text-zinc-900">Priority queue</div>
                 <div className="mt-4 space-y-3">
                   {priorityItems.length ? priorityItems.map((item) => (
@@ -887,7 +814,7 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
                 </div>
               </div>
 
-              <div className="rounded-3xl border border-zinc-200 p-5">
+              <div className="rounded-3xl border border-zinc-200 bg-zinc-50/60 p-5">
                 <div className="text-sm font-semibold text-zinc-900">Report info</div>
                 <div className="mt-4 space-y-3 text-sm text-zinc-700">
                   <div className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3">
@@ -925,7 +852,7 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
                 <input
                   value={itemQuery}
                   onChange={(e) => setItemQuery(e.target.value)}
-                  className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm sm:w-56"
+                  className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none transition focus:border-zinc-300 focus-visible:ring-2 focus-visible:ring-brand-blue/20 sm:w-56"
                   placeholder="Search items"
                 />
                 <PortalListboxDropdown
@@ -985,7 +912,7 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
                             if (it.bureau) params.set("bureau", it.bureau);
                             window.location.href = `${routeSet.disputeHref}?${params.toString()}`;
                           }}
-                          className="rounded-2xl bg-brand-ink px-4 py-2 text-sm font-semibold text-white hover:opacity-95"
+                          className="rounded-2xl bg-brand-blue px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:opacity-95 focus-visible:ring-2 focus-visible:ring-brand-blue/30"
                         >
                           Create dispute
                         </button>
@@ -1012,7 +939,7 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
                       <label className="block">
                         <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Dispute note</div>
                         <input
-                          className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                          className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none transition focus:border-zinc-300 focus-visible:ring-2 focus-visible:ring-brand-blue/20"
                           value={it.disputeStatus || ""}
                           disabled={busy}
                           placeholder="Mailed 4/1 • waiting on bureau"
@@ -1041,7 +968,7 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
 
             <div className="mt-5 grid gap-4 xl:grid-cols-2">
               {opportunityPlans.map((plan) => (
-                <div key={plan.key} className={"rounded-[26px] border bg-white p-5 shadow-sm " + readinessAccentClasses(plan.readinessTone)}>
+                <div key={plan.key} className={"rounded-[26px] border bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md " + readinessAccentClasses(plan.readinessTone)}>
                   <div>
                     <div className="text-base font-semibold text-zinc-900">{plan.title}</div>
                     <div className="mt-1 text-sm leading-6 text-zinc-700">{plan.summary}</div>

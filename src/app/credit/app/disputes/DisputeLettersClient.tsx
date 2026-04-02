@@ -235,6 +235,7 @@ export default function DisputeLettersClient({ mode = "list", initialLetterId = 
   const [bodyText, setBodyText] = useState("");
   const [pdfDownloadUrl, setPdfDownloadUrl] = useState("");
   const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState<"ALL" | LetterLite["status"]>("ALL");
   const [contactQuery, setContactQuery] = useState("");
   const [composerOpen, setComposerOpen] = useState(false);
   const [contactId, setContactId] = useState("");
@@ -253,11 +254,25 @@ export default function DisputeLettersClient({ mode = "list", initialLetterId = 
   const roundNumber = useMemo(() => Math.max(1, Number.parseInt(round, 10) || 1), [round]);
   const recipientPreset = useMemo(() => findRecipientPreset(recipientName), [recipientName]);
   const nextTemplate = useMemo(() => TEMPLATES.find((entry) => entry.key === template.nextTemplateKey) || template, [template]);
+  const statusOptions = useMemo<PortalListboxOption<"ALL" | LetterLite["status"]>[]>(() => [
+    { value: "ALL", label: "All statuses" },
+    { value: "DRAFT", label: "Draft" },
+    { value: "GENERATED", label: "Generated" },
+    { value: "SENT", label: "Sent" },
+  ], []);
+  const letterCounts = useMemo(() => ({
+    draft: letters.filter((letter) => letter.status === "DRAFT").length,
+    generated: letters.filter((letter) => letter.status === "GENERATED").length,
+    sent: letters.filter((letter) => letter.status === "SENT").length,
+  }), [letters]);
   const filteredLetters = useMemo(() => {
     const q = search.trim().toLowerCase();
-    if (!q) return letters;
-    return letters.filter((letter) => [letter.subject, letter.contact.name, letter.contact.email, letter.status].map((value) => String(value || "").toLowerCase()).join(" ").includes(q));
-  }, [letters, search]);
+    return letters.filter((letter) => {
+      if (statusFilter !== "ALL" && letter.status !== statusFilter) return false;
+      if (!q) return true;
+      return [letter.subject, letter.contact.name, letter.contact.email, letter.status].map((value) => String(value || "").toLowerCase()).join(" ").includes(q);
+    });
+  }, [letters, search, statusFilter]);
   const cleanItems = useMemo(() => items.map((item) => item.trim()).filter(Boolean), [items]);
   const selectedContact = useMemo(() => contacts.find((entry) => entry.id === contactId) || selectedLetter?.contact || null, [contactId, contacts, selectedLetter?.contact]);
   const recipientSuggestions = useMemo(() => {
@@ -687,6 +702,23 @@ export default function DisputeLettersClient({ mode = "list", initialLetterId = 
           </section>
           <aside className="space-y-4">
             <section className="rounded-3xl border border-zinc-200 bg-white p-5">
+              <div className="text-sm font-semibold text-zinc-900">Letter status</div>
+              <div className="mt-3 grid gap-3 text-sm text-zinc-700">
+                <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+                  <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Status</div>
+                  <div className="mt-2 inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold text-zinc-900">{selectedLetter ? statusLabel(selectedLetter.status) : "Not available"}</div>
+                </div>
+                <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+                  <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Updated</div>
+                  <div className="mt-2 font-medium text-zinc-900">{selectedLetter ? formatDateTime(selectedLetter.updatedAt) : "Not available"}</div>
+                </div>
+                <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+                  <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Sent</div>
+                  <div className="mt-2 font-medium text-zinc-900">{selectedLetter?.sentAt ? formatDateTime(selectedLetter.sentAt) : "Not sent"}</div>
+                </div>
+              </div>
+            </section>
+            <section className="rounded-3xl border border-zinc-200 bg-white p-5">
               <div className="text-sm font-semibold text-zinc-900">Contact</div>
               {selectedLetter?.contact ? (
                 <div className="mt-3 rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
@@ -709,14 +741,34 @@ export default function DisputeLettersClient({ mode = "list", initialLetterId = 
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold text-zinc-900">Dispute letters</h1>
+          <p className="mt-1 max-w-2xl text-sm text-zinc-600">Draft, review, and send dispute letters by contact without leaving the credit workflow.</p>
         </div>
         <button type="button" onClick={handleOpenComposer} className="rounded-2xl bg-brand-blue px-4 py-2.5 text-sm font-semibold text-white">+ New</button>
       </div>
       {error ? <div className="mt-4 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">{error}</div> : null}
       <section className="mt-6 rounded-3xl border border-zinc-200 bg-white p-6 shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <input value={search} onChange={(event) => setSearch(event.target.value)} className="w-full max-w-xl rounded-2xl border border-zinc-200 px-4 py-3 text-sm outline-none focus:border-zinc-300" placeholder="Search letters" />
+          <div className="flex w-full max-w-4xl flex-col gap-3 sm:flex-row sm:items-center">
+            <input value={search} onChange={(event) => setSearch(event.target.value)} className="w-full rounded-2xl border border-zinc-200 px-4 py-3 text-sm outline-none transition focus:border-zinc-300 focus-visible:ring-2 focus-visible:ring-brand-blue/20 sm:flex-1" placeholder="Search letters" />
+            <div className="w-full sm:w-56">
+              <PortalListboxDropdown value={statusFilter} onChange={setStatusFilter} options={statusOptions} buttonClassName="flex w-full items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm hover:bg-zinc-50" />
+            </div>
+          </div>
           <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">{lettersLoading ? "Loading..." : `${filteredLetters.length} letters`}</div>
+        </div>
+        <div className="mt-4 grid gap-3 sm:grid-cols-3">
+          <div className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3">
+            <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Draft</div>
+            <div className="mt-2 text-xl font-bold text-zinc-900">{letterCounts.draft}</div>
+          </div>
+          <div className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3">
+            <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Generated</div>
+            <div className="mt-2 text-xl font-bold text-zinc-900">{letterCounts.generated}</div>
+          </div>
+          <div className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3">
+            <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Sent</div>
+            <div className="mt-2 text-xl font-bold text-zinc-900">{letterCounts.sent}</div>
+          </div>
         </div>
         <div className="mt-5 overflow-x-auto rounded-3xl border border-zinc-200">
           <table className="min-w-full text-left text-sm">
@@ -735,7 +787,7 @@ export default function DisputeLettersClient({ mode = "list", initialLetterId = 
                 </tr>
               ) : (
                 filteredLetters.map((letter) => (
-                  <tr key={letter.id} tabIndex={0} role="button" onClick={() => { window.location.href = routeSet.editorHref(letter.id); }} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); window.location.href = routeSet.editorHref(letter.id); } }} className="cursor-pointer border-t border-zinc-200 hover:bg-zinc-50 focus:bg-zinc-50">
+                  <tr key={letter.id} tabIndex={0} role="button" onClick={() => { window.location.href = routeSet.editorHref(letter.id); }} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); window.location.href = routeSet.editorHref(letter.id); } }} className="cursor-pointer border-t border-zinc-200 transition hover:bg-zinc-50 focus:bg-zinc-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-blue/20">
                     <td className="px-4 py-3">
                       <div className="font-semibold text-zinc-900">{letter.subject || "Untitled"}</div>
                       <div className="mt-1 text-xs text-zinc-500">Created {formatDateTime(letter.createdAt)}</div>
