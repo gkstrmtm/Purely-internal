@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { usePathname, useSearchParams } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
 import { PortalListboxDropdown, type PortalListboxOption } from "@/components/PortalListboxDropdown";
 import { PortalSearchableCombobox, type PortalSearchableOption } from "@/components/PortalSearchableCombobox";
@@ -219,6 +219,7 @@ async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
 
 export default function DisputeLettersClient({ mode = "list", initialLetterId = "" }: { mode?: "list" | "editor"; initialLetterId?: string }) {
   const pathname = usePathname();
+  const router = useRouter();
   const searchParams = useSearchParams();
   const routeSet = useMemo(() => routesFor(pathname), [pathname]);
 
@@ -431,6 +432,21 @@ export default function DisputeLettersClient({ mode = "list", initialLetterId = 
     setReportItemQuery("");
   }, [contacts, selectedLetter?.contact, selectedLetter?.contactId]);
 
+  const clearComposerQuery = useCallback(() => {
+    const params = new URLSearchParams(searchParams?.toString() || "");
+    params.delete("compose");
+    params.delete("issue");
+    params.delete("bureau");
+    params.delete("contactId");
+    const next = params.toString();
+    router.replace(next ? `${pathname}?${next}` : `${pathname || routeSet.listHref}`, { scroll: false });
+  }, [pathname, routeSet.listHref, router, searchParams]);
+
+  const closeComposer = useCallback(() => {
+    setComposerOpen(false);
+    clearComposerQuery();
+  }, [clearComposerQuery]);
+
   useEffect(() => {
     if (mode !== "list") return;
     if (searchParams.get("compose") !== "1") return;
@@ -442,7 +458,8 @@ export default function DisputeLettersClient({ mode = "list", initialLetterId = 
       recipientName: bureau || undefined,
       items: issue ? [issue] : undefined,
     });
-  }, [mode, openComposer, searchParams]);
+    clearComposerQuery();
+  }, [clearComposerQuery, mode, openComposer, searchParams]);
 
   const handleOpenComposer = useCallback(() => {
     openComposer();
@@ -540,14 +557,14 @@ export default function DisputeLettersClient({ mode = "list", initialLetterId = 
   }, [letterLoading, mode, pdfDownloadUrl, refreshPdf, selectedLetter, selectedLetterId, working]);
 
   const composer = composerOpen ? (
-    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/30 p-4" onMouseDown={() => working !== "generate" && setComposerOpen(false)}>
+    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/30 p-4" onMouseDown={() => working !== "generate" && closeComposer()}>
       <div className="my-auto w-full max-w-4xl max-h-[calc(100dvh-2rem)] overflow-y-auto rounded-4xl border border-zinc-200 bg-white p-6 shadow-xl sm:p-7" onMouseDown={(event) => event.stopPropagation()} role="dialog" aria-modal="true" aria-label="New dispute letter" data-overlay-root="true">
         <div className="flex items-start justify-between gap-4">
           <div>
             <div className="text-lg font-semibold text-zinc-900">New dispute letter</div>
             <div className="mt-1 text-sm text-zinc-600">Pick the contact, choose the recipient, load the report items, and generate the draft.</div>
           </div>
-          <button type="button" onClick={() => setComposerOpen(false)} aria-label="Close dispute letter composer" className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-zinc-200 text-lg font-semibold text-zinc-700 hover:bg-zinc-50">×</button>
+          <button type="button" onClick={closeComposer} aria-label="Close dispute letter composer" className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-zinc-200 text-lg font-semibold text-zinc-700 hover:bg-zinc-50">×</button>
         </div>
         <div className="mt-6 flex flex-wrap gap-2 text-xs font-semibold uppercase tracking-wide text-zinc-500">
           <span className="rounded-full border border-zinc-200 bg-zinc-50 px-3 py-1.5">1 Contact</span>
@@ -663,7 +680,7 @@ export default function DisputeLettersClient({ mode = "list", initialLetterId = 
           </section>
         </div>
         <div className="mt-6 flex justify-end gap-2">
-          <button type="button" onClick={() => setComposerOpen(false)} className="rounded-2xl border border-zinc-200 px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50">Cancel</button>
+          <button type="button" onClick={closeComposer} className="rounded-2xl border border-zinc-200 px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50">Cancel</button>
           <button type="button" disabled={!canGenerate || working !== null} onClick={() => void generateLetter()} className="rounded-2xl bg-brand-blue px-4 py-2 text-sm font-semibold text-white disabled:opacity-60">{working === "generate" ? "Generating..." : "Generate"}</button>
         </div>
       </div>

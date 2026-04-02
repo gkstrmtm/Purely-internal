@@ -273,6 +273,23 @@ function classNames(...xs: Array<string | false | null | undefined>) {
   return xs.filter(Boolean).join(" ");
 }
 
+function upsertCustomVarRows(rows: CustomVarRow[], entries: Array<{ key: string; value: string }>) {
+  const next = [...rows];
+  for (const entry of entries) {
+    const key = normalizePortalContactCustomVarKey(entry.key);
+    if (!key) continue;
+    const value = String(entry.value || "").trim();
+    const index = next.findIndex((row) => normalizePortalContactCustomVarKey(row.key) === key);
+    if (!value) {
+      if (index >= 0) next.splice(index, 1);
+      continue;
+    }
+    if (index >= 0) next[index] = { key, value };
+    else next.push({ key, value });
+  }
+  return next;
+}
+
 async function readJsonBody(res: Response): Promise<any | null> {
   if (res.status === 204) return null;
   const text = await res.text().catch(() => "");
@@ -290,6 +307,7 @@ export function PortalPeopleContactsClient() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const portalBase = pathname.startsWith("/credit") ? "/credit" : "/portal";
+  const isCreditApp = pathname.startsWith("/credit");
   const lastLoadedAtRef = useRef<number>(0);
   const createdCustomVarRef = useRef<{ key: string; value: string } | null>(null);
   const [loading, setLoading] = useState(true);
@@ -310,6 +328,10 @@ export function PortalPeopleContactsClient() {
   const [manualName, setManualName] = useState("");
   const [manualEmail, setManualEmail] = useState("");
   const [manualPhone, setManualPhone] = useState("");
+  const [manualSsnLast4, setManualSsnLast4] = useState("");
+  const [manualBirthDate, setManualBirthDate] = useState("");
+  const [manualAddress, setManualAddress] = useState("");
+  const [manualBusinessName, setManualBusinessName] = useState("");
   const [manualTagValues, setManualTagValues] = useState<string[]>([]);
   const [manualCreateTagOpen, setManualCreateTagOpen] = useState(false);
   const [manualCreateTagName, setManualCreateTagName] = useState("");
@@ -518,12 +540,28 @@ export function PortalPeopleContactsClient() {
     setManualName("");
     setManualEmail("");
     setManualPhone("");
+    setManualSsnLast4("");
+    setManualBirthDate("");
+    setManualAddress("");
+    setManualBusinessName("");
     setManualTagValues([]);
     setManualCreateTagOpen(false);
     setManualCreateTagName("");
     setManualCreateTagColor("#2563EB");
-    setManualCustomVarRows(mergeRowsWithKnownKeys([{ key: "business_name", value: "" }], knownCustomVarKeys));
-  }, [knownCustomVarKeys]);
+    setManualCustomVarRows(
+      mergeRowsWithKnownKeys(
+        isCreditApp
+          ? [
+              { key: "business_name", value: "" },
+              { key: "ssn_last_four", value: "" },
+              { key: "birth_date", value: "" },
+              { key: "address", value: "" },
+            ]
+          : [{ key: "business_name", value: "" }],
+        knownCustomVarKeys,
+      ),
+    );
+  }, [isCreditApp, knownCustomVarKeys]);
 
   useEffect(() => {
     if (!importOpen) return;
@@ -1799,6 +1837,47 @@ export function PortalPeopleContactsClient() {
                       Templates: <span className="font-mono">{`{contact.email}`}</span>
                     </div>
                   </label>
+                  {isCreditApp ? (
+                    <>
+                      <label className="block">
+                        <div className="text-xs font-semibold text-zinc-700">Last four of SSN</div>
+                        <input
+                          value={manualSsnLast4}
+                          onChange={(e) => setManualSsnLast4(e.target.value.replace(/[^0-9]/g, "").slice(0, 4))}
+                          placeholder="1234"
+                          inputMode="numeric"
+                          className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                        />
+                      </label>
+                      <label className="block">
+                        <div className="text-xs font-semibold text-zinc-700">Birth date</div>
+                        <input
+                          type="date"
+                          value={manualBirthDate}
+                          onChange={(e) => setManualBirthDate(e.target.value)}
+                          className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                        />
+                      </label>
+                      <label className="block md:col-span-2">
+                        <div className="text-xs font-semibold text-zinc-700">Address</div>
+                        <input
+                          value={manualAddress}
+                          onChange={(e) => setManualAddress(e.target.value)}
+                          placeholder="Street, city, state, ZIP"
+                          className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                        />
+                      </label>
+                      <label className="block md:col-span-2">
+                        <div className="text-xs font-semibold text-zinc-700">Business name</div>
+                        <input
+                          value={manualBusinessName}
+                          onChange={(e) => setManualBusinessName(e.target.value)}
+                          placeholder="Only if this contact has a business"
+                          className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
+                        />
+                      </label>
+                    </>
+                  ) : null}
                   <div className="block">
                     <div className="text-xs font-semibold text-zinc-700">Tags</div>
                     <div className="mt-2 flex flex-wrap gap-2">
@@ -1980,6 +2059,27 @@ export function PortalPeopleContactsClient() {
                         setManualBusy(true);
                         setManualError(null);
                         try {
+                          if (isCreditApp) {
+                            if (!manualSsnLast4.trim().match(/^\d{4}$/)) {
+                              throw new Error("Last four of SSN must be 4 digits");
+                            }
+                            if (!manualBirthDate.trim()) {
+                              throw new Error("Birth date is required");
+                            }
+                            if (!manualAddress.trim()) {
+                              throw new Error("Address is required");
+                            }
+                          }
+
+                          const customVariableRows = isCreditApp
+                            ? upsertCustomVarRows(manualCustomVarRows, [
+                                { key: "ssn_last_four", value: manualSsnLast4 },
+                                { key: "birth_date", value: manualBirthDate },
+                                { key: "address", value: manualAddress },
+                                { key: "business_name", value: manualBusinessName },
+                              ])
+                            : manualCustomVarRows;
+
                           const res = await fetch("/api/portal/people/contacts", {
                             method: "POST",
                             headers: { "content-type": "application/json" },
@@ -1988,7 +2088,7 @@ export function PortalPeopleContactsClient() {
                               email: manualEmail,
                               phone: manualPhone,
                               tags: (manualTagValues || []).join(", "),
-                              customVariables: customVariablesFromRows(manualCustomVarRows),
+                              customVariables: customVariablesFromRows(customVariableRows),
                             }),
                           });
                           const json = (await res.json().catch(() => ({}))) as any;

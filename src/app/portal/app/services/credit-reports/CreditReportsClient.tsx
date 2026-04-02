@@ -3,6 +3,7 @@
 import { usePathname, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import { IconFunnel } from "@/app/portal/PortalIcons";
 import { PortalListboxDropdown, type PortalListboxOption } from "@/components/PortalListboxDropdown";
 import { PortalSearchableCombobox, type PortalSearchableOption } from "@/components/PortalSearchableCombobox";
 import { useToast } from "@/components/ToastProvider";
@@ -52,6 +53,8 @@ type OpportunityPlan = {
   summary: string;
 };
 
+type FixedMenuStyle = { left: number; top: number; maxHeight: number };
+
 const REPORT_FILTER_LABELS: Record<"ALL" | "PENDING" | "NEGATIVE" | "POSITIVE" | "TRACKED", string> = {
   ALL: "All items",
   PENDING: "Review now",
@@ -90,6 +93,20 @@ function itemSummaryText(item: ReportItemLite) {
   if (item.auditTag === "NEGATIVE") return "This item is ready to move into a dispute.";
   if (item.auditTag === "PENDING") return "Open the item, confirm the details, and decide the next move.";
   return "Keep this item clean while the rest of the report gets worked.";
+}
+
+function computeFixedMenuStyle(rect: DOMRect, width = 288, estHeight = 320): FixedMenuStyle {
+  const viewportWidth = window.innerWidth;
+  const viewportHeight = window.innerHeight;
+  const gutter = 12;
+  const left = Math.min(Math.max(gutter, rect.right - width), viewportWidth - width - gutter);
+  const spaceBelow = viewportHeight - rect.bottom - gutter;
+  const spaceAbove = rect.top - gutter;
+  const openUp = spaceBelow < Math.min(estHeight, 220) && spaceAbove > spaceBelow;
+  const top = openUp
+    ? Math.max(gutter, rect.top - Math.min(estHeight, spaceAbove))
+    : Math.min(viewportHeight - gutter - Math.min(estHeight, Math.max(spaceBelow, 220)), rect.bottom + 8);
+  return { left, top, maxHeight: Math.max(180, openUp ? spaceAbove : spaceBelow) };
 }
 
 const BUTTON_MOTION_CLASS = "transition-all duration-150 hover:-translate-y-0.5 focus-visible:outline-none";
@@ -256,6 +273,7 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
   const [detailTab, setDetailTab] = useState<"items" | "plan">("items");
   const [priorityItemOpen, setPriorityItemOpen] = useState<ReportItemLite | null>(null);
   const [reportSearch, setReportSearch] = useState("");
+  const [reportFiltersMenu, setReportFiltersMenu] = useState<FixedMenuStyle | null>(null);
   const [reportView, setReportView] = useState<"ALL" | "PERSONAL" | "BUSINESS" | "BOTH">("ALL");
   const [providerFilter, setProviderFilter] = useState<string>("ALL");
 
@@ -458,6 +476,17 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
   }, [selectedReportId]);
 
   useEffect(() => {
+    if (!reportFiltersMenu) return;
+    const close = () => setReportFiltersMenu(null);
+    window.addEventListener("resize", close);
+    window.addEventListener("scroll", close, true);
+    return () => {
+      window.removeEventListener("resize", close);
+      window.removeEventListener("scroll", close, true);
+    };
+  }, [reportFiltersMenu]);
+
+  useEffect(() => {
     const query = (searchParams.get("contact") || "").trim();
     if (!query) return;
     setContactQuery(query);
@@ -592,30 +621,6 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
               <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">{loading ? "Loading" : `${filteredReports.length} reports`}</div>
             </div>
 
-            <div className="mt-4 flex flex-wrap gap-2">
-              {([
-                ["ALL", `All ${reports.length}`],
-                ["PERSONAL", `Personal ${reportScopeCounts.personal}`],
-                ["BUSINESS", `Business ${reportScopeCounts.business}`],
-                ["BOTH", `Combined ${reportScopeCounts.both}`],
-              ] as const).map(([value, label]) => (
-                <button
-                  key={value}
-                  type="button"
-                  onClick={() => setReportView(value)}
-                  aria-current={reportView === value ? "page" : undefined}
-                  className={classNames(
-                    "h-11 shrink-0 rounded-full border px-4 text-sm font-semibold transition-transform duration-150 hover:-translate-y-0.5 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink/60",
-                    reportView === value
-                      ? "border-brand-ink bg-brand-ink text-white shadow-sm focus-visible:ring-brand-ink/40"
-                      : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50",
-                  )}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-
             <div className="mt-3 flex w-full max-w-4xl flex-col gap-3 sm:flex-row sm:items-center">
               <input
                 value={reportSearch}
@@ -623,14 +628,93 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
                 className="h-11 w-full rounded-full border border-zinc-200 px-4 text-sm outline-none transition focus:border-zinc-300 focus-visible:ring-2 focus-visible:ring-brand-blue/20 sm:flex-1"
                 placeholder="Search reports"
               />
-              <div className="w-full sm:w-60">
-                <PortalListboxDropdown
-                  value={providerFilter}
-                  onChange={setProviderFilter}
-                  options={providerFilterOptions}
-                  buttonClassName="flex h-11 w-full items-center justify-between gap-2 rounded-full border border-zinc-200 bg-white px-4 text-sm transition-all duration-150 hover:-translate-y-0.5 hover:border-zinc-300 hover:bg-zinc-50"
-                />
-              </div>
+              {reportFiltersMenu ? (
+                <>
+                  <div
+                    className="fixed inset-0 z-30"
+                    onMouseDown={() => setReportFiltersMenu(null)}
+                    onTouchStart={() => setReportFiltersMenu(null)}
+                    aria-hidden
+                  />
+                  <div
+                    className="fixed z-40 w-72 overflow-auto rounded-2xl border border-zinc-200 bg-white shadow-xl"
+                    style={{ left: reportFiltersMenu.left, top: reportFiltersMenu.top, maxHeight: reportFiltersMenu.maxHeight }}
+                    onMouseDown={(event) => event.stopPropagation()}
+                    onTouchStart={(event) => event.stopPropagation()}
+                  >
+                    <div className="border-b border-zinc-100 px-4 py-3 text-xs font-semibold text-zinc-600">Filters</div>
+                    <div className="px-4 py-3">
+                      <div className="text-xs font-semibold text-zinc-700">Report type</div>
+                      <div className="mt-2 grid grid-cols-2 gap-2">
+                        {([
+                          ["ALL", `All ${reports.length}`],
+                          ["PERSONAL", `Personal ${reportScopeCounts.personal}`],
+                          ["BUSINESS", `Business ${reportScopeCounts.business}`],
+                          ["BOTH", `Combined ${reportScopeCounts.both}`],
+                        ] as const).map(([value, label]) => (
+                          <button
+                            key={value}
+                            type="button"
+                            className={classNames(
+                              "rounded-xl border px-3 py-2 text-left text-xs font-semibold",
+                              reportView === value
+                                ? "border-brand-ink bg-brand-ink text-white"
+                                : "border-zinc-200 bg-white text-zinc-800 hover:bg-zinc-50",
+                            )}
+                            onClick={() => setReportView(value)}
+                          >
+                            {label}
+                          </button>
+                        ))}
+                      </div>
+
+                      <div className="mt-4 text-xs font-semibold text-zinc-700">Provider</div>
+                      <div className="mt-2">
+                        <PortalListboxDropdown
+                          value={providerFilter}
+                          onChange={setProviderFilter}
+                          options={providerFilterOptions}
+                          buttonClassName="flex h-11 w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 text-sm transition-all duration-150 hover:border-zinc-300 hover:bg-zinc-50"
+                        />
+                      </div>
+
+                      {(reportView !== "ALL" || providerFilter !== "ALL") ? (
+                        <button
+                          type="button"
+                          className="mt-3 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+                          onClick={() => {
+                            setReportView("ALL");
+                            setProviderFilter("ALL");
+                          }}
+                        >
+                          Clear filters
+                        </button>
+                      ) : null}
+                    </div>
+                  </div>
+                </>
+              ) : null}
+
+              <button
+                type="button"
+                className={classNames(
+                  "inline-flex h-11 w-11 items-center justify-center rounded-full border border-zinc-200 bg-white text-zinc-800 transition-transform duration-150 hover:-translate-y-0.5 hover:bg-zinc-50",
+                  (reportView !== "ALL" || providerFilter !== "ALL") && "border-brand-ink",
+                )}
+                onClick={(event) => {
+                  const open = Boolean(reportFiltersMenu);
+                  if (open) {
+                    setReportFiltersMenu(null);
+                    return;
+                  }
+                  const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
+                  setReportFiltersMenu(computeFixedMenuStyle(rect));
+                }}
+                aria-label="Report filters"
+                aria-expanded={reportFiltersMenu ? true : undefined}
+              >
+                <IconFunnel size={18} />
+              </button>
             </div>
 
             <div className="mt-5 overflow-x-auto rounded-3xl border border-zinc-200">
