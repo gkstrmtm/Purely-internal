@@ -28,6 +28,7 @@ type ReportItemLite = {
   bureau: string | null;
   kind: string | null;
   label: string;
+  detailsJson?: unknown;
   auditTag: "PENDING" | "NEGATIVE" | "POSITIVE";
   auditReason?: string;
   disputeStatus: string | null;
@@ -84,6 +85,35 @@ function itemSummaryText(item: ReportItemLite) {
   if (item.auditTag === "NEGATIVE") return "This item is automatically flagged as a dispute priority.";
   if (item.auditTag === "PENDING") return "This item needs review before it should move into dispute.";
   return "This item is reading as clean right now.";
+}
+
+function formatReviewValue(value: unknown): string {
+  if (value === null || value === undefined) return "—";
+  if (typeof value === "string") return value.trim() || "—";
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  if (Array.isArray(value)) {
+    const joined = value
+      .map((entry) => formatReviewValue(entry))
+      .filter((entry) => entry !== "—")
+      .join(", ");
+    return joined || "—";
+  }
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+}
+
+function readReviewDetails(details: unknown): Array<{ key: string; value: string }> {
+  if (!details || typeof details !== "object" || Array.isArray(details)) return [];
+  return Object.entries(details as Record<string, unknown>)
+    .map(([key, value]) => ({
+      key: key.replace(/[_-]+/g, " ").replace(/\b\w/g, (char) => char.toUpperCase()),
+      value: formatReviewValue(value),
+    }))
+    .filter((entry) => entry.value !== "—")
+    .slice(0, 8);
 }
 
 function scoreTone(score: number | null) {
@@ -1160,6 +1190,48 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
                       Review the facts on this item. If it belongs in the next letter, move it to dispute. If not, mark that no dispute is needed so it leaves the review queue.
                     </div>
                   ) : null}
+                </div>
+
+                <div className="mt-5 grid gap-4 lg:grid-cols-[220px_minmax(0,1fr)]">
+                  <div className="rounded-3xl border border-zinc-200 bg-white p-4">
+                    <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Review summary</div>
+                    <div className="mt-3 space-y-3 text-sm text-zinc-700">
+                      <div>
+                        <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Bureau</div>
+                        <div className="mt-1 font-medium text-zinc-900">{priorityItemOpen.bureau || "Not specified"}</div>
+                      </div>
+                      <div>
+                        <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Category</div>
+                        <div className="mt-1 font-medium text-zinc-900">{priorityItemOpen.kind || "Uncategorized"}</div>
+                      </div>
+                      <div>
+                        <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Last updated</div>
+                        <div className="mt-1 font-medium text-zinc-900">{new Date(priorityItemOpen.updatedAt).toLocaleString()}</div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="rounded-3xl border border-zinc-200 bg-white p-4">
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">What to review</div>
+                      <div className="text-xs text-zinc-500">{readReviewDetails(priorityItemOpen.detailsJson).length ? `${readReviewDetails(priorityItemOpen.detailsJson).length} fields found` : "No extra fields found"}</div>
+                    </div>
+
+                    {readReviewDetails(priorityItemOpen.detailsJson).length ? (
+                      <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                        {readReviewDetails(priorityItemOpen.detailsJson).map((entry) => (
+                          <div key={entry.key} className="rounded-2xl border border-zinc-200 bg-zinc-50 px-3 py-3">
+                            <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">{entry.key}</div>
+                            <div className="mt-2 text-sm text-zinc-800 wrap-break-word">{entry.value}</div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="mt-3 rounded-2xl border border-dashed border-zinc-300 bg-zinc-50 px-4 py-4 text-sm text-zinc-600">
+                        This item does not have extra imported detail fields on file yet. Use the bureau, category, and audit reason above to decide whether it should move into dispute.
+                      </div>
+                    )}
+                  </div>
                 </div>
 
                 <div className="mt-6 flex flex-wrap justify-end gap-2">
