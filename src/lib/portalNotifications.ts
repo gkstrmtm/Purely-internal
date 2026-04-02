@@ -348,8 +348,6 @@ export async function tryNotifyPortalAccountUsers(opts: {
     replyTo: opts.replyTo ?? null,
   });
 
-  if (!res.ok) return { ok: false, reason: res.reason };
-
   const smsMirror = opts.smsMirror !== false;
   if (smsMirror) {
     // Best-effort SMS mirror (only to users who have a profile phone configured).
@@ -376,6 +374,8 @@ export async function tryNotifyPortalAccountUsers(opts: {
       // ignore
     }
   }
+
+  if (!res.ok) return { ok: false, reason: res.reason };
 
   return { ok: true, recipients: recipients.map((r) => r.email) };
 }

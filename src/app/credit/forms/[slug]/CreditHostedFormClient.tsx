@@ -114,8 +114,10 @@ export function CreditHostedFormClient({
   const buttonText = style?.buttonText || "#ffffff";
   const fontFamily = style?.fontFamily || undefined;
   const googleCss = googleFontImportCss(style?.fontGoogleFamily);
+  const successEyebrow = successContent?.eyebrow?.trim() || "Submission received";
   const successTitle = successContent?.title?.trim() || "Submitted. Thank you!";
   const successMessage = successContent?.message?.trim() || "We received your submission and will review it shortly.";
+  const successButtonLabel = successContent?.buttonLabel?.trim() || "Submit another response";
 
   return (
     <>
@@ -141,7 +143,7 @@ export function CreditHostedFormClient({
 
       {success ? (
         <div className="mt-8 rounded-3xl border border-emerald-200 bg-emerald-50/80 p-6 sm:p-8">
-          <div className="text-xs font-semibold uppercase tracking-wide text-emerald-700">Submission received</div>
+          <div className="text-xs font-semibold uppercase tracking-wide text-emerald-700">{successEyebrow}</div>
           <h2 className="mt-2 text-2xl font-bold" style={{ color: textColor }}>
             {successTitle}
           </h2>
@@ -156,7 +158,7 @@ export function CreditHostedFormClient({
             }}
             className="mt-5 inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
           >
-            Submit another response
+            {successButtonLabel}
           </button>
         </div>
       ) : (

@@ -37,8 +37,10 @@ export type CreditFormStyle = {
 };
 
 export type CreditFormSuccessContent = {
+  eyebrow?: string;
   title?: string;
   message?: string;
+  buttonLabel?: string;
 };
 
 export type CreditFormSubmissionRow = {
@@ -68,6 +70,16 @@ const ALLOWED_FIELD_TYPES = new Set<CreditFormFieldType>([
 function asRecord(value: unknown): Record<string, unknown> | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   return value as Record<string, unknown>;
+}
+
+function unwrapSubmissionEnvelope(value: unknown): unknown {
+  const record = asRecord(value);
+  if (!record) return value;
+  if (Object.prototype.hasOwnProperty.call(record, "value")) return unwrapSubmissionEnvelope(record.value);
+  if (Object.prototype.hasOwnProperty.call(record, "answer")) return unwrapSubmissionEnvelope(record.answer);
+  if (Object.prototype.hasOwnProperty.call(record, "response")) return unwrapSubmissionEnvelope(record.response);
+  if (Object.prototype.hasOwnProperty.call(record, "values") && Array.isArray(record.values)) return record.values;
+  return value;
 }
 
 function parseHexColor(raw: unknown) {
@@ -161,11 +173,15 @@ export function parseCreditFormStyle(schemaJson: unknown): CreditFormStyle {
 export function normalizeCreditFormSuccessContent(raw: unknown): CreditFormSuccessContent {
   const rec = asRecord(raw);
   if (!rec) return {};
+  const eyebrow = typeof rec.eyebrow === "string" ? rec.eyebrow.trim().slice(0, 80) : "";
   const title = typeof rec.title === "string" ? rec.title.trim().slice(0, 160) : "";
   const message = typeof rec.message === "string" ? rec.message.trim().slice(0, 5000) : "";
+  const buttonLabel = typeof rec.buttonLabel === "string" ? rec.buttonLabel.trim().slice(0, 80) : "";
   const out: CreditFormSuccessContent = {};
+  if (eyebrow) out.eyebrow = eyebrow;
   if (title) out.title = title;
   if (message) out.message = message;
+  if (buttonLabel) out.buttonLabel = buttonLabel;
   return out;
 }
 
@@ -185,19 +201,21 @@ export function normalizeCreditFormSchema(schemaJson: unknown): Record<string, u
 }
 
 function normalizeSubmissionEntryValue(value: unknown, fieldType: CreditFormFieldType | null): unknown {
+  const unwrappedValue = unwrapSubmissionEnvelope(value);
+
   if (fieldType === "signature") {
-    if (Array.isArray(value)) {
-      for (const entry of value) {
+    if (Array.isArray(unwrappedValue)) {
+      for (const entry of unwrappedValue) {
         const normalized = normalizeStoredSignature(entry);
         if (normalized) return normalized;
       }
       return "";
     }
-    return normalizeStoredSignature(value);
+    return normalizeStoredSignature(unwrappedValue);
   }
 
-  if (Array.isArray(value)) return value.map((entry) => normalizeSubmissionEntryValue(entry, null));
-  return value;
+  if (Array.isArray(unwrappedValue)) return unwrappedValue.map((entry) => normalizeSubmissionEntryValue(entry, null));
+  return unwrappedValue;
 }
 
 export function normalizeCreditFormSubmissionPayload(dataJson: unknown, schemaJson: unknown): Record<string, unknown> {
@@ -216,18 +234,19 @@ export function describeCreditFormSubmissionValue(value: unknown, fieldType?: Cr
   if (fieldType === "signature" || readSignatureImageDataUrl(value) || readSignatureText(value)) {
     return describeSignatureValue(value);
   }
-  if (typeof value === "string") return value.trim();
-  if (typeof value === "number" || typeof value === "boolean") return String(value);
-  if (Array.isArray(value)) {
-    return value
+  const unwrappedValue = unwrapSubmissionEnvelope(value);
+  if (typeof unwrappedValue === "string") return unwrappedValue.trim();
+  if (typeof unwrappedValue === "number" || typeof unwrappedValue === "boolean") return String(unwrappedValue);
+  if (Array.isArray(unwrappedValue)) {
+    return unwrappedValue
       .map((entry) => describeCreditFormSubmissionValue(entry, null))
       .map((entry) => entry.trim())
       .filter(Boolean)
       .join(", ");
   }
-  if (value && typeof value === "object") {
+  if (unwrappedValue && typeof unwrappedValue === "object") {
     try {
-      return JSON.stringify(value, null, 2).trim();
+      return JSON.stringify(unwrappedValue, null, 2).trim();
     } catch {
       return "";
     }
@@ -291,7 +310,7 @@ export function buildCreditFormSubmissionNotificationText(opts: {
   const responseLines = rows.length
     ? rows
         .map((row) => {
-          const answer = row.displayValue || "No response";
+          const answer = row.hasResponse ? row.displayValue || "Response on file" : "No response";
           return answer.includes("\n") ? `${row.label}:\n${indentMultiline(answer)}` : `${row.label}: ${answer}`;
         })
         .join("\n\n")

@@ -9,7 +9,17 @@ export function normalizeStoredSignature(raw: unknown): string {
 
   if (raw && typeof raw === "object") {
     const record = raw as Record<string, unknown>;
-    const candidates = [record.dataUrl, record.text, record.value, record.signature, record.signatureDataUrl, record.imageDataUrl];
+    const candidates = [
+      record.dataUrl,
+      record.text,
+      record.value,
+      record.answer,
+      record.response,
+      record.signature,
+      record.signatureDataUrl,
+      record.imageDataUrl,
+      Array.isArray(record.values) ? record.values : undefined,
+    ];
     for (const candidate of candidates) {
       const normalized = normalizeStoredSignature(candidate);
       if (normalized) return normalized;
@@ -21,11 +31,11 @@ export function normalizeStoredSignature(raw: unknown): string {
   const value = raw.trim();
   if (!value) return "";
 
-  if (value.startsWith("{")) {
+  if (value.startsWith("{") || value.startsWith("[")) {
     try {
-      const parsed = JSON.parse(value) as { dataUrl?: unknown; text?: unknown };
-      if (typeof parsed?.dataUrl === "string" && parsed.dataUrl.trim()) return parsed.dataUrl.trim();
-      if (typeof parsed?.text === "string" && parsed.text.trim()) return parsed.text.trim();
+      const parsed = JSON.parse(value) as unknown;
+      const normalized = normalizeStoredSignature(parsed);
+      if (normalized) return normalized;
     } catch {
       // ignore invalid json and fall through to the raw string
     }

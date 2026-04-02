@@ -231,7 +231,7 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
 
   const [form, setForm] = useState<Form | null>(null);
   const [fields, setFields] = useState<Field[] | null>(null);
-  const [selectedIdx, setSelectedIdx] = useState<number>(0);
+  const [selectedIdx, setSelectedIdx] = useState<number | null>(null);
   const [style, setStyle] = useState<FormStyle>({});
   const [successContent, setSuccessContent] = useState<FormSuccessContent>({});
 
@@ -247,7 +247,10 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
     setDialogError(null);
   };
 
-  const selected = useMemo(() => (fields || [])[selectedIdx] || null, [fields, selectedIdx]);
+  const selected = useMemo(() => {
+    if (selectedIdx === null) return null;
+    return (fields || [])[selectedIdx] || null;
+  }, [fields, selectedIdx]);
   const fontPresetKey = useMemo(() => fontPresetKeyFromStyle(style), [style]);
   const googleCss = useMemo(() => googleFontImportCss(style?.fontGoogleFamily), [style?.fontGoogleFamily]);
 
@@ -282,7 +285,11 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
     setStyle(nextStyle);
     setSuccessContent(nextSuccessContent);
     setFields(nextFields.length ? nextFields : []);
-    setSelectedIdx((prev) => Math.min(prev, Math.max(0, nextFields.length - 1)));
+    setSelectedIdx((prev) => {
+      if (!nextFields.length) return null;
+      if (prev === null) return null;
+      return Math.min(prev, Math.max(0, nextFields.length - 1));
+    });
   };
 
   useEffect(() => {
@@ -396,7 +403,7 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
       next.push({ name: nextName, label: trimmedLabel, type: fieldType, required, options: nextOptions });
       return next;
     });
-    setSelectedIdx((fields?.length || 0));
+    setSelectedIdx(fields?.length || 0);
     closeDialog();
   };
 
@@ -412,7 +419,11 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
     if (!fields) return;
     const next = fields.filter((_, i) => i !== idx);
     setFields(next);
-    setSelectedIdx((prev) => Math.max(0, Math.min(prev, next.length - 1)));
+    setSelectedIdx((prev) => {
+      if (!next.length) return null;
+      if (prev === null) return 0;
+      return Math.max(0, Math.min(prev, next.length - 1));
+    });
   };
 
   const moveQuestion = (idx: number, dir: -1 | 1) => {
@@ -795,17 +806,6 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
           </button>
           <button
             type="button"
-            disabled={busy}
-            onClick={addQuestion}
-            className={classNames(
-              "rounded-2xl px-4 py-2 text-sm font-semibold text-white",
-              busy ? "bg-zinc-400" : "bg-(--color-brand-blue) hover:bg-blue-700",
-            )}
-          >
-            + Add question
-          </button>
-          <button
-            type="button"
             disabled={busy || !dirty}
             onClick={() => save()}
             className={classNames(
@@ -815,6 +815,20 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
           >
             {busy ? "Saving…" : dirty ? "Save" : "Saved"}
           </button>
+
+          {selected && selectedIdx !== null ? (
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => removeQuestion(selectedIdx)}
+              className={classNames(
+                "rounded-2xl border border-red-200 bg-red-50 px-4 py-2 text-sm font-semibold text-red-700 hover:bg-red-100",
+                busy ? "opacity-60" : "",
+              )}
+            >
+              Delete question
+            </button>
+          ) : null}
 
           <button
             type="button"
@@ -835,12 +849,28 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
 
       {error ? <div className="mt-6 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">{error}</div> : null}
 
-      <div className="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-[360px_1fr]">
+      <div className="mt-6 grid grid-cols-1 gap-4 xl:grid-cols-[280px_minmax(0,1fr)_360px]">
         <aside className="rounded-3xl border border-zinc-200 bg-white p-4">
           <div className="flex items-center justify-between">
             <div className="text-sm font-semibold text-brand-ink">Questions</div>
             <div className="text-xs text-zinc-600">{(fields || []).length}</div>
           </div>
+
+          <button
+            type="button"
+            onClick={() => setSelectedIdx(null)}
+            className={classNames(
+              "mt-3 flex w-full items-center justify-between rounded-2xl border px-3 py-2 text-left",
+              selectedIdx === null
+                ? "border-(--color-brand-blue) bg-blue-50"
+                : "border-zinc-200 bg-white hover:bg-zinc-50",
+            )}
+          >
+            <span>
+              <span className="block text-sm font-semibold text-zinc-900">Form settings</span>
+              <span className="mt-0.5 block text-xs text-zinc-600">Styles and post-submit page</span>
+            </span>
+          </button>
 
           <div className="mt-3 space-y-2">
             {(fields || []).map((q, idx) => (
@@ -875,13 +905,6 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
                   >
                     ↓
                   </button>
-                  <button
-                    type="button"
-                    onClick={() => removeQuestion(idx)}
-                    className="rounded-xl border border-red-200 bg-white px-2 py-1 text-xs font-semibold text-red-700 hover:bg-red-50"
-                  >
-                    Delete
-                  </button>
                 </div>
               </div>
             ))}
@@ -889,148 +912,79 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
         </aside>
 
         <section className="rounded-3xl border border-zinc-200 bg-white p-6">
-          {!selected ? (
-            <div className="mt-6 text-sm text-zinc-600">Add a question to start.</div>
-          ) : (
-            <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-2">
-                <div>
-                  <div className="text-sm font-semibold text-brand-ink">Edit question</div>
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <div className="text-sm font-semibold text-brand-ink">Preview</div>
+              <div className="mt-1 text-xs text-zinc-500">All questions appear here in the order they’ll show to visitors.</div>
+            </div>
+            <div className="text-xs text-zinc-500">Click a question to edit it</div>
+          </div>
 
-                  <div className="mt-4 space-y-3">
-                    <label className="block">
-                      <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Label</div>
-                      <input
-                        value={selected.label}
-                        onChange={(e) => {
-                          const v = e.target.value;
-                          setFields((prev) => (prev || []).map((f, i) => (i === selectedIdx ? { ...f, label: v } : f)));
-                        }}
-                        className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm text-zinc-900 placeholder:text-zinc-400"
-                      />
-                    </label>
-
-                    <label className="block">
-                      <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Field key</div>
-                      <input
-                        value={selected.name}
-                        onChange={(e) => {
-                          const v = slugifyName(e.target.value);
-                          setFields((prev) => (prev || []).map((f, i) => (i === selectedIdx ? { ...f, name: v } : f)));
-                        }}
-                        onBlur={() => {
-                          const desired = slugifyName(selected.name);
-                          const existing = (fields || []).filter((_, i) => i !== selectedIdx).map((f) => f.name);
-                          const unique = makeUniqueFieldKey(desired, existing);
-                          if (unique !== desired) {
-                            setFields((prev) => (prev || []).map((f, i) => (i === selectedIdx ? { ...f, name: unique } : f)));
-                          }
-                        }}
-                        className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm text-zinc-900 placeholder:text-zinc-400"
-                      />
-                    </label>
-
-                    <label className="block">
-                      <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Type</div>
-                      <PortalListboxDropdown
-                        value={selected.type}
-                        onChange={(t) => {
-                          setFields((prev) =>
-                            (prev || []).map((f, i) => {
-                              if (i !== selectedIdx) return f;
-                              const nextType = t as FieldType;
-                              const nextOptions = nextType === "checklist" || nextType === "radio" ? f.options || ["Option 1", "Option 2"] : undefined;
-                              return { ...f, type: nextType, options: nextOptions };
-                            }),
-                          );
-                        }}
-                        options={[
-                          { value: "short_answer", label: "Short answer" },
-                          { value: "long_answer", label: "Long answer" },
-                          { value: "paragraph", label: "Paragraph" },
-                          { value: "name", label: "Name" },
-                          { value: "email", label: "Email" },
-                          { value: "phone", label: "Phone number" },
-                          { value: "signature", label: "Signature" },
-                          { value: "checklist", label: "Checklist" },
-                          { value: "radio", label: "Multiple choice" },
-                        ]}
-                        className="mt-1 w-full"
-                        buttonClassName="flex w-full items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm text-zinc-900 hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
-                      />
-                    </label>
-
-                    {selected.type === "checklist" || selected.type === "radio" ? (
-                      <label className="block">
-                        <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Options</div>
-                        <textarea
-                          value={(selected.options || []).join("\n")}
-                          onChange={(e) => {
-                            const nextOptions = e.target.value
-                              .split("\n")
-                              .map((s) => s.trim())
-                              .filter(Boolean)
-                              .slice(0, 50);
-                            setFields((prev) => (prev || []).map((f, i) => (i === selectedIdx ? { ...f, options: nextOptions } : f)));
-                          }}
-                          placeholder={"Option 1\nOption 2"}
-                          className="mt-1 min-h-24 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm text-zinc-900 placeholder:text-zinc-400"
-                        />
-                        <div className="mt-1 text-xs text-zinc-500">One option per line.</div>
-                      </label>
-                    ) : null}
-
-                    <label className="flex items-center gap-2">
-                      <input
-                        type="checkbox"
-                        checked={!!selected.required}
-                        onChange={(e) => {
-                          const required = e.target.checked;
-                          setFields((prev) => (prev || []).map((f, i) => (i === selectedIdx ? { ...f, required } : f)));
-                        }}
-                        className="h-4 w-4 rounded border-zinc-300"
-                      />
-                      <span className="text-sm font-semibold text-zinc-900">Required</span>
-                    </label>
-                  </div>
-                </div>
-
-                <div>
-                  <div className="text-sm font-semibold text-brand-ink">Preview</div>
-                  <div
-                    className="mt-4 rounded-3xl border border-zinc-200 p-6"
-                    style={
-                      style.pageBg === "transparent"
-                        ? {
-                            backgroundColor: "transparent",
-                            backgroundImage: TRANSPARENCY_CHECKERBOARD,
-                            backgroundSize: "18px 18px",
-                            backgroundPosition: "0 0, 0 9px, 9px -9px, -9px 0px",
-                          }
-                        : { backgroundColor: style.pageBg || "#f4f4f5" }
+          <div
+            className="mt-4 rounded-3xl border border-zinc-200 p-6"
+            style={
+              style.pageBg === "transparent"
+                ? {
+                    backgroundColor: "transparent",
+                    backgroundImage: TRANSPARENCY_CHECKERBOARD,
+                    backgroundSize: "18px 18px",
+                    backgroundPosition: "0 0, 0 9px, 9px -9px, -9px 0px",
+                  }
+                : { backgroundColor: style.pageBg || "#f4f4f5" }
+            }
+          >
+            <div
+              className="rounded-3xl border border-zinc-200 p-6"
+              style={
+                style.cardBg === "transparent"
+                  ? {
+                      backgroundColor: "transparent",
+                      backgroundImage: TRANSPARENCY_CHECKERBOARD,
+                      backgroundSize: "18px 18px",
+                      backgroundPosition: "0 0, 0 9px, 9px -9px, -9px 0px",
+                      fontFamily: style.fontFamily || undefined,
                     }
-                  >
-                    <div
-                      className="rounded-3xl border border-zinc-200 p-6"
-                      style={
-                        style.cardBg === "transparent"
-                          ? {
-                              backgroundColor: "transparent",
-                              backgroundImage: TRANSPARENCY_CHECKERBOARD,
-                              backgroundSize: "18px 18px",
-                              backgroundPosition: "0 0, 0 9px, 9px -9px, -9px 0px",
-                                fontFamily: style.fontFamily || undefined,
-                            }
-                            : { backgroundColor: style.cardBg || "#ffffff", fontFamily: style.fontFamily || undefined }
-                      }
+                  : { backgroundColor: style.cardBg || "#ffffff", fontFamily: style.fontFamily || undefined }
+              }
+            >
+              <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">{form?.name || "Form"}</div>
+              <div className="mt-2 text-2xl font-bold" style={{ color: style.textColor || "#18181b" }}>
+                {form?.name || "Untitled form"}
+              </div>
+              <div className="mt-2 text-sm" style={{ color: style.textColor || "#18181b" }}>
+                Preview the entire form here and click any question to edit it.
+              </div>
+
+              <div className="mt-6 space-y-4">
+                {(fields || []).length === 0 ? (
+                  <div className="rounded-2xl border border-dashed border-zinc-300 bg-white/70 p-6 text-sm text-zinc-600">
+                    No questions yet. Use the button below to add your first one.
+                  </div>
+                ) : (
+                  (fields || []).map((field, idx) => (
+                    <button
+                      key={`${field.name}-${idx}`}
+                      type="button"
+                      onClick={() => setSelectedIdx(idx)}
+                      className={classNames(
+                        "block w-full rounded-2xl border p-4 text-left transition",
+                        idx === selectedIdx
+                          ? "border-(--color-brand-blue) bg-blue-50"
+                          : "border-zinc-200 bg-white hover:border-zinc-300 hover:bg-zinc-50",
+                      )}
                     >
-                      <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">{form?.name || "Form"}</div>
-                      <div className="mt-2 text-lg font-bold" style={{ color: style.textColor || "#18181b" }}>
-                        {selected.label}
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div className="text-sm font-semibold" style={{ color: style.textColor || "#18181b" }}>
+                          {field.label}
+                        </div>
+                        <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">
+                          {fieldTypeLabel(field.type)}{field.required ? " · required" : ""}
+                        </div>
                       </div>
                       <div className="mt-3">
-                        {selected.type === "checklist" ? (
+                        {field.type === "checklist" ? (
                           <div className="space-y-2">
-                            {(selected.options || ["Option 1", "Option 2"]).map((opt) => (
+                            {(field.options || ["Option 1", "Option 2"]).map((opt) => (
                               <label key={opt} className="flex items-center gap-2 text-sm" style={{ color: style.textColor || "#18181b" }}>
                                 <input
                                   disabled
@@ -1042,9 +996,9 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
                               </label>
                             ))}
                           </div>
-                        ) : selected.type === "radio" ? (
+                        ) : field.type === "radio" ? (
                           <div className="space-y-2">
-                            {(selected.options || ["Option 1", "Option 2"]).map((opt) => (
+                            {(field.options || ["Option 1", "Option 2"]).map((opt) => (
                               <label key={opt} className="flex items-center gap-2 text-sm" style={{ color: style.textColor || "#18181b" }}>
                                 <input
                                   disabled
@@ -1056,7 +1010,7 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
                               </label>
                             ))}
                           </div>
-                        ) : selected.type === "signature" ? (
+                        ) : field.type === "signature" ? (
                           <div
                             className="rounded-2xl border border-dashed px-4 py-4"
                             style={{
@@ -1069,7 +1023,7 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
                             <div className="h-24 w-full rounded-xl border border-zinc-200 bg-white" />
                             <div className="mt-3 text-xs font-semibold uppercase tracking-wide text-zinc-500">Draw signature here</div>
                           </div>
-                        ) : isTextareaField(selected.type) ? (
+                        ) : isTextareaField(field.type) ? (
                           <textarea
                             disabled
                             className="min-h-24 w-full border border-zinc-200 px-4 py-2 text-sm"
@@ -1084,7 +1038,7 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
                         ) : (
                           <input
                             disabled
-                            type={normalizeInputType(selected.type)}
+                            type={normalizeInputType(field.type)}
                             className="w-full border border-zinc-200 px-4 py-2 text-sm"
                             style={{
                               borderRadius: style.radiusPx ?? 16,
@@ -1096,28 +1050,155 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
                           />
                         )}
                       </div>
+                    </button>
+                  ))
+                )}
+              </div>
 
-                      <div className="mt-4 inline-flex items-center rounded-full border border-zinc-200 bg-white px-3 py-1 text-xs font-semibold text-zinc-700">
-                        {selected.required ? "Required" : "Optional"}
-                      </div>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={addQuestion}
+                className={classNames(
+                  "mt-6 inline-flex w-full items-center justify-center rounded-2xl border border-dashed px-4 py-3 text-sm font-semibold",
+                  busy
+                    ? "border-zinc-200 bg-zinc-100 text-zinc-400"
+                    : "border-(--color-brand-blue) bg-blue-50 text-(--color-brand-blue) hover:bg-blue-100",
+                )}
+              >
+                + Add question
+              </button>
 
-                      <button
-                        type="button"
-                        className="mt-4 inline-flex w-full items-center justify-center px-4 py-2 text-sm font-bold"
-                        style={{
-                          borderRadius: style.radiusPx ?? 16,
-                          backgroundColor: style.buttonBg || "#2563eb",
-                          color: style.buttonText || "#ffffff",
-                        }}
-                      >
-                        Submit
-                      </button>
-                    </div>
-                  </div>
+              <button
+                type="button"
+                className="mt-4 inline-flex w-full items-center justify-center px-4 py-2 text-sm font-bold"
+                style={{
+                  borderRadius: style.radiusPx ?? 16,
+                  backgroundColor: style.buttonBg || "#2563eb",
+                  color: style.buttonText || "#ffffff",
+                }}
+              >
+                Submit
+              </button>
+            </div>
+          </div>
+        </section>
 
-                  <div className="mt-6">
-                    <div className="text-sm font-semibold text-brand-ink">Form style</div>
-                    <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <section className="rounded-3xl border border-zinc-200 bg-white p-6">
+          {selected && selectedIdx !== null ? (
+            <>
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <div className="text-sm font-semibold text-brand-ink">Edit question</div>
+                  <div className="mt-1 text-xs text-zinc-500">Update the selected field’s label, key, type, and options.</div>
+                </div>
+                <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">{fieldTypeLabel(selected.type)}</div>
+              </div>
+
+              <div className="mt-4 space-y-3">
+                <label className="block">
+                  <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Label</div>
+                  <input
+                    value={selected.label}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      setFields((prev) => (prev || []).map((f, i) => (i === selectedIdx ? { ...f, label: v } : f)));
+                    }}
+                    className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm text-zinc-900 placeholder:text-zinc-400"
+                  />
+                </label>
+
+                <label className="block">
+                  <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Field key</div>
+                  <input
+                    value={selected.name}
+                    onChange={(e) => {
+                      const v = slugifyName(e.target.value);
+                      setFields((prev) => (prev || []).map((f, i) => (i === selectedIdx ? { ...f, name: v } : f)));
+                    }}
+                    onBlur={() => {
+                      const desired = slugifyName(selected.name);
+                      const existing = (fields || []).filter((_, i) => i !== selectedIdx).map((f) => f.name);
+                      const unique = makeUniqueFieldKey(desired, existing);
+                      if (unique !== desired) {
+                        setFields((prev) => (prev || []).map((f, i) => (i === selectedIdx ? { ...f, name: unique } : f)));
+                      }
+                    }}
+                    className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm text-zinc-900 placeholder:text-zinc-400"
+                  />
+                </label>
+
+                <label className="block">
+                  <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Type</div>
+                  <PortalListboxDropdown
+                    value={selected.type}
+                    onChange={(t) => {
+                      setFields((prev) =>
+                        (prev || []).map((f, i) => {
+                          if (i !== selectedIdx) return f;
+                          const nextType = t as FieldType;
+                          const nextOptions = nextType === "checklist" || nextType === "radio" ? f.options || ["Option 1", "Option 2"] : undefined;
+                          return { ...f, type: nextType, options: nextOptions };
+                        }),
+                      );
+                    }}
+                    options={[
+                      { value: "short_answer", label: "Short answer" },
+                      { value: "long_answer", label: "Long answer" },
+                      { value: "paragraph", label: "Paragraph" },
+                      { value: "name", label: "Name" },
+                      { value: "email", label: "Email" },
+                      { value: "phone", label: "Phone number" },
+                      { value: "signature", label: "Signature" },
+                      { value: "checklist", label: "Checklist" },
+                      { value: "radio", label: "Multiple choice" },
+                    ]}
+                    className="mt-1 w-full"
+                    buttonClassName="flex w-full items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm text-zinc-900 hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
+                  />
+                </label>
+
+                {selected.type === "checklist" || selected.type === "radio" ? (
+                  <label className="block">
+                    <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Options</div>
+                    <textarea
+                      value={(selected.options || []).join("\n")}
+                      onChange={(e) => {
+                        const nextOptions = e.target.value
+                          .split("\n")
+                          .map((s) => s.trim())
+                          .filter(Boolean)
+                          .slice(0, 50);
+                        setFields((prev) => (prev || []).map((f, i) => (i === selectedIdx ? { ...f, options: nextOptions } : f)));
+                      }}
+                      placeholder={"Option 1\nOption 2"}
+                      className="mt-1 min-h-24 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm text-zinc-900 placeholder:text-zinc-400"
+                    />
+                    <div className="mt-1 text-xs text-zinc-500">One option per line.</div>
+                  </label>
+                ) : null}
+
+                <label className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={!!selected.required}
+                    onChange={(e) => {
+                      const required = e.target.checked;
+                      setFields((prev) => (prev || []).map((f, i) => (i === selectedIdx ? { ...f, required } : f)));
+                    }}
+                    className="h-4 w-4 rounded border-zinc-300"
+                  />
+                  <span className="text-sm font-semibold text-zinc-900">Required</span>
+                </label>
+              </div>
+            </>
+          ) : (
+            <>
+              <div>
+                <div className="text-sm font-semibold text-brand-ink">Form style</div>
+                <div className="mt-1 text-xs text-zinc-500">When no question is selected, this panel controls the full form experience.</div>
+              </div>
+              <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
                       <label className="block sm:col-span-2">
                         <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Font</div>
                         <PortalFontDropdown
@@ -1317,7 +1398,18 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
 
                     <div className="mt-6 border-t border-zinc-200 pt-6">
                       <div className="text-sm font-semibold text-brand-ink">Post-submit page</div>
+                      <div className="mt-1 text-xs text-zinc-500">Customize the thank-you state visitors see after a successful submission.</div>
                       <div className="mt-3 space-y-3">
+                        <label className="block">
+                          <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Eyebrow</div>
+                          <input
+                            value={successContent.eyebrow || ""}
+                            onChange={(e) => setSuccessContent((prev) => ({ ...prev, eyebrow: e.target.value }))}
+                            className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm text-zinc-900 placeholder:text-zinc-400"
+                            placeholder="Submission received"
+                          />
+                        </label>
+
                         <label className="block">
                           <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Title</div>
                           <input
@@ -1339,8 +1431,20 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
                           <div className="mt-1 text-xs text-zinc-500">This replaces the default thank-you message after a successful submission.</div>
                         </label>
 
+                        <label className="block">
+                          <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Button label</div>
+                          <input
+                            value={successContent.buttonLabel || ""}
+                            onChange={(e) => setSuccessContent((prev) => ({ ...prev, buttonLabel: e.target.value }))}
+                            className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm text-zinc-900 placeholder:text-zinc-400"
+                            placeholder="Submit another response"
+                          />
+                        </label>
+
                         <div className="rounded-3xl border border-emerald-200 bg-emerald-50/80 p-5">
-                          <div className="text-xs font-semibold uppercase tracking-wide text-emerald-700">Success preview</div>
+                          <div className="text-xs font-semibold uppercase tracking-wide text-emerald-700">
+                            {successContent.eyebrow?.trim() || "Submission received"}
+                          </div>
                           <div className="mt-2 text-xl font-bold" style={{ color: style.textColor || "#18181b" }}>
                             {successContent.title?.trim() || "Submitted. Thank you!"}
                           </div>
@@ -1351,7 +1455,7 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
                             type="button"
                             className="mt-4 inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800"
                           >
-                            Submit another response
+                            {successContent.buttonLabel?.trim() || "Submit another response"}
                           </button>
                         </div>
 
@@ -1366,10 +1470,7 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
                         </div>
                       </div>
                     </div>
-                  </div>
-
-                </div>
-              </div>
+            </>
           )}
         </section>
       </div>
