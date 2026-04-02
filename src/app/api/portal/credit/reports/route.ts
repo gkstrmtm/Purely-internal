@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { prisma } from "@/lib/db";
+import { deriveCreditReportItemAudit, extractCreditReportSnapshot, normalizeCreditScope } from "@/lib/creditReports";
 import { requireCreditClientSession } from "@/lib/creditPortalAccess";
 
 export const runtime = "nodejs";
@@ -14,12 +15,6 @@ const importSchema = z.object({
   creditScope: z.enum(["PERSONAL", "BUSINESS", "BOTH"]).optional().nullable(),
   rawJson: z.unknown(),
 });
-
-function normalizeCreditScope(raw: unknown): "PERSONAL" | "BUSINESS" | "BOTH" {
-  const value = typeof raw === "string" ? raw.trim().toUpperCase() : "";
-  if (value === "BUSINESS" || value === "BOTH") return value;
-  return "PERSONAL";
-}
 
 function extractItems(raw: any): any[] {
   if (!raw) return [];
@@ -84,6 +79,7 @@ export async function GET() {
     reports: reports.map((report) => ({
       ...report,
       creditScope: normalizeCreditScope((report.rawJson as any)?.creditScope ?? (report.rawJson as any)?.scope),
+      creditSnapshot: extractCreditReportSnapshot(report.rawJson),
     })),
   });
 }
@@ -129,13 +125,14 @@ export async function POST(req: Request) {
       const bureau = typeof item?.bureau === "string" ? item.bureau.slice(0, 40) : null;
       const kind = typeof item?.kind === "string" ? item.kind.slice(0, 60) : null;
       const label = labelForItem(item);
+      const { auditTag } = deriveCreditReportItemAudit({ bureau, kind, label, detailsJson: item, disputeStatus: null });
       return {
         reportId: created.id,
         bureau,
         kind,
         label,
         detailsJson: item as any,
-        auditTag: "PENDING" as const,
+        auditTag,
         disputeStatus: null,
         createdAt: new Date(),
         updatedAt: new Date(),
@@ -153,9 +150,19 @@ export async function POST(req: Request) {
       importedAt: true,
       contactId: true,
       contact: { select: { id: true, name: true, email: true } },
+      rawJson: true,
       _count: { select: { items: true } },
     },
   });
 
-  return NextResponse.json({ ok: true, report: report ? { ...report, creditScope } : report });
+  return NextResponse.json({
+    ok: true,
+    report: report
+      ? {
+          ...report,
+          creditScope,
+          creditSnapshot: extractCreditReportSnapshot(report.rawJson),
+        }
+      : report,
+  });
 }

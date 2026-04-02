@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { prisma } from "@/lib/db";
+import { extractCreditReportSnapshot, normalizeCreditScope } from "@/lib/creditReports";
 import { requireCreditClientSession } from "@/lib/creditPortalAccess";
 
 export const runtime = "nodejs";
@@ -18,12 +19,6 @@ function normalizeProvider(raw: unknown) {
   const s = typeof raw === "string" ? raw.trim() : "";
   if (!s) return "IdentityIQ";
   return s.slice(0, 40);
-}
-
-function normalizeCreditScope(raw: unknown): "PERSONAL" | "BUSINESS" | "BOTH" {
-  const value = typeof raw === "string" ? raw.trim().toUpperCase() : "";
-  if (value === "BUSINESS" || value === "BOTH") return value;
-  return "PERSONAL";
 }
 
 export async function POST(req: Request) {
@@ -62,6 +57,23 @@ export async function POST(req: Request) {
         creditScope,
         requestedAt: now.toISOString(),
         contact: { id: contact.id, name: contact.name, email: contact.email },
+        profile: {
+          currentScore: 642,
+          targetScore: 700,
+          bureauScores: {
+            Experian: 638,
+            Equifax: 646,
+            TransUnion: 642,
+          },
+          goals: [
+            "Remove remaining derogatory accounts",
+            "Bring utilization below 10%",
+            "Get funding-ready for the next application round",
+          ],
+          utilizationPercent: 28,
+          openDisputes: 0,
+          nextMilestone: "Provider sync is pending. Once the report lands, review negatives first and confirm current utilization.",
+        },
         note: "Provider pull integration not configured yet",
       } as any,
     },
@@ -76,5 +88,5 @@ export async function POST(req: Request) {
     },
   });
 
-  return NextResponse.json({ ok: true, report: { ...created, creditScope } });
+  return NextResponse.json({ ok: true, report: { ...created, creditScope, creditSnapshot: extractCreditReportSnapshot(created.rawJson) } });
 }

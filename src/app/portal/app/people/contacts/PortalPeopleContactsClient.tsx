@@ -2134,7 +2134,7 @@ export function PortalPeopleContactsClient() {
                 ) : null}
 
                 <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                  <div className="text-xs text-zinc-500">Tip: Name is required.</div>
+                  <div className="text-xs text-zinc-500" />
                   <button
                     type="button"
                     disabled={manualBusy}

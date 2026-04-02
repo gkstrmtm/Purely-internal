@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth";
 import { z } from "zod";
 
 import { authOptions } from "@/lib/auth";
+import { deriveCreditReportItemAudit } from "@/lib/creditReports";
 import { prisma } from "@/lib/db";
 import { normalizeEmailKey, normalizeNameKey, normalizePhoneKey } from "@/lib/portalContacts";
 
@@ -24,6 +25,12 @@ type DemoContactSeed = {
   name: string;
   email: string;
   phone: string;
+  currentScore: number;
+  targetScore: number;
+  bureauScores: Record<string, number>;
+  goals: string[];
+  utilizationPercent: number;
+  nextMilestone: string;
 };
 
 type DemoReportItemSeed = {
@@ -101,13 +108,22 @@ async function upsertDemoContact(ownerId: string, seed: DemoContactSeed) {
   });
 }
 
-async function createReport(ownerId: string, contactId: string, importedAt: Date, provider: string, items: DemoReportItemSeed[]) {
+async function createReport(ownerId: string, contactId: string, importedAt: Date, provider: string, contactSeed: DemoContactSeed, items: DemoReportItemSeed[]) {
   const report = await prisma.creditReport.create({
     data: {
       ownerId,
       contactId,
       provider,
       rawJson: {
+        profile: {
+          currentScore: contactSeed.currentScore,
+          targetScore: contactSeed.targetScore,
+          bureauScores: contactSeed.bureauScores,
+          goals: contactSeed.goals,
+          utilizationPercent: contactSeed.utilizationPercent,
+          openDisputes: items.filter((item) => String(item.disputeStatus || "").trim()).length,
+          nextMilestone: contactSeed.nextMilestone,
+        },
         items: items.map((item) => ({
           bureau: item.bureau,
           kind: item.kind,
@@ -123,12 +139,15 @@ async function createReport(ownerId: string, contactId: string, importedAt: Date
 
   await prisma.creditReportItem.createMany({
     data: items.map((item, index) => ({
+      ...(() => {
+        const derived = deriveCreditReportItemAudit(item);
+        return { auditTag: derived.auditTag };
+      })(),
       reportId: report.id,
       bureau: item.bureau,
       kind: item.kind,
       label: item.label,
       detailsJson: item.detailsJson as any,
-      auditTag: item.auditTag,
       disputeStatus: item.disputeStatus,
       createdAt: new Date(importedAt.getTime() + index * 60 * 1000),
       updatedAt: new Date(importedAt.getTime() + index * 60 * 1000),
@@ -368,23 +387,43 @@ export async function POST(req: Request) {
       }
     }
 
-    const contacts = await Promise.all([
-      upsertDemoContact(owner.id, {
+    const contactSeeds: DemoContactSeed[] = [
+      {
         name: "Alicia Carter",
         email: "alicia.carter@example.com",
         phone: "+1 (813) 555-0181",
-      }),
-      upsertDemoContact(owner.id, {
+        currentScore: 611,
+        targetScore: 700,
+        bureauScores: { Experian: 604, Equifax: 617, TransUnion: 612 },
+        goals: ["Remove collection accounts", "Get mortgage-ready", "Stabilize revolving utilization"],
+        utilizationPercent: 34,
+        nextMilestone: "Clear the remaining collection and late payment items before any mortgage prep.",
+      },
+      {
         name: "Brandon Miles",
         email: "brandon.miles@example.com",
         phone: "+1 (813) 555-0182",
-      }),
-      upsertDemoContact(owner.id, {
+        currentScore: 648,
+        targetScore: 720,
+        bureauScores: { Experian: 641, Equifax: 655, TransUnion: 649 },
+        goals: ["Finish current disputes", "Reach 700+ across bureaus", "Open one cleaner revolving line"],
+        utilizationPercent: 19,
+        nextMilestone: "Resolve the charge-off follow-up and keep new inquiries frozen for 30 days.",
+      },
+      {
         name: "Chelsea Monroe",
         email: "chelsea.monroe@example.com",
         phone: "+1 (813) 555-0183",
-      }),
-    ]);
+        currentScore: 703,
+        targetScore: 740,
+        bureauScores: { Experian: 698, Equifax: 711, TransUnion: 700 },
+        goals: ["Keep the file clean", "Prepare for prime card approvals"],
+        utilizationPercent: 8,
+        nextMilestone: "Protect the clean file and avoid unnecessary inquiries while prime options are shopped.",
+      },
+    ];
+
+    const contacts = await Promise.all(contactSeeds.map((seed) => upsertDemoContact(owner.id, seed)));
 
     const aliciaImportedAt = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000);
     const brandonImportedAt = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000);
@@ -398,8 +437,8 @@ export async function POST(req: Request) {
     });
 
     const reportIds = await Promise.all([
-      createReport(owner.id, contacts[0].id, aliciaImportedAt, "IdentityIQ", reportItemsForAlicia()),
-      createReport(owner.id, contacts[1].id, brandonImportedAt, "SmartCredit", reportItemsForBrandon()),
+      createReport(owner.id, contacts[0].id, aliciaImportedAt, "IdentityIQ", contactSeeds[0], reportItemsForAlicia()),
+      createReport(owner.id, contacts[1].id, brandonImportedAt, "SmartCredit", contactSeeds[1], reportItemsForBrandon()),
     ]);
 
     const letterIds = await Promise.all([

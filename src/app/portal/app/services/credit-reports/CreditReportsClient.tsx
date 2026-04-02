@@ -7,10 +7,9 @@ import { IconFunnel } from "@/app/portal/PortalIcons";
 import { PortalListboxDropdown, type PortalListboxOption } from "@/components/PortalListboxDropdown";
 import { PortalSearchableCombobox, type PortalSearchableOption } from "@/components/PortalSearchableCombobox";
 import { useToast } from "@/components/ToastProvider";
+import { creditScopeLabel, type CreditReportSnapshot, type CreditScope } from "@/lib/creditReports";
 
 type ContactLite = { id: string; name: string; email: string | null };
-
-type CreditScope = "PERSONAL" | "BUSINESS" | "BOTH";
 
 type ReportLite = {
   id: string;
@@ -20,6 +19,7 @@ type ReportLite = {
   creditScope: CreditScope;
   contactId: string | null;
   contact: { id: string; name: string; email: string | null } | null;
+  creditSnapshot?: CreditReportSnapshot;
   _count: { items: number };
 };
 
@@ -29,6 +29,7 @@ type ReportItemLite = {
   kind: string | null;
   label: string;
   auditTag: "PENDING" | "NEGATIVE" | "POSITIVE";
+  auditReason?: string;
   disputeStatus: string | null;
   createdAt: string;
   updatedAt: string;
@@ -36,6 +37,7 @@ type ReportItemLite = {
 
 type ReportFull = ReportLite & {
   rawJson: any;
+  creditSnapshot?: CreditReportSnapshot;
   items: ReportItemLite[];
 };
 
@@ -59,15 +61,9 @@ const REPORT_FILTER_LABELS: Record<"ALL" | "PENDING" | "NEGATIVE" | "POSITIVE" |
   ALL: "All items",
   PENDING: "Review now",
   NEGATIVE: "Needs dispute",
-  POSITIVE: "Looks good",
+  POSITIVE: "Clean items",
   TRACKED: "Follow-up",
 };
-
-function creditScopeLabel(scope: CreditScope) {
-  if (scope === "BUSINESS") return "Business credit";
-  if (scope === "BOTH") return "Personal + business credit";
-  return "Personal credit";
-}
 
 function classNames(...values: Array<string | false | null | undefined>) {
   return values.filter(Boolean).join(" ");
@@ -82,17 +78,31 @@ function scoreReportItem(item: ReportItemLite) {
   return total;
 }
 
-function itemActionHint(item: ReportItemLite) {
-  if (item.auditTag === "NEGATIVE") return "Click to create dispute →";
-  if (item.auditTag === "PENDING") return "Click to review item →";
-  return "Click to open item →";
-}
-
 function itemSummaryText(item: ReportItemLite) {
   if (item.disputeStatus) return `Latest follow-up: ${item.disputeStatus}`;
-  if (item.auditTag === "NEGATIVE") return "This item is ready to move into a dispute.";
-  if (item.auditTag === "PENDING") return "Open the item, confirm the details, and decide the next move.";
-  return "Keep this item clean while the rest of the report gets worked.";
+  if (item.auditReason) return item.auditReason;
+  if (item.auditTag === "NEGATIVE") return "This item is automatically flagged as a dispute priority.";
+  if (item.auditTag === "PENDING") return "This item needs review before it should move into dispute.";
+  return "This item is reading as clean right now.";
+}
+
+function scoreTone(score: number | null) {
+  if (score === null) return { label: "No score yet", accent: "#a1a1aa" };
+  if (score >= 720) return { label: "Strong", accent: "#2563eb" };
+  if (score >= 660) return { label: "Building", accent: "#fb7185" };
+  return { label: "Needs work", accent: "#f97316" };
+}
+
+function ringTrack(segments: Array<{ value: number; color: string }>) {
+  const total = segments.reduce((sum, segment) => sum + Math.max(segment.value, 0), 0) || 1;
+  let running = 0;
+  const parts = segments.map((segment) => {
+    const start = (running / total) * 360;
+    running += Math.max(segment.value, 0);
+    const end = (running / total) * 360;
+    return `${segment.color} ${start}deg ${end}deg`;
+  });
+  return `conic-gradient(${parts.join(", ")})`;
 }
 
 function computeFixedMenuStyle(rect: DOMRect, width = 288, estHeight = 320): FixedMenuStyle {
@@ -130,114 +140,71 @@ function reportRoutesFor(pathname: string | null) {
   };
 }
 
-function buildOpportunityPlans(report: ReportFull | null, summary: { pending: number; negative: number; positive: number; tracked: number }, creditScope: CreditScope) {
-  const items = report?.items || [];
-  const lowerText = items
-    .map((item) => [item.label, item.kind, item.bureau, item.disputeStatus].map((value) => String(value || "").toLowerCase()).join(" "))
-    .join(" ");
+function buildOpportunityPlans(
+  summary: { pending: number; negative: number; positive: number; tracked: number },
+  creditScope: CreditScope,
+  snapshot: CreditReportSnapshot | null,
+): OpportunityPlan[] {
+  const currentScore = snapshot?.currentScore ?? null;
+  const scoreGap = snapshot?.scoreDelta ?? null;
+  const utilization = snapshot?.utilizationPercent ?? null;
+  const goals = snapshot?.goals || [];
+  const cleanupHeavy = summary.negative >= 2 || summary.pending >= 2;
+  const fundingReady = currentScore !== null && currentScore >= 680 && summary.negative <= 1 && summary.pending <= 1;
 
-  const hasUtilizationSignals = lowerText.includes("revolving") || lowerText.includes("credit card") || lowerText.includes("utilization");
-  const isCleanEnoughForOffers = summary.negative <= 2 && summary.pending <= 1;
-  const isStillRepairHeavy = summary.negative >= 3 || summary.pending >= 3;
-
-  const businessFunding: OpportunityPlan = {
-    key: "business-funding",
-    title: "Business options",
-    readinessLabel: isCleanEnoughForOffers ? "Shortlist business options" : "Build the file before applying",
-    offers: isCleanEnoughForOffers
-      ? [
-          { label: "Amex Blue Business Cash", href: "https://www.americanexpress.com/us/credit-cards/business/business-credit-cards/american-express-blue-business-cash-card-amex/", source: "American Express" },
-          { label: "Capital on Tap Business Card", href: "https://www.capitalontap.com/en/", source: "Capital on Tap" },
-          { label: "Fundbox Line of Credit", href: "https://fundbox.com/line-of-credit/", source: "Fundbox" },
-          { label: "Bluevine Business Line", href: "https://www.bluevine.com/line-of-credit/", source: "Bluevine" },
-        ]
-      : [
-          { label: "Nav Prime", href: "https://www.nav.com/nav-prime/", source: "Nav" },
-          { label: "Tillful", href: "https://www.tillful.com/", source: "Tillful" },
-          { label: "Quill", href: "https://www.quill.com/", source: "Starter vendor" },
-          { label: "Uline", href: "https://www.uline.com/", source: "Starter vendor" },
-        ],
-    summary: isCleanEnoughForOffers
-      ? "The file looks clean enough to shortlist a few business options, but keep the application count tight and the business profile consistent."
-      : "Stay in build mode until the report has fewer unresolved negatives and less review work, then reopen business options.",
-  };
-
-  const personalFunding: OpportunityPlan = {
-    key: "personal-funding",
-    title: "Personal options",
-    readinessLabel: isCleanEnoughForOffers ? "Shortlist personal options" : "Hold off until cleanup lands",
-    offers: isCleanEnoughForOffers
-      ? [
-          { label: "Upgrade Personal Loan", href: "https://www.upgrade.com/personal-loans/", source: "Upgrade" },
-          { label: "LendingClub Personal Loan", href: "https://www.lendingclub.com/personal-loans", source: "LendingClub" },
-          { label: "Prosper Personal Loan", href: "https://www.prosper.com/personal-loans/", source: "Prosper" },
-          { label: "Upstart Personal Loan", href: "https://www.upstart.com/loans/personal-loans", source: "Upstart" },
-        ]
-      : [
-          { label: "OneMain Financial", href: "https://www.onemainfinancial.com/personal-loans", source: "OneMain" },
-          { label: "Avant", href: "https://www.avant.com/personal-loans", source: "Avant" },
-          { label: "Best Egg", href: "https://www.bestegg.com/personal-loans/", source: "Best Egg" },
-          { label: "Achieve", href: "https://www.achieve.com/personal-loans", source: "Achieve" },
-        ],
-    summary: isCleanEnoughForOffers
-      ? "Personal options are reasonable if utilization stays controlled and applications stay selective."
-      : "Treat personal applications as phase two. Clean the report first so the file is not taking unnecessary new hits.",
-  };
-
-  const creditCards: OpportunityPlan = {
-    key: "credit-cards",
-    title: creditScope === "BUSINESS" ? "Business credit cards" : creditScope === "PERSONAL" ? "Personal credit cards" : "Credit cards",
-    readinessLabel: hasUtilizationSignals || isCleanEnoughForOffers ? "Use cards carefully" : "Start with rebuild cards",
-    offers: creditScope === "BUSINESS"
-      ? [
-          { label: "Amex Blue Business Cash", href: "https://www.americanexpress.com/us/credit-cards/business/business-credit-cards/american-express-blue-business-cash-card-amex/", source: "American Express" },
-          { label: "Capital on Tap Business Card", href: "https://www.capitalontap.com/en/", source: "Capital on Tap" },
-          { label: "Brex Card", href: "https://www.brex.com/", source: "Brex" },
-          { label: "Ramp Card", href: "https://ramp.com/", source: "Ramp" },
-        ]
-      : hasUtilizationSignals || isCleanEnoughForOffers
-      ? [
-          { label: "Capital One QuicksilverOne", href: "https://www.capitalone.com/credit-cards/quicksilverone/", source: "Capital One" },
-          { label: "Mission Lane Visa", href: "https://www.missionlane.com/", source: "Mission Lane" },
-          { label: "Merrick Bank Double Your Line", href: "https://www.merrickbank.com/Credit-Cards/", source: "Merrick Bank" },
-          { label: "Amex Blue Business Cash", href: "https://www.americanexpress.com/us/credit-cards/business/business-credit-cards/american-express-blue-business-cash-card-amex/", source: "American Express" },
-        ]
-      : [
-          { label: "Discover it Secured", href: "https://www.discover.com/credit-cards/secured-credit-card/", source: "Discover" },
-          { label: "Capital One Platinum Secured", href: "https://www.capitalone.com/credit-cards/platinum-secured/", source: "Capital One" },
-          { label: "OpenSky Secured", href: "https://www.openskycc.com/", source: "OpenSky" },
-          { label: "Self Visa Secured", href: "https://www.self.inc/credit-builder-credit-card", source: "Self" },
-        ],
-    summary: hasUtilizationSignals
-      ? "This is the fastest lane to influence the file, but only if balances stay low and new accounts stay deliberate."
-      : "Use this lane to add clean revolving history without over-applying or chasing limits too early.",
-  };
-
-  const otherActions: OpportunityPlan = {
-    key: "monitoring",
-    title: "Monitoring",
-    readinessLabel: isStillRepairHeavy ? "Stay in repair mode" : "Keep monitoring live",
-    offers: isStillRepairHeavy
-      ? [
-          { label: "Experian Dispute Center", href: "https://www.experian.com/disputes/main.html", source: "Experian" },
-          { label: "Equifax Dispute Portal", href: "https://www.equifax.com/personal/credit-report-services/credit-dispute/", source: "Equifax" },
-          { label: "TransUnion Dispute Center", href: "https://dispute.transunion.com/", source: "TransUnion" },
-          { label: "AnnualCreditReport", href: "https://www.annualcreditreport.com/", source: "Bureau refresh" },
-        ]
-      : [
-          { label: "AnnualCreditReport", href: "https://www.annualcreditreport.com/", source: "Monitoring" },
-          { label: "Experian Account", href: "https://www.experian.com/", source: "Experian" },
-          { label: "Equifax Account", href: "https://www.equifax.com/", source: "Equifax" },
-          { label: "TransUnion Account", href: "https://www.transunion.com/", source: "TransUnion" },
-        ],
-    summary: isStillRepairHeavy
-      ? "The report still needs cleanup, follow-up, and bureau monitoring before bigger applications should take the lead."
-      : "Even when the file improves, steady monitoring and follow-up keep it from sliding backward.",
-  };
-
-  if (creditScope === "BUSINESS") return [businessFunding, creditCards, otherActions];
-  if (creditScope === "PERSONAL") return [personalFunding, creditCards, otherActions];
-  return [businessFunding, personalFunding, creditCards, otherActions];
+  return [
+    {
+      key: "goal-stack",
+      title: "Client goals",
+      readinessLabel: goals.length ? `${goals.length} active goals` : "Goals need to be set",
+      offers: goals.length
+        ? goals.map((goal, index) => ({ label: goal, href: "#", source: index === 0 ? "Primary" : "Goal" }))
+        : [
+            { label: "Clear negative accounts", href: "#", source: "Suggested" },
+            { label: "Raise score into approval range", href: "#", source: "Suggested" },
+          ],
+      summary: snapshot?.nextMilestone || "Tie the report to what this client is actually trying to accomplish next.",
+    },
+    {
+      key: "score-strategy",
+      title: "Score strategy",
+      readinessLabel: scoreGap && scoreGap > 0 ? `${scoreGap} points to target` : "Target is within reach",
+      offers: [
+        { label: utilization !== null ? `Utilization ${utilization}%` : "Utilization pending", href: "#", source: "Current" },
+        { label: `${summary.negative} dispute priorities`, href: "#", source: "Cleanup" },
+        { label: `${summary.pending} review items`, href: "#", source: "Review" },
+        { label: `${summary.tracked} tracked disputes`, href: "#", source: "Follow-up" },
+      ],
+      summary:
+        utilization !== null && utilization > 10
+          ? "Bring revolving balances down first, then protect the file from extra inquiries while the score improves."
+          : cleanupHeavy
+            ? "Cleanup still drives the biggest score gains here. Finish the negatives and reviews before broad applications."
+            : "The file is stabilizing. Keep the score gains by staying selective and keeping balances low.",
+    },
+    {
+      key: "funding-lane",
+      title: creditScope === "BUSINESS" ? "Business funding lane" : creditScope === "BOTH" ? "Funding lanes" : "Personal funding lane",
+      readinessLabel: fundingReady ? "Ready to shortlist options" : "Not ready for a broad application push",
+      offers: fundingReady
+        ? creditScope === "BUSINESS"
+          ? [
+              { label: "Amex Blue Business Cash", href: "https://www.americanexpress.com/us/credit-cards/business/business-credit-cards/american-express-blue-business-cash-card-amex/", source: "American Express" },
+              { label: "Capital on Tap", href: "https://www.capitalontap.com/en/", source: "Capital on Tap" },
+            ]
+          : [
+              { label: "Upgrade Personal Loan", href: "https://www.upgrade.com/personal-loans/", source: "Upgrade" },
+              { label: "LendingClub Personal Loan", href: "https://www.lendingclub.com/personal-loans", source: "LendingClub" },
+            ]
+        : [
+            { label: "Experian dispute center", href: "https://www.experian.com/disputes/main.html", source: "Cleanup" },
+            { label: "AnnualCreditReport", href: "https://www.annualcreditreport.com/", source: "Refresh" },
+          ],
+      summary: fundingReady
+        ? "Applications should stay selective and matched to the score band so the file keeps moving forward."
+        : "Do not widen applications yet. Clean the file and close the score gap first.",
+    },
+  ];
 }
 
 async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
@@ -282,7 +249,7 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
   const [selectedContactId, setSelectedContactId] = useState<string>("");
 
   const [provider, setProvider] = useState<string>("IdentityIQ");
-  const [creditScope, setCreditScope] = useState<CreditScope>("PERSONAL");
+  const [creditScope] = useState<CreditScope>("PERSONAL");
   const [itemFilter, setItemFilter] = useState<"ALL" | "PENDING" | "NEGATIVE" | "POSITIVE" | "TRACKED">("ALL");
   const [itemQuery, setItemQuery] = useState("");
   const [rawText, setRawText] = useState<string>("{");
@@ -438,33 +405,19 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
     }).sort((a, b) => scoreReportItem(b) - scoreReportItem(a) || new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
   }, [itemFilter, itemQuery, selectedReport]);
   const opportunityPlans = useMemo(
-    () => buildOpportunityPlans(selectedReport, selectedReportSummary, selectedReport?.creditScope || creditScope),
+    () => buildOpportunityPlans(selectedReportSummary, selectedReport?.creditScope || creditScope, selectedReport?.creditSnapshot || null),
     [creditScope, selectedReport, selectedReportSummary],
   );
-  const bureauBreakdown = useMemo(() => {
-    const items = selectedReport?.items || [];
-    const total = Math.max(1, items.length);
-    const counts = items.reduce<Record<string, number>>((acc, item) => {
-      const key = String(item.bureau || "Unassigned").trim() || "Unassigned";
-      acc[key] = (acc[key] || 0) + 1;
-      return acc;
-    }, {});
-    return Object.entries(counts)
-      .map(([bureau, count]) => ({ bureau, count, percentage: Math.round((count / total) * 100) }))
-      .sort((a, b) => b.count - a.count);
-  }, [selectedReport]);
-  const kindBreakdown = useMemo(() => {
-    const items = selectedReport?.items || [];
-    const counts = items.reduce<Record<string, number>>((acc, item) => {
-      const key = String(item.kind || "Other").trim() || "Other";
-      acc[key] = (acc[key] || 0) + 1;
-      return acc;
-    }, {});
-    return Object.entries(counts)
-      .map(([kind, count]) => ({ kind, count }))
-      .sort((a, b) => b.count - a.count)
-      .slice(0, 4);
-  }, [selectedReport]);
+  const overviewRingStyle = useMemo(
+    () => ({
+      backgroundImage: ringTrack([
+        { value: selectedReportSummary.negative, color: "#fb7185" },
+        { value: selectedReportSummary.pending, color: "#2563eb" },
+        { value: selectedReportSummary.positive, color: "#d4d4d8" },
+      ]),
+    }),
+    [selectedReportSummary],
+  );
   useEffect(() => {
     if (!initialReportId) return;
     setSelectedReportId(initialReportId);
@@ -548,23 +501,6 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
       window.location.href = routeSet.detailHref(json.report.id);
     } catch (e: any) {
       setError(e?.message ? String(e.message) : "Unable to pull report");
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const updateItem = async (itemId: string, patch: { auditTag?: ReportItemLite["auditTag"]; disputeStatus?: string | null }) => {
-    if (!selectedReportId) return;
-    setBusy(true);
-    setError(null);
-    try {
-      await fetchJson<{ ok: true }>(
-        `/api/portal/credit/reports/${encodeURIComponent(selectedReportId)}/items/${encodeURIComponent(itemId)}`,
-        { method: "PATCH", body: JSON.stringify(patch) },
-      );
-      await loadReport(selectedReportId);
-    } catch (e: any) {
-      setError(e?.message ? String(e.message) : "Failed to update item");
     } finally {
       setBusy(false);
     }
@@ -906,24 +842,80 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
               ))}
             </div>
 
-            <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-              <div className="rounded-3xl border border-zinc-200 bg-zinc-50 p-4">
-                <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Needs dispute</div>
-                <div className="mt-2 text-2xl font-bold text-zinc-900">{selectedReportSummary.negative}</div>
+            <div className="mt-5 grid gap-4 xl:grid-cols-[300px_minmax(0,1fr)]">
+              <div className="rounded-[28px] border border-zinc-200 bg-zinc-50 p-5">
+                <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Report health</div>
+                <div className="mt-4 flex items-center gap-4">
+                  <div className="relative h-28 w-28 rounded-full" style={overviewRingStyle}>
+                    <div className="absolute inset-3 flex items-center justify-center rounded-full bg-white text-center">
+                      <div>
+                        <div className="text-2xl font-bold text-zinc-900">{selectedReport.items.length}</div>
+                        <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Items</div>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="space-y-2 text-sm text-zinc-700">
+                    <div className="flex items-center gap-2"><span className="h-2.5 w-2.5 rounded-full bg-brand-pink" />Needs dispute: {selectedReportSummary.negative}</div>
+                    <div className="flex items-center gap-2"><span className="h-2.5 w-2.5 rounded-full bg-[#2563eb]" />Review now: {selectedReportSummary.pending}</div>
+                    <div className="flex items-center gap-2"><span className="h-2.5 w-2.5 rounded-full bg-zinc-300" />Clean items: {selectedReportSummary.positive}</div>
+                    <div className="flex items-center gap-2"><span className="h-2.5 w-2.5 rounded-full bg-zinc-800" />Open disputes: {selectedReport.creditSnapshot?.openDisputes ?? selectedReportSummary.tracked}</div>
+                  </div>
+                </div>
               </div>
-              <div className="rounded-3xl border border-zinc-200 bg-zinc-50 p-4">
-                <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Review now</div>
-                <div className="mt-2 text-2xl font-bold text-zinc-900">{selectedReportSummary.pending}</div>
-              </div>
-              <div className="rounded-3xl border border-zinc-200 bg-zinc-50 p-4">
-                <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Looks good</div>
-                <div className="mt-2 text-2xl font-bold text-zinc-900">{selectedReportSummary.positive}</div>
-              </div>
-              <div className="rounded-3xl border border-zinc-200 bg-zinc-50 p-4">
-                <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">All items</div>
-                <div className="mt-2 text-2xl font-bold text-zinc-900">{selectedReport.items.length}</div>
+
+              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                <div className="rounded-3xl border border-zinc-200 bg-zinc-50 p-4">
+                  <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Current score</div>
+                  <div className="mt-2 flex items-end justify-between gap-3">
+                    <div className="text-3xl font-bold text-zinc-900">{selectedReport.creditSnapshot?.currentScore ?? "--"}</div>
+                    <div className="text-xs font-semibold uppercase tracking-wide" style={{ color: scoreTone(selectedReport.creditSnapshot?.currentScore ?? null).accent }}>{scoreTone(selectedReport.creditSnapshot?.currentScore ?? null).label}</div>
+                  </div>
+                </div>
+                <div className="rounded-3xl border border-zinc-200 bg-zinc-50 p-4">
+                  <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Target score</div>
+                  <div className="mt-2 text-3xl font-bold text-zinc-900">{selectedReport.creditSnapshot?.targetScore ?? "--"}</div>
+                  <div className="mt-1 text-xs text-zinc-500">Gap: {selectedReport.creditSnapshot?.scoreDelta ?? 0}</div>
+                </div>
+                <div className="rounded-3xl border border-zinc-200 bg-zinc-50 p-4">
+                  <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Utilization</div>
+                  <div className="mt-2 text-3xl font-bold text-zinc-900">{selectedReport.creditSnapshot?.utilizationPercent ?? 0}%</div>
+                  <div className="mt-1 text-xs text-zinc-500">Keep this under 10% if possible</div>
+                </div>
+                <div className="rounded-3xl border border-zinc-200 bg-zinc-50 p-4">
+                  <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Primary goal</div>
+                  <div className="mt-2 text-sm font-semibold text-zinc-900">{selectedReport.creditSnapshot?.goals?.[0] || "Set a score and funding goal"}</div>
+                  <div className="mt-1 text-xs text-zinc-500">{selectedReport.creditSnapshot?.nextMilestone || "Use this report to drive the next action."}</div>
+                </div>
               </div>
             </div>
+            {selectedReport.creditSnapshot?.bureauScores?.length ? (
+              <div className="mt-4 grid gap-3 sm:grid-cols-3">
+                {selectedReport.creditSnapshot.bureauScores.map((entry) => {
+                  const ringPercent = Math.max(0, Math.min(100, Math.round(((entry.score - 300) / 550) * 100)));
+                  return (
+                    <div key={entry.bureau} className="rounded-3xl border border-zinc-200 bg-white p-4">
+                      <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">{entry.bureau}</div>
+                      <div className="mt-3 flex items-center gap-3">
+                        <div className="relative h-16 w-16 rounded-full" style={{ backgroundImage: ringTrack([{ value: ringPercent, color: "#2563eb" }, { value: 100 - ringPercent, color: "#e4e4e7" }]) }}>
+                          <div className="absolute inset-2 flex items-center justify-center rounded-full bg-white text-sm font-semibold text-zinc-900">{entry.score}</div>
+                        </div>
+                        <div className="text-sm text-zinc-600">Auto-loaded bureau score for this report snapshot.</div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : null}
+            {selectedReport.creditSnapshot?.goals?.length ? (
+              <div className="mt-4 rounded-3xl border border-zinc-200 bg-white p-4">
+                <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Goals</div>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {selectedReport.creditSnapshot.goals.map((goal) => (
+                    <div key={goal} className="rounded-full border border-zinc-200 bg-zinc-50 px-3 py-1.5 text-xs font-semibold text-zinc-800">{goal}</div>
+                  ))}
+                </div>
+              </div>
+            ) : null}
             {detailTab === "items" ? (
             <div id="credit-report-items" className="mt-5 border-t border-zinc-200 pt-5">
             <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
@@ -970,54 +962,44 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
                             <div className="truncate text-sm font-semibold text-zinc-900">{it.label}</div>
                             <div className="mt-1 text-xs text-zinc-500">{(it.bureau ? `${it.bureau} • ` : "") + (it.kind || "Uncategorized")}</div>
                           </div>
-                          <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">{REPORT_FILTER_LABELS[it.auditTag]}</div>
+                          <div className="rounded-full border border-zinc-200 bg-zinc-50 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-600">{REPORT_FILTER_LABELS[it.auditTag]}</div>
                         </div>
-                        <div className="text-xs font-semibold text-brand-ink">{itemActionHint(it)}</div>
+                        <div className="text-xs text-zinc-500">{it.auditReason || itemSummaryText(it)}</div>
                       </button>
 
                       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                         <div className="text-sm text-zinc-600">
                           {itemSummaryText(it)}
                         </div>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            const params = new URLSearchParams();
-                            if (selectedReport.contactId) params.set("contactId", selectedReport.contactId);
-                            params.set("compose", "1");
-                            params.set("issue", it.label);
-                            if (it.bureau) params.set("bureau", it.bureau);
-                            window.location.href = `${routeSet.disputeHref}?${params.toString()}`;
-                          }}
-                          className={PRIMARY_BUTTON_CLASS}
-                        >
-                          Create dispute
-                        </button>
+                        {it.auditTag === "NEGATIVE" ? (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const params = new URLSearchParams();
+                              if (selectedReport.contactId) params.set("contactId", selectedReport.contactId);
+                              params.set("compose", "1");
+                              params.set("issue", it.label);
+                              if (it.bureau) params.set("bureau", it.bureau);
+                              window.location.href = `${routeSet.disputeHref}?${params.toString()}`;
+                            }}
+                            className={PRIMARY_BUTTON_CLASS}
+                          >
+                            Create dispute
+                          </button>
+                        ) : null}
                       </div>
                     </div>
 
-                    <div className="mt-4 grid gap-3 lg:grid-cols-[180px_minmax(0,1fr)]">
-                      <label className="block">
-                        <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Classification</div>
-                        <PortalListboxDropdown
-                          value={it.auditTag}
-                          onChange={(v) => updateItem(it.id, { auditTag: v })}
-                          disabled={busy}
-                          buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm transition-all duration-150 hover:-translate-y-0.5 hover:border-zinc-300 hover:bg-zinc-50"
-                          options={(
-                            [
-                              { value: "PENDING", label: REPORT_FILTER_LABELS.PENDING },
-                              { value: "NEGATIVE", label: REPORT_FILTER_LABELS.NEGATIVE },
-                              { value: "POSITIVE", label: REPORT_FILTER_LABELS.POSITIVE },
-                            ] as PortalListboxOption<ReportItemLite["auditTag"]>[]
-                          )}
-                        />
-                      </label>
-                      {it.disputeStatus ? (
-                        <div className="rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm text-zinc-600">
-                          {it.disputeStatus}
-                        </div>
-                      ) : null}
+                    <div className="mt-4 grid gap-3 lg:grid-cols-[minmax(0,1fr)_220px]">
+                      <div className="rounded-2xl border border-zinc-200 bg-zinc-50 px-3 py-3">
+                        <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Automatic classification</div>
+                        <div className="mt-2 text-sm font-semibold text-zinc-900">{REPORT_FILTER_LABELS[it.auditTag]}</div>
+                        <div className="mt-1 text-sm text-zinc-600">{it.auditReason || "Classification is derived from the account status and dispute signals in the report."}</div>
+                      </div>
+                      <div className="rounded-2xl border border-zinc-200 bg-white px-3 py-3">
+                        <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Dispute status</div>
+                        <div className="mt-2 text-sm text-zinc-700">{it.disputeStatus || "No dispute started yet"}</div>
+                      </div>
                     </div>
                   </div>
                 ))
@@ -1044,19 +1026,27 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
                   </div>
 
                   <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                    {plan.offers.map((offer) => (
-                      <a
-                        key={offer.label}
-                        href={offer.href}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="rounded-2xl border border-zinc-200 bg-zinc-50 px-3 py-3 transition-all duration-150 hover:-translate-y-0.5 hover:border-zinc-300 hover:bg-white"
-                      >
-                        <div className="text-sm font-semibold text-zinc-900">{offer.label}</div>
-                        <div className="mt-1 text-xs font-semibold uppercase tracking-wide text-zinc-500">{offer.source}</div>
-                        <div className="mt-3 text-xs font-semibold text-brand-ink">View option →</div>
-                      </a>
-                    ))}
+                    {plan.offers.map((offer) =>
+                      offer.href ? (
+                        <a
+                          key={offer.label}
+                          href={offer.href}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="rounded-2xl border border-zinc-200 bg-zinc-50 px-3 py-3 transition-all duration-150 hover:-translate-y-0.5 hover:border-zinc-300 hover:bg-white"
+                        >
+                          <div className="text-sm font-semibold text-zinc-900">{offer.label}</div>
+                          <div className="mt-1 text-xs font-semibold uppercase tracking-wide text-zinc-500">{offer.source}</div>
+                          <div className="mt-3 text-xs font-semibold text-brand-ink">View option →</div>
+                        </a>
+                      ) : (
+                        <div key={offer.label} className="rounded-2xl border border-zinc-200 bg-zinc-50 px-3 py-3">
+                          <div className="text-sm font-semibold text-zinc-900">{offer.label}</div>
+                          <div className="mt-1 text-xs font-semibold uppercase tracking-wide text-zinc-500">{offer.source}</div>
+                          <div className="mt-3 text-xs text-zinc-600">Handled inside the report workflow.</div>
+                        </div>
+                      ),
+                    )}
                   </div>
                 </div>
               ))}
@@ -1082,20 +1072,22 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
                     {priorityItemOpen.disputeStatus ? <div className="normal-case tracking-normal text-zinc-600">{priorityItemOpen.disputeStatus}</div> : null}
                   </div>
                   <div className="mt-3 text-sm text-zinc-700">
-                    {itemSummaryText(priorityItemOpen)}
+                    {priorityItemOpen.auditReason || itemSummaryText(priorityItemOpen)}
                   </div>
                 </div>
 
                 <div className="mt-6 flex flex-wrap justify-end gap-2">
                   <button type="button" onClick={() => setPriorityItemOpen(null)} className={SECONDARY_BUTTON_CLASS}>Done</button>
-                  <button type="button" onClick={() => {
-                    const params = new URLSearchParams();
-                    if (selectedReport?.contactId) params.set("contactId", selectedReport.contactId);
-                    params.set("compose", "1");
-                    params.set("issue", priorityItemOpen.label);
-                    if (priorityItemOpen.bureau) params.set("bureau", priorityItemOpen.bureau);
-                    window.location.href = `${routeSet.disputeHref}?${params.toString()}`;
-                  }} className={PRIMARY_BUTTON_CLASS}>Create dispute</button>
+                  {priorityItemOpen.auditTag === "NEGATIVE" ? (
+                    <button type="button" onClick={() => {
+                      const params = new URLSearchParams();
+                      if (selectedReport?.contactId) params.set("contactId", selectedReport.contactId);
+                      params.set("compose", "1");
+                      params.set("issue", priorityItemOpen.label);
+                      if (priorityItemOpen.bureau) params.set("bureau", priorityItemOpen.bureau);
+                      window.location.href = `${routeSet.disputeHref}?${params.toString()}`;
+                    }} className={PRIMARY_BUTTON_CLASS}>Create dispute</button>
+                  ) : null}
                 </div>
               </div>
             </div>

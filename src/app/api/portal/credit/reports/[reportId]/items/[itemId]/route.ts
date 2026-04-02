@@ -9,7 +9,6 @@ export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 const patchSchema = z.object({
-  auditTag: z.enum(["PENDING", "NEGATIVE", "POSITIVE"]).optional(),
   disputeStatus: z.string().trim().max(60).optional().nullable(),
 });
 
@@ -34,7 +33,6 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ reportId: str
   const updated = await prisma.creditReportItem.updateMany({
     where: { id: iid, reportId: rid },
     data: {
-      ...(parsed.data.auditTag ? { auditTag: parsed.data.auditTag } : {}),
       ...(parsed.data.disputeStatus !== undefined ? { disputeStatus: parsed.data.disputeStatus || null } : {}),
       updatedAt: new Date(),
     },
@@ -51,6 +49,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ reportId: str
       label: true,
       auditTag: true,
       disputeStatus: true,
+      detailsJson: true,
       createdAt: true,
       updatedAt: true,
     },

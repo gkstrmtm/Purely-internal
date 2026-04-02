@@ -1,17 +1,12 @@
 import { NextResponse } from "next/server";
 
 import { prisma } from "@/lib/db";
+import { deriveCreditReportItemAudit, extractCreditReportSnapshot, normalizeCreditScope } from "@/lib/creditReports";
 import { requireCreditClientSession } from "@/lib/creditPortalAccess";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
-
-function normalizeCreditScope(raw: unknown): "PERSONAL" | "BUSINESS" | "BOTH" {
-  const value = typeof raw === "string" ? raw.trim().toUpperCase() : "";
-  if (value === "BUSINESS" || value === "BOTH") return value;
-  return "PERSONAL";
-}
 
 export async function GET(_req: Request, ctx: { params: Promise<{ reportId: string }> }) {
   const session = await requireCreditClientSession();
@@ -43,6 +38,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ reportId: stri
           label: true,
           auditTag: true,
           disputeStatus: true,
+          detailsJson: true,
           createdAt: true,
           updatedAt: true,
         },
@@ -57,6 +53,15 @@ export async function GET(_req: Request, ctx: { params: Promise<{ reportId: stri
     report: {
       ...report,
       creditScope: normalizeCreditScope((report.rawJson as any)?.creditScope ?? (report.rawJson as any)?.scope),
+      creditSnapshot: extractCreditReportSnapshot(report.rawJson, report.items),
+      items: report.items.map((item) => {
+        const derived = deriveCreditReportItemAudit(item);
+        return {
+          ...item,
+          auditTag: derived.auditTag,
+          auditReason: derived.reason,
+        };
+      }),
     },
   });
 }
