@@ -227,6 +227,7 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
   const [newReportOpen, setNewReportOpen] = useState(false);
   const [detailTab, setDetailTab] = useState<"items" | "plan">("items");
   const [priorityItemOpen, setPriorityItemOpen] = useState<ReportItemLite | null>(null);
+  const [itemDecisionBusyId, setItemDecisionBusyId] = useState<string | null>(null);
   const [reportSearch, setReportSearch] = useState("");
   const [reportFiltersMenu, setReportFiltersMenu] = useState<FixedMenuStyle | null>(null);
   const [reportView, setReportView] = useState<"ALL" | "PERSONAL" | "BUSINESS" | "BOTH">("ALL");
@@ -516,6 +517,38 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
     if (item.bureau) params.set("bureau", item.bureau);
     window.location.href = `${routeSet.disputeHref}?${params.toString()}`;
   }, [routeSet.disputeHref, selectedReport]);
+
+  const updateReportItemDecision = useCallback(async (
+    item: ReportItemLite,
+    next: { auditTag?: "PENDING" | "NEGATIVE" | "POSITIVE"; disputeStatus?: string | null },
+  ) => {
+    if (!selectedReportId) return;
+    setItemDecisionBusyId(item.id);
+    setError(null);
+    try {
+      await fetchJson<{ ok: true; item: ReportItemLite }>(`/api/portal/credit/reports/${encodeURIComponent(selectedReportId)}/items/${encodeURIComponent(item.id)}`, {
+        method: "PATCH",
+        body: JSON.stringify(next),
+      });
+      await loadReport(selectedReportId);
+    } catch (e: any) {
+      setError(e?.message ? String(e.message) : "Unable to update item");
+      throw e;
+    } finally {
+      setItemDecisionBusyId(null);
+    }
+  }, [loadReport, selectedReportId]);
+
+  const markItemNoDisputeNeeded = useCallback(async (item: ReportItemLite) => {
+    await updateReportItemDecision(item, { auditTag: "POSITIVE", disputeStatus: null });
+    setPriorityItemOpen(null);
+    toast.success("Item marked as no dispute needed.");
+  }, [toast, updateReportItemDecision]);
+
+  const moveItemToDispute = useCallback(async (item: ReportItemLite) => {
+    await updateReportItemDecision(item, { auditTag: "NEGATIVE", disputeStatus: null });
+    openDisputeComposer({ ...item, auditTag: "NEGATIVE", disputeStatus: null });
+  }, [openDisputeComposer, updateReportItemDecision]);
 
   return (
     <div className="mx-auto w-full max-w-6xl">
@@ -1057,7 +1090,7 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
                       <div className="rounded-2xl border border-zinc-200 bg-zinc-50 px-3 py-3">
                         <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Automatic classification</div>
                         <div className="mt-2 text-sm font-semibold text-zinc-900">{REPORT_FILTER_LABELS[it.auditTag]}</div>
-                        <div className="mt-1 text-sm text-zinc-600">{it.auditTag === "PENDING" ? "Review the item details, then either move it to dispute or keep it in review so it stays flagged." : it.auditReason || "Classification is derived from the account status and dispute signals in the report."}</div>
+                        <div className="mt-1 text-sm text-zinc-600">{it.auditTag === "PENDING" ? "Review the item details, then either move it to dispute or mark that no dispute is needed." : it.auditReason || "Classification is derived from the account status and dispute signals in the report."}</div>
                       </div>
                       <div className="rounded-2xl border border-zinc-200 bg-white px-3 py-3">
                         <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Dispute status</div>
@@ -1124,21 +1157,22 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
                   </div>
                   {priorityItemOpen.auditTag === "PENDING" ? (
                     <div className="mt-4 rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-700">
-                      Review the facts on this item. If it belongs in the next letter, move it to dispute. If not, keep it in review so it stays on the review list.
+                      Review the facts on this item. If it belongs in the next letter, move it to dispute. If not, mark that no dispute is needed so it leaves the review queue.
                     </div>
                   ) : null}
                 </div>
 
                 <div className="mt-6 flex flex-wrap justify-end gap-2">
-                  <button type="button" onClick={() => setPriorityItemOpen(null)} className={SECONDARY_BUTTON_CLASS}>{priorityItemOpen.auditTag === "PENDING" ? "Keep in review" : "Close"}</button>
+                  <button type="button" onClick={() => setPriorityItemOpen(null)} className={SECONDARY_BUTTON_CLASS} disabled={itemDecisionBusyId === priorityItemOpen.id}>Close</button>
                   {priorityItemOpen.auditTag === "NEGATIVE" ? (
                     <button type="button" onClick={() => {
                       openDisputeComposer(priorityItemOpen);
                     }} className={PRIMARY_BUTTON_CLASS}>Create dispute</button>
                   ) : priorityItemOpen.auditTag === "PENDING" ? (
-                    <button type="button" onClick={() => {
-                      openDisputeComposer(priorityItemOpen);
-                    }} className={PRIMARY_BUTTON_CLASS}>Move to dispute</button>
+                    <>
+                      <button type="button" onClick={() => { void markItemNoDisputeNeeded(priorityItemOpen); }} className={SECONDARY_BUTTON_CLASS} disabled={itemDecisionBusyId === priorityItemOpen.id}>{itemDecisionBusyId === priorityItemOpen.id ? "Saving..." : "No dispute needed"}</button>
+                      <button type="button" onClick={() => { void moveItemToDispute(priorityItemOpen); }} className={PRIMARY_BUTTON_CLASS} disabled={itemDecisionBusyId === priorityItemOpen.id}>{itemDecisionBusyId === priorityItemOpen.id ? "Saving..." : "Move to dispute"}</button>
+                    </>
                   ) : null}
                 </div>
               </div>
