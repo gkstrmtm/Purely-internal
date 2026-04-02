@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
+import { IconFunnel } from "@/app/portal/PortalIcons";
 import { PortalListboxDropdown, type PortalListboxOption } from "@/components/PortalListboxDropdown";
 import { PortalSearchableCombobox, type PortalSearchableOption } from "@/components/PortalSearchableCombobox";
 import { normalizeDisputeLetterText, readContactSignature } from "@/lib/creditDisputeLetters";
@@ -73,6 +74,8 @@ type TemplateConfig = {
   cadenceDays: number;
   nextTemplateKey: string;
 };
+
+type FixedMenuStyle = { left: number; top: number; maxHeight: number };
 
 const ROUND_OPTIONS: PortalListboxOption<string>[] = Array.from({ length: 8 }, (_, index) => ({
   value: String(index + 1),
@@ -162,6 +165,20 @@ function statusClasses(status: LetterLite["status"]) {
   if (status === "GENERATED") return "border-emerald-200 bg-emerald-50 text-emerald-700";
   if (status === "SENT") return "border-sky-200 bg-sky-50 text-sky-700";
   return "border-zinc-200 bg-zinc-100 text-zinc-700";
+}
+
+function computeFixedMenuStyle(rect: DOMRect, width = 288, estHeight = 320): FixedMenuStyle {
+  const viewportWidth = window.innerWidth;
+  const viewportHeight = window.innerHeight;
+  const gutter = 12;
+  const left = Math.min(Math.max(gutter, rect.right - width), viewportWidth - width - gutter);
+  const spaceBelow = viewportHeight - rect.bottom - gutter;
+  const spaceAbove = rect.top - gutter;
+  const openUp = spaceBelow < Math.min(estHeight, 220) && spaceAbove > spaceBelow;
+  const top = openUp
+    ? Math.max(gutter, rect.top - Math.min(estHeight, spaceAbove))
+    : Math.min(viewportHeight - gutter - Math.min(estHeight, Math.max(spaceBelow, 220)), rect.bottom + 8);
+  return { left, top, maxHeight: Math.max(180, openUp ? spaceAbove : spaceBelow) };
 }
 
 function routesFor(pathname: string | null) {
@@ -255,6 +272,7 @@ export default function DisputeLettersClient({ mode = "list", initialLetterId = 
   const [pdfDownloadUrl, setPdfDownloadUrl] = useState("");
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<"ALL" | LetterLite["status"]>("ALL");
+  const [statusFiltersMenu, setStatusFiltersMenu] = useState<FixedMenuStyle | null>(null);
   const [contactQuery, setContactQuery] = useState("");
   const [composerOpen, setComposerOpen] = useState(false);
   const [contactId, setContactId] = useState("");
@@ -426,6 +444,17 @@ export default function DisputeLettersClient({ mode = "list", initialLetterId = 
       contactOptions.find((entry) => normalize(entry.label).startsWith(normalized)) || null;
     if (match && match.value !== contactId) setContactId(match.value);
   }, [composerOpen, contactId, contactOptions, contactQuery]);
+
+  useEffect(() => {
+    if (!statusFiltersMenu) return;
+    const close = () => setStatusFiltersMenu(null);
+    window.addEventListener("resize", close);
+    window.addEventListener("scroll", close, true);
+    return () => {
+      window.removeEventListener("resize", close);
+      window.removeEventListener("scroll", close, true);
+    };
+  }, [statusFiltersMenu]);
 
   useEffect(() => {
     if (!composerOpen) return;
@@ -798,10 +827,75 @@ export default function DisputeLettersClient({ mode = "list", initialLetterId = 
       <section className="mt-6 rounded-3xl border border-zinc-200 bg-white p-6 shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex w-full max-w-4xl flex-col gap-3 sm:flex-row sm:items-center">
-            <input value={search} onChange={(event) => setSearch(event.target.value)} className="w-full rounded-2xl border border-zinc-200 px-4 py-3 text-sm outline-none transition focus:border-zinc-300 focus-visible:ring-2 focus-visible:ring-brand-blue/20 sm:flex-1" placeholder="Search letters" />
-            <div className="w-full sm:w-56">
-              <PortalListboxDropdown value={statusFilter} onChange={setStatusFilter} options={statusOptions} buttonClassName="flex w-full items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm hover:bg-zinc-50" />
-            </div>
+            <input value={search} onChange={(event) => setSearch(event.target.value)} className="h-11 w-full rounded-full border border-zinc-200 px-4 text-sm outline-none transition focus:border-zinc-300 focus-visible:ring-2 focus-visible:ring-brand-blue/20 sm:flex-1" placeholder="Search letters" />
+            {statusFiltersMenu ? (
+              <>
+                <div className="fixed inset-0 z-30" onMouseDown={() => setStatusFiltersMenu(null)} onTouchStart={() => setStatusFiltersMenu(null)} aria-hidden />
+                <div
+                  className="fixed z-40 w-72 overflow-auto rounded-2xl border border-zinc-200 bg-white shadow-xl"
+                  style={{ left: statusFiltersMenu.left, top: statusFiltersMenu.top, maxHeight: statusFiltersMenu.maxHeight }}
+                  onMouseDown={(event) => event.stopPropagation()}
+                  onTouchStart={(event) => event.stopPropagation()}
+                >
+                  <div className="border-b border-zinc-100 px-4 py-3 text-xs font-semibold text-zinc-600">Filters</div>
+                  <div className="px-4 py-3">
+                    <div className="text-xs font-semibold text-zinc-700">Letter status</div>
+                    <div className="mt-2 grid grid-cols-2 gap-2">
+                      {([
+                        ["ALL", `All ${letters.length}`],
+                        ["DRAFT", `Draft ${letterCounts.draft}`],
+                        ["GENERATED", `Generated ${letterCounts.generated}`],
+                        ["SENT", `Mailed ${letterCounts.sent}`],
+                      ] as const).map(([value, label]) => (
+                        <button
+                          key={value}
+                          type="button"
+                          className={classNames(
+                            "rounded-xl border px-3 py-2 text-left text-xs font-semibold",
+                            statusFilter === value
+                              ? "border-brand-ink bg-brand-ink text-white"
+                              : "border-zinc-200 bg-white text-zinc-800 hover:bg-zinc-50",
+                          )}
+                          onClick={() => setStatusFilter(value)}
+                        >
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+
+                    {statusFilter !== "ALL" ? (
+                      <button
+                        type="button"
+                        className="mt-3 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+                        onClick={() => setStatusFilter("ALL")}
+                      >
+                        Clear filters
+                      </button>
+                    ) : null}
+                  </div>
+                </div>
+              </>
+            ) : null}
+            <button
+              type="button"
+              className={classNames(
+                "inline-flex h-11 w-11 items-center justify-center rounded-full border border-zinc-200 bg-white text-zinc-800 transition-transform duration-150 hover:-translate-y-0.5 hover:bg-zinc-50",
+                statusFilter !== "ALL" && "border-brand-ink",
+              )}
+              onClick={(event) => {
+                const open = Boolean(statusFiltersMenu);
+                if (open) {
+                  setStatusFiltersMenu(null);
+                  return;
+                }
+                const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
+                setStatusFiltersMenu(computeFixedMenuStyle(rect));
+              }}
+              aria-label="Letter filters"
+              aria-expanded={statusFiltersMenu ? true : undefined}
+            >
+              <IconFunnel size={18} />
+            </button>
           </div>
           <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">{lettersLoading ? "Loading..." : `${filteredLetters.length} letters`}</div>
         </div>

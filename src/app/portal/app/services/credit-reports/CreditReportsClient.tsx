@@ -239,6 +239,7 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
   const [provider, setProvider] = useState<string>("IdentityIQ");
   const [creditScope] = useState<CreditScope>("PERSONAL");
   const [itemFilter, setItemFilter] = useState<"ALL" | "PENDING" | "NEGATIVE" | "POSITIVE" | "TRACKED">("ALL");
+  const [itemFiltersMenu, setItemFiltersMenu] = useState<FixedMenuStyle | null>(null);
   const [itemQuery, setItemQuery] = useState("");
   const [rawText, setRawText] = useState<string>("{");
   const showAdvancedImport = useMemo(() => {
@@ -427,6 +428,17 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
       window.removeEventListener("scroll", close, true);
     };
   }, [reportFiltersMenu]);
+
+  useEffect(() => {
+    if (!itemFiltersMenu) return;
+    const close = () => setItemFiltersMenu(null);
+    window.addEventListener("resize", close);
+    window.addEventListener("scroll", close, true);
+    return () => {
+      window.removeEventListener("resize", close);
+      window.removeEventListener("scroll", close, true);
+    };
+  }, [itemFiltersMenu]);
 
   useEffect(() => {
     const query = (searchParams.get("contact") || "").trim();
@@ -822,7 +834,7 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
             <div className="mt-5 flex flex-wrap gap-2">
               {([
                 ["items", "Items"],
-                ["plan", "Funding"],
+                ["plan", "Plan"],
               ] as const).map(([value, label]) => (
                 <button
                   key={value}
@@ -925,21 +937,78 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
                 <input
                   value={itemQuery}
                   onChange={(e) => setItemQuery(e.target.value)}
-                  className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none transition focus:border-zinc-300 focus-visible:ring-2 focus-visible:ring-brand-blue/20 sm:w-56"
+                  className="h-11 w-full rounded-full border border-zinc-200 bg-white px-4 text-sm outline-none transition focus:border-zinc-300 focus-visible:ring-2 focus-visible:ring-brand-blue/20 sm:w-56"
                   placeholder="Search items"
                 />
-                <PortalListboxDropdown
-                  value={itemFilter}
-                  onChange={(value) => setItemFilter(value as typeof itemFilter)}
-                  options={[
-                    { value: "ALL", label: `All ${selectedReport.items.length}` },
-                    { value: "PENDING", label: `${REPORT_FILTER_LABELS.PENDING} ${selectedReportSummary.pending}` },
-                    { value: "NEGATIVE", label: `${REPORT_FILTER_LABELS.NEGATIVE} ${selectedReportSummary.negative}` },
-                    { value: "POSITIVE", label: `Positive ${selectedReportSummary.positive}` },
-                    { value: "TRACKED", label: `${REPORT_FILTER_LABELS.TRACKED} ${selectedReportSummary.tracked}` },
-                  ]}
-                  buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm transition-all duration-150 hover:-translate-y-0.5 hover:border-zinc-300 hover:bg-zinc-50 sm:w-52"
-                />
+                {itemFiltersMenu ? (
+                  <>
+                    <div className="fixed inset-0 z-30" onMouseDown={() => setItemFiltersMenu(null)} onTouchStart={() => setItemFiltersMenu(null)} aria-hidden />
+                    <div
+                      className="fixed z-40 w-72 overflow-auto rounded-2xl border border-zinc-200 bg-white shadow-xl"
+                      style={{ left: itemFiltersMenu.left, top: itemFiltersMenu.top, maxHeight: itemFiltersMenu.maxHeight }}
+                      onMouseDown={(event) => event.stopPropagation()}
+                      onTouchStart={(event) => event.stopPropagation()}
+                    >
+                      <div className="border-b border-zinc-100 px-4 py-3 text-xs font-semibold text-zinc-600">Filters</div>
+                      <div className="px-4 py-3">
+                        <div className="text-xs font-semibold text-zinc-700">Report items</div>
+                        <div className="mt-2 grid grid-cols-2 gap-2">
+                          {([
+                            ["ALL", `All ${selectedReport.items.length}`],
+                            ["PENDING", `${REPORT_FILTER_LABELS.PENDING} ${selectedReportSummary.pending}`],
+                            ["NEGATIVE", `${REPORT_FILTER_LABELS.NEGATIVE} ${selectedReportSummary.negative}`],
+                            ["POSITIVE", `Positive ${selectedReportSummary.positive}`],
+                            ["TRACKED", `${REPORT_FILTER_LABELS.TRACKED} ${selectedReportSummary.tracked}`],
+                          ] as const).map(([value, label]) => (
+                            <button
+                              key={value}
+                              type="button"
+                              className={classNames(
+                                "rounded-xl border px-3 py-2 text-left text-xs font-semibold",
+                                itemFilter === value
+                                  ? "border-brand-ink bg-brand-ink text-white"
+                                  : "border-zinc-200 bg-white text-zinc-800 hover:bg-zinc-50",
+                              )}
+                              onClick={() => setItemFilter(value)}
+                            >
+                              {label}
+                            </button>
+                          ))}
+                        </div>
+
+                        {itemFilter !== "ALL" ? (
+                          <button
+                            type="button"
+                            className="mt-3 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+                            onClick={() => setItemFilter("ALL")}
+                          >
+                            Clear filters
+                          </button>
+                        ) : null}
+                      </div>
+                    </div>
+                  </>
+                ) : null}
+                <button
+                  type="button"
+                  className={classNames(
+                    "inline-flex h-11 w-11 items-center justify-center rounded-full border border-zinc-200 bg-white text-zinc-800 transition-transform duration-150 hover:-translate-y-0.5 hover:bg-zinc-50",
+                    itemFilter !== "ALL" && "border-brand-ink",
+                  )}
+                  onClick={(event) => {
+                    const open = Boolean(itemFiltersMenu);
+                    if (open) {
+                      setItemFiltersMenu(null);
+                      return;
+                    }
+                    const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
+                    setItemFiltersMenu(computeFixedMenuStyle(rect));
+                  }}
+                  aria-label="Item filters"
+                  aria-expanded={itemFiltersMenu ? true : undefined}
+                >
+                  <IconFunnel size={18} />
+                </button>
                 <div className="text-xs text-zinc-500">{filteredItems.length} shown</div>
               </div>
             </div>
@@ -988,7 +1057,7 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
                       <div className="rounded-2xl border border-zinc-200 bg-zinc-50 px-3 py-3">
                         <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Automatic classification</div>
                         <div className="mt-2 text-sm font-semibold text-zinc-900">{REPORT_FILTER_LABELS[it.auditTag]}</div>
-                        <div className="mt-1 text-sm text-zinc-600">{it.auditTag === "PENDING" ? "Review the item details, then either move it into a dispute or leave it out of the letter." : it.auditReason || "Classification is derived from the account status and dispute signals in the report."}</div>
+                        <div className="mt-1 text-sm text-zinc-600">{it.auditTag === "PENDING" ? "Review the item details, then either move it to dispute or keep it in review so it stays flagged." : it.auditReason || "Classification is derived from the account status and dispute signals in the report."}</div>
                       </div>
                       <div className="rounded-2xl border border-zinc-200 bg-white px-3 py-3">
                         <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Dispute status</div>
@@ -1006,7 +1075,7 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
             <div className="mt-5 border-t border-zinc-200 pt-5">
             <div className="flex flex-col gap-2 lg:flex-row lg:items-end lg:justify-between">
               <div>
-                <div className="text-sm font-semibold text-zinc-900">Funding lanes</div>
+                <div className="text-sm font-semibold text-zinc-900">Action plan</div>
               </div>
             </div>
 
@@ -1055,13 +1124,13 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
                   </div>
                   {priorityItemOpen.auditTag === "PENDING" ? (
                     <div className="mt-4 rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-700">
-                      Review the facts on this item. If it belongs in the next letter, move it into dispute. If not, leave it in review and close this panel.
+                      Review the facts on this item. If it belongs in the next letter, move it to dispute. If not, keep it in review so it stays on the review list.
                     </div>
                   ) : null}
                 </div>
 
                 <div className="mt-6 flex flex-wrap justify-end gap-2">
-                  <button type="button" onClick={() => setPriorityItemOpen(null)} className={SECONDARY_BUTTON_CLASS}>Done</button>
+                  <button type="button" onClick={() => setPriorityItemOpen(null)} className={SECONDARY_BUTTON_CLASS}>{priorityItemOpen.auditTag === "PENDING" ? "Keep in review" : "Close"}</button>
                   {priorityItemOpen.auditTag === "NEGATIVE" ? (
                     <button type="button" onClick={() => {
                       openDisputeComposer(priorityItemOpen);
