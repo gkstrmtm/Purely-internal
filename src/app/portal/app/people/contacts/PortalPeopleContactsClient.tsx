@@ -5,6 +5,8 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "rea
 
 import { PortalPeopleTabs } from "@/app/portal/app/people/PortalPeopleTabs";
 import { IconEdit, IconFunnel, IconSearch } from "@/app/portal/PortalIcons";
+import { SignatureDisplay } from "@/components/SignatureDisplay";
+import { SignaturePad } from "@/components/SignaturePad";
 import { PortalListboxDropdown } from "@/components/PortalListboxDropdown";
 import { PortalSelectDropdown } from "@/components/PortalSelectDropdown";
 import { PortalVariablePickerModal } from "@/components/PortalVariablePickerModal";
@@ -46,9 +48,10 @@ function customVariablesFromRows(rows: CustomVarRow[]): Record<string, string> |
   for (const row of rows) {
     const key = String(row.key || "").trim().slice(0, 60);
     if (!key) continue;
-    const value = String(row.value ?? "").trim().slice(0, 300);
-    if (!value) continue;
     const stableKey = key.toLowerCase();
+    const valueLimit = stableKey === "signature" ? 250_000 : 300;
+    const value = String(row.value ?? "").trim().slice(0, valueLimit);
+    if (!value) continue;
     if (out[stableKey] !== undefined) continue;
     out[stableKey] = value;
   }
@@ -1963,18 +1966,22 @@ export function PortalPeopleContactsClient() {
                           Templates: <span className="font-mono">{`{contact.custom.business_name}`}</span>
                         </div>
                       </label>
-                      <label className="block md:col-span-2">
+                      <div className="block md:col-span-2">
                         <div className="text-xs font-semibold text-zinc-700">Signature</div>
-                        <input
-                          value={manualSignature}
-                          onChange={(e) => setManualSignature(e.target.value)}
-                          placeholder="Typed signature for mailed letters"
-                          className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
-                        />
+                        <div className="mt-1">
+                          <SignaturePad
+                            value={manualSignature}
+                            onChange={setManualSignature}
+                            heightClassName="h-36"
+                            className="bg-zinc-50"
+                            emptyLabel="Draw the contact signature for mailed letters"
+                            filledLabel="Signature ready to save"
+                          />
+                        </div>
                         <div className="mt-1 text-[11px] text-zinc-500">
                           Templates: <span className="font-mono">{`{contact.custom.signature}`}</span>
                         </div>
-                      </label>
+                      </div>
                     </>
                   ) : null}
                   <div className="block">
@@ -2716,14 +2723,20 @@ export function PortalPeopleContactsClient() {
                       <div className="sm:col-span-2">
                         <div className="text-xs font-semibold text-zinc-600">Signature</div>
                         {editingContact ? (
-                          <input
-                            className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-800 outline-none focus:border-(--color-brand-blue)"
-                            value={editCreditValues.signature}
-                            onChange={(e) => setEditCustomVarRows((prev) => upsertCustomVariableRow(prev, "signature", e.target.value))}
-                            placeholder="Typed signature for mailed letters"
-                          />
+                          <div className="mt-1">
+                            <SignaturePad
+                              value={editCreditValues.signature}
+                              onChange={(nextValue) => setEditCustomVarRows((prev) => upsertCustomVariableRow(prev, "signature", nextValue))}
+                              heightClassName="h-32"
+                              className="bg-white"
+                              emptyLabel="Draw the signature for mailed letters"
+                              filledLabel="Saved signature preview"
+                            />
+                          </div>
                         ) : (
-                          <div className="mt-1 text-sm text-zinc-800">{creditDetailValues.signature || "N/A"}</div>
+                          <div className="mt-1">
+                            <SignatureDisplay value={creditDetailValues.signature} emptyLabel="N/A" />
+                          </div>
                         )}
                         <div className="mt-1 text-[11px] text-zinc-500">
                           Template: <span className="font-mono">{`{contact.custom.signature}`}</span>

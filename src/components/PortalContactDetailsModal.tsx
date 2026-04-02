@@ -41,9 +41,10 @@ function customVariablesFromRows(rows: CustomVarRow[]): Record<string, string> |
   for (const row of rows) {
     const key = String(row.key || "").trim().slice(0, 60);
     if (!key) continue;
-    const value = String(row.value ?? "").trim().slice(0, 300);
-    if (!value) continue;
     const stableKey = key.toLowerCase();
+    const valueLimit = stableKey === "signature" ? 250_000 : 300;
+    const value = String(row.value ?? "").trim().slice(0, valueLimit);
+    if (!value) continue;
     if (out[stableKey] !== undefined) continue;
     out[stableKey] = value;
   }
@@ -466,7 +467,7 @@ export function PortalContactDetailsModal(props: Props) {
           ) : null}
 
           <div className={classNames("grid grid-cols-1 gap-4 sm:grid-cols-2", detailLoading ? "mt-6" : "")}>
-          <div className="rounded-2xl border border-zinc-200 p-4">
+            <div className="min-w-0 rounded-2xl border border-zinc-200 p-4">
             <div className="text-xs font-semibold text-zinc-600">Name</div>
             {editing ? (
               <input
@@ -511,15 +512,15 @@ export function PortalContactDetailsModal(props: Props) {
               <div className="mt-2 space-y-1 text-xs text-zinc-700">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <span className="font-semibold text-zinc-600">Name</span>
-                  <span className="rounded-lg border border-zinc-200 bg-white px-2 py-1 font-mono">{"{contact.name}"}</span>
+                  <span className="max-w-full break-all rounded-lg border border-zinc-200 bg-white px-2 py-1 font-mono">{"{contact.name}"}</span>
                 </div>
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <span className="font-semibold text-zinc-600">Email</span>
-                  <span className="rounded-lg border border-zinc-200 bg-white px-2 py-1 font-mono">{"{contact.email}"}</span>
+                  <span className="max-w-full break-all rounded-lg border border-zinc-200 bg-white px-2 py-1 font-mono">{"{contact.email}"}</span>
                 </div>
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <span className="font-semibold text-zinc-600">Phone</span>
-                  <span className="rounded-lg border border-zinc-200 bg-white px-2 py-1 font-mono">{"{contact.phone}"}</span>
+                  <span className="max-w-full break-all rounded-lg border border-zinc-200 bg-white px-2 py-1 font-mono">{"{contact.phone}"}</span>
                 </div>
               </div>
             </div>
@@ -585,7 +586,7 @@ export function PortalContactDetailsModal(props: Props) {
                     {Object.entries(detail.customVariables)
                       .slice(0, 8)
                       .map(([k, v]) => (
-                        <div key={k} className="text-sm text-zinc-800">
+                        <div key={k} className="min-w-0 text-sm text-zinc-800">
                           <span className="font-semibold">{k}:</span> {String(v)}
                           <div className="mt-0.5 break-all text-xs text-zinc-500">
                             <span className="font-mono">{"{contact.custom."}{normalizePortalContactCustomVarKey(k)}{"}"}</span>

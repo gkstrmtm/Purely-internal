@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { IconEdit } from "@/app/portal/PortalIcons";
+import { SignatureDisplay } from "@/components/SignatureDisplay";
 
 type CreditForm = {
   id: string;
@@ -26,17 +27,22 @@ function classNames(...xs: Array<string | false | null | undefined>) {
   return xs.filter(Boolean).join(" ");
 }
 
-function safeJson(obj: any) {
-  try {
-    return JSON.stringify(obj ?? null, null, 2);
-  } catch {
-    return "<unserializable>";
+function formatValue(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  if (Array.isArray(value)) return value.map((entry) => formatValue(entry)).filter(Boolean).join(", ");
+  if (value && typeof value === "object") {
+    try {
+      return JSON.stringify(value);
+    } catch {
+      return "";
+    }
   }
+  return "";
 }
 
 export function FormResponsesClient({ basePath, formId }: { basePath: string; formId: string }) {
   const backHref = useMemo(() => `${basePath}/app/services/funnel-builder`, [basePath]);
-
   const [form, setForm] = useState<CreditForm | null>(null);
   const [submissions, setSubmissions] = useState<Submission[]>([]);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
@@ -45,6 +51,15 @@ export function FormResponsesClient({ basePath, formId }: { basePath: string; fo
 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const fieldLabelsByName = useMemo(() => {
+    const fields = Array.isArray(form?.schemaJson?.fields) ? (form?.schemaJson?.fields as Array<Record<string, unknown>>) : [];
+    return new Map(
+      fields
+        .map((field) => [String(field?.name || "").trim(), String(field?.label || "").trim()] as const)
+        .filter(([name]) => Boolean(name)),
+    );
+  }, [form?.schemaJson]);
 
   const loadForm = useCallback(async () => {
     const res = await fetch(`/api/portal/funnel-builder/forms/${encodeURIComponent(formId)}`, { cache: "no-store" });
@@ -124,7 +139,7 @@ export function FormResponsesClient({ basePath, formId }: { basePath: string; fo
     <div className="mx-auto w-full max-w-6xl">
       <div className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-end">
         <div>
-          <Link href={backHref} className="text-sm font-semibold text-[color:var(--color-brand-blue)] hover:underline">
+          <Link href={backHref} className="text-sm font-semibold text-(--color-brand-blue) hover:underline">
             ← Back
           </Link>
           <h1 className="mt-2 text-2xl font-bold text-brand-ink sm:text-3xl">Form responses</h1>
@@ -179,12 +194,30 @@ export function FormResponsesClient({ basePath, formId }: { basePath: string; fo
                 </summary>
 
                 <div className="mt-3 grid grid-cols-1 gap-3 lg:grid-cols-[1fr_280px]">
-                  <pre className="overflow-auto rounded-2xl border border-zinc-200 bg-zinc-50 p-4 text-xs text-zinc-900">
-                    {safeJson(s.dataJson)}
-                  </pre>
+                  <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+                    <div className="grid grid-cols-1 gap-3">
+                      {Object.entries((s.dataJson && typeof s.dataJson === "object" && !Array.isArray(s.dataJson) ? s.dataJson : {}) as Record<string, unknown>).map(([key, rawValue]) => {
+                        const label = fieldLabelsByName.get(key) || key;
+                        const displayValue = formatValue(rawValue);
+                        return (
+                          <div key={key} className="rounded-xl border border-zinc-200 bg-white p-3">
+                            <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">{label}</div>
+                            <div className="mt-2">
+                              <SignatureDisplay
+                                value={rawValue}
+                                emptyLabel={displayValue || "No response"}
+                                imageClassName="max-h-28"
+                                textClassName="text-sm text-zinc-800"
+                              />
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
                   <div className="rounded-2xl border border-zinc-200 bg-white p-4">
                     <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">User agent</div>
-                    <div className="mt-2 break-words text-xs text-zinc-700">{s.userAgent || "(none)"}</div>
+                    <div className="mt-2 wrap-break-word text-xs text-zinc-700">{s.userAgent || "(none)"}</div>
                   </div>
                 </div>
               </details>
@@ -214,7 +247,7 @@ export function FormResponsesClient({ basePath, formId }: { basePath: string; fo
               onClick={goNext}
               className={classNames(
                 "rounded-2xl px-4 py-2 text-sm font-semibold text-white",
-                busy || !nextCursor ? "bg-zinc-400" : "bg-[color:var(--color-brand-blue)] hover:bg-blue-700",
+                busy || !nextCursor ? "bg-zinc-400" : "bg-(--color-brand-blue) hover:bg-blue-700",
               )}
             >
               Next

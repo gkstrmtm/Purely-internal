@@ -10,6 +10,8 @@ import { PortalBookingClient } from "@/app/portal/app/services/booking/PortalBoo
 import { PortalBookingAvailabilityClient } from "@/app/portal/app/services/booking/availability/PortalBookingAvailabilityClient";
 import CreditReportsClient from "@/app/portal/app/services/credit-reports/CreditReportsClient";
 import { FunnelBuilderClient } from "@/app/portal/app/services/funnel-builder/FunnelBuilderClient";
+import { FormEditorClient } from "@/app/portal/app/services/funnel-builder/forms/[formId]/edit/FormEditorClient";
+import { FormResponsesClient } from "@/app/portal/app/services/funnel-builder/forms/[formId]/responses/FormResponsesClient";
 import { PortalInboxClient } from "@/app/portal/app/services/inbox/PortalInboxClient";
 import { PortalLeadScrapingClient } from "@/app/portal/app/services/lead-scraping/PortalLeadScrapingClient";
 import { PortalMediaLibraryClient } from "@/app/portal/app/services/media-library/PortalMediaLibraryClient";
@@ -211,6 +213,14 @@ export default async function CreditAppCatchallPage({
 
   if (slug.length === 3 && slug[0] === "services" && slug[1] === "credit-reports") {
     return <CreditReportsClient mode="detail" initialReportId={slug[2] || ""} />;
+  }
+
+  if (slug.length === 5 && slug[0] === "services" && slug[1] === "funnel-builder" && slug[2] === "forms" && slug[4] === "edit") {
+    return <FormEditorClient basePath="/credit" formId={slug[3] || ""} />;
+  }
+
+  if (slug.length === 5 && slug[0] === "services" && slug[1] === "funnel-builder" && slug[2] === "forms" && slug[4] === "responses") {
+    return <FormResponsesClient basePath="/credit" formId={slug[3] || ""} />;
   }
 
   if (slug.length === 2 && slug[0] === "services") {

@@ -4,9 +4,9 @@ import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { requireCreditClientSession } from "@/lib/creditPortalAccess";
 import { generateText } from "@/lib/ai";
-import { normalizeDisputeLetterText, readContactSignature } from "@/lib/creditDisputeLetters";
+import { normalizeDisputeLetterText, readContactSignature, readContactSignatureImage } from "@/lib/creditDisputeLetters";
+import { renderDisputeLetterPdfBytes } from "@/lib/disputeLetterPdf";
 import { mirrorUploadToMediaLibrary } from "@/lib/portalMediaUploads";
-import { renderTextToPdfBytes } from "@/lib/simplePdf";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -94,6 +94,8 @@ export async function POST(req: Request) {
   const templateBodyStarter = parsed.data.templateBodyStarter;
   const roundNumber = parsed.data.roundNumber;
   const signature = readContactSignature(contact.customVariables);
+  const signatureImage = readContactSignatureImage(contact.customVariables);
+  const signatureSummary = signature || (signatureImage ? "drawn signature on file" : "");
 
   const system =
     "You draft consumer credit dispute letters. Output ONLY a plain-text mailed letter. " +
@@ -115,7 +117,7 @@ export async function POST(req: Request) {
     `Consumer/contact name: ${contact.name}`,
     contact.email ? `Consumer email: ${contact.email}` : "Consumer email: not provided",
     contact.phone ? `Consumer phone: ${contact.phone}` : "Consumer phone: not provided",
-    signature ? `Consumer signature on file: ${signature}` : "Consumer signature on file: (none stored)",
+    signatureSummary ? `Consumer signature on file: ${signatureSummary}` : "Consumer signature on file: (none stored)",
     "",
     roundNumber && roundNumber > 1 ? `This is follow-up correspondence after an earlier dispute attempt.` : "This is the first dispute letter for these items.",
     templateLabel ? `Template selected: ${templateLabel}` : null,
@@ -141,7 +143,7 @@ export async function POST(req: Request) {
   const bodyTextRaw = await generateText({ system, user, model });
   const bodyText = normalizeDisputeLetterText(String(bodyTextRaw || "").trim(), {
     contactName: contact.name,
-    signature: signature || contact.name,
+    signature: signature,
     email: contact.email,
     phone: contact.phone,
   });
@@ -181,7 +183,11 @@ export async function POST(req: Request) {
   // Auto-export PDF into Media Library.
   let pdf: null | { mediaItemId: string; openUrl: string; downloadUrl: string; shareUrl: string } = null;
   try {
-    const pdfBytes = renderTextToPdfBytes({ title: created.subject || "Dispute Letter", text: created.bodyText || "(empty)" });
+    const pdfBytes = await renderDisputeLetterPdfBytes({
+      title: created.subject || "Dispute Letter",
+      text: created.bodyText || "(empty)",
+      signatureDataUrl: signatureImage || null,
+    });
     const safeContact = (created.contact?.name || "contact").replace(/[^a-z0-9]+/gi, "-").replace(/^-+|-+$/g, "");
     const fileName = `dispute-letter-${safeContact || "contact"}-${created.id.slice(0, 8)}.pdf`;
     const media = await mirrorUploadToMediaLibrary({ ownerId, fileName, mimeType: "application/pdf", bytes: pdfBytes });

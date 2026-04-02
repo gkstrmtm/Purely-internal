@@ -5,9 +5,10 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
 import { IconExport, IconFunnel } from "@/app/portal/PortalIcons";
 import { AiSparkIcon } from "@/components/AiSparkIcon";
+import { SignatureDisplay } from "@/components/SignatureDisplay";
 import { PortalListboxDropdown, type PortalListboxOption } from "@/components/PortalListboxDropdown";
 import { PortalSearchableCombobox, type PortalSearchableOption } from "@/components/PortalSearchableCombobox";
-import { normalizeDisputeLetterText, readContactSignature } from "@/lib/creditDisputeLetters";
+import { normalizeDisputeLetterText, readContactCustomValue, readContactSignature } from "@/lib/creditDisputeLetters";
 import { extractCreditInquiryDate } from "@/lib/creditReports";
 
 type ContactLite = {
@@ -324,7 +325,7 @@ export default function DisputeLettersClient({ mode = "list", initialLetterId = 
     });
   }, [letters, search, statusFilter]);
   const selectedContact = useMemo(() => contacts.find((entry) => entry.id === contactId) || selectedLetter?.contact || null, [contactId, contacts, selectedLetter?.contact]);
-  const selectedContactSignature = useMemo(() => readContactSignature(selectedContact?.customVariables), [selectedContact?.customVariables]);
+  const selectedContactSignature = useMemo(() => readContactCustomValue(selectedContact?.customVariables, "signature"), [selectedContact?.customVariables]);
   const recipientSuggestions = useMemo(() => {
     const q = normalize(recipientName);
     if (!q) return RECIPIENT_PRESETS;
@@ -687,7 +688,9 @@ export default function DisputeLettersClient({ mode = "list", initialLetterId = 
               </label>
               <div className="rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-700 md:col-span-2">
                 <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Signature on file</div>
-                <div className="mt-2 font-medium text-zinc-900">{selectedContactSignature || "No signature stored on this contact yet"}</div>
+                <div className="mt-2">
+                  <SignatureDisplay value={selectedContactSignature} emptyLabel="No signature stored on this contact yet" textClassName="font-medium text-zinc-900" />
+                </div>
               </div>
             </div>
           </section>
@@ -812,7 +815,7 @@ export default function DisputeLettersClient({ mode = "list", initialLetterId = 
               <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Letter</div>
               <textarea value={bodyText} onChange={(event) => setBodyText(normalizeDisputeLetterText(event.target.value, { contactName: selectedLetter?.contact?.name || "", signature: readContactSignature(selectedLetter?.contact?.customVariables) || selectedLetter?.contact?.name || "", email: selectedLetter?.contact?.email || "", phone: selectedLetter?.contact?.phone || "" }))} className="min-h-175 w-full rounded-3xl border border-zinc-200 px-4 py-4 text-sm leading-6 text-zinc-800 outline-none focus:border-zinc-300" />
             </label>
-            <div className="mt-3 text-xs text-zinc-500">Plain-text mailed letter only. Clean the contact signature/address, download the PDF, then mark it mailed.</div>
+            <div className="mt-3 text-xs text-zinc-500">The editor stays plain text, and any drawn contact signature is added automatically to the downloaded PDF.</div>
           </section>
           <aside className="space-y-4">
             <section className="rounded-3xl border border-zinc-200 bg-white p-5">
@@ -839,7 +842,12 @@ export default function DisputeLettersClient({ mode = "list", initialLetterId = 
                   <div className="text-sm font-semibold text-zinc-900">{selectedLetter.contact.name}</div>
                   <div className="mt-1 text-xs text-zinc-600">{selectedLetter.contact.email || "No email"}{selectedLetter.contact.phone ? ` • ${selectedLetter.contact.phone}` : ""}</div>
                   <div className="mt-3 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Signature on file</div>
-                  <div className="mt-1 text-sm text-zinc-800">{readContactSignature(selectedLetter.contact.customVariables) || "No signature stored yet"}</div>
+                  <div className="mt-1">
+                    <SignatureDisplay
+                      value={readContactCustomValue(selectedLetter.contact.customVariables, "signature")}
+                      emptyLabel="No signature stored yet"
+                    />
+                  </div>
                 </div>
               ) : (
                 <div className="mt-3 rounded-2xl border border-dashed border-zinc-300 bg-zinc-50 p-4 text-sm text-zinc-600">No contact linked.</div>

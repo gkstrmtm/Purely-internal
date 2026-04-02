@@ -1,9 +1,10 @@
 import { NextResponse } from "next/server";
 
+import { readContactSignatureImage } from "@/lib/creditDisputeLetters";
 import { prisma } from "@/lib/db";
+import { renderDisputeLetterPdfBytes } from "@/lib/disputeLetterPdf";
 import { requireCreditClientSession } from "@/lib/creditPortalAccess";
 import { mirrorUploadToMediaLibrary } from "@/lib/portalMediaUploads";
-import { renderTextToPdfBytes } from "@/lib/simplePdf";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -27,7 +28,7 @@ export async function POST(_req: Request, ctx: { params: Promise<{ letterId: str
       bodyText: true,
       pdfMediaItemId: true,
       pdfGeneratedAt: true,
-      contact: { select: { id: true, name: true } },
+      contact: { select: { id: true, name: true, customVariables: true } },
       pdfMediaItem: { select: { id: true, publicToken: true } },
     },
   });
@@ -49,9 +50,10 @@ export async function POST(_req: Request, ctx: { params: Promise<{ letterId: str
     });
   }
 
-  const pdfBytes = renderTextToPdfBytes({
+  const pdfBytes = await renderDisputeLetterPdfBytes({
     title: letter.subject || "Dispute Letter",
     text: letter.bodyText || "(empty)",
+    signatureDataUrl: readContactSignatureImage(letter.contact?.customVariables) || null,
   });
 
   const safeContact = (letter.contact?.name || "contact").replace(/[^a-z0-9]+/gi, "-").replace(/^-+|-+$/g, "");

@@ -1,3 +1,5 @@
+import { readSignatureImageDataUrl, readSignatureText } from "@/lib/signature";
+
 export function readContactCustomValue(customVariables: unknown, key: string) {
   if (!customVariables || typeof customVariables !== "object" || Array.isArray(customVariables)) return "";
   const target = String(key || "").trim().toLowerCase();
@@ -10,7 +12,11 @@ export function readContactCustomValue(customVariables: unknown, key: string) {
 }
 
 export function readContactSignature(customVariables: unknown) {
-  return readContactCustomValue(customVariables, "signature");
+  return readSignatureText(readContactCustomValue(customVariables, "signature"));
+}
+
+export function readContactSignatureImage(customVariables: unknown) {
+  return readSignatureImageDataUrl(readContactCustomValue(customVariables, "signature"));
 }
 
 function escapeRegExp(value: string) {
