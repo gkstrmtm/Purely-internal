@@ -14,6 +14,7 @@ import { normalizePortalContactCustomVarKey, type TemplateVariable } from "@/lib
 import { DEFAULT_TAG_COLORS } from "@/lib/tagColors.shared";
 
 const DEFAULT_CONTACT_CUSTOM_VAR_KEYS = ["business_name", "city", "state", "website", "niche", "location"];
+const CREDIT_CONTACT_CUSTOM_VAR_KEYS = ["business_name", "ssn_last_four", "birth_date", "address"] as const;
 
 type ContactTag = { id: string; name: string; color: string | null };
 
@@ -79,6 +80,31 @@ function mergeRowsWithKnownKeys(existing: CustomVarRow[], knownKeys: string[]): 
   }
 
   return out;
+}
+
+function getCustomVariableValue(input: unknown, targetKey: string): string {
+  const stableTargetKey = String(targetKey || "").trim().toLowerCase();
+  if (!stableTargetKey || !input || typeof input !== "object" || Array.isArray(input)) return "";
+  for (const [key, value] of Object.entries(input as Record<string, unknown>)) {
+    if (String(key || "").trim().toLowerCase() !== stableTargetKey) continue;
+    return typeof value === "string" ? value : String(value ?? "");
+  }
+  return "";
+}
+
+function upsertCustomVariableRow(rows: CustomVarRow[], targetKey: string, value: string): CustomVarRow[] {
+  const stableTargetKey = String(targetKey || "").trim().toLowerCase();
+  if (!stableTargetKey) return rows;
+
+  let found = false;
+  const next = rows.map((row) => {
+    if (String(row.key || "").trim().toLowerCase() !== stableTargetKey) return row;
+    found = true;
+    return { ...row, key: targetKey, value };
+  });
+
+  if (found) return next;
+  return [...next, { key: targetKey, value }];
 }
 
 function stableContactEditSignature(input: {
@@ -396,6 +422,42 @@ export function PortalPeopleContactsClient() {
     [editCustomVarRows, editEmail, editName, editPhone],
   );
   const editContactDirty = editingContact && editContactSig !== lastSavedContactEditSigRef.current;
+  const creditDetailValues = useMemo(
+    () => ({
+      businessName: getCustomVariableValue(detail?.customVariables, "business_name"),
+      ssnLastFour: getCustomVariableValue(detail?.customVariables, "ssn_last_four"),
+      birthDate: getCustomVariableValue(detail?.customVariables, "birth_date"),
+      address: getCustomVariableValue(detail?.customVariables, "address"),
+    }),
+    [detail?.customVariables],
+  );
+  const editCreditValues = useMemo(
+    () => ({
+      businessName: getCustomVariableValue(customVariablesFromRows(editCustomVarRows), "business_name"),
+      ssnLastFour: getCustomVariableValue(customVariablesFromRows(editCustomVarRows), "ssn_last_four"),
+      birthDate: getCustomVariableValue(customVariablesFromRows(editCustomVarRows), "birth_date"),
+      address: getCustomVariableValue(customVariablesFromRows(editCustomVarRows), "address"),
+    }),
+    [editCustomVarRows],
+  );
+  const visibleEditCustomVarRows = useMemo(
+    () =>
+      editCustomVarRows.filter(
+        (row) =>
+          !isCreditApp ||
+          !CREDIT_CONTACT_CUSTOM_VAR_KEYS.includes(String(row.key || "").trim().toLowerCase() as (typeof CREDIT_CONTACT_CUSTOM_VAR_KEYS)[number]),
+      ),
+    [editCustomVarRows, isCreditApp],
+  );
+  const visibleDetailCustomVarEntries = useMemo(
+    () =>
+      Object.entries(detail?.customVariables || {}).filter(
+        ([key]) =>
+          !isCreditApp ||
+          !CREDIT_CONTACT_CUSTOM_VAR_KEYS.includes(String(key || "").trim().toLowerCase() as (typeof CREDIT_CONTACT_CUSTOM_VAR_KEYS)[number]),
+      ),
+    [detail?.customVariables, isCreditApp],
+  );
 
   const [leadModalOpen, setLeadModalOpen] = useState(false);
   const [activeLeadId, setActiveLeadId] = useState<string | null>(null);
@@ -967,6 +1029,13 @@ export function PortalPeopleContactsClient() {
     const phone = editPhone.trim();
     setSavingContact(true);
     try {
+      if (isCreditApp) {
+        const ssnLastFour = editCreditValues.ssnLastFour.replace(/\D/g, "").slice(0, 4);
+        if (ssnLastFour.length !== 4) throw new Error("Last four of SSN must be 4 digits");
+        if (!editCreditValues.birthDate.trim()) throw new Error("Birth date is required");
+        if (!editCreditValues.address.trim()) throw new Error("Address is required");
+      }
+
       const customVariables = customVariablesFromRows(editCustomVarRows);
       const nextSig = stableContactEditSignature({ name, email, phone, customVariables });
       const res = await fetch(`/api/portal/contacts/${encodeURIComponent(stableId)}`, {
@@ -2536,6 +2605,72 @@ export function PortalPeopleContactsClient() {
                   <div className="mt-1 text-sm text-zinc-800">{detail?.phone ?? "N/A"}</div>
                 )}
 
+                {isCreditApp ? (
+                  <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+                    <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Credit profile</div>
+                    <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                      <div>
+                        <div className="text-xs font-semibold text-zinc-600">Business name</div>
+                        {editingContact ? (
+                          <input
+                            className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-800 outline-none focus:border-(--color-brand-blue)"
+                            value={editCreditValues.businessName}
+                            onChange={(e) => setEditCustomVarRows((prev) => upsertCustomVariableRow(prev, "business_name", e.target.value))}
+                            placeholder="Business name"
+                          />
+                        ) : (
+                          <div className="mt-1 text-sm text-zinc-800">{creditDetailValues.businessName || "N/A"}</div>
+                        )}
+                      </div>
+                      <div>
+                        <div className="text-xs font-semibold text-zinc-600">Last four of SSN</div>
+                        {editingContact ? (
+                          <input
+                            className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-800 outline-none focus:border-(--color-brand-blue)"
+                            value={editCreditValues.ssnLastFour}
+                            onChange={(e) =>
+                              setEditCustomVarRows((prev) =>
+                                upsertCustomVariableRow(prev, "ssn_last_four", e.target.value.replace(/\D/g, "").slice(0, 4)),
+                              )
+                            }
+                            inputMode="numeric"
+                            maxLength={4}
+                            placeholder="1234"
+                          />
+                        ) : (
+                          <div className="mt-1 text-sm text-zinc-800">{creditDetailValues.ssnLastFour || "N/A"}</div>
+                        )}
+                      </div>
+                      <div>
+                        <div className="text-xs font-semibold text-zinc-600">Birth date</div>
+                        {editingContact ? (
+                          <input
+                            type="date"
+                            className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-800 outline-none focus:border-(--color-brand-blue)"
+                            value={editCreditValues.birthDate}
+                            onChange={(e) => setEditCustomVarRows((prev) => upsertCustomVariableRow(prev, "birth_date", e.target.value))}
+                          />
+                        ) : (
+                          <div className="mt-1 text-sm text-zinc-800">{creditDetailValues.birthDate || "N/A"}</div>
+                        )}
+                      </div>
+                      <div className="sm:col-span-2">
+                        <div className="text-xs font-semibold text-zinc-600">Address</div>
+                        {editingContact ? (
+                          <textarea
+                            className="mt-1 min-h-22 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-800 outline-none focus:border-(--color-brand-blue)"
+                            value={editCreditValues.address}
+                            onChange={(e) => setEditCustomVarRows((prev) => upsertCustomVariableRow(prev, "address", e.target.value))}
+                            placeholder="Street, city, state, ZIP"
+                          />
+                        ) : (
+                          <div className="mt-1 whitespace-pre-wrap text-sm text-zinc-800">{creditDetailValues.address || "N/A"}</div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                ) : null}
+
                 <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
                   <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Template variables</div>
                   <div className="mt-2 space-y-1 text-xs text-zinc-700">
@@ -2555,14 +2690,40 @@ export function PortalPeopleContactsClient() {
                       <span className="font-semibold text-zinc-600">Phone</span>
                       <span className="rounded-lg border border-zinc-200 bg-white px-2 py-1 font-mono">{"{contact.phone}"}</span>
                     </div>
+                    {isCreditApp ? (
+                      <>
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <span className="font-semibold text-zinc-600">Business name</span>
+                          <span className="rounded-lg border border-zinc-200 bg-white px-2 py-1 font-mono">{"{contact.custom.business_name}"}</span>
+                        </div>
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <span className="font-semibold text-zinc-600">SSN last four</span>
+                          <span className="rounded-lg border border-zinc-200 bg-white px-2 py-1 font-mono">{"{contact.custom.ssn_last_four}"}</span>
+                        </div>
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <span className="font-semibold text-zinc-600">Birth date</span>
+                          <span className="rounded-lg border border-zinc-200 bg-white px-2 py-1 font-mono">{"{contact.custom.birth_date}"}</span>
+                        </div>
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <span className="font-semibold text-zinc-600">Address</span>
+                          <span className="rounded-lg border border-zinc-200 bg-white px-2 py-1 font-mono">{"{contact.custom.address}"}</span>
+                        </div>
+                      </>
+                    ) : null}
                   </div>
                 </div>
 
                 <div className="mt-3 text-xs font-semibold text-zinc-600">Custom variables</div>
                 {editingContact ? (
                   <div className="mt-2 space-y-2">
-                    {editCustomVarRows.length ? (
-                      editCustomVarRows.map((row, idx) => (
+                    {visibleEditCustomVarRows.length ? (
+                      visibleEditCustomVarRows.map((row) => {
+                        const idx = editCustomVarRows.findIndex(
+                          (candidate) =>
+                            String(candidate.key || "").trim().toLowerCase() === String(row.key || "").trim().toLowerCase() &&
+                            String(candidate.value || "") === String(row.value || ""),
+                        );
+                        return (
                         <div key={`${idx}-${row.key}`} className="grid grid-cols-1 gap-2 sm:grid-cols-5">
                           <input
                             className="sm:col-span-2 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-800 outline-none focus:border-(--color-brand-blue)"
@@ -2598,9 +2759,10 @@ export function PortalPeopleContactsClient() {
                             </button>
                           </div>
                         </div>
-                      ))
+                        );
+                      })
                     ) : (
-                      <div className="text-sm text-zinc-600">None yet.</div>
+                      <div className="text-sm text-zinc-600">{isCreditApp ? "No additional custom variables." : "None yet."}</div>
                     )}
 
                     <button
@@ -2617,9 +2779,9 @@ export function PortalPeopleContactsClient() {
                   </div>
                 ) : (
                   <div className="mt-2">
-                    {detail?.customVariables && Object.keys(detail.customVariables).length ? (
+                    {visibleDetailCustomVarEntries.length ? (
                       <div className="space-y-1">
-                        {Object.entries(detail.customVariables)
+                        {visibleDetailCustomVarEntries
                           .slice(0, 8)
                           .map(([k, v]) => (
                             <div key={k} className="text-sm text-zinc-800">
@@ -2631,7 +2793,7 @@ export function PortalPeopleContactsClient() {
                           ))}
                       </div>
                     ) : (
-                      <div className="text-sm text-zinc-600">None.</div>
+                      <div className="text-sm text-zinc-600">{isCreditApp ? "No additional custom variables." : "None."}</div>
                     )}
                   </div>
                 )}
