@@ -79,6 +79,15 @@ function readinessAccentClasses(tone: OpportunityPlan["readinessTone"]) {
   return "border-rose-300 bg-rose-50/70";
 }
 
+function classNames(...values: Array<string | false | null | undefined>) {
+  return values.filter(Boolean).join(" ");
+}
+
+const BUTTON_MOTION_CLASS = "transition-all duration-150 hover:-translate-y-0.5 focus-visible:outline-none";
+const PRIMARY_BUTTON_CLASS = `${BUTTON_MOTION_CLASS} rounded-2xl bg-brand-blue px-4 py-2 text-sm font-semibold text-white shadow-sm hover:opacity-95 focus-visible:ring-2 focus-visible:ring-brand-blue/30 disabled:opacity-60`;
+const SECONDARY_BUTTON_CLASS = `${BUTTON_MOTION_CLASS} rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:border-zinc-300 hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-brand-blue/20 disabled:opacity-60`;
+const ICON_BUTTON_CLASS = "inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-zinc-200 bg-white text-base font-semibold text-zinc-500 transition-all duration-150 hover:-translate-y-0.5 hover:scale-105 hover:bg-zinc-50 hover:text-zinc-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/20 disabled:opacity-60";
+
 function reportRoutesFor(pathname: string | null) {
   const current = String(pathname || "");
   if (current.startsWith("/credit/app/services/credit-reports")) {
@@ -239,6 +248,8 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
   const [selectedReportId, setSelectedReportId] = useState<string>(initialReportId);
   const [selectedReport, setSelectedReport] = useState<ReportFull | null>(null);
   const [newReportOpen, setNewReportOpen] = useState(false);
+  const [detailTab, setDetailTab] = useState<"overview" | "items" | "funding">("overview");
+  const [priorityItemOpen, setPriorityItemOpen] = useState<ReportItemLite | null>(null);
   const [reportSearch, setReportSearch] = useState("");
   const [providerFilter, setProviderFilter] = useState<string>("ALL");
 
@@ -453,6 +464,11 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
   }, [initialReportId]);
 
   useEffect(() => {
+    setDetailTab("overview");
+    setPriorityItemOpen(null);
+  }, [selectedReportId]);
+
+  useEffect(() => {
     const query = (searchParams.get("contact") || "").trim();
     if (!query) return;
     setContactQuery(query);
@@ -551,9 +567,14 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
             onClick={() => {
               window.location.href = routeSet.listHref;
             }}
-            className="inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+            className="group inline-flex items-center gap-2 rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-brand-ink transition-all duration-150 hover:-translate-y-0.5 hover:border-zinc-300 hover:bg-zinc-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/20"
           >
-            Back to reports
+            <span className="inline-flex h-8 w-8 items-center justify-center rounded-xl bg-zinc-100 text-zinc-700 transition-all duration-150 group-hover:-translate-x-0.5 group-hover:bg-zinc-200 group-hover:text-zinc-900">
+              <svg viewBox="0 0 20 20" fill="none" aria-hidden="true" className="h-4 w-4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M12.5 4.5 7 10l5.5 5.5" />
+              </svg>
+            </span>
+            <span>Back to reports</span>
           </button>
         ) : (
           <div className="flex items-center gap-2">
@@ -561,7 +582,7 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
             <button
               type="button"
               onClick={() => setNewReportOpen(true)}
-              className="inline-flex items-center justify-center rounded-2xl bg-brand-blue px-4 py-2 text-sm font-semibold text-white hover:opacity-95"
+              className={PRIMARY_BUTTON_CLASS}
             >
               + New
             </button>
@@ -588,24 +609,24 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
                 <button
                   type="button"
                   onClick={() => setNewReportOpen(true)}
-                  className="inline-flex items-center justify-center rounded-2xl bg-brand-blue px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:opacity-95 focus-visible:ring-2 focus-visible:ring-brand-blue/30"
+                  className={PRIMARY_BUTTON_CLASS + " px-4 py-2.5"}
                 >
                   Pull a report
                 </button>
               </div>
 
               <div className="mt-5 grid gap-3 sm:grid-cols-3">
-                <div className="rounded-2xl border border-zinc-200 bg-white/90 px-4 py-4 shadow-sm">
+                <div className="rounded-2xl border border-zinc-200 bg-white px-4 py-4 shadow-sm">
                   <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Saved reports</div>
                   <div className="mt-2 text-2xl font-bold text-zinc-900">{reports.length}</div>
                   <div className="mt-1 text-xs text-zinc-500">Total reports in this queue</div>
                 </div>
-                <div className="rounded-2xl border border-zinc-200 bg-white/90 px-4 py-4 shadow-sm">
+                <div className="rounded-2xl border border-zinc-200 bg-white px-4 py-4 shadow-sm">
                   <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Contacts covered</div>
                   <div className="mt-2 text-2xl font-bold text-zinc-900">{contactCount}</div>
                   <div className="mt-1 text-xs text-zinc-500">Unique contacts with saved pulls</div>
                 </div>
-                <div className="rounded-2xl border border-zinc-200 bg-white/90 px-4 py-4 shadow-sm">
+                <div className="rounded-2xl border border-zinc-200 bg-white px-4 py-4 shadow-sm">
                   <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Providers</div>
                   <div className="mt-2 text-2xl font-bold text-zinc-900">{providerCount}</div>
                   <div className="mt-1 text-xs text-zinc-500">Providers represented in the queue</div>
@@ -658,7 +679,7 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
                   value={providerFilter}
                   onChange={setProviderFilter}
                   options={providerFilterOptions}
-                  buttonClassName="flex w-full items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm hover:bg-zinc-50"
+                  buttonClassName="flex w-full items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm transition-all duration-150 hover:-translate-y-0.5 hover:border-zinc-300 hover:bg-zinc-50"
                 />
               </div>
             </div>
@@ -689,7 +710,7 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
                           <button
                             type="button"
                             onClick={() => setNewReportOpen(true)}
-                            className="mt-4 rounded-2xl bg-brand-blue px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:opacity-95"
+                            className={PRIMARY_BUTTON_CLASS + " mt-4"}
                           >
                             + New report
                           </button>
@@ -747,7 +768,7 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
                     <div className="text-lg font-semibold text-zinc-900">New report</div>
                     <div className="mt-1 text-sm text-zinc-600">Choose the contact and provider, then pull the latest report into the queue.</div>
                   </div>
-                  <button type="button" onClick={() => setNewReportOpen(false)} aria-label="Close new report" className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-zinc-200 text-lg font-semibold text-zinc-700 hover:bg-zinc-50">×</button>
+                  <button type="button" onClick={() => setNewReportOpen(false)} aria-label="Close new report" className={ICON_BUTTON_CLASS}>×</button>
                 </div>
 
                 <div className="mt-5 grid gap-4">
@@ -778,7 +799,7 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
                       onChange={setProvider}
                       disabled={busy}
                       options={providerOptions}
-                      buttonClassName="flex w-full items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm hover:bg-zinc-50"
+                      buttonClassName="flex w-full items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm transition-all duration-150 hover:-translate-y-0.5 hover:border-zinc-300 hover:bg-zinc-50"
                     />
                   </label>
 
@@ -805,7 +826,7 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
                           type="button"
                           disabled={busy || rawText.trim().length < 2}
                           onClick={importReport}
-                          className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-900 hover:bg-zinc-50 disabled:opacity-60"
+                          className={SECONDARY_BUTTON_CLASS + " text-zinc-900"}
                         >
                           {busy ? "Working..." : "Import report"}
                         </button>
@@ -815,8 +836,8 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
                 </div>
 
                 <div className="mt-6 flex justify-end gap-2">
-                  <button type="button" onClick={() => setNewReportOpen(false)} className="rounded-2xl border border-zinc-200 px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50">Cancel</button>
-                  <button type="button" disabled={busy || !selectedContactId} onClick={requestProviderPull} className="rounded-2xl bg-brand-blue px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:opacity-95 focus-visible:ring-2 focus-visible:ring-brand-blue/30 disabled:opacity-60">{busy ? "Working..." : "Pull report"}</button>
+                  <button type="button" onClick={() => setNewReportOpen(false)} className={SECONDARY_BUTTON_CLASS}>Cancel</button>
+                  <button type="button" disabled={busy || !selectedContactId} onClick={requestProviderPull} className={PRIMARY_BUTTON_CLASS}>{busy ? "Working..." : "Pull report"}</button>
                 </div>
               </div>
             </div>
@@ -845,18 +866,41 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
                     params.set("compose", "1");
                     window.location.href = `${routeSet.disputeHref}?${params.toString()}`;
                   }}
-                  className="rounded-2xl bg-brand-blue px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:opacity-95 focus-visible:ring-2 focus-visible:ring-brand-blue/30"
+                  className={PRIMARY_BUTTON_CLASS}
                 >
                   Open dispute
                 </button>
                 <button
                   type="button"
-                  onClick={() => document.getElementById("credit-report-items")?.scrollIntoView({ behavior: "smooth", block: "start" })}
-                  className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
+                  onClick={() => setDetailTab("items")}
+                  className={SECONDARY_BUTTON_CLASS}
                 >
                   View items
                 </button>
               </div>
+            </div>
+
+            <div className="mt-5 flex flex-wrap gap-2">
+              {([
+                ["overview", "Overview"],
+                ["items", "Items"],
+                ["funding", "Funding"],
+              ] as const).map(([value, label]) => (
+                <button
+                  key={value}
+                  type="button"
+                  onClick={() => setDetailTab(value)}
+                  className={classNames(
+                    "rounded-2xl px-4 py-2 text-sm font-semibold",
+                    BUTTON_MOTION_CLASS,
+                    detailTab === value
+                      ? "bg-brand-blue text-white shadow-sm focus-visible:ring-2 focus-visible:ring-brand-blue/30"
+                      : "border border-zinc-200 bg-white text-zinc-700 hover:border-zinc-300 hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-brand-blue/20",
+                  )}
+                >
+                  {label}
+                </button>
+              ))}
             </div>
 
             <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -878,12 +922,18 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
               </div>
             </div>
 
+            {detailTab === "overview" ? (
             <div className="mt-5 grid gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
               <div className="rounded-3xl border border-zinc-200 bg-zinc-50/60 p-5">
                 <div className="text-sm font-semibold text-zinc-900">Priority queue</div>
                 <div className="mt-4 space-y-3">
                   {priorityItems.length ? priorityItems.map((item) => (
-                    <div key={item.id} className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3">
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={() => setPriorityItemOpen(item)}
+                      className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-left transition-all duration-150 hover:-translate-y-0.5 hover:border-zinc-300 hover:bg-zinc-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/20"
+                    >
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0">
                           <div className="truncate text-sm font-semibold text-zinc-900">{item.label}</div>
@@ -893,7 +943,8 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
                           {REPORT_FILTER_LABELS[item.auditTag]}
                         </div>
                       </div>
-                    </div>
+                      <div className="mt-3 text-xs font-semibold text-brand-ink">Open quick actions →</div>
+                    </button>
                   )) : <div className="rounded-2xl border border-dashed border-zinc-300 bg-zinc-50 px-4 py-3 text-sm text-zinc-600">No items on this report yet.</div>}
                 </div>
               </div>
@@ -925,8 +976,10 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
                 </div>
               </div>
             </div>
+            ) : null}
           </section>
 
+          {detailTab === "items" ? (
           <section id="credit-report-items" className="rounded-[30px] border border-zinc-200 bg-white p-5 shadow-sm sm:p-6">
             <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
               <div>
@@ -949,7 +1002,7 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
                     { value: "POSITIVE", label: `Positive ${selectedReportSummary.positive}` },
                     { value: "TRACKED", label: `${REPORT_FILTER_LABELS.TRACKED} ${selectedReportSummary.tracked}` },
                   ]}
-                  buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50 sm:w-52"
+                  buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm transition-all duration-150 hover:-translate-y-0.5 hover:border-zinc-300 hover:bg-zinc-50 sm:w-52"
                 />
                 <div className="text-xs text-zinc-500">{filteredItems.length} shown</div>
               </div>
@@ -996,7 +1049,7 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
                             if (it.bureau) params.set("bureau", it.bureau);
                             window.location.href = `${routeSet.disputeHref}?${params.toString()}`;
                           }}
-                          className="rounded-2xl bg-brand-blue px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:opacity-95 focus-visible:ring-2 focus-visible:ring-brand-blue/30"
+                          className={PRIMARY_BUTTON_CLASS}
                         >
                           Create dispute
                         </button>
@@ -1010,7 +1063,7 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
                           value={it.auditTag}
                           onChange={(v) => updateItem(it.id, { auditTag: v })}
                           disabled={busy}
-                          buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm hover:bg-zinc-50"
+                          buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm transition-all duration-150 hover:-translate-y-0.5 hover:border-zinc-300 hover:bg-zinc-50"
                           options={(
                             [
                               { value: "PENDING", label: REPORT_FILTER_LABELS.PENDING },
@@ -1039,7 +1092,9 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
               )}
             </div>
           </section>
+          ) : null}
 
+          {detailTab === "funding" ? (
           <section className="rounded-[30px] border border-zinc-200 bg-white p-5 shadow-sm sm:p-6">
             <div className="flex flex-col gap-2 lg:flex-row lg:items-end lg:justify-between">
               <div>
@@ -1066,7 +1121,7 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
                         href={offer.href}
                         target="_blank"
                         rel="noreferrer"
-                        className="rounded-2xl border border-zinc-200 bg-zinc-50 px-3 py-3 hover:border-zinc-300 hover:bg-white"
+                        className="rounded-2xl border border-zinc-200 bg-zinc-50 px-3 py-3 transition-all duration-150 hover:-translate-y-0.5 hover:border-zinc-300 hover:bg-white"
                       >
                         <div className="text-sm font-semibold text-zinc-900">{offer.label}</div>
                         <div className="mt-1 text-xs font-semibold uppercase tracking-wide text-zinc-500">{offer.source}</div>
@@ -1078,6 +1133,45 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
               ))}
             </div>
           </section>
+          ) : null}
+
+          {priorityItemOpen ? (
+            <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/30 p-4" onMouseDown={() => setPriorityItemOpen(null)}>
+              <div className="my-auto w-full max-w-2xl rounded-4xl border border-zinc-200 bg-white p-6 shadow-xl sm:p-7" onMouseDown={(event) => event.stopPropagation()} role="dialog" aria-modal="true" aria-label="Priority item actions" data-overlay-root="true">
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <div className="text-lg font-semibold text-zinc-900">{priorityItemOpen.label}</div>
+                    <div className="mt-1 text-sm text-zinc-600">{[priorityItemOpen.bureau, priorityItemOpen.kind].filter(Boolean).join(" • ") || "Uncategorized"}</div>
+                  </div>
+                  <button type="button" onClick={() => setPriorityItemOpen(null)} aria-label="Close priority item" className={ICON_BUTTON_CLASS}>×</button>
+                </div>
+
+                <div className="mt-5 rounded-3xl border border-zinc-200 bg-zinc-50 p-4">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <div className={priorityItemOpen.auditTag === "NEGATIVE" ? "rounded-full border border-rose-200 bg-rose-50 px-2.5 py-1 text-[11px] font-semibold text-rose-700" : priorityItemOpen.auditTag === "PENDING" ? "rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-[11px] font-semibold text-amber-700" : "rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[11px] font-semibold text-emerald-700"}>
+                      {REPORT_FILTER_LABELS[priorityItemOpen.auditTag]}
+                    </div>
+                    {priorityItemOpen.disputeStatus ? <div className="rounded-full border border-zinc-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-zinc-600">{priorityItemOpen.disputeStatus}</div> : null}
+                  </div>
+                  <div className="mt-3 text-sm text-zinc-700">
+                    {priorityItemOpen.disputeStatus ? `Latest follow-up: ${priorityItemOpen.disputeStatus}` : "No dispute note saved yet for this item."}
+                  </div>
+                </div>
+
+                <div className="mt-6 flex flex-wrap justify-end gap-2">
+                  <button type="button" onClick={() => { setDetailTab("items"); setPriorityItemOpen(null); }} className={SECONDARY_BUTTON_CLASS}>Open item list</button>
+                  <button type="button" onClick={() => {
+                    const params = new URLSearchParams();
+                    if (selectedReport?.contactId) params.set("contactId", selectedReport.contactId);
+                    params.set("compose", "1");
+                    params.set("issue", priorityItemOpen.label);
+                    if (priorityItemOpen.bureau) params.set("bureau", priorityItemOpen.bureau);
+                    window.location.href = `${routeSet.disputeHref}?${params.toString()}`;
+                  }} className={PRIMARY_BUTTON_CLASS}>Create dispute</button>
+                </div>
+              </div>
+            </div>
+          ) : null}
 
           {showAdvancedImport ? (
             <details className="mt-4">
