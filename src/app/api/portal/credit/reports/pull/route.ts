@@ -82,6 +82,7 @@ export async function POST(req: Request) {
       provider: true,
       importedAt: true,
       createdAt: true,
+      rawJson: true,
       contactId: true,
       contact: { select: { id: true, name: true, email: true } },
       _count: { select: { items: true } },
