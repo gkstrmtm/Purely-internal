@@ -3,41 +3,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { SignaturePad } from "@/components/SignaturePad";
+import type { CreditFormField as Field, CreditFormStyle, CreditFormSuccessContent } from "@/lib/creditFormSchema";
 import { googleFontImportCss } from "@/lib/fontPresets";
 
-export type Field = {
-  name: string;
-  label: string;
-  type:
-    | "short_answer"
-    | "long_answer"
-    | "paragraph"
-    | "email"
-    | "phone"
-    | "name"
-    | "signature"
-    | "checklist"
-    | "radio"
-    // legacy/back-compat
-    | "text"
-    | "tel"
-    | "textarea";
-  required?: boolean;
-  options?: string[];
-};
-
-export type CreditFormStyle = {
-  pageBg?: string;
-  cardBg?: string;
-  textColor?: string;
-  inputBg?: string;
-  inputBorder?: string;
-  buttonBg?: string;
-  buttonText?: string;
-  radiusPx?: number;
-  fontFamily?: string;
-  fontGoogleFamily?: string;
-};
+export type { Field, CreditFormStyle, CreditFormSuccessContent };
 
 function classNames(...xs: Array<string | false | null | undefined>) {
   return xs.filter(Boolean).join(" ");
@@ -104,6 +73,7 @@ export function CreditHostedFormClient({
   fields,
   embedded,
   style,
+  successContent,
   submitBasePath,
 }: {
   slug: string;
@@ -111,6 +81,7 @@ export function CreditHostedFormClient({
   fields: Field[];
   embedded?: boolean;
   style?: CreditFormStyle;
+  successContent?: CreditFormSuccessContent;
   submitBasePath?: "/credit" | "/portal";
 }) {
   const [busy, setBusy] = useState(false);
@@ -143,6 +114,8 @@ export function CreditHostedFormClient({
   const buttonText = style?.buttonText || "#ffffff";
   const fontFamily = style?.fontFamily || undefined;
   const googleCss = googleFontImportCss(style?.fontGoogleFamily);
+  const successTitle = successContent?.title?.trim() || "Submitted. Thank you!";
+  const successMessage = successContent?.message?.trim() || "We received your submission and will review it shortly.";
 
   return (
     <>
@@ -166,6 +139,27 @@ export function CreditHostedFormClient({
         </>
       )}
 
+      {success ? (
+        <div className="mt-8 rounded-3xl border border-emerald-200 bg-emerald-50/80 p-6 sm:p-8">
+          <div className="text-xs font-semibold uppercase tracking-wide text-emerald-700">Submission received</div>
+          <h2 className="mt-2 text-2xl font-bold" style={{ color: textColor }}>
+            {successTitle}
+          </h2>
+          <div className="mt-3 whitespace-pre-wrap text-sm leading-6" style={{ color: textColor }}>
+            {successMessage}
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              setSuccess(false);
+              setError(null);
+            }}
+            className="mt-5 inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
+          >
+            Submit another response
+          </button>
+        </div>
+      ) : (
       <form
         className="mt-8 space-y-4"
         action={actionUrl}
@@ -330,12 +324,6 @@ export function CreditHostedFormClient({
         ))}
 
         {error ? <div className="rounded-2xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</div> : null}
-        {success ? (
-          <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-3 text-sm font-semibold text-emerald-800">
-            Submitted. Thank you!
-          </div>
-        ) : null}
-
         <button
           type="submit"
           disabled={busy}
@@ -352,6 +340,7 @@ export function CreditHostedFormClient({
           {busy ? "Submitting…" : "Submit"}
         </button>
       </form>
+      )}
       </div>
     </>
   );

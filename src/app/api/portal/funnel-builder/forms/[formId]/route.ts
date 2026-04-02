@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 
+import { normalizeCreditFormSchema } from "@/lib/creditFormSchema";
 import { prisma } from "@/lib/db";
 import { requireFunnelBuilderSession } from "@/lib/funnelBuilderAccess";
 
@@ -25,93 +26,6 @@ function withRandomSuffix(base: string, maxLen = 60) {
   const headMax = Math.max(1, maxLen - suffix.length);
   const head = base.length > headMax ? base.slice(0, headMax).replace(/-+$/g, "") : base;
   return `${head}${suffix}`;
-}
-
-function normalizeHexColor(raw: unknown) {
-  const s = typeof raw === "string" ? raw.trim() : "";
-  if (!s) return null;
-  if (s === "transparent") return "transparent";
-  if (!/^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(s)) return null;
-  return s;
-}
-
-function normalizeStyle(raw: unknown) {
-  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
-  const r = raw as any;
-  const out: any = {};
-
-  const pageBg = normalizeHexColor(r.pageBg);
-  const cardBg = normalizeHexColor(r.cardBg);
-  const buttonBg = normalizeHexColor(r.buttonBg);
-  const buttonText = normalizeHexColor(r.buttonText);
-  const inputBg = normalizeHexColor(r.inputBg);
-  const inputBorder = normalizeHexColor(r.inputBorder);
-  const textColor = normalizeHexColor(r.textColor);
-
-  if (pageBg) out.pageBg = pageBg;
-  if (cardBg) out.cardBg = cardBg;
-  if (buttonBg) out.buttonBg = buttonBg;
-  if (buttonText) out.buttonText = buttonText;
-  if (inputBg) out.inputBg = inputBg;
-  if (inputBorder) out.inputBorder = inputBorder;
-  if (textColor) out.textColor = textColor;
-
-  if (typeof r.radiusPx === "number" && Number.isFinite(r.radiusPx)) {
-    out.radiusPx = Math.max(0, Math.min(40, Math.round(r.radiusPx)));
-  }
-
-  return out;
-}
-
-function normalizeSchema(schema: unknown): any {
-  if (!schema || typeof schema !== "object" || Array.isArray(schema)) return { fields: [] };
-  const fields = (schema as any).fields;
-  const style = normalizeStyle((schema as any).style);
-  if (!Array.isArray(fields)) return { fields: [] };
-  const allowedTypes = new Set([
-    "short_answer",
-    "long_answer",
-    "paragraph",
-    "email",
-    "phone",
-    "name",
-    "signature",
-    "checklist",
-    "radio",
-    "text",
-    "tel",
-    "textarea",
-  ]);
-  const out: any[] = [];
-  for (const f of fields) {
-    if (!f || typeof f !== "object") continue;
-    const name = typeof (f as any).name === "string" ? (f as any).name.trim() : "";
-    const label = typeof (f as any).label === "string" ? (f as any).label.trim() : "";
-    const type = typeof (f as any).type === "string" ? (f as any).type.trim() : "";
-    const required = (f as any).required === true;
-    if (!name || !label) continue;
-    if (!allowedTypes.has(type)) continue;
-    const options = type === "checklist" || type === "radio"
-      ? Array.isArray((f as any).options)
-        ? (f as any).options
-            .filter((entry: unknown) => typeof entry === "string")
-            .map((entry: string) => entry.trim())
-            .filter(Boolean)
-            .slice(0, 50)
-        : []
-      : undefined;
-    out.push({
-      name: name.slice(0, 64),
-      label: label.slice(0, 160),
-      type,
-      required,
-      ...(options ? { options } : {}),
-    });
-  }
-
-  const normalized: any = { fields: out.slice(0, 50) };
-  if (style && typeof style === "object" && Object.keys(style).length) normalized.style = style;
-  return normalized;
 }
 
 export async function GET(_req: Request, ctx: { params: Promise<{ formId: string }> }) {
@@ -185,7 +99,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ formId: strin
   }
 
   if (body?.schemaJson !== undefined) {
-    data.schemaJson = normalizeSchema(body.schemaJson);
+    data.schemaJson = normalizeCreditFormSchema(body.schemaJson);
   }
 
   const desiredSlug = typeof (data as any)?.slug === "string" ? String((data as any).slug) : null;

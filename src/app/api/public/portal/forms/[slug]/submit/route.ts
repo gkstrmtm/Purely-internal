@@ -2,6 +2,7 @@ import crypto from "crypto";
 import { NextResponse } from "next/server";
 
 import { prisma } from "@/lib/db";
+import { buildCreditFormSubmissionNotificationText, normalizeCreditFormSubmissionPayload } from "@/lib/creditFormSchema";
 import { tryNotifyPortalAccountUsers } from "@/lib/portalNotifications";
 import { runOwnerAutomationsForEvent } from "@/lib/portalAutomationsRunner";
 import { findOrCreatePortalContact } from "@/lib/portalContacts";
@@ -53,13 +54,15 @@ export async function POST(req: Request, ctx: { params: Promise<{ slug: string }
       name: true,
       ownerId: true,
       createdAt: true,
+      schemaJson: true,
     },
   });
 
   if (!form) return NextResponse.json({ ok: false, error: "Not found" }, { status: 404 });
 
   const body = (await req.json().catch(() => null)) as any;
-  const payload = safeJson(body?.data ?? body ?? {}, 200_000);
+  const normalizedPayload = normalizeCreditFormSubmissionPayload(body?.data ?? body ?? {}, form.schemaJson);
+  const payload = safeJson(normalizedPayload, 200_000);
 
   const firstString = (v: any): string | null => {
     if (typeof v === "string") {
@@ -144,11 +147,14 @@ export async function POST(req: Request, ctx: { params: Promise<{ slug: string }
     ownerId: form.ownerId,
     kind: "form_submitted",
     subject: `New form submission: ${form.name || form.slug}`,
-    text:
-      `Form: ${form.name || form.slug}\n` +
-      `Submission ID: ${submission.id}\n` +
-      `Created: ${submission.createdAt.toISOString()}\n\n` +
-      `Data:\n${JSON.stringify(payload, null, 2)}`,
+    text: buildCreditFormSubmissionNotificationText({
+      formName: form.name || form.slug,
+      submissionId: submission.id,
+      createdAtIso: submission.createdAt.toISOString(),
+      schemaJson: form.schemaJson,
+      dataJson: payload,
+      userAgent,
+    }),
     smsMirror: true,
   }).catch(() => null);
 

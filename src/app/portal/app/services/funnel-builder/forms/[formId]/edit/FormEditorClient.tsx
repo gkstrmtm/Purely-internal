@@ -6,6 +6,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { AppConfirmModal, AppModal } from "@/components/AppModal";
 import { PortalFontDropdown } from "@/components/PortalFontDropdown";
 import { PortalListboxDropdown } from "@/components/PortalListboxDropdown";
+import { normalizeCreditFormSuccessContent, parseCreditFormSuccessContent, type CreditFormSuccessContent } from "@/lib/creditFormSchema";
 import { applyFontPresetToStyle, fontPresetKeyFromStyle, googleFontImportCss } from "@/lib/fontPresets";
 import { hostedFormPath } from "@/lib/publicHostedKeys";
 import { toPurelyHostedUrl } from "@/lib/publicHostedOrigin";
@@ -55,6 +56,8 @@ type FormStyle = {
   fontFamily?: string;
   fontGoogleFamily?: string;
 };
+
+type FormSuccessContent = CreditFormSuccessContent;
 
 function classNames(...xs: Array<string | false | null | undefined>) {
   return xs.filter(Boolean).join(" ");
@@ -230,6 +233,7 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
   const [fields, setFields] = useState<Field[] | null>(null);
   const [selectedIdx, setSelectedIdx] = useState<number>(0);
   const [style, setStyle] = useState<FormStyle>({});
+  const [successContent, setSuccessContent] = useState<FormSuccessContent>({});
 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -253,9 +257,9 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
       name: String(form.name || "").trim(),
       slug: String(form.slug || "").trim(),
       status: form.status,
-      schemaJson: { fields, style: normalizeStyle({ style }) },
+      schemaJson: { fields, style: normalizeStyle({ style }), success: normalizeCreditFormSuccessContent(successContent) },
     });
-  }, [form, fields, style]);
+  }, [form, fields, style, successContent]);
 
   const dirty = Boolean(form && fields && currentSig !== lastSavedSigRef.current);
 
@@ -267,14 +271,16 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
     const f = json.form as Form;
     const nextFields = normalizeFields(f.schemaJson);
     const nextStyle = normalizeStyle(f.schemaJson);
+    const nextSuccessContent = parseCreditFormSuccessContent(f.schemaJson);
     lastSavedSigRef.current = JSON.stringify({
       name: String(f.name || "").trim(),
       slug: String(f.slug || "").trim(),
       status: f.status,
-      schemaJson: { fields: nextFields.length ? nextFields : [], style: nextStyle },
+      schemaJson: { fields: nextFields.length ? nextFields : [], style: nextStyle, success: normalizeCreditFormSuccessContent(nextSuccessContent) },
     });
     setForm(f);
     setStyle(nextStyle);
+    setSuccessContent(nextSuccessContent);
     setFields(nextFields.length ? nextFields : []);
     setSelectedIdx((prev) => Math.min(prev, Math.max(0, nextFields.length - 1)));
   };
@@ -320,7 +326,7 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           ...(opts || {}),
-          schemaJson: { fields, style: normalizeStyle({ style }) },
+          schemaJson: { fields, style: normalizeStyle({ style }), success: normalizeCreditFormSuccessContent(successContent) },
         }),
       });
       const json = (await res.json().catch(() => null)) as any;
@@ -1308,6 +1314,58 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
                     </div>
 
                     <div className="mt-2 text-xs text-zinc-500">Tip: set Page/Card backgrounds to “transparent” for embed-friendly styling.</div>
+
+                    <div className="mt-6 border-t border-zinc-200 pt-6">
+                      <div className="text-sm font-semibold text-brand-ink">Post-submit page</div>
+                      <div className="mt-3 space-y-3">
+                        <label className="block">
+                          <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Title</div>
+                          <input
+                            value={successContent.title || ""}
+                            onChange={(e) => setSuccessContent((prev) => ({ ...prev, title: e.target.value }))}
+                            className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm text-zinc-900 placeholder:text-zinc-400"
+                            placeholder="Thanks for submitting"
+                          />
+                        </label>
+
+                        <label className="block">
+                          <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Message</div>
+                          <textarea
+                            value={successContent.message || ""}
+                            onChange={(e) => setSuccessContent((prev) => ({ ...prev, message: e.target.value }))}
+                            className="mt-1 min-h-28 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-900 placeholder:text-zinc-400"
+                            placeholder="We received your submission and will follow up soon."
+                          />
+                          <div className="mt-1 text-xs text-zinc-500">This replaces the default thank-you message after a successful submission.</div>
+                        </label>
+
+                        <div className="rounded-3xl border border-emerald-200 bg-emerald-50/80 p-5">
+                          <div className="text-xs font-semibold uppercase tracking-wide text-emerald-700">Success preview</div>
+                          <div className="mt-2 text-xl font-bold" style={{ color: style.textColor || "#18181b" }}>
+                            {successContent.title?.trim() || "Submitted. Thank you!"}
+                          </div>
+                          <div className="mt-2 whitespace-pre-wrap text-sm leading-6" style={{ color: style.textColor || "#18181b" }}>
+                            {successContent.message?.trim() || "We received your submission and will review it shortly."}
+                          </div>
+                          <button
+                            type="button"
+                            className="mt-4 inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800"
+                          >
+                            Submit another response
+                          </button>
+                        </div>
+
+                        <div className="flex justify-end">
+                          <button
+                            type="button"
+                            onClick={() => setSuccessContent({})}
+                            className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+                          >
+                            Clear success page
+                          </button>
+                        </div>
+                      </div>
+                    </div>
                   </div>
 
                 </div>

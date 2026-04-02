@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { IconEdit } from "@/app/portal/PortalIcons";
 import { SignatureDisplay } from "@/components/SignatureDisplay";
+import { buildCreditFormSubmissionRows } from "@/lib/creditFormSchema";
 
 type CreditForm = {
   id: string;
@@ -27,20 +28,6 @@ function classNames(...xs: Array<string | false | null | undefined>) {
   return xs.filter(Boolean).join(" ");
 }
 
-function formatValue(value: unknown): string {
-  if (typeof value === "string") return value;
-  if (typeof value === "number" || typeof value === "boolean") return String(value);
-  if (Array.isArray(value)) return value.map((entry) => formatValue(entry)).filter(Boolean).join(", ");
-  if (value && typeof value === "object") {
-    try {
-      return JSON.stringify(value);
-    } catch {
-      return "";
-    }
-  }
-  return "";
-}
-
 export function FormResponsesClient({ basePath, formId }: { basePath: string; formId: string }) {
   const backHref = useMemo(() => `${basePath}/app/services/funnel-builder`, [basePath]);
   const [form, setForm] = useState<CreditForm | null>(null);
@@ -51,15 +38,6 @@ export function FormResponsesClient({ basePath, formId }: { basePath: string; fo
 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  const fieldLabelsByName = useMemo(() => {
-    const fields = Array.isArray(form?.schemaJson?.fields) ? (form?.schemaJson?.fields as Array<Record<string, unknown>>) : [];
-    return new Map(
-      fields
-        .map((field) => [String(field?.name || "").trim(), String(field?.label || "").trim()] as const)
-        .filter(([name]) => Boolean(name)),
-    );
-  }, [form?.schemaJson]);
 
   const loadForm = useCallback(async () => {
     const res = await fetch(`/api/portal/funnel-builder/forms/${encodeURIComponent(formId)}`, { cache: "no-store" });
@@ -189,23 +167,20 @@ export function FormResponsesClient({ basePath, formId }: { basePath: string; fo
                       </div>
                       <div className="mt-0.5 text-xs text-zinc-600">ID: {s.id}</div>
                     </div>
-                    <div className="text-xs text-zinc-600">{s.ip ? `IP: ${s.ip}` : ""}</div>
                   </div>
                 </summary>
 
                 <div className="mt-3 grid grid-cols-1 gap-3 lg:grid-cols-[1fr_280px]">
                   <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
                     <div className="grid grid-cols-1 gap-3">
-                      {Object.entries((s.dataJson && typeof s.dataJson === "object" && !Array.isArray(s.dataJson) ? s.dataJson : {}) as Record<string, unknown>).map(([key, rawValue]) => {
-                        const label = fieldLabelsByName.get(key) || key;
-                        const displayValue = formatValue(rawValue);
+                      {buildCreditFormSubmissionRows(form?.schemaJson, s.dataJson).map((row) => {
                         return (
-                          <div key={key} className="rounded-xl border border-zinc-200 bg-white p-3">
-                            <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">{label}</div>
+                          <div key={row.key} className="rounded-xl border border-zinc-200 bg-white p-3">
+                            <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">{row.label}</div>
                             <div className="mt-2">
                               <SignatureDisplay
-                                value={rawValue}
-                                emptyLabel={displayValue || "No response"}
+                                value={row.rawValue}
+                                emptyLabel={row.displayValue || "No response"}
                                 imageClassName="max-h-28"
                                 textClassName="text-sm text-zinc-800"
                               />

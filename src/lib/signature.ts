@@ -1,4 +1,22 @@
 export function normalizeStoredSignature(raw: unknown): string {
+  if (Array.isArray(raw)) {
+    for (const entry of raw) {
+      const normalized = normalizeStoredSignature(entry);
+      if (normalized) return normalized;
+    }
+    return "";
+  }
+
+  if (raw && typeof raw === "object") {
+    const record = raw as Record<string, unknown>;
+    const candidates = [record.dataUrl, record.text, record.value, record.signature, record.signatureDataUrl, record.imageDataUrl];
+    for (const candidate of candidates) {
+      const normalized = normalizeStoredSignature(candidate);
+      if (normalized) return normalized;
+    }
+    return "";
+  }
+
   if (typeof raw !== "string") return "";
   const value = raw.trim();
   if (!value) return "";
