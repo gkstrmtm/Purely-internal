@@ -1917,15 +1917,22 @@ export function PortalPeopleContactsClient() {
                           inputMode="numeric"
                           className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
                         />
+                        <div className="mt-1 text-[11px] text-zinc-500">
+                          Templates: <span className="font-mono">{`{contact.custom.ssn_last_four}`}</span>
+                        </div>
                       </label>
                       <label className="block">
                         <div className="text-xs font-semibold text-zinc-700">Birth date</div>
                         <input
-                          type="date"
                           value={manualBirthDate}
                           onChange={(e) => setManualBirthDate(e.target.value)}
+                          placeholder="MM/DD/YYYY"
+                          autoComplete="bday"
                           className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
                         />
+                        <div className="mt-1 text-[11px] text-zinc-500">
+                          Templates: <span className="font-mono">{`{contact.custom.birth_date}`}</span>
+                        </div>
                       </label>
                       <label className="block md:col-span-2">
                         <div className="text-xs font-semibold text-zinc-700">Address</div>
@@ -1935,6 +1942,9 @@ export function PortalPeopleContactsClient() {
                           placeholder="Street, city, state, ZIP"
                           className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
                         />
+                        <div className="mt-1 text-[11px] text-zinc-500">
+                          Templates: <span className="font-mono">{`{contact.custom.address}`}</span>
+                        </div>
                       </label>
                       <label className="block md:col-span-2">
                         <div className="text-xs font-semibold text-zinc-700">Business name</div>
@@ -1944,6 +1954,9 @@ export function PortalPeopleContactsClient() {
                           placeholder="Only if this contact has a business"
                           className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm"
                         />
+                        <div className="mt-1 text-[11px] text-zinc-500">
+                          Templates: <span className="font-mono">{`{contact.custom.business_name}`}</span>
+                        </div>
                       </label>
                     </>
                   ) : null}
@@ -2054,6 +2067,7 @@ export function PortalPeopleContactsClient() {
                   </div>
                 </div>
 
+                {!isCreditApp ? (
                 <div className="mt-4">
                   <div className="text-xs font-semibold text-zinc-700">Custom variables</div>
                   <div className="mt-2 space-y-2">
@@ -2111,6 +2125,7 @@ export function PortalPeopleContactsClient() {
                     <div className="text-xs text-zinc-500">Available in templates as {"{contact.custom.<key>}"}.</div>
                   </div>
                 </div>
+                ) : null}
 
                 {manualError ? (
                   <div className="mt-3 rounded-2xl border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-800">
@@ -2621,6 +2636,9 @@ export function PortalPeopleContactsClient() {
                         ) : (
                           <div className="mt-1 text-sm text-zinc-800">{creditDetailValues.businessName || "N/A"}</div>
                         )}
+                        <div className="mt-1 text-[11px] text-zinc-500">
+                          Template: <span className="font-mono">{`{contact.custom.business_name}`}</span>
+                        </div>
                       </div>
                       <div>
                         <div className="text-xs font-semibold text-zinc-600">Last four of SSN</div>
@@ -2640,19 +2658,26 @@ export function PortalPeopleContactsClient() {
                         ) : (
                           <div className="mt-1 text-sm text-zinc-800">{creditDetailValues.ssnLastFour || "N/A"}</div>
                         )}
+                        <div className="mt-1 text-[11px] text-zinc-500">
+                          Template: <span className="font-mono">{`{contact.custom.ssn_last_four}`}</span>
+                        </div>
                       </div>
                       <div>
                         <div className="text-xs font-semibold text-zinc-600">Birth date</div>
                         {editingContact ? (
                           <input
-                            type="date"
                             className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-800 outline-none focus:border-(--color-brand-blue)"
                             value={editCreditValues.birthDate}
                             onChange={(e) => setEditCustomVarRows((prev) => upsertCustomVariableRow(prev, "birth_date", e.target.value))}
+                            placeholder="MM/DD/YYYY"
+                            autoComplete="bday"
                           />
                         ) : (
                           <div className="mt-1 text-sm text-zinc-800">{creditDetailValues.birthDate || "N/A"}</div>
                         )}
+                        <div className="mt-1 text-[11px] text-zinc-500">
+                          Template: <span className="font-mono">{`{contact.custom.birth_date}`}</span>
+                        </div>
                       </div>
                       <div className="sm:col-span-2">
                         <div className="text-xs font-semibold text-zinc-600">Address</div>
@@ -2666,6 +2691,9 @@ export function PortalPeopleContactsClient() {
                         ) : (
                           <div className="mt-1 whitespace-pre-wrap text-sm text-zinc-800">{creditDetailValues.address || "N/A"}</div>
                         )}
+                        <div className="mt-1 text-[11px] text-zinc-500">
+                          Template: <span className="font-mono">{`{contact.custom.address}`}</span>
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -2690,29 +2718,11 @@ export function PortalPeopleContactsClient() {
                       <span className="font-semibold text-zinc-600">Phone</span>
                       <span className="rounded-lg border border-zinc-200 bg-white px-2 py-1 font-mono">{"{contact.phone}"}</span>
                     </div>
-                    {isCreditApp ? (
-                      <>
-                        <div className="flex flex-wrap items-center justify-between gap-2">
-                          <span className="font-semibold text-zinc-600">Business name</span>
-                          <span className="rounded-lg border border-zinc-200 bg-white px-2 py-1 font-mono">{"{contact.custom.business_name}"}</span>
-                        </div>
-                        <div className="flex flex-wrap items-center justify-between gap-2">
-                          <span className="font-semibold text-zinc-600">SSN last four</span>
-                          <span className="rounded-lg border border-zinc-200 bg-white px-2 py-1 font-mono">{"{contact.custom.ssn_last_four}"}</span>
-                        </div>
-                        <div className="flex flex-wrap items-center justify-between gap-2">
-                          <span className="font-semibold text-zinc-600">Birth date</span>
-                          <span className="rounded-lg border border-zinc-200 bg-white px-2 py-1 font-mono">{"{contact.custom.birth_date}"}</span>
-                        </div>
-                        <div className="flex flex-wrap items-center justify-between gap-2">
-                          <span className="font-semibold text-zinc-600">Address</span>
-                          <span className="rounded-lg border border-zinc-200 bg-white px-2 py-1 font-mono">{"{contact.custom.address}"}</span>
-                        </div>
-                      </>
-                    ) : null}
                   </div>
                 </div>
 
+                {!isCreditApp ? (
+                <>
                 <div className="mt-3 text-xs font-semibold text-zinc-600">Custom variables</div>
                 {editingContact ? (
                   <div className="mt-2 space-y-2">
@@ -2762,7 +2772,7 @@ export function PortalPeopleContactsClient() {
                         );
                       })
                     ) : (
-                      <div className="text-sm text-zinc-600">{isCreditApp ? "No additional custom variables." : "None yet."}</div>
+                      <div className="text-sm text-zinc-600">None yet.</div>
                     )}
 
                     <button
@@ -2793,10 +2803,12 @@ export function PortalPeopleContactsClient() {
                           ))}
                       </div>
                     ) : (
-                      <div className="text-sm text-zinc-600">{isCreditApp ? "No additional custom variables." : "None."}</div>
+                      <div className="text-sm text-zinc-600">None.</div>
                     )}
                   </div>
                 )}
+                </>
+                ) : null}
 
                 <div className="mt-4 flex flex-wrap items-center gap-2">
                   <a
