@@ -393,6 +393,15 @@ export function validateCreditFormSubmissionPayload(dataJson: unknown, schemaJso
   const fields = parseCreditFormFields(schemaJson, { defaultIfEmpty: false, maxFields: 200 });
 
   for (const field of fields) {
+    if (field.type !== "signature" || field.required !== true) continue;
+    const raw = record[field.name];
+    const normalized = normalizeSubmissionEntryValue(raw, "signature");
+    if (typeof normalized !== "string" || !normalized.trim()) {
+      return `Please add your signature for “${field.label}”.`;
+    }
+  }
+
+  for (const field of fields) {
     if (field.type !== "file_upload") continue;
     const raw = record[field.name];
     const files = normalizeUploadedFilesValue(raw);

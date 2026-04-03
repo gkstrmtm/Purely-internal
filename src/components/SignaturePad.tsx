@@ -46,7 +46,7 @@ export function SignaturePad({
   const exportSignatureDataUrl = () => {
     const canvas = canvasRef.current;
     if (!canvas) return "";
-    const context = canvas.getContext("2d", { willReadFrequently: true });
+    const context = canvas.getContext("2d", { willReadFrequently: true }) ?? canvas.getContext("2d");
     if (!context) return "";
 
     const { width, height } = canvas;
