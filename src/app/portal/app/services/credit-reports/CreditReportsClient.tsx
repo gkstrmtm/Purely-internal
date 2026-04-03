@@ -88,15 +88,15 @@ function itemSummaryText(item: ReportItemLite) {
 }
 
 function formatReviewValue(value: unknown): string {
-  if (value === null || value === undefined) return "—";
-  if (typeof value === "string") return value.trim() || "—";
+  if (value === null || value === undefined) return "-";
+  if (typeof value === "string") return value.trim() || "-";
   if (typeof value === "number" || typeof value === "boolean") return String(value);
   if (Array.isArray(value)) {
     const joined = value
       .map((entry) => formatReviewValue(entry))
-      .filter((entry) => entry !== "—")
+      .filter((entry) => entry !== "-")
       .join(", ");
-    return joined || "—";
+    return joined || "-";
   }
   try {
     return JSON.stringify(value);
@@ -112,7 +112,7 @@ function readReviewDetails(details: unknown): Array<{ key: string; value: string
       key: key.replace(/[_-]+/g, " ").replace(/\b\w/g, (char) => char.toUpperCase()),
       value: formatReviewValue(value),
     }))
-    .filter((entry) => entry.value !== "—")
+    .filter((entry) => entry.value !== "-")
     .slice(0, 8);
 }
 

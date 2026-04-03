@@ -196,6 +196,10 @@ export function CreditHostedFormClient({
         method="post"
         onSubmit={(e) => {
           e.preventDefault();
+
+          // Never rely on the React event object across async boundaries.
+          // Capture the form element immediately so we can safely reset it after submit.
+          const formEl = e.currentTarget;
           setBusy(true);
           setError(null);
           setSuccess(false);
@@ -252,7 +256,11 @@ export function CreditHostedFormClient({
               return json;
             })
             .then(() => {
-              e.currentTarget.reset();
+              try {
+                formEl?.reset();
+              } catch {
+                // ignore
+              }
               fieldValuesRef.current = {};
               setFieldValues({});
               signatureValuesRef.current = {};

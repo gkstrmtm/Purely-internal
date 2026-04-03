@@ -31,7 +31,7 @@ type VoiceLibraryResponse = {
   voices?: VoiceLibraryVoice[];
 };
 
-const DEFAULT_VOICE_PREVIEW_TEXT = "Hi there — this is the current Pura dictation voice preview.";
+const DEFAULT_VOICE_PREVIEW_TEXT = "Hi there - this is the current Pura dictation voice preview.";
 
 function classNames(...xs: Array<string | false | null | undefined>) {
   return xs.filter(Boolean).join(" ");
