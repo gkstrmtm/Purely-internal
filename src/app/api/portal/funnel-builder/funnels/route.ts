@@ -121,18 +121,7 @@ export async function POST(req: Request) {
   const theme = themeKey ? getCreditFunnelTheme(themeKey) : null;
 
   const pageTemplates = template && theme ? buildCreditFunnelPagesFromTemplateAndTheme(template, theme) : null;
-  const pagesCreate:
-    | Array<{
-        slug: string;
-        title: string;
-        sortOrder: number;
-        editorMode: "BLOCKS";
-        contentMarkdown: string;
-        blocksJson: Prisma.InputJsonValue;
-        customHtml: string;
-        customChatJson: Prisma.InputJsonValue | null;
-      }>
-    | null = pageTemplates
+  const pagesCreate = pageTemplates
     ? pageTemplates.map((p) => ({
         slug: p.slug,
         title: p.title,
@@ -141,7 +130,9 @@ export async function POST(req: Request) {
         contentMarkdown: p.contentMarkdown,
         blocksJson: p.blocksJson as unknown as Prisma.InputJsonValue,
         customHtml: p.customHtml,
-        customChatJson: (p.customChatJson ?? null) as unknown as Prisma.InputJsonValue | null,
+        ...(p.customChatJson !== undefined && p.customChatJson !== null
+          ? { customChatJson: p.customChatJson as unknown as Prisma.InputJsonValue }
+          : {}),
       }))
     : null;
 

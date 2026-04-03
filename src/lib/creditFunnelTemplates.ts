@@ -149,7 +149,7 @@ export function buildCreditFunnelPagesFromTemplateAndTheme(template: CreditFunne
       blocksJson,
       contentMarkdown: "",
       customHtml: "",
-      customChatJson: null as any,
+      customChatJson: undefined as unknown,
     };
   });
 }
