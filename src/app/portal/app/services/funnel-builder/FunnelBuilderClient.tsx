@@ -5,7 +5,7 @@ import { usePathname } from "next/navigation";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import { PortalListboxDropdown } from "@/components/PortalListboxDropdown";
-import { AppConfirmModal } from "@/components/AppModal";
+import { AppConfirmModal, AppModal } from "@/components/AppModal";
 import { PortalBackToOnboardingLink } from "@/components/PortalBackToOnboardingLink";
 import { useToast } from "@/components/ToastProvider";
 import { IconCopy, IconEdit } from "@/app/portal/PortalIcons";
@@ -57,6 +57,13 @@ type StripeIntegrationStatus = {
   accountId: string | null;
   connectedAtIso: string | null;
 };
+
+type FormSettingsDialog = {
+  id: string;
+  name: string;
+  slug: string;
+  status: CreditForm["status"];
+} | null;
 
 function classNames(...xs: Array<string | false | null | undefined>) {
   return xs.filter(Boolean).join(" ");
@@ -182,6 +189,9 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
 
   const [funnelDeleteBusy, setFunnelDeleteBusy] = useState<Record<string, boolean>>({});
   const [formDeleteBusy, setFormDeleteBusy] = useState<Record<string, boolean>>({});
+  const [formSaveBusy, setFormSaveBusy] = useState<Record<string, boolean>>({});
+  const [formSettingsDialog, setFormSettingsDialog] = useState<FormSettingsDialog>(null);
+  const [formSettingsError, setFormSettingsError] = useState<string | null>(null);
 
   const [deleteDialog, setDeleteDialog] = useState<
     | { type: "funnel"; id: string }
@@ -518,6 +528,39 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
       }
     },
     [formDeleteBusy, toast],
+  );
+
+  const patchForm = useCallback(
+    async (form: CreditForm, data: Partial<Pick<CreditForm, "slug" | "status" | "name">>) => {
+      if (formSaveBusy[form.id]) return false;
+      setFormSaveBusy((m) => ({ ...m, [form.id]: true }));
+      try {
+        const res = await fetch(`/api/portal/funnel-builder/forms/${encodeURIComponent(form.id)}`, {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(data),
+        });
+        const json = (await res.json().catch(() => null)) as any;
+        if (!res.ok || !json || json.ok !== true) throw new Error(json?.error || "Failed to update form");
+
+        setForms((prev) => {
+          if (!prev) return prev;
+          return prev.map((row) => (row.id === form.id ? { ...row, ...json.form } : row));
+        });
+        return true;
+      } catch (e) {
+        toast.error((e as any)?.message ? String((e as any).message) : "Failed to update form");
+        try {
+          await loadForms();
+        } catch {
+          // ignore
+        }
+        return false;
+      } finally {
+        setFormSaveBusy((m) => ({ ...m, [form.id]: false }));
+      }
+    },
+    [formSaveBusy, loadForms, toast],
   );
 
   const copyText = useCallback(async (text: string) => {
@@ -876,6 +919,99 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
           void deleteForm(f);
         }}
       />
+
+      <AppModal
+        open={!!formSettingsDialog}
+        title="Form settings"
+        description="Manage the form slug and status from the forms list."
+        onClose={() => {
+          setFormSettingsDialog(null);
+          setFormSettingsError(null);
+        }}
+        widthClassName="w-[min(560px,calc(100vw-32px))]"
+        footer={
+          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+            <button
+              type="button"
+              className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 transition-all duration-150 hover:-translate-y-0.5 hover:border-zinc-300 hover:bg-zinc-50"
+              onClick={() => {
+                setFormSettingsDialog(null);
+                setFormSettingsError(null);
+              }}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              className="rounded-2xl bg-(--color-brand-blue) px-4 py-2 text-sm font-semibold text-white transition-all duration-150 hover:-translate-y-0.5 hover:bg-blue-700"
+              onClick={() => {
+                const current = formSettingsDialog;
+                if (!current) return;
+                const normalized = normalizeSlug(current.slug);
+                if (!normalized) {
+                  setFormSettingsError("Slug is required.");
+                  return;
+                }
+                const base = (forms || []).find((item) => item.id === current.id);
+                if (!base) {
+                  setFormSettingsDialog(null);
+                  return;
+                }
+                void (async () => {
+                  const ok = await patchForm(base, { slug: normalized, status: current.status });
+                  if (ok) {
+                    setFormSettingsDialog(null);
+                    setFormSettingsError(null);
+                    toast.success("Form updated.");
+                  }
+                })();
+              }}
+            >
+              Save
+            </button>
+          </div>
+        }
+      >
+        <div className="space-y-4">
+          <label className="block">
+            <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Slug</div>
+            <input
+              value={formSettingsDialog?.slug || ""}
+              onChange={(e) => {
+                setFormSettingsError(null);
+                setFormSettingsDialog((prev) => (prev ? { ...prev, slug: e.target.value } : prev));
+              }}
+              className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm text-zinc-900"
+            />
+          </label>
+
+          <label className="block">
+            <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Status</div>
+            <PortalListboxDropdown
+              value={formSettingsDialog?.status || "DRAFT"}
+              onChange={(value) =>
+                setFormSettingsDialog((prev) =>
+                  prev
+                    ? {
+                        ...prev,
+                        status: value === "ACTIVE" || value === "ARCHIVED" ? value : "DRAFT",
+                      }
+                    : prev,
+                )
+              }
+              options={[
+                { value: "DRAFT", label: "Draft" },
+                { value: "ACTIVE", label: "Live" },
+                { value: "ARCHIVED", label: "Archived" },
+              ]}
+              className="mt-1 w-full"
+              buttonClassName="flex w-full items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm text-zinc-900 transition-all duration-150 hover:-translate-y-0.5 hover:border-zinc-300 hover:bg-zinc-50"
+            />
+          </label>
+
+          {formSettingsError ? <div className="text-sm font-semibold text-red-700">{formSettingsError}</div> : null}
+        </div>
+      </AppModal>
 
       <div className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-end">
         <div>
@@ -1246,6 +1382,22 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                             </Link>
 
                             <div className="my-2 h-px bg-zinc-100" />
+
+                            <button
+                              type="button"
+                              disabled={!!formSaveBusy[f.id]}
+                              onClick={() => {
+                                setFormSettingsError(null);
+                                setFormSettingsDialog({ id: f.id, name: f.name, slug: f.slug, status: f.status });
+                                setOpenFormMenuId(null);
+                              }}
+                              className={classNames(
+                                "flex w-full items-center rounded-xl px-3 py-2 text-left text-sm font-semibold text-zinc-700 transition-transform duration-150 hover:-translate-y-0.5 hover:bg-zinc-50",
+                                formSaveBusy[f.id] ? "opacity-60" : "",
+                              )}
+                            >
+                              Slug & status
+                            </button>
 
                             <button
                               type="button"

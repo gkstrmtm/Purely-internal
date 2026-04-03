@@ -53,6 +53,8 @@ type FormStyle = {
   buttonBg?: string;
   buttonText?: string;
   radiusPx?: number;
+  submitRadiusPx?: number;
+  submitLabel?: string;
   fontFamily?: string;
   fontGoogleFamily?: string;
 };
@@ -190,6 +192,7 @@ function normalizeStyle(rawSchema: any): FormStyle {
   const textColor = normalizeHexColor(raw.textColor);
   const fontFamily = typeof raw.fontFamily === "string" ? raw.fontFamily.replace(/[\r\n\t]/g, " ").trim().slice(0, 200) : "";
   const fontGoogleFamily = typeof raw.fontGoogleFamily === "string" ? raw.fontGoogleFamily.trim().slice(0, 80) : "";
+  const submitLabel = typeof raw.submitLabel === "string" ? raw.submitLabel.trim().slice(0, 80) : "";
 
   if (pageBg) next.pageBg = pageBg;
   if (cardBg) next.cardBg = cardBg;
@@ -201,9 +204,14 @@ function normalizeStyle(rawSchema: any): FormStyle {
 
   if (fontFamily) next.fontFamily = fontFamily;
   if (fontGoogleFamily) next.fontGoogleFamily = fontGoogleFamily;
+  if (submitLabel) next.submitLabel = submitLabel;
 
   if (typeof raw.radiusPx === "number" && Number.isFinite(raw.radiusPx)) {
     next.radiusPx = Math.max(0, Math.min(40, Math.round(raw.radiusPx)));
+  }
+
+  if (typeof raw.submitRadiusPx === "number" && Number.isFinite(raw.submitRadiusPx)) {
+    next.submitRadiusPx = Math.max(0, Math.min(40, Math.round(raw.submitRadiusPx)));
   }
 
   return next;
@@ -220,11 +228,10 @@ type FormEditorDialog =
   | { type: "delete-form" }
   | null;
 
-function statusPill(label: "LIVE" | "DRAFT" | "ARCHIVED") {
-  if (label === "LIVE") return "border-green-200 bg-green-50 text-green-800";
-  if (label === "ARCHIVED") return "border-zinc-200 bg-zinc-50 text-zinc-500";
-  return "border-zinc-200 bg-zinc-50 text-zinc-700";
-}
+const BUTTON_MOTION_CLASS = "transition-all duration-150 hover:-translate-y-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/20 disabled:opacity-60";
+const SECONDARY_BUTTON_CLASS = `rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink ${BUTTON_MOTION_CLASS} hover:border-zinc-300 hover:bg-zinc-50`;
+const PRIMARY_BUTTON_CLASS = `rounded-2xl bg-(--color-brand-blue) px-4 py-2 text-sm font-semibold text-white ${BUTTON_MOTION_CLASS} hover:bg-blue-700`;
+const ICON_BUTTON_CLASS = `inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-zinc-200 bg-white text-zinc-700 ${BUTTON_MOTION_CLASS} hover:border-zinc-300 hover:bg-zinc-50 hover:text-zinc-900`;
 
 export function FormEditorClient({ basePath, formId }: { basePath: string; formId: string }) {
   const backHref = useMemo(() => `${basePath}/app/services/funnel-builder`, [basePath]);
@@ -311,6 +318,11 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
 
   const save = async (opts?: { name?: string; slug?: string; status?: Form["status"] }) => {
     if (!form || !fields) return;
+    const trimmedName = String((opts?.name ?? form.name) || "").trim();
+    if (!trimmedName || trimmedName.length > 120) {
+      setError("Invalid name");
+      return;
+    }
     const dupe = (() => {
       const seen = new Set<string>();
       for (const f of fields) {
@@ -332,6 +344,7 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
         method: "PATCH",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
+          name: trimmedName,
           ...(opts || {}),
           schemaJson: { fields, style: normalizeStyle({ style }), success: normalizeCreditFormSuccessContent(successContent) },
         }),
@@ -339,7 +352,12 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
       const json = (await res.json().catch(() => null)) as any;
       if (!res.ok || !json || json.ok !== true) throw new Error(json?.error || "Failed to save");
       setForm(json.form as Form);
-      lastSavedSigRef.current = currentSig;
+      lastSavedSigRef.current = JSON.stringify({
+        name: String(json.form?.name || "").trim(),
+        slug: String(json.form?.slug || "").trim(),
+        status: json.form?.status,
+        schemaJson: { fields, style: normalizeStyle({ style }), success: normalizeCreditFormSuccessContent(successContent) },
+      });
     } catch (e) {
       setError((e as any)?.message ? String((e as any).message) : "Failed to save");
     } finally {
@@ -439,7 +457,7 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
   };
 
   return (
-    <div className="mx-auto w-full max-w-7xl" style={{ fontFamily: style?.fontFamily || undefined }}>
+    <div className="-mx-4 w-auto max-w-none sm:-mx-6 lg:-mx-8" style={{ fontFamily: style?.fontFamily || undefined }}>
       {googleCss ? <style>{googleCss}</style> : null}
       <AppModal
         open={dialog?.type === "rename-form"}
@@ -715,142 +733,51 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
         }}
       />
 
-      <div className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-end">
-        <div>
-          <Link href={backHref} className="text-sm font-semibold text-(--color-brand-blue) hover:underline">
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-3 px-4 sm:px-6 lg:px-8">
+        <div className="min-w-0 flex-1">
+          <Link href={backHref} className="text-sm font-semibold text-(--color-brand-blue) transition-all duration-150 hover:-translate-y-0.5 hover:underline">
             ← Back
           </Link>
-          <div className="mt-2 text-xs font-semibold uppercase tracking-wide text-zinc-500">Form editor</div>
-          <h1 className="mt-2 text-2xl font-bold text-brand-ink sm:text-3xl">{form?.name || "…"}</h1>
-          <div className="mt-2 flex flex-wrap items-center gap-3 text-sm text-zinc-600">
-            {(() => {
-              const label = form?.status === "ACTIVE" ? "LIVE" : form?.status === "ARCHIVED" ? "ARCHIVED" : "DRAFT";
-              return (
-                <span
-                  className={classNames(
-                    "inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-semibold",
-                    statusPill(label as any),
-                  )}
-                >
-                  {label}
-                </span>
-              );
-            })()}
-            <Link
-              href={toPurelyHostedUrl(hostedFormPath(form?.slug || "", form?.id || "") || `/forms/${encodeURIComponent(form?.slug || "")}`)}
-              target="_blank"
-              className="font-semibold text-(--color-brand-blue) hover:underline"
-            >
-              {form?.status === "ACTIVE" ? "View live" : "Preview"}
-            </Link>
-            {!dirty ? <div className="text-xs text-zinc-500">Saved</div> : null}
-          </div>
+          <div className="mt-2 text-[11px] font-semibold uppercase tracking-[0.22em] text-zinc-500">Form editor</div>
+          <input
+            value={form?.name || ""}
+            onChange={(e) => setForm((prev) => (prev ? { ...prev, name: e.target.value } : prev))}
+            placeholder="Untitled form"
+            className="mt-1 w-full max-w-3xl rounded-2xl border border-transparent bg-transparent px-3 py-2 text-2xl font-bold text-brand-ink outline-none transition-all duration-150 hover:border-zinc-200 hover:bg-white focus:border-zinc-300 focus:bg-white sm:text-3xl"
+          />
+          {!dirty ? <div className="mt-1 px-3 text-xs font-semibold text-zinc-500">Saved</div> : null}
         </div>
 
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <Link
+            href={toPurelyHostedUrl(hostedFormPath(form?.slug || "", form?.id || "") || `/forms/${encodeURIComponent(form?.slug || "")}`)}
+            target="_blank"
+            className={SECONDARY_BUTTON_CLASS}
+          >
+            Preview
+          </Link>
           <Link
             href={`${basePath}/app/services/funnel-builder/forms/${encodeURIComponent(formId)}/responses`}
             target="_blank"
-            className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+            className={SECONDARY_BUTTON_CLASS}
           >
             Responses
           </Link>
-
-          <button
-            type="button"
-            disabled={busy || !form || !fields || form.status === "ARCHIVED"}
-            onClick={() => {
-              if (!form) return;
-              void save({ status: form.status === "ACTIVE" ? "DRAFT" : "ACTIVE" });
-            }}
-            className={classNames(
-              "rounded-2xl px-4 py-2 text-sm font-semibold text-white",
-              busy || !form || !fields || form?.status === "ARCHIVED"
-                ? "bg-zinc-400"
-                : form?.status === "ACTIVE"
-                  ? "bg-brand-ink hover:opacity-95"
-                  : "bg-green-600 hover:bg-green-700",
-            )}
-            title={form?.status === "ACTIVE" ? "Set this form back to draft" : "Publish this form (make it live)"}
-          >
-            {form?.status === "ACTIVE" ? "Set draft" : "Publish"}
-          </button>
-
-          <button
-            type="button"
-            disabled={busy}
-            onClick={() => {
-              setDialogError(null);
-              setDialog({ type: "rename-form", value: form?.name || "" });
-            }}
-            className={classNames(
-              "rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50",
-              busy ? "opacity-60" : "",
-            )}
-          >
-            Rename
-          </button>
-          <button
-            type="button"
-            disabled={busy}
-            onClick={() => {
-              setDialogError(null);
-              setDialog({ type: "slug-form", value: form?.slug || "" });
-            }}
-            className={classNames(
-              "rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50",
-              busy ? "opacity-60" : "",
-            )}
-          >
-            Change slug
-          </button>
           <button
             type="button"
             disabled={busy || !dirty}
             onClick={() => save()}
-            className={classNames(
-              "rounded-2xl px-4 py-2 text-sm font-semibold text-white",
-              busy ? "bg-zinc-400" : "bg-brand-ink hover:opacity-95",
-            )}
+            className={classNames(PRIMARY_BUTTON_CLASS, busy || !dirty ? "bg-zinc-400 hover:bg-zinc-400" : "")}
           >
             {busy ? "Saving…" : dirty ? "Save" : "Saved"}
-          </button>
-
-          {selected && selectedIdx !== null ? (
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() => removeQuestion(selectedIdx)}
-              className={classNames(
-                "rounded-2xl border border-red-200 bg-red-50 px-4 py-2 text-sm font-semibold text-red-700 hover:bg-red-100",
-                busy ? "opacity-60" : "",
-              )}
-            >
-              Delete question
-            </button>
-          ) : null}
-
-          <button
-            type="button"
-            disabled={busy}
-            onClick={() => {
-              setDialogError(null);
-              setDialog({ type: "delete-form" });
-            }}
-            className={classNames(
-              "rounded-2xl border border-red-200 bg-red-50 px-4 py-2 text-sm font-semibold text-red-700 hover:bg-red-100",
-              busy ? "opacity-60" : "",
-            )}
-          >
-            Delete
           </button>
         </div>
       </div>
 
-      {error ? <div className="mt-6 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">{error}</div> : null}
+      {error ? <div className="mx-4 mb-3 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700 sm:mx-6 lg:mx-8">{error}</div> : null}
 
-      <div className="mt-6 grid grid-cols-1 gap-4 xl:grid-cols-[280px_minmax(0,1fr)_360px]">
-        <aside className="rounded-3xl border border-zinc-200 bg-white p-4">
+      <div className="grid min-h-[calc(100dvh-140px)] grid-cols-1 gap-0 border-y border-zinc-200 bg-white xl:grid-cols-[300px_minmax(0,1fr)_420px]">
+        <aside className="border-b border-zinc-200 bg-white p-4 xl:border-b-0 xl:border-r">
           <div className="flex items-center justify-between">
             <div className="text-sm font-semibold text-brand-ink">Questions</div>
             <div className="text-xs text-zinc-600">{(fields || []).length}</div>
@@ -860,15 +787,15 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
             type="button"
             onClick={() => setSelectedIdx(null)}
             className={classNames(
-              "mt-3 flex w-full items-center justify-between rounded-2xl border px-3 py-2 text-left",
+              `mt-3 flex w-full items-center justify-between rounded-2xl border px-3 py-2 text-left ${BUTTON_MOTION_CLASS}`,
               selectedIdx === null
-                ? "border-(--color-brand-blue) bg-blue-50"
-                : "border-zinc-200 bg-white hover:bg-zinc-50",
+                ? "border-(--color-brand-blue) bg-blue-600 text-white"
+                : "border-zinc-200 bg-white hover:border-zinc-300 hover:bg-zinc-50",
             )}
           >
             <span>
-              <span className="block text-sm font-semibold text-zinc-900">Form settings</span>
-              <span className="mt-0.5 block text-xs text-zinc-600">Styles and post-submit page</span>
+              <span className={classNames("block text-sm font-semibold", selectedIdx === null ? "text-white" : "text-zinc-900")}>Form settings</span>
+              <span className={classNames("mt-0.5 block text-xs", selectedIdx === null ? "text-blue-100" : "text-zinc-600")}>Styles and post-submit page</span>
             </span>
           </button>
 
@@ -879,13 +806,13 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
                 className={classNames(
                   "rounded-2xl border p-3",
                   idx === selectedIdx
-                    ? "border-(--color-brand-blue) bg-blue-50"
-                    : "border-zinc-200 bg-white hover:bg-zinc-50",
+                    ? "border-(--color-brand-blue) bg-blue-600 text-white"
+                    : "border-zinc-200 bg-white",
                 )}
               >
-                <button type="button" onClick={() => setSelectedIdx(idx)} className="w-full text-left">
-                  <div className="text-sm font-semibold text-zinc-900">{q.label}</div>
-                  <div className="mt-0.5 text-xs text-zinc-600">
+                <button type="button" onClick={() => setSelectedIdx(idx)} className={classNames(`w-full rounded-xl text-left ${BUTTON_MOTION_CLASS}`, idx === selectedIdx ? "hover:translate-y-0" : "hover:bg-zinc-50") }>
+                  <div className={classNames("text-sm font-semibold", idx === selectedIdx ? "text-white" : "text-zinc-900")}>{q.label}</div>
+                  <div className={classNames("mt-0.5 text-xs", idx === selectedIdx ? "text-blue-100" : "text-zinc-600")}>
                     key: {q.name} · {fieldTypeLabel(q.type)}{q.required ? " · required" : ""}
                   </div>
                 </button>
@@ -894,14 +821,14 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
                   <button
                     type="button"
                     onClick={() => moveQuestion(idx, -1)}
-                    className="rounded-xl border border-zinc-200 bg-white px-2 py-1 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
+                    className={classNames(`rounded-xl px-2 py-1 text-xs font-semibold ${BUTTON_MOTION_CLASS}`, idx === selectedIdx ? "bg-white/15 text-white hover:bg-white/20" : "border border-zinc-200 bg-white text-zinc-700 hover:border-zinc-300 hover:bg-zinc-50")}
                   >
                     ↑
                   </button>
                   <button
                     type="button"
                     onClick={() => moveQuestion(idx, 1)}
-                    className="rounded-xl border border-zinc-200 bg-white px-2 py-1 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
+                    className={classNames(`rounded-xl px-2 py-1 text-xs font-semibold ${BUTTON_MOTION_CLASS}`, idx === selectedIdx ? "bg-white/15 text-white hover:bg-white/20" : "border border-zinc-200 bg-white text-zinc-700 hover:border-zinc-300 hover:bg-zinc-50")}
                   >
                     ↓
                   </button>
@@ -911,7 +838,7 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
           </div>
         </aside>
 
-        <section className="rounded-3xl border border-zinc-200 bg-white p-6">
+        <section className="border-b border-zinc-200 bg-white p-6 xl:border-b-0 xl:border-r">
           <div className="flex items-center justify-between gap-3">
             <div>
               <div className="text-sm font-semibold text-brand-ink">Preview</div>
@@ -921,7 +848,7 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
           </div>
 
           <div
-            className="mt-4 rounded-3xl border border-zinc-200 p-6"
+            className="mt-4 h-full rounded-none border border-zinc-200 p-6"
             style={
               style.pageBg === "transparent"
                 ? {
@@ -934,7 +861,7 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
             }
           >
             <div
-              className="rounded-3xl border border-zinc-200 p-6"
+              className="h-full rounded-none border border-zinc-200 p-6"
               style={
                 style.cardBg === "transparent"
                   ? {
@@ -967,7 +894,7 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
                       type="button"
                       onClick={() => setSelectedIdx(idx)}
                       className={classNames(
-                        "block w-full rounded-2xl border p-4 text-left transition",
+                        `block w-full rounded-2xl border p-4 text-left ${BUTTON_MOTION_CLASS}`,
                         idx === selectedIdx
                           ? "border-(--color-brand-blue) bg-blue-50"
                           : "border-zinc-200 bg-white hover:border-zinc-300 hover:bg-zinc-50",
@@ -1060,10 +987,10 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
                 disabled={busy}
                 onClick={addQuestion}
                 className={classNames(
-                  "mt-6 inline-flex w-full items-center justify-center rounded-2xl border border-dashed px-4 py-3 text-sm font-semibold",
+                  `mt-6 inline-flex w-full items-center justify-center rounded-2xl border px-4 py-3 text-sm font-semibold ${BUTTON_MOTION_CLASS}`,
                   busy
                     ? "border-zinc-200 bg-zinc-100 text-zinc-400"
-                    : "border-(--color-brand-blue) bg-blue-50 text-(--color-brand-blue) hover:bg-blue-100",
+                    : "border-(--color-brand-blue) bg-blue-600 text-white hover:bg-blue-700",
                 )}
               >
                 + Add question
@@ -1071,20 +998,21 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
 
               <button
                 type="button"
-                className="mt-4 inline-flex w-full items-center justify-center px-4 py-2 text-sm font-bold"
+                onClick={() => setSelectedIdx(null)}
+                className={`mt-4 inline-flex w-full items-center justify-center px-4 py-2 text-sm font-bold ${BUTTON_MOTION_CLASS}`}
                 style={{
-                  borderRadius: style.radiusPx ?? 16,
+                  borderRadius: style.submitRadiusPx ?? style.radiusPx ?? 16,
                   backgroundColor: style.buttonBg || "#2563eb",
                   color: style.buttonText || "#ffffff",
                 }}
               >
-                Submit
+                {style.submitLabel?.trim() || "Submit"}
               </button>
             </div>
           </div>
         </section>
 
-        <section className="rounded-3xl border border-zinc-200 bg-white p-6">
+        <section className="bg-white p-6">
           {selected && selectedIdx !== null ? (
             <>
               <div className="flex items-center justify-between gap-3">
@@ -1215,7 +1143,7 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
                           customFontFamily={style.fontFamily || ""}
                           extraOptions={[{ value: "default", label: "Default (app font)" }]}
                           className="mt-1 w-full"
-                          buttonClassName="flex w-full items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm text-zinc-900 hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-300"
+                          buttonClassName={`flex w-full items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm text-zinc-900 ${BUTTON_MOTION_CLASS} hover:border-zinc-300 hover:bg-zinc-50 focus-visible:ring-zinc-300`}
                         />
                         <div className="mt-1 text-xs text-zinc-500">Pick a preset to auto-load Google Fonts. Custom uses whatever the browser has.</div>
                       </label>
@@ -1261,10 +1189,10 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
                             type="button"
                             onClick={() => setStyle((prev) => ({ ...prev, pageBg: "transparent" }))}
                             className={classNames(
-                              "h-10 rounded-2xl border px-3 text-sm font-semibold",
+                              `h-10 rounded-2xl border px-3 text-sm font-semibold ${BUTTON_MOTION_CLASS}`,
                               style.pageBg === "transparent"
-                                ? "border-(--color-brand-blue) bg-blue-50 text-(--color-brand-blue)"
-                                : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50",
+                                ? "border-(--color-brand-blue) bg-blue-600 text-white"
+                                : "border-zinc-200 bg-white text-zinc-700 hover:border-zinc-300 hover:bg-zinc-50",
                             )}
                           >
                             Transparent
@@ -1278,7 +1206,7 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
                                 return next;
                               })
                             }
-                            className="h-10 shrink-0 rounded-2xl border border-zinc-200 bg-white px-3 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
+                            className={`h-10 shrink-0 rounded-2xl border border-zinc-200 bg-white px-3 text-sm font-semibold text-zinc-700 ${BUTTON_MOTION_CLASS} hover:border-zinc-300 hover:bg-zinc-50`}
                           >
                             Clear
                           </button>
@@ -1308,10 +1236,10 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
                             type="button"
                             onClick={() => setStyle((prev) => ({ ...prev, cardBg: "transparent" }))}
                             className={classNames(
-                              "h-10 rounded-2xl border px-3 text-sm font-semibold",
+                              `h-10 rounded-2xl border px-3 text-sm font-semibold ${BUTTON_MOTION_CLASS}`,
                               style.cardBg === "transparent"
-                                ? "border-(--color-brand-blue) bg-blue-50 text-(--color-brand-blue)"
-                                : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50",
+                                ? "border-(--color-brand-blue) bg-blue-600 text-white"
+                                : "border-zinc-200 bg-white text-zinc-700 hover:border-zinc-300 hover:bg-zinc-50",
                             )}
                           >
                             Transparent
@@ -1325,11 +1253,21 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
                                 return next;
                               })
                             }
-                            className="h-10 shrink-0 rounded-2xl border border-zinc-200 bg-white px-3 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
+                            className={`h-10 shrink-0 rounded-2xl border border-zinc-200 bg-white px-3 text-sm font-semibold text-zinc-700 ${BUTTON_MOTION_CLASS} hover:border-zinc-300 hover:bg-zinc-50`}
                           >
                             Clear
                           </button>
                         </div>
+                      </label>
+
+                      <label className="block sm:col-span-2">
+                        <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Submit button label</div>
+                        <input
+                          value={style.submitLabel || ""}
+                          onChange={(e) => setStyle((prev) => ({ ...prev, submitLabel: e.target.value }))}
+                          className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 placeholder:text-zinc-400"
+                          placeholder="Submit"
+                        />
                       </label>
 
                       <label className="block">
@@ -1369,7 +1307,7 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
                       </label>
 
                       <label className="block">
-                        <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Radius</div>
+                        <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Field corner radius</div>
                         <div className="mt-2 flex items-center gap-3">
                           <input
                             type="range"
@@ -1383,11 +1321,26 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
                         </div>
                       </label>
 
+                      <label className="block">
+                        <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Submit button radius</div>
+                        <div className="mt-2 flex items-center gap-3">
+                          <input
+                            type="range"
+                            min={0}
+                            max={40}
+                            value={style.submitRadiusPx ?? style.radiusPx ?? 16}
+                            onChange={(e) => setStyle((prev) => ({ ...prev, submitRadiusPx: Number(e.target.value) }))}
+                            className="w-full"
+                          />
+                          <div className="w-16 text-right text-sm font-semibold text-zinc-700">{style.submitRadiusPx ?? style.radiusPx ?? 16}px</div>
+                        </div>
+                      </label>
+
                       <div className="flex items-end justify-end sm:col-span-2">
                         <button
                           type="button"
                           onClick={() => setStyle({})}
-                          className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+                          className={SECONDARY_BUTTON_CLASS}
                         >
                           Reset
                         </button>
@@ -1400,16 +1353,6 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
                       <div className="text-sm font-semibold text-brand-ink">Post-submit page</div>
                       <div className="mt-1 text-xs text-zinc-500">Customize the thank-you state visitors see after a successful submission.</div>
                       <div className="mt-3 space-y-3">
-                        <label className="block">
-                          <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Eyebrow</div>
-                          <input
-                            value={successContent.eyebrow || ""}
-                            onChange={(e) => setSuccessContent((prev) => ({ ...prev, eyebrow: e.target.value }))}
-                            className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm text-zinc-900 placeholder:text-zinc-400"
-                            placeholder="Submission received"
-                          />
-                        </label>
-
                         <label className="block">
                           <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Title</div>
                           <input
@@ -1432,7 +1375,7 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
                         </label>
 
                         <label className="block">
-                          <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Button label</div>
+                          <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Success button label</div>
                           <input
                             value={successContent.buttonLabel || ""}
                             onChange={(e) => setSuccessContent((prev) => ({ ...prev, buttonLabel: e.target.value }))}
@@ -1441,31 +1384,133 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
                           />
                         </label>
 
-                        <div className="rounded-3xl border border-emerald-200 bg-emerald-50/80 p-5">
-                          <div className="text-xs font-semibold uppercase tracking-wide text-emerald-700">
-                            {successContent.eyebrow?.trim() || "Submission received"}
+                        <label className="block">
+                          <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Success button action</div>
+                          <PortalListboxDropdown
+                            value={successContent.buttonAction || "reset"}
+                            onChange={(value) =>
+                              setSuccessContent((prev) => ({
+                                ...prev,
+                                buttonAction: value === "redirect" ? "redirect" : "reset",
+                              }))
+                            }
+                            options={[
+                              { value: "reset", label: "Show the form again" },
+                              { value: "redirect", label: "Go to a URL" },
+                            ]}
+                            className="mt-1 w-full"
+                            buttonClassName={`flex w-full items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm text-zinc-900 ${BUTTON_MOTION_CLASS} hover:border-zinc-300 hover:bg-zinc-50`}
+                          />
+                        </label>
+
+                        {successContent.buttonAction === "redirect" ? (
+                          <label className="block">
+                            <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Redirect URL</div>
+                            <input
+                              value={successContent.buttonUrl || ""}
+                              onChange={(e) => setSuccessContent((prev) => ({ ...prev, buttonUrl: e.target.value }))}
+                              className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm text-zinc-900 placeholder:text-zinc-400"
+                              placeholder="https://example.com/thanks"
+                            />
+                          </label>
+                        ) : null}
+
+                        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                          <label className="block">
+                            <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Success background</div>
+                            <div className="mt-1 flex items-center gap-2">
+                              <input
+                                type="color"
+                                value={successContent.surfaceColor || "#ecfdf5"}
+                                onChange={(e) => setSuccessContent((prev) => ({ ...prev, surfaceColor: e.target.value }))}
+                                className="h-10 w-14 rounded-xl border border-zinc-200 bg-white"
+                              />
+                              <input
+                                value={successContent.surfaceColor || "#ecfdf5"}
+                                onChange={(e) => setSuccessContent((prev) => ({ ...prev, surfaceColor: e.target.value }))}
+                                className="h-10 w-full rounded-2xl border border-zinc-200 bg-white px-3 text-sm text-zinc-900"
+                              />
+                            </div>
+                          </label>
+
+                          <label className="block">
+                            <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Success border</div>
+                            <div className="mt-1 flex items-center gap-2">
+                              <input
+                                type="color"
+                                value={successContent.borderColor || "#a7f3d0"}
+                                onChange={(e) => setSuccessContent((prev) => ({ ...prev, borderColor: e.target.value }))}
+                                className="h-10 w-14 rounded-xl border border-zinc-200 bg-white"
+                              />
+                              <input
+                                value={successContent.borderColor || "#a7f3d0"}
+                                onChange={(e) => setSuccessContent((prev) => ({ ...prev, borderColor: e.target.value }))}
+                                className="h-10 w-full rounded-2xl border border-zinc-200 bg-white px-3 text-sm text-zinc-900"
+                              />
+                            </div>
+                          </label>
+
+                          <label className="block">
+                            <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Accent color</div>
+                            <div className="mt-1 flex items-center gap-2">
+                              <input
+                                type="color"
+                                value={successContent.accentColor || "#047857"}
+                                onChange={(e) => setSuccessContent((prev) => ({ ...prev, accentColor: e.target.value }))}
+                                className="h-10 w-14 rounded-xl border border-zinc-200 bg-white"
+                              />
+                              <input
+                                value={successContent.accentColor || "#047857"}
+                                onChange={(e) => setSuccessContent((prev) => ({ ...prev, accentColor: e.target.value }))}
+                                className="h-10 w-full rounded-2xl border border-zinc-200 bg-white px-3 text-sm text-zinc-900"
+                              />
+                            </div>
+                          </label>
+
+                          <label className="block">
+                            <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Text color</div>
+                            <div className="mt-1 flex items-center gap-2">
+                              <input
+                                type="color"
+                                value={successContent.textColor || style.textColor || "#18181b"}
+                                onChange={(e) => setSuccessContent((prev) => ({ ...prev, textColor: e.target.value }))}
+                                className="h-10 w-14 rounded-xl border border-zinc-200 bg-white"
+                              />
+                              <input
+                                value={successContent.textColor || style.textColor || "#18181b"}
+                                onChange={(e) => setSuccessContent((prev) => ({ ...prev, textColor: e.target.value }))}
+                                className="h-10 w-full rounded-2xl border border-zinc-200 bg-white px-3 text-sm text-zinc-900"
+                              />
+                            </div>
+                          </label>
+                        </div>
+
+                        <div
+                          className="rounded-3xl border p-5"
+                          style={{
+                            borderColor: successContent.borderColor || "#a7f3d0",
+                            backgroundColor: successContent.surfaceColor || "#ecfdf5",
+                          }}
+                        >
+                          <div className="text-xs font-semibold uppercase tracking-wide" style={{ color: successContent.accentColor || "#047857" }}>
+                            Submission received
                           </div>
-                          <div className="mt-2 text-xl font-bold" style={{ color: style.textColor || "#18181b" }}>
+                          <div className="mt-2 text-xl font-bold" style={{ color: successContent.textColor || style.textColor || "#18181b" }}>
                             {successContent.title?.trim() || "Submitted. Thank you!"}
                           </div>
-                          <div className="mt-2 whitespace-pre-wrap text-sm leading-6" style={{ color: style.textColor || "#18181b" }}>
+                          <div className="mt-2 whitespace-pre-wrap text-sm leading-6" style={{ color: successContent.textColor || style.textColor || "#18181b" }}>
                             {successContent.message?.trim() || "We received your submission and will review it shortly."}
                           </div>
                           <button
                             type="button"
-                            className="mt-4 inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800"
+                            className={`mt-4 inline-flex items-center justify-center px-4 py-2 text-sm font-semibold ${BUTTON_MOTION_CLASS}`}
+                            style={{
+                              borderRadius: style.submitRadiusPx ?? style.radiusPx ?? 16,
+                              backgroundColor: style.buttonBg || "#2563eb",
+                              color: style.buttonText || "#ffffff",
+                            }}
                           >
                             {successContent.buttonLabel?.trim() || "Submit another response"}
-                          </button>
-                        </div>
-
-                        <div className="flex justify-end">
-                          <button
-                            type="button"
-                            onClick={() => setSuccessContent({})}
-                            className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
-                          >
-                            Clear success page
                           </button>
                         </div>
                       </div>

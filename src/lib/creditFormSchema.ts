@@ -32,15 +32,22 @@ export type CreditFormStyle = {
   buttonBg?: string;
   buttonText?: string;
   radiusPx?: number;
+  submitRadiusPx?: number;
+  submitLabel?: string;
   fontFamily?: string;
   fontGoogleFamily?: string;
 };
 
 export type CreditFormSuccessContent = {
-  eyebrow?: string;
   title?: string;
   message?: string;
   buttonLabel?: string;
+  buttonAction?: "reset" | "redirect";
+  buttonUrl?: string;
+  accentColor?: string;
+  surfaceColor?: string;
+  borderColor?: string;
+  textColor?: string;
 };
 
 export type CreditFormSubmissionRow = {
@@ -152,6 +159,7 @@ export function parseCreditFormStyle(schemaJson: unknown): CreditFormStyle {
   const textColor = parseHexColor(raw.textColor);
   const fontFamily = coerceFontFamily(raw.fontFamily);
   const fontGoogleFamily = coerceGoogleFamily(raw.fontGoogleFamily);
+  const submitLabel = typeof raw.submitLabel === "string" ? raw.submitLabel.trim().slice(0, 80) : "";
 
   if (pageBg) out.pageBg = pageBg;
   if (cardBg) out.cardBg = cardBg;
@@ -162,9 +170,14 @@ export function parseCreditFormStyle(schemaJson: unknown): CreditFormStyle {
   if (textColor) out.textColor = textColor;
   if (fontFamily) out.fontFamily = fontFamily;
   if (fontGoogleFamily) out.fontGoogleFamily = fontGoogleFamily;
+  if (submitLabel) out.submitLabel = submitLabel;
 
   if (typeof raw.radiusPx === "number" && Number.isFinite(raw.radiusPx)) {
     out.radiusPx = Math.max(0, Math.min(40, Math.round(raw.radiusPx)));
+  }
+
+  if (typeof raw.submitRadiusPx === "number" && Number.isFinite(raw.submitRadiusPx)) {
+    out.submitRadiusPx = Math.max(0, Math.min(40, Math.round(raw.submitRadiusPx)));
   }
 
   return out;
@@ -173,15 +186,25 @@ export function parseCreditFormStyle(schemaJson: unknown): CreditFormStyle {
 export function normalizeCreditFormSuccessContent(raw: unknown): CreditFormSuccessContent {
   const rec = asRecord(raw);
   if (!rec) return {};
-  const eyebrow = typeof rec.eyebrow === "string" ? rec.eyebrow.trim().slice(0, 80) : "";
   const title = typeof rec.title === "string" ? rec.title.trim().slice(0, 160) : "";
   const message = typeof rec.message === "string" ? rec.message.trim().slice(0, 5000) : "";
   const buttonLabel = typeof rec.buttonLabel === "string" ? rec.buttonLabel.trim().slice(0, 80) : "";
+  const buttonAction = rec.buttonAction === "redirect" ? "redirect" : rec.buttonAction === "reset" ? "reset" : "";
+  const buttonUrl = typeof rec.buttonUrl === "string" ? rec.buttonUrl.trim().slice(0, 2000) : "";
+  const accentColor = parseHexColor(rec.accentColor);
+  const surfaceColor = parseHexColor(rec.surfaceColor);
+  const borderColor = parseHexColor(rec.borderColor);
+  const textColor = parseHexColor(rec.textColor);
   const out: CreditFormSuccessContent = {};
-  if (eyebrow) out.eyebrow = eyebrow;
   if (title) out.title = title;
   if (message) out.message = message;
   if (buttonLabel) out.buttonLabel = buttonLabel;
+  if (buttonAction) out.buttonAction = buttonAction;
+  if (buttonUrl) out.buttonUrl = buttonUrl;
+  if (accentColor) out.accentColor = accentColor;
+  if (surfaceColor) out.surfaceColor = surfaceColor;
+  if (borderColor) out.borderColor = borderColor;
+  if (textColor) out.textColor = textColor;
   return out;
 }
 
@@ -263,14 +286,15 @@ export function buildCreditFormSubmissionRows(schemaJson: unknown, dataJson: unk
   for (const field of fields) {
     if (!Object.prototype.hasOwnProperty.call(data, field.name)) continue;
     const rawValue = data[field.name];
-    const displayValue = describeCreditFormSubmissionValue(rawValue, field.type);
+    const normalizedSignatureValue = field.type === "signature" ? normalizeStoredSignature(rawValue) : "";
+    const displayValue = describeCreditFormSubmissionValue(rawValue, field.type) || (normalizedSignatureValue ? "Signature on file" : "");
     rows.push({
       key: field.name,
       label: field.label,
       fieldType: field.type,
       rawValue,
       displayValue,
-      hasResponse: Boolean(displayValue.trim() || readSignatureImageDataUrl(rawValue)),
+      hasResponse: field.type === "signature" ? Boolean(normalizedSignatureValue) : Boolean(displayValue.trim() || readSignatureImageDataUrl(rawValue)),
     });
     seen.add(field.name);
   }

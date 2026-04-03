@@ -178,12 +178,18 @@ export function FormResponsesClient({ basePath, formId }: { basePath: string; fo
                           <div key={row.key} className="rounded-xl border border-zinc-200 bg-white p-3">
                             <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">{row.label}</div>
                             <div className="mt-2">
-                              <SignatureDisplay
-                                value={row.rawValue}
-                                emptyLabel={row.displayValue || "No response"}
-                                imageClassName="max-h-28"
-                                textClassName="text-sm text-zinc-800"
-                              />
+                              {row.fieldType === "signature" ? (
+                                <SignatureDisplay
+                                  value={row.rawValue}
+                                  emptyLabel={row.hasResponse ? row.displayValue || "Signature on file" : "No response"}
+                                  imageClassName="max-h-28"
+                                  textClassName="text-sm text-zinc-800"
+                                />
+                              ) : row.hasResponse ? (
+                                <div className="whitespace-pre-wrap wrap-break-word text-sm text-zinc-800">{row.displayValue}</div>
+                              ) : (
+                                <div className="text-sm text-zinc-500">No response</div>
+                              )}
                             </div>
                           </div>
                         );

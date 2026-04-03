@@ -114,10 +114,17 @@ export function CreditHostedFormClient({
   const buttonText = style?.buttonText || "#ffffff";
   const fontFamily = style?.fontFamily || undefined;
   const googleCss = googleFontImportCss(style?.fontGoogleFamily);
-  const successEyebrow = successContent?.eyebrow?.trim() || "Submission received";
+  const submitLabel = style?.submitLabel?.trim() || "Submit";
+  const submitRadiusPx = typeof style?.submitRadiusPx === "number" && Number.isFinite(style.submitRadiusPx) ? style.submitRadiusPx : radiusPx;
+  const successSurfaceColor = successContent?.surfaceColor || "#ecfdf5";
+  const successBorderColor = successContent?.borderColor || "#a7f3d0";
+  const successAccentColor = successContent?.accentColor || "#047857";
+  const successTextColor = successContent?.textColor || textColor;
   const successTitle = successContent?.title?.trim() || "Submitted. Thank you!";
   const successMessage = successContent?.message?.trim() || "We received your submission and will review it shortly.";
   const successButtonLabel = successContent?.buttonLabel?.trim() || "Submit another response";
+  const successButtonAction = successContent?.buttonAction === "redirect" ? "redirect" : "reset";
+  const successButtonUrl = successContent?.buttonUrl?.trim() || "";
 
   return (
     <>
@@ -142,21 +149,26 @@ export function CreditHostedFormClient({
       )}
 
       {success ? (
-        <div className="mt-8 rounded-3xl border border-emerald-200 bg-emerald-50/80 p-6 sm:p-8">
-          <div className="text-xs font-semibold uppercase tracking-wide text-emerald-700">{successEyebrow}</div>
-          <h2 className="mt-2 text-2xl font-bold" style={{ color: textColor }}>
+        <div className="mt-8 rounded-3xl border p-6 sm:p-8" style={{ borderColor: successBorderColor, backgroundColor: successSurfaceColor }}>
+          <div className="text-xs font-semibold uppercase tracking-wide" style={{ color: successAccentColor }}>Submission received</div>
+          <h2 className="mt-2 text-2xl font-bold" style={{ color: successTextColor }}>
             {successTitle}
           </h2>
-          <div className="mt-3 whitespace-pre-wrap text-sm leading-6" style={{ color: textColor }}>
+          <div className="mt-3 whitespace-pre-wrap text-sm leading-6" style={{ color: successTextColor }}>
             {successMessage}
           </div>
           <button
             type="button"
             onClick={() => {
+              if (successButtonAction === "redirect" && successButtonUrl) {
+                window.location.assign(successButtonUrl);
+                return;
+              }
               setSuccess(false);
               setError(null);
             }}
-            className="mt-5 inline-flex items-center justify-center rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
+            className="mt-5 inline-flex items-center justify-center px-4 py-2 text-sm font-semibold transition-all duration-150 hover:-translate-y-0.5 hover:opacity-95"
+            style={{ borderRadius: submitRadiusPx, backgroundColor: buttonBg, color: buttonText }}
           >
             {successButtonLabel}
           </button>
@@ -330,16 +342,16 @@ export function CreditHostedFormClient({
           type="submit"
           disabled={busy}
           className={classNames(
-            "inline-flex w-full items-center justify-center px-4 py-2 text-sm font-bold",
+            "inline-flex w-full items-center justify-center px-4 py-2 text-sm font-bold transition-all duration-150 hover:-translate-y-0.5",
             busy ? "opacity-60" : "hover:opacity-95",
           )}
           style={{
-            borderRadius: radiusPx,
+            borderRadius: submitRadiusPx,
             backgroundColor: busy ? "#a1a1aa" : buttonBg,
             color: buttonText,
           }}
         >
-          {busy ? "Submitting…" : "Submit"}
+          {busy ? "Submitting…" : submitLabel}
         </button>
       </form>
       )}
