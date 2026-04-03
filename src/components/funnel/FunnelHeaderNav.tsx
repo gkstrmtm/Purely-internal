@@ -90,6 +90,23 @@ export function FunnelHeaderNav({
 }) {
   const [open, setOpen] = useState(false);
 
+  const baseTextColor = typeof style?.color === "string" && style.color.trim() ? style.color.trim() : "";
+  const surfaceColor = typeof style?.backgroundColor === "string" && style.backgroundColor.trim() ? style.backgroundColor.trim() : "";
+  const borderColor = typeof (style as any)?.borderColor === "string" && String((style as any).borderColor).trim() ? String((style as any).borderColor).trim() : "";
+  const headerVars = (baseTextColor || surfaceColor || borderColor)
+    ? ({
+        ...(baseTextColor
+          ? {
+              "--fhn-text": baseTextColor,
+              "--fhn-link": `color-mix(in srgb, ${baseTextColor} 78%, transparent)`,
+              "--fhn-muted": `color-mix(in srgb, ${baseTextColor} 72%, transparent)`,
+            }
+          : null),
+        ...(surfaceColor ? { "--fhn-surface": surfaceColor } : null),
+        ...(borderColor ? { "--fhn-border": borderColor } : null),
+      } as any)
+    : null;
+
   const scrollToAnchor = useCallback((rawAnchorId: string) => {
     const id = normalizeAnchorId(rawAnchorId);
     if (!id) return false;
@@ -168,7 +185,7 @@ export function FunnelHeaderNav({
         transparent ? "border-b border-transparent" : "border-b border-zinc-200",
         className,
       )}
-      style={style}
+      style={{ ...(style || {}), ...(headerVars || {}) }}
     >
       <div
         className={classNames("mx-auto flex w-full max-w-6xl items-center justify-between gap-3 px-4")}
@@ -180,7 +197,7 @@ export function FunnelHeaderNav({
             if (disabled) return onNavClick(e);
             if (mode === "dropdown") setOpen(false);
           }}
-          className="flex items-center gap-2 text-sm font-semibold text-zinc-900"
+          className="flex items-center gap-2 text-sm font-semibold text-[color:var(--fhn-text,#18181b)]"
           data-funnel-editor-interactive="true"
         >
           {logoUrl ? (
@@ -188,7 +205,7 @@ export function FunnelHeaderNav({
             <img src={logoUrl} alt={logoAlt || "Logo"} className="w-auto" style={{ height: logoHeightPx }} />
           ) : (
             <div
-              className="flex items-center rounded-lg border border-zinc-200 bg-white px-2 py-1 text-xs font-semibold text-zinc-700"
+              className="flex items-center rounded-lg border border-[color:var(--fhn-border,rgba(24,24,27,0.12))] bg-[color:var(--fhn-surface,#fff)] px-2 py-1 text-xs font-semibold text-[color:var(--fhn-muted,#3f3f46)]"
               style={{ height: logoHeightPx }}
             >
               Logo
@@ -225,7 +242,7 @@ export function FunnelHeaderNav({
                 }}
                 target={newTab ? "_blank" : undefined}
                 rel={newTab ? "noopener noreferrer" : undefined}
-                className="text-sm font-semibold text-zinc-700 hover:text-zinc-900"
+                className="text-sm font-semibold text-[color:var(--fhn-link,#3f3f46)] hover:text-[color:var(--fhn-text,#18181b)]"
                 data-funnel-editor-interactive="true"
               >
                 {label}
@@ -240,7 +257,7 @@ export function FunnelHeaderNav({
             type="button"
             data-funnel-editor-interactive="true"
             className={classNames(
-              "inline-flex items-center justify-center gap-2 rounded-full border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50",
+              "inline-flex items-center justify-center gap-2 rounded-full border border-[color:var(--fhn-border,rgba(24,24,27,0.12))] bg-[color:var(--fhn-surface,#fff)] px-4 py-2 text-sm font-semibold text-[color:var(--fhn-text,#27272a)] hover:bg-black/5",
               desktopUsesTrigger ? "" : "sm:hidden",
               disabled ? "opacity-60" : "",
             )}
@@ -259,7 +276,7 @@ export function FunnelHeaderNav({
             type="button"
             data-funnel-editor-interactive="true"
             className={classNames(
-              "inline-flex items-center justify-center rounded-xl border border-zinc-200 bg-white text-zinc-800 hover:bg-zinc-50",
+              "inline-flex items-center justify-center rounded-xl border border-[color:var(--fhn-border,rgba(24,24,27,0.12))] bg-[color:var(--fhn-surface,#fff)] text-[color:var(--fhn-text,#27272a)] hover:bg-black/5",
               desktopUsesTrigger ? "" : "sm:hidden",
             )}
             style={{ height: iconBtnSizePx, width: iconBtnSizePx }}
@@ -278,7 +295,7 @@ export function FunnelHeaderNav({
       {/* Mobile menu */}
       {mode === "dropdown" ? (
         <div className={classNames("sm:hidden", open ? "block" : "hidden")}>
-          <div className="space-y-1 border-t border-zinc-200 bg-white px-4 py-3">
+          <div className="space-y-1 border-t border-[color:var(--fhn-border,rgba(24,24,27,0.12))] bg-[color:var(--fhn-surface,#fff)] px-4 py-3">
             {normalizedItems.map((it) => {
               const href = buildHref({ item: it, funnelPathBase });
               const label = (it.label || "Link").trim() || "Link";
@@ -306,7 +323,7 @@ export function FunnelHeaderNav({
                   }}
                   target={newTab ? "_blank" : undefined}
                   rel={newTab ? "noopener noreferrer" : undefined}
-                  className="block rounded-xl px-3 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
+                  className="block rounded-xl px-3 py-2 text-sm font-semibold text-[color:var(--fhn-text,#27272a)] hover:bg-black/5"
                   data-funnel-editor-interactive="true"
                 >
                   {label}
@@ -324,13 +341,13 @@ export function FunnelHeaderNav({
               setOpen(false);
             }}
           />
-          <div className="fixed inset-y-0 right-0 z-50 w-[min(85vw,340px)] bg-white shadow-xl">
-            <div className="flex items-center justify-between border-b border-zinc-200 px-4 py-3">
-              <div className="text-sm font-semibold text-zinc-900">Menu</div>
+          <div className="fixed inset-y-0 right-0 z-50 w-[min(85vw,340px)] bg-[color:var(--fhn-surface,#fff)] shadow-xl">
+            <div className="flex items-center justify-between border-b border-[color:var(--fhn-border,rgba(24,24,27,0.12))] px-4 py-3">
+              <div className="text-sm font-semibold text-[color:var(--fhn-text,#18181b)]">Menu</div>
               <button
                 type="button"
                 data-funnel-editor-interactive="true"
-                className="h-10 w-10 rounded-xl border border-zinc-200 bg-white text-zinc-800 hover:bg-zinc-50"
+                className="h-10 w-10 rounded-xl border border-[color:var(--fhn-border,rgba(24,24,27,0.12))] bg-[color:var(--fhn-surface,#fff)] text-[color:var(--fhn-text,#27272a)] hover:bg-black/5"
                 onClick={() => {
                   if (disabled) return;
                   setOpen(false);
@@ -368,7 +385,7 @@ export function FunnelHeaderNav({
                     }}
                     target={newTab ? "_blank" : undefined}
                     rel={newTab ? "noopener noreferrer" : undefined}
-                    className="block rounded-xl px-3 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
+                    className="block rounded-xl px-3 py-2 text-sm font-semibold text-[color:var(--fhn-text,#27272a)] hover:bg-black/5"
                     data-funnel-editor-interactive="true"
                   >
                     {label}
@@ -383,7 +400,7 @@ export function FunnelHeaderNav({
       {/* Desktop menu (optional) */}
       {desktopMenuMode === "dropdown" ? (
         <div className={classNames("hidden sm:block", open ? "block" : "hidden")}>
-          <div className="space-y-1 border-t border-zinc-200 bg-white px-4 py-3">
+          <div className="space-y-1 border-t border-[color:var(--fhn-border,rgba(24,24,27,0.12))] bg-[color:var(--fhn-surface,#fff)] px-4 py-3">
             {normalizedItems.map((it) => {
               const href = buildHref({ item: it, funnelPathBase });
               const label = (it.label || "Link").trim() || "Link";
@@ -411,7 +428,7 @@ export function FunnelHeaderNav({
                   }}
                   target={newTab ? "_blank" : undefined}
                   rel={newTab ? "noopener noreferrer" : undefined}
-                  className="block rounded-xl px-3 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
+                  className="block rounded-xl px-3 py-2 text-sm font-semibold text-[color:var(--fhn-text,#27272a)] hover:bg-black/5"
                   data-funnel-editor-interactive="true"
                 >
                   {label}
@@ -431,13 +448,13 @@ export function FunnelHeaderNav({
               setOpen(false);
             }}
           />
-          <div className="fixed inset-y-0 right-0 z-50 w-[min(85vw,340px)] bg-white shadow-xl">
-            <div className="flex items-center justify-between border-b border-zinc-200 px-4 py-3">
-              <div className="text-sm font-semibold text-zinc-900">Menu</div>
+          <div className="fixed inset-y-0 right-0 z-50 w-[min(85vw,340px)] bg-[color:var(--fhn-surface,#fff)] shadow-xl">
+            <div className="flex items-center justify-between border-b border-[color:var(--fhn-border,rgba(24,24,27,0.12))] px-4 py-3">
+              <div className="text-sm font-semibold text-[color:var(--fhn-text,#18181b)]">Menu</div>
               <button
                 type="button"
                 data-funnel-editor-interactive="true"
-                className="h-10 w-10 rounded-xl border border-zinc-200 bg-white text-zinc-800 hover:bg-zinc-50"
+                className="h-10 w-10 rounded-xl border border-[color:var(--fhn-border,rgba(24,24,27,0.12))] bg-[color:var(--fhn-surface,#fff)] text-[color:var(--fhn-text,#27272a)] hover:bg-black/5"
                 onClick={() => {
                   if (disabled) return;
                   setOpen(false);
@@ -475,7 +492,7 @@ export function FunnelHeaderNav({
                     }}
                     target={newTab ? "_blank" : undefined}
                     rel={newTab ? "noopener noreferrer" : undefined}
-                    className="block rounded-xl px-3 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
+                    className="block rounded-xl px-3 py-2 text-sm font-semibold text-[color:var(--fhn-text,#27272a)] hover:bg-black/5"
                     data-funnel-editor-interactive="true"
                   >
                     {label}

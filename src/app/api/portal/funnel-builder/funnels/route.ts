@@ -134,7 +134,17 @@ export async function POST(req: Request) {
           ? { customChatJson: p.customChatJson as unknown as Prisma.InputJsonValue }
           : {}),
       }))
-    : null;
+    : [
+        {
+          slug: "home",
+          title: name,
+          sortOrder: 0,
+          editorMode: "BLOCKS" as const,
+          contentMarkdown: "",
+          blocksJson: [] as unknown as Prisma.InputJsonValue,
+          customHtml: "",
+        },
+      ];
 
   if (!slug) {
     return NextResponse.json({ ok: false, error: "Invalid slug" }, { status: 400 });

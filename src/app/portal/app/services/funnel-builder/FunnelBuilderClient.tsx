@@ -197,6 +197,7 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
   const [createFunnelTemplateKey, setCreateFunnelTemplateKey] = useState<CreditFunnelTemplateKey>("credit-audit-leadgen");
   const [createFunnelThemeKey, setCreateFunnelThemeKey] = useState<CreditFunnelThemeKey>("royal-indigo");
   const [createFunnelPreviewOpen, setCreateFunnelPreviewOpen] = useState(false);
+  const [createFunnelUseTemplate, setCreateFunnelUseTemplate] = useState(true);
   const [busy, setBusy] = useState(false);
 
   const [funnelDeleteBusy, setFunnelDeleteBusy] = useState<Record<string, boolean>>({});
@@ -827,6 +828,7 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
     setCreateFunnelTemplateKey("credit-audit-leadgen");
     setCreateFunnelThemeKey("royal-indigo");
     setCreateFunnelPreviewOpen(false);
+    setCreateFunnelUseTemplate(true);
   }, [creatingKind]);
 
   const openCreate = (kind: "funnel" | "form") => {
@@ -861,8 +863,12 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
               }
             : creatingKind === "funnel"
               ? {
-                  templateKey: coerceCreditFunnelTemplateKey(createFunnelTemplateKey),
-                  themeKey: coerceCreditFunnelThemeKey(createFunnelThemeKey),
+                  ...(createFunnelUseTemplate
+                    ? {
+                        templateKey: coerceCreditFunnelTemplateKey(createFunnelTemplateKey),
+                        themeKey: coerceCreditFunnelThemeKey(createFunnelThemeKey),
+                      }
+                    : null),
                 }
               : {}),
         }),
@@ -1895,6 +1901,31 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
             <p className="mt-1 text-sm text-zinc-600">Choose a URL slug. You can rename it later.</p>
 
             <div className="mt-4 space-y-3">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <div>
+                  <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Slug</div>
+                  <input
+                    value={createSlug}
+                    onChange={(e) => setCreateSlug(e.target.value)}
+                    placeholder={creatingKind === "funnel" ? "credit-repair" : "intake"}
+                    className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm"
+                  />
+                  <div className="mt-1 text-xs text-zinc-500">
+                    URL: {creatingKind === "funnel" ? funnelPreviewBase : formPreviewBase}/<span className="font-semibold">{normalizeSlug(createSlug) || "…"}</span>
+                  </div>
+                </div>
+
+                <div>
+                  <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Name (optional)</div>
+                  <input
+                    value={createName}
+                    onChange={(e) => setCreateName(e.target.value)}
+                    placeholder={creatingKind === "funnel" ? "Credit Repair Funnel" : "Client Intake Form"}
+                    className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm"
+                  />
+                </div>
+              </div>
+
               {creatingKind === "funnel" ? (
                 <div>
                   {(() => {
@@ -1910,53 +1941,90 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                           theme={theme}
                         />
 
-                        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                        <div className="flex items-center justify-between gap-3">
                           <div>
-                            <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Template</div>
-                            <PortalListboxDropdown<CreditFunnelTemplateKey>
-                              value={createFunnelTemplateKey}
-                              onChange={(v) => {
-                                setCreateFunnelTemplateKey(v);
-                                const t = getCreditFunnelTemplate(v);
-                                if (t?.defaultThemeKey) setCreateFunnelThemeKey(t.defaultThemeKey);
-                              }}
-                              options={CREDIT_FUNNEL_TEMPLATES.map((t) => ({ value: t.key, label: t.label, hint: t.description }))}
-                              buttonClassName="mt-1 flex w-full items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm hover:bg-zinc-50"
-                              renderOptionRight={(opt) => {
-                                const tmpl = CREDIT_FUNNEL_TEMPLATES.find((t) => t.key === opt.value);
-                                const th = tmpl ? getCreditFunnelTheme(tmpl.defaultThemeKey) : null;
-                                const c = th?.primaryButtonStyle?.backgroundColor || "#2563eb";
-                                return <div aria-hidden="true" className="h-3 w-3 rounded-full border border-black/10" style={{ backgroundColor: c }} />;
-                              }}
-                            />
+                            <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Starting point</div>
+                            <div className="mt-1 text-xs text-zinc-600">You can start blank or from a template.</div>
                           </div>
-
-                          <div>
-                            <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Theme</div>
-                            <PortalListboxDropdown<CreditFunnelThemeKey>
-                              value={createFunnelThemeKey}
-                              onChange={(v) => setCreateFunnelThemeKey(v)}
-                              options={CREDIT_FUNNEL_THEMES.map((t) => ({ value: t.key, label: t.label, hint: t.description }))}
-                              buttonClassName="mt-1 flex w-full items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm hover:bg-zinc-50"
-                              renderOptionRight={(opt) => {
-                                const th = CREDIT_FUNNEL_THEMES.find((t) => t.key === opt.value);
-                                const c = th?.primaryButtonStyle?.backgroundColor || "#2563eb";
-                                return <div aria-hidden="true" className="h-3 w-3 rounded-full border border-black/10" style={{ backgroundColor: c }} />;
-                              }}
-                            />
+                          <div className="inline-flex overflow-hidden rounded-2xl border border-zinc-200 bg-white">
+                            <button
+                              type="button"
+                              onClick={() => setCreateFunnelUseTemplate(false)}
+                              className={classNames(
+                                "px-3 py-2 text-sm font-semibold",
+                                createFunnelUseTemplate ? "text-zinc-700 hover:bg-zinc-50" : "bg-zinc-900 text-white",
+                              )}
+                            >
+                              Start blank
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setCreateFunnelUseTemplate(true)}
+                              className={classNames(
+                                "px-3 py-2 text-sm font-semibold",
+                                createFunnelUseTemplate ? "bg-zinc-900 text-white" : "text-zinc-700 hover:bg-zinc-50",
+                              )}
+                            >
+                              Use template
+                            </button>
                           </div>
                         </div>
 
-                        <CreditFunnelTemplatePreview template={template} theme={theme} className="mt-3" />
-                        <div className="mt-2 flex justify-end">
-                          <button
-                            type="button"
-                            onClick={() => setCreateFunnelPreviewOpen(true)}
-                            className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
-                          >
-                            Open full preview
-                          </button>
-                        </div>
+                        {createFunnelUseTemplate ? (
+                          <>
+                            <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                              <div>
+                                <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Template</div>
+                                <PortalListboxDropdown<CreditFunnelTemplateKey>
+                                  value={createFunnelTemplateKey}
+                                  onChange={(v) => {
+                                    setCreateFunnelTemplateKey(v);
+                                    const t = getCreditFunnelTemplate(v);
+                                    if (t?.defaultThemeKey) setCreateFunnelThemeKey(t.defaultThemeKey);
+                                  }}
+                                  options={CREDIT_FUNNEL_TEMPLATES.map((t) => ({ value: t.key, label: t.label, hint: t.description }))}
+                                  buttonClassName="mt-1 flex w-full items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm hover:bg-zinc-50"
+                                  renderOptionRight={(opt) => {
+                                    const tmpl = CREDIT_FUNNEL_TEMPLATES.find((t) => t.key === opt.value);
+                                    const th = tmpl ? getCreditFunnelTheme(tmpl.defaultThemeKey) : null;
+                                    const c = th?.primaryButtonStyle?.backgroundColor || "#2563eb";
+                                    return <div aria-hidden="true" className="h-3 w-3 rounded-full border border-black/10" style={{ backgroundColor: c }} />;
+                                  }}
+                                />
+                              </div>
+
+                              <div>
+                                <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Theme</div>
+                                <PortalListboxDropdown<CreditFunnelThemeKey>
+                                  value={createFunnelThemeKey}
+                                  onChange={(v) => setCreateFunnelThemeKey(v)}
+                                  options={CREDIT_FUNNEL_THEMES.map((t) => ({ value: t.key, label: t.label, hint: t.description }))}
+                                  buttonClassName="mt-1 flex w-full items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm hover:bg-zinc-50"
+                                  renderOptionRight={(opt) => {
+                                    const th = CREDIT_FUNNEL_THEMES.find((t) => t.key === opt.value);
+                                    const c = th?.primaryButtonStyle?.backgroundColor || "#2563eb";
+                                    return <div aria-hidden="true" className="h-3 w-3 rounded-full border border-black/10" style={{ backgroundColor: c }} />;
+                                  }}
+                                />
+                              </div>
+                            </div>
+
+                            <CreditFunnelTemplatePreview template={template} theme={theme} className="mt-3" />
+                            <div className="mt-2 flex justify-end">
+                              <button
+                                type="button"
+                                onClick={() => setCreateFunnelPreviewOpen(true)}
+                                className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+                              >
+                                Open full preview
+                              </button>
+                            </div>
+                          </>
+                        ) : (
+                          <div className="mt-3 rounded-3xl border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-700">
+                            This will create an empty funnel with a single blank page. You can add blocks and styling in the editor.
+                          </div>
+                        )}
                       </>
                     );
                   })()}
@@ -2010,28 +2078,6 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                 </div>
               ) : null}
 
-              <div>
-                <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Slug</div>
-                <input
-                  value={createSlug}
-                  onChange={(e) => setCreateSlug(e.target.value)}
-                  placeholder={creatingKind === "funnel" ? "credit-repair" : "intake"}
-                  className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm"
-                />
-                <div className="mt-1 text-xs text-zinc-500">
-                  URL: {creatingKind === "funnel" ? funnelPreviewBase : formPreviewBase}/<span className="font-semibold">{normalizeSlug(createSlug) || "…"}</span>
-                </div>
-              </div>
-
-              <div>
-                <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Name (optional)</div>
-                <input
-                  value={createName}
-                  onChange={(e) => setCreateName(e.target.value)}
-                  placeholder={creatingKind === "funnel" ? "Credit Repair Funnel" : "Client Intake Form"}
-                  className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm"
-                />
-              </div>
             </div>
 
             <div className="mt-6 flex flex-col gap-2 sm:flex-row sm:justify-end">

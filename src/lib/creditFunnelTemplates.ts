@@ -10,7 +10,11 @@ export type CreditFunnelTemplateKey =
   | "credit-audit-leadgen"
   | "credit-repair-vsl"
   | "business-credit-leadgen"
-  | "consultation-booking";
+  | "consultation-booking"
+  | "credit-audit-minimal"
+  | "credit-audit-quiz"
+  | "business-credit-snapshot"
+  | "credit-repair-case-study";
 
 export type CreditFunnelPageTemplate = {
   slug: string;
@@ -1267,6 +1271,664 @@ export const CREDIT_FUNNEL_TEMPLATES: CreditFunnelTemplate[] = [
                   },
                 },
                 { id: "form", type: "formEmbed", props: { formSlug: "intake", height: 600, style: { marginTopPx: 10 } as any } },
+              ],
+            },
+          },
+        ],
+      },
+    ],
+  },
+  {
+    key: "credit-audit-minimal",
+    label: "Credit Audit Minimal",
+    description: "Minimal layout with a checklist and a single embedded intake form.",
+    defaultThemeKey: "ivory-gold",
+    pages: [
+      {
+        slug: "home",
+        title: "Free Credit Audit",
+        sortOrder: 0,
+        editorMode: "BLOCKS",
+        blocks: [
+          {
+            id: "hero",
+            type: "section",
+            props: {
+              anchorId: "top",
+              layout: "one",
+              style: {
+                maxWidthPx: 980,
+                align: "left",
+                paddingPx: 10,
+                marginTopPx: 12,
+              },
+              children: [
+                {
+                  id: "badge",
+                  type: "paragraph",
+                  props: {
+                    text: "Free 2 minute audit",
+                    style: {
+                      maxWidthPx: 220,
+                      paddingPx: 10,
+                      borderRadiusPx: 999,
+                      backgroundColor: "color-mix(in srgb, currentColor 6%, transparent)",
+                      align: "center",
+                      fontSizePx: 13,
+                      textColor: "color-mix(in srgb, currentColor 86%, transparent)",
+                    },
+                  },
+                },
+                {
+                  id: "h1",
+                  type: "heading",
+                  props: {
+                    level: 1,
+                    text: "Stop guessing. Get the exact next steps to raise your score.",
+                    style: { fontSizePx: 46, marginTopPx: 14, marginBottomPx: 8, maxWidthPx: 900 } as any,
+                  },
+                },
+                {
+                  id: "p1",
+                  type: "paragraph",
+                  props: {
+                    text:
+                      "Answer a few quick questions. We return a prioritized plan: what is worth disputing, what to leave alone, and what to build next.",
+                    style: { fontSizePx: 17, maxWidthPx: 900, marginBottomPx: 10 } as any,
+                  },
+                },
+                {
+                  id: "check",
+                  type: "section",
+                  props: {
+                    layout: "one",
+                    style: {
+                      paddingPx: 20,
+                      borderRadiusPx: 22,
+                      backgroundColor: "color-mix(in srgb, currentColor 5%, transparent)",
+                      maxWidthPx: 900,
+                      marginTopPx: 8,
+                    },
+                    markdown: [
+                      "### You will get",
+                      "",
+                      "- The 3 highest-impact fixes for your file",
+                      "- A clean dispute priority list (now vs later)",
+                      "- The best builder move for your stage",
+                      "- Optional booking link if you want help implementing",
+                    ].join("\n"),
+                  },
+                },
+                {
+                  id: "cta1",
+                  type: "button",
+                  props: { text: "Start the free audit", href: "#start", style: { maxWidthPx: 320, marginTopPx: 14 } as any },
+                },
+                {
+                  id: "fine",
+                  type: "paragraph",
+                  props: {
+                    text: "No credit pull. You provide the info.",
+                    style: { fontSizePx: 12, marginTopPx: 8, textColor: "color-mix(in srgb, currentColor 74%, transparent)" },
+                  },
+                },
+              ],
+            },
+          },
+          {
+            id: "metrics",
+            type: "columns",
+            props: {
+              gapPx: 14,
+              stackOnMobile: true,
+              style: { maxWidthPx: 980, marginTopPx: 18 } as any,
+              columns: [
+                {
+                  markdown: "### 2 to 3 minutes\n\nAverage completion time.",
+                  style: { paddingPx: 18, borderRadiusPx: 18, backgroundColor: "color-mix(in srgb, currentColor 4%, transparent)" } as any,
+                },
+                {
+                  markdown: "### Prioritized\n\nFix what moves the needle first.",
+                  style: { paddingPx: 18, borderRadiusPx: 18, backgroundColor: "color-mix(in srgb, currentColor 4%, transparent)" } as any,
+                },
+                {
+                  markdown: "### Simple plan\n\nDispute, build, then optimize.",
+                  style: { paddingPx: 18, borderRadiusPx: 18, backgroundColor: "color-mix(in srgb, currentColor 4%, transparent)" } as any,
+                },
+              ],
+            },
+          },
+          { id: "a_start", type: "anchor", props: { anchorId: "start", label: "Start" } },
+          {
+            id: "start",
+            type: "section",
+            props: {
+              layout: "one",
+              style: {
+                maxWidthPx: 980,
+                align: "left",
+                paddingPx: 28,
+                borderRadiusPx: 24,
+                backgroundColor: "color-mix(in srgb, currentColor 7%, transparent)",
+                marginTopPx: 16,
+              },
+              children: [
+                { id: "h2", type: "heading", props: { level: 2, text: "Start the audit" } },
+                { id: "p2", type: "paragraph", props: { text: "Embed your intake form here. You can swap the form slug anytime." } },
+                { id: "form", type: "formEmbed", props: { formSlug: "intake", height: 660, style: { marginTopPx: 10 } as any } },
+              ],
+            },
+          },
+        ],
+      },
+    ],
+  },
+  {
+    key: "credit-audit-quiz",
+    label: "Credit Audit Quiz Style",
+    description: "Quiz-style landing page that segments leads and drives to intake.",
+    defaultThemeKey: "platinum-blue",
+    pages: [
+      {
+        slug: "home",
+        title: "Credit Audit Quiz",
+        sortOrder: 0,
+        editorMode: "BLOCKS",
+        blocks: [
+          {
+            id: "nav",
+            type: "headerNav",
+            props: {
+              sticky: true,
+              transparent: false,
+              size: "sm",
+              desktopMode: "dropdown",
+              mobileMode: "slideover",
+              mobileTrigger: "directory",
+              mobileTriggerLabel: "Menu",
+              logoAlt: "Logo",
+              items: [
+                { id: "n1", label: "Questions", kind: "anchor", anchorId: "questions" },
+                { id: "n2", label: "Outcomes", kind: "anchor", anchorId: "outcomes" },
+                { id: "n3", label: "Start", kind: "anchor", anchorId: "start" },
+              ],
+            },
+          },
+          {
+            id: "hero",
+            type: "section",
+            props: {
+              anchorId: "top",
+              layout: "two",
+              gapPx: 24,
+              stackOnMobile: true,
+              style: {
+                maxWidthPx: CONTAINER_MAX_WIDTH,
+                align: "left",
+                paddingPx: 44,
+                borderRadiusPx: 28,
+                backgroundColor: "color-mix(in srgb, currentColor 6%, transparent)",
+              },
+              leftChildren: [
+                { id: "h1", type: "heading", props: { level: 1, text: "Take the 90 second credit audit quiz", style: { fontSizePx: 44 } as any } },
+                {
+                  id: "p1",
+                  type: "paragraph",
+                  props: {
+                    text:
+                      "We use a few quick questions to identify your most likely bottleneck and the cleanest next step.",
+                    style: { fontSizePx: 17, maxWidthPx: 720 } as any,
+                  },
+                },
+                {
+                  id: "qPreview",
+                  type: "columns",
+                  props: {
+                    gapPx: 14,
+                    stackOnMobile: true,
+                    style: { marginTopPx: 10, maxWidthPx: 720 } as any,
+                    columns: [
+                      {
+                        markdown: "### 1) Your goal\n\nMortgage, auto, apartment, or rebuild?",
+                        style: { paddingPx: 16, borderRadiusPx: 18, backgroundColor: "color-mix(in srgb, currentColor 7%, transparent)" } as any,
+                      },
+                      {
+                        markdown: "### 2) Your timeline\n\nHow fast do you need results?",
+                        style: { paddingPx: 16, borderRadiusPx: 18, backgroundColor: "color-mix(in srgb, currentColor 7%, transparent)" } as any,
+                      },
+                      {
+                        markdown: "### 3) The obstacles\n\nLate payments, collections, utilization, thin file.",
+                        style: { paddingPx: 16, borderRadiusPx: 18, backgroundColor: "color-mix(in srgb, currentColor 7%, transparent)" } as any,
+                      },
+                    ],
+                  },
+                },
+                { id: "cta", type: "button", props: { text: "Start the quiz", href: "#start", style: { maxWidthPx: 280, marginTopPx: 14 } as any } },
+              ],
+              rightStyle: {
+                paddingPx: 22,
+                borderRadiusPx: 22,
+                backgroundColor: "color-mix(in srgb, currentColor 9%, transparent)",
+              },
+              rightChildren: [
+                { id: "rH", type: "heading", props: { level: 3, text: "What happens next" } },
+                {
+                  id: "rCopy",
+                  type: "section",
+                  props: {
+                    layout: "one",
+                    style: { paddingPx: 0 } as any,
+                    markdown: [
+                      "- We identify your top priority",
+                      "- We give you a simple dispute/build order",
+                      "- You can book a call if you want help executing",
+                    ].join("\n"),
+                  },
+                },
+                {
+                  id: "rNote",
+                  type: "paragraph",
+                  props: {
+                    text: "Tip: rename this to match your offer. This is just a template starter.",
+                    style: { fontSizePx: 12, marginTopPx: 10, textColor: "color-mix(in srgb, currentColor 74%, transparent)" },
+                  },
+                },
+              ],
+            },
+          },
+          { id: "a_questions", type: "anchor", props: { anchorId: "questions", label: "Questions" } },
+          {
+            id: "questions",
+            type: "section",
+            props: {
+              layout: "one",
+              style: { maxWidthPx: CONTAINER_MAX_WIDTH, align: "left", marginTopPx: 18 } as any,
+              markdown: [
+                "## The questions we use (examples)",
+                "",
+                "### What is your goal?",
+                "Mortgage, auto, apartment, approvals, or rebuild.",
+                "",
+                "### How fast do you need results?",
+                "Right now, 30 days, 90 days, or longer.",
+                "",
+                "### What is most true right now?",
+                "Late payments, collections, high utilization, thin file, or unsure.",
+              ].join("\n"),
+            },
+          },
+          { id: "a_outcomes", type: "anchor", props: { anchorId: "outcomes", label: "Outcomes" } },
+          {
+            id: "outcomes",
+            type: "columns",
+            props: {
+              gapPx: 16,
+              stackOnMobile: true,
+              style: { maxWidthPx: CONTAINER_MAX_WIDTH, marginTopPx: 14 } as any,
+              columns: [
+                {
+                  markdown: "### Dispute priority\n\nIf accuracy issues are holding you back, we prioritize disputes and clean-up.",
+                  style: { backgroundColor: SOFT_PANEL_BG, paddingPx: 20, borderRadiusPx: 22 } as any,
+                },
+                {
+                  markdown: "### Utilization plan\n\nIf balances are the bottleneck, we map paydown order and timing.",
+                  style: { backgroundColor: SOFT_PANEL_BG, paddingPx: 20, borderRadiusPx: 22 } as any,
+                },
+                {
+                  markdown: "### Builder next step\n\nIf the file is thin, we recommend the best builder move for your stage.",
+                  style: { backgroundColor: SOFT_PANEL_BG, paddingPx: 20, borderRadiusPx: 22 } as any,
+                },
+              ],
+            },
+          },
+          { id: "a_start", type: "anchor", props: { anchorId: "start", label: "Start" } },
+          {
+            id: "start",
+            type: "section",
+            props: {
+              layout: "one",
+              style: {
+                maxWidthPx: CONTAINER_MAX_WIDTH,
+                align: "left",
+                paddingPx: 44,
+                borderRadiusPx: 28,
+                backgroundColor: SOFT_PANEL_BG_STRONG,
+                marginTopPx: 16,
+              },
+              children: [
+                { id: "h2", type: "heading", props: { level: 2, text: "Start the audit" } },
+                { id: "p2", type: "paragraph", props: { text: "Embed your intake form below or replace with a form link." } },
+                { id: "form", type: "formEmbed", props: { formSlug: "intake", height: 640, style: { marginTopPx: 10 } as any } },
+              ],
+            },
+          },
+        ],
+      },
+    ],
+  },
+  {
+    key: "business-credit-snapshot",
+    label: "Business Credit Snapshot",
+    description: "Business credit pre-qual with a roadmap snapshot and embedded application.",
+    defaultThemeKey: "graphite",
+    pages: [
+      {
+        slug: "home",
+        title: "Business Credit",
+        sortOrder: 0,
+        editorMode: "BLOCKS",
+        blocks: [
+          {
+            id: "nav",
+            type: "headerNav",
+            props: {
+              sticky: true,
+              transparent: false,
+              size: "md",
+              desktopMode: "slideover",
+              mobileMode: "slideover",
+              mobileTrigger: "directory",
+              mobileTriggerLabel: "Sections",
+              logoAlt: "Logo",
+              items: [
+                { id: "n1", label: "Snapshot", kind: "anchor", anchorId: "snapshot" },
+                { id: "n2", label: "Roadmap", kind: "anchor", anchorId: "roadmap" },
+                { id: "n3", label: "Apply", kind: "anchor", anchorId: "apply" },
+              ],
+            },
+          },
+          {
+            id: "hero",
+            type: "section",
+            props: {
+              anchorId: "top",
+              layout: "two",
+              gapPx: 26,
+              stackOnMobile: true,
+              style: {
+                maxWidthPx: CONTAINER_MAX_WIDTH,
+                align: "left",
+                paddingPx: 44,
+                borderRadiusPx: 32,
+                backgroundColor: "color-mix(in srgb, currentColor 7%, transparent)",
+              },
+              leftChildren: [
+                {
+                  id: "badge",
+                  type: "paragraph",
+                  props: {
+                    text: "Business credit and funding",
+                    style: {
+                      maxWidthPx: 320,
+                      paddingPx: 10,
+                      borderRadiusPx: 999,
+                      backgroundColor: "color-mix(in srgb, currentColor 10%, transparent)",
+                      align: "center",
+                      fontSizePx: 13,
+                    } as any,
+                  },
+                },
+                { id: "h1", type: "heading", props: { level: 1, text: "Build business credit without guessing", style: { fontSizePx: 42, marginTopPx: 12 } as any } },
+                {
+                  id: "p1",
+                  type: "paragraph",
+                  props: {
+                    text:
+                      "We help you confirm eligibility, set up the foundations correctly, and follow a clean vendor to revolving roadmap.",
+                    style: { fontSizePx: 17, maxWidthPx: 720 } as any,
+                  },
+                },
+                {
+                  id: "bullets",
+                  type: "section",
+                  props: {
+                    layout: "one",
+                    style: { paddingPx: 0, marginTopPx: 10 } as any,
+                    markdown: [
+                      "- Clear next step based on your stage",
+                      "- Foundation checklist (entity, compliance, banking)",
+                      "- Roadmap snapshot and timing",
+                      "- Optional funding strategy call",
+                    ].join("\n"),
+                  },
+                },
+                { id: "cta", type: "button", props: { text: "See the snapshot", href: "#snapshot", variant: "secondary", style: { maxWidthPx: 280, marginTopPx: 12 } as any } },
+              ],
+              rightStyle: { paddingPx: 22, borderRadiusPx: 28, backgroundColor: "color-mix(in srgb, currentColor 11%, transparent)" },
+              rightChildren: [
+                { id: "rH", type: "heading", props: { level: 3, text: "Start your application" } },
+                { id: "rP", type: "paragraph", props: { text: "Embed your business intake form here." } },
+                { id: "form", type: "formEmbed", props: { formSlug: "business-intake", height: 680, style: { marginTopPx: 10 } as any } },
+              ],
+            },
+          },
+          { id: "a_snapshot", type: "anchor", props: { anchorId: "snapshot", label: "Snapshot" } },
+          {
+            id: "snapshot",
+            type: "columns",
+            props: {
+              gapPx: 16,
+              stackOnMobile: true,
+              style: { maxWidthPx: CONTAINER_MAX_WIDTH, marginTopPx: 18 } as any,
+              columns: [
+                {
+                  markdown: "### Stage 1\n\nFoundation and compliance.",
+                  style: { backgroundColor: SOFT_PANEL_BG, paddingPx: 20, borderRadiusPx: 24 } as any,
+                },
+                {
+                  markdown: "### Stage 2\n\nVendor and store cards.",
+                  style: { backgroundColor: SOFT_PANEL_BG, paddingPx: 20, borderRadiusPx: 24 } as any,
+                },
+                {
+                  markdown: "### Stage 3\n\nRevolving and higher limits.",
+                  style: { backgroundColor: SOFT_PANEL_BG, paddingPx: 20, borderRadiusPx: 24 } as any,
+                },
+                {
+                  markdown: "### Stage 4\n\nFunding strategy and expansion.",
+                  style: { backgroundColor: SOFT_PANEL_BG, paddingPx: 20, borderRadiusPx: 24 } as any,
+                },
+              ],
+            },
+          },
+          { id: "a_roadmap", type: "anchor", props: { anchorId: "roadmap", label: "Roadmap" } },
+          {
+            id: "roadmap",
+            type: "section",
+            props: {
+              layout: "one",
+              style: {
+                maxWidthPx: CONTAINER_MAX_WIDTH,
+                align: "left",
+                paddingPx: 34,
+                borderRadiusPx: 30,
+                backgroundColor: "color-mix(in srgb, currentColor 7%, transparent)",
+                marginTopPx: 16,
+              },
+              markdown: [
+                "## The clean roadmap",
+                "",
+                "### Foundation",
+                "Entity, compliance, bank account, and the simple checklist most people miss.",
+                "",
+                "### Build",
+                "Vendor and store accounts to generate early history.",
+                "",
+                "### Expand",
+                "Revolving approvals and higher limits once the file is ready.",
+                "",
+                "### Optimize",
+                "Funding strategy and application timing so you avoid unnecessary denials.",
+              ].join("\n"),
+            },
+          },
+          { id: "a_apply", type: "anchor", props: { anchorId: "apply", label: "Apply" } },
+          {
+            id: "apply",
+            type: "section",
+            props: {
+              layout: "one",
+              style: {
+                maxWidthPx: CONTAINER_MAX_WIDTH,
+                align: "left",
+                paddingPx: 44,
+                borderRadiusPx: 32,
+                backgroundColor: SOFT_PANEL_BG_STRONG,
+                marginTopPx: 16,
+              },
+              children: [
+                { id: "h2", type: "heading", props: { level: 2, text: "Apply now" } },
+                { id: "p2", type: "paragraph", props: { text: "If you already started above, you are set. Otherwise use the button below." } },
+                { id: "cta2", type: "formLink", props: { formSlug: "business-intake", text: "Start application", style: { maxWidthPx: 420 } as any } },
+              ],
+            },
+          },
+        ],
+      },
+    ],
+  },
+  {
+    key: "credit-repair-case-study",
+    label: "Credit Repair Case Study",
+    description: "Story-first page with before/after, timeline, and a strong CTA.",
+    defaultThemeKey: "rose-slate",
+    pages: [
+      {
+        slug: "home",
+        title: "Credit Repair",
+        sortOrder: 0,
+        editorMode: "BLOCKS",
+        blocks: [
+          {
+            id: "hero",
+            type: "section",
+            props: {
+              anchorId: "top",
+              layout: "one",
+              style: {
+                maxWidthPx: 980,
+                align: "left",
+                paddingPx: 44,
+                borderRadiusPx: 32,
+                backgroundColor: "color-mix(in srgb, currentColor 7%, transparent)",
+              },
+              children: [
+                { id: "h1", type: "heading", props: { level: 1, text: "A simple, clean process to rebuild credit", style: { fontSizePx: 44 } as any } },
+                {
+                  id: "p1",
+                  type: "paragraph",
+                  props: {
+                    text:
+                      "This template is built as a story: what changed, what we did in what order, and what the client did to keep results stable.",
+                    style: { fontSizePx: 17, maxWidthPx: 860 } as any,
+                  },
+                },
+                {
+                  id: "ctaRow",
+                  type: "columns",
+                  props: {
+                    gapPx: 14,
+                    stackOnMobile: true,
+                    style: { maxWidthPx: 860, marginTopPx: 10 } as any,
+                    columns: [
+                      { markdown: "", children: [{ id: "cta1", type: "formLink", props: { formSlug: "intake", text: "Start intake", style: { maxWidthPx: 340 } as any } }] },
+                      {
+                        markdown: "",
+                        children: [
+                          {
+                            id: "cta2",
+                            type: "button",
+                            props: { text: "Read the case study", href: "#case", variant: "secondary", style: { maxWidthPx: 340 } as any },
+                          },
+                        ],
+                      },
+                    ],
+                  },
+                },
+              ],
+            },
+          },
+          { id: "a_case", type: "anchor", props: { anchorId: "case", label: "Case study" } },
+          {
+            id: "case",
+            type: "section",
+            props: {
+              layout: "one",
+              style: { maxWidthPx: 980, align: "left", marginTopPx: 16 } as any,
+              markdown: [
+                "## Case study (example)",
+                "",
+                "### Starting point",
+                "A thin file plus a few negatives created instability and low approvals.",
+                "",
+                "### Goal",
+                "Increase approvals and stabilize score movement with a clean dispute and build plan.",
+              ].join("\n"),
+            },
+          },
+          {
+            id: "beforeAfter",
+            type: "columns",
+            props: {
+              gapPx: 16,
+              stackOnMobile: true,
+              style: { maxWidthPx: 980, marginTopPx: 14 } as any,
+              columns: [
+                {
+                  markdown: "### Before\n\n- Confusing priorities\n- Denials or low limits\n- Score swings\n\n**Replace with your numbers**",
+                  style: { backgroundColor: SOFT_PANEL_BG, paddingPx: 22, borderRadiusPx: 26 } as any,
+                },
+                {
+                  markdown: "### After\n\n- Clean dispute order\n- Better utilization control\n- Stronger positive history\n\n**Replace with your numbers**",
+                  style: { backgroundColor: SOFT_PANEL_BG, paddingPx: 22, borderRadiusPx: 26 } as any,
+                },
+              ],
+            },
+          },
+          {
+            id: "timeline",
+            type: "section",
+            props: {
+              layout: "one",
+              style: {
+                maxWidthPx: 980,
+                align: "left",
+                paddingPx: 34,
+                borderRadiusPx: 30,
+                backgroundColor: "color-mix(in srgb, currentColor 6%, transparent)",
+                marginTopPx: 16,
+              },
+              markdown: [
+                "## The timeline (example)",
+                "",
+                "### Week 1: Prioritize",
+                "We isolate the highest-impact items and set a simple order.",
+                "",
+                "### Weeks 2 to 4: Dispute and stabilize",
+                "Execute disputes and reduce score volatility.",
+                "",
+                "### Month 2+: Build",
+                "Add the right positive accounts and optimize utilization.",
+              ].join("\n"),
+            },
+          },
+          { id: "a_start", type: "anchor", props: { anchorId: "start", label: "Start" } },
+          {
+            id: "start",
+            type: "section",
+            props: {
+              layout: "one",
+              style: {
+                maxWidthPx: 980,
+                align: "left",
+                paddingPx: 44,
+                borderRadiusPx: 32,
+                backgroundColor: SOFT_PANEL_BG_STRONG,
+                marginTopPx: 16,
+              },
+              children: [
+                { id: "h2", type: "heading", props: { level: 2, text: "Start intake" } },
+                { id: "p2", type: "paragraph", props: { text: "Answer a few questions so we can tailor the plan." } },
+                { id: "cta3", type: "formLink", props: { formSlug: "intake", text: "Start now", style: { maxWidthPx: 420 } as any } },
               ],
             },
           },
