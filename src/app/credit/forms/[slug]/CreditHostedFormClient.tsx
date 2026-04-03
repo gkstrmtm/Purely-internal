@@ -76,12 +76,23 @@ export function CreditHostedFormClient({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
+  const [fieldValues, setFieldValues] = useState<Record<string, string | string[]>>({});
   const [signatureValues, setSignatureValues] = useState<Record<string, string>>({});
   const fieldValuesRef = useRef<Record<string, string | string[]>>({});
   const signatureValuesRef = useRef<Record<string, string>>({});
 
   const setFieldValue = (fieldName: string, nextValue: string | string[]) => {
     fieldValuesRef.current = { ...fieldValuesRef.current, [fieldName]: nextValue };
+    setFieldValues((current) => {
+      const prevValue = current[fieldName];
+      if (Array.isArray(prevValue) && Array.isArray(nextValue) && prevValue.length === nextValue.length && prevValue.every((entry, index) => entry === nextValue[index])) {
+        return current;
+      }
+      if (!Array.isArray(prevValue) && !Array.isArray(nextValue) && prevValue === nextValue) {
+        return current;
+      }
+      return { ...current, [fieldName]: nextValue };
+    });
   };
 
   const readFieldValue = (field: Field): string | string[] => {
@@ -243,6 +254,7 @@ export function CreditHostedFormClient({
             .then(() => {
               e.currentTarget.reset();
               fieldValuesRef.current = {};
+              setFieldValues({});
               signatureValuesRef.current = {};
               setSignatureValues({});
               setSuccess(true);
@@ -279,6 +291,7 @@ export function CreditHostedFormClient({
                           : existing.filter((value) => value !== opt);
                         setFieldValue(f.name, next);
                       }}
+                      checked={Array.isArray(fieldValues[f.name]) ? (fieldValues[f.name] as string[]).includes(opt) : false}
                       className="h-4 w-4 rounded border-zinc-300"
                       style={{ accentColor: buttonBg }}
                     />
@@ -300,6 +313,7 @@ export function CreditHostedFormClient({
                       required={!!f.required && idx === 0}
                       disabled={busy}
                       onChange={(event) => setFieldValue(f.name, event.target.value)}
+                      checked={fieldValues[f.name] === opt}
                       className="h-4 w-4 border-zinc-300"
                       style={{ accentColor: buttonBg }}
                     />
@@ -332,6 +346,7 @@ export function CreditHostedFormClient({
                 name={f.name}
                 required={!!f.required}
                 disabled={busy}
+                value={typeof fieldValues[f.name] === "string" ? (fieldValues[f.name] as string) : ""}
                 onChange={(event) => setFieldValue(f.name, event.target.value)}
                 className="min-h-28 w-full border px-4 py-2 text-sm placeholder:text-zinc-400"
                 style={{
@@ -347,6 +362,7 @@ export function CreditHostedFormClient({
                 type={normalizeInputType(f.type)}
                 required={!!f.required}
                 disabled={busy}
+                value={typeof fieldValues[f.name] === "string" ? (fieldValues[f.name] as string) : ""}
                 onChange={(event) => setFieldValue(f.name, event.target.value)}
                 className="w-full border px-4 py-2 text-sm placeholder:text-zinc-400"
                 style={{
