@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 
 import { prisma } from "@/lib/db";
-import { parseCreditFormFields, parseCreditFormStyle, parseCreditFormSuccessContent } from "@/lib/creditFormSchema";
+import { parseCreditFormContent, parseCreditFormFields, parseCreditFormStyle, parseCreditFormSuccessContent } from "@/lib/creditFormSchema";
 
 import { CreditHostedFormClient } from "./CreditHostedFormClient";
 
@@ -33,6 +33,7 @@ export default async function CreditHostedFormPage({
   const fields = parseCreditFormFields(form.schemaJson);
   const style = parseCreditFormStyle(form.schemaJson);
   const successContent = parseCreditFormSuccessContent(form.schemaJson);
+  const content = parseCreditFormContent(form.schemaJson);
   const pageBg = style.pageBg ?? (embed ? "transparent" : "#f4f4f5");
 
   return (
@@ -45,6 +46,7 @@ export default async function CreditHostedFormPage({
           embedded={embed}
           style={style}
           successContent={successContent}
+          content={content}
         />
       </main>
     </div>

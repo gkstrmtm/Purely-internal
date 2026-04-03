@@ -4,7 +4,7 @@ import type { Metadata } from "next";
 
 import { prisma } from "@/lib/db";
 import { inlineMarkdownToHtmlSafe, parseBlogContent } from "@/lib/blog";
-import { parseCreditFormFields, parseCreditFormStyle, parseCreditFormSuccessContent } from "@/lib/creditFormSchema";
+import { parseCreditFormContent, parseCreditFormFields, parseCreditFormStyle, parseCreditFormSuccessContent } from "@/lib/creditFormSchema";
 import { coerceBlocksJson, renderCreditFunnelBlocks } from "@/lib/creditFunnelBlocks";
 import { hasPublicColumn } from "@/lib/dbSchema";
 import { coerceFontFamily, coerceGoogleFamily, googleFontImportCss } from "@/lib/fontPresets";
@@ -625,12 +625,13 @@ export default async function CustomDomainCatchallPage({
     const fields = parseCreditFormFields(form.schemaJson);
     const style = parseCreditFormStyle(form.schemaJson);
     const successContent = parseCreditFormSuccessContent(form.schemaJson);
+    const content = parseCreditFormContent(form.schemaJson);
     const pageBg = style.pageBg ?? (embed ? "transparent" : "#f4f4f5");
 
     return (
       <div className={embed ? "w-full" : "min-h-dvh w-full"} style={{ backgroundColor: pageBg }}>
         <main className={embed ? "mx-auto w-full max-w-3xl p-0" : "mx-auto w-full max-w-3xl p-8"}>
-          <CreditHostedFormClient slug={form.slug} formName={form.name} fields={fields} embedded={embed} style={style} successContent={successContent} submitBasePath="/credit" />
+          <CreditHostedFormClient slug={form.slug} formName={form.name} fields={fields} embedded={embed} style={style} successContent={successContent} content={content} submitBasePath="/credit" />
         </main>
       </div>
     );

@@ -3,10 +3,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { SignaturePad } from "@/components/SignaturePad";
-import type { CreditFormField as Field, CreditFormStyle, CreditFormSuccessContent } from "@/lib/creditFormSchema";
+import type { CreditFormContent, CreditFormField as Field, CreditFormStyle, CreditFormSuccessContent } from "@/lib/creditFormSchema";
 import { googleFontImportCss } from "@/lib/fontPresets";
 
-export type { Field, CreditFormStyle, CreditFormSuccessContent };
+export type { CreditFormContent, Field, CreditFormStyle, CreditFormSuccessContent };
 
 function classNames(...xs: Array<string | false | null | undefined>) {
   return xs.filter(Boolean).join(" ");
@@ -74,6 +74,7 @@ export function CreditHostedFormClient({
   embedded,
   style,
   successContent,
+  content,
   submitBasePath,
 }: {
   slug: string;
@@ -82,6 +83,7 @@ export function CreditHostedFormClient({
   embedded?: boolean;
   style?: CreditFormStyle;
   successContent?: CreditFormSuccessContent;
+  content?: CreditFormContent;
   submitBasePath?: "/credit" | "/portal";
 }) {
   const [busy, setBusy] = useState(false);
@@ -125,6 +127,8 @@ export function CreditHostedFormClient({
   const successButtonLabel = successContent?.buttonLabel?.trim() || "Submit another response";
   const successButtonAction = successContent?.buttonAction === "redirect" ? "redirect" : "reset";
   const successButtonUrl = successContent?.buttonUrl?.trim() || "";
+  const displayTitle = content?.displayTitle?.trim() || formName;
+  const description = content?.description?.trim() || "";
 
   return (
     <>
@@ -143,8 +147,9 @@ export function CreditHostedFormClient({
       {embedded ? null : (
         <>
           <h1 className="mt-2 text-2xl font-bold sm:text-3xl" style={{ color: textColor }}>
-            {formName}
+            {displayTitle}
           </h1>
+          {description ? <div className="mt-3 whitespace-pre-wrap text-sm leading-6" style={{ color: textColor }}>{description}</div> : null}
         </>
       )}
 

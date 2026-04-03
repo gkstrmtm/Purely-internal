@@ -3,10 +3,11 @@
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 
+import { IconEyeGlyph } from "@/app/portal/PortalIcons";
 import { AppConfirmModal, AppModal } from "@/components/AppModal";
 import { PortalFontDropdown } from "@/components/PortalFontDropdown";
 import { PortalListboxDropdown } from "@/components/PortalListboxDropdown";
-import { normalizeCreditFormSuccessContent, parseCreditFormSuccessContent, type CreditFormSuccessContent } from "@/lib/creditFormSchema";
+import { normalizeCreditFormContent, normalizeCreditFormSuccessContent, parseCreditFormContent, parseCreditFormSuccessContent, type CreditFormContent, type CreditFormSuccessContent } from "@/lib/creditFormSchema";
 import { applyFontPresetToStyle, fontPresetKeyFromStyle, googleFontImportCss } from "@/lib/fontPresets";
 import { hostedFormPath } from "@/lib/publicHostedKeys";
 import { toPurelyHostedUrl } from "@/lib/publicHostedOrigin";
@@ -60,6 +61,7 @@ type FormStyle = {
 };
 
 type FormSuccessContent = CreditFormSuccessContent;
+type FormContent = CreditFormContent;
 
 function classNames(...xs: Array<string | false | null | undefined>) {
   return xs.filter(Boolean).join(" ");
@@ -240,6 +242,7 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
   const [fields, setFields] = useState<Field[] | null>(null);
   const [selectedIdx, setSelectedIdx] = useState<number | null>(null);
   const [style, setStyle] = useState<FormStyle>({});
+  const [content, setContent] = useState<FormContent>({});
   const [successContent, setSuccessContent] = useState<FormSuccessContent>({});
 
   const [busy, setBusy] = useState(false);
@@ -267,9 +270,9 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
       name: String(form.name || "").trim(),
       slug: String(form.slug || "").trim(),
       status: form.status,
-      schemaJson: { fields, style: normalizeStyle({ style }), success: normalizeCreditFormSuccessContent(successContent) },
+      schemaJson: { fields, style: normalizeStyle({ style }), content: normalizeCreditFormContent(content), success: normalizeCreditFormSuccessContent(successContent) },
     });
-  }, [form, fields, style, successContent]);
+  }, [form, fields, style, content, successContent]);
 
   const dirty = Boolean(form && fields && currentSig !== lastSavedSigRef.current);
 
@@ -281,15 +284,17 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
     const f = json.form as Form;
     const nextFields = normalizeFields(f.schemaJson);
     const nextStyle = normalizeStyle(f.schemaJson);
+    const nextContent = parseCreditFormContent(f.schemaJson);
     const nextSuccessContent = parseCreditFormSuccessContent(f.schemaJson);
     lastSavedSigRef.current = JSON.stringify({
       name: String(f.name || "").trim(),
       slug: String(f.slug || "").trim(),
       status: f.status,
-      schemaJson: { fields: nextFields.length ? nextFields : [], style: nextStyle, success: normalizeCreditFormSuccessContent(nextSuccessContent) },
+      schemaJson: { fields: nextFields.length ? nextFields : [], style: nextStyle, content: normalizeCreditFormContent(nextContent), success: normalizeCreditFormSuccessContent(nextSuccessContent) },
     });
     setForm(f);
     setStyle(nextStyle);
+    setContent(nextContent);
     setSuccessContent(nextSuccessContent);
     setFields(nextFields.length ? nextFields : []);
     setSelectedIdx((prev) => {
@@ -346,7 +351,7 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
         body: JSON.stringify({
           name: trimmedName,
           ...(opts || {}),
-          schemaJson: { fields, style: normalizeStyle({ style }), success: normalizeCreditFormSuccessContent(successContent) },
+          schemaJson: { fields, style: normalizeStyle({ style }), content: normalizeCreditFormContent(content), success: normalizeCreditFormSuccessContent(successContent) },
         }),
       });
       const json = (await res.json().catch(() => null)) as any;
@@ -356,7 +361,7 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
         name: String(json.form?.name || "").trim(),
         slug: String(json.form?.slug || "").trim(),
         status: json.form?.status,
-        schemaJson: { fields, style: normalizeStyle({ style }), success: normalizeCreditFormSuccessContent(successContent) },
+        schemaJson: { fields, style: normalizeStyle({ style }), content: normalizeCreditFormContent(content), success: normalizeCreditFormSuccessContent(successContent) },
       });
     } catch (e) {
       setError((e as any)?.message ? String((e as any).message) : "Failed to save");
@@ -457,7 +462,7 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
   };
 
   return (
-    <div className="-mx-4 w-auto max-w-none sm:-mx-6 lg:-mx-8" style={{ fontFamily: style?.fontFamily || undefined }}>
+    <div className="w-full min-w-0 overflow-x-hidden">
       {googleCss ? <style>{googleCss}</style> : null}
       <AppModal
         open={dialog?.type === "rename-form"}
@@ -733,27 +738,27 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
         }}
       />
 
-      <div className="mb-3 flex flex-wrap items-center justify-between gap-3 px-4 sm:px-6 lg:px-8">
-        <div className="min-w-0 flex-1">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-zinc-200 bg-white px-4 py-3 sm:px-6 lg:px-8">
+        <div className="flex min-w-0 items-center gap-3">
           <Link href={backHref} className="text-sm font-semibold text-(--color-brand-blue) transition-all duration-150 hover:-translate-y-0.5 hover:underline">
             ← Back
           </Link>
-          <div className="mt-2 text-[11px] font-semibold uppercase tracking-[0.22em] text-zinc-500">Form editor</div>
+          {!dirty ? <div className="text-xs font-semibold text-zinc-500">Saved</div> : null}
+        </div>
+
+        <div className="flex flex-wrap items-center justify-end gap-2">
           <input
             value={form?.name || ""}
             onChange={(e) => setForm((prev) => (prev ? { ...prev, name: e.target.value } : prev))}
-            placeholder="Untitled form"
-            className="mt-1 w-full max-w-3xl rounded-2xl border border-transparent bg-transparent px-3 py-2 text-2xl font-bold text-brand-ink outline-none transition-all duration-150 hover:border-zinc-200 hover:bg-white focus:border-zinc-300 focus:bg-white sm:text-3xl"
+            placeholder="Internal form name"
+            className="h-10 min-w-55 rounded-2xl border border-zinc-200 bg-white px-3 text-sm font-semibold text-zinc-900 outline-none transition-all duration-150 hover:border-zinc-300 focus:border-zinc-300"
           />
-          {!dirty ? <div className="mt-1 px-3 text-xs font-semibold text-zinc-500">Saved</div> : null}
-        </div>
-
-        <div className="flex flex-wrap items-center gap-2">
           <Link
             href={toPurelyHostedUrl(hostedFormPath(form?.slug || "", form?.id || "") || `/forms/${encodeURIComponent(form?.slug || "")}`)}
             target="_blank"
-            className={SECONDARY_BUTTON_CLASS}
+            className={classNames(SECONDARY_BUTTON_CLASS, "inline-flex items-center gap-2")}
           >
+            <IconEyeGlyph size={16} />
             Preview
           </Link>
           <Link
@@ -776,11 +781,22 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
 
       {error ? <div className="mx-4 mb-3 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700 sm:mx-6 lg:mx-8">{error}</div> : null}
 
-      <div className="grid min-h-[calc(100dvh-140px)] grid-cols-1 gap-0 border-y border-zinc-200 bg-white xl:grid-cols-[300px_minmax(0,1fr)_420px]">
-        <aside className="border-b border-zinc-200 bg-white p-4 xl:border-b-0 xl:border-r">
+      <div className="grid min-h-[calc(100dvh-132px)] min-w-0 grid-cols-1 gap-0 bg-white xl:grid-cols-[260px_minmax(0,1fr)_360px]">
+        <aside className="min-w-0 border-b border-zinc-200 bg-white p-4 xl:border-b-0 xl:border-r">
           <div className="flex items-center justify-between">
             <div className="text-sm font-semibold text-brand-ink">Questions</div>
-            <div className="text-xs text-zinc-600">{(fields || []).length}</div>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={addQuestion}
+              className={classNames(
+                "inline-flex items-center gap-2 rounded-2xl bg-(--color-brand-blue) px-3 py-2 text-sm font-semibold text-white transition-all duration-150 hover:-translate-y-0.5 hover:bg-blue-700",
+                busy ? "opacity-60" : "",
+              )}
+            >
+              <span className="text-base leading-none">+</span>
+              Add question
+            </button>
           </div>
 
           <button
@@ -838,17 +854,9 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
           </div>
         </aside>
 
-        <section className="border-b border-zinc-200 bg-white p-6 xl:border-b-0 xl:border-r">
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <div className="text-sm font-semibold text-brand-ink">Preview</div>
-              <div className="mt-1 text-xs text-zinc-500">All questions appear here in the order they’ll show to visitors.</div>
-            </div>
-            <div className="text-xs text-zinc-500">Click a question to edit it</div>
-          </div>
-
+        <section className="min-w-0 border-b border-zinc-200 bg-zinc-50 p-4 sm:p-6 xl:border-b-0 xl:border-r">
           <div
-            className="mt-4 h-full rounded-none border border-zinc-200 p-6"
+            className="h-full overflow-hidden rounded-3xl border border-zinc-200 p-4 sm:p-6"
             style={
               style.pageBg === "transparent"
                 ? {
@@ -861,7 +869,7 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
             }
           >
             <div
-              className="h-full rounded-none border border-zinc-200 p-6"
+              className="h-full rounded-[28px] border border-zinc-200 p-6"
               style={
                 style.cardBg === "transparent"
                   ? {
@@ -874,13 +882,22 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
                   : { backgroundColor: style.cardBg || "#ffffff", fontFamily: style.fontFamily || undefined }
               }
             >
-              <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">{form?.name || "Form"}</div>
-              <div className="mt-2 text-2xl font-bold" style={{ color: style.textColor || "#18181b" }}>
-                {form?.name || "Untitled form"}
-              </div>
-              <div className="mt-2 text-sm" style={{ color: style.textColor || "#18181b" }}>
-                Preview the entire form here and click any question to edit it.
-              </div>
+              <input
+                value={content.displayTitle || ""}
+                onChange={(e) => setContent((prev) => ({ ...prev, displayTitle: e.target.value }))}
+                onFocus={() => setSelectedIdx(null)}
+                placeholder={form?.name || "Untitled form"}
+                className="w-full border-none bg-transparent p-0 text-3xl font-bold text-zinc-900 outline-none placeholder:text-zinc-400"
+                style={{ color: style.textColor || "#18181b" }}
+              />
+              <textarea
+                value={content.description || ""}
+                onChange={(e) => setContent((prev) => ({ ...prev, description: e.target.value }))}
+                onFocus={() => setSelectedIdx(null)}
+                placeholder="Add the supporting text customers should see under the form title."
+                className="mt-3 min-h-20 w-full resize-none border-none bg-transparent p-0 text-sm leading-6 outline-none placeholder:text-zinc-400"
+                style={{ color: style.textColor || "#18181b" }}
+              />
 
               <div className="mt-6 space-y-4">
                 {(fields || []).length === 0 ? (
@@ -984,20 +1001,6 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
 
               <button
                 type="button"
-                disabled={busy}
-                onClick={addQuestion}
-                className={classNames(
-                  `mt-6 inline-flex w-full items-center justify-center rounded-2xl border px-4 py-3 text-sm font-semibold ${BUTTON_MOTION_CLASS}`,
-                  busy
-                    ? "border-zinc-200 bg-zinc-100 text-zinc-400"
-                    : "border-(--color-brand-blue) bg-blue-600 text-white hover:bg-blue-700",
-                )}
-              >
-                + Add question
-              </button>
-
-              <button
-                type="button"
                 onClick={() => setSelectedIdx(null)}
                 className={`mt-4 inline-flex w-full items-center justify-center px-4 py-2 text-sm font-bold ${BUTTON_MOTION_CLASS}`}
                 style={{
@@ -1012,7 +1015,7 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
           </div>
         </section>
 
-        <section className="bg-white p-6">
+        <section className="min-w-0 bg-white p-6">
           {selected && selectedIdx !== null ? (
             <>
               <div className="flex items-center justify-between gap-3">
@@ -1126,6 +1129,28 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
                 <div className="text-sm font-semibold text-brand-ink">Form style</div>
                 <div className="mt-1 text-xs text-zinc-500">When no question is selected, this panel controls the full form experience.</div>
               </div>
+              <div className="mt-4 space-y-3 border-b border-zinc-200 pb-6">
+                <label className="block">
+                  <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Customer-facing title</div>
+                  <input
+                    value={content.displayTitle || ""}
+                    onChange={(e) => setContent((prev) => ({ ...prev, displayTitle: e.target.value }))}
+                    className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm text-zinc-900 placeholder:text-zinc-400"
+                    placeholder={form?.name || "Untitled form"}
+                  />
+                </label>
+
+                <label className="block">
+                  <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Customer-facing intro text</div>
+                  <textarea
+                    value={content.description || ""}
+                    onChange={(e) => setContent((prev) => ({ ...prev, description: e.target.value }))}
+                    className="mt-1 min-h-24 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-900 placeholder:text-zinc-400"
+                    placeholder="Add the copy customers should see under the title."
+                  />
+                </label>
+              </div>
+
               <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
                       <label className="block sm:col-span-2">
                         <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Font</div>

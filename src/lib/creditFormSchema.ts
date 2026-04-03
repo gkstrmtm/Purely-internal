@@ -49,6 +49,10 @@ export type CreditFormSuccessContent = {
   borderColor?: string;
   textColor?: string;
 };
+export type CreditFormContent = {
+  displayTitle?: string;
+  description?: string;
+};
 
 export type CreditFormSubmissionRow = {
   key: string;
@@ -212,14 +216,30 @@ export function parseCreditFormSuccessContent(schemaJson: unknown): CreditFormSu
   const schema = asRecord(schemaJson);
   return normalizeCreditFormSuccessContent(schema?.success);
 }
+export function normalizeCreditFormContent(raw: unknown): CreditFormContent {
+  const rec = asRecord(raw);
+  if (!rec) return {};
+  const displayTitle = typeof rec.displayTitle === "string" ? rec.displayTitle.trim().slice(0, 160) : "";
+  const description = typeof rec.description === "string" ? rec.description.trim().slice(0, 4000) : "";
+  const out: CreditFormContent = {};
+  if (displayTitle) out.displayTitle = displayTitle;
+  if (description) out.description = description;
+  return out;
+}
+export function parseCreditFormContent(schemaJson: unknown): CreditFormContent {
+  const schema = asRecord(schemaJson);
+  return normalizeCreditFormContent(schema?.content);
+}
 
 export function normalizeCreditFormSchema(schemaJson: unknown): Record<string, unknown> {
   const fields = parseCreditFormFields(schemaJson, { defaultIfEmpty: false, maxFields: 50 });
   const style = parseCreditFormStyle(schemaJson);
   const success = parseCreditFormSuccessContent(schemaJson);
+  const content = parseCreditFormContent(schemaJson);
   const out: Record<string, unknown> = { fields };
   if (Object.keys(style).length) out.style = style;
   if (Object.keys(success).length) out.success = success;
+  if (Object.keys(content).length) out.content = content;
   return out;
 }
 

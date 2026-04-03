@@ -62,7 +62,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ slug: string }
 
   const body = (await req.json().catch(() => null)) as any;
   const normalizedPayload = normalizeCreditFormSubmissionPayload(body?.data ?? body ?? {}, form.schemaJson);
-  const payload = safeJson(normalizedPayload, 200_000);
+  const payload = safeJson(normalizedPayload, 1_000_000);
 
   const firstString = (v: any): string | null => {
     if (typeof v === "string") {

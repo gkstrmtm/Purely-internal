@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 
-import { parseCreditFormFields, parseCreditFormStyle, parseCreditFormSuccessContent } from "@/lib/creditFormSchema";
 import { prisma } from "@/lib/db";
+import { parseCreditFormContent, parseCreditFormFields, parseCreditFormStyle, parseCreditFormSuccessContent } from "@/lib/creditFormSchema";
 
 import { CreditHostedFormClient } from "@/app/credit/forms/[slug]/CreditHostedFormClient";
 import { publicKeyFromId } from "@/lib/publicHostedKeys";
@@ -37,12 +37,13 @@ export default async function HostedFormWithKeyPage({
   const fields = parseCreditFormFields(form.schemaJson);
   const style = parseCreditFormStyle(form.schemaJson);
   const successContent = parseCreditFormSuccessContent(form.schemaJson);
+  const content = parseCreditFormContent(form.schemaJson);
   const pageBg = style.pageBg ?? (embed ? "transparent" : "#f4f4f5");
 
   return (
     <div className={embed ? "w-full" : "min-h-dvh w-full"} style={{ backgroundColor: pageBg }}>
       <main className={embed ? "mx-auto w-full max-w-3xl p-0" : "mx-auto w-full max-w-3xl p-8"}>
-        <CreditHostedFormClient slug={form.slug} formName={form.name} fields={fields} embedded={embed} style={style} successContent={successContent} />
+        <CreditHostedFormClient slug={form.slug} formName={form.name} fields={fields} embedded={embed} style={style} successContent={successContent} content={content} />
       </main>
     </div>
   );

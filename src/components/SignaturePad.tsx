@@ -42,6 +42,58 @@ export function SignaturePad({
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const drawingRef = useRef(false);
   const lastPointRef = useRef<{ x: number; y: number } | null>(null);
+  const exportSignatureDataUrl = () => {
+    const canvas = canvasRef.current;
+    if (!canvas) return "";
+    const context = canvas.getContext("2d", { willReadFrequently: true });
+    if (!context) return "";
+
+    const { width, height } = canvas;
+    const imageData = context.getImageData(0, 0, width, height).data;
+
+    let minX = width;
+    let minY = height;
+    let maxX = -1;
+    let maxY = -1;
+
+    for (let y = 0; y < height; y += 1) {
+      for (let x = 0; x < width; x += 1) {
+        const index = (y * width + x) * 4;
+        const alpha = imageData[index + 3] || 0;
+        if (alpha === 0) continue;
+        if (x < minX) minX = x;
+        if (y < minY) minY = y;
+        if (x > maxX) maxX = x;
+        if (y > maxY) maxY = y;
+      }
+    }
+
+    if (maxX < minX || maxY < minY) return "";
+
+    const padding = 16;
+    const cropX = Math.max(0, minX - padding);
+    const cropY = Math.max(0, minY - padding);
+    const cropWidth = Math.min(width - cropX, maxX - minX + 1 + padding * 2);
+    const cropHeight = Math.min(height - cropY, maxY - minY + 1 + padding * 2);
+
+    const maxExportWidth = 640;
+    const maxExportHeight = 220;
+    const scale = Math.min(1, maxExportWidth / cropWidth, maxExportHeight / cropHeight);
+    const exportWidth = Math.max(1, Math.round(cropWidth * scale));
+    const exportHeight = Math.max(1, Math.round(cropHeight * scale));
+
+    const exportCanvas = document.createElement("canvas");
+    exportCanvas.width = exportWidth;
+    exportCanvas.height = exportHeight;
+    const exportContext = exportCanvas.getContext("2d");
+    if (!exportContext) return canvas.toDataURL("image/png");
+
+    exportContext.fillStyle = "#ffffff";
+    exportContext.fillRect(0, 0, exportWidth, exportHeight);
+    exportContext.drawImage(canvas, cropX, cropY, cropWidth, cropHeight, 0, 0, exportWidth, exportHeight);
+
+    return exportCanvas.toDataURL("image/png");
+  };
 
   const prepareContext = () => {
     const canvas = canvasRef.current;
@@ -94,9 +146,7 @@ export function SignaturePad({
   };
 
   const commitSignature = () => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    onChange(canvas.toDataURL("image/png"));
+    onChange(exportSignatureDataUrl());
   };
 
   return (
