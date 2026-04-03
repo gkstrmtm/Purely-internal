@@ -413,6 +413,7 @@ export function PortalPeopleContactsClient() {
   const [editPhone, setEditPhone] = useState("");
   const [editCustomVarRows, setEditCustomVarRows] = useState<CustomVarRow[]>([]);
   const [savingContact, setSavingContact] = useState(false);
+  const [deletingContact, setDeletingContact] = useState(false);
 
   const lastSavedContactEditSigRef = useRef<string>("");
   const editContactSig = useMemo(
@@ -1510,7 +1511,7 @@ export function PortalPeopleContactsClient() {
             </div>
           </div>
 
-          <div className="mt-6 hidden grid-cols-1 gap-6 sm:grid lg:grid-cols-2">
+          <div className="mt-6 hidden grid-cols-1 gap-6 sm:grid lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)] xl:grid-cols-[minmax(0,3fr)_minmax(0,1fr)]">
             <div className="rounded-3xl border border-zinc-200 bg-white p-6">
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
@@ -2569,26 +2570,80 @@ export function PortalPeopleContactsClient() {
             paddingBottom: "calc(var(--pa-modal-safe-bottom, 0px) + 16px)",
           }}
         >
-          <div role="dialog" aria-modal="true" aria-label="Contact details" data-overlay-root="true" className="w-full max-w-3xl max-h-[calc(100dvh-var(--pa-modal-safe-top,0px)-var(--pa-modal-safe-bottom,0px)-32px)] overflow-y-auto rounded-3xl border border-zinc-200 bg-white p-6 shadow-xl">
+          <div role="dialog" aria-modal="true" aria-label="Contact details" data-overlay-root="true" className="w-full max-w-5xl max-h-[calc(100dvh-var(--pa-modal-safe-top,0px)-var(--pa-modal-safe-bottom,0px)-32px)] overflow-y-auto rounded-3xl border border-zinc-200 bg-white p-6 shadow-xl">
             <div className="flex items-start justify-between gap-3">
               <div>
                 <div className="text-base font-semibold text-zinc-900">Contact details</div>
                 <div className="mt-1 text-xs text-zinc-500">Click outside to close.</div>
               </div>
-              <button
-                type="button"
-                aria-label="Close contact details"
-                className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-zinc-200 bg-white text-lg font-semibold text-zinc-800 hover:bg-zinc-50"
-                onClick={() => {
-                  setDetailOpen(false);
-                  setSelectedContactId(null);
-                  setDetail(null);
-                  setDetailTags([]);
-                  clearContactIdFromUrl();
-                }}
-              >
-                ×
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  disabled={!selectedContactId || deletingContact}
+                  className={classNames(
+                    "rounded-xl border px-3 py-2 text-xs font-semibold",
+                    !selectedContactId || deletingContact
+                      ? "border-zinc-200 bg-white text-zinc-400"
+                      : "border-red-200 bg-red-50 text-red-800 hover:bg-red-100",
+                  )}
+                  onClick={() =>
+                    void (async () => {
+                      if (!selectedContactId) return;
+                      if (deletingContact) return;
+                      const confirmed = window.confirm(
+                        editingContact && editContactDirty
+                          ? "You have unsaved changes. Delete this contact anyway?"
+                          : "Delete this contact? This cannot be undone.",
+                      );
+                      if (!confirmed) return;
+                      setDeletingContact(true);
+                      try {
+                        const res = await fetch(`/api/portal/contacts/${encodeURIComponent(selectedContactId)}`, {
+                          method: "DELETE",
+                          cache: "no-store",
+                        });
+                        const json = (await res.json().catch(() => ({}))) as any;
+                        if (!res.ok || !json?.ok) throw new Error(String(json?.error || "Failed to delete contact"));
+
+                        toast.success("Deleted contact");
+
+                        setDetailOpen(false);
+                        setSelectedContactId(null);
+                        setDetail(null);
+                        setDetailTags([]);
+                        clearContactIdFromUrl();
+
+                        setContactsCursor(null);
+                        setLeadsCursor(null);
+                        setContactsCursorStack([null]);
+                        setLeadsCursorStack([null]);
+                        void load({ contactsCursor: null, leadsCursor: null });
+                      } catch (e: any) {
+                        toast.error(String(e?.message || "Failed to delete contact"));
+                      } finally {
+                        setDeletingContact(false);
+                      }
+                    })()
+                  }
+                >
+                  {deletingContact ? "Deleting…" : "Delete"}
+                </button>
+
+                <button
+                  type="button"
+                  aria-label="Close contact details"
+                  className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-zinc-200 bg-white text-lg font-semibold text-zinc-800 hover:bg-zinc-50"
+                  onClick={() => {
+                    setDetailOpen(false);
+                    setSelectedContactId(null);
+                    setDetail(null);
+                    setDetailTags([]);
+                    clearContactIdFromUrl();
+                  }}
+                >
+                  ×
+                </button>
+              </div>
             </div>
 
             <div
@@ -2662,7 +2717,7 @@ export function PortalPeopleContactsClient() {
                           <div className="mt-1 text-sm text-zinc-800">{creditDetailValues.businessName || "N/A"}</div>
                         )}
                         <div className="mt-1 text-[11px] text-zinc-500">
-                          Template: <span className="font-mono">{`{contact.custom.business_name}`}</span>
+                          Template: <span className="font-mono break-all">{`{contact.custom.business_name}`}</span>
                         </div>
                       </div>
                       <div>
@@ -2684,7 +2739,7 @@ export function PortalPeopleContactsClient() {
                           <div className="mt-1 text-sm text-zinc-800">{creditDetailValues.ssnLastFour || "N/A"}</div>
                         )}
                         <div className="mt-1 text-[11px] text-zinc-500">
-                          Template: <span className="font-mono">{`{contact.custom.ssn_last_four}`}</span>
+                          Template: <span className="font-mono break-all">{`{contact.custom.ssn_last_four}`}</span>
                         </div>
                       </div>
                       <div>
@@ -2701,7 +2756,7 @@ export function PortalPeopleContactsClient() {
                           <div className="mt-1 text-sm text-zinc-800">{creditDetailValues.birthDate || "N/A"}</div>
                         )}
                         <div className="mt-1 text-[11px] text-zinc-500">
-                          Template: <span className="font-mono">{`{contact.custom.birth_date}`}</span>
+                          Template: <span className="font-mono break-all">{`{contact.custom.birth_date}`}</span>
                         </div>
                       </div>
                       <div className="sm:col-span-2">
@@ -2717,7 +2772,7 @@ export function PortalPeopleContactsClient() {
                           <div className="mt-1 whitespace-pre-wrap text-sm text-zinc-800">{creditDetailValues.address || "N/A"}</div>
                         )}
                         <div className="mt-1 text-[11px] text-zinc-500">
-                          Template: <span className="font-mono">{`{contact.custom.address}`}</span>
+                          Template: <span className="font-mono break-all">{`{contact.custom.address}`}</span>
                         </div>
                       </div>
                       <div className="sm:col-span-2">
@@ -2739,7 +2794,7 @@ export function PortalPeopleContactsClient() {
                           </div>
                         )}
                         <div className="mt-1 text-[11px] text-zinc-500">
-                          Template: <span className="font-mono">{`{contact.custom.signature}`}</span>
+                          Template: <span className="font-mono break-all">{`{contact.custom.signature}`}</span>
                         </div>
                       </div>
                     </div>

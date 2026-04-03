@@ -250,3 +250,37 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ contactId: st
 
   return NextResponse.json({ ok: true });
 }
+
+export async function DELETE(_req: Request, ctx: { params: Promise<{ contactId: string }> }) {
+  const auth = await requireClientSessionForService("people", "edit");
+  if (!auth.ok) {
+    return NextResponse.json(
+      { ok: false, error: auth.status === 401 ? "Unauthorized" : "Forbidden" },
+      { status: auth.status },
+    );
+  }
+
+  const params = await ctx.params;
+  const contactId = contactIdSchema.safeParse(params.contactId);
+  if (!contactId.success) {
+    return NextResponse.json({ ok: false, error: "Invalid contact id" }, { status: 400 });
+  }
+
+  const ownerId = auth.session.user.id;
+
+  const existing = await prisma.portalContact
+    .findFirst({ where: { ownerId, id: contactId.data }, select: { id: true } })
+    .catch(() => null);
+
+  if (!existing?.id) {
+    return NextResponse.json({ ok: false, error: "Not found" }, { status: 404 });
+  }
+
+  try {
+    await prisma.portalContact.delete({ where: { id: existing.id } });
+    return NextResponse.json({ ok: true });
+  } catch (e: any) {
+    const msg = e instanceof Error ? e.message : String(e ?? "Failed to delete");
+    return NextResponse.json({ ok: false, error: "Could not delete contact", details: msg }, { status: 409 });
+  }
+}

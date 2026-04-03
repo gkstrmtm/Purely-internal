@@ -57,7 +57,9 @@ function normalizeCustomVariables(raw: unknown): Record<string, string> {
   for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
     const key = String(k ?? "").trim().slice(0, 64);
     if (!key) continue;
-    const value = String(v ?? "").trim().slice(0, 800);
+    const stableKey = key.toLowerCase();
+    const limit = stableKey === "signature" ? 250_000 : 800;
+    const value = String(v ?? "").trim().slice(0, limit);
     if (!value) continue;
     out[key] = value;
     if (Object.keys(out).length >= 30) break;

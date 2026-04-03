@@ -141,24 +141,41 @@ export async function POST(req: Request, ctx: { params: Promise<{ slug: string }
   const contactPhone = firstString((payloadObj as any).phone);
   const contactName = firstString((payloadObj as any).fullName) || firstString((payloadObj as any).name);
 
+  const signatureDataUrl = (() => {
+    const raw = (payloadObj as any)?.signature;
+    if (typeof raw !== "string") return null;
+    const s = raw.trim();
+    if (!s) return null;
+    if (!s.toLowerCase().startsWith("data:image/")) return null;
+    return s.slice(0, 250_000);
+  })();
+  const contactCustomVariables = signatureDataUrl ? ({ signature: signatureDataUrl } as Record<string, string>) : null;
+
   let contactId: string | null = null;
   try {
-    const candidateName = (contactName || contactEmail || contactPhone || "Unknown").slice(0, 80);
-    contactId = await findOrCreatePortalContact({
-      ownerId: form.ownerId,
-      name: candidateName,
-      email: contactEmail,
-      phone: contactPhone,
-    });
+    const canCreateContact = Boolean(contactName || contactEmail || contactPhone);
+    if (canCreateContact) {
+      const candidateName = (contactName || contactEmail || contactPhone || "").slice(0, 80);
+      if (candidateName) {
+        contactId = await findOrCreatePortalContact({
+          ownerId: form.ownerId,
+          name: candidateName,
+          email: contactEmail,
+          phone: contactPhone,
+          customVariables: contactCustomVariables,
+        });
 
-    // If phone normalization failed (or phone was invalid), still try to create a contact from name/email.
-    if (!contactId && (contactEmail || contactName)) {
-      contactId = await findOrCreatePortalContact({
-        ownerId: form.ownerId,
-        name: (contactName || contactEmail || "Unknown").slice(0, 80),
-        email: contactEmail,
-        phone: null,
-      });
+        // If phone normalization failed (or phone was invalid), still try to create a contact from name/email.
+        if (!contactId && (contactEmail || contactName)) {
+          contactId = await findOrCreatePortalContact({
+            ownerId: form.ownerId,
+            name: (contactName || contactEmail || "").slice(0, 80),
+            email: contactEmail,
+            phone: null,
+            customVariables: contactCustomVariables,
+          });
+        }
+      }
     }
   } catch {
     // ignore
