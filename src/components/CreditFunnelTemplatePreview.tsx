@@ -18,6 +18,7 @@ export function CreditFunnelTemplatePreview(props: {
 }) {
   const pages = useMemo(() => buildCreditFunnelPagesFromTemplateAndTheme(props.template, props.theme), [props.template, props.theme]);
   const first = pages[0];
+  const zoom = 0.78;
 
   return (
     <div className={classNames("rounded-3xl border border-zinc-200 bg-white p-3", props.className)}>
@@ -36,10 +37,10 @@ export function CreditFunnelTemplatePreview(props: {
         </div>
       </div>
 
-      <div className="mt-3 h-[340px] overflow-auto overscroll-contain rounded-3xl border border-black/10 bg-white">
+      <div className="mt-3 max-h-[340px] overflow-auto overscroll-contain rounded-3xl border border-black/10 bg-white">
         <div
-          className="origin-top-left scale-[0.72]"
-          style={{ width: "138.9%" }}
+          className="origin-top-left"
+          style={{ ...( { zoom } as any) }}
           onClickCapture={(e) => {
             const target = e.target as HTMLElement | null;
             const a = target?.closest?.("a");

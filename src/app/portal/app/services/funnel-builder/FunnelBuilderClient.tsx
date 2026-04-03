@@ -1895,10 +1895,22 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
       {creatingKind ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4 pt-[calc(var(--pa-modal-safe-top,0px)+1rem)] pb-[calc(var(--pa-modal-safe-bottom,0px)+1rem)]">
           <div className="w-full max-w-lg max-h-[calc(100dvh-var(--pa-modal-safe-top,0px)-var(--pa-modal-safe-bottom,0px)-2rem)] overflow-y-auto rounded-3xl bg-white p-6 shadow-xl">
-            <div className="text-lg font-bold text-brand-ink">
-              {creatingKind === "funnel" ? "Create funnel" : "Create form"}
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <div className="text-lg font-bold text-brand-ink">{creatingKind === "funnel" ? "Create funnel" : "Create form"}</div>
+                <p className="mt-1 text-sm text-zinc-600">Choose a URL slug. You can rename it later.</p>
+              </div>
+              <button
+                type="button"
+                onClick={closeCreate}
+                disabled={busy}
+                aria-label="Close create"
+                title="Close"
+                className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-transparent bg-white text-lg font-semibold text-zinc-700 transition-all duration-150 hover:-translate-y-0.5 hover:border-zinc-200 hover:bg-zinc-50 hover:text-zinc-900 disabled:opacity-60"
+              >
+                ×
+              </button>
             </div>
-            <p className="mt-1 text-sm text-zinc-600">Choose a URL slug. You can rename it later.</p>
 
             <div className="mt-4 space-y-3">
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -2014,7 +2026,7 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
                               <button
                                 type="button"
                                 onClick={() => setCreateFunnelPreviewOpen(true)}
-                                className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
+                                className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink transition-all duration-150 hover:-translate-y-0.5 hover:border-zinc-300 hover:bg-zinc-50"
                               >
                                 Open full preview
                               </button>
@@ -2083,19 +2095,11 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
             <div className="mt-6 flex flex-col gap-2 sm:flex-row sm:justify-end">
               <button
                 type="button"
-                onClick={closeCreate}
-                disabled={busy}
-                className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink hover:bg-zinc-50"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
                 onClick={submitCreate}
                 disabled={busy}
                 className={classNames(
-                  "rounded-2xl px-4 py-2 text-sm font-semibold text-white",
-                  busy ? "bg-zinc-400" : "bg-(--color-brand-blue) hover:opacity-95",
+                  "rounded-2xl px-4 py-2 text-sm font-semibold text-white transition-all duration-150",
+                  busy ? "bg-zinc-400" : "bg-(--color-brand-blue) hover:-translate-y-0.5 hover:opacity-95",
                 )}
               >
                 {busy ? "Creating…" : "Create"}

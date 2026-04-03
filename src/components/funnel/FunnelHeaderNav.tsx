@@ -34,6 +34,63 @@ function normalizeAnchorId(input: string): string {
   return s.startsWith("#") ? s.slice(1) : s;
 }
 
+function clamp01(n: number) {
+  if (!Number.isFinite(n)) return 0;
+  return Math.max(0, Math.min(1, n));
+}
+
+function parseCssColorToRgb(input: string): { r: number; g: number; b: number } | null {
+  const s = String(input || "").trim();
+  if (!s) return null;
+
+  // #rgb / #rrggbb
+  if (s.startsWith("#")) {
+    const hex = s.slice(1).trim();
+    if (hex.length === 3) {
+      const r = parseInt(hex[0] + hex[0], 16);
+      const g = parseInt(hex[1] + hex[1], 16);
+      const b = parseInt(hex[2] + hex[2], 16);
+      if ([r, g, b].every((v) => Number.isFinite(v))) return { r, g, b };
+      return null;
+    }
+    if (hex.length === 6) {
+      const r = parseInt(hex.slice(0, 2), 16);
+      const g = parseInt(hex.slice(2, 4), 16);
+      const b = parseInt(hex.slice(4, 6), 16);
+      if ([r, g, b].every((v) => Number.isFinite(v))) return { r, g, b };
+      return null;
+    }
+    return null;
+  }
+
+  // rgb()/rgba()
+  const m = s
+    .replace(/\s+/g, " ")
+    .match(/^rgba?\((\s*\d+\s*),\s*(\d+\s*),\s*(\d+\s*)(?:,\s*([0-9.]+)\s*)?\)$/i);
+  if (m) {
+    const r = Number(m[1]);
+    const g = Number(m[2]);
+    const b = Number(m[3]);
+    if ([r, g, b].every((v) => Number.isFinite(v))) return { r, g, b };
+    return null;
+  }
+
+  return null;
+}
+
+function relativeLuminance(rgb: { r: number; g: number; b: number }): number {
+  const srgb = [rgb.r, rgb.g, rgb.b].map((v) => clamp01(v / 255));
+  const lin = srgb.map((c) => (c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4)));
+  return 0.2126 * lin[0]! + 0.7152 * lin[1]! + 0.0722 * lin[2]!;
+}
+
+function inferTextColorFromSurface(surfaceColor: string): "#ffffff" | "#18181b" | null {
+  const rgb = parseCssColorToRgb(surfaceColor);
+  if (!rgb) return null;
+  const lum = relativeLuminance(rgb);
+  return lum < 0.45 ? "#ffffff" : "#18181b";
+}
+
 function buildHref(args: {
   item: FunnelHeaderNavItem;
   funnelPathBase?: string;
@@ -90,8 +147,9 @@ export function FunnelHeaderNav({
 }) {
   const [open, setOpen] = useState(false);
 
-  const baseTextColor = typeof style?.color === "string" && style.color.trim() ? style.color.trim() : "";
   const surfaceColor = typeof style?.backgroundColor === "string" && style.backgroundColor.trim() ? style.backgroundColor.trim() : "";
+  const inferredText = surfaceColor ? inferTextColorFromSurface(surfaceColor) : null;
+  const baseTextColor = typeof style?.color === "string" && style.color.trim() ? style.color.trim() : inferredText || "";
   const borderColor = typeof (style as any)?.borderColor === "string" && String((style as any).borderColor).trim() ? String((style as any).borderColor).trim() : "";
   const headerVars = (baseTextColor || surfaceColor || borderColor)
     ? ({

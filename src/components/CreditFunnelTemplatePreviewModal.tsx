@@ -39,9 +39,11 @@ export function CreditFunnelTemplatePreviewModal(props: {
           <button
             type="button"
             onClick={props.onClose}
-            className="rounded-xl border border-zinc-200 bg-white px-3 py-1.5 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
+            aria-label="Close preview"
+            title="Close"
+            className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-transparent bg-white text-lg font-semibold text-zinc-700 transition-all duration-150 hover:-translate-y-0.5 hover:border-zinc-200 hover:bg-zinc-50 hover:text-zinc-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--color-brand-blue)/20"
           >
-            Close
+            ×
           </button>
         </div>
 
