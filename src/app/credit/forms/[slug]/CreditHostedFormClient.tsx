@@ -4,6 +4,7 @@ import type { PutBlobResult } from "@vercel/blob";
 import { upload as uploadToVercelBlob } from "@vercel/blob/client";
 import { useEffect, useMemo, useRef, useState } from "react";
 
+import type { SignaturePadHandle } from "@/components/SignaturePad";
 import { SignaturePad } from "@/components/SignaturePad";
 import type { CreditFormContent, CreditFormField as Field, CreditFormStyle, CreditFormSuccessContent } from "@/lib/creditFormSchema";
 import { googleFontImportCss } from "@/lib/fontPresets";
@@ -54,6 +55,7 @@ function isAllowedFileType(file: File, allowed: string[] | undefined): boolean {
 function SignatureField({
   value,
   onChange,
+  padRef,
   busy,
   radiusPx,
   inputBg,
@@ -62,6 +64,7 @@ function SignatureField({
 }: {
   value: string;
   onChange: (nextValue: string) => void;
+  padRef?: React.Ref<SignaturePadHandle>;
   busy: boolean;
   radiusPx: number;
   inputBg: string;
@@ -71,6 +74,7 @@ function SignatureField({
   return (
     <div>
       <SignaturePad
+        ref={padRef}
         value={value}
         onChange={onChange}
         disabled={busy}
@@ -113,6 +117,7 @@ export function CreditHostedFormClient({
   const fieldValuesRef = useRef<Record<string, string | string[]>>({});
   const signatureValuesRef = useRef<Record<string, string>>({});
   const fileValuesRef = useRef<Record<string, File[]>>({});
+  const signaturePadByFieldNameRef = useRef<Record<string, SignaturePadHandle | null>>({});
 
   const setFieldValue = (fieldName: string, nextValue: string | string[]) => {
     fieldValuesRef.current = { ...fieldValuesRef.current, [fieldName]: nextValue };
@@ -258,6 +263,20 @@ export function CreditHostedFormClient({
 
           const data: Record<string, any> = {};
 
+          // Force-export signature canvases at submit-time.
+          // This avoids relying on pointer-up/onChange timing, which can be flaky on some devices.
+          const exportedSignatures: Record<string, string> = {};
+          for (const f of fields) {
+            if (f.type !== "signature") continue;
+            const handle = signaturePadByFieldNameRef.current[f.name];
+            const exported = handle?.exportDataUrl ? handle.exportDataUrl() : "";
+            if (typeof exported === "string" && exported.trim()) {
+              exportedSignatures[f.name] = exported;
+              signatureValuesRef.current = { ...signatureValuesRef.current, [f.name]: exported };
+              fieldValuesRef.current = { ...fieldValuesRef.current, [f.name]: exported };
+            }
+          }
+
           for (const f of fields) {
             if (f.type !== "checklist" || !f.required) continue;
             const selected = readFieldValue(f);
@@ -280,7 +299,7 @@ export function CreditHostedFormClient({
 
           for (const f of fields) {
             if (f.type !== "signature" || !f.required) continue;
-            const selected = readFieldValue(f);
+            const selected = exportedSignatures[f.name] || readFieldValue(f);
             if (typeof selected !== "string" || !selected.trim()) {
               setError(`Please add your signature for “${f.label}”.`);
               setBusy(false);
@@ -300,7 +319,7 @@ export function CreditHostedFormClient({
 
           for (const f of fields) {
             if (f.type === "file_upload") continue;
-            const value = readFieldValue(f);
+            const value = f.type === "signature" ? exportedSignatures[f.name] || readFieldValue(f) : readFieldValue(f);
             if (f.type === "checklist") {
               data[f.name] = Array.isArray(value) ? value : [];
               continue;
@@ -452,6 +471,9 @@ export function CreditHostedFormClient({
             ) : f.type === "signature" ? (
               <SignatureField
                 value={signatureValues[f.name] || ""}
+                padRef={(handle) => {
+                  signaturePadByFieldNameRef.current = { ...signaturePadByFieldNameRef.current, [f.name]: handle };
+                }}
                 onChange={(nextValue) => {
                   setFieldValue(f.name, nextValue);
                   signatureValuesRef.current = { ...signatureValuesRef.current, [f.name]: nextValue };

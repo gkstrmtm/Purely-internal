@@ -1,6 +1,11 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
+
+export type SignaturePadHandle = {
+  exportDataUrl: () => string;
+  clear: (notify?: boolean) => void;
+};
 
 type Props = {
   value: string;
@@ -23,7 +28,8 @@ function classNames(...xs: Array<string | false | null | undefined>) {
   return xs.filter(Boolean).join(" ");
 }
 
-export function SignaturePad({
+export const SignaturePad = forwardRef<SignaturePadHandle, Props>(function SignaturePad(
+  {
   value,
   onChange,
   disabled = false,
@@ -38,7 +44,9 @@ export function SignaturePad({
   backgroundColor = "#ffffff",
   textColor = "#52525b",
   radiusPx = 16,
-}: Props) {
+}: Props,
+  ref,
+) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const drawingRef = useRef(false);
   const drewStrokeRef = useRef(false);
@@ -120,6 +128,17 @@ export function SignaturePad({
     lastPointRef.current = null;
     if (notify) onChange("");
   };
+
+  useImperativeHandle(
+    ref,
+    () => ({
+      exportDataUrl: () => exportSignatureDataUrl(),
+      clear: (notify = true) => clearCanvas(notify),
+    }),
+    // `onChange` is stable in practice for our callers; include it for correctness.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [onChange],
+  );
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -234,4 +253,6 @@ export function SignaturePad({
       </div>
     </div>
   );
-}
+});
+
+SignaturePad.displayName = "SignaturePad";
