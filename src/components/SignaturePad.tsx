@@ -41,6 +41,7 @@ export function SignaturePad({
 }: Props) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const drawingRef = useRef(false);
+  const drewStrokeRef = useRef(false);
   const lastPointRef = useRef<{ x: number; y: number } | null>(null);
   const exportSignatureDataUrl = () => {
     const canvas = canvasRef.current;
@@ -68,7 +69,9 @@ export function SignaturePad({
       }
     }
 
-    if (maxX < minX || maxY < minY) return "";
+    if (maxX < minX || maxY < minY) {
+      return drewStrokeRef.current ? canvas.toDataURL("image/png") : "";
+    }
 
     const padding = 16;
     const cropX = Math.max(0, minX - padding);
@@ -113,6 +116,7 @@ export function SignaturePad({
     if (!canvas || !context) return;
     context.clearRect(0, 0, canvas.width, canvas.height);
     drawingRef.current = false;
+    drewStrokeRef.current = false;
     lastPointRef.current = null;
     if (notify) onChange("");
   };
@@ -122,7 +126,10 @@ export function SignaturePad({
     const context = prepareContext();
     if (!canvas || !context) return;
     context.clearRect(0, 0, canvas.width, canvas.height);
-    if (!value) return;
+    if (!value) {
+      drewStrokeRef.current = false;
+      return;
+    }
 
     const image = new Image();
     image.onload = () => {
@@ -165,6 +172,7 @@ export function SignaturePad({
           if (!context) return;
           const point = getPoint(event);
           drawingRef.current = true;
+          drewStrokeRef.current = true;
           lastPointRef.current = point;
           event.currentTarget.setPointerCapture(event.pointerId);
           context.beginPath();

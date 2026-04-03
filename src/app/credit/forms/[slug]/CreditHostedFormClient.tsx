@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { SignaturePad } from "@/components/SignaturePad";
 import type { CreditFormContent, CreditFormField as Field, CreditFormStyle, CreditFormSuccessContent } from "@/lib/creditFormSchema";
@@ -77,6 +77,7 @@ export function CreditHostedFormClient({
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
   const [signatureValues, setSignatureValues] = useState<Record<string, string>>({});
+  const signatureValuesRef = useRef<Record<string, string>>({});
 
   const actionUrl = useMemo(() => {
     const base = submitBasePath === "/portal" ? "/portal" : "/credit";
@@ -202,7 +203,7 @@ export function CreditHostedFormClient({
 
           for (const f of fields) {
             if (f.type !== "signature" || !f.required) continue;
-            const selected = signatureValues[f.name] || "";
+            const selected = signatureValuesRef.current[f.name] || "";
             if (!selected.trim()) {
               setError(`Please add your signature for “${f.label}”.`);
               setBusy(false);
@@ -221,7 +222,7 @@ export function CreditHostedFormClient({
 
           for (const f of fields) {
             if (f.type !== "signature") continue;
-            data[f.name] = signatureValues[f.name] || "";
+            data[f.name] = signatureValuesRef.current[f.name] || "";
           }
 
           fetch(actionUrl, {
@@ -236,6 +237,7 @@ export function CreditHostedFormClient({
             })
             .then(() => {
               el.reset();
+              signatureValuesRef.current = {};
               setSignatureValues({});
               setSuccess(true);
             })
@@ -297,6 +299,7 @@ export function CreditHostedFormClient({
               <SignatureField
                 value={signatureValues[f.name] || ""}
                 onChange={(nextValue) => {
+                  signatureValuesRef.current = { ...signatureValuesRef.current, [f.name]: nextValue };
                   setSignatureValues((current) => {
                     if ((current[f.name] || "") === nextValue) return current;
                     return { ...current, [f.name]: nextValue };
