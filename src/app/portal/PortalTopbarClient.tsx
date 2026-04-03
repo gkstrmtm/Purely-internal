@@ -74,8 +74,12 @@ export function PortalTopbarClient(props: {
     typeof pathname === "string" && (pathname.startsWith("/portal/app/ai-chat") || pathname.startsWith("/credit/app/ai-chat"));
   const isPortalAppRoute =
     typeof pathname === "string" && (pathname.startsWith("/portal/app") || pathname.startsWith("/credit/app"));
+  const isFunnelBuilderFormEditor =
+    typeof pathname === "string" &&
+    ((pathname.startsWith("/portal/app/services/funnel-builder/forms/") && pathname.endsWith("/edit")) ||
+      (pathname.startsWith("/credit/app/services/funnel-builder/forms/") && pathname.endsWith("/edit")));
   const isMobileApp = (searchParams?.get("pa_mobileapp") || "").trim() === "1";
-  const hidden = isAiChat || isMobileApp || (isPortalAppRoute && isSmallScreen);
+  const hidden = isAiChat || isFunnelBuilderFormEditor || isMobileApp || (isPortalAppRoute && isSmallScreen);
   const effectiveHidden = intentHidden ?? hidden;
   const signedInLabel = (businessName || userEmail || "").trim();
   const animatedHeight = useMemo(() => (effectiveHidden ? 0 : measuredHeight), [effectiveHidden, measuredHeight]);
