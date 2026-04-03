@@ -81,6 +81,8 @@ type TemplateConfig = {
 
 type FixedMenuStyle = { left: number; top: number; maxHeight: number };
 
+const DISPUTE_SOURCE_STORAGE_PREFIX = "creditDisputeLetterSource:";
+
 const ROUND_OPTIONS: PortalListboxOption<string>[] = Array.from({ length: 8 }, (_, index) => ({
   value: String(index + 1),
   label: `Round ${index + 1}`,
@@ -530,6 +532,21 @@ export default function DisputeLettersClient({ mode = "list", initialLetterId = 
     clearComposerQuery();
   }, [clearComposerQuery, mode, openComposer, searchParams]);
 
+  useEffect(() => {
+    if (!selectedLetterId) return;
+    try {
+      const raw = window.localStorage.getItem(`${DISPUTE_SOURCE_STORAGE_PREFIX}${selectedLetterId}`);
+      if (!raw) return;
+      const parsed = JSON.parse(raw) as { reportId?: string; itemId?: string };
+      if (parsed?.reportId && parsed?.itemId) {
+        setSourceReportId(String(parsed.reportId));
+        setSourceReportItemId(String(parsed.itemId));
+      }
+    } catch {
+      // ignore
+    }
+  }, [selectedLetterId]);
+
   const handleOpenComposer = useCallback(() => {
     openComposer();
   }, [openComposer]);
@@ -571,20 +588,29 @@ export default function DisputeLettersClient({ mode = "list", initialLetterId = 
       });
       await loadLetters();
 
-      // If we came from a specific credit report item, mark it as "dispute created".
+      // If we came from a specific credit report item, mark it as "dispute created" and persist mapping for mailed updates.
       if (sourceReportId && sourceReportItemId) {
         try {
-          await fetchJson(`/api/portal/credit/reports/${encodeURIComponent(sourceReportId)}/items/${encodeURIComponent(sourceReportItemId)}`,
+          window.localStorage.setItem(
+            `${DISPUTE_SOURCE_STORAGE_PREFIX}${data.letter.id}`,
+            JSON.stringify({ reportId: sourceReportId, itemId: sourceReportItemId }),
+          );
+        } catch {
+          // ignore
+        }
+
+        try {
+          await fetchJson(
+            `/api/portal/credit/reports/${encodeURIComponent(sourceReportId)}/items/${encodeURIComponent(sourceReportItemId)}`,
             {
               method: "PATCH",
               body: JSON.stringify({ disputeStatus: "Dispute created (not mailed)" }),
             },
           );
         } catch {
-          // Best-effort: letter creation should still succeed even if report item status can't be updated.
+          // Best-effort only.
         }
       }
-
       setComposerOpen(false);
       setSelectedLetterId(data.letter.id);
       window.location.href = routeSet.editorHref(data.letter.id);
@@ -615,12 +641,27 @@ export default function DisputeLettersClient({ mode = "list", initialLetterId = 
     setWorking("mail");
     try {
       await fetchJson(`/api/portal/credit/disputes/${encodeURIComponent(selectedLetterId)}/send`, { method: "POST", body: JSON.stringify({}) });
+
+      if (sourceReportId && sourceReportItemId) {
+        try {
+          await fetchJson(
+            `/api/portal/credit/reports/${encodeURIComponent(sourceReportId)}/items/${encodeURIComponent(sourceReportItemId)}`,
+            {
+              method: "PATCH",
+              body: JSON.stringify({ disputeStatus: "Dispute mailed" }),
+            },
+          );
+        } catch {
+          // Best-effort only.
+        }
+      }
+
       await loadLetter(selectedLetterId);
       await loadLetters();
     } finally {
       setWorking(null);
     }
-  }, [loadLetter, loadLetters, selectedLetterId]);
+  }, [loadLetter, loadLetters, selectedLetterId, sourceReportId, sourceReportItemId]);
 
   const refreshPdf = useCallback(async () => {
     if (!selectedLetterId) return;
