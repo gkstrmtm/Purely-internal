@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { SignaturePad } from "@/components/SignaturePad";
 import type { CreditFormContent, CreditFormField as Field, CreditFormStyle, CreditFormSuccessContent } from "@/lib/creditFormSchema";
@@ -23,46 +23,33 @@ function normalizeInputType(t: Field["type"]): "text" | "email" | "tel" {
 }
 
 function SignatureField({
-  name,
+  value,
+  onChange,
   busy,
   radiusPx,
   inputBg,
   inputBorder,
   textColor,
-  resetNonce,
 }: {
-  name: string;
+  value: string;
+  onChange: (nextValue: string) => void;
   busy: boolean;
   radiusPx: number;
   inputBg: string;
   inputBorder: string;
   textColor: string;
-  resetNonce: number;
 }) {
-  const [value, setValue] = useState("");
-  const hiddenInputRef = useRef<HTMLInputElement | null>(null);
-
-  const commitValue = (nextValue: string) => {
-    if (hiddenInputRef.current) hiddenInputRef.current.value = nextValue;
-    setValue(nextValue);
-  };
-
-  useEffect(() => {
-    commitValue("");
-  }, [resetNonce]);
-
   return (
     <div>
       <SignaturePad
         value={value}
-        onChange={commitValue}
+        onChange={onChange}
         disabled={busy}
         radiusPx={radiusPx}
         borderColor={inputBorder}
         backgroundColor={inputBg}
         textColor={textColor}
       />
-      <input ref={hiddenInputRef} type="hidden" name={name} value={value} readOnly />
     </div>
   );
 }
@@ -89,7 +76,7 @@ export function CreditHostedFormClient({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
-  const [resetNonce, setResetNonce] = useState(0);
+  const [signatureValues, setSignatureValues] = useState<Record<string, string>>({});
 
   const actionUrl = useMemo(() => {
     const base = submitBasePath === "/portal" ? "/portal" : "/credit";
@@ -215,8 +202,8 @@ export function CreditHostedFormClient({
 
           for (const f of fields) {
             if (f.type !== "signature" || !f.required) continue;
-            const selected = formData.get(f.name);
-            if (typeof selected !== "string" || !selected.trim()) {
+            const selected = signatureValues[f.name] || "";
+            if (!selected.trim()) {
               setError(`Please add your signature for “${f.label}”.`);
               setBusy(false);
               return;
@@ -232,6 +219,11 @@ export function CreditHostedFormClient({
             }
           }
 
+          for (const f of fields) {
+            if (f.type !== "signature") continue;
+            data[f.name] = signatureValues[f.name] || "";
+          }
+
           fetch(actionUrl, {
             method: "POST",
             headers: { "content-type": "application/json" },
@@ -244,8 +236,8 @@ export function CreditHostedFormClient({
             })
             .then(() => {
               el.reset();
+              setSignatureValues({});
               setSuccess(true);
-              setResetNonce((current) => current + 1);
             })
             .catch((err) => {
               setError(err?.message ? String(err.message) : "Submission failed");
@@ -303,13 +295,18 @@ export function CreditHostedFormClient({
               </div>
             ) : f.type === "signature" ? (
               <SignatureField
-                name={f.name}
+                value={signatureValues[f.name] || ""}
+                onChange={(nextValue) => {
+                  setSignatureValues((current) => {
+                    if ((current[f.name] || "") === nextValue) return current;
+                    return { ...current, [f.name]: nextValue };
+                  });
+                }}
                 busy={busy}
                 radiusPx={radiusPx}
                 inputBg={inputBg}
                 inputBorder={inputBorder}
                 textColor={textColor}
-                resetNonce={resetNonce}
               />
             ) : isTextareaField(f.type) ? (
               <textarea
