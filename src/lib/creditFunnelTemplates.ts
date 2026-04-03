@@ -2,6 +2,10 @@ import type { CreditFunnelBlock } from "@/lib/creditFunnelBlocks";
 
 import type { CreditFunnelTheme, CreditFunnelThemeKey } from "@/lib/creditFunnelThemes";
 
+const SOFT_PANEL_BG = "color-mix(in srgb, currentColor 7%, transparent)";
+const SOFT_PANEL_BG_STRONG = "color-mix(in srgb, currentColor 11%, transparent)";
+const CONTAINER_MAX_WIDTH = 1120;
+
 export type CreditFunnelTemplateKey =
   | "credit-audit-leadgen"
   | "credit-repair-vsl"
@@ -178,9 +182,10 @@ export const CREDIT_FUNNEL_TEMPLATES: CreditFunnelTemplate[] = [
               mobileMode: "dropdown",
               logoAlt: "Logo",
               items: [
-                { id: "n1", label: "How it works", kind: "anchor", anchorId: "how" },
-                { id: "n2", label: "What you get", kind: "anchor", anchorId: "what" },
-                { id: "n3", label: "Start", kind: "anchor", anchorId: "start" },
+                { id: "n1", label: "What you get", kind: "anchor", anchorId: "deliverables" },
+                { id: "n2", label: "How it works", kind: "anchor", anchorId: "how" },
+                { id: "n3", label: "Reviews", kind: "anchor", anchorId: "reviews" },
+                { id: "n4", label: "Start", kind: "anchor", anchorId: "start" },
               ],
             },
           },
@@ -189,55 +194,298 @@ export const CREDIT_FUNNEL_TEMPLATES: CreditFunnelTemplate[] = [
             type: "section",
             props: {
               anchorId: "top",
-              layout: "one",
-              children: [
-                { id: "h1", type: "heading", props: { level: 1, text: "Get a free credit audit in minutes" } },
+              layout: "two",
+              gapPx: 28,
+              stackOnMobile: true,
+              style: {
+                maxWidthPx: CONTAINER_MAX_WIDTH,
+                align: "left",
+                paddingPx: 44,
+                borderRadiusPx: 32,
+                backgroundColor: SOFT_PANEL_BG,
+              },
+              leftChildren: [
+                {
+                  id: "badge",
+                  type: "paragraph",
+                  props: {
+                    text: "Free 2 minute credit audit",
+                    style: {
+                      maxWidthPx: 260,
+                      paddingPx: 10,
+                      borderRadiusPx: 999,
+                      backgroundColor: SOFT_PANEL_BG_STRONG,
+                      align: "center",
+                      fontSizePx: 13,
+                      textColor: "color-mix(in srgb, currentColor 88%, transparent)",
+                    },
+                  },
+                },
+                {
+                  id: "h1",
+                  type: "heading",
+                  props: {
+                    level: 1,
+                    text: "Know exactly what to fix to raise your score",
+                    style: { fontSizePx: 44, marginTopPx: 12, marginBottomPx: 8, maxWidthPx: 720 } as any,
+                  },
+                },
                 {
                   id: "p1",
                   type: "paragraph",
                   props: {
-                    text: "Answer a few quick questions and we will tell you exactly what is holding your score back - and what to do next.",
+                    text:
+                      "Answer a few questions and get a clear action plan: what is holding your score back, what to dispute, and what to build next.",
+                    style: { fontSizePx: 17, maxWidthPx: 720, marginBottomPx: 10 } as any,
                   },
                 },
-                { id: "cta1", type: "formLink", props: { formSlug: "intake", text: "Start the free audit" } },
                 {
-                  id: "cta2",
-                  type: "button",
-                  props: { text: "Prefer to talk? Book a call", href: "#start", variant: "secondary" },
+                  id: "bullets",
+                  type: "columns",
+                  props: {
+                    gapPx: 14,
+                    stackOnMobile: true,
+                    columns: [
+                      {
+                        markdown:
+                          "- No credit card required\n- Built for speed (2 to 3 minutes)\n- Simple next-step plan\n- Optional call if you want it",
+                        style: { maxWidthPx: 560, fontSizePx: 15 } as any,
+                      },
+                    ],
+                    style: { marginTopPx: 4 } as any,
+                  },
+                },
+                {
+                  id: "ctaRow",
+                  type: "columns",
+                  props: {
+                    gapPx: 14,
+                    stackOnMobile: true,
+                    columns: [
+                      {
+                        markdown: "",
+                        children: [
+                          {
+                            id: "cta1",
+                            type: "formLink",
+                            props: {
+                              formSlug: "intake",
+                              text: "Start the free audit",
+                              style: { maxWidthPx: 380, marginTopPx: 10 } as any,
+                            },
+                          },
+                        ],
+                      },
+                      {
+                        markdown: "",
+                        children: [
+                          {
+                            id: "cta2",
+                            type: "button",
+                            props: {
+                              text: "Prefer to talk? Jump to booking",
+                              href: "#start",
+                              variant: "secondary",
+                              style: { maxWidthPx: 380, marginTopPx: 10 } as any,
+                            },
+                          },
+                        ],
+                      },
+                    ],
+                    style: { maxWidthPx: 820 } as any,
+                  },
+                },
+                {
+                  id: "heroFinePrint",
+                  type: "paragraph",
+                  props: {
+                    text:
+                      "Not affiliated with any credit bureaus. This is educational guidance based on the information you provide.",
+                    style: {
+                      fontSizePx: 12,
+                      maxWidthPx: 720,
+                      marginTopPx: 10,
+                      textColor: "color-mix(in srgb, currentColor 78%, transparent)",
+                    },
+                  },
                 },
               ],
+              rightStyle: {
+                paddingPx: 22,
+                borderRadiusPx: 28,
+                backgroundColor: "color-mix(in srgb, currentColor 9%, transparent)",
+              },
+              rightChildren: [
+                { id: "formH", type: "heading", props: { level: 3, text: "Start the audit" } },
+                {
+                  id: "formP",
+                  type: "paragraph",
+                  props: { text: "This form is embedded from your portal. You can swap it any time." },
+                },
+                {
+                  id: "form",
+                  type: "formEmbed",
+                  props: {
+                    formSlug: "intake",
+                    height: 640,
+                    style: { marginTopPx: 10 } as any,
+                  },
+                },
+              ],
+            },
+          },
+          {
+            id: "trust",
+            type: "columns",
+            props: {
+              gapPx: 14,
+              stackOnMobile: true,
+              style: { maxWidthPx: CONTAINER_MAX_WIDTH, marginTopPx: 18 } as any,
+              columns: [
+                {
+                  markdown: "### 4.9/5 average rating\n\nBased on client reviews.",
+                  style: { backgroundColor: SOFT_PANEL_BG, paddingPx: 18, borderRadiusPx: 22 } as any,
+                },
+                {
+                  markdown: "### Personalized plan\n\nNo generic checklist. You get the priorities that matter for you.",
+                  style: { backgroundColor: SOFT_PANEL_BG, paddingPx: 18, borderRadiusPx: 22 } as any,
+                },
+                {
+                  markdown: "### Fast next steps\n\nKnow what to dispute, what to keep, and what to build next.",
+                  style: { backgroundColor: SOFT_PANEL_BG, paddingPx: 18, borderRadiusPx: 22 } as any,
+                },
+              ],
+            },
+          },
+          { id: "a_deliverables", type: "anchor", props: { anchorId: "deliverables", label: "What you get" } },
+          {
+            id: "deliver",
+            type: "columns",
+            props: {
+              gapPx: 16,
+              stackOnMobile: true,
+              columns: [
+                {
+                  markdown:
+                    "### What is holding your score back\n\nA clear breakdown of the biggest negative factors and what they mean.",
+                  style: { backgroundColor: SOFT_PANEL_BG, paddingPx: 20, borderRadiusPx: 24 } as any,
+                },
+                {
+                  markdown:
+                    "### The disputes that matter\n\nA prioritized list of items to challenge and how to approach them.",
+                  style: { backgroundColor: SOFT_PANEL_BG, paddingPx: 20, borderRadiusPx: 24 } as any,
+                },
+                {
+                  markdown:
+                    "### The builder plan\n\nWhich positive accounts to add next and why they help.",
+                  style: { backgroundColor: SOFT_PANEL_BG, paddingPx: 20, borderRadiusPx: 24 } as any,
+                },
+              ],
+              style: { maxWidthPx: CONTAINER_MAX_WIDTH, marginTopPx: 14 } as any,
             },
           },
           { id: "a_how", type: "anchor", props: { anchorId: "how", label: "How it works" } },
           {
             id: "how",
-            type: "columns",
-            props: {
-              gapPx: 18,
-              stackOnMobile: true,
-              columns: [
-                { markdown: "### 1) Tell us your goals\n\nWe learn what you want and where you are today." },
-                { markdown: "### 2) We review your situation\n\nWe spot the fastest wins and the biggest blockers." },
-                { markdown: "### 3) Get a clear action plan\n\nA simple next-step plan you can execute." },
-              ],
-            },
-          },
-          { id: "a_what", type: "anchor", props: { anchorId: "what", label: "What you get" } },
-          {
-            id: "what",
             type: "section",
             props: {
               layout: "one",
+              style: {
+                maxWidthPx: CONTAINER_MAX_WIDTH,
+                align: "left",
+                paddingPx: 34,
+                borderRadiusPx: 30,
+                backgroundColor: SOFT_PANEL_BG,
+                marginTopPx: 16,
+              },
               children: [
-                { id: "h2", type: "heading", props: { level: 2, text: "What you get" } },
+                { id: "h2", type: "heading", props: { level: 2, text: "How it works" } },
                 {
                   id: "p2",
                   type: "paragraph",
                   props: {
-                    text: "A personalized breakdown of what is impacting your score, what to dispute, and what to build next.",
+                    text:
+                      "We keep this simple. You answer a few questions, we produce a prioritized plan, and if you want help implementing it, you can book a call.",
+                    style: { fontSizePx: 16, maxWidthPx: 820 } as any,
+                  },
+                },
+                {
+                  id: "steps",
+                  type: "columns",
+                  props: {
+                    gapPx: 16,
+                    stackOnMobile: true,
+                    columns: [
+                      {
+                        markdown:
+                          "### 1) Answer quick questions\n\nTell us your goal, timeline, and what you have tried so far.",
+                        style: { backgroundColor: SOFT_PANEL_BG_STRONG, paddingPx: 18, borderRadiusPx: 24 } as any,
+                      },
+                      {
+                        markdown:
+                          "### 2) Get your priorities\n\nWe identify what is worth disputing now, later, or never.",
+                        style: { backgroundColor: SOFT_PANEL_BG_STRONG, paddingPx: 18, borderRadiusPx: 24 } as any,
+                      },
+                      {
+                        markdown:
+                          "### 3) Build smarter\n\nAdd the right positive accounts to stabilize and grow your score.",
+                        style: { backgroundColor: SOFT_PANEL_BG_STRONG, paddingPx: 18, borderRadiusPx: 24 } as any,
+                      },
+                    ],
+                    style: { marginTopPx: 8 } as any,
                   },
                 },
               ],
+            },
+          },
+          { id: "a_reviews", type: "anchor", props: { anchorId: "reviews", label: "Reviews" } },
+          {
+            id: "reviews",
+            type: "columns",
+            props: {
+              gapPx: 16,
+              stackOnMobile: true,
+              style: { maxWidthPx: CONTAINER_MAX_WIDTH, marginTopPx: 16 } as any,
+              columns: [
+                {
+                  markdown:
+                    "### \"Finally, a clear plan.\"\n\n\"I stopped guessing and got a checklist that actually made sense.\"\n\n**A. J.**",
+                  style: { backgroundColor: SOFT_PANEL_BG, paddingPx: 22, borderRadiusPx: 26 } as any,
+                },
+                {
+                  markdown:
+                    "### \"Quick and helpful.\"\n\n\"The priorities were spot on and saved me hours.\"\n\n**K. R.**",
+                  style: { backgroundColor: SOFT_PANEL_BG, paddingPx: 22, borderRadiusPx: 26 } as any,
+                },
+              ],
+            },
+          },
+          { id: "a_faq", type: "anchor", props: { anchorId: "faq", label: "FAQ" } },
+          {
+            id: "faq",
+            type: "section",
+            props: {
+              layout: "one",
+              style: {
+                maxWidthPx: CONTAINER_MAX_WIDTH,
+                align: "left",
+                paddingPx: 34,
+                borderRadiusPx: 30,
+                backgroundColor: SOFT_PANEL_BG,
+                marginTopPx: 16,
+              },
+              markdown: [
+                "## Frequently asked questions",
+                "",
+                "### How long does it take?",
+                "Most people finish the audit in 2 to 3 minutes.",
+                "",
+                "### Is this a credit pull?",
+                "No. We do not pull your credit report. You provide the info.",
+                "",
+                "### What happens after I submit?",
+                "You get a prioritized plan and next steps. If you want help executing, you can book a call.",
+              ].join("\n"),
             },
           },
           { id: "a_start", type: "anchor", props: { anchorId: "start", label: "Start" } },
@@ -246,10 +494,32 @@ export const CREDIT_FUNNEL_TEMPLATES: CreditFunnelTemplate[] = [
             type: "section",
             props: {
               layout: "one",
+              style: {
+                maxWidthPx: CONTAINER_MAX_WIDTH,
+                align: "left",
+                paddingPx: 44,
+                borderRadiusPx: 32,
+                backgroundColor: SOFT_PANEL_BG_STRONG,
+                marginTopPx: 16,
+              },
               children: [
-                { id: "h3", type: "heading", props: { level: 2, text: "Ready to start?" } },
-                { id: "p3", type: "paragraph", props: { text: "It takes about 2 minutes." } },
-                { id: "cta3", type: "formLink", props: { formSlug: "intake", text: "Start the free audit" } },
+                { id: "h3", type: "heading", props: { level: 2, text: "Start the free audit" } },
+                {
+                  id: "p3",
+                  type: "paragraph",
+                  props: { text: "If you prefer a call, scroll down to booking." },
+                },
+                { id: "cta3", type: "formLink", props: { formSlug: "intake", text: "Start now", style: { maxWidthPx: 420 } as any } },
+                {
+                  id: "bookingNote",
+                  type: "paragraph",
+                  props: {
+                    text:
+                      "To enable booking, add a Calendar Embed block below and connect your calendar in portal settings.",
+                    style: { fontSizePx: 12, marginTopPx: 10, textColor: "color-mix(in srgb, currentColor 78%, transparent)" },
+                  },
+                },
+                { id: "cal", type: "calendarEmbed", props: { calendarId: "", height: 760, style: { marginTopPx: 12 } as any } },
               ],
             },
           },
@@ -281,8 +551,9 @@ export const CREDIT_FUNNEL_TEMPLATES: CreditFunnelTemplate[] = [
               logoAlt: "Logo",
               items: [
                 { id: "n1", label: "Overview", kind: "anchor", anchorId: "overview" },
-                { id: "n2", label: "Results", kind: "anchor", anchorId: "results" },
-                { id: "n3", label: "Get started", kind: "anchor", anchorId: "get-started" },
+                { id: "n2", label: "What you get", kind: "anchor", anchorId: "deliverables" },
+                { id: "n3", label: "Results", kind: "anchor", anchorId: "results" },
+                { id: "n4", label: "Start", kind: "anchor", anchorId: "get-started" },
               ],
             },
           },
@@ -291,35 +562,166 @@ export const CREDIT_FUNNEL_TEMPLATES: CreditFunnelTemplate[] = [
             type: "section",
             props: {
               anchorId: "overview",
-              layout: "one",
-              children: [
-                { id: "h1", type: "heading", props: { level: 1, text: "Fix what is hurting your credit" } },
+              layout: "two",
+              gapPx: 26,
+              stackOnMobile: true,
+              style: {
+                maxWidthPx: CONTAINER_MAX_WIDTH,
+                align: "left",
+                paddingPx: 44,
+                borderRadiusPx: 32,
+                backgroundColor: SOFT_PANEL_BG,
+              },
+              leftChildren: [
+                {
+                  id: "badge",
+                  type: "paragraph",
+                  props: {
+                    text: "Watch the 3 minute overview",
+                    style: {
+                      maxWidthPx: 300,
+                      paddingPx: 10,
+                      borderRadiusPx: 999,
+                      backgroundColor: SOFT_PANEL_BG_STRONG,
+                      align: "center",
+                      fontSizePx: 13,
+                    } as any,
+                  },
+                },
+                {
+                  id: "h1",
+                  type: "heading",
+                  props: {
+                    level: 1,
+                    text: "Remove the negatives and rebuild credit faster",
+                    style: { fontSizePx: 42, marginTopPx: 12, maxWidthPx: 720 } as any,
+                  },
+                },
                 {
                   id: "p1",
                   type: "paragraph",
-                  props: { text: "Watch the quick overview, then start your intake to see next steps." },
+                  props: {
+                    text:
+                      "This is a simple, transparent process: identify what is hurting you most, dispute with priority, then add the right positive accounts so your score can stabilize and grow.",
+                    style: { fontSizePx: 17, maxWidthPx: 720 } as any,
+                  },
                 },
+                {
+                  id: "ctaRow",
+                  type: "columns",
+                  props: {
+                    gapPx: 14,
+                    stackOnMobile: true,
+                    columns: [
+                      {
+                        markdown: "",
+                        children: [
+                          {
+                            id: "cta1",
+                            type: "formLink",
+                            props: { formSlug: "intake", text: "Start intake", style: { maxWidthPx: 340, marginTopPx: 10 } as any },
+                          },
+                        ],
+                      },
+                      {
+                        markdown: "",
+                        children: [
+                          {
+                            id: "cta2",
+                            type: "button",
+                            props: {
+                              text: "See deliverables",
+                              href: "#deliverables",
+                              variant: "secondary",
+                              style: { maxWidthPx: 340, marginTopPx: 10 } as any,
+                            },
+                          },
+                        ],
+                      },
+                    ],
+                    style: { maxWidthPx: 760 } as any,
+                  },
+                },
+              ],
+              rightStyle: {
+                paddingPx: 18,
+                borderRadiusPx: 28,
+                backgroundColor: "color-mix(in srgb, currentColor 9%, transparent)",
+              },
+              rightChildren: [
+                { id: "vTitle", type: "heading", props: { level: 3, text: "Quick overview" } },
                 {
                   id: "v1",
                   type: "video",
-                  props: { src: "", name: "Video", controls: true, showControls: true, aspectRatio: "16:9" },
+                  props: {
+                    src: "",
+                    name: "VSL",
+                    controls: true,
+                    showControls: true,
+                    aspectRatio: "16:9",
+                    showFrame: true,
+                    style: { marginTopPx: 10 } as any,
+                  },
                 },
-                { id: "cta1", type: "formLink", props: { formSlug: "intake", text: "Start intake" } },
+                {
+                  id: "vHint",
+                  type: "paragraph",
+                  props: {
+                    text: "Tip: replace the video URL, poster, and copy to match your offer.",
+                    style: { fontSizePx: 12, marginTopPx: 10, textColor: "color-mix(in srgb, currentColor 78%, transparent)" },
+                  },
+                },
+              ],
+            },
+          },
+          { id: "a_deliver", type: "anchor", props: { anchorId: "deliverables", label: "What you get" } },
+          {
+            id: "deliverables",
+            type: "columns",
+            props: {
+              gapPx: 16,
+              stackOnMobile: true,
+              style: { maxWidthPx: CONTAINER_MAX_WIDTH, marginTopPx: 16 } as any,
+              columns: [
+                {
+                  markdown: "### Prioritized dispute plan\n\nKnow which items are worth challenging first and why.",
+                  style: { backgroundColor: SOFT_PANEL_BG, paddingPx: 20, borderRadiusPx: 24 } as any,
+                },
+                {
+                  markdown: "### Builder strategy\n\nAdd the right positive accounts to lift and protect the score.",
+                  style: { backgroundColor: SOFT_PANEL_BG, paddingPx: 20, borderRadiusPx: 24 } as any,
+                },
+                {
+                  markdown: "### Simple timeline\n\nA realistic, step-by-step roadmap so you know what happens next.",
+                  style: { backgroundColor: SOFT_PANEL_BG, paddingPx: 20, borderRadiusPx: 24 } as any,
+                },
               ],
             },
           },
           { id: "a_results", type: "anchor", props: { anchorId: "results", label: "Results" } },
           {
             id: "results",
-            type: "columns",
+            type: "section",
             props: {
-              gapPx: 18,
-              stackOnMobile: true,
-              columns: [
-                { markdown: "### Clear plan\n\nKnow what to do next." },
-                { markdown: "### Faster disputes\n\nPrioritize the biggest impact." },
-                { markdown: "### Better building\n\nAdd the right positive accounts." },
-              ],
+              layout: "one",
+              style: {
+                maxWidthPx: CONTAINER_MAX_WIDTH,
+                align: "left",
+                paddingPx: 34,
+                borderRadiusPx: 30,
+                backgroundColor: SOFT_PANEL_BG,
+                marginTopPx: 16,
+              },
+              markdown: [
+                "## What clients typically notice",
+                "",
+                "- Less confusion: a plan you can actually follow",
+                "- Better prioritization: you focus on what moves the needle",
+                "- Cleaner next steps: dispute, rebuild, then optimize",
+                "",
+                "### Note",
+                "Results vary based on file quality, accuracy, and follow-through.",
+              ].join("\n"),
             },
           },
           { id: "a_get", type: "anchor", props: { anchorId: "get-started", label: "Get started" } },
@@ -328,10 +730,25 @@ export const CREDIT_FUNNEL_TEMPLATES: CreditFunnelTemplate[] = [
             type: "section",
             props: {
               layout: "one",
+              style: {
+                maxWidthPx: CONTAINER_MAX_WIDTH,
+                align: "left",
+                paddingPx: 44,
+                borderRadiusPx: 32,
+                backgroundColor: SOFT_PANEL_BG_STRONG,
+                marginTopPx: 16,
+              },
               children: [
-                { id: "h2", type: "heading", props: { level: 2, text: "Get started" } },
-                { id: "p2", type: "paragraph", props: { text: "Start with the intake. We will guide you from there." } },
-                { id: "cta2", type: "formLink", props: { formSlug: "intake", text: "Start intake" } },
+                { id: "h2", type: "heading", props: { level: 2, text: "Start intake" } },
+                {
+                  id: "p2",
+                  type: "paragraph",
+                  props: {
+                    text:
+                      "Answer a few questions so we can tailor the plan. You can always book a call after you submit.",
+                  },
+                },
+                { id: "cta2", type: "formLink", props: { formSlug: "intake", text: "Start now", style: { maxWidthPx: 420 } as any } },
               ],
             },
           },
@@ -362,9 +779,10 @@ export const CREDIT_FUNNEL_TEMPLATES: CreditFunnelTemplate[] = [
               mobileMode: "dropdown",
               logoAlt: "Logo",
               items: [
-                { id: "n1", label: "Benefits", kind: "anchor", anchorId: "benefits" },
-                { id: "n2", label: "Steps", kind: "anchor", anchorId: "steps" },
-                { id: "n3", label: "Apply", kind: "anchor", anchorId: "apply" },
+                { id: "n1", label: "Who it is for", kind: "anchor", anchorId: "who" },
+                { id: "n2", label: "Roadmap", kind: "anchor", anchorId: "roadmap" },
+                { id: "n3", label: "FAQ", kind: "anchor", anchorId: "faq" },
+                { id: "n4", label: "Apply", kind: "anchor", anchorId: "apply" },
               ],
             },
           },
@@ -372,42 +790,238 @@ export const CREDIT_FUNNEL_TEMPLATES: CreditFunnelTemplate[] = [
             id: "hero",
             type: "section",
             props: {
-              layout: "one",
-              children: [
-                { id: "h1", type: "heading", props: { level: 1, text: "Build business credit the right way" } },
+              anchorId: "top",
+              layout: "two",
+              gapPx: 26,
+              stackOnMobile: true,
+              style: {
+                maxWidthPx: CONTAINER_MAX_WIDTH,
+                align: "left",
+                paddingPx: 44,
+                borderRadiusPx: 32,
+                backgroundColor: SOFT_PANEL_BG,
+              },
+              leftChildren: [
+                {
+                  id: "badge",
+                  type: "paragraph",
+                  props: {
+                    text: "Business credit and funding roadmap",
+                    style: {
+                      maxWidthPx: 360,
+                      paddingPx: 10,
+                      borderRadiusPx: 999,
+                      backgroundColor: SOFT_PANEL_BG_STRONG,
+                      align: "center",
+                      fontSizePx: 13,
+                    } as any,
+                  },
+                },
+                {
+                  id: "h1",
+                  type: "heading",
+                  props: {
+                    level: 1,
+                    text: "Build business credit without wrecking your personal profile",
+                    style: { fontSizePx: 42, marginTopPx: 12, maxWidthPx: 760 } as any,
+                  },
+                },
                 {
                   id: "p1",
                   type: "paragraph",
-                  props: { text: "We help you structure your business, build vendor lines, and unlock funding." },
+                  props: {
+                    text:
+                      "We help you structure the business correctly, build vendor lines, and follow the right sequence so approvals get easier over time.",
+                    style: { fontSizePx: 17, maxWidthPx: 760 } as any,
+                  },
                 },
-                { id: "cta1", type: "formLink", props: { formSlug: "business-intake", text: "Check eligibility" } },
+                {
+                  id: "heroBullets",
+                  type: "columns",
+                  props: {
+                    gapPx: 14,
+                    stackOnMobile: true,
+                    columns: [
+                      {
+                        markdown:
+                          "- Clear steps, no guessing\n- Better approvals through sequencing\n- Designed for new and established businesses\n- Optional call after you submit",
+                        style: { maxWidthPx: 600, fontSizePx: 15 } as any,
+                      },
+                    ],
+                  },
+                },
+                {
+                  id: "ctaRow",
+                  type: "columns",
+                  props: {
+                    gapPx: 14,
+                    stackOnMobile: true,
+                    columns: [
+                      {
+                        markdown: "",
+                        children: [
+                          {
+                            id: "cta1",
+                            type: "formLink",
+                            props: {
+                              formSlug: "business-intake",
+                              text: "Check eligibility",
+                              style: { maxWidthPx: 360, marginTopPx: 10 } as any,
+                            },
+                          },
+                        ],
+                      },
+                      {
+                        markdown: "",
+                        children: [
+                          {
+                            id: "cta2",
+                            type: "button",
+                            props: {
+                              text: "See the roadmap",
+                              href: "#roadmap",
+                              variant: "secondary",
+                              style: { maxWidthPx: 360, marginTopPx: 10 } as any,
+                            },
+                          },
+                        ],
+                      },
+                    ],
+                    style: { maxWidthPx: 760 } as any,
+                  },
+                },
+              ],
+              rightStyle: {
+                paddingPx: 22,
+                borderRadiusPx: 28,
+                backgroundColor: "color-mix(in srgb, currentColor 9%, transparent)",
+              },
+              rightChildren: [
+                { id: "formH", type: "heading", props: { level: 3, text: "Eligibility check" } },
+                {
+                  id: "formP",
+                  type: "paragraph",
+                  props: { text: "Embed your intake form here. You can change the form slug at any time." },
+                },
+                {
+                  id: "form",
+                  type: "formEmbed",
+                  props: { formSlug: "business-intake", height: 640, style: { marginTopPx: 10 } as any },
+                },
               ],
             },
           },
-          { id: "a_benefits", type: "anchor", props: { anchorId: "benefits", label: "Benefits" } },
+          { id: "a_who", type: "anchor", props: { anchorId: "who", label: "Who it is for" } },
           {
-            id: "benefits",
-            type: "columns",
-            props: {
-              gapPx: 18,
-              stackOnMobile: true,
-              columns: [
-                { markdown: "### Separate your personal and business\n\nProtect your personal profile." },
-                { markdown: "### Higher limits\n\nAccess stronger business approvals." },
-                { markdown: "### Funding roadmap\n\nKnow which steps unlock what." },
-              ],
-            },
-          },
-          { id: "a_steps", type: "anchor", props: { anchorId: "steps", label: "Steps" } },
-          {
-            id: "steps",
+            id: "who",
             type: "section",
             props: {
               layout: "one",
+              style: {
+                maxWidthPx: CONTAINER_MAX_WIDTH,
+                align: "left",
+                paddingPx: 34,
+                borderRadiusPx: 30,
+                backgroundColor: SOFT_PANEL_BG,
+                marginTopPx: 16,
+              },
               children: [
-                { id: "h2", type: "heading", props: { level: 2, text: "How it works" } },
-                { id: "p2", type: "paragraph", props: { text: "Answer a few questions, then we give you the fastest path forward." } },
+                { id: "h2", type: "heading", props: { level: 2, text: "Who this is for" } },
+                {
+                  id: "p2",
+                  type: "paragraph",
+                  props: {
+                    text:
+                      "This works best for business owners who want to separate personal and business credit, improve approvals, and follow a clear sequence instead of random applications.",
+                    style: { fontSizePx: 16, maxWidthPx: 860 } as any,
+                  },
+                },
+                {
+                  id: "whoCols",
+                  type: "columns",
+                  props: {
+                    gapPx: 16,
+                    stackOnMobile: true,
+                    style: { marginTopPx: 8 } as any,
+                    columns: [
+                      {
+                        markdown:
+                          "### New businesses\n\nYou want the right setup and early vendors so you do not waste time.",
+                        style: { backgroundColor: SOFT_PANEL_BG_STRONG, paddingPx: 18, borderRadiusPx: 24 } as any,
+                      },
+                      {
+                        markdown:
+                          "### Established businesses\n\nYou want higher limits and more consistent approvals.",
+                        style: { backgroundColor: SOFT_PANEL_BG_STRONG, paddingPx: 18, borderRadiusPx: 24 } as any,
+                      },
+                      {
+                        markdown:
+                          "### Fast movers\n\nYou have a goal and timeline and want the shortest clean path.",
+                        style: { backgroundColor: SOFT_PANEL_BG_STRONG, paddingPx: 18, borderRadiusPx: 24 } as any,
+                      },
+                    ],
+                  },
+                },
               ],
+            },
+          },
+          { id: "a_roadmap", type: "anchor", props: { anchorId: "roadmap", label: "Roadmap" } },
+          {
+            id: "roadmap",
+            type: "section",
+            props: {
+              layout: "one",
+              style: {
+                maxWidthPx: CONTAINER_MAX_WIDTH,
+                align: "left",
+                paddingPx: 34,
+                borderRadiusPx: 30,
+                backgroundColor: SOFT_PANEL_BG,
+                marginTopPx: 16,
+              },
+              markdown: [
+                "## The business credit roadmap",
+                "",
+                "### Step 1: Foundation",
+                "Entity setup, business info consistency, and compliance basics.",
+                "",
+                "### Step 2: Vendor trade lines",
+                "Start with accounts that report and build the profile correctly.",
+                "",
+                "### Step 3: Store and fleet",
+                "Move up to stronger approvals as the file matures.",
+                "",
+                "### Step 4: Cash credit and funding",
+                "Apply when the signals are right so you avoid unnecessary declines.",
+              ].join("\n"),
+            },
+          },
+          { id: "a_faq", type: "anchor", props: { anchorId: "faq", label: "FAQ" } },
+          {
+            id: "faq",
+            type: "section",
+            props: {
+              layout: "one",
+              style: {
+                maxWidthPx: CONTAINER_MAX_WIDTH,
+                align: "left",
+                paddingPx: 34,
+                borderRadiusPx: 30,
+                backgroundColor: SOFT_PANEL_BG,
+                marginTopPx: 16,
+              },
+              markdown: [
+                "## FAQ",
+                "",
+                "### Will this require a personal guarantee?",
+                "Sometimes, especially early. The goal is to improve approvals and terms over time.",
+                "",
+                "### How long does it take?",
+                "Most businesses see meaningful progress in a few months with consistent follow-through.",
+                "",
+                "### Do I need existing revenue?",
+                "Not always. It depends on the products and the stage. The intake helps us tailor the plan.",
+              ].join("\n"),
             },
           },
           { id: "a_apply", type: "anchor", props: { anchorId: "apply", label: "Apply" } },
@@ -416,10 +1030,24 @@ export const CREDIT_FUNNEL_TEMPLATES: CreditFunnelTemplate[] = [
             type: "section",
             props: {
               layout: "one",
+              style: {
+                maxWidthPx: CONTAINER_MAX_WIDTH,
+                align: "left",
+                paddingPx: 44,
+                borderRadiusPx: 32,
+                backgroundColor: SOFT_PANEL_BG_STRONG,
+                marginTopPx: 16,
+              },
               children: [
-                { id: "h3", type: "heading", props: { level: 2, text: "Apply" } },
-                { id: "p3", type: "paragraph", props: { text: "It takes about 2 minutes." } },
-                { id: "cta2", type: "formLink", props: { formSlug: "business-intake", text: "Check eligibility" } },
+                { id: "h3", type: "heading", props: { level: 2, text: "Check eligibility" } },
+                {
+                  id: "p3",
+                  type: "paragraph",
+                  props: {
+                    text: "Answer a few questions and we will show the best next step for your stage.",
+                  },
+                },
+                { id: "cta2", type: "formLink", props: { formSlug: "business-intake", text: "Start", style: { maxWidthPx: 420 } as any } },
               ],
             },
           },
@@ -459,15 +1087,95 @@ export const CREDIT_FUNNEL_TEMPLATES: CreditFunnelTemplate[] = [
             id: "hero",
             type: "section",
             props: {
-              layout: "one",
-              children: [
-                { id: "h1", type: "heading", props: { level: 1, text: "Book a consultation" } },
+              anchorId: "top",
+              layout: "two",
+              gapPx: 26,
+              stackOnMobile: true,
+              style: {
+                maxWidthPx: CONTAINER_MAX_WIDTH,
+                align: "left",
+                paddingPx: 44,
+                borderRadiusPx: 32,
+                backgroundColor: SOFT_PANEL_BG,
+              },
+              leftChildren: [
+                {
+                  id: "badge",
+                  type: "paragraph",
+                  props: {
+                    text: "30 minute strategy call",
+                    style: {
+                      maxWidthPx: 240,
+                      paddingPx: 10,
+                      borderRadiusPx: 999,
+                      backgroundColor: SOFT_PANEL_BG_STRONG,
+                      align: "center",
+                      fontSizePx: 13,
+                    } as any,
+                  },
+                },
+                {
+                  id: "h1",
+                  type: "heading",
+                  props: { level: 1, text: "Book a consultation and leave with a clear next step", style: { fontSizePx: 42, marginTopPx: 12 } as any },
+                },
                 {
                   id: "p1",
                   type: "paragraph",
-                  props: { text: "We will review your goals, answer questions, and map out next steps." },
+                  props: {
+                    text:
+                      "We review your current situation, answer questions, and map out the fastest, cleanest plan based on your goals and timeline.",
+                    style: { fontSizePx: 17, maxWidthPx: 760 } as any,
+                  },
                 },
-                { id: "cta1", type: "button", props: { text: "Jump to booking", href: "#book" } },
+                {
+                  id: "cta1",
+                  type: "button",
+                  props: { text: "Choose a time", href: "#book", style: { maxWidthPx: 340, marginTopPx: 10 } as any },
+                },
+                {
+                  id: "fine",
+                  type: "paragraph",
+                  props: {
+                    text: "If you do not see a time that works, add your contact form below and we will follow up.",
+                    style: {
+                      fontSizePx: 12,
+                      maxWidthPx: 760,
+                      marginTopPx: 10,
+                      textColor: "color-mix(in srgb, currentColor 78%, transparent)",
+                    },
+                  },
+                },
+              ],
+              rightStyle: {
+                paddingPx: 22,
+                borderRadiusPx: 28,
+                backgroundColor: "color-mix(in srgb, currentColor 9%, transparent)",
+              },
+              rightChildren: [
+                { id: "rH", type: "heading", props: { level: 3, text: "You will leave with" } },
+                {
+                  id: "rList",
+                  type: "section",
+                  props: {
+                    layout: "one",
+                    style: { paddingPx: 0 } as any,
+                    markdown: [
+                      "- A prioritized action plan",
+                      "- A realistic timeline",
+                      "- A list of next steps you can execute",
+                      "- Optional help implementing",
+                    ].join("\n"),
+                  },
+                },
+                {
+                  id: "rNote",
+                  type: "paragraph",
+                  props: {
+                    text: "Tip: add a testimonial, results screenshot, or short video here.",
+                    style: { fontSizePx: 12, marginTopPx: 10, textColor: "color-mix(in srgb, currentColor 78%, transparent)" },
+                  },
+                },
               ],
             },
           },
@@ -477,9 +1185,47 @@ export const CREDIT_FUNNEL_TEMPLATES: CreditFunnelTemplate[] = [
             type: "section",
             props: {
               layout: "one",
+              style: {
+                maxWidthPx: CONTAINER_MAX_WIDTH,
+                align: "left",
+                paddingPx: 34,
+                borderRadiusPx: 30,
+                backgroundColor: SOFT_PANEL_BG,
+                marginTopPx: 16,
+              },
               children: [
                 { id: "h2", type: "heading", props: { level: 2, text: "What we cover" } },
-                { id: "p2", type: "paragraph", props: { text: "Credit situation, goals, timeline, and your best plan." } },
+                {
+                  id: "p2",
+                  type: "paragraph",
+                  props: {
+                    text:
+                      "Your current situation, your goal and timeline, what to do first, and what to avoid so you do not waste time or applications.",
+                  },
+                },
+                {
+                  id: "detailsCols",
+                  type: "columns",
+                  props: {
+                    gapPx: 16,
+                    stackOnMobile: true,
+                    style: { marginTopPx: 8 } as any,
+                    columns: [
+                      {
+                        markdown: "### Prep (optional)\n\nBring your goal, timeline, and any key details you want reviewed.",
+                        style: { backgroundColor: SOFT_PANEL_BG_STRONG, paddingPx: 18, borderRadiusPx: 24 } as any,
+                      },
+                      {
+                        markdown: "### Call format\n\n30 minutes. Clear plan. No fluff.",
+                        style: { backgroundColor: SOFT_PANEL_BG_STRONG, paddingPx: 18, borderRadiusPx: 24 } as any,
+                      },
+                      {
+                        markdown: "### Next step\n\nIf we are a fit, we outline options and pricing clearly.",
+                        style: { backgroundColor: SOFT_PANEL_BG_STRONG, paddingPx: 18, borderRadiusPx: 24 } as any,
+                      },
+                    ],
+                  },
+                },
               ],
             },
           },
@@ -489,15 +1235,38 @@ export const CREDIT_FUNNEL_TEMPLATES: CreditFunnelTemplate[] = [
             type: "section",
             props: {
               layout: "one",
+              style: {
+                maxWidthPx: CONTAINER_MAX_WIDTH,
+                align: "left",
+                paddingPx: 44,
+                borderRadiusPx: 32,
+                backgroundColor: SOFT_PANEL_BG_STRONG,
+                marginTopPx: 16,
+              },
               children: [
                 { id: "h3", type: "heading", props: { level: 2, text: "Book now" } },
                 {
                   id: "p3",
                   type: "paragraph",
                   props: {
-                    text: "Add a calendar embed block here (Settings - Booking) once your calendar is connected.",
+                    text:
+                      "Pick a time below. In the editor, select the calendar embed block and choose your connected calendar.",
                   },
                 },
+                { id: "cal", type: "calendarEmbed", props: { calendarId: "", height: 760, style: { marginTopPx: 12 } as any } },
+                {
+                  id: "fallback",
+                  type: "section",
+                  props: {
+                    layout: "one",
+                    style: { paddingPx: 0, marginTopPx: 16 } as any,
+                    markdown: [
+                      "### No times available?",
+                      "Add a form embed below and collect name, email, phone, and the best times to reach them.",
+                    ].join("\n"),
+                  },
+                },
+                { id: "form", type: "formEmbed", props: { formSlug: "intake", height: 600, style: { marginTopPx: 10 } as any } },
               ],
             },
           },
