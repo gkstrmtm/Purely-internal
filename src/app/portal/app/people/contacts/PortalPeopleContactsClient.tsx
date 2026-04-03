@@ -18,6 +18,59 @@ import { DEFAULT_TAG_COLORS } from "@/lib/tagColors.shared";
 const DEFAULT_CONTACT_CUSTOM_VAR_KEYS = ["business_name", "city", "state", "website", "niche", "location"];
 const CREDIT_CONTACT_CUSTOM_VAR_KEYS = ["business_name", "ssn_last_four", "birth_date", "address", "signature"] as const;
 
+async function readFileAsDataUrl(file: File): Promise<string> {
+  const f = file;
+  return await new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error("Failed to read file"));
+    reader.onload = () => resolve(String(reader.result || ""));
+    reader.readAsDataURL(f);
+  });
+}
+
+async function convertImageDataUrlToPngDataUrl(
+  dataUrl: string,
+  options?: { maxWidth?: number; maxHeight?: number },
+): Promise<string> {
+  const maxWidth = Math.max(50, Math.min(3000, Number(options?.maxWidth || 1200) || 1200));
+  const maxHeight = Math.max(50, Math.min(3000, Number(options?.maxHeight || 500) || 500));
+
+  await new Promise<void>((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve();
+    img.onerror = () => reject(new Error("Invalid image"));
+    img.src = dataUrl;
+  });
+
+  const img = new Image();
+  img.src = dataUrl;
+  await new Promise<void>((resolve, reject) => {
+    img.onload = () => resolve();
+    img.onerror = () => reject(new Error("Invalid image"));
+  });
+
+  const srcW = Math.max(1, img.naturalWidth || img.width || 1);
+  const srcH = Math.max(1, img.naturalHeight || img.height || 1);
+  const ratio = Math.min(1, maxWidth / srcW, maxHeight / srcH);
+  const dstW = Math.max(1, Math.floor(srcW * ratio));
+  const dstH = Math.max(1, Math.floor(srcH * ratio));
+
+  const canvas = document.createElement("canvas");
+  canvas.width = dstW;
+  canvas.height = dstH;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) throw new Error("Canvas not supported");
+
+  ctx.clearRect(0, 0, dstW, dstH);
+  ctx.drawImage(img, 0, 0, dstW, dstH);
+  return canvas.toDataURL("image/png");
+}
+
+async function convertImageFileToPngDataUrl(file: File): Promise<string> {
+  const dataUrl = await readFileAsDataUrl(file);
+  return await convertImageDataUrlToPngDataUrl(dataUrl, { maxWidth: 1400, maxHeight: 600 });
+}
+
 type ContactTag = { id: string; name: string; color: string | null };
 
 type ContactRow = {
@@ -414,6 +467,22 @@ export function PortalPeopleContactsClient() {
   const [editCustomVarRows, setEditCustomVarRows] = useState<CustomVarRow[]>([]);
   const [savingContact, setSavingContact] = useState(false);
   const [deletingContact, setDeletingContact] = useState(false);
+
+  const [selectedContactIds, setSelectedContactIds] = useState<string[]>([]);
+  const selectAllRef = useRef<HTMLInputElement | null>(null);
+  const mobileSelectAllRef = useRef<HTMLInputElement | null>(null);
+
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const [bulkTagId, setBulkTagId] = useState<string>("");
+  const [bulkCustomKey, setBulkCustomKey] = useState<string>("");
+  const [bulkCustomValue, setBulkCustomValue] = useState<string>("");
+
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [deleteConfirmIds, setDeleteConfirmIds] = useState<string[]>([]);
+  const [deleteConfirmContext, setDeleteConfirmContext] = useState<string>("");
+
+  const manualSignatureFileInputRef = useRef<HTMLInputElement | null>(null);
+  const editSignatureFileInputRef = useRef<HTMLInputElement | null>(null);
 
   const lastSavedContactEditSigRef = useRef<string>("");
   const editContactSig = useMemo(
@@ -1260,8 +1329,145 @@ export function PortalPeopleContactsClient() {
     [customVarPickerMode],
   );
 
+  const selectedContactSet = useMemo(() => new Set(selectedContactIds), [selectedContactIds]);
+  const selectedVisibleContacts = useMemo(
+    () => (filteredContacts || []).filter((c) => selectedContactSet.has(c.id)),
+    [filteredContacts, selectedContactSet],
+  );
+  const visibleContactIds = useMemo(() => (filteredContacts || []).slice(0, 50).map((c) => c.id), [filteredContacts]);
+  const allVisibleSelected = useMemo(
+    () => Boolean(visibleContactIds.length) && visibleContactIds.every((id) => selectedContactSet.has(id)),
+    [selectedContactSet, visibleContactIds],
+  );
+  const someVisibleSelected = useMemo(
+    () => visibleContactIds.some((id) => selectedContactSet.has(id)),
+    [selectedContactSet, visibleContactIds],
+  );
+
+  const visibleMobileContactIds = useMemo(
+    () => (mobilePeopleFilter === "unlinked" ? [] : (mobileListRows as ContactRow[]).slice(0, 100).map((c) => c.id)),
+    [mobileListRows, mobilePeopleFilter],
+  );
+  const allVisibleMobileSelected = useMemo(
+    () => Boolean(visibleMobileContactIds.length) && visibleMobileContactIds.every((id) => selectedContactSet.has(id)),
+    [selectedContactSet, visibleMobileContactIds],
+  );
+  const someVisibleMobileSelected = useMemo(
+    () => visibleMobileContactIds.some((id) => selectedContactSet.has(id)),
+    [selectedContactSet, visibleMobileContactIds],
+  );
+
+  useEffect(() => {
+    if (!selectAllRef.current) return;
+    selectAllRef.current.indeterminate = someVisibleSelected && !allVisibleSelected;
+  }, [allVisibleSelected, someVisibleSelected]);
+
+  useEffect(() => {
+    if (!mobileSelectAllRef.current) return;
+    mobileSelectAllRef.current.indeterminate = someVisibleMobileSelected && !allVisibleMobileSelected;
+  }, [allVisibleMobileSelected, someVisibleMobileSelected]);
+
+  async function runBulkDelete(ids: string[]) {
+    if (!ids.length) return;
+    setDeletingContact(true);
+    try {
+      const stableIds = Array.from(new Set(ids.map((x) => String(x || "").trim()).filter(Boolean))).slice(0, 200);
+      let okCount = 0;
+      for (const id of stableIds) {
+        const res = await fetch(`/api/portal/contacts/${encodeURIComponent(id)}`, { method: "DELETE", cache: "no-store" });
+        const json = (await res.json().catch(() => ({}))) as any;
+        if (res.ok && json?.ok) okCount += 1;
+      }
+      toast.success(`Deleted ${okCount} contact(s)`);
+      setSelectedContactIds([]);
+
+      if (selectedContactId && stableIds.includes(selectedContactId)) {
+        setDetailOpen(false);
+        setSelectedContactId(null);
+        setDetail(null);
+        setDetailTags([]);
+        clearContactIdFromUrl();
+      }
+
+      setContactsCursor(null);
+      setLeadsCursor(null);
+      setContactsCursorStack([null]);
+      setLeadsCursorStack([null]);
+      void load({ contactsCursor: null, leadsCursor: null });
+    } catch (e: any) {
+      toast.error(String(e?.message || "Failed to delete contacts"));
+    } finally {
+      setDeletingContact(false);
+    }
+  }
+
+  async function runBulkAddTag(ids: string[], tagId: string) {
+    const stableTagId = String(tagId || "").trim();
+    if (!stableTagId) return;
+    const stableIds = Array.from(new Set((ids || []).map((x) => String(x || "").trim()).filter(Boolean))).slice(0, 200);
+    if (!stableIds.length) return;
+
+    setBulkBusy(true);
+    try {
+      let okCount = 0;
+      for (const id of stableIds) {
+        const res = await fetch(`/api/portal/contacts/${encodeURIComponent(id)}/tags`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ tagId: stableTagId }),
+          cache: "no-store",
+        });
+        const json = (await res.json().catch(() => ({}))) as any;
+        if (res.ok && json?.ok) okCount += 1;
+      }
+      toast.success(`Added tag to ${okCount} contact(s)`);
+      void load({ contactsCursor, leadsCursor });
+    } catch (e: any) {
+      toast.error(String(e?.message || "Failed to add tag"));
+    } finally {
+      setBulkBusy(false);
+    }
+  }
+
+  async function runBulkSetCustomVariable(ids: string[], key: string, value: string) {
+    const stableKey = String(key || "").trim();
+    if (!stableKey) return;
+    const stableValue = String(value ?? "");
+    const stableIds = Array.from(new Set((ids || []).map((x) => String(x || "").trim()).filter(Boolean))).slice(0, 200);
+    if (!stableIds.length) return;
+
+    setBulkBusy(true);
+    try {
+      let okCount = 0;
+      for (const id of stableIds) {
+        const res = await fetch(`/api/portal/people/contacts/${encodeURIComponent(id)}/custom-variables`, {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ key: stableKey, value: stableValue }),
+          cache: "no-store",
+        });
+        const json = (await res.json().catch(() => ({}))) as any;
+        if (res.ok && json?.ok) okCount += 1;
+      }
+      toast.success(`Updated ${okCount} contact(s)`);
+      void load({ contactsCursor, leadsCursor });
+    } catch (e: any) {
+      toast.error(String(e?.message || "Failed to update contacts"));
+    } finally {
+      setBulkBusy(false);
+    }
+  }
+
+  function openDeleteConfirm(ids: string[], context: string) {
+    const stableIds = Array.from(new Set((ids || []).map((x) => String(x || "").trim()).filter(Boolean))).slice(0, 200);
+    if (!stableIds.length) return;
+    setDeleteConfirmIds(stableIds);
+    setDeleteConfirmContext(context);
+    setDeleteConfirmOpen(true);
+  }
+
   return (
-    <div className="mx-auto w-full max-w-6xl pb-[calc(var(--pa-portal-embed-footer-offset,0px)+96px+var(--pa-portal-floating-tools-reserve,0px))]">
+    <div className="mx-auto w-full max-w-6xl pb-[calc(var(--pa-portal-embed-footer-offset,0px)+96px+var(--pa-portal-floating-tools-reserve,0px))] [&_button]:transition [&_button]:duration-150 [&_button]:ease-out [&_a]:transition [&_a]:duration-150 [&_a]:ease-out">
       <div className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-end">
         <div>
           <h1 className="text-2xl font-bold text-brand-ink sm:text-3xl">People</h1>
@@ -1430,10 +1636,173 @@ export function PortalPeopleContactsClient() {
                 );
               })()}
 
+              {mobilePeopleFilter !== "unlinked" && selectedContactIds.length ? (
+                <div className="mt-3 rounded-2xl border border-zinc-200 bg-zinc-50 px-3 py-3">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <div className="text-xs font-semibold text-zinc-700">{selectedContactIds.length} selected</div>
+                    <button
+                      type="button"
+                      className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+                      onClick={() => setSelectedContactIds([])}
+                      disabled={bulkBusy || deletingContact}
+                    >
+                      Clear
+                    </button>
+                    <button
+                      type="button"
+                      className="rounded-xl border border-red-200 bg-white px-3 py-2 text-xs font-semibold text-red-800 hover:bg-red-50"
+                      onClick={() => openDeleteConfirm(selectedContactIds, `Delete ${selectedContactIds.length} contact(s)?`)}
+                      disabled={bulkBusy || deletingContact}
+                    >
+                      Delete
+                    </button>
+                    <a
+                      className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+                      href={(() => {
+                        const phones = selectedVisibleContacts.map((c) => String(c.phone || "").trim()).filter(Boolean);
+                        return phones.length
+                          ? `${portalBase}/app/services/inbox?channel=sms&compose=1&to=${encodeURIComponent(phones.join(","))}`
+                          : `${portalBase}/app/services/inbox?channel=sms&compose=1`;
+                      })()}
+                    >
+                      Send SMS
+                    </a>
+                    <a
+                      className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+                      href={(() => {
+                        const emails = selectedVisibleContacts.map((c) => String(c.email || "").trim()).filter(Boolean);
+                        return emails.length
+                          ? `${portalBase}/app/services/inbox?channel=email&compose=1&to=${encodeURIComponent(emails.join(","))}`
+                          : `${portalBase}/app/services/inbox?channel=email&compose=1`;
+                      })()}
+                    >
+                      Send Email
+                    </a>
+                    <button
+                      type="button"
+                      className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+                      onClick={() => {
+                        const phones = selectedVisibleContacts.map((c) => String(c.phone || "").trim()).filter(Boolean);
+                        void (async () => {
+                          try {
+                            await navigator.clipboard.writeText(phones.join("\n"));
+                            toast.success(`Copied ${phones.length} phone(s)`);
+                          } catch {
+                            toast.error("Failed to copy phones");
+                          }
+                        })();
+                      }}
+                      disabled={bulkBusy}
+                    >
+                      Copy phones
+                    </button>
+                    <button
+                      type="button"
+                      className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+                      onClick={() => {
+                        const emails = selectedVisibleContacts.map((c) => String(c.email || "").trim()).filter(Boolean);
+                        void (async () => {
+                          try {
+                            await navigator.clipboard.writeText(emails.join("\n"));
+                            toast.success(`Copied ${emails.length} email(s)`);
+                          } catch {
+                            toast.error("Failed to copy emails");
+                          }
+                        })();
+                      }}
+                      disabled={bulkBusy}
+                    >
+                      Copy emails
+                    </button>
+                  </div>
+
+                  <div className="mt-3 grid grid-cols-1 gap-2">
+                    <div>
+                      <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Add tag</div>
+                      <div className="mt-1">
+                        <PortalSelectDropdown<string>
+                          value={bulkTagId}
+                          onChange={(v) => setBulkTagId(String(v || ""))}
+                          options={[
+                            { value: "", label: "Select a tag…" },
+                            ...ownerTags.slice(0, 250).map((t) => ({ value: t.id, label: t.name })),
+                          ]}
+                          buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none hover:bg-zinc-50 focus:border-(--color-brand-blue)"
+                        />
+                      </div>
+                      <button
+                        type="button"
+                        className="mt-2 w-full rounded-xl bg-brand-ink px-3 py-2 text-xs font-semibold text-white hover:opacity-95 disabled:opacity-60"
+                        disabled={!bulkTagId || bulkBusy || deletingContact}
+                        onClick={() =>
+                          void (async () => {
+                            await runBulkAddTag(selectedContactIds, bulkTagId);
+                            setBulkTagId("");
+                          })()
+                        }
+                      >
+                        Add tag
+                      </button>
+                    </div>
+
+                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                      <div>
+                        <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Custom field key</div>
+                        <input
+                          className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-(--color-brand-blue)"
+                          value={bulkCustomKey}
+                          onChange={(e) => setBulkCustomKey(e.target.value)}
+                          placeholder="e.g. address"
+                        />
+                      </div>
+                      <div>
+                        <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Value</div>
+                        <input
+                          className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-(--color-brand-blue)"
+                          value={bulkCustomValue}
+                          onChange={(e) => setBulkCustomValue(e.target.value)}
+                          placeholder="(blank clears)"
+                        />
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      className="w-full rounded-xl bg-brand-ink px-3 py-2 text-xs font-semibold text-white hover:opacity-95 disabled:opacity-60"
+                      disabled={!bulkCustomKey.trim() || bulkBusy || deletingContact}
+                      onClick={() => void runBulkSetCustomVariable(selectedContactIds, bulkCustomKey, bulkCustomValue)}
+                    >
+                      Apply custom field
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+
               <div className="mt-4 rounded-2xl border border-zinc-200 overflow-x-auto">
                 <table className="w-full text-left text-sm">
                   <thead className="bg-zinc-50 text-xs font-semibold uppercase tracking-wide text-zinc-500">
                     <tr>
+                      {mobilePeopleFilter !== "unlinked" ? (
+                        <th className="px-3 py-2 w-10">
+                          <input
+                            ref={mobileSelectAllRef}
+                            type="checkbox"
+                            checked={allVisibleMobileSelected}
+                            onChange={(e) => {
+                              const checked = e.target.checked;
+                              setSelectedContactIds((prev) => {
+                                const set = new Set(prev);
+                                for (const id of visibleMobileContactIds) {
+                                  if (checked) set.add(id);
+                                  else set.delete(id);
+                                }
+                                return Array.from(set);
+                              });
+                            }}
+                            className="h-4 w-4 rounded border-zinc-300 text-blue-600"
+                            aria-label="Select all visible contacts"
+                          />
+                        </th>
+                      ) : null}
                       <th className="px-3 py-2">Name</th>
                       <th className="px-3 py-2">Email</th>
                       <th className="px-3 py-2">Phone</th>
@@ -1468,6 +1837,23 @@ export function PortalPeopleContactsClient() {
                             className={classNames("border-t border-zinc-200", "cursor-pointer hover:bg-zinc-50")}
                             onClick={() => void openContact(c.id)}
                           >
+                            <td className="px-3 py-3 w-10" onClick={(e) => e.stopPropagation()}>
+                              <input
+                                type="checkbox"
+                                checked={selectedContactSet.has(c.id)}
+                                onChange={(e) => {
+                                  const checked = e.target.checked;
+                                  setSelectedContactIds((prev) => {
+                                    const set = new Set(prev);
+                                    if (checked) set.add(c.id);
+                                    else set.delete(c.id);
+                                    return Array.from(set);
+                                  });
+                                }}
+                                className="h-4 w-4 rounded border-zinc-300 text-blue-600"
+                                aria-label={`Select ${c.name || "contact"}`}
+                              />
+                            </td>
                             <td className="px-3 py-3 min-w-0">
                               <div className="min-w-0">
                                 <div className="font-semibold text-zinc-900 truncate">{c.name || "N/A"}</div>
@@ -1500,7 +1886,7 @@ export function PortalPeopleContactsClient() {
                       )
                     ) : (
                       <tr className="border-t border-zinc-200">
-                        <td className="px-3 py-4 text-sm text-zinc-600" colSpan={3}>
+                        <td className="px-3 py-4 text-sm text-zinc-600" colSpan={mobilePeopleFilter === "unlinked" ? 3 : 4}>
                           No matches.
                         </td>
                       </tr>
@@ -1543,6 +1929,167 @@ export function PortalPeopleContactsClient() {
                   </button>
                 </div>
               </div>
+
+              {selectedContactIds.length ? (
+                <div className="mt-3 rounded-2xl border border-zinc-200 bg-zinc-50 px-3 py-3">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <div className="text-xs font-semibold text-zinc-700">{selectedContactIds.length} selected</div>
+                    <button
+                      type="button"
+                      className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+                      onClick={() => setSelectedContactIds([])}
+                      disabled={bulkBusy || deletingContact}
+                    >
+                      Clear
+                    </button>
+                    <button
+                      type="button"
+                      className="rounded-xl border border-red-200 bg-white px-3 py-2 text-xs font-semibold text-red-800 hover:bg-red-50"
+                      onClick={() => openDeleteConfirm(selectedContactIds, `Delete ${selectedContactIds.length} contact(s)?`)}
+                      disabled={bulkBusy || deletingContact}
+                    >
+                      Delete
+                    </button>
+
+                    <a
+                      className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+                      href={(() => {
+                        const phones = filteredContacts
+                          .filter((c) => selectedContactSet.has(c.id))
+                          .map((c) => String(c.phone || "").trim())
+                          .filter(Boolean);
+                        return phones.length
+                          ? `${portalBase}/app/services/inbox?channel=sms&compose=1&to=${encodeURIComponent(phones.join(","))}`
+                          : `${portalBase}/app/services/inbox?channel=sms&compose=1`;
+                      })()}
+                      title="Opens the SMS composer (comma-separated recipients)"
+                    >
+                      Send SMS
+                    </a>
+                    <a
+                      className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+                      href={(() => {
+                        const emails = filteredContacts
+                          .filter((c) => selectedContactSet.has(c.id))
+                          .map((c) => String(c.email || "").trim())
+                          .filter(Boolean);
+                        return emails.length
+                          ? `${portalBase}/app/services/inbox?channel=email&compose=1&to=${encodeURIComponent(emails.join(","))}`
+                          : `${portalBase}/app/services/inbox?channel=email&compose=1`;
+                      })()}
+                      title="Opens the email composer (comma-separated recipients)"
+                    >
+                      Send Email
+                    </a>
+
+                    <button
+                      type="button"
+                      className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+                      onClick={() => {
+                        const phones = filteredContacts
+                          .filter((c) => selectedContactSet.has(c.id))
+                          .map((c) => String(c.phone || "").trim())
+                          .filter(Boolean);
+                        void (async () => {
+                          try {
+                            await navigator.clipboard.writeText(phones.join("\n"));
+                            toast.success(`Copied ${phones.length} phone(s)`);
+                          } catch {
+                            toast.error("Failed to copy phones");
+                          }
+                        })();
+                      }}
+                      disabled={bulkBusy}
+                      title="Copies one phone per line"
+                    >
+                      Copy phones
+                    </button>
+                    <button
+                      type="button"
+                      className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+                      onClick={() => {
+                        const emails = filteredContacts
+                          .filter((c) => selectedContactSet.has(c.id))
+                          .map((c) => String(c.email || "").trim())
+                          .filter(Boolean);
+                        void (async () => {
+                          try {
+                            await navigator.clipboard.writeText(emails.join("\n"));
+                            toast.success(`Copied ${emails.length} email(s)`);
+                          } catch {
+                            toast.error("Failed to copy emails");
+                          }
+                        })();
+                      }}
+                      disabled={bulkBusy}
+                      title="Copies one email per line"
+                    >
+                      Copy emails
+                    </button>
+                  </div>
+
+                  <div className="mt-3 grid grid-cols-1 gap-2 lg:grid-cols-12">
+                    <div className="lg:col-span-4">
+                      <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Add tag</div>
+                      <div className="mt-1">
+                        <PortalSelectDropdown<string>
+                          value={bulkTagId}
+                          onChange={(v) => setBulkTagId(String(v || ""))}
+                          options={[
+                            { value: "", label: "Select a tag…" },
+                            ...ownerTags.slice(0, 250).map((t) => ({ value: t.id, label: t.name })),
+                          ]}
+                          buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none hover:bg-zinc-50 focus:border-(--color-brand-blue)"
+                        />
+                      </div>
+                    </div>
+                    <div className="lg:col-span-2 flex items-end">
+                      <button
+                        type="button"
+                        className="w-full rounded-xl bg-brand-ink px-3 py-2 text-xs font-semibold text-white hover:opacity-95 disabled:opacity-60"
+                        disabled={!bulkTagId || bulkBusy || deletingContact}
+                        onClick={() =>
+                          void (async () => {
+                            await runBulkAddTag(selectedContactIds, bulkTagId);
+                            setBulkTagId("");
+                          })()
+                        }
+                      >
+                        Add tag
+                      </button>
+                    </div>
+
+                    <div className="lg:col-span-3">
+                      <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Custom field key</div>
+                      <input
+                        className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-(--color-brand-blue)"
+                        value={bulkCustomKey}
+                        onChange={(e) => setBulkCustomKey(e.target.value)}
+                        placeholder="e.g. address"
+                      />
+                    </div>
+                    <div className="lg:col-span-3">
+                      <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Value</div>
+                      <input
+                        className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-(--color-brand-blue)"
+                        value={bulkCustomValue}
+                        onChange={(e) => setBulkCustomValue(e.target.value)}
+                        placeholder="(blank clears)"
+                      />
+                    </div>
+                    <div className="lg:col-span-2 flex items-end">
+                      <button
+                        type="button"
+                        className="w-full rounded-xl bg-brand-ink px-3 py-2 text-xs font-semibold text-white hover:opacity-95 disabled:opacity-60"
+                        disabled={!bulkCustomKey.trim() || bulkBusy || deletingContact}
+                        onClick={() => void runBulkSetCustomVariable(selectedContactIds, bulkCustomKey, bulkCustomValue)}
+                      >
+                        Apply
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ) : null}
 
               {(() => {
                 const contactsTotal = typeof data.totalContacts === "number" ? data.totalContacts : data.contacts.length;
@@ -1592,6 +2139,26 @@ export function PortalPeopleContactsClient() {
                 <table className="w-full text-left text-sm">
                   <thead className="bg-zinc-50 text-xs font-semibold uppercase tracking-wide text-zinc-500">
                     <tr>
+                      <th className="px-3 py-2 sm:px-4 sm:py-3 w-10">
+                        <input
+                          ref={selectAllRef}
+                          type="checkbox"
+                          checked={allVisibleSelected}
+                          onChange={(e) => {
+                            const checked = e.target.checked;
+                            setSelectedContactIds((prev) => {
+                              const set = new Set(prev);
+                              for (const id of visibleContactIds) {
+                                if (checked) set.add(id);
+                                else set.delete(id);
+                              }
+                              return Array.from(set);
+                            });
+                          }}
+                          className="h-4 w-4 rounded border-zinc-300 text-blue-600"
+                          aria-label="Select all visible contacts"
+                        />
+                      </th>
                       <th className="px-3 py-2 sm:px-4 sm:py-3">Name</th>
                       <th className="px-3 py-2 sm:px-4 sm:py-3">Email</th>
                       <th className="px-3 py-2 sm:px-4 sm:py-3">Phone</th>
@@ -1605,6 +2172,23 @@ export function PortalPeopleContactsClient() {
                           className={classNames("border-t border-zinc-200", "cursor-pointer hover:bg-zinc-50")}
                           onClick={() => void openContact(c.id)}
                         >
+                          <td className="px-3 py-2 sm:px-4 sm:py-3 w-10" onClick={(e) => e.stopPropagation()}>
+                            <input
+                              type="checkbox"
+                              checked={selectedContactSet.has(c.id)}
+                              onChange={(e) => {
+                                const checked = e.target.checked;
+                                setSelectedContactIds((prev) => {
+                                  const set = new Set(prev);
+                                  if (checked) set.add(c.id);
+                                  else set.delete(c.id);
+                                  return Array.from(set);
+                                });
+                              }}
+                              className="h-4 w-4 rounded border-zinc-300 text-blue-600"
+                              aria-label={`Select ${c.name || "contact"}`}
+                            />
+                          </td>
                           <td className="px-3 py-2 sm:px-4 sm:py-3 min-w-0">
                             <div className="min-w-0">
                               <div className="font-semibold text-zinc-900 truncate">{c.name || "N/A"}</div>
@@ -1636,7 +2220,7 @@ export function PortalPeopleContactsClient() {
                       ))
                     ) : (
                       <tr className="border-t border-zinc-200">
-                        <td className="px-3 py-5 text-sm text-zinc-600 sm:px-4" colSpan={3}>
+                        <td className="px-3 py-5 text-sm text-zinc-600 sm:px-4" colSpan={4}>
                           <div className="flex flex-wrap items-center justify-between gap-2">
                             <div>No contacts yet.</div>
                             <button
@@ -1970,6 +2554,44 @@ export function PortalPeopleContactsClient() {
                       <div className="block md:col-span-2">
                         <div className="text-xs font-semibold text-zinc-700">Signature</div>
                         <div className="mt-1">
+                          <input
+                            ref={manualSignatureFileInputRef}
+                            type="file"
+                            accept="image/*"
+                            className="hidden"
+                            onChange={(e) => {
+                              const f = e.target.files?.[0] || null;
+                              e.target.value = "";
+                              if (!f) return;
+                              void (async () => {
+                                try {
+                                  const pngDataUrl = await convertImageFileToPngDataUrl(f);
+                                  setManualSignature(pngDataUrl);
+                                  toast.success("Signature image uploaded");
+                                } catch (err: any) {
+                                  toast.error(String(err?.message || "Failed to import image"));
+                                }
+                              })();
+                            }}
+                          />
+
+                          <div className="mb-2 flex flex-wrap items-center gap-2">
+                            <button
+                              type="button"
+                              className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+                              onClick={() => manualSignatureFileInputRef.current?.click()}
+                            >
+                              Upload image
+                            </button>
+                            <button
+                              type="button"
+                              className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+                              onClick={() => setManualSignature("")}
+                            >
+                              Clear
+                            </button>
+                          </div>
+
                           <SignaturePad
                             value={manualSignature}
                             onChange={setManualSignature}
@@ -2576,74 +3198,20 @@ export function PortalPeopleContactsClient() {
                 <div className="text-base font-semibold text-zinc-900">Contact details</div>
                 <div className="mt-1 text-xs text-zinc-500">Click outside to close.</div>
               </div>
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  disabled={!selectedContactId || deletingContact}
-                  className={classNames(
-                    "rounded-xl border px-3 py-2 text-xs font-semibold",
-                    !selectedContactId || deletingContact
-                      ? "border-zinc-200 bg-white text-zinc-400"
-                      : "border-red-200 bg-red-50 text-red-800 hover:bg-red-100",
-                  )}
-                  onClick={() =>
-                    void (async () => {
-                      if (!selectedContactId) return;
-                      if (deletingContact) return;
-                      const confirmed = window.confirm(
-                        editingContact && editContactDirty
-                          ? "You have unsaved changes. Delete this contact anyway?"
-                          : "Delete this contact? This cannot be undone.",
-                      );
-                      if (!confirmed) return;
-                      setDeletingContact(true);
-                      try {
-                        const res = await fetch(`/api/portal/contacts/${encodeURIComponent(selectedContactId)}`, {
-                          method: "DELETE",
-                          cache: "no-store",
-                        });
-                        const json = (await res.json().catch(() => ({}))) as any;
-                        if (!res.ok || !json?.ok) throw new Error(String(json?.error || "Failed to delete contact"));
-
-                        toast.success("Deleted contact");
-
-                        setDetailOpen(false);
-                        setSelectedContactId(null);
-                        setDetail(null);
-                        setDetailTags([]);
-                        clearContactIdFromUrl();
-
-                        setContactsCursor(null);
-                        setLeadsCursor(null);
-                        setContactsCursorStack([null]);
-                        setLeadsCursorStack([null]);
-                        void load({ contactsCursor: null, leadsCursor: null });
-                      } catch (e: any) {
-                        toast.error(String(e?.message || "Failed to delete contact"));
-                      } finally {
-                        setDeletingContact(false);
-                      }
-                    })()
-                  }
-                >
-                  {deletingContact ? "Deleting…" : "Delete"}
-                </button>
-
-                <button
-                  type="button"
-                  aria-label="Close contact details"
-                  className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-zinc-200 bg-white text-lg font-semibold text-zinc-800 hover:bg-zinc-50"
-                  onClick={() => {
-                    setDetailOpen(false);
-                    setSelectedContactId(null);
-                    setDetail(null);
-                    setDetailTags([]);
-                    clearContactIdFromUrl();
-                  }}
-                >
-                  ×
-                </button>
-              </div>
+              <button
+                type="button"
+                aria-label="Close contact details"
+                className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-zinc-200 bg-white text-lg font-semibold text-zinc-800 hover:bg-zinc-50"
+                onClick={() => {
+                  setDetailOpen(false);
+                  setSelectedContactId(null);
+                  setDetail(null);
+                  setDetailTags([]);
+                  clearContactIdFromUrl();
+                }}
+              >
+                ×
+              </button>
             </div>
 
             <div
@@ -2779,6 +3347,44 @@ export function PortalPeopleContactsClient() {
                         <div className="text-xs font-semibold text-zinc-600">Signature</div>
                         {editingContact ? (
                           <div className="mt-1">
+                            <input
+                              ref={editSignatureFileInputRef}
+                              type="file"
+                              accept="image/*"
+                              className="hidden"
+                              onChange={(e) => {
+                                const f = e.target.files?.[0] || null;
+                                e.target.value = "";
+                                if (!f) return;
+                                void (async () => {
+                                  try {
+                                    const pngDataUrl = await convertImageFileToPngDataUrl(f);
+                                    setEditCustomVarRows((prev) => upsertCustomVariableRow(prev, "signature", pngDataUrl));
+                                    toast.success("Signature image uploaded");
+                                  } catch (err: any) {
+                                    toast.error(String(err?.message || "Failed to import image"));
+                                  }
+                                })();
+                              }}
+                            />
+
+                            <div className="mb-2 flex flex-wrap items-center gap-2">
+                              <button
+                                type="button"
+                                className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+                                onClick={() => editSignatureFileInputRef.current?.click()}
+                              >
+                                Upload image
+                              </button>
+                              <button
+                                type="button"
+                                className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
+                                onClick={() => setEditCustomVarRows((prev) => upsertCustomVariableRow(prev, "signature", ""))}
+                              >
+                                Clear
+                              </button>
+                            </div>
+
                             <SignaturePad
                               value={editCreditValues.signature}
                               onChange={(nextValue) => setEditCustomVarRows((prev) => upsertCustomVariableRow(prev, "signature", nextValue))}
@@ -2995,6 +3601,31 @@ export function PortalPeopleContactsClient() {
                     )}
                   </div>
                 </div>
+
+                {selectedContactId ? (
+                  <div className="mt-4 rounded-2xl border border-red-200 bg-red-50 p-4">
+                    <div className="text-xs font-semibold uppercase tracking-wide text-red-800">Danger zone</div>
+                    <div className="mt-1 text-sm text-red-900">Delete this contact and associated relationships where applicable.</div>
+                    {editingContact && editContactDirty ? (
+                      <div className="mt-2 text-xs font-semibold text-red-900">You have unsaved changes. Deleting will discard them.</div>
+                    ) : null}
+                    <div className="mt-3 flex items-center justify-end">
+                      <button
+                        type="button"
+                        disabled={deletingContact}
+                        className={classNames(
+                          "rounded-xl border px-3 py-2 text-xs font-semibold",
+                          deletingContact
+                            ? "border-zinc-200 bg-white text-zinc-400"
+                            : "border-red-300 bg-white text-red-800 hover:bg-red-100",
+                        )}
+                        onClick={() => openDeleteConfirm([selectedContactId], "Delete this contact?")}
+                      >
+                        Delete contact
+                      </button>
+                    </div>
+                  </div>
+                ) : null}
 
                 <div className="mt-3 text-xs text-zinc-500">
                   Created: {detail?.createdAtIso ? new Date(detail.createdAtIso).toLocaleString() : "N/A"}
@@ -3299,6 +3930,64 @@ export function PortalPeopleContactsClient() {
                 disabled={savingLead || !leadBusinessName.trim() || !leadDirty}
               >
                 {savingLead ? "Saving…" : leadDirty ? "Save" : "Saved"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {deleteConfirmOpen ? (
+        <div
+          className="fixed inset-0 z-9000 flex items-start justify-center px-4"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Confirm delete"
+          style={{
+            paddingTop: "calc(var(--pa-modal-safe-top, 0px) + 16px)",
+            paddingBottom: "calc(var(--pa-modal-safe-bottom, 0px) + 16px)",
+          }}
+          onClick={() => {
+            if (deletingContact) return;
+            setDeleteConfirmOpen(false);
+          }}
+        >
+          <div className="absolute inset-0 bg-black/40" />
+          <div
+            className="relative w-full max-w-lg max-h-[calc(100dvh-var(--pa-modal-safe-top,0px)-var(--pa-modal-safe-bottom,0px)-32px)] overflow-y-auto rounded-3xl border border-zinc-200 bg-white p-6 shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="text-base font-semibold text-zinc-900">Confirm delete</div>
+            <div className="mt-1 text-sm text-zinc-600">{deleteConfirmContext || "Delete the selected contact(s)?"}</div>
+            <div className="mt-4 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-900">
+              You&apos;re about to delete {deleteConfirmIds.length} contact(s). This cannot be undone.
+            </div>
+            <div className="mt-5 flex flex-col gap-2 sm:flex-row sm:justify-end">
+              <button
+                type="button"
+                disabled={deletingContact}
+                onClick={() => setDeleteConfirmOpen(false)}
+                className="rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50 disabled:opacity-60"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={deletingContact}
+                onClick={() =>
+                  void (async () => {
+                    const ids = deleteConfirmIds;
+                    setDeleteConfirmOpen(false);
+                    await runBulkDelete(ids);
+                    setDeleteConfirmIds([]);
+                    setDeleteConfirmContext("");
+                  })()
+                }
+                className={classNames(
+                  "rounded-2xl px-5 py-2 text-sm font-semibold",
+                  deletingContact ? "bg-zinc-200 text-zinc-600" : "bg-red-600 text-white hover:bg-red-700",
+                )}
+              >
+                {deletingContact ? "Deleting…" : "Delete"}
               </button>
             </div>
           </div>
