@@ -2,7 +2,7 @@
 
 import type { PutBlobResult } from "@vercel/blob";
 import { upload as uploadToVercelBlob } from "@vercel/blob/client";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { type Ref, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import type { SignaturePadHandle } from "@/components/SignaturePad";
 import { SignaturePad } from "@/components/SignaturePad";
@@ -64,7 +64,7 @@ function SignatureField({
 }: {
   value: string;
   onChange: (nextValue: string) => void;
-  padRef?: React.Ref<SignaturePadHandle>;
+  padRef?: Ref<SignaturePadHandle>;
   busy: boolean;
   radiusPx: number;
   inputBg: string;
@@ -118,6 +118,10 @@ export function CreditHostedFormClient({
   const signatureValuesRef = useRef<Record<string, string>>({});
   const fileValuesRef = useRef<Record<string, File[]>>({});
   const signaturePadByFieldNameRef = useRef<Record<string, SignaturePadHandle | null>>({});
+
+  const setSignaturePadHandle = useCallback((fieldName: string, handle: SignaturePadHandle | null) => {
+    signaturePadByFieldNameRef.current[fieldName] = handle;
+  }, []);
 
   const setFieldValue = (fieldName: string, nextValue: string | string[]) => {
     fieldValuesRef.current = { ...fieldValuesRef.current, [fieldName]: nextValue };
@@ -471,9 +475,7 @@ export function CreditHostedFormClient({
             ) : f.type === "signature" ? (
               <SignatureField
                 value={signatureValues[f.name] || ""}
-                padRef={(handle) => {
-                  signaturePadByFieldNameRef.current = { ...signaturePadByFieldNameRef.current, [f.name]: handle };
-                }}
+                padRef={(handle) => setSignaturePadHandle(f.name, handle)}
                 onChange={(nextValue) => {
                   setFieldValue(f.name, nextValue);
                   signatureValuesRef.current = { ...signatureValuesRef.current, [f.name]: nextValue };
