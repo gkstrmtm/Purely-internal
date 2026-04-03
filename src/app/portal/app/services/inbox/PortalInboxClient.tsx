@@ -257,8 +257,29 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
   const preferredToRef = useRef<string | null>(initialDeepLink.to);
   const preferredComposeRef = useRef<boolean>(Boolean(initialDeepLink.compose));
 
+  function splitComposeRecipients(raw: string): string[] {
+    const s = String(raw || "").trim();
+    if (!s) return [];
+    const parts = s
+      .split(/[\n\r,;]+/g)
+      .map((p) => p.trim())
+      .filter(Boolean);
+    const out: string[] = [];
+    const seen = new Set<string>();
+    for (const p of parts) {
+      const k = p.toLowerCase();
+      if (seen.has(k)) continue;
+      seen.add(k);
+      out.push(p);
+      if (out.length >= 50) break;
+    }
+    return out;
+  }
+
   function pickThreadIdFromTo(nextTab: Channel, nextThreads: Thread[], toRaw: string) {
-    const to = String(toRaw || "").trim();
+    const recipients = splitComposeRecipients(toRaw);
+    if (recipients.length !== 1) return null;
+    const to = recipients[0] || "";
     if (!to) return null;
 
     if (nextTab === "email") {
@@ -935,6 +956,12 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
     const body = composeBody.trim();
     const subject = composeSubject.trim();
 
+    const recipients = splitComposeRecipients(to);
+    if (activeThreadId && recipients.length > 1) {
+      setError("Bulk send can’t be done inside a thread. Clear the active thread and try again.");
+      return { ok: false };
+    }
+
     if (!to || (!body && composeAttachments.length === 0)) {
       setError("To and message or attachment are required");
       return { ok: false };
@@ -964,7 +991,16 @@ export function PortalInboxClient(props: { initialChannel?: Channel } = {}) {
 
     if (json?.scheduled) {
       const whenIso = typeof opts?.sendAt === "string" ? opts.sendAt : null;
-      toast.success(whenIso ? `Scheduled for ${formatWhen(whenIso)}` : "Scheduled");
+      const scheduledCount = typeof json?.scheduledCount === "number" ? json.scheduledCount : null;
+      const base = whenIso ? `Scheduled for ${formatWhen(whenIso)}` : "Scheduled";
+      toast.success(scheduledCount && scheduledCount > 1 ? `${base} (${scheduledCount} recipients)` : base);
+    }
+
+    const sentCount = typeof json?.sent === "number" ? json.sent : null;
+    const failedCount = typeof json?.failed === "number" ? json.failed : null;
+    if (sentCount && sentCount > 1) {
+      const suffix = failedCount ? ` (${failedCount} failed)` : "";
+      toast.success(`Sent to ${sentCount} recipients${suffix}`);
     }
 
     const threadId = typeof json.threadId === "string" ? json.threadId : activeThreadId;

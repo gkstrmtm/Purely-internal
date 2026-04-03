@@ -424,7 +424,7 @@ export function PortalPeopleContactsClient() {
   const [knownCustomVarKeys, setKnownCustomVarKeys] = useState<string[]>([]);
 
   const [customVarPickerOpen, setCustomVarPickerOpen] = useState(false);
-  const [customVarPickerMode, setCustomVarPickerMode] = useState<"manual" | "edit">("manual");
+  const [customVarPickerMode, setCustomVarPickerMode] = useState<"manual" | "edit" | "bulk">("manual");
   const [importHeaders, setImportHeaders] = useState<string[]>([]);
   const [importRows, setImportRows] = useState<string[][]>([]);
   const [importDupesOpen, setImportDupesOpen] = useState(false);
@@ -476,6 +476,11 @@ export function PortalPeopleContactsClient() {
   const [bulkTagId, setBulkTagId] = useState<string>("");
   const [bulkCustomKey, setBulkCustomKey] = useState<string>("");
   const [bulkCustomValue, setBulkCustomValue] = useState<string>("");
+
+  const [bulkCreateTagOpen, setBulkCreateTagOpen] = useState(false);
+  const [bulkCreateTagName, setBulkCreateTagName] = useState("");
+  const [bulkCreateTagColor, setBulkCreateTagColor] = useState<(typeof DEFAULT_TAG_COLORS)[number]>("#2563EB");
+  const [bulkCreateTagBusy, setBulkCreateTagBusy] = useState(false);
 
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [deleteConfirmIds, setDeleteConfirmIds] = useState<string[]>([]);
@@ -1046,6 +1051,48 @@ export function PortalPeopleContactsClient() {
     }
   }
 
+  async function createBulkOwnerTag() {
+    const name = bulkCreateTagName.trim().slice(0, 60);
+    if (!name) {
+      toast.error("Enter a tag name");
+      return;
+    }
+    const safeColor = bulkCreateTagColor;
+
+    setBulkCreateTagBusy(true);
+    try {
+      const res = await fetch("/api/portal/contact-tags", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ name, color: safeColor }),
+      });
+      const json = (await res.json().catch(() => ({}))) as any;
+      if (!res.ok || !json?.ok || !json?.tag?.id) {
+        throw new Error(String(json?.error || "Failed to create tag"));
+      }
+      const created: ContactTag = {
+        id: String(json.tag.id),
+        name: String(json.tag.name || name).slice(0, 60),
+        color: typeof json.tag.color === "string" ? String(json.tag.color) : null,
+      };
+
+      setOwnerTags((prev) => {
+        const next = [...prev.filter((t) => t.id !== created.id), created];
+        next.sort((a, b) => a.name.localeCompare(b.name));
+        return next;
+      });
+      setBulkTagId(created.id);
+      setBulkCreateTagName("");
+      setBulkCreateTagColor("#2563EB");
+      setBulkCreateTagOpen(false);
+      toast.success("Tag created");
+    } catch (e: any) {
+      toast.error(String(e?.message || "Failed to create tag"));
+    } finally {
+      setBulkCreateTagBusy(false);
+    }
+  }
+
   function addManualTagValue(name: string) {
     const t = String(name || "").trim().slice(0, 60);
     if (!t) return;
@@ -1280,7 +1327,7 @@ export function PortalPeopleContactsClient() {
     for (const k of DEFAULT_CONTACT_CUSTOM_VAR_KEYS) add(k);
     for (const k of knownCustomVarKeys) add(k);
 
-    const rows = customVarPickerMode === "manual" ? manualCustomVarRows : editCustomVarRows;
+    const rows = customVarPickerMode === "manual" ? manualCustomVarRows : customVarPickerMode === "edit" ? editCustomVarRows : [];
     for (const r of rows || []) add(r.key);
 
     out.sort((a, b) => a.localeCompare(b));
@@ -1316,8 +1363,10 @@ export function PortalPeopleContactsClient() {
 
       if (customVarPickerMode === "manual") {
         setManualCustomVarRows(upsert);
-      } else {
+      } else if (customVarPickerMode === "edit") {
         setEditCustomVarRows(upsert);
+      } else {
+        setBulkCustomKey(stableKey);
       }
 
       setKnownCustomVarKeys((prev) => {
@@ -1424,6 +1473,34 @@ export function PortalPeopleContactsClient() {
       void load({ contactsCursor, leadsCursor });
     } catch (e: any) {
       toast.error(String(e?.message || "Failed to add tag"));
+    } finally {
+      setBulkBusy(false);
+    }
+  }
+
+  async function runBulkRemoveTag(ids: string[], tagId: string) {
+    const stableTagId = String(tagId || "").trim();
+    if (!stableTagId) return;
+    const stableIds = Array.from(new Set((ids || []).map((x) => String(x || "").trim()).filter(Boolean))).slice(0, 200);
+    if (!stableIds.length) return;
+
+    setBulkBusy(true);
+    try {
+      let okCount = 0;
+      for (const id of stableIds) {
+        const res = await fetch(`/api/portal/contacts/${encodeURIComponent(id)}/tags`, {
+          method: "DELETE",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ tagId: stableTagId }),
+          cache: "no-store",
+        });
+        const json = (await res.json().catch(() => ({}))) as any;
+        if (res.ok && json?.ok) okCount += 1;
+      }
+      toast.success(`Removed tag from ${okCount} contact(s)`);
+      void load({ contactsCursor, leadsCursor });
+    } catch (e: any) {
+      toast.error(String(e?.message || "Failed to remove tag"));
     } finally {
       setBulkBusy(false);
     }
@@ -1650,7 +1727,7 @@ export function PortalPeopleContactsClient() {
                     </button>
                     <button
                       type="button"
-                      className="rounded-xl border border-red-200 bg-white px-3 py-2 text-xs font-semibold text-red-800 hover:bg-red-50"
+                      className="rounded-xl bg-red-600 px-3 py-2 text-xs font-semibold text-white hover:bg-red-700 disabled:opacity-60"
                       onClick={() => openDeleteConfirm(selectedContactIds, `Delete ${selectedContactIds.length} contact(s)?`)}
                       disabled={bulkBusy || deletingContact}
                     >
@@ -1661,7 +1738,7 @@ export function PortalPeopleContactsClient() {
                       href={(() => {
                         const phones = selectedVisibleContacts.map((c) => String(c.phone || "").trim()).filter(Boolean);
                         return phones.length
-                          ? `${portalBase}/app/services/inbox?channel=sms&compose=1&to=${encodeURIComponent(phones.join(","))}`
+                          ? `${portalBase}/app/services/inbox?channel=sms&compose=1&to=${encodeURIComponent(phones.join(", "))}`
                           : `${portalBase}/app/services/inbox?channel=sms&compose=1`;
                       })()}
                     >
@@ -1672,48 +1749,12 @@ export function PortalPeopleContactsClient() {
                       href={(() => {
                         const emails = selectedVisibleContacts.map((c) => String(c.email || "").trim()).filter(Boolean);
                         return emails.length
-                          ? `${portalBase}/app/services/inbox?channel=email&compose=1&to=${encodeURIComponent(emails.join(","))}`
+                          ? `${portalBase}/app/services/inbox?channel=email&compose=1&to=${encodeURIComponent(emails.join(", "))}`
                           : `${portalBase}/app/services/inbox?channel=email&compose=1`;
                       })()}
                     >
                       Send Email
                     </a>
-                    <button
-                      type="button"
-                      className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
-                      onClick={() => {
-                        const phones = selectedVisibleContacts.map((c) => String(c.phone || "").trim()).filter(Boolean);
-                        void (async () => {
-                          try {
-                            await navigator.clipboard.writeText(phones.join("\n"));
-                            toast.success(`Copied ${phones.length} phone(s)`);
-                          } catch {
-                            toast.error("Failed to copy phones");
-                          }
-                        })();
-                      }}
-                      disabled={bulkBusy}
-                    >
-                      Copy phones
-                    </button>
-                    <button
-                      type="button"
-                      className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
-                      onClick={() => {
-                        const emails = selectedVisibleContacts.map((c) => String(c.email || "").trim()).filter(Boolean);
-                        void (async () => {
-                          try {
-                            await navigator.clipboard.writeText(emails.join("\n"));
-                            toast.success(`Copied ${emails.length} email(s)`);
-                          } catch {
-                            toast.error("Failed to copy emails");
-                          }
-                        })();
-                      }}
-                      disabled={bulkBusy}
-                    >
-                      Copy emails
-                    </button>
                   </div>
 
                   <div className="mt-3 grid grid-cols-1 gap-2">
@@ -1722,56 +1763,149 @@ export function PortalPeopleContactsClient() {
                       <div className="mt-1">
                         <PortalSelectDropdown<string>
                           value={bulkTagId}
-                          onChange={(v) => setBulkTagId(String(v || ""))}
+                          onChange={(v) => {
+                            const next = String(v || "");
+                            if (!next) return;
+                            if (next === "__new_tag__") {
+                              setBulkCreateTagOpen(true);
+                              return;
+                            }
+                            setBulkTagId(next);
+                          }}
                           options={[
-                            { value: "", label: "Select a tag…" },
+                            { value: "", label: "Select a tag…", disabled: true },
                             ...ownerTags.slice(0, 250).map((t) => ({ value: t.id, label: t.name })),
+                            { value: "__new_tag__", label: "New tag…" },
                           ]}
                           buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none hover:bg-zinc-50 focus:border-(--color-brand-blue)"
                         />
                       </div>
-                      <button
-                        type="button"
-                        className="mt-2 w-full rounded-xl bg-brand-ink px-3 py-2 text-xs font-semibold text-white hover:opacity-95 disabled:opacity-60"
-                        disabled={!bulkTagId || bulkBusy || deletingContact}
-                        onClick={() =>
-                          void (async () => {
-                            await runBulkAddTag(selectedContactIds, bulkTagId);
-                            setBulkTagId("");
-                          })()
-                        }
-                      >
-                        Add tag
-                      </button>
+                      <div className="mt-2 grid grid-cols-2 gap-2">
+                        <button
+                          type="button"
+                          className="w-full rounded-xl bg-blue-600 px-3 py-2 text-xs font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
+                          disabled={!bulkTagId || bulkBusy || deletingContact}
+                          onClick={() =>
+                            void (async () => {
+                              await runBulkAddTag(selectedContactIds, bulkTagId);
+                              setBulkTagId("");
+                            })()
+                          }
+                        >
+                          Add tag
+                        </button>
+                        <button
+                          type="button"
+                          className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-60"
+                          disabled={!bulkTagId || bulkBusy || deletingContact}
+                          onClick={() =>
+                            void (async () => {
+                              await runBulkRemoveTag(selectedContactIds, bulkTagId);
+                              setBulkTagId("");
+                            })()
+                          }
+                        >
+                          Remove tag
+                        </button>
+                      </div>
+
+                      {bulkCreateTagOpen ? (
+                        <div className="mt-2 rounded-2xl border border-zinc-200 bg-white p-3">
+                          <div className="text-xs font-semibold text-zinc-700">Create new tag</div>
+                          <div className="mt-2 grid grid-cols-1 gap-2">
+                            <input
+                              className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-(--color-brand-blue)"
+                              placeholder="Tag name"
+                              value={bulkCreateTagName}
+                              onChange={(e) => setBulkCreateTagName(e.target.value)}
+                            />
+                            <div className="flex flex-wrap items-center gap-1.5 rounded-xl border border-zinc-200 bg-white px-2 py-2">
+                              {DEFAULT_TAG_COLORS.slice(0, 10).map((c) => {
+                                const selected = c === bulkCreateTagColor;
+                                return (
+                                  <button
+                                    key={c}
+                                    type="button"
+                                    className={classNames(
+                                      "h-6 w-6 rounded-full border",
+                                      selected ? "border-zinc-900 ring-2 ring-zinc-900/20" : "border-zinc-200",
+                                    )}
+                                    style={{ backgroundColor: c }}
+                                    onClick={() => setBulkCreateTagColor(c)}
+                                    title={c}
+                                  />
+                                );
+                              })}
+                            </div>
+                            <div className="flex items-center justify-between gap-2">
+                              <button
+                                type="button"
+                                className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-700 hover:bg-zinc-50 disabled:opacity-60"
+                                onClick={() => {
+                                  setBulkCreateTagOpen(false);
+                                  setBulkCreateTagName("");
+                                  setBulkCreateTagColor("#2563EB");
+                                }}
+                                disabled={bulkCreateTagBusy}
+                              >
+                                Cancel
+                              </button>
+                              <button
+                                type="button"
+                                className="rounded-xl bg-blue-600 px-3 py-2 text-xs font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
+                                disabled={bulkCreateTagBusy}
+                                onClick={() => void createBulkOwnerTag()}
+                              >
+                                {bulkCreateTagBusy ? "Creating…" : "Create"}
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      ) : null}
                     </div>
 
-                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                      <div>
-                        <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Custom field key</div>
-                        <input
-                          className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-(--color-brand-blue)"
-                          value={bulkCustomKey}
-                          onChange={(e) => setBulkCustomKey(e.target.value)}
-                          placeholder="e.g. address"
-                        />
-                      </div>
-                      <div>
-                        <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Value</div>
-                        <input
-                          className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-(--color-brand-blue)"
-                          value={bulkCustomValue}
-                          onChange={(e) => setBulkCustomValue(e.target.value)}
-                          placeholder="(blank clears)"
-                        />
+                    <div>
+                      <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Variable</div>
+                      <div className="mt-1 flex items-center gap-2">
+                        <button
+                          type="button"
+                          className="flex-1 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-left text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
+                          onClick={() => {
+                            setCustomVarPickerMode("bulk");
+                            setCustomVarPickerOpen(true);
+                          }}
+                        >
+                          {bulkCustomKey ? bulkCustomKey : "Pick a variable…"}
+                        </button>
+                        {bulkCustomKey ? (
+                          <button
+                            type="button"
+                            className="shrink-0 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
+                            onClick={() => setBulkCustomKey("")}
+                          >
+                            Clear
+                          </button>
+                        ) : null}
                       </div>
                     </div>
+
+                    <div>
+                      <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Value</div>
+                      <input
+                        className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-(--color-brand-blue)"
+                        value={bulkCustomValue}
+                        onChange={(e) => setBulkCustomValue(e.target.value)}
+                        placeholder="(blank clears)"
+                      />
+                    </div>
+
                     <button
                       type="button"
-                      className="w-full rounded-xl bg-brand-ink px-3 py-2 text-xs font-semibold text-white hover:opacity-95 disabled:opacity-60"
+                      className="w-full rounded-xl bg-blue-600 px-3 py-2 text-xs font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
                       disabled={!bulkCustomKey.trim() || bulkBusy || deletingContact}
                       onClick={() => void runBulkSetCustomVariable(selectedContactIds, bulkCustomKey, bulkCustomValue)}
                     >
-                      Apply custom field
+                      Apply variable
                     </button>
                   </div>
                 </div>
@@ -1944,7 +2078,7 @@ export function PortalPeopleContactsClient() {
                     </button>
                     <button
                       type="button"
-                      className="rounded-xl border border-red-200 bg-white px-3 py-2 text-xs font-semibold text-red-800 hover:bg-red-50"
+                      className="rounded-xl bg-red-600 px-3 py-2 text-xs font-semibold text-white hover:bg-red-700 disabled:opacity-60"
                       onClick={() => openDeleteConfirm(selectedContactIds, `Delete ${selectedContactIds.length} contact(s)?`)}
                       disabled={bulkBusy || deletingContact}
                     >
@@ -1959,10 +2093,10 @@ export function PortalPeopleContactsClient() {
                           .map((c) => String(c.phone || "").trim())
                           .filter(Boolean);
                         return phones.length
-                          ? `${portalBase}/app/services/inbox?channel=sms&compose=1&to=${encodeURIComponent(phones.join(","))}`
+                          ? `${portalBase}/app/services/inbox?channel=sms&compose=1&to=${encodeURIComponent(phones.join(", "))}`
                           : `${portalBase}/app/services/inbox?channel=sms&compose=1`;
                       })()}
-                      title="Opens the SMS composer (comma-separated recipients)"
+                      title="Opens the SMS composer with all recipients"
                     >
                       Send SMS
                     </a>
@@ -1974,58 +2108,13 @@ export function PortalPeopleContactsClient() {
                           .map((c) => String(c.email || "").trim())
                           .filter(Boolean);
                         return emails.length
-                          ? `${portalBase}/app/services/inbox?channel=email&compose=1&to=${encodeURIComponent(emails.join(","))}`
+                          ? `${portalBase}/app/services/inbox?channel=email&compose=1&to=${encodeURIComponent(emails.join(", "))}`
                           : `${portalBase}/app/services/inbox?channel=email&compose=1`;
                       })()}
-                      title="Opens the email composer (comma-separated recipients)"
+                      title="Opens the email composer with all recipients"
                     >
                       Send Email
                     </a>
-
-                    <button
-                      type="button"
-                      className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
-                      onClick={() => {
-                        const phones = filteredContacts
-                          .filter((c) => selectedContactSet.has(c.id))
-                          .map((c) => String(c.phone || "").trim())
-                          .filter(Boolean);
-                        void (async () => {
-                          try {
-                            await navigator.clipboard.writeText(phones.join("\n"));
-                            toast.success(`Copied ${phones.length} phone(s)`);
-                          } catch {
-                            toast.error("Failed to copy phones");
-                          }
-                        })();
-                      }}
-                      disabled={bulkBusy}
-                      title="Copies one phone per line"
-                    >
-                      Copy phones
-                    </button>
-                    <button
-                      type="button"
-                      className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50"
-                      onClick={() => {
-                        const emails = filteredContacts
-                          .filter((c) => selectedContactSet.has(c.id))
-                          .map((c) => String(c.email || "").trim())
-                          .filter(Boolean);
-                        void (async () => {
-                          try {
-                            await navigator.clipboard.writeText(emails.join("\n"));
-                            toast.success(`Copied ${emails.length} email(s)`);
-                          } catch {
-                            toast.error("Failed to copy emails");
-                          }
-                        })();
-                      }}
-                      disabled={bulkBusy}
-                      title="Copies one email per line"
-                    >
-                      Copy emails
-                    </button>
                   </div>
 
                   <div className="mt-3 grid grid-cols-1 gap-2 lg:grid-cols-12">
@@ -2034,10 +2123,19 @@ export function PortalPeopleContactsClient() {
                       <div className="mt-1">
                         <PortalSelectDropdown<string>
                           value={bulkTagId}
-                          onChange={(v) => setBulkTagId(String(v || ""))}
+                          onChange={(v) => {
+                            const next = String(v || "");
+                            if (!next) return;
+                            if (next === "__new_tag__") {
+                              setBulkCreateTagOpen(true);
+                              return;
+                            }
+                            setBulkTagId(next);
+                          }}
                           options={[
-                            { value: "", label: "Select a tag…" },
+                            { value: "", label: "Select a tag…", disabled: true },
                             ...ownerTags.slice(0, 250).map((t) => ({ value: t.id, label: t.name })),
+                            { value: "__new_tag__", label: "New tag…" },
                           ]}
                           buttonClassName="flex w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none hover:bg-zinc-50 focus:border-(--color-brand-blue)"
                         />
@@ -2046,7 +2144,7 @@ export function PortalPeopleContactsClient() {
                     <div className="lg:col-span-2 flex items-end">
                       <button
                         type="button"
-                        className="w-full rounded-xl bg-brand-ink px-3 py-2 text-xs font-semibold text-white hover:opacity-95 disabled:opacity-60"
+                        className="w-full rounded-xl bg-blue-600 px-3 py-2 text-xs font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
                         disabled={!bulkTagId || bulkBusy || deletingContact}
                         onClick={() =>
                           void (async () => {
@@ -2059,16 +2157,101 @@ export function PortalPeopleContactsClient() {
                       </button>
                     </div>
 
-                    <div className="lg:col-span-3">
-                      <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Custom field key</div>
-                      <input
-                        className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-(--color-brand-blue)"
-                        value={bulkCustomKey}
-                        onChange={(e) => setBulkCustomKey(e.target.value)}
-                        placeholder="e.g. address"
-                      />
+                    <div className="lg:col-span-2 flex items-end">
+                      <button
+                        type="button"
+                        className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-800 hover:bg-zinc-50 disabled:opacity-60"
+                        disabled={!bulkTagId || bulkBusy || deletingContact}
+                        onClick={() =>
+                          void (async () => {
+                            await runBulkRemoveTag(selectedContactIds, bulkTagId);
+                            setBulkTagId("");
+                          })()
+                        }
+                      >
+                        Remove tag
+                      </button>
                     </div>
-                    <div className="lg:col-span-3">
+
+                    {bulkCreateTagOpen ? (
+                      <div className="lg:col-span-12 rounded-2xl border border-zinc-200 bg-white p-3">
+                        <div className="text-xs font-semibold text-zinc-700">Create new tag</div>
+                        <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-3">
+                          <input
+                            className="sm:col-span-2 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-(--color-brand-blue)"
+                            placeholder="Tag name"
+                            value={bulkCreateTagName}
+                            onChange={(e) => setBulkCreateTagName(e.target.value)}
+                          />
+                          <div className="flex flex-wrap items-center gap-1.5 rounded-xl border border-zinc-200 bg-white px-2 py-2">
+                            {DEFAULT_TAG_COLORS.slice(0, 10).map((c) => {
+                              const selected = c === bulkCreateTagColor;
+                              return (
+                                <button
+                                  key={c}
+                                  type="button"
+                                  className={classNames(
+                                    "h-6 w-6 rounded-full border",
+                                    selected ? "border-zinc-900 ring-2 ring-zinc-900/20" : "border-zinc-200",
+                                  )}
+                                  style={{ backgroundColor: c }}
+                                  onClick={() => setBulkCreateTagColor(c)}
+                                  title={c}
+                                />
+                              );
+                            })}
+                          </div>
+                        </div>
+                        <div className="mt-2 flex items-center justify-between gap-3">
+                          <button
+                            type="button"
+                            className="rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-700 hover:bg-zinc-50 disabled:opacity-60"
+                            onClick={() => {
+                              setBulkCreateTagOpen(false);
+                              setBulkCreateTagName("");
+                              setBulkCreateTagColor("#2563EB");
+                            }}
+                            disabled={bulkCreateTagBusy}
+                          >
+                            Cancel
+                          </button>
+                          <button
+                            type="button"
+                            className="rounded-xl bg-blue-600 px-3 py-2 text-xs font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
+                            disabled={bulkCreateTagBusy}
+                            onClick={() => void createBulkOwnerTag()}
+                          >
+                            {bulkCreateTagBusy ? "Creating…" : "Create"}
+                          </button>
+                        </div>
+                      </div>
+                    ) : null}
+
+                    <div className="lg:col-span-4">
+                      <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Variable</div>
+                      <div className="mt-1 flex items-center gap-2">
+                        <button
+                          type="button"
+                          className="flex-1 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-left text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
+                          onClick={() => {
+                            setCustomVarPickerMode("bulk");
+                            setCustomVarPickerOpen(true);
+                          }}
+                        >
+                          {bulkCustomKey ? bulkCustomKey : "Pick a variable…"}
+                        </button>
+                        {bulkCustomKey ? (
+                          <button
+                            type="button"
+                            className="shrink-0 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-700 hover:bg-zinc-50"
+                            onClick={() => setBulkCustomKey("")}
+                          >
+                            Clear
+                          </button>
+                        ) : null}
+                      </div>
+                    </div>
+                    <div className="lg:col-span-4">
                       <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Value</div>
                       <input
                         className="mt-1 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-(--color-brand-blue)"
@@ -2080,11 +2263,11 @@ export function PortalPeopleContactsClient() {
                     <div className="lg:col-span-2 flex items-end">
                       <button
                         type="button"
-                        className="w-full rounded-xl bg-brand-ink px-3 py-2 text-xs font-semibold text-white hover:opacity-95 disabled:opacity-60"
+                        className="w-full rounded-xl bg-blue-600 px-3 py-2 text-xs font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
                         disabled={!bulkCustomKey.trim() || bulkBusy || deletingContact}
                         onClick={() => void runBulkSetCustomVariable(selectedContactIds, bulkCustomKey, bulkCustomValue)}
                       >
-                        Apply
+                        Apply variable
                       </button>
                     </div>
                   </div>
@@ -3614,10 +3797,8 @@ export function PortalPeopleContactsClient() {
                         type="button"
                         disabled={deletingContact}
                         className={classNames(
-                          "rounded-xl border px-3 py-2 text-xs font-semibold",
-                          deletingContact
-                            ? "border-zinc-200 bg-white text-zinc-400"
-                            : "border-red-300 bg-white text-red-800 hover:bg-red-100",
+                          "rounded-xl px-3 py-2 text-xs font-semibold",
+                          deletingContact ? "bg-zinc-200 text-zinc-600" : "bg-red-600 text-white hover:bg-red-700",
                         )}
                         onClick={() => openDeleteConfirm([selectedContactId], "Delete this contact?")}
                       >
