@@ -1,6 +1,7 @@
 "use client";
 
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 
 import { renderCreditFunnelBlocks } from "@/lib/creditFunnelBlocks";
 import type { CreditFunnelTemplate } from "@/lib/creditFunnelTemplates";
@@ -20,15 +21,22 @@ export function CreditFunnelTemplatePreviewModal(props: {
   const pages = useMemo(() => buildCreditFunnelPagesFromTemplateAndTheme(props.template, props.theme), [props.template, props.theme]);
   const first = pages[0];
 
-  if (!props.open) return null;
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
 
-  return (
+  if (!props.open || !mounted) return null;
+
+  return createPortal(
     <div
-      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 px-4 pt-[calc(var(--pa-modal-safe-top,0px)+1rem)] pb-[calc(var(--pa-modal-safe-bottom,0px)+1rem)]"
+      className="fixed inset-0 z-[11000] flex items-center justify-center bg-black/55 px-4 pt-[calc(var(--pa-modal-safe-top,0px)+1rem)] pb-[calc(var(--pa-modal-safe-bottom,0px)+1rem)]"
       role="dialog"
       aria-modal="true"
+      onMouseDown={() => props.onClose()}
     >
-      <div className="w-full max-w-6xl max-h-[calc(100dvh-var(--pa-modal-safe-top,0px)-var(--pa-modal-safe-bottom,0px)-2rem)] overflow-hidden rounded-3xl bg-white shadow-2xl">
+      <div
+        className="w-full max-w-6xl max-h-[calc(100dvh-var(--pa-modal-safe-top,0px)-var(--pa-modal-safe-bottom,0px)-2rem)] overflow-hidden rounded-3xl bg-white shadow-2xl"
+        onMouseDown={(e) => e.stopPropagation()}
+      >
         <div className="flex items-center justify-between gap-3 border-b border-zinc-200 px-5 py-3">
           <div>
             <div className="text-sm font-bold text-zinc-900">Funnel preview</div>
@@ -78,6 +86,7 @@ export function CreditFunnelTemplatePreviewModal(props: {
           </div>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
