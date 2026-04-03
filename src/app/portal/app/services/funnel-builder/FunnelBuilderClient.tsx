@@ -11,6 +11,9 @@ import { useToast } from "@/components/ToastProvider";
 import { IconCopy, IconEdit } from "@/app/portal/PortalIcons";
 import { hostedFunnelPath, hostedFormPath } from "@/lib/publicHostedKeys";
 import { toPurelyHostedUrl } from "@/lib/publicHostedOrigin";
+import { CreditFormTemplatePreview } from "@/components/CreditFormTemplatePreview";
+import { CREDIT_FORM_TEMPLATES, coerceCreditFormTemplateKey, getCreditFormTemplate, type CreditFormTemplateKey } from "@/lib/creditFormTemplates";
+import { CREDIT_FORM_THEMES, coerceCreditFormThemeKey, getCreditFormTheme, type CreditFormThemeKey } from "@/lib/creditFormThemes";
 
 type CreditFunnel = {
   id: string;
@@ -185,6 +188,8 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
   const [creatingKind, setCreatingKind] = useState<"funnel" | "form" | null>(null);
   const [createName, setCreateName] = useState("");
   const [createSlug, setCreateSlug] = useState("");
+  const [createTemplateKey, setCreateTemplateKey] = useState<CreditFormTemplateKey>("credit-intake-premium");
+  const [createThemeKey, setCreateThemeKey] = useState<CreditFormThemeKey>("royal-indigo");
   const [busy, setBusy] = useState(false);
 
   const [funnelDeleteBusy, setFunnelDeleteBusy] = useState<Record<string, boolean>>({});
@@ -810,6 +815,8 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
     if (!creatingKind) return;
     setCreateSlug("");
     setCreateName("");
+    setCreateTemplateKey("credit-intake-premium");
+    setCreateThemeKey("royal-indigo");
   }, [creatingKind]);
 
   const openCreate = (kind: "funnel" | "form") => {
@@ -833,7 +840,16 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
       const res = await fetch(endpoint, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ slug, name: createName.trim() || undefined }),
+        body: JSON.stringify({
+          slug,
+          name: createName.trim() || undefined,
+          ...(creatingKind === "form"
+            ? {
+                templateKey: coerceCreditFormTemplateKey(createTemplateKey),
+                themeKey: coerceCreditFormThemeKey(createThemeKey),
+              }
+            : {}),
+        }),
       });
       const json = (await res.json().catch(() => null)) as any;
       if (!res.ok || !json || json.ok !== true) throw new Error(json?.error || "Create failed");
@@ -1863,6 +1879,53 @@ export function FunnelBuilderClient(props: { initialTab?: TabKey } = {}) {
             <p className="mt-1 text-sm text-zinc-600">Choose a URL slug. You can rename it later.</p>
 
             <div className="mt-4 space-y-3">
+              {creatingKind === "form" ? (
+                <div>
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <div>
+                      <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Template</div>
+                      <PortalListboxDropdown<CreditFormTemplateKey>
+                        value={createTemplateKey}
+                        onChange={(v) => {
+                          setCreateTemplateKey(v);
+                          const t = getCreditFormTemplate(v);
+                          if (t?.defaultThemeKey) setCreateThemeKey(t.defaultThemeKey);
+                        }}
+                        options={CREDIT_FORM_TEMPLATES.map((t) => ({ value: t.key, label: t.label, hint: t.description }))}
+                        buttonClassName="mt-1 flex w-full items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm hover:bg-zinc-50"
+                        renderOptionRight={(opt) => {
+                          const tmpl = CREDIT_FORM_TEMPLATES.find((t) => t.key === opt.value);
+                          const theme = tmpl ? getCreditFormTheme(tmpl.defaultThemeKey) : null;
+                          const c = theme?.style?.buttonBg || "#2563eb";
+                          return <div aria-hidden="true" className="h-3 w-3 rounded-full border border-black/10" style={{ backgroundColor: c }} />;
+                        }}
+                      />
+                    </div>
+
+                    <div>
+                      <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Theme</div>
+                      <PortalListboxDropdown<CreditFormThemeKey>
+                        value={createThemeKey}
+                        onChange={(v) => setCreateThemeKey(v)}
+                        options={CREDIT_FORM_THEMES.map((t) => ({ value: t.key, label: t.label, hint: t.description }))}
+                        buttonClassName="mt-1 flex w-full items-center justify-between gap-2 rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm hover:bg-zinc-50"
+                        renderOptionRight={(opt) => {
+                          const theme = CREDIT_FORM_THEMES.find((t) => t.key === opt.value);
+                          const c = theme?.style?.buttonBg || "#2563eb";
+                          return <div aria-hidden="true" className="h-3 w-3 rounded-full border border-black/10" style={{ backgroundColor: c }} />;
+                        }}
+                      />
+                    </div>
+                  </div>
+
+                  {(() => {
+                    const template = getCreditFormTemplate(createTemplateKey) || CREDIT_FORM_TEMPLATES[0]!;
+                    const theme = getCreditFormTheme(createThemeKey) || CREDIT_FORM_THEMES[0]!;
+                    return <CreditFormTemplatePreview template={template} theme={theme} className="mt-3" />;
+                  })()}
+                </div>
+              ) : null}
+
               <div>
                 <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Slug</div>
                 <input

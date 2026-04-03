@@ -1,5 +1,10 @@
 import { NextResponse } from "next/server";
 
+import type { Prisma } from "@prisma/client";
+
+import { normalizeCreditFormSchema } from "@/lib/creditFormSchema";
+import { buildCreditFormSchemaFromTemplateAndTheme, coerceCreditFormTemplateKey, getCreditFormTemplate } from "@/lib/creditFormTemplates";
+import { coerceCreditFormThemeKey, getCreditFormTheme } from "@/lib/creditFormThemes";
 import { prisma } from "@/lib/db";
 import { requireFunnelBuilderSession } from "@/lib/funnelBuilderAccess";
 
@@ -62,6 +67,16 @@ export async function POST(req: Request) {
   const slug = normalizeSlug(body?.slug);
   const nameRaw = typeof body?.name === "string" ? body.name.trim() : "";
   const name = nameRaw || (slug ? slug.replace(/-/g, " ") : "");
+  const templateKey = coerceCreditFormTemplateKey(body?.templateKey);
+  const template = templateKey ? getCreditFormTemplate(templateKey) : null;
+  const requestedThemeKey = coerceCreditFormThemeKey(body?.themeKey);
+  const themeKey = template ? requestedThemeKey || template.defaultThemeKey : null;
+  const theme = themeKey ? getCreditFormTheme(themeKey) : null;
+
+  const schemaJson: Prisma.InputJsonValue | undefined =
+    template && theme
+      ? (normalizeCreditFormSchema(buildCreditFormSchemaFromTemplateAndTheme(template, theme)) as unknown as Prisma.InputJsonValue)
+      : undefined;
 
   if (!slug) {
     return NextResponse.json({ ok: false, error: "Invalid slug" }, { status: 400 });
@@ -76,7 +91,7 @@ export async function POST(req: Request) {
   for (let i = 0; i < 8; i += 1) {
     form = await prisma.creditForm
       .create({
-        data: { ownerId, slug: candidate, name },
+        data: { ownerId, slug: candidate, name, ...(schemaJson ? { schemaJson } : {}) },
         select: { id: true, slug: true, name: true, status: true, createdAt: true, updatedAt: true },
       })
       .catch((e) => {

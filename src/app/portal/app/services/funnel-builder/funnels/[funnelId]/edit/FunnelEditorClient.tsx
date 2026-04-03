@@ -28,6 +28,9 @@ import { PortalSelectDropdown } from "@/components/PortalSelectDropdown";
 import { useToast } from "@/components/ToastProvider";
 import { PORTAL_VARIANT_HEADER, type PortalVariant } from "@/lib/portalVariant";
 import { FONT_PRESETS, applyFontPresetToStyle, fontPresetKeyFromStyle, googleFontImportCss } from "@/lib/fontPresets";
+import { CreditFormTemplatePreview } from "@/components/CreditFormTemplatePreview";
+import { CREDIT_FORM_TEMPLATES, coerceCreditFormTemplateKey, getCreditFormTemplate, type CreditFormTemplateKey } from "@/lib/creditFormTemplates";
+import { CREDIT_FORM_THEMES, coerceCreditFormThemeKey, getCreditFormTheme, type CreditFormThemeKey } from "@/lib/creditFormThemes";
 import { hostedFunnelPath } from "@/lib/publicHostedKeys";
 import { toPurelyHostedUrl } from "@/lib/publicHostedOrigin";
 
@@ -922,7 +925,7 @@ type FunnelEditorDialog =
   | { type: "rename-page"; value: string }
   | { type: "slug-page"; value: string }
   | { type: "create-page"; slug: string; title: string }
-  | { type: "create-form"; slug: string; name: string }
+  | { type: "create-form"; slug: string; name: string; templateKey: CreditFormTemplateKey; themeKey: CreditFormThemeKey }
   | { type: "delete-page" }
   | null;
 
@@ -3101,11 +3104,11 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
   };
 
   const openCreateForm = () => {
-    setDialog({ type: "create-form", slug: "", name: "" });
+    setDialog({ type: "create-form", slug: "", name: "", templateKey: "credit-intake-premium", themeKey: "royal-indigo" });
     setDialogError(null);
   };
 
-  const performCreateForm = async (args: { slug: string; name: string }) => {
+  const performCreateForm = async (args: { slug: string; name: string; templateKey: CreditFormTemplateKey; themeKey: CreditFormThemeKey }) => {
     const slug = normalizeSlug(args.slug);
     const name = args.name.trim();
     if (!slug) {
@@ -3124,7 +3127,12 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
           "content-type": "application/json",
           [PORTAL_VARIANT_HEADER]: portalVariant,
         },
-        body: JSON.stringify({ slug, name: name || undefined }),
+        body: JSON.stringify({
+          slug,
+          name: name || undefined,
+          templateKey: coerceCreditFormTemplateKey(args.templateKey),
+          themeKey: coerceCreditFormThemeKey(args.themeKey),
+        }),
       });
       const json = (await res.json().catch(() => null)) as any;
       if (!res.ok || !json || json.ok !== true) throw new Error(json?.error || "Failed to create form");
@@ -4711,7 +4719,12 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
               disabled={busy}
               onClick={() => {
                 if (dialog?.type !== "create-form") return;
-                void performCreateForm({ slug: dialog.slug, name: dialog.name });
+                void performCreateForm({
+                  slug: dialog.slug,
+                  name: dialog.name,
+                  templateKey: dialog.templateKey,
+                  themeKey: dialog.themeKey,
+                });
               }}
             >
               Create
@@ -4720,6 +4733,59 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
         }
       >
         <div className="space-y-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <label className="block">
+              <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Template</div>
+              <PortalListboxDropdown<CreditFormTemplateKey>
+                value={dialog?.type === "create-form" ? dialog.templateKey : "credit-intake-premium"}
+                onChange={(v) => {
+                  setDialogError(null);
+                  const t = getCreditFormTemplate(v);
+                  setDialog((prev) =>
+                    prev?.type === "create-form"
+                      ? {
+                          ...prev,
+                          templateKey: v,
+                          themeKey: t?.defaultThemeKey ? t.defaultThemeKey : prev.themeKey,
+                        }
+                      : prev,
+                  );
+                }}
+                options={CREDIT_FORM_TEMPLATES.map((t) => ({ value: t.key, label: t.label, hint: t.description }))}
+                renderOptionRight={(opt) => {
+                  const tmpl = CREDIT_FORM_TEMPLATES.find((t) => t.key === opt.value);
+                  const theme = tmpl ? getCreditFormTheme(tmpl.defaultThemeKey) : null;
+                  const c = theme?.style?.buttonBg || "#2563eb";
+                  return <div aria-hidden="true" className="h-3 w-3 rounded-full border border-black/10" style={{ backgroundColor: c }} />;
+                }}
+              />
+            </label>
+
+            <label className="block">
+              <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Theme</div>
+              <PortalListboxDropdown<CreditFormThemeKey>
+                value={dialog?.type === "create-form" ? dialog.themeKey : "royal-indigo"}
+                onChange={(v) => {
+                  setDialogError(null);
+                  setDialog((prev) => (prev?.type === "create-form" ? { ...prev, themeKey: v } : prev));
+                }}
+                options={CREDIT_FORM_THEMES.map((t) => ({ value: t.key, label: t.label, hint: t.description }))}
+                renderOptionRight={(opt) => {
+                  const theme = CREDIT_FORM_THEMES.find((t) => t.key === opt.value);
+                  const c = theme?.style?.buttonBg || "#2563eb";
+                  return <div aria-hidden="true" className="h-3 w-3 rounded-full border border-black/10" style={{ backgroundColor: c }} />;
+                }}
+              />
+            </label>
+          </div>
+
+          {dialog?.type === "create-form" ? (
+            <CreditFormTemplatePreview
+              template={getCreditFormTemplate(dialog.templateKey) || CREDIT_FORM_TEMPLATES[0]!}
+              theme={getCreditFormTheme(dialog.themeKey) || CREDIT_FORM_THEMES[0]!}
+            />
+          ) : null}
+
           <label className="block">
             <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Slug</div>
             <input
