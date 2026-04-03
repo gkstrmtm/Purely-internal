@@ -238,6 +238,14 @@ const ICON_BUTTON_CLASS = `inline-flex h-10 w-10 items-center justify-center rou
 export function FormEditorClient({ basePath, formId }: { basePath: string; formId: string }) {
   const backHref = useMemo(() => `${basePath}/app/services/funnel-builder`, [basePath]);
 
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.dispatchEvent(new CustomEvent("pa.portal.topbar.intent", { detail: { hidden: true } }));
+    return () => {
+      window.dispatchEvent(new CustomEvent("pa.portal.topbar.intent", { detail: { hidden: false } }));
+    };
+  }, []);
+
   const [form, setForm] = useState<Form | null>(null);
   const [fields, setFields] = useState<Field[] | null>(null);
   const [selectedIdx, setSelectedIdx] = useState<number | null>(null);

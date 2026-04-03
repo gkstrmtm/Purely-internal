@@ -202,12 +202,6 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
 
   type AdPlacement = "SIDEBAR_BANNER" | "TOP_BANNER" | "FULLSCREEN_REWARD" | "POPUP_CARD";
 
-  const isFunnelBuilderWorkspace =
-    typeof pathname === "string" &&
-    pathname.includes("/app/services/funnel-builder/") &&
-    (pathname.includes("/funnels/") || pathname.includes("/forms/")) &&
-    (pathname.includes("/edit") || pathname.includes("/responses"));
-
   const isAiChat = typeof pathname === "string" && pathname.startsWith(`${basePath}/app/ai-chat`);
 
   const [puraCanvasOpen, setPuraCanvasOpen] = useState(false);
@@ -1352,7 +1346,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
 
   const floatingToolsReserve = "6.5rem";
 
-  if (isFunnelBuilderWorkspace || isAutomationsEditor) {
+  if (isAutomationsEditor) {
     return (
       <div
         className="h-[calc(100dvh-var(--pa-portal-topbar-height,0px))] overflow-hidden bg-brand-mist text-brand-ink transition-[height] duration-250 ease-out"
