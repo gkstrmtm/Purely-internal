@@ -96,11 +96,20 @@ export async function POST(req: Request) {
   const signature = readContactSignature(contact.customVariables);
   const signatureImage = readContactSignatureImage(contact.customVariables);
   const address = readContactAddress(contact.customVariables);
-  const signatureSummary = signature || (signatureImage ? "drawn signature on file" : "");
+
+  const subjectFromClient = (parsed.data.subjectLine || "").trim();
+  const roundPrefix = roundNumber && roundNumber > 1 ? "Follow-up " : "";
+  const recipientLabel = recipientName ? `${recipientName} ` : "";
+  const subjectFallback = `${roundPrefix}${recipientLabel}Dispute letter - ${contact.name}`.trim();
+  const subject = subjectFromClient && !/^\s*follow-?up\s+.*\s-dispute letter\s*-\s*contact\s*$/i.test(subjectFromClient)
+    ? subjectFromClient
+    : subjectFallback;
 
   const system =
     "You draft consumer credit dispute letters. Output ONLY a plain-text mailed letter. " +
     "Do not invent facts. If a needed detail is missing, leave a simple blank line instead of writing placeholder text. " +
+    "Never write bracket or template placeholders like [Date] or {{date}} - always output the real date provided. " +
+    "Do not write the phrase 'signature on file' anywhere in the letter body. Leave a normal signature space instead. " +
     "Keep it professional, natural, and specific. " +
     "Write a fuller letter, not a stub: use a real correspondence structure with a clear opening, meaningful dispute framing, a concrete itemized section, and a firm closing request. " +
     "If this is follow-up correspondence, acknowledge prior notice naturally without using internal workflow labels. " +
@@ -119,7 +128,8 @@ export async function POST(req: Request) {
     address ? `Consumer address: ${address}` : "Consumer address: not provided",
     contact.email ? `Consumer email: ${contact.email}` : "Consumer email: not provided",
     contact.phone ? `Consumer phone: ${contact.phone}` : "Consumer phone: not provided",
-    signatureSummary ? `Consumer signature on file: ${signatureSummary}` : "Consumer signature on file: (none stored)",
+    signature ? `Consumer signature text (optional): ${signature}` : null,
+    signatureImage ? "Consumer has a drawn signature image on file (this will be placed onto the PDF automatically; do not mention it in the letter text)." : null,
     "",
     roundNumber && roundNumber > 1 ? `This is follow-up correspondence after an earlier dispute attempt.` : "This is the first dispute letter for these items.",
     templateLabel ? `Template selected: ${templateLabel}` : null,
@@ -149,9 +159,8 @@ export async function POST(req: Request) {
     email: contact.email,
     phone: contact.phone,
     address,
+    date: isoDate,
   });
-
-  const subject = parsed.data.subjectLine?.trim() || `Dispute letter - ${contact.name}`;
 
   const created = await prisma.creditDisputeLetter.create({
     data: {

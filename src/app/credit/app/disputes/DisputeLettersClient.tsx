@@ -300,6 +300,8 @@ export default function DisputeLettersClient({ mode = "list", initialLetterId = 
   const [composerReportLabel, setComposerReportLabel] = useState("");
   const [composerItemsLoading, setComposerItemsLoading] = useState(false);
   const [reportItemQuery, setReportItemQuery] = useState("");
+  const [sourceReportId, setSourceReportId] = useState("");
+  const [sourceReportItemId, setSourceReportItemId] = useState("");
 
   const roundNumber = useMemo(() => Math.max(1, Number.parseInt(round, 10) || 1), [round]);
   const cleanItems = useMemo(() => items.map((item) => item.trim()).filter(Boolean), [items]);
@@ -516,6 +518,10 @@ export default function DisputeLettersClient({ mode = "list", initialLetterId = 
     const issue = (searchParams.get("issue") || "").trim();
     const bureau = (searchParams.get("bureau") || "").trim();
     const targetContactId = (searchParams.get("contactId") || "").trim();
+    const reportId = (searchParams.get("reportId") || "").trim();
+    const itemId = (searchParams.get("itemId") || "").trim();
+    setSourceReportId(reportId);
+    setSourceReportItemId(itemId);
     openComposer({
       contactId: targetContactId || undefined,
       recipientName: bureau || undefined,
@@ -545,8 +551,7 @@ export default function DisputeLettersClient({ mode = "list", initialLetterId = 
     setWorking("generate");
     setError(null);
     try {
-      const selectedContact = contacts.find((entry) => entry.id === contactId);
-      const contactLabel = selectedContact?.name || "Contact";
+      const contactLabel = selectedContact?.name || contacts.find((entry) => entry.id === contactId)?.name || "Contact";
       const baseRecipient = recipientName.trim();
       const roundLabel = roundNumber > 1 ? "Follow-up " : "";
       const subjectLine = `${roundLabel}${baseRecipient ? `${baseRecipient} ` : ""}Dispute letter - ${contactLabel}`.trim();
@@ -565,6 +570,21 @@ export default function DisputeLettersClient({ mode = "list", initialLetterId = 
         }),
       });
       await loadLetters();
+
+      // If we came from a specific credit report item, mark it as "dispute created".
+      if (sourceReportId && sourceReportItemId) {
+        try {
+          await fetchJson(`/api/portal/credit/reports/${encodeURIComponent(sourceReportId)}/items/${encodeURIComponent(sourceReportItemId)}`,
+            {
+              method: "PATCH",
+              body: JSON.stringify({ disputeStatus: "Dispute created (not mailed)" }),
+            },
+          );
+        } catch {
+          // Best-effort: letter creation should still succeed even if report item status can't be updated.
+        }
+      }
+
       setComposerOpen(false);
       setSelectedLetterId(data.letter.id);
       window.location.href = routeSet.editorHref(data.letter.id);
@@ -573,7 +593,7 @@ export default function DisputeLettersClient({ mode = "list", initialLetterId = 
     } finally {
       setWorking(null);
     }
-  }, [cleanItems, contactId, contacts, followUpDays, loadLetters, nextTemplate.label, recipientAddress, recipientName, roundNumber, routeSet, template]);
+  }, [cleanItems, contactId, contacts, followUpDays, loadLetters, nextTemplate.label, recipientAddress, recipientName, roundNumber, routeSet, selectedContact?.name, sourceReportId, sourceReportItemId, template]);
 
   const saveLetter = useCallback(async () => {
     if (!selectedLetterId) return;
@@ -1023,7 +1043,7 @@ export default function DisputeLettersClient({ mode = "list", initialLetterId = 
                 filteredLetters.map((letter) => (
                   <tr key={letter.id} tabIndex={0} role="button" onClick={() => { window.location.href = routeSet.editorHref(letter.id); }} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); window.location.href = routeSet.editorHref(letter.id); } }} className="cursor-pointer border-t border-zinc-200 transition hover:bg-zinc-50 focus:bg-zinc-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-blue/20">
                     <td className="px-4 py-3">
-                      <div className="font-semibold text-zinc-900">{`Dispute letter for ${letter.contact.name}`}</div>
+                      <div className="font-semibold text-zinc-900">{letter.subject || `Dispute letter - ${letter.contact.name}`}</div>
                       <div className="mt-1 text-xs text-zinc-500">Created {formatDateTime(letter.createdAt)}</div>
                     </td>
                     <td className="px-4 py-3">

@@ -41,6 +41,7 @@ export function normalizeDisputeLetterText(
     email?: string | null;
     phone?: string | null;
     address?: string | null;
+    date?: string | null;
   },
 ) {
   const contactName = String(options?.contactName || "").trim();
@@ -48,6 +49,7 @@ export function normalizeDisputeLetterText(
   const email = String(options?.email || "").trim();
   const phone = String(options?.phone || "").trim();
   const address = String(options?.address || "").trim();
+  const date = String(options?.date || "").trim();
 
   let text = String(value || "")
     .replace(/\r\n?/g, "\n")
@@ -56,16 +58,26 @@ export function normalizeDisputeLetterText(
     .replace(/__(.*?)__/g, "$1")
     .replace(/`([^`]+)`/g, "$1")
     .replace(/^\s*\*\s+/gm, "- ")
+    // Remove any prompt metadata leakage.
     .replace(/^recipient\s*:\s*not provided\s*$/gim, "")
     .replace(/^recipient address\s*:\s*not provided\s*$/gim, "")
     .replace(/^consumer email\s*:\s*not provided\s*$/gim, "")
     .replace(/^consumer phone\s*:\s*not provided\s*$/gim, "")
+    .replace(/^consumer signature on file\s*:\s*.*$/gim, "")
+    .replace(/^signature on file\s*:?\s*.*$/gim, "")
     .replace(/\{\{\s*(name|contact name|consumer name|contactName)\s*\}\}/gi, contactName)
+    .replace(/\{\{\s*date\s*\}\}/gi, date)
     .replace(/\{\{\s*email\s*\}\}/gi, email)
     .replace(/\{\{\s*phone\s*\}\}/gi, phone)
     .replace(/\{\{\s*(address|mailing address|consumer address|addressline1|address_line1|address 1|address1)\s*\}\}/gi, address)
     .replace(/\{\{\s*(signature|consumer signature|your signature if sending a hard copy)[^}]*\}\}/gi, signature || "________________")
     .replace(/your signature if sending a hard copy/gi, signature || "________________")
+    // Common bracket placeholders.
+    .replace(/\[\s*date\s*\]/gi, date)
+    .replace(/\(\s*date\s*\)/gi, date)
+    // Avoid showing "signature on file" in generated letters.
+    .replace(/\bsignature on file\b/gi, "")
+    .replace(/\bdrawn signature on file\b/gi, "")
     .replace(/\b(i hope this letter finds you well)\b[:,]?/gi, "")
     .replace(/\bthis letter serves as formal notice that\b/gi, "I am writing to dispute")
     .replace(/placeholder/gi, "________________")
@@ -73,6 +85,20 @@ export function normalizeDisputeLetterText(
     .replace(/[ \t]+\n/g, "\n")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
+
+  // If the letter includes a Date line with a placeholder, force it.
+  if (date) {
+    text = text.replace(
+      /^(\s*date\s*:\s*)(\[\s*date\s*\]|\{\{\s*date\s*\}\}|\(\s*date\s*\)|date)\s*$/gim,
+      `$1${date}`,
+    );
+
+    const firstChunk = text.split("\n").slice(0, 12).join("\n");
+    const hasDateLine = /^\s*date\s*:/gim.test(firstChunk);
+    if (!hasDateLine) {
+      text = `Date: ${date}\n\n${text}`.trim();
+    }
+  }
 
   if (email) {
     text = text

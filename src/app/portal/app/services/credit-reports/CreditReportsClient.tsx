@@ -542,6 +542,8 @@ export default function CreditReportsClient({ mode = "list", initialReportId = "
     if (!selectedReport) return;
     const params = new URLSearchParams();
     if (selectedReport.contactId) params.set("contactId", selectedReport.contactId);
+    params.set("reportId", selectedReport.id);
+    params.set("itemId", item.id);
     params.set("compose", "1");
     const inquiryDate = extractCreditInquiryDate(item.detailsJson);
     params.set("issue", inquiryDate ? `${item.label} (Inquiry date: ${inquiryDate})` : item.label);
