@@ -1113,6 +1113,7 @@ export function renderCreditFunnelBlocks({
   })();
 
   const isEditor = Boolean(editor?.enabled);
+  const isPreviewRender = Boolean(context?.previewDevice);
 
   const renderCornerResizeHandle = (block: CreditFunnelBlock): React.ReactNode => {
     if (!isEditor) return null;
@@ -2550,7 +2551,7 @@ export function renderCreditFunnelBlocks({
         style: {
           ...wrapperStyle(pageStyleBlock?.props.style),
           width: "100%",
-          minHeight: "100vh",
+          ...(isPreviewRender ? null : { minHeight: "100vh" }),
           ...(pageStyleBlock?.props?.style?.backgroundVideoUrl ? { position: "relative" } : null),
         },
       },

@@ -46,7 +46,21 @@ export function CreditFunnelTemplatePreviewModal(props: {
         </div>
 
         <div className="h-[calc(100dvh-var(--pa-modal-safe-top,0px)-var(--pa-modal-safe-bottom,0px)-2rem-49px)] overflow-auto bg-zinc-100">
-          <div className={classNames("mx-auto w-full")} style={{ background: "transparent" }}>
+          <div
+            className={classNames("mx-auto w-full")}
+            style={{ background: "transparent" }}
+            onClickCapture={(e) => {
+              const target = e.target as HTMLElement | null;
+              const a = target?.closest?.("a");
+              if (a) {
+                const href = a.getAttribute("href") || "";
+                if (!href.startsWith("#")) {
+                  e.preventDefault();
+                  e.stopPropagation();
+                }
+              }
+            }}
+          >
             {first
               ? renderCreditFunnelBlocks({
                   blocks: first.blocksJson,

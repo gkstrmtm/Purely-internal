@@ -37,7 +37,21 @@ export function CreditFunnelTemplatePreview(props: {
       </div>
 
       <div className="mt-3 h-[340px] overflow-auto overscroll-contain rounded-3xl border border-black/10 bg-white">
-        <div className="origin-top-left scale-[0.72] pointer-events-none" style={{ width: "138.9%" }}>
+        <div
+          className="origin-top-left scale-[0.72]"
+          style={{ width: "138.9%" }}
+          onClickCapture={(e) => {
+            const target = e.target as HTMLElement | null;
+            const a = target?.closest?.("a");
+            if (a) {
+              const href = a.getAttribute("href") || "";
+              if (!href.startsWith("#")) {
+                e.preventDefault();
+                e.stopPropagation();
+              }
+            }
+          }}
+        >
           {first
             ? renderCreditFunnelBlocks({
                 blocks: first.blocksJson,

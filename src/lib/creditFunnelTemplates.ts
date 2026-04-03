@@ -1441,11 +1441,9 @@ export const CREDIT_FUNNEL_TEMPLATES: CreditFunnelTemplate[] = [
             props: {
               sticky: true,
               transparent: false,
-              size: "sm",
-              desktopMode: "dropdown",
-              mobileMode: "slideover",
-              mobileTrigger: "directory",
-              mobileTriggerLabel: "Menu",
+              size: "md",
+              desktopMode: "inline",
+              mobileMode: "dropdown",
               logoAlt: "Logo",
               items: [
                 { id: "n1", label: "Questions", kind: "anchor", anchorId: "questions" },
@@ -1460,50 +1458,92 @@ export const CREDIT_FUNNEL_TEMPLATES: CreditFunnelTemplate[] = [
             props: {
               anchorId: "top",
               layout: "two",
-              gapPx: 24,
+              gapPx: 28,
               stackOnMobile: true,
               style: {
                 maxWidthPx: CONTAINER_MAX_WIDTH,
                 align: "left",
-                paddingPx: 44,
+                paddingPx: 38,
                 borderRadiusPx: 28,
-                backgroundColor: "color-mix(in srgb, currentColor 6%, transparent)",
+                backgroundColor: SOFT_PANEL_BG,
               },
               leftChildren: [
-                { id: "h1", type: "heading", props: { level: 1, text: "Take the 90 second credit audit quiz", style: { fontSizePx: 44 } as any } },
+                {
+                  id: "badge",
+                  type: "paragraph",
+                  props: {
+                    text: "90 second quiz",
+                    style: {
+                      maxWidthPx: 180,
+                      paddingPx: 10,
+                      borderRadiusPx: 999,
+                      backgroundColor: SOFT_PANEL_BG_STRONG,
+                      align: "center",
+                      fontSizePx: 13,
+                      textColor: "color-mix(in srgb, currentColor 88%, transparent)",
+                    },
+                  },
+                },
+                { id: "h1", type: "heading", props: { level: 1, text: "Take the credit audit quiz and get your next step", style: { fontSizePx: 42, marginTopPx: 12 } as any } },
                 {
                   id: "p1",
                   type: "paragraph",
                   props: {
                     text:
-                      "We use a few quick questions to identify your most likely bottleneck and the cleanest next step.",
-                    style: { fontSizePx: 17, maxWidthPx: 720 } as any,
+                      "Answer a few quick questions. We identify your most likely bottleneck and give you a clean dispute and build order.",
+                    style: { fontSizePx: 17, maxWidthPx: 760 } as any,
                   },
                 },
                 {
                   id: "qPreview",
                   type: "columns",
                   props: {
-                    gapPx: 14,
+                    gapPx: 16,
                     stackOnMobile: true,
-                    style: { marginTopPx: 10, maxWidthPx: 720 } as any,
+                    style: { marginTopPx: 12, maxWidthPx: 860 } as any,
                     columns: [
                       {
-                        markdown: "### 1) Your goal\n\nMortgage, auto, apartment, or rebuild?",
-                        style: { paddingPx: 16, borderRadiusPx: 18, backgroundColor: "color-mix(in srgb, currentColor 7%, transparent)" } as any,
+                        markdown: "### 1) Your goal\n\nMortgage, auto, apartment, approvals, or rebuild?",
+                        style: { paddingPx: 18, borderRadiusPx: 20, backgroundColor: SOFT_PANEL_BG_STRONG } as any,
                       },
                       {
-                        markdown: "### 2) Your timeline\n\nHow fast do you need results?",
-                        style: { paddingPx: 16, borderRadiusPx: 18, backgroundColor: "color-mix(in srgb, currentColor 7%, transparent)" } as any,
+                        markdown: "### 2) Timeline\n\nRight now, 30 days, 90 days, or longer?",
+                        style: { paddingPx: 18, borderRadiusPx: 20, backgroundColor: SOFT_PANEL_BG_STRONG } as any,
                       },
                       {
-                        markdown: "### 3) The obstacles\n\nLate payments, collections, utilization, thin file.",
-                        style: { paddingPx: 16, borderRadiusPx: 18, backgroundColor: "color-mix(in srgb, currentColor 7%, transparent)" } as any,
+                        markdown: "### 3) Obstacles\n\nLate payments, collections, utilization, thin file, or unsure.",
+                        style: { paddingPx: 18, borderRadiusPx: 20, backgroundColor: SOFT_PANEL_BG_STRONG } as any,
                       },
                     ],
                   },
                 },
-                { id: "cta", type: "button", props: { text: "Start the quiz", href: "#start", style: { maxWidthPx: 280, marginTopPx: 14 } as any } },
+                {
+                  id: "ctaRow",
+                  type: "columns",
+                  props: {
+                    gapPx: 14,
+                    stackOnMobile: true,
+                    style: { maxWidthPx: 760, marginTopPx: 14 } as any,
+                    columns: [
+                      {
+                        markdown: "",
+                        children: [
+                          { id: "cta", type: "button", props: { text: "Start the quiz", href: "#start", style: { maxWidthPx: 320 } as any } },
+                        ],
+                      },
+                      {
+                        markdown: "",
+                        children: [
+                          {
+                            id: "cta2",
+                            type: "button",
+                            props: { text: "See outcomes", href: "#outcomes", variant: "secondary", style: { maxWidthPx: 320 } as any },
+                          },
+                        ],
+                      },
+                    ],
+                  },
+                },
               ],
               rightStyle: {
                 paddingPx: 22,
@@ -1511,28 +1551,9 @@ export const CREDIT_FUNNEL_TEMPLATES: CreditFunnelTemplate[] = [
                 backgroundColor: "color-mix(in srgb, currentColor 9%, transparent)",
               },
               rightChildren: [
-                { id: "rH", type: "heading", props: { level: 3, text: "What happens next" } },
-                {
-                  id: "rCopy",
-                  type: "section",
-                  props: {
-                    layout: "one",
-                    style: { paddingPx: 0 } as any,
-                    markdown: [
-                      "- We identify your top priority",
-                      "- We give you a simple dispute/build order",
-                      "- You can book a call if you want help executing",
-                    ].join("\n"),
-                  },
-                },
-                {
-                  id: "rNote",
-                  type: "paragraph",
-                  props: {
-                    text: "Tip: rename this to match your offer. This is just a template starter.",
-                    style: { fontSizePx: 12, marginTopPx: 10, textColor: "color-mix(in srgb, currentColor 74%, transparent)" },
-                  },
-                },
+                { id: "rH", type: "heading", props: { level: 3, text: "Start the audit" } },
+                { id: "rP", type: "paragraph", props: { text: "Embed your intake form here. You can replace it with a form link if you prefer." } },
+                { id: "rForm", type: "formEmbed", props: { formSlug: "intake", height: 560, style: { marginTopPx: 10 } as any } },
               ],
             },
           },
@@ -1542,7 +1563,14 @@ export const CREDIT_FUNNEL_TEMPLATES: CreditFunnelTemplate[] = [
             type: "section",
             props: {
               layout: "one",
-              style: { maxWidthPx: CONTAINER_MAX_WIDTH, align: "left", marginTopPx: 18 } as any,
+              style: {
+                maxWidthPx: CONTAINER_MAX_WIDTH,
+                align: "left",
+                marginTopPx: 18,
+                paddingPx: 34,
+                borderRadiusPx: 30,
+                backgroundColor: SOFT_PANEL_BG,
+              } as any,
               markdown: [
                 "## The questions we use (examples)",
                 "",

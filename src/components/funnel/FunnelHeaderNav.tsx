@@ -98,8 +98,8 @@ export function FunnelHeaderNav({
         ...(baseTextColor
           ? {
               "--fhn-text": baseTextColor,
-              "--fhn-link": `color-mix(in srgb, ${baseTextColor} 78%, transparent)`,
-              "--fhn-muted": `color-mix(in srgb, ${baseTextColor} 72%, transparent)`,
+              "--fhn-link": baseTextColor,
+              "--fhn-muted": baseTextColor,
             }
           : null),
         ...(surfaceColor ? { "--fhn-surface": surfaceColor } : null),
@@ -242,7 +242,7 @@ export function FunnelHeaderNav({
                 }}
                 target={newTab ? "_blank" : undefined}
                 rel={newTab ? "noopener noreferrer" : undefined}
-                className="text-sm font-semibold text-[color:var(--fhn-link,#3f3f46)] hover:text-[color:var(--fhn-text,#18181b)]"
+                className="text-sm font-semibold text-[color:var(--fhn-link,#3f3f46)] opacity-80 hover:opacity-100"
                 data-funnel-editor-interactive="true"
               >
                 {label}
