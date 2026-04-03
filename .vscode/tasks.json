@@ -77,6 +77,9 @@
 			"label": "Typecheck: tsc --noEmit",
 			"type": "shell",
 			"command": "npx",
+			"options": {
+				"cwd": "${workspaceFolder}"
+			},
 			"args": [
 				"tsc",
 				"--noEmit"

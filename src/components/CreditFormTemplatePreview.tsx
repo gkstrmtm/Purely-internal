@@ -30,7 +30,7 @@ function pickPreviewFields(fields: CreditFormField[]): CreditFormField[] {
 function mergeSuccess(templateSuccess: CreditFormSuccessContent | undefined, theme: CreditFormTheme): CreditFormSuccessContent {
   return {
     title: templateSuccess?.title || "You're all set",
-    message: templateSuccess?.message || "Thanks — we received your info and will follow up shortly.",
+     message: templateSuccess?.message || "Thanks - we received your info and will follow up shortly.",
     buttonLabel: templateSuccess?.buttonLabel || "Submit another",
     buttonAction: templateSuccess?.buttonAction || "reset",
     ...theme.successColors,
@@ -129,7 +129,7 @@ export function CreditFormTemplatePreview(props: {
                 <div className="text-sm font-extrabold" style={{ color: success.accentColor || success.textColor || "#0f172a" }}>
                   {success.title || "You're all set"}
                 </div>
-                <div className="mt-0.5 text-xs opacity-80">{success.message || "Thanks — we received your info."}</div>
+                 <div className="mt-0.5 text-xs opacity-80">{success.message || "Thanks - we received your info."}</div>
               </div>
 
               <div className="mt-2 text-xs text-zinc-500">

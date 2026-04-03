@@ -28,7 +28,7 @@ export type CreditFormTemplate = {
 function templateBaseSuccess(): CreditFormSuccessContent {
   return {
     title: "You're all set",
-    message: "Thanks — we received your info and will follow up shortly.",
+     message: "Thanks - we received your info and will follow up shortly.",
     buttonLabel: "Submit another",
     buttonAction: "reset",
   };
