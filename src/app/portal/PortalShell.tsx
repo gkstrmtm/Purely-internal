@@ -245,6 +245,11 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
     typeof pathname === "string" &&
     pathname.includes("/app/services/funnel-builder/forms/") &&
     (pathname.endsWith("/edit") || pathname.includes("/edit?"));
+
+  const isFunnelBuilderFunnelEditor =
+    typeof pathname === "string" &&
+    pathname.includes("/app/services/funnel-builder/funnels/") &&
+    (pathname.endsWith("/edit") || pathname.includes("/edit?"));
   const [collapsed, setCollapsed] = useState(false);
   const collapsedBeforeCanvasOpenRef = useRef<boolean | null>(null);
   const collapsedBeforeOverrideRef = useRef<boolean | null>(null);
@@ -1373,7 +1378,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
     );
   }
 
-  if (isFunnelBuilderFormEditor) {
+  if (isFunnelBuilderFormEditor || isFunnelBuilderFunnelEditor) {
     return (
       <div className="h-[calc(100dvh-var(--pa-portal-topbar-height,0px))] overflow-hidden bg-brand-mist text-brand-ink transition-[height] duration-250 ease-out">
         <main className="h-full overflow-y-auto overscroll-y-contain">{children}</main>
