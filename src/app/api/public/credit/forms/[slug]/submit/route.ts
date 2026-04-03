@@ -2,7 +2,13 @@ import crypto from "crypto";
 import { NextResponse } from "next/server";
 
 import { prisma } from "@/lib/db";
-import { buildCreditFormSubmissionNotificationText, normalizeCreditFormSubmissionPayload } from "@/lib/creditFormSchema";
+import {
+  buildCreditFormSubmissionNotificationHtml,
+  buildCreditFormSubmissionNotificationText,
+  normalizeCreditFormSubmissionPayload,
+  validateCreditFormSubmissionPayload,
+  shortSubmissionId,
+} from "@/lib/creditFormSchema";
 import { tryNotifyPortalAccountUsers } from "@/lib/portalNotifications";
 import { runOwnerAutomationsForEvent } from "@/lib/portalAutomationsRunner";
 import { findOrCreatePortalContact } from "@/lib/portalContacts";
@@ -21,6 +27,44 @@ function getClientIp(req: Request): string | null {
   if (xfwd) return xfwd.split(",")[0]?.trim() || null;
   const realIp = req.headers.get("x-real-ip");
   return realIp?.trim() || null;
+}
+
+async function readRequestBodyBestEffort(req: Request): Promise<any> {
+  const contentType = String(req.headers.get("content-type") || "").toLowerCase();
+
+  if (contentType.includes("application/json")) {
+    return (await req.json().catch(() => null)) as any;
+  }
+
+  // Support standard HTML form posts.
+  if (contentType.includes("multipart/form-data") || contentType.includes("application/x-www-form-urlencoded")) {
+    const fd = await req.formData().catch(() => null);
+    if (!fd) return null;
+    const data: Record<string, string | string[]> = {};
+    for (const key of Array.from(new Set(Array.from(fd.keys())))) {
+      const values = fd.getAll(key);
+      const asStrings = values
+        .map((v) => {
+          if (typeof v === "string") return v;
+          // File uploads should be handled via Vercel Blob and submitted as JSON refs.
+          return v?.name ? v.name : "";
+        })
+        .filter((v) => typeof v === "string");
+
+      if (asStrings.length > 1) data[key] = asStrings;
+      else data[key] = asStrings[0] ?? "";
+    }
+    return { data };
+  }
+
+  // Last-ditch: try to parse as JSON string.
+  const text = await req.text().catch(() => "");
+  if (!text) return null;
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
 }
 
 async function bestEffortPostWebhook(url: string, payload: unknown, secret: string) {
@@ -60,9 +104,11 @@ export async function POST(req: Request, ctx: { params: Promise<{ slug: string }
 
   if (!form) return NextResponse.json({ ok: false, error: "Not found" }, { status: 404 });
 
-  const body = (await req.json().catch(() => null)) as any;
+  const body = await readRequestBodyBestEffort(req);
   const normalizedPayload = normalizeCreditFormSubmissionPayload(body?.data ?? body ?? {}, form.schemaJson);
-  const payload = safeJson(normalizedPayload, 1_000_000);
+  const validationError = validateCreditFormSubmissionPayload(normalizedPayload, form.schemaJson);
+  if (validationError) return NextResponse.json({ ok: false, error: validationError }, { status: 400 });
+  const payload = safeJson(normalizedPayload, 5_000_000);
 
   const firstString = (v: any): string | null => {
     if (typeof v === "string") {
@@ -145,14 +191,20 @@ export async function POST(req: Request, ctx: { params: Promise<{ slug: string }
   tryNotifyPortalAccountUsers({
     ownerId: form.ownerId,
     kind: "form_submitted",
-    subject: `New form submission: ${form.name || form.slug}`,
+    subject: `New form submission: ${form.name || form.slug} (#${shortSubmissionId(submission.id)})`,
     text: buildCreditFormSubmissionNotificationText({
       formName: form.name || form.slug,
       submissionId: submission.id,
       createdAtIso: submission.createdAt.toISOString(),
       schemaJson: form.schemaJson,
       dataJson: payload,
-      userAgent,
+    }),
+    html: buildCreditFormSubmissionNotificationHtml({
+      formName: form.name || form.slug,
+      submissionId: submission.id,
+      createdAtIso: submission.createdAt.toISOString(),
+      schemaJson: form.schemaJson,
+      dataJson: payload,
     }),
     smsMirror: true,
   }).catch(() => null);

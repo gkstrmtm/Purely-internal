@@ -43,7 +43,17 @@ export default async function HostedFormWithKeyPage({
   return (
     <div className={embed ? "w-full" : "min-h-dvh w-full"} style={{ backgroundColor: pageBg }}>
       <main className={embed ? "mx-auto w-full max-w-3xl p-0" : "mx-auto w-full max-w-3xl p-8"}>
-        <CreditHostedFormClient slug={form.slug} formName={form.name} fields={fields} embedded={embed} style={style} successContent={successContent} content={content} />
+        <CreditHostedFormClient
+          slug={form.slug}
+          formName={form.name}
+          fields={fields}
+          embedded={embed}
+          style={style}
+          successContent={successContent}
+          content={content}
+          submitBasePath="/portal"
+          hostedKey={k}
+        />
       </main>
     </div>
   );

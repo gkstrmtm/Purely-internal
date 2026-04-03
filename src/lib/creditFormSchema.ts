@@ -9,6 +9,7 @@ export type CreditFormFieldType =
   | "phone"
   | "name"
   | "signature"
+  | "file_upload"
   | "checklist"
   | "radio"
   | "text"
@@ -21,6 +22,17 @@ export type CreditFormField = {
   type: CreditFormFieldType;
   required?: boolean;
   options?: string[];
+  // file_upload only
+  maxFiles?: number;
+  maxSizeMb?: number;
+  allowedContentTypes?: string[];
+};
+
+export type CreditFormUploadedFileRef = {
+  url: string;
+  fileName?: string;
+  mimeType?: string;
+  fileSize?: number;
 };
 
 export type CreditFormStyle = {
@@ -63,6 +75,40 @@ export type CreditFormSubmissionRow = {
   hasResponse: boolean;
 };
 
+function isAllowedMimeType(mimeType: string, allowed: string[] | undefined): boolean {
+  if (!allowed || allowed.length === 0) return true;
+  const t = String(mimeType || "").trim();
+  if (!t) return false;
+  for (const entry of allowed) {
+    const rule = String(entry || "").trim();
+    if (!rule) continue;
+    if (rule.endsWith("/*")) {
+      const prefix = rule.slice(0, -1);
+      if (t.startsWith(prefix)) return true;
+      continue;
+    }
+    if (t === rule) return true;
+  }
+  return false;
+}
+
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/\"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+export function shortSubmissionId(id: string): string {
+  const s = String(id || "").trim();
+  if (!s) return "";
+  if (s.length <= 10) return s;
+  // cuid() is already pretty random; the tail is enough for humans.
+  return s.slice(-8);
+}
+
 const ALLOWED_FIELD_TYPES = new Set<CreditFormFieldType>([
   "short_answer",
   "long_answer",
@@ -71,12 +117,37 @@ const ALLOWED_FIELD_TYPES = new Set<CreditFormFieldType>([
   "phone",
   "name",
   "signature",
+  "file_upload",
   "checklist",
   "radio",
   "text",
   "tel",
   "textarea",
 ]);
+
+function normalizeAllowedContentTypes(raw: unknown): string[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const out = raw
+    .filter((v): v is string => typeof v === "string")
+    .map((v) => v.trim())
+    .filter(Boolean)
+    .map((v) => v.slice(0, 120))
+    .filter((v) => /^[a-zA-Z0-9.+-]+\/[a-zA-Z0-9.+-]+$/.test(v) || v.endsWith("/*"))
+    .slice(0, 60);
+  return out.length ? out : undefined;
+}
+
+function normalizeMaxFiles(raw: unknown): number | undefined {
+  const n = typeof raw === "number" ? raw : typeof raw === "string" ? Number(raw) : NaN;
+  if (!Number.isFinite(n)) return undefined;
+  return Math.max(1, Math.min(20, Math.floor(n)));
+}
+
+function normalizeMaxSizeMb(raw: unknown): number | undefined {
+  const n = typeof raw === "number" ? raw : typeof raw === "string" ? Number(raw) : NaN;
+  if (!Number.isFinite(n)) return undefined;
+  return Math.max(1, Math.min(500, Math.round(n * 10) / 10));
+}
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
@@ -135,17 +206,56 @@ export function parseCreditFormFields(
           .filter(Boolean)
           .slice(0, 50)
       : undefined;
+
+    const allowedContentTypes = type === "file_upload" ? normalizeAllowedContentTypes(rec.allowedContentTypes) : undefined;
+    const maxFiles = type === "file_upload" ? normalizeMaxFiles(rec.maxFiles) : undefined;
+    const maxSizeMb = type === "file_upload" ? normalizeMaxSizeMb(rec.maxSizeMb) : undefined;
+
     out.push({
       name: name.slice(0, 64),
       label: label.slice(0, 160),
       type: type as CreditFormFieldType,
       required: rec.required === true,
       ...(options ? { options } : {}),
+      ...(allowedContentTypes ? { allowedContentTypes } : {}),
+      ...(typeof maxFiles === "number" ? { maxFiles } : {}),
+      ...(typeof maxSizeMb === "number" ? { maxSizeMb } : {}),
     });
   }
 
   if (!out.length && defaultIfEmpty) return getDefaultCreditFormFields();
   return out.slice(0, maxFields);
+}
+
+function normalizeUploadedFileRef(raw: unknown): CreditFormUploadedFileRef | null {
+  const rec = asRecord(raw);
+  if (!rec) return null;
+  const url = typeof rec.url === "string" ? rec.url.trim() : "";
+  if (!url) return null;
+  if (!/^https?:\/\//i.test(url)) return null;
+
+  const fileName = typeof rec.fileName === "string" ? rec.fileName.trim().slice(0, 400) : "";
+  const mimeType = typeof rec.mimeType === "string" ? rec.mimeType.trim().slice(0, 120) : "";
+  const fileSizeRaw = rec.fileSize;
+  const fileSize = typeof fileSizeRaw === "number" && Number.isFinite(fileSizeRaw) && fileSizeRaw >= 0 ? Math.floor(fileSizeRaw) : undefined;
+
+  return {
+    url: url.slice(0, 2000),
+    ...(fileName ? { fileName } : {}),
+    ...(mimeType ? { mimeType } : {}),
+    ...(typeof fileSize === "number" ? { fileSize } : {}),
+  };
+}
+
+function normalizeUploadedFilesValue(raw: unknown): CreditFormUploadedFileRef[] {
+  const unwrapped = unwrapSubmissionEnvelope(raw);
+  const list = Array.isArray(unwrapped) ? unwrapped : unwrapped ? [unwrapped] : [];
+  const out: CreditFormUploadedFileRef[] = [];
+  for (const entry of list) {
+    const normalized = normalizeUploadedFileRef(entry);
+    if (normalized) out.push(normalized);
+  }
+  return out.slice(0, 50);
 }
 
 export function parseCreditFormStyle(schemaJson: unknown): CreditFormStyle {
@@ -257,6 +367,10 @@ function normalizeSubmissionEntryValue(value: unknown, fieldType: CreditFormFiel
     return normalizeStoredSignature(unwrappedValue);
   }
 
+  if (fieldType === "file_upload") {
+    return normalizeUploadedFilesValue(unwrappedValue);
+  }
+
   if (Array.isArray(unwrappedValue)) return unwrappedValue.map((entry) => normalizeSubmissionEntryValue(entry, null));
   return unwrappedValue;
 }
@@ -273,7 +387,53 @@ export function normalizeCreditFormSubmissionPayload(dataJson: unknown, schemaJs
   return out;
 }
 
+export function validateCreditFormSubmissionPayload(dataJson: unknown, schemaJson: unknown): string | null {
+  const record = asRecord(dataJson);
+  if (!record) return null;
+  const fields = parseCreditFormFields(schemaJson, { defaultIfEmpty: false, maxFields: 200 });
+
+  for (const field of fields) {
+    if (field.type !== "file_upload") continue;
+    const raw = record[field.name];
+    const files = normalizeUploadedFilesValue(raw);
+
+    const maxFiles = typeof field.maxFiles === "number" && Number.isFinite(field.maxFiles) ? field.maxFiles : null;
+    const maxSizeMb = typeof field.maxSizeMb === "number" && Number.isFinite(field.maxSizeMb) ? field.maxSizeMb : null;
+    const allowed = Array.isArray(field.allowedContentTypes) ? field.allowedContentTypes : undefined;
+
+    if (field.required && files.length === 0) {
+      return `Please upload a file for “${field.label}”.`;
+    }
+    if (maxFiles !== null && files.length > maxFiles) {
+      return `“${field.label}” allows up to ${maxFiles} file${maxFiles === 1 ? "" : "s"}.`;
+    }
+    for (const f of files) {
+      if (maxSizeMb !== null && typeof f.fileSize === "number" && f.fileSize > maxSizeMb * 1024 * 1024) {
+        return `“${field.label}”: ${f.fileName || "File"} exceeds ${maxSizeMb} MB.`;
+      }
+      if (allowed && allowed.length) {
+        const mt = typeof f.mimeType === "string" ? f.mimeType : "";
+        if (!isAllowedMimeType(mt, allowed)) {
+          return `“${field.label}”: ${f.fileName || "File"} is not an allowed file type.`;
+        }
+      }
+    }
+  }
+
+  return null;
+}
+
 export function describeCreditFormSubmissionValue(value: unknown, fieldType?: CreditFormFieldType | null): string {
+  if (fieldType === "file_upload") {
+    const files = normalizeUploadedFilesValue(value);
+    if (!files.length) return "";
+    return files
+      .map((f) => {
+        const name = (f.fileName || "").trim();
+        return name ? `${name} (${f.url})` : f.url;
+      })
+      .join("\n");
+  }
   if (fieldType === "signature" || readSignatureImageDataUrl(value) || readSignatureText(value)) {
     return describeSignatureValue(value);
   }
@@ -348,7 +508,6 @@ export function buildCreditFormSubmissionNotificationText(opts: {
   createdAtIso: string;
   schemaJson: unknown;
   dataJson: unknown;
-  userAgent?: string | null;
 }): string {
   const rows = buildCreditFormSubmissionRows(opts.schemaJson, opts.dataJson);
   const responseLines = rows.length
@@ -362,13 +521,85 @@ export function buildCreditFormSubmissionNotificationText(opts: {
 
   return [
     `Form: ${opts.formName}`,
-    `Submission ID: ${opts.submissionId}`,
+    `Submission: ${shortSubmissionId(opts.submissionId)}`,
     `Created: ${opts.createdAtIso}`,
-    opts.userAgent ? `User agent: ${opts.userAgent}` : "",
     "",
     "Responses:",
     responseLines,
   ]
     .filter(Boolean)
     .join("\n");
+}
+
+export function buildCreditFormSubmissionNotificationHtml(opts: {
+  formName: string;
+  submissionId: string;
+  createdAtIso: string;
+  schemaJson: unknown;
+  dataJson: unknown;
+}): string {
+  const rows = buildCreditFormSubmissionRows(opts.schemaJson, opts.dataJson);
+  const created = escapeHtml(String(opts.createdAtIso || ""));
+  const formName = escapeHtml(String(opts.formName || "Form"));
+  const subShort = escapeHtml(shortSubmissionId(opts.submissionId));
+  const subFull = escapeHtml(String(opts.submissionId || ""));
+
+  const tableRows = rows.length
+    ? rows
+        .map((row) => {
+          const label = escapeHtml(String(row.label || row.key || "Question"));
+          const answer = row.hasResponse ? row.displayValue || "Response on file" : "No response";
+          const answerHtml = escapeHtml(String(answer || "")).replace(/\n/g, "<br />");
+          return `
+            <tr>
+              <td style="padding:12px 14px;border-bottom:1px solid #e4e4e7;vertical-align:top;width:42%;color:#18181b;font-weight:600;">${label}</td>
+              <td style="padding:12px 14px;border-bottom:1px solid #e4e4e7;vertical-align:top;color:#18181b;white-space:pre-wrap;">${answerHtml || "(blank)"}</td>
+            </tr>
+          `.trim();
+        })
+        .join("")
+    : `
+      <tr>
+        <td style="padding:12px 14px;border-bottom:1px solid #e4e4e7;vertical-align:top;color:#18181b;" colspan="2">(No responses)</td>
+      </tr>
+    `.trim();
+
+  return `
+  <div style="font-family:ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; background:#f4f4f5; padding:24px;">
+    <div style="max-width:720px; margin:0 auto; background:#ffffff; border:1px solid #e4e4e7; border-radius:16px; overflow:hidden;">
+      <div style="padding:18px 20px; background:#0b63f6; color:#ffffff;">
+        <div style="font-size:12px; letter-spacing:0.08em; text-transform:uppercase; opacity:0.9;">New form submission</div>
+        <div style="margin-top:6px; font-size:18px; font-weight:800;">${formName}</div>
+      </div>
+
+      <div style="padding:18px 20px;">
+        <div style="display:flex; flex-wrap:wrap; gap:10px; margin-bottom:14px;">
+          <div style="background:#f4f4f5;border:1px solid #e4e4e7;border-radius:999px;padding:6px 10px;font-size:12px;color:#3f3f46;">
+            Submission: <span style="font-weight:700;color:#18181b;">#${subShort}</span>
+          </div>
+          <div style="background:#f4f4f5;border:1px solid #e4e4e7;border-radius:999px;padding:6px 10px;font-size:12px;color:#3f3f46;">
+            Created: <span style="font-weight:700;color:#18181b;">${created}</span>
+          </div>
+        </div>
+
+        <div style="font-size:12px;color:#71717a;margin-bottom:10px;">Full submission id: ${subFull}</div>
+
+        <table style="width:100%; border-collapse:collapse; border:1px solid #e4e4e7; border-radius:12px; overflow:hidden;">
+          <thead>
+            <tr>
+              <th align="left" style="padding:10px 14px; background:#fafafa; border-bottom:1px solid #e4e4e7; font-size:12px; color:#52525b; text-transform:uppercase; letter-spacing:0.06em;">Question</th>
+              <th align="left" style="padding:10px 14px; background:#fafafa; border-bottom:1px solid #e4e4e7; font-size:12px; color:#52525b; text-transform:uppercase; letter-spacing:0.06em;">Response</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${tableRows}
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <div style="max-width:720px;margin:12px auto 0; font-size:12px; color:#71717a; text-align:center;">
+      Sent by Purely Automation
+    </div>
+  </div>
+  `.trim();
 }

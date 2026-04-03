@@ -59,7 +59,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ formId: string 
     },
     orderBy: [{ createdAt: "desc" }, { id: "desc" }],
     take: limit + 1,
-    select: { id: true, createdAt: true, dataJson: true, ip: true, userAgent: true },
+    select: { id: true, createdAt: true, dataJson: true },
   });
 
   const hasMore = submissions.length > limit;
@@ -74,8 +74,6 @@ export async function GET(req: Request, ctx: { params: Promise<{ formId: string 
       id: s.id,
       createdAt: s.createdAt.toISOString(),
       dataJson: s.dataJson,
-      ip: s.ip,
-      userAgent: s.userAgent,
     })),
     nextCursor,
   });

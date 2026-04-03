@@ -30,6 +30,7 @@ type FieldType =
   | "phone"
   | "name"
   | "signature"
+  | "file_upload"
   | "checklist"
   | "radio"
   // legacy
@@ -43,6 +44,10 @@ type Field = {
   type: FieldType;
   required?: boolean;
   options?: string[];
+  // file_upload only
+  maxFiles?: number;
+  maxSizeMb?: number;
+  allowedContentTypes?: string[];
 };
 
 type FormStyle = {
@@ -97,6 +102,7 @@ function normalizeFields(rawSchema: any): Field[] {
       type === "phone" ||
       type === "name" ||
       type === "signature" ||
+      type === "file_upload" ||
       type === "checklist" ||
       type === "radio" ||
       type === "text" ||
@@ -112,7 +118,27 @@ function normalizeFields(rawSchema: any): Field[] {
           .slice(0, 50)
       : undefined;
 
-    out.push({ name, label, type, required, options });
+    const allowedContentTypesRaw = (f as any).allowedContentTypes;
+    const allowedContentTypes =
+      type === "file_upload" && Array.isArray(allowedContentTypesRaw)
+        ? allowedContentTypesRaw
+            .filter((v: any): v is string => typeof v === "string")
+            .map((v: string) => v.trim())
+            .filter(Boolean)
+            .slice(0, 60)
+        : undefined;
+    const maxFilesRaw = (f as any).maxFiles;
+    const maxFiles =
+      type === "file_upload" && typeof maxFilesRaw === "number" && Number.isFinite(maxFilesRaw)
+        ? Math.max(1, Math.min(20, Math.floor(maxFilesRaw)))
+        : undefined;
+    const maxSizeMbRaw = (f as any).maxSizeMb;
+    const maxSizeMb =
+      type === "file_upload" && typeof maxSizeMbRaw === "number" && Number.isFinite(maxSizeMbRaw)
+        ? Math.max(1, Math.min(500, Math.round(maxSizeMbRaw * 10) / 10))
+        : undefined;
+
+    out.push({ name, label, type, required, options, maxFiles, maxSizeMb, allowedContentTypes });
   }
   return out;
 }
@@ -151,6 +177,8 @@ function fieldTypeLabel(t: FieldType) {
       return "Name";
     case "signature":
       return "Signature";
+    case "file_upload":
+      return "File upload";
     case "checklist":
       return "Checklist";
     case "radio":
@@ -429,9 +457,23 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
       return;
     }
 
+    const nextField: Field = {
+      name: nextName,
+      label: trimmedLabel,
+      type: fieldType,
+      required,
+      ...(nextOptions ? { options: nextOptions } : {}),
+      ...(fieldType === "file_upload"
+        ? {
+            maxFiles: 1,
+            maxSizeMb: 10,
+          }
+        : {}),
+    };
+
     setFields((prev) => {
       const next = [...(prev || [])];
-      next.push({ name: nextName, label: trimmedLabel, type: fieldType, required, options: nextOptions });
+      next.push(nextField);
       return next;
     });
     setSelectedIdx(fields?.length || 0);
@@ -674,6 +716,7 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
                 { value: "email", label: "Email" },
                 { value: "phone", label: "Phone number" },
                 { value: "signature", label: "Signature" },
+                { value: "file_upload", label: "File upload" },
                 { value: "checklist", label: "Checklist" },
                 { value: "radio", label: "Multiple choice" },
               ]}
@@ -975,6 +1018,18 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
                             <div className="h-24 w-full rounded-xl border border-zinc-200 bg-white" />
                             <div className="mt-3 text-xs font-semibold uppercase tracking-wide text-zinc-500">Draw signature here</div>
                           </div>
+                        ) : field.type === "file_upload" ? (
+                          <input
+                            disabled
+                            type="file"
+                            className="w-full border border-zinc-200 px-4 py-2 text-sm"
+                            style={{
+                              borderRadius: style.radiusPx ?? 16,
+                              backgroundColor: style.inputBg || "#ffffff",
+                              borderColor: style.inputBorder || "#e4e4e7",
+                              color: style.textColor || "#18181b",
+                            }}
+                          />
                         ) : isTextareaField(field.type) ? (
                           <textarea
                             disabled
@@ -1077,7 +1132,17 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
                           if (i !== selectedIdx) return f;
                           const nextType = t as FieldType;
                           const nextOptions = nextType === "checklist" || nextType === "radio" ? f.options || ["Option 1", "Option 2"] : undefined;
-                          return { ...f, type: nextType, options: nextOptions };
+                          const nextUploadDefaults =
+                            nextType === "file_upload"
+                              ? {
+                                  maxFiles: typeof f.maxFiles === "number" && Number.isFinite(f.maxFiles) ? f.maxFiles : 1,
+                                  maxSizeMb: typeof f.maxSizeMb === "number" && Number.isFinite(f.maxSizeMb) ? f.maxSizeMb : 10,
+                                  // Empty/undefined means "allow any file type".
+                                  allowedContentTypes:
+                                    Array.isArray(f.allowedContentTypes) && f.allowedContentTypes.length ? f.allowedContentTypes : [],
+                                }
+                              : { maxFiles: undefined, maxSizeMb: undefined, allowedContentTypes: undefined };
+                          return { ...f, type: nextType, options: nextOptions, ...nextUploadDefaults };
                         }),
                       );
                     }}
@@ -1089,6 +1154,7 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
                       { value: "email", label: "Email" },
                       { value: "phone", label: "Phone number" },
                       { value: "signature", label: "Signature" },
+                      { value: "file_upload", label: "File upload" },
                       { value: "checklist", label: "Checklist" },
                       { value: "radio", label: "Multiple choice" },
                     ]}
@@ -1115,6 +1181,168 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
                     />
                     <div className="mt-1 text-xs text-zinc-500">One option per line.</div>
                   </label>
+                ) : null}
+
+                {selected.type === "file_upload" ? (
+                  <div className="rounded-3xl border border-zinc-200 bg-zinc-50 p-4">
+                    <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">File upload settings</div>
+
+                    <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                      <label className="block">
+                        <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Max files</div>
+                        <input
+                          type="number"
+                          min={1}
+                          max={20}
+                          value={typeof selected.maxFiles === "number" && Number.isFinite(selected.maxFiles) ? selected.maxFiles : 1}
+                          onChange={(e) => {
+                            const n = Math.max(1, Math.min(20, Math.floor(Number(e.target.value)) || 1));
+                            setFields((prev) => (prev || []).map((f, i) => (i === selectedIdx ? { ...f, maxFiles: n } : f)));
+                          }}
+                          className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm text-zinc-900"
+                        />
+                      </label>
+
+                      <label className="block">
+                        <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Max size (MB)</div>
+                        <input
+                          type="number"
+                          min={1}
+                          max={500}
+                          step={1}
+                          value={typeof selected.maxSizeMb === "number" && Number.isFinite(selected.maxSizeMb) ? selected.maxSizeMb : 10}
+                          onChange={(e) => {
+                            const n = Math.max(1, Math.min(500, Math.floor(Number(e.target.value)) || 10));
+                            setFields((prev) => (prev || []).map((f, i) => (i === selectedIdx ? { ...f, maxSizeMb: n } : f)));
+                          }}
+                          className="mt-1 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm text-zinc-900"
+                        />
+                      </label>
+                    </div>
+
+                    <div className="mt-4">
+                      <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Allowed file types</div>
+
+                      <label className="mt-2 flex cursor-pointer items-center gap-2 text-sm text-zinc-900">
+                        <input
+                          type="checkbox"
+                          checked={!Array.isArray(selected.allowedContentTypes) || selected.allowedContentTypes.length === 0}
+                          onChange={(e) => {
+                            const allowAny = e.target.checked;
+                            setFields((prev) =>
+                              (prev || []).map((f, i) => {
+                                if (i !== selectedIdx) return f;
+                                if (allowAny) return { ...f, allowedContentTypes: [] };
+                                const existing = Array.isArray(f.allowedContentTypes) ? f.allowedContentTypes : [];
+                                if (existing.length) return { ...f, allowedContentTypes: existing };
+                                return {
+                                  ...f,
+                                  allowedContentTypes: [
+                                    "image/*",
+                                    "application/pdf",
+                                  ],
+                                };
+                              }),
+                            );
+                          }}
+                          className="h-4 w-4 rounded border-zinc-300"
+                        />
+                        <span className="font-semibold">Allow any file type</span>
+                      </label>
+
+                      {(
+                        [
+                          { key: "images", label: "Images", types: ["image/*"] },
+                          { key: "pdf", label: "PDF", types: ["application/pdf"] },
+                          {
+                            key: "docs",
+                            label: "Docs",
+                            types: [
+                              "text/plain",
+                              "text/csv",
+                              "application/msword",
+                              "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                              "application/vnd.ms-excel",
+                              "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                              "application/vnd.ms-powerpoint",
+                              "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+                            ],
+                          },
+                          { key: "audio", label: "Audio", types: ["audio/*"] },
+                          { key: "video", label: "Video", types: ["video/*"] },
+                          { key: "archives", label: "Archives", types: ["application/zip", "application/x-7z-compressed", "application/x-rar-compressed"] },
+                        ] as const
+                      ).map((group) => {
+                        const allowAny = !Array.isArray(selected.allowedContentTypes) || selected.allowedContentTypes.length === 0;
+                        const current = Array.isArray(selected.allowedContentTypes) ? selected.allowedContentTypes : [];
+                        const hasAll = group.types.every((t) => current.includes(t));
+                        return (
+                          <label
+                            key={group.key}
+                            className={classNames(
+                              "mt-2 flex cursor-pointer items-center gap-2 text-sm text-zinc-900",
+                              allowAny ? "opacity-60" : "",
+                            )}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={hasAll}
+                              disabled={allowAny}
+                              onChange={(e) => {
+                                const checked = e.target.checked;
+                                setFields((prev) =>
+                                  (prev || []).map((f, i) => {
+                                    if (i !== selectedIdx) return f;
+                                    const existing = Array.isArray(f.allowedContentTypes) ? f.allowedContentTypes : [];
+                                    const next = checked
+                                      ? Array.from(new Set([...existing, ...group.types]))
+                                      : existing.filter((t) => !(group.types as readonly string[]).includes(t));
+                                    return { ...f, allowedContentTypes: next.length ? next : [] };
+                                  }),
+                                );
+                              }}
+                              className="h-4 w-4 rounded border-zinc-300"
+                            />
+                            <span className="font-semibold">{group.label}</span>
+                          </label>
+                        );
+                      })}
+
+                      <label className="mt-3 block">
+                        <div className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Custom MIME types (one per line)</div>
+                        <textarea
+                          value={
+                            Array.isArray(selected.allowedContentTypes) && selected.allowedContentTypes.length
+                              ? selected.allowedContentTypes.join("\n")
+                              : ""
+                          }
+                          disabled={!Array.isArray(selected.allowedContentTypes) || selected.allowedContentTypes.length === 0}
+                          onChange={(e) => {
+                            const next = e.target.value
+                              .split(/\r?\n|,/g)
+                              .map((s) => s.trim())
+                              .filter(Boolean)
+                              .slice(0, 60);
+                            setFields((prev) =>
+                              (prev || []).map((f, i) => {
+                                if (i !== selectedIdx) return f;
+                                return { ...f, allowedContentTypes: next };
+                              }),
+                            );
+                          }}
+                          placeholder={"image/*\napplication/pdf\ntext/plain"}
+                          className="mt-1 min-h-24 w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm text-zinc-900 placeholder:text-zinc-400"
+                        />
+                        <div className="mt-1 text-xs text-zinc-500">
+                          Leave blank + check “Allow any file type” to accept everything. Wildcards are supported (ex: <span className="font-mono text-[11px]">image/*</span>).
+                        </div>
+                      </label>
+
+                      <div className="mt-2 text-xs text-zinc-500">
+                        Tip: If you enable “Allow any file type”, the upload token won’t restrict MIME type.
+                      </div>
+                    </div>
+                  </div>
                 ) : null}
 
                 <label className="flex items-center gap-2">

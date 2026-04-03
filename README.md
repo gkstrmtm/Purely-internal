@@ -80,6 +80,12 @@ VS Code tasks are also available in `.vscode/tasks.json`:
 - `NEXTAUTH_SECRET` (generate with `openssl rand -base64 32`)
 - `SIGNUP_INVITE_CODE` (required; choose any value)
 
+Optional (uploads via Vercel Blob):
+
+- `BLOB_READ_WRITE_TOKEN` (recommended)
+	- Alternative names are supported in code: `VERCEL_BLOB_READ_WRITE_TOKEN`, `VERCEL_BLOB_TOKEN`, `BLOB_RW_TOKEN`, `BLOB_TOKEN`
+	- Used by media library uploads and hosted form `file_upload` question types (direct browser-to-Blob uploads)
+
 Optional (Portal billing + entitlements):
 
 - `STRIPE_SECRET_KEY` (Stripe secret key; enables billing actions)

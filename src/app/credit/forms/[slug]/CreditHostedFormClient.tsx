@@ -1,5 +1,7 @@
 "use client";
 
+import type { PutBlobResult } from "@vercel/blob";
+import { upload as uploadToVercelBlob } from "@vercel/blob/client";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { SignaturePad } from "@/components/SignaturePad";
@@ -20,6 +22,33 @@ function normalizeInputType(t: Field["type"]): "text" | "email" | "tel" {
   if (t === "email") return "email";
   if (t === "tel" || t === "phone") return "tel";
   return "text";
+}
+
+function normalizeAllowedContentTypesForAccept(allowed: unknown): string {
+  if (!Array.isArray(allowed)) return "";
+  const list = allowed
+    .filter((v): v is string => typeof v === "string")
+    .map((v) => v.trim())
+    .filter(Boolean)
+    .slice(0, 60);
+  return list.join(",");
+}
+
+function isAllowedFileType(file: File, allowed: string[] | undefined): boolean {
+  if (!allowed || allowed.length === 0) return true;
+  const t = (file.type || "").trim();
+  if (!t) return false;
+  for (const entry of allowed) {
+    const rule = String(entry || "").trim();
+    if (!rule) continue;
+    if (rule.endsWith("/*")) {
+      const prefix = rule.slice(0, -1);
+      if (t.startsWith(prefix)) return true;
+      continue;
+    }
+    if (t === rule) return true;
+  }
+  return false;
 }
 
 function SignatureField({
@@ -63,6 +92,7 @@ export function CreditHostedFormClient({
   successContent,
   content,
   submitBasePath,
+  hostedKey,
 }: {
   slug: string;
   formName: string;
@@ -72,14 +102,17 @@ export function CreditHostedFormClient({
   successContent?: CreditFormSuccessContent;
   content?: CreditFormContent;
   submitBasePath?: "/credit" | "/portal";
+  hostedKey?: string;
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
   const [fieldValues, setFieldValues] = useState<Record<string, string | string[]>>({});
   const [signatureValues, setSignatureValues] = useState<Record<string, string>>({});
+  const [fileValues, setFileValues] = useState<Record<string, File[]>>({});
   const fieldValuesRef = useRef<Record<string, string | string[]>>({});
   const signatureValuesRef = useRef<Record<string, string>>({});
+  const fileValuesRef = useRef<Record<string, File[]>>({});
 
   const setFieldValue = (fieldName: string, nextValue: string | string[]) => {
     fieldValuesRef.current = { ...fieldValuesRef.current, [fieldName]: nextValue };
@@ -102,10 +135,22 @@ export function CreditHostedFormClient({
     return typeof value === "string" ? value : "";
   };
 
+  const readFileValue = (field: Field): File[] => {
+    const value = fileValuesRef.current[field.name];
+    return Array.isArray(value) ? value : [];
+  };
+
   const actionUrl = useMemo(() => {
     const base = submitBasePath === "/portal" ? "/portal" : "/credit";
     return `/api/public${base}/forms/${encodeURIComponent(slug)}/submit`;
   }, [slug, submitBasePath]);
+
+  const blobUploadUrlBase = useMemo(() => {
+    const base = submitBasePath === "/portal" ? "/portal" : "/credit";
+    const u = `/api/public${base}/forms/${encodeURIComponent(slug)}/blob-upload`;
+    const qp = hostedKey ? `?key=${encodeURIComponent(hostedKey)}` : "";
+    return `${u}${qp}`;
+  }, [hostedKey, slug, submitBasePath]);
 
   useEffect(() => {
     if (typeof document === "undefined") return;
@@ -237,6 +282,17 @@ export function CreditHostedFormClient({
           }
 
           for (const f of fields) {
+            if (f.type !== "file_upload" || !f.required) continue;
+            const selected = readFileValue(f);
+            if (!Array.isArray(selected) || selected.length === 0) {
+              setError(`Please upload a file for “${f.label}”.`);
+              setBusy(false);
+              return;
+            }
+          }
+
+          for (const f of fields) {
+            if (f.type === "file_upload") continue;
             const value = readFieldValue(f);
             if (f.type === "checklist") {
               data[f.name] = Array.isArray(value) ? value : [];
@@ -245,15 +301,67 @@ export function CreditHostedFormClient({
             data[f.name] = typeof value === "string" ? value : "";
           }
 
-          fetch(actionUrl, {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify({ data }),
-          })
+          (async () => {
+            for (const f of fields) {
+              if (f.type !== "file_upload") continue;
+
+              const maxFiles = typeof (f as any).maxFiles === "number" && Number.isFinite((f as any).maxFiles) ? (f as any).maxFiles : 1;
+              const maxSizeMb = typeof (f as any).maxSizeMb === "number" && Number.isFinite((f as any).maxSizeMb) ? (f as any).maxSizeMb : 10;
+              const allowedContentTypes = Array.isArray((f as any).allowedContentTypes)
+                ? ((f as any).allowedContentTypes as string[]).map((v) => String(v || "").trim()).filter(Boolean)
+                : undefined;
+
+              const selected = readFileValue(f);
+              const list = Array.isArray(selected) ? selected : [];
+              if (list.length > maxFiles) {
+                throw new Error(`“${f.label}” allows up to ${maxFiles} file${maxFiles === 1 ? "" : "s"}.`);
+              }
+
+              const refs: Array<{ url: string; fileName: string; mimeType: string; fileSize: number }> = [];
+              for (const file of list) {
+                const fileSize = typeof file.size === "number" && Number.isFinite(file.size) ? file.size : 0;
+                if (fileSize > maxSizeMb * 1024 * 1024) {
+                  throw new Error(`“${f.label}”: ${file.name || "File"} exceeds ${maxSizeMb} MB.`);
+                }
+                if (!isAllowedFileType(file, allowedContentTypes)) {
+                  throw new Error(`“${f.label}”: ${file.name || "File"} is not an allowed file type.`);
+                }
+
+                let blob: PutBlobResult;
+                try {
+                  const uploadUrl = new URL(blobUploadUrlBase, window.location.origin);
+                  uploadUrl.searchParams.set("field", f.name);
+                  blob = await uploadToVercelBlob(file.name || "upload.bin", file, {
+                    access: "public",
+                    handleUploadUrl: uploadUrl.toString(),
+                  });
+                } catch (err) {
+                  const msg = (err as any)?.message ? String((err as any).message) : "Upload failed";
+                  throw new Error(msg);
+                }
+
+                refs.push({
+                  url: blob.url,
+                  fileName: file.name || blob.pathname || "upload.bin",
+                  mimeType: file.type || blob.contentType || "application/octet-stream",
+                  fileSize,
+                });
+              }
+
+              data[f.name] = refs;
+            }
+
+            const res = await fetch(actionUrl, {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({ data }),
+            });
+            const json = (await res.json().catch(() => null)) as any;
+            if (!res.ok || !json || json.ok !== true) throw new Error(json?.error || "Submission failed");
+            return json;
+          })()
             .then(async (r) => {
-              const json = (await r.json().catch(() => null)) as any;
-              if (!r.ok || !json || json.ok !== true) throw new Error(json?.error || "Submission failed");
-              return json;
+              return r;
             })
             .then(() => {
               try {
@@ -265,6 +373,8 @@ export function CreditHostedFormClient({
               setFieldValues({});
               signatureValuesRef.current = {};
               setSignatureValues({});
+              fileValuesRef.current = {};
+              setFileValues({});
               setSuccess(true);
             })
             .catch((err) => {
@@ -349,6 +459,41 @@ export function CreditHostedFormClient({
                 inputBorder={inputBorder}
                 textColor={textColor}
               />
+            ) : f.type === "file_upload" ? (
+              <div className="space-y-2">
+                <input
+                  name={f.name}
+                  type="file"
+                  disabled={busy}
+                  multiple={(typeof (f as any).maxFiles === "number" ? (f as any).maxFiles : 1) > 1}
+                  accept={normalizeAllowedContentTypesForAccept((f as any).allowedContentTypes)}
+                  onChange={(event) => {
+                    const list = event.target.files ? Array.from(event.target.files) : [];
+                    fileValuesRef.current = { ...fileValuesRef.current, [f.name]: list };
+                    setFileValues((current) => ({ ...current, [f.name]: list }));
+                  }}
+                  className="w-full rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm"
+                  style={{ borderRadius: radiusPx, borderColor: inputBorder, backgroundColor: inputBg, color: textColor }}
+                />
+
+                {Array.isArray(fileValues[f.name]) && (fileValues[f.name] as File[]).length ? (
+                  <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-3 text-xs text-zinc-700">
+                    {(fileValues[f.name] as File[]).map((file) => (
+                      <div key={`${file.name}-${file.size}`} className="truncate">
+                        {file.name} ({Math.max(1, Math.round((file.size / 1024 / 1024) * 10) / 10)} MB)
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-xs text-zinc-500">
+                    {(() => {
+                      const maxFiles = typeof (f as any).maxFiles === "number" && Number.isFinite((f as any).maxFiles) ? (f as any).maxFiles : 1;
+                      const maxSizeMb = typeof (f as any).maxSizeMb === "number" && Number.isFinite((f as any).maxSizeMb) ? (f as any).maxSizeMb : 10;
+                      return `Up to ${maxFiles} file${maxFiles === 1 ? "" : "s"}. Max ${maxSizeMb} MB each.`;
+                    })()}
+                  </div>
+                )}
+              </div>
             ) : isTextareaField(f.type) ? (
               <textarea
                 name={f.name}
