@@ -4,7 +4,7 @@ import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { requireCreditClientSession } from "@/lib/creditPortalAccess";
 import { generateText } from "@/lib/ai";
-import { normalizeDisputeLetterText, readContactSignature, readContactSignatureImage } from "@/lib/creditDisputeLetters";
+import { normalizeDisputeLetterText, readContactAddress, readContactSignature, readContactSignatureImage } from "@/lib/creditDisputeLetters";
 import { renderDisputeLetterPdfBytes } from "@/lib/disputeLetterPdf";
 import { mirrorUploadToMediaLibrary } from "@/lib/portalMediaUploads";
 
@@ -95,6 +95,7 @@ export async function POST(req: Request) {
   const roundNumber = parsed.data.roundNumber;
   const signature = readContactSignature(contact.customVariables);
   const signatureImage = readContactSignatureImage(contact.customVariables);
+  const address = readContactAddress(contact.customVariables);
   const signatureSummary = signature || (signatureImage ? "drawn signature on file" : "");
 
   const system =
@@ -115,6 +116,7 @@ export async function POST(req: Request) {
     recipientAddress ? `Recipient address: ${recipientAddress}` : "Recipient address: not provided",
     "",
     `Consumer/contact name: ${contact.name}`,
+    address ? `Consumer address: ${address}` : "Consumer address: not provided",
     contact.email ? `Consumer email: ${contact.email}` : "Consumer email: not provided",
     contact.phone ? `Consumer phone: ${contact.phone}` : "Consumer phone: not provided",
     signatureSummary ? `Consumer signature on file: ${signatureSummary}` : "Consumer signature on file: (none stored)",
@@ -146,6 +148,7 @@ export async function POST(req: Request) {
     signature: signature,
     email: contact.email,
     phone: contact.phone,
+    address,
   });
 
   const subject = parsed.data.subjectLine?.trim() || `Dispute letter - ${contact.name}`;
@@ -187,6 +190,7 @@ export async function POST(req: Request) {
       title: created.subject || "Dispute Letter",
       text: created.bodyText || "(empty)",
       signatureDataUrl: signatureImage || null,
+      printedName: contact.name,
     });
     const safeContact = (created.contact?.name || "contact").replace(/[^a-z0-9]+/gi, "-").replace(/^-+|-+$/g, "");
     const fileName = `dispute-letter-${safeContact || "contact"}-${created.id.slice(0, 8)}.pdf`;

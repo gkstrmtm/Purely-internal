@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
-import { normalizeDisputeLetterText, readContactSignature } from "@/lib/creditDisputeLetters";
+import { normalizeDisputeLetterText, readContactAddress, readContactSignature } from "@/lib/creditDisputeLetters";
 import { prisma } from "@/lib/db";
 import { requireCreditClientSession } from "@/lib/creditPortalAccess";
 
@@ -79,6 +79,7 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ letterId: str
               signature: readContactSignature(existing.contact?.customVariables) || existing.contact?.name || "",
               email: existing.contact?.email || "",
               phone: existing.contact?.phone || "",
+              address: readContactAddress(existing.contact?.customVariables),
             }),
           }
         : {}),

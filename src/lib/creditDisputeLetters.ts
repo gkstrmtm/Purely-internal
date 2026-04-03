@@ -15,6 +15,16 @@ export function readContactSignature(customVariables: unknown) {
   return readSignatureText(readContactCustomValue(customVariables, "signature"));
 }
 
+export function readContactAddress(customVariables: unknown) {
+  const raw =
+    readContactCustomValue(customVariables, "address") ||
+    readContactCustomValue(customVariables, "mailing_address") ||
+    readContactCustomValue(customVariables, "mailing address") ||
+    readContactCustomValue(customVariables, "addressLine1") ||
+    readContactCustomValue(customVariables, "address_line1");
+  return String(raw || "").trim();
+}
+
 export function readContactSignatureImage(customVariables: unknown) {
   return readSignatureImageDataUrl(readContactCustomValue(customVariables, "signature"));
 }
@@ -25,12 +35,19 @@ function escapeRegExp(value: string) {
 
 export function normalizeDisputeLetterText(
   value: string,
-  options?: { contactName?: string | null; signature?: string | null; email?: string | null; phone?: string | null },
+  options?: {
+    contactName?: string | null;
+    signature?: string | null;
+    email?: string | null;
+    phone?: string | null;
+    address?: string | null;
+  },
 ) {
   const contactName = String(options?.contactName || "").trim();
   const signature = String(options?.signature || "").trim();
   const email = String(options?.email || "").trim();
   const phone = String(options?.phone || "").trim();
+  const address = String(options?.address || "").trim();
 
   let text = String(value || "")
     .replace(/\r\n?/g, "\n")
@@ -43,8 +60,10 @@ export function normalizeDisputeLetterText(
     .replace(/^recipient address\s*:\s*not provided\s*$/gim, "")
     .replace(/^consumer email\s*:\s*not provided\s*$/gim, "")
     .replace(/^consumer phone\s*:\s*not provided\s*$/gim, "")
+    .replace(/\{\{\s*(name|contact name|consumer name|contactName)\s*\}\}/gi, contactName)
     .replace(/\{\{\s*email\s*\}\}/gi, email)
     .replace(/\{\{\s*phone\s*\}\}/gi, phone)
+    .replace(/\{\{\s*(address|mailing address|consumer address|addressline1|address_line1|address 1|address1)\s*\}\}/gi, address)
     .replace(/\{\{\s*(signature|consumer signature|your signature if sending a hard copy)[^}]*\}\}/gi, signature || "________________")
     .replace(/your signature if sending a hard copy/gi, signature || "________________")
     .replace(/\b(i hope this letter finds you well)\b[:,]?/gi, "")
@@ -59,6 +78,12 @@ export function normalizeDisputeLetterText(
     text = text
       .replace(/\byour email address\b/gi, email)
       .replace(/\byour email\b/gi, email);
+  }
+
+  if (address) {
+    text = text
+      .replace(/\byour mailing address\b/gi, address)
+      .replace(/\byour address\b/gi, address);
   }
 
   if (phone) {

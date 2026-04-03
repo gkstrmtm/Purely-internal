@@ -33,10 +33,38 @@ function wrapLines(text: string, maxChars: number): string[] {
   return lines;
 }
 
+function sanitizePdfText(text: string) {
+  // Keep tabs/newlines/carriage returns and printable ASCII.
+  return String(text || "").replace(/[^\x09\x0A\x0D\x20-\x7E]/g, " ");
+}
+
+async function tryEmbedSignatureImage(pdf: PDFDocument, signatureDataUrl: string) {
+  const trimmed = String(signatureDataUrl || "").trim();
+  if (!trimmed) return null;
+
+  try {
+    const match = trimmed.match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,(.+)$/);
+    const mimeType = match?.[1] || "";
+    const base64 = match?.[2] || "";
+    if (!mimeType || !base64) return null;
+
+    const bytes = Buffer.from(base64, "base64");
+    const image = mimeType.includes("png") ? await pdf.embedPng(bytes) : await pdf.embedJpg(bytes);
+
+    const maxWidth = 180;
+    const maxHeight = 72;
+    const scale = Math.min(maxWidth / image.width, maxHeight / image.height, 1);
+    return { image, width: image.width * scale, height: image.height * scale };
+  } catch {
+    return null;
+  }
+}
+
 export async function renderDisputeLetterPdfBytes(opts: {
   title?: string;
   text: string;
   signatureDataUrl?: string | null;
+  printedName?: string | null;
 }): Promise<Buffer> {
   const pdf = await PDFDocument.create();
   const page = pdf.addPage([612, 792]);
@@ -46,43 +74,36 @@ export async function renderDisputeLetterPdfBytes(opts: {
   const margin = 54;
   const pageWidth = page.getWidth();
   const pageHeight = page.getHeight();
+  const bodyWidth = pageWidth - margin * 2;
+
   const lineHeight = 13;
   const bodyFontSize = 10;
   const titleFontSize = 14;
-  const bodyWidth = pageWidth - margin * 2;
 
-  let signatureImage:
-    | { image: Awaited<ReturnType<PDFDocument["embedPng"]>> | Awaited<ReturnType<PDFDocument["embedJpg"]>>; width: number; height: number }
-    | null = null;
+  const title = String(opts.title || "Dispute Letter").trim().slice(0, 120) || "Dispute Letter";
+  page.drawText(sanitizePdfText(title), {
+    x: margin,
+    y: pageHeight - margin,
+    size: titleFontSize,
+    font: titleFont,
+  });
 
-  const signatureDataUrl = String(opts.signatureDataUrl || "").trim();
-  if (signatureDataUrl) {
-    try {
-      const [, mimeType = "", base64 = ""] = signatureDataUrl.match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,(.+)$/) || [];
-      if (mimeType && base64) {
-        const bytes = Buffer.from(base64, "base64");
-        const image = mimeType.includes("png") ? await pdf.embedPng(bytes) : await pdf.embedJpg(bytes);
-        const maxWidth = 180;
-        const maxHeight = 72;
-        const scale = Math.min(maxWidth / image.width, maxHeight / image.height, 1);
-        signatureImage = { image, width: image.width * scale, height: image.height * scale };
-      }
-    } catch {
-      signatureImage = null;
-    }
-  }
-
-  const title = String(opts.title || "Document").trim().slice(0, 120) || "Document";
-  page.drawText(title, { x: margin, y: pageHeight - margin, size: titleFontSize, font: titleFont });
+  const printedName = String(opts.printedName || "").trim();
+  const signatureImage = await tryEmbedSignatureImage(pdf, String(opts.signatureDataUrl || ""));
 
   const startY = pageHeight - margin - 28;
-  const reservedSignatureHeight = signatureImage ? signatureImage.height + 42 : 0;
+  const reservedSignatureHeight = signatureImage
+    ? signatureImage.height + (printedName ? 54 : 42)
+    : printedName
+      ? 42
+      : 0;
+
   const maxBodyLines = Math.max(10, Math.floor((startY - margin - reservedSignatureHeight) / lineHeight));
   const wrapped = wrapLines(String(opts.text || ""), 95).slice(0, maxBodyLines);
 
   let cursorY = startY;
   for (const line of wrapped) {
-    page.drawText(line.replace(/[^\x09\x0A\x0D\x20-\x7E]/g, " "), {
+    page.drawText(sanitizePdfText(line), {
       x: margin,
       y: cursorY,
       size: bodyFontSize,
@@ -95,17 +116,30 @@ export async function renderDisputeLetterPdfBytes(opts: {
 
   if (signatureImage) {
     const signatureY = Math.max(margin + 12, cursorY - 24);
-    page.drawText("Signature on file", {
-      x: margin,
-      y: signatureY + signatureImage.height + 8,
-      size: 9,
-      font: titleFont,
-    });
     page.drawImage(signatureImage.image, {
       x: margin,
       y: signatureY,
       width: signatureImage.width,
       height: signatureImage.height,
+    });
+
+    if (printedName) {
+      page.drawText(sanitizePdfText(printedName), {
+        x: margin,
+        y: Math.max(margin, signatureY - 14),
+        size: 10,
+        font: bodyFont,
+        maxWidth: bodyWidth,
+      });
+    }
+  } else if (printedName) {
+    const nameY = Math.max(margin, cursorY - 24);
+    page.drawText(sanitizePdfText(printedName), {
+      x: margin,
+      y: nameY,
+      size: 10,
+      font: bodyFont,
+      maxWidth: bodyWidth,
     });
   }
 

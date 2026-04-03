@@ -54,6 +54,7 @@ export async function POST(_req: Request, ctx: { params: Promise<{ letterId: str
     title: letter.subject || "Dispute Letter",
     text: letter.bodyText || "(empty)",
     signatureDataUrl: readContactSignatureImage(letter.contact?.customVariables) || null,
+    printedName: letter.contact?.name || "",
   });
 
   const safeContact = (letter.contact?.name || "contact").replace(/[^a-z0-9]+/gi, "-").replace(/^-+|-+$/g, "");
