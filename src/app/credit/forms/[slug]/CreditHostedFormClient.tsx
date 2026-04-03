@@ -129,7 +129,14 @@ export function CreditHostedFormClient({
   };
 
   const readFieldValue = (field: Field): string | string[] => {
-    if (field.type === "signature") return signatureValuesRef.current[field.name] || "";
+    if (field.type === "signature") {
+      const fromSignatureRef = signatureValuesRef.current[field.name];
+      if (typeof fromSignatureRef === "string" && fromSignatureRef.trim()) return fromSignatureRef;
+      const fromFieldRef = fieldValuesRef.current[field.name];
+      if (typeof fromFieldRef === "string" && fromFieldRef.trim()) return fromFieldRef;
+      const fromState = signatureValues[field.name];
+      return typeof fromState === "string" ? fromState : "";
+    }
     const value = fieldValuesRef.current[field.name];
     if (field.type === "checklist") return Array.isArray(value) ? value : [];
     return typeof value === "string" ? value : "";
@@ -273,8 +280,8 @@ export function CreditHostedFormClient({
 
           for (const f of fields) {
             if (f.type !== "signature" || !f.required) continue;
-            const selected = signatureValuesRef.current[f.name] || "";
-            if (!selected.trim()) {
+            const selected = readFieldValue(f);
+            if (typeof selected !== "string" || !selected.trim()) {
               setError(`Please add your signature for “${f.label}”.`);
               setBusy(false);
               return;
