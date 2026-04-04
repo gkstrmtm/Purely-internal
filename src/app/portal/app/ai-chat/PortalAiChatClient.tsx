@@ -722,7 +722,8 @@ export function PortalAiChatClient() {
   const [messagesByThread, setMessagesByThread] = useState<Record<string, Message[]>>(() => ({ [DRAFT_THREAD_KEY]: [] }));
   const [loadingThreadIds, setLoadingThreadIds] = useState<Set<string>>(() => new Set());
   const [serviceUsageCounts, setServiceUsageCounts] = useState<Record<string, number>>({});
-  const [welcomePromptSeed, setWelcomePromptSeed] = useState(() => `${Date.now()}-${Math.random()}`);
+  // Must be stable for SSR + hydration. We randomize it after mount.
+  const [welcomePromptSeed, setWelcomePromptSeed] = useState(() => "0");
 
   const [threadDraftsById, setThreadDraftsById] = useState<Record<string, ThreadDraftState>>(() => ({
     [DRAFT_THREAD_KEY]: createEmptyThreadDraftState(),

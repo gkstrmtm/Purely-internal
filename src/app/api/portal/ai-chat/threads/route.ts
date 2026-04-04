@@ -27,6 +27,11 @@ export async function GET(req: Request) {
   const ownerId = auth.session.user.id;
   const memberId = (auth.session.user as any).memberId || ownerId;
 
+  const now = new Date();
+  // Avoid deleting a freshly-created thread during the first-send flow.
+  // We only cleanup truly stale empty placeholder threads.
+  const emptyThreadCleanupCutoff = new Date(now.getTime() - 10 * 60 * 1000);
+
   // Cleanup: remove empty placeholder threads created by older client behavior.
   // "Empty" means: no messages at all.
   try {
@@ -35,6 +40,7 @@ export async function GET(req: Request) {
         ownerId,
         isPinned: false,
         lastMessageAt: null,
+        createdAt: { lt: emptyThreadCleanupCutoff },
         messages: { none: {} },
       },
     });

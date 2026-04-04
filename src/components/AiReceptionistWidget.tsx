@@ -448,8 +448,7 @@ export function AiReceptionistWidget() {
     };
   }, []);
 
-  function appendAssistantError(_text: string) {
-    void _text;
+  function appendAssistantError() {
     awaitingAgentRef.current = false;
     // AI-first: avoid rendering deterministic/non-model error text as an assistant message.
     setStatus("error");
@@ -583,8 +582,7 @@ export function AiReceptionistWidget() {
 
       if (!res || !res.ok || !signedUrl) {
         setStatus("error");
-        const err = data && typeof data.error === "string" ? data.error : "";
-        appendAssistantError(err);
+        appendAssistantError();
         return null;
       }
 
@@ -669,13 +667,7 @@ export function AiReceptionistWidget() {
       }
 
       if (msg?.type === "error" || msg?.type === "error_message") {
-        const err =
-          typeof msg?.message === "string"
-            ? msg.message
-            : typeof msg?.detail === "string"
-              ? msg.detail
-              : "";
-        appendAssistantError(err);
+        appendAssistantError();
       }
       });
 
