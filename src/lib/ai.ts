@@ -22,6 +22,34 @@ type OpenAIAudioTranscriptionVerboseResponse = {
   segments?: Array<{ start?: number; end?: number; text?: string }>;
 };
 
+function userExplicitlyRequestsEmojis(context: string): boolean {
+  const t = String(context || "").toLowerCase();
+  if (!t.trim()) return false;
+
+  // If the user is asking us NOT to use emojis, do not allow them.
+  if (/\b(no|without|dont|don't|do not|never)\b[\s\S]{0,40}\b(emojis?|emoji)\b/i.test(t)) return false;
+
+  return /\b(use|add|include|show|give|return|respond with)\b[\s\S]{0,40}\b(emojis?|emoji)\b/i.test(t);
+}
+
+function stripEmojis(raw: string): string {
+  const s = String(raw || "");
+  if (!s) return s;
+
+  // Remove emoji presentation characters + joiners/variation selectors.
+  // Note: this is intentionally conservative; it prioritizes a strict "no emojis" policy.
+  return s
+    .replace(/[\p{Extended_Pictographic}\p{Emoji_Presentation}\p{Emoji_Modifier}\p{Emoji_Component}]/gu, "")
+    .replace(/[\u200D\uFE0E\uFE0F]/g, "")
+    .replace(/[ \t]{2,}/g, " ")
+    .trim();
+}
+
+function sanitizeAiTextOutput(raw: string, contextForPolicy: string): string {
+  if (userExplicitlyRequestsEmojis(contextForPolicy)) return String(raw || "");
+  return stripEmojis(raw);
+}
+
 export async function generateText({
   system,
   user,
@@ -37,7 +65,8 @@ export async function generateText({
 
   // Dev-friendly fallback so the UI works without configuring an AI provider.
   if (!baseUrl || !apiKey) {
-    return [
+    return sanitizeAiTextOutput(
+      [
       "(AI not configured. Set AI_API_KEY in .env.local)",
       "",
       "Quick opener:",
@@ -50,7 +79,9 @@ export async function generateText({
       "1) How are you currently getting leads?",
       "2) What’s your close rate on inbound vs outbound?",
       "3) If you could add 10 appointments next month, could you handle it?",
-    ].join("\n");
+      ].join("\n"),
+      [system || "", user || ""].filter(Boolean).join("\n\n"),
+    );
   }
 
   const messages: ChatMessage[] = [];
@@ -76,7 +107,8 @@ export async function generateText({
   }
 
   const data = (await res.json()) as OpenAIChatResponse;
-  return data.choices?.[0]?.message?.content ?? "";
+  const out = data.choices?.[0]?.message?.content ?? "";
+  return sanitizeAiTextOutput(out, [system || "", user || ""].filter(Boolean).join("\n\n"));
 }
 
 export async function generateTextWithImages({
@@ -130,7 +162,8 @@ export async function generateTextWithImages({
   }
 
   const data = (await res.json()) as OpenAIChatResponse;
-  return data.choices?.[0]?.message?.content ?? "";
+  const out = data.choices?.[0]?.message?.content ?? "";
+  return sanitizeAiTextOutput(out, [system || "", user || ""].filter(Boolean).join("\n\n"));
 }
 
 export async function transcribeAudio({

@@ -397,6 +397,22 @@ function shouldAutoExecuteFromUserText(text: string) {
   );
 }
 
+function getInteractiveConfirmSpecForPortalAgentAction(actionRaw: unknown): { title: string; message: string } | null {
+  const action = String(actionRaw || "").trim();
+  if (!action) return null;
+
+  // In the interactive chat UI, always confirm before sending real outbound messages.
+  // (Scheduled runs should not use this helper.)
+  if (action === "inbox.send" || action === "inbox.send_sms" || action === "inbox.send_email") {
+    return {
+      title: "Confirm",
+      message: "This will send a real message to a contact. Continue?",
+    };
+  }
+
+  return null;
+}
+
 function isHowToQuestionOnly(textRaw: string): boolean {
   const t = String(textRaw || "").trim().toLowerCase();
   if (!t) return false;
@@ -430,6 +446,26 @@ function looksLikeWeekdaySmsSchedule(textRaw: string): boolean {
   const isSms = /\b(text|sms)\b/i.test(t);
   const hasTime = /\b\d{1,2}(?::\d{2})?\s*(a\.?m\.?|p\.?m\.?)\b/i.test(t) || /\b\d{1,2}:\d{2}\b/.test(t);
   return Boolean(isWeekdays && isSms && hasTime);
+}
+
+function looksLikeScheduledTasksEditRequest(textRaw: string): boolean {
+  const t = String(textRaw || "").trim().toLowerCase();
+  if (!t) return false;
+
+  const hasEditVerb = /\b(edit|update|change|move|shift|reschedule|adjust|modify)\b/i.test(t);
+  const hasScheduleWords = /\b(schedule|scheduled|scheduling)\b/i.test(t) || /\b(scheduled\s+tasks?|scheduled\s+messages?)\b/i.test(t);
+
+  // Typical edit phrasing includes a time change (often from X to Y).
+  const timeRe = /\b\d{1,2}(?::\d{2})?\s*(?:a\.?m\.?|p\.?m\.?)\b|\b\d{1,2}:\d{2}\b/gi;
+  const timeMatches = t.match(timeRe) || [];
+  const hasAnyTime = timeMatches.length >= 1;
+  const hasTwoTimes = timeMatches.length >= 2;
+
+  const hasFromTo = /\bfrom\b[\s\S]{0,80}\bto\b/i.test(t);
+  const hasInsteadOf = /\binstead\s+of\b/i.test(t);
+
+  if (!hasEditVerb || !hasScheduleWords || !hasAnyTime) return false;
+  return hasTwoTimes || hasFromTo || hasInsteadOf || /\bchange\b[\s\S]{0,40}\bto\b/i.test(t) || /\bset\b[\s\S]{0,40}\bto\b/i.test(t);
 }
 
 function userWantsTestSendNow(textRaw: string): boolean {
@@ -517,13 +553,33 @@ function extractTimeLocalHHmm(textRaw: string): string {
 function buildDeterministicWeekdaySmsPlan(opts: {
   text: string;
   ownerTimeZone?: string;
-}): { mode: "execute"; workTitle: string; steps: Array<{ key: any; title: string; args: Record<string, unknown> }> } | null {
+}):
+  | { mode: "execute"; workTitle: string; steps: Array<{ key: any; title: string; args: Record<string, unknown> }> }
+  | { mode: "clarify"; clarifyingQuestion: string }
+  | null {
   const text = String(opts.text || "");
   if (!looksLikeWeekdaySmsSchedule(text)) return null;
 
-  const contactHint = extractContactHint(text) || "Chester";
-  const timeLocal = extractTimeLocalHHmm(text) || "09:00";
+  // If the user is asking to edit/reschedule existing scheduled tasks, do not create new schedules.
+  if (looksLikeScheduledTasksEditRequest(text)) return null;
+
+  const contactHint = extractContactHint(text);
+  const timeLocal = extractTimeLocalHHmm(text);
   const tz = String(opts.ownerTimeZone || "").trim().slice(0, 80);
+
+  if (!contactHint) {
+    return {
+      mode: "clarify",
+      clarifyingQuestion: "Which contact should these weekday SMS messages go to?",
+    };
+  }
+
+  if (!timeLocal) {
+    return {
+      mode: "clarify",
+      clarifyingQuestion: "What time should the weekday SMS be scheduled for (e.g. 9:00am)?",
+    };
+  }
 
   const msg = extractQuotedMessage(text) || "Good morning, ready to get started?";
   const wantsNow = userWantsTestSendNow(text);
@@ -3063,7 +3119,10 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
       }
 
       if (plan?.mode === "execute" && Array.isArray(plan.steps) && plan.steps.length) {
-        const confirmSpec = plan.steps.map((s: any) => getConfirmSpecForPortalAgentAction(s.key)).find(Boolean) || null;
+        const confirmSpec =
+          plan.steps
+            .map((s: any) => getInteractiveConfirmSpecForPortalAgentAction(s.key) || getConfirmSpecForPortalAgentAction(s.key))
+            .find(Boolean) || null;
         if (confirmSpec) {
           const resolvedSteps: Array<{ key: PortalAgentActionKey; title: string; args: Record<string, unknown>; openUrl?: string }> = [];
 
@@ -3081,34 +3140,10 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
               const clarifyChoices = Array.isArray((resolved as any).choices) ? ((resolved as any).choices as any[]) : null;
 
               let clarifyText = String(resolved.clarifyQuestion || "").trim() || "I need one more detail to continue.";
-              try {
-                const system = [
-                  "You are Pura, an AI assistant inside a business portal.",
-                  "You are asking ONE clarifying question so you can run a tool/action.",
-                  "Sound warm, helpful, and human.",
-                  "Write a single short question.",
-                  "Rules:",
-                  "- Do not ask for internal IDs unless the user must paste one.",
-                  "- If clickable choices are available, mention they can click one.",
-                  "- If the user said to create something new, allow that option.",
-                  "- No JSON.",
-                ].join("\n");
-
-                const user = [
-                  "Latest user message:",
-                  String(effectiveText || ""),
-                  "\nMissing detail prompt (raw):",
-                  clarifyText,
-                  "\nChoices available:",
-                  JSON.stringify((clarifyChoices || []).slice(0, 8)).slice(0, 1500),
-                  "\nQuestion:",
-                ].join("\n");
-
-                const aiQ = String(await generateText({ system, user })).trim();
-                if (aiQ) clarifyText = aiQ.slice(0, 600);
-              } catch {
-                // ignore and keep deterministic fallback
+              if (clarifyChoices?.length) {
+                clarifyText = `${clarifyText}\n\nYou can also click one of the options above.`;
               }
+              clarifyText = clarifyText.slice(0, 600);
 
               const assistantMsg = await (prisma as any).portalAiChatMessage.create({
                 data: {
@@ -3243,34 +3278,10 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
             clarifyChoices = Array.isArray((resolved as any).choices) ? ((resolved as any).choices as any[]) : null;
 
             let clarifyText = String(resolved.clarifyQuestion || "").trim() || "I need one more detail to continue.";
-            try {
-              const system = [
-                "You are Pura, an AI assistant inside a business portal.",
-                "You are asking ONE clarifying question so you can run a tool/action.",
-                "Sound warm, helpful, and human.",
-                "Write a single short question.",
-                "Rules:",
-                "- Do not ask for internal IDs unless the user must paste one.",
-                "- If clickable choices are available, mention they can click one.",
-                "- If the user said to create something new, allow that option.",
-                "- No JSON.",
-              ].join("\n");
-
-              const user = [
-                "Latest user message:",
-                String(effectiveText || ""),
-                "\nMissing detail prompt (raw):",
-                clarifyText,
-                "\nChoices available:",
-                JSON.stringify((clarifyChoices || []).slice(0, 8)).slice(0, 1500),
-                "\nQuestion:",
-              ].join("\n");
-
-              const aiQ = String(await generateText({ system, user })).trim();
-              if (aiQ) clarifyText = aiQ.slice(0, 600);
-            } catch {
-              // ignore and keep deterministic fallback
+            if (clarifyChoices?.length) {
+              clarifyText = `${clarifyText}\n\nYou can also click one of the options above.`;
             }
+            clarifyText = clarifyText.slice(0, 600);
 
             const assistantMsg = await (prisma as any).portalAiChatMessage.create({
               data: {
@@ -3378,45 +3389,7 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
           return `${summary}\n\n${blocks.join("\n\n")}`;
         })();
 
-        // AI-first: let the model decide what to say after tools run.
-        // This keeps the chat feeling like ChatGPT while still using portal actions as tools.
-        let assistantTextFinal = assistantText;
-        try {
-          const system = [
-            "You are Pura, an AI assistant inside a business portal.",
-            "You just ran portal tools/actions for the user.",
-            "Write the assistant reply the user should see.",
-            "Rules:",
-            "- Be conversational, concise, and a little more friendly.",
-            "- If something failed, say it plainly and ask ONE targeted question if needed.",
-            "- If something succeeded, confirm what changed and what to do next.",
-            "- Do not mention internal code, schemas, or JSON.",
-            "- If there are multiple steps, summarize in 2-6 short lines.",
-          ].join("\n");
-
-          const user = [
-            "Latest user message:",
-            String(effectiveText || "").slice(0, 1200),
-            "\nExecuted steps:",
-            JSON.stringify(
-              resolvedSteps.map((s, idx) => ({
-                title: s.title,
-                key: s.key,
-                ok: Boolean(results[idx]?.ok),
-                markdown: results[idx]?.markdown || null,
-                linkUrl: results[idx]?.linkUrl || null,
-              })),
-            ).slice(0, 6000),
-            "\nDraft summary (fallback):",
-            assistantText,
-            "\nReply:",
-          ].join("\n");
-
-          const aiReply = String(await generateText({ system, user })).trim();
-          if (aiReply) assistantTextFinal = aiReply.slice(0, 4000);
-        } catch {
-          // ignore and keep deterministic fallback
-        }
+        const assistantTextFinal = assistantText;
 
         const assistantMsg = await (prisma as any).portalAiChatMessage.create({
           data: {
@@ -3611,7 +3584,7 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
 
     // If a deterministic action needs confirmation, do not auto-execute it.
     // Instead, return it as an assistantAction so the user can confirm in the UI.
-    const confirmSpec = getConfirmSpecForPortalAgentAction(first.key);
+    const confirmSpec = getInteractiveConfirmSpecForPortalAgentAction(first.key) || getConfirmSpecForPortalAgentAction(first.key);
     if (confirmSpec) {
       const assistantMsg = await (prisma as any).portalAiChatMessage.create({
         data: {
@@ -3738,7 +3711,9 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
     const first = assistantActions[0];
 
     // Never auto-execute actions that require confirmation.
-    const confirmSpec = getConfirmSpecForPortalAgentAction(first.key as PortalAgentActionKey);
+    const confirmSpec =
+      getInteractiveConfirmSpecForPortalAgentAction(first.key) ||
+      getConfirmSpecForPortalAgentAction(first.key as PortalAgentActionKey);
     if (confirmSpec) {
       const assistantMsg = await (prisma as any).portalAiChatMessage.create({
         data: {
