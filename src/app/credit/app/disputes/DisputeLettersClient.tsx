@@ -830,8 +830,27 @@ export default function DisputeLettersClient({ mode = "list", initialLetterId = 
             <div className="mt-4 space-y-2">
               {items.map((item, index) => (
                 <div key={index} className="flex gap-2">
-                  <input value={item} onChange={(event) => setItems((current) => current.map((entry, entryIndex) => entryIndex === index ? event.target.value : entry))} className="flex-1 rounded-2xl border border-zinc-200 bg-zinc-50/40 px-4 py-3 text-sm outline-none focus:border-zinc-300" placeholder={index === 0 ? "Account XXXX reported late but was paid on time" : "Add another issue"} />
-                  <button type="button" onClick={() => setItems((current) => { const next = current.filter((_, entryIndex) => entryIndex !== index); return next.length ? next : [""]; })} className="rounded-2xl border border-zinc-200 px-3 py-3 text-sm font-semibold text-zinc-700 hover:bg-zinc-50">Remove</button>
+                  <input
+                    value={item}
+                    onChange={(event) => {
+                      const nextValue = event.target.value;
+                      setItems((current) => current.map((entry, entryIndex) => (entryIndex === index ? nextValue : entry)));
+                    }}
+                    className="flex-1 rounded-2xl border border-zinc-200 bg-zinc-50/40 px-4 py-3 text-sm outline-none focus:border-zinc-300"
+                    placeholder={index === 0 ? "Account XXXX reported late but was paid on time" : "Add another issue"}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setItems((current) => {
+                        const next = current.filter((_, entryIndex) => entryIndex !== index);
+                        return next.length ? next : [""];
+                      });
+                    }}
+                    className="rounded-2xl border border-zinc-200 px-3 py-3 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
+                  >
+                    Remove
+                  </button>
                 </div>
               ))}
             </div>

@@ -601,14 +601,24 @@ export const PortalAgentActionArgsSchemaByKey = {
   "ai_chat.scheduled.list": z.object({}).strict(),
   "ai_chat.scheduled.update": z
     .object({
-      messageId: z.string().trim().min(1).max(120),
+      messageId: z.string().trim().min(1).max(120).optional(),
+      text: z.string().trim().min(1).max(4000).optional(),
+      clientTimeZone: z.string().trim().min(1).max(80).optional(),
       sendAtIso: z.string().trim().min(1).max(64).nullable().optional(),
+      sendAtLocal: z
+        .object({
+          isoWeekday: z.number().int().min(1).max(7),
+          timeLocal: z.string().trim().regex(/^\d{2}:\d{2}$/),
+          timeZone: z.string().trim().min(1).max(80).optional(),
+        })
+        .strict()
+        .optional(),
       repeatEveryMinutes: z.number().int().min(0).max(60 * 24 * 365).nullable().optional(),
     })
     .strict(),
   "ai_chat.scheduled.delete": z
     .object({
-      messageId: z.string().trim().min(1).max(120),
+      messageId: z.string().trim().min(1).max(120).optional(),
     })
     .strict(),
 
@@ -3375,7 +3385,7 @@ export function portalAgentActionsIndexText(opts?: { includeAiChat?: boolean }):
     "- ai_chat.scheduled.create: Create a scheduled AI chat user message (fields: threadId?, text, sendAtIso? OR sendAtLocal?, repeatEveryMinutes?)",
     "  - sendAtLocal: { isoWeekday: 1..7, timeLocal: \"HH:mm\", timeZone?: \"America/Chicago\" } (recommended for weekday schedules)",
     "- ai_chat.scheduled.list: List scheduled (unsent) AI chat user messages",
-    "- ai_chat.scheduled.update: Update a scheduled message (fields: messageId, sendAtIso?, repeatEveryMinutes?)",
+    "- ai_chat.scheduled.update: Update a scheduled message (fields: messageId, text?, sendAtIso? OR sendAtLocal?, repeatEveryMinutes?)",
     "- ai_chat.scheduled.delete: Delete a scheduled message (fields: messageId)",
     "- ai_chat.threads.flush: No-op (kept for legacy callers)",
     "- ai_chat.cron.run: Process due scheduled AI chat messages (cron)",

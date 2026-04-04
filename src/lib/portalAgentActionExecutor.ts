@@ -7115,8 +7115,6 @@ async function runDirectAction(opts: {
         };
       };
 
-      type StoredSettings = { external: StoredKindSettings; internal: StoredKindSettings };
-
       function clampKind(raw: unknown): NewsletterKind {
         const s = typeof raw === "string" ? raw : "external";
         return s.toLowerCase().trim() === "internal" ? "INTERNAL" : "EXTERNAL";
@@ -15968,12 +15966,60 @@ async function runDirectAction(opts: {
 
       const msg = await (prisma as any).portalAiChatMessage.findFirst({
         where: { id: messageId, ownerId, role: "user" },
-        select: { id: true, sentAt: true },
+        select: { id: true, sentAt: true, repeatEveryMinutes: true, attachmentsJson: true },
       });
       if (!msg) return { status: 404, json: { ok: false, error: "Not found" } };
       if (msg.sentAt) return { status: 409, json: { ok: false, error: "Already sent" } };
 
       const data: Record<string, unknown> = {};
+
+      if (typeof (args as any)?.text === "string") {
+        const text = String((args as any).text || "").trim().slice(0, 4000);
+        if (!text) return { status: 400, json: { ok: false, error: "Missing text" } };
+        data.text = text;
+      }
+
+      const clientTimeZone =
+        typeof (args as any)?.clientTimeZone === "string" ? String((args as any).clientTimeZone).trim().slice(0, 80) : "";
+      const sendAtLocalRaw = (args as any)?.sendAtLocal;
+
+      const computeSendAtFromLocal = async (raw: any): Promise<{ sendAt: Date; timeZone: string } | null> => {
+        if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+        const isoWeekday = typeof raw.isoWeekday === "number" && Number.isFinite(raw.isoWeekday) ? Math.floor(raw.isoWeekday) : 0;
+        const timeLocal = typeof raw.timeLocal === "string" ? String(raw.timeLocal).trim() : "";
+        const tzFromArgs = typeof raw.timeZone === "string" ? String(raw.timeZone).trim().slice(0, 80) : "";
+        if (!(isoWeekday >= 1 && isoWeekday <= 7)) return null;
+        if (!/^\d{2}:\d{2}$/.test(timeLocal)) return null;
+        const [hhS, mmS] = timeLocal.split(":");
+        const hour = Number(hhS);
+        const minute = Number(mmS);
+        if (!Number.isFinite(hour) || !Number.isFinite(minute) || hour < 0 || hour > 23 || minute < 0 || minute > 59) return null;
+
+        const memberTimeZone =
+          (await prisma.user.findUnique({ where: { id: membership.memberId }, select: { timeZone: true } }).catch(() => null))?.timeZone || "";
+        const ownerTimeZone = (await prisma.user.findUnique({ where: { id: ownerId }, select: { timeZone: true } }).catch(() => null))?.timeZone || "";
+
+        const { DateTime } = await import("luxon");
+
+        const tz = (tzFromArgs || clientTimeZone || String(memberTimeZone || "").trim() || String(ownerTimeZone || "").trim() || "UTC").slice(0, 80);
+
+        const now = DateTime.now().setZone(tz);
+        const zone = now.isValid ? tz : "UTC";
+        const base = DateTime.now().setZone(zone);
+        const daysAhead = (target: number) => {
+          const cur = base.weekday; // 1..7
+          const diff = (target - cur + 7) % 7;
+          return diff;
+        };
+
+        const candidate = base
+          .plus({ days: daysAhead(isoWeekday) })
+          .set({ hour, minute, second: 0, millisecond: 0 });
+
+        const finalLocal = candidate <= base ? candidate.plus({ days: 7 }) : candidate;
+        if (!finalLocal.isValid) return null;
+        return { sendAt: finalLocal.toJSDate(), timeZone: zone };
+      };
 
       if ("sendAtIso" in (args as any)) {
         const iso = (args as any).sendAtIso;
@@ -15986,12 +16032,69 @@ async function runDirectAction(opts: {
           }
           data.sendAt = d;
         }
+      } else if ("sendAtLocal" in (args as any)) {
+        const computed = await computeSendAtFromLocal(sendAtLocalRaw);
+        if (!computed) return { status: 400, json: { ok: false, error: "Invalid sendAtLocal" } };
+        data.sendAt = computed.sendAt;
+
+        const currentRepeat =
+          typeof (msg as any)?.repeatEveryMinutes === "number" && Number.isFinite((msg as any).repeatEveryMinutes)
+            ? Math.max(0, Math.floor((msg as any).repeatEveryMinutes))
+            : 0;
+        const nextRepeatRaw = (args as any)?.repeatEveryMinutes;
+        const nextRepeat =
+          typeof nextRepeatRaw === "number" && Number.isFinite(nextRepeatRaw)
+            ? Math.max(0, Math.floor(nextRepeatRaw))
+            : nextRepeatRaw === null
+              ? 0
+              : currentRepeat;
+
+        if (nextRepeat > 0) {
+          const prev = (msg as any)?.attachmentsJson;
+          const asObj = prev && typeof prev === "object" && !Array.isArray(prev) ? (prev as any) : {};
+          data.attachmentsJson = {
+            ...asObj,
+            recurrence: {
+              ...(asObj.recurrence && typeof asObj.recurrence === "object" && !Array.isArray(asObj.recurrence) ? asObj.recurrence : {}),
+              timeZone: computed.timeZone || "UTC",
+              mode: "wall_clock",
+            },
+          };
+        }
       }
 
       if ("repeatEveryMinutes" in (args as any)) {
         const v = (args as any).repeatEveryMinutes;
-        if (v === null) data.repeatEveryMinutes = null;
-        else if (typeof v === "number" && Number.isFinite(v)) data.repeatEveryMinutes = Math.max(0, Math.floor(v));
+        if (v === null) {
+          data.repeatEveryMinutes = null;
+        } else if (typeof v === "number" && Number.isFinite(v)) {
+          const next = Math.max(0, Math.floor(v));
+          data.repeatEveryMinutes = next > 0 ? next : null;
+
+          if (next > 0) {
+            const raw = sendAtLocalRaw && typeof sendAtLocalRaw === "object" && !Array.isArray(sendAtLocalRaw) ? (sendAtLocalRaw as any) : null;
+            const tzFromArgs = raw && typeof raw.timeZone === "string" ? String(raw.timeZone).trim().slice(0, 80) : "";
+            const memberTimeZone =
+              (await prisma.user.findUnique({ where: { id: membership.memberId }, select: { timeZone: true } }).catch(() => null))?.timeZone || "";
+            const ownerTimeZone =
+              (await prisma.user.findUnique({ where: { id: ownerId }, select: { timeZone: true } }).catch(() => null))?.timeZone || "";
+            const recurrenceTimeZone = (tzFromArgs || clientTimeZone || String(memberTimeZone || "").trim() || String(ownerTimeZone || "").trim() || "UTC").slice(
+              0,
+              80,
+            );
+
+            const prev = (msg as any)?.attachmentsJson;
+            const asObj = prev && typeof prev === "object" && !Array.isArray(prev) ? (prev as any) : {};
+            data.attachmentsJson = {
+              ...asObj,
+              recurrence: {
+                ...(asObj.recurrence && typeof asObj.recurrence === "object" && !Array.isArray(asObj.recurrence) ? asObj.recurrence : {}),
+                timeZone: recurrenceTimeZone || "UTC",
+                mode: "wall_clock",
+              },
+            };
+          }
+        }
       }
 
       await (prisma as any).portalAiChatMessage.update({ where: { id: messageId }, data });
@@ -26021,7 +26124,7 @@ export async function executePortalAgentActionForThread(opts: {
         return { ok: false as const, status: 400, error: "Unknown booking calendar", assistantMessage: assistantMsg };
       }
     }
-  } catch (err) {
+  } catch {
     // validation best-effort - if it fails, proceed to let the downstream action handle errors.
   }
 
@@ -26371,6 +26474,18 @@ export function deriveThreadContextPatchFromAction(action: PortalAgentActionKey,
       const scheduledId = String((args as any).scheduledId || "").trim().slice(0, 120);
       if (!scheduledId) return null;
       return { lastInboxScheduledMessage: { id: scheduledId, label: "Scheduled message" } };
+    }
+
+    if (action === "ai_chat.scheduled.create" && typeof (json as any)?.scheduled?.id === "string") {
+      const id = String((json as any).scheduled.id || "").trim().slice(0, 120);
+      if (!id) return null;
+      return { lastAiChatScheduledMessage: { id, label: "Scheduled task" } };
+    }
+
+    if ((action === "ai_chat.scheduled.update" || action === "ai_chat.scheduled.delete") && typeof (args as any)?.messageId === "string") {
+      const id = String((args as any).messageId || "").trim().slice(0, 120);
+      if (!id) return null;
+      return { lastAiChatScheduledMessage: { id, label: "Scheduled task" } };
     }
   } catch {
     // best-effort only

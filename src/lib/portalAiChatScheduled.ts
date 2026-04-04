@@ -182,9 +182,10 @@ export async function processDuePortalAiChatScheduledMessages(
           });
         })();
 
-    const resolverUserHint = envelope
-      ? String(envelope.workTitle || "").trim().slice(0, 200)
-      : text;
+    // For deterministic scheduled-action envelopes, each step already contains its own explicit ref hints.
+    // Do NOT reuse `workTitle` as a resolver hint (it is often a generic schedule label like "Weekday SMS"
+    // and can pollute entity resolution, e.g. contact hint becomes "Chester Weekday SMS").
+    const resolverUserHint = envelope ? "" : text;
 
     const shouldExecute = plan?.mode === "execute" && Array.isArray((plan as any).steps) && (plan as any).steps.length;
 

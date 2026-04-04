@@ -5,8 +5,10 @@ import { normalizeEmailKey, normalizeNameKey, normalizePhoneKey } from "@/lib/po
 import { createOwnerContactTag } from "@/lib/portalContactTags";
 import { normalizeSmsPeerKey } from "@/lib/portalInbox";
 import { ensurePortalInboxSchema } from "@/lib/portalInboxSchema";
+import { ensurePortalAiChatSchema } from "@/lib/portalAiChatSchema";
 import { listPortalAccountMembers } from "@/lib/portalAccounts";
 import { isPuraRef, type PuraRef } from "@/lib/puraPlanner";
+import { encodeScheduledActionEnvelope, tryParseScheduledActionEnvelope } from "@/lib/portalAiChatScheduledActionEnvelope";
 
 async function pickFunnelPageIdWithAi(opts: {
   hint: string;
@@ -326,12 +328,130 @@ function getLastEntityId(
     | "lastCustomDomain"
     | "lastAiOutboundCallsCampaign"
     | "lastInboxScheduledMessage"
+    | "lastAiChatScheduledMessage"
 ): string | null {
   const obj = getThreadContextObj(threadContext);
   const v = obj ? (obj as any)[key] : null;
   if (!v || typeof v !== "object" || Array.isArray(v)) return null;
   const id = String((v as any).id || "").trim();
   return id ? id.slice(0, 120) : null;
+}
+
+async function resolveAiChatScheduledMessageId(opts: {
+  ownerId: string;
+  hint: string;
+  threadContext?: unknown;
+}): Promise<
+  | { kind: "ok"; messageId: string; label: string }
+  | { kind: "clarify"; question: string; choices: AssistantChoice[] }
+  | { kind: "not_found"; question: string }
+> {
+  const ownerId = String(opts.ownerId);
+  const hintRaw = String(opts.hint || "").trim().slice(0, 240);
+
+  const lastId = getLastEntityId(opts.threadContext, "lastAiChatScheduledMessage");
+  if ((!hintRaw || /\b(last|latest|recent)\b/i.test(hintRaw) || hintRefersToActiveContext(hintRaw)) && lastId) {
+    return { kind: "ok", messageId: lastId, label: "Last scheduled task" };
+  }
+
+  await ensurePortalAiChatSchema();
+
+  const rows = (await (prisma as any).portalAiChatMessage
+    .findMany({
+      where: {
+        ownerId,
+        role: "user",
+        sentAt: null,
+        sendAt: { not: null },
+      },
+      orderBy: { sendAt: "desc" },
+      take: 40,
+      select: { id: true, threadId: true, text: true, sendAt: true, repeatEveryMinutes: true, createdAt: true },
+    })
+    .catch(() => [])) as any[];
+
+  if (!rows.length) return { kind: "not_found", question: "You don’t have any scheduled chat tasks." };
+
+  const threadIds = Array.from(new Set(rows.map((r) => String(r?.threadId || "")).filter(Boolean))).slice(0, 200);
+  const threads = threadIds.length
+    ? await (prisma as any).portalAiChatThread
+        .findMany({ where: { ownerId, id: { in: threadIds } }, select: { id: true, title: true } })
+        .catch(() => [])
+    : [];
+  const titleByThreadId = new Map<string, string>();
+  for (const t of threads as any[]) titleByThreadId.set(String((t as any).id), String((t as any).title || "Chat"));
+
+  const toDisplayText = (textRaw: unknown): string => {
+    const raw = String(textRaw || "").trim();
+    const env = tryParseScheduledActionEnvelope(raw);
+    if (!env) return raw;
+
+    const workTitle = typeof env.workTitle === "string" ? env.workTitle.trim() : "";
+    if (workTitle) return workTitle;
+
+    const titles = (Array.isArray(env.steps) ? env.steps : [])
+      .map((s) => (typeof (s as any)?.title === "string" ? String((s as any).title).trim() : ""))
+      .filter(Boolean)
+      .slice(0, 3);
+    if (titles.length) return titles.join(" • ");
+
+    const keys = (Array.isArray(env.steps) ? env.steps : [])
+      .map((s) => (typeof (s as any)?.key === "string" ? String((s as any).key).trim() : ""))
+      .filter(Boolean)
+      .slice(0, 2);
+    return keys.length ? `Scheduled: ${keys.join(" • ")}` : "Scheduled task";
+  };
+
+  const makeLabel = (r: any): { label: string; description?: string } => {
+    const threadTitle = titleByThreadId.get(String(r?.threadId || "")) || "Chat";
+    const displayText = toDisplayText(r?.text).replace(/[\r\n\t]+/g, " ").trim().slice(0, 140) || "Scheduled task";
+    const when = r?.sendAt instanceof Date ? r.sendAt.toLocaleString() : String(r?.sendAt || "");
+    const repeatEveryMinutes =
+      typeof r?.repeatEveryMinutes === "number" && Number.isFinite(r.repeatEveryMinutes) ? Math.max(0, Math.floor(r.repeatEveryMinutes)) : 0;
+    const repeatLabel = repeatEveryMinutes > 0 ? `Repeats every ${repeatEveryMinutes} min` : "One-time";
+    const desc = [threadTitle ? `Thread: ${threadTitle}` : null, when ? `Next: ${when}` : null, repeatLabel].filter(Boolean).join(" · ");
+    return { label: displayText.slice(0, 120), ...(desc ? { description: desc.slice(0, 200) } : {}) };
+  };
+
+  if (looksLikeId(hintRaw)) {
+    const id = hintRaw.slice(0, 120);
+    const found = rows.find((r) => String(r?.id || "") === id);
+    const meta = found ? makeLabel(found) : null;
+    return { kind: "ok", messageId: id, label: meta?.label || id.slice(0, 40) };
+  }
+
+  const hk = normKey(hintRaw);
+  const filtered = hk
+    ? rows.filter((r) => {
+        const id = normKey(String(r?.id || ""));
+        const threadTitle = normKey(titleByThreadId.get(String(r?.threadId || "")) || "");
+        const displayText = normKey(toDisplayText(r?.text));
+        return id.includes(hk) || threadTitle.includes(hk) || displayText.includes(hk);
+      })
+    : rows;
+
+  if (filtered.length === 1) {
+    const r = filtered[0]!;
+    const meta = makeLabel(r);
+    return { kind: "ok", messageId: String(r.id), label: meta.label };
+  }
+
+  const choices: AssistantChoice[] = (filtered.length ? filtered : rows).slice(0, 8).map((r) => {
+    const meta = makeLabel(r);
+    return {
+      type: "entity",
+      kind: "ai_chat_scheduled_message",
+      value: String(r.id),
+      label: meta.label,
+      ...(meta.description ? { description: meta.description } : {}),
+    };
+  });
+
+  return {
+    kind: "clarify",
+    question: "Which scheduled task do you mean? Click one:",
+    choices,
+  };
 }
 
 function looksLikeId(raw: string): boolean {
@@ -2907,121 +3027,24 @@ export async function resolvePlanArgs(opts: {
   let resolvedAiOutboundCallsCampaign: { id: string; label: string } | null = null;
   let resolvedBookingCalendar: { id: string; label: string } | null = null;
   let resolvedInboxScheduledMessage: { id: string; label: string } | null = null;
+  let resolvedAiChatScheduledMessage: { id: string; label: string } | null = null;
 
   const threadChoiceOverrides =
     opts.threadContext && typeof opts.threadContext === "object" && !Array.isArray(opts.threadContext)
       ? ((opts.threadContext as any).choiceOverrides as any)
       : null;
 
-  const clearBookingCalendarChoiceOverride = () => {
-    const prevOverrides =
-      threadChoiceOverrides && typeof threadChoiceOverrides === "object" && !Array.isArray(threadChoiceOverrides)
-        ? { ...(threadChoiceOverrides as Record<string, unknown>) }
-        : {};
-    if (Object.prototype.hasOwnProperty.call(prevOverrides, "bookingCalendarId")) {
-      delete (prevOverrides as any).bookingCalendarId;
-      extraContextPatch = { ...(extraContextPatch || {}), choiceOverrides: prevOverrides };
+  if (stepKeyLower === "ai_chat.scheduled.update" || stepKeyLower === "ai_chat.scheduled.delete") {
+    const existing = typeof (args as any).messageId === "string" ? String((args as any).messageId).trim().slice(0, 120) : "";
+    if (!existing) {
+      const rs = await resolveAiChatScheduledMessageId({ ownerId, hint: String(opts.userHint || "").trim(), threadContext: opts.threadContext });
+      if (rs.kind !== "ok") {
+        return { ok: false, clarifyQuestion: rs.question, ...(rs.kind === "clarify" ? { choices: rs.choices } : {}) };
+      }
+      args = { ...args, messageId: rs.messageId };
+      resolvedAiChatScheduledMessage = { id: rs.messageId, label: rs.label };
     }
-  };
-
-  const clearFunnelPageChoiceOverride = () => {
-    const prevOverrides =
-      threadChoiceOverrides && typeof threadChoiceOverrides === "object" && !Array.isArray(threadChoiceOverrides)
-        ? { ...(threadChoiceOverrides as Record<string, unknown>) }
-        : {};
-    if (Object.prototype.hasOwnProperty.call(prevOverrides, "funnelPageId")) {
-      delete (prevOverrides as any).funnelPageId;
-      extraContextPatch = { ...(extraContextPatch || {}), choiceOverrides: prevOverrides };
-    }
-  };
-
-  const clearFunnelFormChoiceOverride = () => {
-    const prevOverrides =
-      threadChoiceOverrides && typeof threadChoiceOverrides === "object" && !Array.isArray(threadChoiceOverrides)
-        ? { ...(threadChoiceOverrides as Record<string, unknown>) }
-        : {};
-    if (Object.prototype.hasOwnProperty.call(prevOverrides, "funnelFormId")) {
-      delete (prevOverrides as any).funnelFormId;
-      extraContextPatch = { ...(extraContextPatch || {}), choiceOverrides: prevOverrides };
-    }
-  };
-
-  const clearCustomDomainChoiceOverride = () => {
-    const prevOverrides =
-      threadChoiceOverrides && typeof threadChoiceOverrides === "object" && !Array.isArray(threadChoiceOverrides)
-        ? { ...(threadChoiceOverrides as Record<string, unknown>) }
-        : {};
-    if (Object.prototype.hasOwnProperty.call(prevOverrides, "customDomainId")) {
-      delete (prevOverrides as any).customDomainId;
-      extraContextPatch = { ...(extraContextPatch || {}), choiceOverrides: prevOverrides };
-    }
-  };
-
-  const clearNurtureCampaignChoiceOverride = () => {
-    const prevOverrides =
-      threadChoiceOverrides && typeof threadChoiceOverrides === "object" && !Array.isArray(threadChoiceOverrides)
-        ? { ...(threadChoiceOverrides as Record<string, unknown>) }
-        : {};
-    if (Object.prototype.hasOwnProperty.call(prevOverrides, "nurtureCampaignId")) {
-      delete (prevOverrides as any).nurtureCampaignId;
-      extraContextPatch = { ...(extraContextPatch || {}), choiceOverrides: prevOverrides };
-    }
-  };
-
-  const clearContactChoiceOverride = () => {
-    const prevOverrides =
-      threadChoiceOverrides && typeof threadChoiceOverrides === "object" && !Array.isArray(threadChoiceOverrides)
-        ? { ...(threadChoiceOverrides as Record<string, unknown>) }
-        : {};
-    if (Object.prototype.hasOwnProperty.call(prevOverrides, "contactId")) {
-      delete (prevOverrides as any).contactId;
-      extraContextPatch = { ...(extraContextPatch || {}), choiceOverrides: prevOverrides };
-    }
-  };
-
-  const clearUserChoiceOverride = () => {
-    const prevOverrides =
-      threadChoiceOverrides && typeof threadChoiceOverrides === "object" && !Array.isArray(threadChoiceOverrides)
-        ? { ...(threadChoiceOverrides as Record<string, unknown>) }
-        : {};
-    if (Object.prototype.hasOwnProperty.call(prevOverrides, "userId")) {
-      delete (prevOverrides as any).userId;
-      extraContextPatch = { ...(extraContextPatch || {}), choiceOverrides: prevOverrides };
-    }
-  };
-
-  const clearFunnelChoiceOverride = () => {
-    const prevOverrides =
-      threadChoiceOverrides && typeof threadChoiceOverrides === "object" && !Array.isArray(threadChoiceOverrides)
-        ? { ...(threadChoiceOverrides as Record<string, unknown>) }
-        : {};
-    if (Object.prototype.hasOwnProperty.call(prevOverrides, "funnelId")) {
-      delete (prevOverrides as any).funnelId;
-      extraContextPatch = { ...(extraContextPatch || {}), choiceOverrides: prevOverrides };
-    }
-  };
-
-  const clearAutomationChoiceOverride = () => {
-    const prevOverrides =
-      threadChoiceOverrides && typeof threadChoiceOverrides === "object" && !Array.isArray(threadChoiceOverrides)
-        ? { ...(threadChoiceOverrides as Record<string, unknown>) }
-        : {};
-    if (Object.prototype.hasOwnProperty.call(prevOverrides, "automationId")) {
-      delete (prevOverrides as any).automationId;
-      extraContextPatch = { ...(extraContextPatch || {}), choiceOverrides: prevOverrides };
-    }
-  };
-
-  const clearBookingChoiceOverride = () => {
-    const prevOverrides =
-      threadChoiceOverrides && typeof threadChoiceOverrides === "object" && !Array.isArray(threadChoiceOverrides)
-        ? { ...(threadChoiceOverrides as Record<string, unknown>) }
-        : {};
-    if (Object.prototype.hasOwnProperty.call(prevOverrides, "bookingId")) {
-      delete (prevOverrides as any).bookingId;
-      extraContextPatch = { ...(extraContextPatch || {}), choiceOverrides: prevOverrides };
-    }
-  };
+  }
 
   // Special-case: for funnel HTML generation, treat booking calendar selection as an explicit disambiguation step.
   if (stepKeyLower === "funnel_builder.pages.generate_html") {
@@ -3043,6 +3066,70 @@ export async function resolvePlanArgs(opts: {
       if (rc.kind === "ok") {
         args = { ...args, calendarId: rc.calendarId };
         resolvedBookingCalendar = { id: rc.calendarId, label: rc.label };
+      }
+    }
+  }
+
+  // Special-case: scheduled creation can include a deterministic scheduled-action envelope in args.text.
+  // We want to resolve any entity refs (contact, etc) *now* so the future scheduled run is reliable
+  // and doesn't need to ask the user questions later.
+  if (stepKeyLower === "ai_chat.scheduled.create") {
+    const rawText = typeof (args as any).text === "string" ? String((args as any).text).trim() : "";
+    const env = rawText ? tryParseScheduledActionEnvelope(rawText) : null;
+
+    if (env && Array.isArray(env.steps) && env.steps.length) {
+      const innerUserHint = String(opts.userHint || "").trim() || String(env.workTitle || "").trim();
+
+      const resolvedEnvSteps: Array<{ key: any; title?: string | null; args?: Record<string, unknown> | null }> = [];
+      const contextPatches: Array<Record<string, unknown> | undefined> = [];
+      let localCtx: unknown = opts.threadContext;
+
+      for (const s of env.steps.slice(0, 6)) {
+        const innerStepKeyLower = String((s as any)?.key || "").toLowerCase();
+        if (innerStepKeyLower === "ai_chat.scheduled.create") {
+          return {
+            ok: false,
+            clarifyQuestion: "This schedule contains a nested schedule step. Please rephrase the schedule so it only runs one action (e.g., ‘text Chester good morning’).",
+          };
+        }
+
+        const innerArgsRaw = s.args && typeof s.args === "object" && !Array.isArray(s.args) ? (s.args as Record<string, unknown>) : {};
+        const resolvedInner = await resolvePlanArgs({
+          ownerId,
+          stepKey: s.key as any,
+          args: innerArgsRaw,
+          userHint: innerUserHint,
+          url: opts.url,
+          threadContext: localCtx,
+        });
+
+        if (!resolvedInner.ok) {
+          return resolvedInner;
+        }
+
+        const resolvedInnerArgs =
+          resolvedInner.args && typeof resolvedInner.args === "object" && !Array.isArray(resolvedInner.args)
+            ? (resolvedInner.args as Record<string, unknown>)
+            : {};
+
+        resolvedEnvSteps.push({
+          key: s.key,
+          ...(typeof s.title === "string" ? { title: s.title } : s.title ? { title: s.title as any } : {}),
+          args: resolvedInnerArgs,
+        });
+
+        if (resolvedInner.contextPatch && typeof resolvedInner.contextPatch === "object" && !Array.isArray(resolvedInner.contextPatch)) {
+          contextPatches.push(resolvedInner.contextPatch);
+          const prev = localCtx && typeof localCtx === "object" && !Array.isArray(localCtx) ? (localCtx as any) : {};
+          localCtx = { ...prev, ...(resolvedInner.contextPatch as any) };
+        }
+      }
+
+      (args as any).text = encodeScheduledActionEnvelope({ workTitle: env.workTitle ?? null, steps: resolvedEnvSteps as any });
+
+      const mergedPatch = Object.assign({}, ...contextPatches.filter(Boolean));
+      if (mergedPatch && typeof mergedPatch === "object" && Object.keys(mergedPatch).length) {
+        extraContextPatch = { ...(extraContextPatch || {}), ...(mergedPatch as any) };
       }
     }
   }
@@ -3143,6 +3230,16 @@ export async function resolvePlanArgs(opts: {
       if (rs.kind !== "ok") return { ok: false, clarifyQuestion: rs.question, ...(rs.kind === "clarify" ? { choices: rs.choices } : {}) };
       resolvedInboxScheduledMessage = { id: rs.scheduledId, label: rs.label };
       return { ok: true, value: rs.scheduledId };
+    }
+
+    if (argKeyLower === "messageid" && stepKeyLower.startsWith("ai_chat.scheduled.")) {
+      if (resolvedAiChatScheduledMessage?.id) return { ok: true, value: resolvedAiChatScheduledMessage.id };
+      const rs = await resolveAiChatScheduledMessageId({ ownerId, hint, threadContext: opts.threadContext });
+      if (rs.kind !== "ok") {
+        return { ok: false, clarifyQuestion: rs.question, ...(rs.kind === "clarify" ? { choices: rs.choices } : {}) };
+      }
+      resolvedAiChatScheduledMessage = { id: rs.messageId, label: rs.label };
+      return { ok: true, value: rs.messageId };
     }
 
     if (
