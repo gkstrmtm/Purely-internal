@@ -598,7 +598,14 @@ export const PortalAgentActionArgsSchemaByKey = {
     })
     .strict(),
 
-  "ai_chat.scheduled.list": z.object({}).strict(),
+  // The planner often includes a `channel` hint (e.g. "sms").
+  // Listing scheduled AI-chat tasks is safe to run even if extra keys appear,
+  // so tolerate them to avoid hard-failing the entire plan execution.
+  "ai_chat.scheduled.list": z
+    .object({
+      channel: z.string().trim().min(1).max(40).optional(),
+    })
+    .catchall(z.unknown()),
   "ai_chat.scheduled.update": z
     .object({
       messageId: z.string().trim().min(1).max(120).optional(),

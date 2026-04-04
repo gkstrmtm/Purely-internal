@@ -960,7 +960,12 @@ export function PortalAiChatClient() {
       // If an active thread was selected during this session but was deleted,
       // clear it and fall back to draft.
       if (activeThreadId && !next.some((t) => t.id === activeThreadId)) {
-        setActiveThreadId(null);
+        // If a send is in-flight for this thread, keep it selected.
+        // The threads endpoint intentionally hides empty threads and may lag
+        // just after creation, which would otherwise bounce the UI back to draft.
+        if (!sendInFlightRef.current.has(activeThreadId)) {
+          setActiveThreadId(null);
+        }
       }
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
