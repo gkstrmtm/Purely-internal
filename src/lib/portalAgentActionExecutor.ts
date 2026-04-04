@@ -3373,11 +3373,6 @@ async function runDirectAction(opts: {
         return q.slice(0, 800);
       }
 
-      function pickRandom<T>(items: T[]): T {
-        if (!Array.isArray(items) || items.length === 0) throw new Error("pickRandom called with empty array");
-        return items[Math.floor(Math.random() * items.length)]!;
-      }
-
       function normalizePortalHostedPaths(html: string): string {
         let out = String(html || "");
         if (!out) return out;
@@ -3626,18 +3621,21 @@ async function runDirectAction(opts: {
         return blocks;
       }
 
-      const PAGE_UPDATED_VARIANTS = [
-        "OK. I updated your page. Check the preview and tell me what you want changed.",
-        "Done. Page updated. Take a look in preview and tell me what to tweak.",
-        "Updated. Open the preview and tell me what you want different.",
-        "All set. Changes applied. Preview it and tell me what you want adjusted.",
-        "Page updated. If anything feels off, tell me what to change next.",
-        "Update complete. Check the preview and call out what to refine.",
-        "Applied the changes. Preview it and tell me what you want changed next.",
-        "Done. I made the update. Tell me what you want improved after you preview.",
-        "Updated the page. Preview it and tell me what to adjust (copy, layout, colors, etc.).",
-        "Change applied. Check preview and tell me what you want changed.",
-      ];
+      async function generatePageUpdatedAssistantText(opts: { pageTitle?: string; funnelName?: string }) {
+        const payload = {
+          pageTitle: String(opts.pageTitle || "").trim().slice(0, 160) || null,
+          funnelName: String(opts.funnelName || "").trim().slice(0, 160) || null,
+        };
+
+        const system =
+          "You are an assistant inside a funnel builder. The page has just been updated. Write a short, friendly confirmation message that invites the user to preview the page and tell you what to tweak next. Do not claim you can see their preview. Keep it to 1-3 sentences.";
+
+        try {
+          return String(await generateText({ system, user: `Context (JSON):\n${JSON.stringify(payload, null, 2)}` })).trim();
+        } catch {
+          return "";
+        }
+      }
 
       type AiAttachment = { url: string; fileName?: string; mimeType?: string };
       type ContextMedia = { url: string; fileName?: string; mimeType?: string };
@@ -4118,8 +4116,11 @@ async function runDirectAction(opts: {
         ].join("\n");
       }
 
-      const assistantMsg = { role: "assistant", content: pickRandom(PAGE_UPDATED_VARIANTS), at: new Date().toISOString() };
-      const nextChat = [...prevChat, userMsg, assistantMsg].slice(-40);
+      const pageUpdatedText = await generatePageUpdatedAssistantText({ pageTitle: page.title, funnelName: page.funnel?.name });
+      const assistantMsg = pageUpdatedText.trim()
+        ? { role: "assistant" as const, content: pageUpdatedText.trim(), at: new Date().toISOString() }
+        : null;
+      const nextChat = (assistantMsg ? [...prevChat, userMsg, assistantMsg] : [...prevChat, userMsg]).slice(-40);
 
       const updated = await prisma.creditFunnelPage.update({
         where: { id: page.id },
@@ -7092,28 +7093,6 @@ async function runDirectAction(opts: {
 
     case "newsletter.automation.settings.get": {
       type NewsletterKind = "EXTERNAL" | "INTERNAL";
-      type StoredKindSettings = {
-        enabled?: boolean;
-        frequencyDays?: number;
-        cursor?: number;
-        requireApproval?: boolean;
-        channels?: { email?: boolean; sms?: boolean };
-        topics?: string[];
-        promptAnswers?: Record<string, string>;
-        deliveryEmailHint?: string;
-        deliverySmsHint?: string;
-        includeImages?: boolean;
-        royaltyFreeImages?: boolean;
-        includeImagesWhereNeeded?: boolean;
-        fontKey?: string;
-        audience?: {
-          tagIds?: string[];
-          contactIds?: string[];
-          emails?: string[];
-          userIds?: string[];
-          sendAllUsers?: boolean;
-        };
-      };
 
       function clampKind(raw: unknown): NewsletterKind {
         const s = typeof raw === "string" ? raw : "external";
@@ -25423,6 +25402,18 @@ function resultMarkdown(
     };
   }
 
+  if (action === "ai_chat.scheduled.update" && json?.ok) {
+    return {
+      markdown: "Updated the scheduled task.\n\nOpen “Scheduled tasks” (clock icon) to see the updated next run time.",
+    };
+  }
+
+  if (action === "ai_chat.scheduled.delete" && json?.ok) {
+    return {
+      markdown: "Stopped the scheduled task.\n\nOpen “Scheduled tasks” (clock icon) to confirm it’s removed.",
+    };
+  }
+
   if (action === "ai_chat.scheduled.list" && json?.ok) {
     const rows = Array.isArray(json.scheduled) ? (json.scheduled as any[]) : [];
     if (!rows.length) return { markdown: "No scheduled tasks." };
@@ -26528,6 +26519,41 @@ export async function executePortalAgentAction(opts: {
     result: json,
     markdown,
     linkUrl,
+    clientUiAction,
+  };
+}
+
+export async function executePortalAgentActionRaw(opts: {
+  ownerId: string;
+  actorUserId?: string;
+  action: PortalAgentActionKey;
+  args: Record<string, unknown>;
+}) {
+  const argsSchema = PortalAgentActionArgsSchemaByKey[opts.action];
+  const argsParsed = argsSchema.safeParse(opts.args);
+  if (!argsParsed.success) {
+    return { ok: false as const, status: 400, error: "Invalid action args" };
+  }
+
+  const actorUserId = opts.actorUserId || opts.ownerId;
+  const { json, status } = await runDirectAction({
+    action: opts.action,
+    ownerId: opts.ownerId,
+    actorUserId,
+    args: argsParsed.data as any,
+  });
+  const clientUiAction = json && typeof json === "object" ? ((json as any).clientUiAction ?? null) : null;
+  const ok =
+    status >= 200 &&
+    status < 300 &&
+    !(json && typeof json === "object" && typeof (json as any).ok === "boolean" && (json as any).ok === false);
+
+  return {
+    ok,
+    status,
+    action: opts.action,
+    result: json,
+    linkUrl: typeof (json as any)?.linkUrl === "string" ? String((json as any).linkUrl) : undefined,
     clientUiAction,
   };
 }

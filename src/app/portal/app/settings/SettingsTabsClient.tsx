@@ -156,7 +156,6 @@ export function SettingsTabsClient({ generalOnly = false }: { generalOnly?: bool
 
       {tab === "general" ? (
         <GeneralTab
-          onGoBilling={(where) => goTab("billing", { focus: where })}
           onGoServices={() => {
             const base = typeof window !== "undefined" && window.location.pathname.startsWith("/credit") ? "/credit" : "/portal";
             router.push(`${base}/app/services`);
@@ -181,11 +180,9 @@ export function SettingsTabsClient({ generalOnly = false }: { generalOnly?: bool
 }
 
 function GeneralTab({
-  onGoBilling,
   onGoServices,
   toast,
 }: {
-  onGoBilling: (focus: string | null) => void;
   onGoServices: () => void;
   toast: ReturnType<typeof useToast>;
 }) {

@@ -570,12 +570,10 @@ async function main() {
 
   await fs.writeFile(OUT_MD, md.join("\n") + "\n", "utf8");
 
-  // eslint-disable-next-line no-console
   console.log(`Wrote ${path.relative(REPO_ROOT, OUT_JSON)} and ${path.relative(REPO_ROOT, OUT_MD)}`);
 }
 
 main().catch((err) => {
-  // eslint-disable-next-line no-console
   console.error(err);
   process.exit(1);
 });

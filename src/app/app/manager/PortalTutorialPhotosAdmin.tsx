@@ -170,6 +170,7 @@ export default function PortalTutorialPhotosAdmin() {
                       {list.slice(0, 6).map((url) => (
                         <div key={url} className="group relative h-14 w-20 overflow-hidden rounded-xl border border-zinc-200 bg-zinc-50">
                           <a href={url} target="_blank" rel="noreferrer" className="block h-full w-full">
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
                             <img src={url} alt="Tutorial screenshot" className="h-full w-full object-cover" loading="lazy" />
                           </a>
                           <button
@@ -209,7 +210,7 @@ export default function PortalTutorialPhotosAdmin() {
                       </label>
 
                       <input
-                        className="min-w-[240px] flex-1 rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-xs text-zinc-900 outline-none focus:border-[color:var(--color-brand-blue)]"
+                        className="min-w-60 flex-1 rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-xs text-zinc-900 outline-none focus:border-(--color-brand-blue)"
                         placeholder="Or paste an image URL"
                         value={pasteUrl[t.slug] ?? ""}
                         onChange={(e) => setPasteUrl((prev) => ({ ...prev, [t.slug]: e.target.value }))}

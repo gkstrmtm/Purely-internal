@@ -241,9 +241,7 @@ export function ConvaiChatWidget({
 }) {
   const [open, setOpen] = useState(false);
   const [status, setStatus] = useState<"idle" | "connecting" | "connected" | "error">("idle");
-  const [messages, setMessages] = useState<ChatMessage[]>(() => [
-    { id: "welcome", role: "assistant", text: "Hi! How can we help?" },
-  ]);
+  const [messages, setMessages] = useState<ChatMessage[]>(() => []);
   const [input, setInput] = useState("");
 
   const wsRef = useRef<WebSocket | null>(null);
@@ -314,7 +312,9 @@ export function ConvaiChatWidget({
   }
 
   function appendAssistantError(err: string) {
-    const msg: ChatMessage = { id: `a_${Date.now()}`, role: "assistant", text: String(err || "Chat error") };
+    const safe = String(err || "").trim();
+    if (!safe) return;
+    const msg: ChatMessage = { id: `a_${Date.now()}`, role: "assistant", text: safe };
     setMessages((xs) => [...xs, msg]);
   }
 
@@ -365,7 +365,7 @@ export function ConvaiChatWidget({
 
       if (!res || !res.ok || !signedUrl) {
         setStatus("error");
-        const err = data && typeof data.error === "string" ? data.error : "Chat is unavailable right now.";
+        const err = data && typeof data.error === "string" ? data.error : "";
         appendAssistantError(err);
         connectPromiseRef.current = null;
         return null;
@@ -376,7 +376,6 @@ export function ConvaiChatWidget({
         ws = new WebSocket(signedUrl, ["convai"]);
       } catch {
         setStatus("error");
-        appendAssistantError("Failed to start chat.");
         connectPromiseRef.current = null;
         return null;
       }

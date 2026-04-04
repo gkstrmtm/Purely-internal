@@ -372,13 +372,7 @@ export function AiReceptionistWidget() {
 
   const [open, setOpen] = useState(false);
   const [status, setStatus] = useState<"idle" | "connecting" | "connected" | "error">("idle");
-  const [messages, setMessages] = useState<ChatMessage[]>(() => [
-    {
-      id: "welcome",
-      role: "assistant",
-      text: "Hi! How can we help?",
-    },
-  ]);
+  const [messages, setMessages] = useState<ChatMessage[]>(() => []);
   const [input, setInput] = useState("");
 
   const wsRef = useRef<WebSocket | null>(null);
@@ -456,12 +450,14 @@ export function AiReceptionistWidget() {
 
   function appendAssistantError(text: string) {
     awaitingAgentRef.current = false;
+    const cleaned = String(text || "").trim();
+    if (!cleaned) return;
     setMessages((prev) => [
       ...prev,
       {
         id: `err_${Date.now()}`,
         role: "assistant",
-        text,
+        text: cleaned,
       },
     ]);
     scheduleScrollToBottom(true);
@@ -595,7 +591,7 @@ export function AiReceptionistWidget() {
 
       if (!res || !res.ok || !signedUrl) {
         setStatus("error");
-        const err = data && typeof data.error === "string" ? data.error : "Chat is unavailable right now.";
+        const err = data && typeof data.error === "string" ? data.error : "";
         appendAssistantError(err);
         return null;
       }
@@ -605,7 +601,6 @@ export function AiReceptionistWidget() {
         ws = new WebSocket(signedUrl, ["convai"]);
       } catch {
         setStatus("error");
-        appendAssistantError("Failed to start chat.");
         return null;
       }
 

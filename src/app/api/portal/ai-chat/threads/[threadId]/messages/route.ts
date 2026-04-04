@@ -93,23 +93,38 @@ const SendMessageSchema = z
     { message: "Text or attachments required" },
   );
 
-function buildWidgetSuggestionAssistantText(widgetSuggestion: NonNullable<z.infer<typeof WidgetSuggestionSchema>>) {
+function buildWidgetSuggestionAssistantContext(widgetSuggestion: NonNullable<z.infer<typeof WidgetSuggestionSchema>>) {
   const serviceLabel = String(widgetSuggestion.serviceSlug || "")
     .trim()
     .split("-")
     .filter(Boolean)
+    .slice(0, 12)
     .map((part) => (/^(ai|crm|sms)$/i.test(part) ? part.toUpperCase() : `${part.slice(0, 1).toUpperCase()}${part.slice(1)}`))
     .join(" ");
   const detailLines = Array.isArray(widgetSuggestion.detailLines)
-    ? widgetSuggestion.detailLines.map((line) => String(line || "").trim()).filter(Boolean).slice(0, 20)
+    ? widgetSuggestion.detailLines
+        .map((line) => String(line || "").trim())
+        .filter(Boolean)
+        .slice(0, 20)
     : [];
-  return [
-    `I found a suggested setup for ${serviceLabel || "this page"}.`,
-    detailLines.length ? detailLines.map((line) => `- ${line}`).join("\n") : null,
-    "If you want, I can apply it now.",
-  ]
-    .filter(Boolean)
-    .join("\n\n");
+  return { serviceLabel, detailLines };
+}
+
+async function generateWidgetSuggestionAssistantText(widgetSuggestion: NonNullable<z.infer<typeof WidgetSuggestionSchema>>): Promise<string> {
+  const { serviceLabel, detailLines } = buildWidgetSuggestionAssistantContext(widgetSuggestion);
+  const suggestionSummary = {
+    title: String(widgetSuggestion.title || "").trim().slice(0, 240),
+    serviceLabel: serviceLabel || null,
+    detailLines,
+    actionIds: widgetSuggestion.actionIds.slice(0, 50),
+  };
+
+  const text = await generateText({
+    system:
+      "You are a helpful assistant inside a SaaS portal. Write a brief, friendly message explaining that you found a suggested setup for the current page and that the user can apply it. Mention the suggestion title. If there are detail lines, render them as a short bullet list. End with a question asking whether to apply it now. Do not claim you already applied changes.",
+    user: `Widget suggestion (JSON):\n${JSON.stringify(suggestionSummary, null, 2)}`,
+  });
+  return String(text || "").trim();
 }
 
 function toAbsoluteHttpUrl(raw: string, reqUrl: string): string | null {
@@ -1302,12 +1317,14 @@ async function tryExecuteTaskCommand(opts: {
   if (mentionsScheduled && mentionsTaskLike) return null;
 
   const createAssistantMessage = async (msgText: string) => {
+    const safeText = String(msgText || "").trim();
+    if (!safeText) return null;
     const assistantMsg = await (prisma as any).portalAiChatMessage.create({
       data: {
         ownerId,
         threadId,
         role: "assistant",
-        text: String(msgText || "").slice(0, 12000),
+        text: safeText.slice(0, 12000),
         attachmentsJson: null,
         createdByUserId: null,
         sendAt: null,
@@ -1327,6 +1344,14 @@ async function tryExecuteTaskCommand(opts: {
     return assistantMsg;
   };
 
+  const generateAssistantText = async (system: string, payload: unknown) => {
+    try {
+      return String(await generateText({ system, user: `Context (JSON):\n${JSON.stringify(payload, null, 2)}` })).trim();
+    } catch {
+      return "";
+    }
+  };
+
   // 1) List tasks.
   const listCmd = extractTaskListFromText(text);
   if (listCmd) {
@@ -1340,12 +1365,20 @@ async function tryExecuteTaskCommand(opts: {
 
     const tasks = Array.isArray((exec as any)?.json?.tasks) ? ((exec as any).json.tasks as any[]) : [];
     if (!(exec as any)?.json?.ok) {
-      const assistantMsg = await createAssistantMessage(`I couldn’t list tasks: ${String((exec as any)?.json?.error || "Unknown error")}`);
+      const assistantText = await generateAssistantText(
+        "You are an assistant in a SaaS portal. The user asked to list tasks, but the system returned an error. Write a short helpful message that mentions the failure and suggests trying again or opening the Tasks page. Do not invent tasks.",
+        { error: String((exec as any)?.json?.error || "").trim() || null, status: listCmd.status ?? null, assigned: listCmd.assigned ?? null },
+      );
+      const assistantMsg = await createAssistantMessage(assistantText);
       return { ok: false, assistantMessage: assistantMsg, canvasUrl: "/portal/app/services/tasks" };
     }
 
     if (!tasks.length) {
-      const assistantMsg = await createAssistantMessage("No tasks found.");
+      const assistantText = await generateAssistantText(
+        "You are an assistant in a SaaS portal. The user asked to list tasks, and there are none. Write a short, friendly message confirming there are no matching tasks. Keep it to 1-2 sentences.",
+        { status: listCmd.status ?? null, assigned: listCmd.assigned ?? null },
+      );
+      const assistantMsg = await createAssistantMessage(assistantText);
       return { ok: true, assistantMessage: assistantMsg, autoActionMessage: assistantMsg, canvasUrl: "/portal/app/services/tasks" };
     }
 
@@ -1358,7 +1391,11 @@ async function tryExecuteTaskCommand(opts: {
       return `- ${title}${due} [${status}] (task id: ${id})`;
     });
 
-    const assistantMsg = await createAssistantMessage(["Here are your tasks:", ...lines].join("\n"));
+    const assistantText = await generateAssistantText(
+      "You are an assistant in a SaaS portal. Present the user's task list as concise markdown. Use a short intro line and then bullet points. Do not add tasks that are not in the list.",
+      { status: listCmd.status ?? null, assigned: listCmd.assigned ?? null, previewLines: lines.slice(0, 15) },
+    );
+    const assistantMsg = await createAssistantMessage(assistantText);
     return { ok: true, assistantMessage: assistantMsg, autoActionMessage: assistantMsg, canvasUrl: "/portal/app/services/tasks" };
   }
 
@@ -1372,12 +1409,20 @@ async function tryExecuteTaskCommand(opts: {
 
     const exec = await executePortalAgentActionForThread({ ownerId, threadId, action, args, actorUserId: opts.actorUserId || undefined });
     if (!(exec as any)?.json?.ok) {
-      const assistantMsg = await createAssistantMessage(`I couldn’t create that task: ${String((exec as any)?.json?.error || "Unknown error")}`);
+      const assistantText = await generateAssistantText(
+        "You are an assistant in a SaaS portal. The user asked to create a task, but the system returned an error. Write a short helpful error message. Do not claim the task was created.",
+        { title: createCmd.title, error: String((exec as any)?.json?.error || "").trim() || null },
+      );
+      const assistantMsg = await createAssistantMessage(assistantText);
       return { ok: false, assistantMessage: assistantMsg, canvasUrl: "/portal/app/services/tasks" };
     }
 
     const taskId = typeof (exec as any)?.json?.taskId === "string" ? String((exec as any).json.taskId).slice(0, 32) : "";
-    const assistantMsg = await createAssistantMessage(`Created task “${createCmd.title}”.${taskId ? ` (task id: ${taskId})` : ""}`);
+    const assistantText = await generateAssistantText(
+      "You are an assistant in a SaaS portal. Confirm that a task was created. Keep it to one sentence. If a task id is present, include it in parentheses.",
+      { title: createCmd.title, taskId: taskId || null },
+    );
+    const assistantMsg = await createAssistantMessage(assistantText);
     return { ok: true, assistantMessage: assistantMsg, autoActionMessage: assistantMsg, canvasUrl: "/portal/app/services/tasks" };
   }
 
@@ -1398,11 +1443,19 @@ async function tryExecuteTaskCommand(opts: {
       });
 
       if (!(exec as any)?.json?.ok) {
-        const assistantMsg = await createAssistantMessage(`I couldn’t update that task: ${String((exec as any)?.json?.error || "Unknown error")}`);
+        const assistantText = await generateAssistantText(
+          "You are an assistant in a SaaS portal. The user asked to update a task status by id, but the system returned an error. Write a short helpful error message.",
+          { taskId: explicitTaskId, desiredStatus: status, error: String((exec as any)?.json?.error || "").trim() || null },
+        );
+        const assistantMsg = await createAssistantMessage(assistantText);
         return { ok: false, assistantMessage: assistantMsg, canvasUrl: "/portal/app/services/tasks" };
       }
 
-      const assistantMsg = await createAssistantMessage(`Updated task (task id: ${explicitTaskId}) to ${status}.`);
+      const assistantText = await generateAssistantText(
+        "You are an assistant in a SaaS portal. Confirm that the task status was updated. Keep it to one sentence.",
+        { taskId: explicitTaskId, status },
+      );
+      const assistantMsg = await createAssistantMessage(assistantText);
       return { ok: true, assistantMessage: assistantMsg, autoActionMessage: assistantMsg, canvasUrl: "/portal/app/services/tasks" };
     }
   }
@@ -1432,9 +1485,11 @@ async function tryExecuteTaskCommand(opts: {
       .slice(0, 8);
 
     if (!matches.length) {
-      const assistantMsg = await createAssistantMessage(
-        `I couldn’t find an open task matching “${titleCmd.titleHint}”. If you paste the task id (e.g. “task id: …”) I can update it.`,
+      const assistantText = await generateAssistantText(
+        "You are an assistant in a SaaS portal. You couldn't find a task matching the user's title hint. Ask the user to paste the task id so you can update it. Keep it to 1-2 sentences.",
+        { titleHint: titleCmd.titleHint, desiredStatus },
       );
+      const assistantMsg = await createAssistantMessage(assistantText);
       return { ok: false, assistantMessage: assistantMsg, canvasUrl: "/portal/app/services/tasks" };
     }
 
@@ -1443,9 +1498,11 @@ async function tryExecuteTaskCommand(opts: {
         .slice(0, 5)
         .map((m) => `- ${m.title} (task id: ${m.id.slice(0, 32)})`)
         .join("\n");
-      const assistantMsg = await createAssistantMessage(
-        `I found multiple matching tasks. Reply with the exact task id to update:\n${preview}`,
+      const assistantText = await generateAssistantText(
+        "You are an assistant in a SaaS portal. There are multiple tasks matching the user's hint. Ask the user to reply with the exact task id to update. Include the provided preview list as-is.",
+        { titleHint: titleCmd.titleHint, preview },
       );
+      const assistantMsg = await createAssistantMessage(assistantText);
       return { ok: false, assistantMessage: assistantMsg, canvasUrl: "/portal/app/services/tasks" };
     }
 
@@ -1459,11 +1516,19 @@ async function tryExecuteTaskCommand(opts: {
     });
 
     if (!(exec2 as any)?.json?.ok) {
-      const assistantMsg = await createAssistantMessage(`I couldn’t update that task: ${String((exec2 as any)?.json?.error || "Unknown error")}`);
+      const assistantText = await generateAssistantText(
+        "You are an assistant in a SaaS portal. The user asked to update a task status, but the system returned an error. Write a short helpful error message.",
+        { taskId: chosen.id, title: chosen.title, desiredStatus, error: String((exec2 as any)?.json?.error || "").trim() || null },
+      );
+      const assistantMsg = await createAssistantMessage(assistantText);
       return { ok: false, assistantMessage: assistantMsg, canvasUrl: "/portal/app/services/tasks" };
     }
 
-    const assistantMsg = await createAssistantMessage(`Updated “${chosen.title}” to ${desiredStatus}.`);
+    const assistantText = await generateAssistantText(
+      "You are an assistant in a SaaS portal. Confirm that the task status was updated. Keep it to one sentence.",
+      { taskId: chosen.id, title: chosen.title, desiredStatus },
+    );
+    const assistantMsg = await createAssistantMessage(assistantText);
     return { ok: true, assistantMessage: assistantMsg, autoActionMessage: assistantMsg, canvasUrl: "/portal/app/services/tasks" };
   }
 
@@ -2608,27 +2673,36 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
         return NextResponse.json({ ok: true, userMessage: null, assistantMessage: null, assistantActions: [], autoActionMessage: null, canvasUrl: null });
       }
 
-      const assistantMsg = await (prisma as any).portalAiChatMessage.create({
-        data: {
-          ownerId,
-          threadId,
-          role: "assistant",
-          text: buildWidgetSuggestionAssistantText(widgetSuggestion as any),
-          attachmentsJson: null,
-          createdByUserId: null,
-          sendAt: null,
-          sentAt: now,
-        },
-        select: {
-          id: true,
-          role: true,
-          text: true,
-          attachmentsJson: true,
-          createdAt: true,
-          sendAt: true,
-          sentAt: true,
-        },
-      });
+      let assistantText = "";
+      try {
+        assistantText = await generateWidgetSuggestionAssistantText(widgetSuggestion as any);
+      } catch {
+        assistantText = "";
+      }
+
+      const assistantMsg = assistantText.trim()
+        ? await (prisma as any).portalAiChatMessage.create({
+            data: {
+              ownerId,
+              threadId,
+              role: "assistant",
+              text: assistantText.trim(),
+              attachmentsJson: null,
+              createdByUserId: null,
+              sendAt: null,
+              sentAt: now,
+            },
+            select: {
+              id: true,
+              role: true,
+              text: true,
+              attachmentsJson: true,
+              createdAt: true,
+              sendAt: true,
+              sentAt: true,
+            },
+          })
+        : null;
 
       await (prisma as any).portalAiChatThread.update({ where: { id: threadId }, data: { lastMessageAt: now, contextJson: persistedThreadContext } });
       return NextResponse.json({ ok: true, userMessage: null, assistantMessage: assistantMsg, assistantActions: [], autoActionMessage: null, canvasUrl: null });
@@ -2679,38 +2753,51 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
       mappedCanvasUrl ||
       null;
 
-    const assistantText = (() => {
-      if (confirmedSteps.length === 1) {
-        return String(results[0]?.markdown || "Done.").trim() || "Done.";
-      }
-      const blocks = confirmedSteps.map((s, idx) => {
-        const md = String(results[idx]?.markdown || (results[idx]?.ok ? "Done." : "Action failed.")).trim();
-        return `#### ${s.title}\n${md}`;
-      });
-      return `Done.\n\n${blocks.join("\n\n")}`;
-    })();
+    let assistantText = "";
+    try {
+      assistantText = String(
+        await generateText({
+          system:
+            "You are an assistant in a SaaS portal. Summarize the results of the confirmed actions for the user. Write concise markdown. Use per-step headings when multiple steps ran. If something failed, mention it. Do not invent details.",
+          user: `Confirmation execution results (JSON):\n${JSON.stringify(
+            {
+              workTitle: pendingConfirm.workTitle ?? null,
+              steps: confirmedSteps,
+              results,
+              canvasUrl,
+            },
+            null,
+            2,
+          )}`,
+        }),
+      ).trim();
+    } catch {
+      assistantText = "";
+    }
 
-    const assistantMsg = await (prisma as any).portalAiChatMessage.create({
-      data: {
-        ownerId,
-        threadId,
-        role: "assistant",
-        text: assistantText,
-        attachmentsJson: null,
-        createdByUserId: null,
-        sendAt: null,
-        sentAt: now,
-      },
-      select: {
-        id: true,
-        role: true,
-        text: true,
-        attachmentsJson: true,
-        createdAt: true,
-        sendAt: true,
-        sentAt: true,
-      },
-    });
+    const assistantMsg = assistantText.trim()
+      ? await (prisma as any).portalAiChatMessage.create({
+          data: {
+            ownerId,
+            threadId,
+            role: "assistant",
+            text: assistantText.slice(0, 12000),
+            attachmentsJson: null,
+            createdByUserId: null,
+            sendAt: null,
+            sentAt: now,
+          },
+          select: {
+            id: true,
+            role: true,
+            text: true,
+            attachmentsJson: true,
+            createdAt: true,
+            sendAt: true,
+            sentAt: true,
+          },
+        })
+      : null;
 
     const prevCtx = threadContext;
     const prevRuns =
@@ -3375,43 +3462,51 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
           mappedCanvasUrl ||
           null;
 
-        const assistantText = (() => {
-          if (resolvedSteps.length === 1) {
-            return String(results[0]?.markdown || "Done.").trim() || "Done.";
-          }
-          const allOk = results.every((r) => r.ok);
-          const anyOk = results.some((r) => r.ok);
-          const blocks = resolvedSteps.map((s, idx) => {
-            const md = String(results[idx]?.markdown || (results[idx]?.ok ? "Done." : "Action failed.")).trim();
-            return `#### ${s.title}\n${md}`;
-          });
-          const summary = allOk ? "Done." : anyOk ? "Some actions failed." : "Action failed.";
-          return `${summary}\n\n${blocks.join("\n\n")}`;
-        })();
+        let assistantTextFinal = "";
+        try {
+          assistantTextFinal = String(
+            await generateText({
+              system:
+                "You are an assistant in a SaaS portal. Summarize the results of the executed plan for the user. Write concise markdown. Use per-step headings when multiple steps ran. If something failed, mention it. Do not invent details.",
+              user: `Plan execution results (JSON):\n${JSON.stringify(
+                {
+                  workTitle: plan.workTitle ?? null,
+                  steps: resolvedSteps,
+                  results,
+                  canvasUrl,
+                },
+                null,
+                2,
+              )}`,
+            }),
+          ).trim();
+        } catch {
+          assistantTextFinal = "";
+        }
 
-        const assistantTextFinal = assistantText;
-
-        const assistantMsg = await (prisma as any).portalAiChatMessage.create({
-          data: {
-            ownerId,
-            threadId,
-            role: "assistant",
-            text: assistantTextFinal,
-            attachmentsJson: null,
-            createdByUserId: null,
-            sendAt: null,
-            sentAt: now,
-          },
-          select: {
-            id: true,
-            role: true,
-            text: true,
-            attachmentsJson: true,
-            createdAt: true,
-            sendAt: true,
-            sentAt: true,
-          },
-        });
+        const assistantMsg = assistantTextFinal.trim()
+          ? await (prisma as any).portalAiChatMessage.create({
+              data: {
+                ownerId,
+                threadId,
+                role: "assistant",
+                text: assistantTextFinal.slice(0, 12000),
+                attachmentsJson: null,
+                createdByUserId: null,
+                sendAt: null,
+                sentAt: now,
+              },
+              select: {
+                id: true,
+                role: true,
+                text: true,
+                attachmentsJson: true,
+                createdAt: true,
+                sendAt: true,
+                sentAt: true,
+              },
+            })
+          : null;
 
         const prevCtx = localCtx;
         const mergedPatch = Object.assign({}, ...contextPatches.filter(Boolean));
@@ -3526,41 +3621,49 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
       if (cua) clientUiActions.push(cua);
     }
 
-    const assistantText = (() => {
-      if (weekdaySmsFallbackPlan.steps.length === 1) {
-        return String(results[0]?.markdown || "Done.").trim() || "Done.";
-      }
-      const allOk = results.every((r) => r.ok);
-      const anyOk = results.some((r) => r.ok);
-      const blocks = weekdaySmsFallbackPlan.steps.slice(0, 6).map((s: any, idx: number) => {
-        const md = String(results[idx]?.markdown || (results[idx]?.ok ? "Done." : "Action failed.")).trim();
-        return `#### ${String(s.title || s.key || "Step")}\n${md}`;
-      });
-      const summary = allOk ? "Scheduled." : anyOk ? "Some schedules failed." : "Scheduling failed.";
-      return `${summary}\n\n${blocks.join("\n\n")}`;
-    })();
+    let assistantText = "";
+    try {
+      assistantText = String(
+        await generateText({
+          system:
+            "You are an assistant in a SaaS portal. A deterministic scheduling workflow just executed. Summarize what was scheduled (or what failed) for the user in concise markdown. Use per-step headings when multiple steps ran. Do not invent details.",
+          user: `Weekday SMS scheduling results (JSON):\n${JSON.stringify(
+            {
+              steps: weekdaySmsFallbackPlan.steps.slice(0, 6),
+              results,
+            },
+            null,
+            2,
+          )}`,
+        }),
+      ).trim();
+    } catch {
+      assistantText = "";
+    }
 
-    const assistantMsg = await (prisma as any).portalAiChatMessage.create({
-      data: {
-        ownerId,
-        threadId,
-        role: "assistant",
-        text: assistantText,
-        attachmentsJson: null,
-        createdByUserId: null,
-        sendAt: null,
-        sentAt: now,
-      },
-      select: {
-        id: true,
-        role: true,
-        text: true,
-        attachmentsJson: true,
-        createdAt: true,
-        sendAt: true,
-        sentAt: true,
-      },
-    });
+    const assistantMsg = assistantText.trim()
+      ? await (prisma as any).portalAiChatMessage.create({
+          data: {
+            ownerId,
+            threadId,
+            role: "assistant",
+            text: assistantText.slice(0, 12000),
+            attachmentsJson: null,
+            createdByUserId: null,
+            sendAt: null,
+            sentAt: now,
+          },
+          select: {
+            id: true,
+            role: true,
+            text: true,
+            attachmentsJson: true,
+            createdAt: true,
+            sendAt: true,
+            sentAt: true,
+          },
+        })
+      : null;
 
     await (prisma as any).portalAiChatThread.update({ where: { id: threadId }, data: { lastMessageAt: now } });
 

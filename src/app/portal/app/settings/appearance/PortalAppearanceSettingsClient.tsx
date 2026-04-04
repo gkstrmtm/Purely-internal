@@ -206,17 +206,6 @@ export function PortalAppearanceSettingsClient() {
     dispatchPortalThemePreview(themeMode);
   }, [themeMode]);
 
-  const voiceOptions = useMemo(
-    () => [
-      { value: "", label: "Use service default" },
-      ...voiceLibraryVoices.map((voice) => ({
-        value: voice.id,
-        label: voice.category ? `${voice.name} · ${voice.category}` : voice.name,
-      })),
-    ],
-    [voiceLibraryVoices],
-  );
-
   const selectedVoiceMeta = useMemo(
     () => voiceLibraryVoices.find((voice) => voice.id === selectedVoiceId) || null,
     [selectedVoiceId, voiceLibraryVoices],

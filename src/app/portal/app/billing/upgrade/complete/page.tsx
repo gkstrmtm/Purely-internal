@@ -68,7 +68,7 @@ function PortalBillingUpgradeCompleteInner() {
     return () => {
       mounted = false;
     };
-  }, [router, sessionId]);
+  }, [appBase, portalBase, router, sessionId]);
 
   return (
     <div className="min-h-screen bg-brand-mist text-brand-ink">

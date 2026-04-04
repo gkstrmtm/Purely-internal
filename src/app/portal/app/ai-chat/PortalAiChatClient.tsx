@@ -850,8 +850,6 @@ export function PortalAiChatClient() {
   const canvasUiResumeActions = activeThreadUiState.canvasUiResumeActions;
   const input = activeThreadDraft.input;
   const pendingAttachments = activeThreadDraft.pendingAttachments;
-
-  const activeThread = useMemo(() => threads.find((t) => t.id === activeThreadId) || null, [threads, activeThreadId]);
   const requestedThreadId = (searchParams?.get("thread") || "").trim() || null;
 
   useEffect(() => {
@@ -1585,7 +1583,7 @@ export function PortalAiChatClient() {
         else setThreadSending(sendLockKey, false);
       }
     },
-    [askConfirm, canvasUrl, clearThreadUiState, clientTimeZone, clientTimeZoneHeaders, executeClientUiActions, loadThreads, setThreadDraftState, setThreadSending, toast, updateThreadMessages],
+    [askConfirm, canvasUrl, clearThreadUiState, clientTimeZone, clientTimeZoneHeaders, executeClientUiActions, loadThreads, setThreadDraftState, setThreadSending, setThreadUiState, toast, updateThreadMessages],
   );
 
   // Handler for ambiguous contact selection (must be after send is defined)

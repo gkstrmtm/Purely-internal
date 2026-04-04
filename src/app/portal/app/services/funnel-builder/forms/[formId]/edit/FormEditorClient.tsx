@@ -261,7 +261,6 @@ type FormEditorDialog =
 const BUTTON_MOTION_CLASS = "transition-all duration-150 hover:-translate-y-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/20 disabled:opacity-60";
 const SECONDARY_BUTTON_CLASS = `rounded-2xl border border-zinc-200 bg-white px-4 py-2 text-sm font-semibold text-brand-ink ${BUTTON_MOTION_CLASS} hover:border-zinc-300 hover:bg-zinc-50`;
 const PRIMARY_BUTTON_CLASS = `rounded-2xl bg-(--color-brand-blue) px-4 py-2 text-sm font-semibold text-white ${BUTTON_MOTION_CLASS} hover:bg-blue-700`;
-const ICON_BUTTON_CLASS = `inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-zinc-200 bg-white text-zinc-700 ${BUTTON_MOTION_CLASS} hover:border-zinc-300 hover:bg-zinc-50 hover:text-zinc-900`;
 
 export function FormEditorClient({ basePath, formId }: { basePath: string; formId: string }) {
   const backHref = useMemo(() => `${basePath}/app/services/funnel-builder`, [basePath]);
@@ -478,14 +477,6 @@ export function FormEditorClient({ basePath, formId }: { basePath: string; formI
     });
     setSelectedIdx(fields?.length || 0);
     closeDialog();
-  };
-
-  const removeQuestion = (idx: number) => {
-    if (!fields) return;
-    const f = fields[idx];
-    if (!f) return;
-    setDialogError(null);
-    setDialog({ type: "delete-question", idx, label: f.label });
   };
 
   const performRemoveQuestion = (idx: number) => {

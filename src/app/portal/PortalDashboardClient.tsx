@@ -485,7 +485,7 @@ export function PortalDashboardClient() {
     return () => {
       mounted = false;
     };
-  }, []);
+  }, [pathname]);
 
   const modules = useMemo(
     () =>

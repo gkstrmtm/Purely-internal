@@ -3,7 +3,7 @@
 import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { IconChevron, IconSend, IconSendHover } from "@/app/portal/PortalIcons";
+import { IconSend, IconSendHover } from "@/app/portal/PortalIcons";
 
 type VersionPayload = {
   ok?: boolean;
@@ -502,7 +502,38 @@ export function PortalFloatingTools() {
 
   useEffect(() => {
     if (!chatOpen || !chatThreadId) return;
-    void loadPuraThreadMessages(chatThreadId);
+    let mounted = true;
+    (async () => {
+      const res = await fetch(`/api/portal/ai-chat/threads/${encodeURIComponent(chatThreadId)}/messages`, {
+        cache: "no-store",
+      }).catch(() => null as any);
+
+      if (!mounted) return;
+
+      if (!res?.ok) {
+        setChatThreadId(null);
+        setChatMessages([defaultWidgetWelcomeMessage()]);
+        return;
+      }
+
+      const json = (await res.json().catch(() => null)) as { ok?: boolean; messages?: Array<{ id: string; role: string; text: string }> } | null;
+      if (!json?.ok) {
+        setChatThreadId(null);
+        setChatMessages([defaultWidgetWelcomeMessage()]);
+        return;
+      }
+
+      const nextMessages = Array.isArray(json.messages)
+        ? json.messages
+            .filter((message) => message && (message.role === "assistant" || message.role === "user"))
+            .map((message) => ({ id: String(message.id), role: message.role as "assistant" | "user", text: String(message.text || "") }))
+        : [];
+
+      setChatMessages(nextMessages.length ? nextMessages : [defaultWidgetWelcomeMessage()]);
+    })();
+    return () => {
+      mounted = false;
+    };
   }, [chatOpen, chatThreadId]);
 
   useEffect(() => {
@@ -834,33 +865,6 @@ export function PortalFloatingTools() {
     setChatThreadId(nextThreadId);
   }
 
-  async function loadPuraThreadMessages(threadId: string) {
-    const res = await fetch(`/api/portal/ai-chat/threads/${encodeURIComponent(threadId)}/messages`, {
-      cache: "no-store",
-    }).catch(() => null as any);
-
-    if (!res?.ok) {
-      persistWidgetThreadId(null);
-      setChatMessages([defaultWidgetWelcomeMessage()]);
-      return;
-    }
-
-    const json = (await res.json().catch(() => null)) as { ok?: boolean; messages?: Array<{ id: string; role: string; text: string }> } | null;
-    if (!json?.ok) {
-      persistWidgetThreadId(null);
-      setChatMessages([defaultWidgetWelcomeMessage()]);
-      return;
-    }
-
-    const nextMessages = Array.isArray(json.messages)
-      ? json.messages
-          .filter((message) => message && (message.role === "assistant" || message.role === "user"))
-          .map((message) => ({ id: String(message.id), role: message.role as "assistant" | "user", text: String(message.text || "") }))
-      : [];
-
-    setChatMessages(nextMessages.length ? nextMessages : [defaultWidgetWelcomeMessage()]);
-  }
-
   function continueWithPura() {
     if (typeof window === "undefined") return;
     const target = chatThreadId ? `${portalBase}/app/ai-chat?thread=${encodeURIComponent(chatThreadId)}` : `${portalBase}/app/ai-chat`;
@@ -944,10 +948,8 @@ export function PortalFloatingTools() {
 
       const createdJson = (created ? ((await created.json().catch(() => null)) as { ok?: boolean; thread?: { id?: string } | null; error?: string } | null) : null) ?? null;
       if (!created?.ok || !createdJson?.ok || !createdJson.thread?.id) {
-        setChatMessages((current) => [
-          ...current,
-          { id: `widget-error-${newClientId()}`, role: "assistant", text: createdJson?.error || "Chat is unavailable right now. Please use Report bug." },
-        ]);
+        setNote(String(createdJson?.error || "Support chat is unavailable.").trim() || null);
+        window.setTimeout(() => setNote(null), 3500);
         setChatSending(false);
         scheduleChatScrollToBottom(true);
         return;
@@ -980,8 +982,10 @@ export function PortalFloatingTools() {
     if (!res?.ok) {
       setChatMessages((current) => {
         const cleaned = current.filter((message) => message.id !== optimisticUserId && message.id !== optimisticAssistantId);
-        return [...cleaned, { id: `widget-error-${newClientId()}`, role: "assistant", text: "Chat is unavailable right now. Please use Report bug." }];
+        return cleaned;
       });
+      setNote("Support chat is unavailable.");
+      window.setTimeout(() => setNote(null), 3500);
       setChatSending(false);
       scheduleChatScrollToBottom(true);
       return;
@@ -996,8 +1000,10 @@ export function PortalFloatingTools() {
     if (!json?.ok) {
       setChatMessages((current) => {
         const cleaned = current.filter((message) => message.id !== optimisticUserId && message.id !== optimisticAssistantId);
-        return [...cleaned, { id: `widget-error-${newClientId()}`, role: "assistant", text: json?.error ?? "Chat failed. Please use Report bug." }];
+        return cleaned;
       });
+      setNote(String(json?.error || "Support chat failed.").trim() || null);
+      window.setTimeout(() => setNote(null), 3500);
       setChatSending(false);
       scheduleChatScrollToBottom(true);
       return;

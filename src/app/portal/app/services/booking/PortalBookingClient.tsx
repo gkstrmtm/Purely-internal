@@ -545,6 +545,31 @@ export function PortalBookingClient() {
   const pendingBookingDeepLinkRef = useRef<null | { bookingId: string; modal: BookingDeepLinkModal | null }>(null);
   const appliedBookingDeepLinkSigRef = useRef<string | null>(null);
 
+  const loadReschedSlots = useCallback(async (fromIso?: string) => {
+    if (!site) return;
+    setReschedSlotsLoading(true);
+    try {
+      const startAt = fromIso ? new Date(fromIso) : new Date();
+      startAt.setHours(0, 0, 0, 0);
+      const url = new URL("/api/portal/booking/suggestions", window.location.origin);
+      url.searchParams.set("startAt", startAt.toISOString());
+      url.searchParams.set("days", "14");
+      url.searchParams.set("durationMinutes", String(site.durationMinutes ?? 30));
+      url.searchParams.set("limit", "25");
+
+      const res = await fetch(url.toString(), { cache: "no-store" });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(getApiError(body) ?? "Failed to load suggestions");
+      }
+      setReschedSlots((body as { slots?: Slot[] }).slots ?? []);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to load suggestions");
+    } finally {
+      setReschedSlotsLoading(false);
+    }
+  }, [site]);
+
   const tryApplyBookingDeepLink = useCallback(() => {
     const pending = pendingBookingDeepLinkRef.current;
     if (!pending) return;
@@ -581,7 +606,7 @@ export function PortalBookingClient() {
     }
 
     pendingBookingDeepLinkRef.current = null;
-  }, [recent, site?.title, upcoming]);
+  }, [loadReschedSlots, recent, site?.title, upcoming]);
 
   const syncBookingDeepLinkFromUrl = useCallback(() => {
     if (typeof window === "undefined") return;
@@ -1395,31 +1420,6 @@ export function PortalBookingClient() {
     setContactSendEmail(true);
     setContactSendSms(false);
     setStatus("Sent follow-up");
-  }
-
-  async function loadReschedSlots(fromIso?: string) {
-    if (!site) return;
-    setReschedSlotsLoading(true);
-    try {
-      const startAt = fromIso ? new Date(fromIso) : new Date();
-      startAt.setHours(0, 0, 0, 0);
-      const url = new URL("/api/portal/booking/suggestions", window.location.origin);
-      url.searchParams.set("startAt", startAt.toISOString());
-      url.searchParams.set("days", "14");
-      url.searchParams.set("durationMinutes", String(site.durationMinutes ?? 30));
-      url.searchParams.set("limit", "25");
-
-      const res = await fetch(url.toString(), { cache: "no-store" });
-      const body = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        throw new Error(getApiError(body) ?? "Failed to load suggestions");
-      }
-      setReschedSlots((body as { slots?: Slot[] }).slots ?? []);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to load suggestions");
-    } finally {
-      setReschedSlotsLoading(false);
-    }
   }
 
   async function rescheduleBooking() {

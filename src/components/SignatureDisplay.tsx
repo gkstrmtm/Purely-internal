@@ -26,6 +26,7 @@ export function SignatureDisplay({
   if (imageDataUrl) {
     return (
       <div className={classNames("space-y-2", className)}>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
           src={imageDataUrl}
           alt="Stored signature"

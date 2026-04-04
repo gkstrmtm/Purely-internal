@@ -903,16 +903,49 @@ export async function POST(req: Request) {
     if (forced?.length) {
       const validated = aiActionsPayloadSchema.safeParse({ actions: forced });
       if (validated.success) {
-        return NextResponse.json({ ok: true, actions: validated.data.actions });
+        let assistantText = "";
+        try {
+          assistantText = String(
+            await generateText({
+              system:
+                "You are an assistant in a funnel builder. Confirm you can insert proper Funnel Builder blocks instead of custom HTML, and briefly explain what you are about to insert. Keep it to 1-3 short sentences.",
+              user: `Planned insert actions (JSON):\n${JSON.stringify({ actions: validated.data.actions }, null, 2)}`,
+            }),
+          ).trim();
+        } catch {
+          assistantText = "";
+        }
+
+        return NextResponse.json({ ok: true, actions: validated.data.actions, assistantText: assistantText || null });
       }
     }
 
-    return NextResponse.json({
-      ok: true,
-      question:
-        "I can insert a proper Form/Calendar/Chatbot/Shop block (recommended) instead of custom HTML. Which one do you want here?",
-    });
+    try {
+      const question = String(
+        await generateText({
+          system:
+            "You are an assistant in a funnel builder. The user asked for custom HTML/CSS, but the best path is to insert a proper Funnel Builder block instead. Ask one concise question to choose the block type. Offer these options: Form, Calendar, Chatbot, Shop. Keep it to 1-2 sentences.",
+          user: `Context (JSON):\n${JSON.stringify({ prompt }, null, 2)}`,
+        }),
+      ).trim();
+      return NextResponse.json({ ok: true, question: question.slice(0, 800) });
+    } catch {
+      return NextResponse.json({ ok: false, error: "AI provider not configured" }, { status: 502 });
+    }
   }
 
-  return NextResponse.json({ ok: true, html, css });
+  let assistantText = "";
+  try {
+    assistantText = String(
+      await generateText({
+        system:
+          "You are an assistant in a funnel builder. The custom code block HTML/CSS was just generated/updated. Write a short, friendly confirmation message that invites the user to preview the block and tell you what to tweak next. Keep it to 1-3 sentences and do not invent details.",
+        user: `Context (JSON):\n${JSON.stringify({ prompt, hasHtml: Boolean(html), hasCss: Boolean(css) }, null, 2)}`,
+      }),
+    ).trim();
+  } catch {
+    assistantText = "";
+  }
+
+  return NextResponse.json({ ok: true, html, css, assistantText: assistantText || null });
 }

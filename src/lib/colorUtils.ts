@@ -5,11 +5,8 @@ export function parseHexColor(hex: string): Rgb | null {
   const m = /^#([0-9a-fA-F]{6})$/.exec(v);
   if (!m) return null;
   const n = Number.parseInt(m[1], 16);
-  // eslint-disable-next-line no-bitwise
   const r = (n >> 16) & 255;
-  // eslint-disable-next-line no-bitwise
   const g = (n >> 8) & 255;
-  // eslint-disable-next-line no-bitwise
   const b = n & 255;
   return { r, g, b };
 }

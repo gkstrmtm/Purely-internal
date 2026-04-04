@@ -54,11 +54,6 @@ function extractAiQuestion(raw: string): string | null {
   return q.slice(0, 800);
 }
 
-function pickRandom<T>(items: T[]): T {
-  if (!Array.isArray(items) || items.length === 0) throw new Error("pickRandom called with empty array");
-  return items[Math.floor(Math.random() * items.length)]!;
-}
-
 function normalizePortalHostedPaths(html: string): string {
   let out = String(html || "");
   if (!out) return out;
@@ -310,18 +305,21 @@ function buildInteractiveBlocks(opts: {
   return blocks;
 }
 
-const PAGE_UPDATED_VARIANTS = [
-  "OK. I updated your page. Check the preview and tell me what you want changed.",
-  "Done. Page updated. Take a look in preview and tell me what to tweak.",
-  "Updated. Open the preview and tell me what you want different.",
-  "All set. Changes applied. Preview it and tell me what you want adjusted.",
-  "Page updated. If anything feels off, tell me what to change next.",
-  "Update complete. Check the preview and call out what to refine.",
-  "Applied the changes. Preview it and tell me what you want changed next.",
-  "Done. I made the update. Tell me what you want improved after you preview.",
-  "Updated the page. Preview it and tell me what to adjust (copy, layout, colors, etc.).",
-  "Change applied. Check preview and tell me what you want changed.",
-];
+async function generatePageUpdatedAssistantText(opts: { pageTitle?: string; funnelName?: string }) {
+  const payload = {
+    pageTitle: String(opts.pageTitle || "").trim().slice(0, 160) || null,
+    funnelName: String(opts.funnelName || "").trim().slice(0, 160) || null,
+  };
+
+  const system =
+    "You are an assistant inside a funnel builder. The page has just been updated. Write a short, friendly confirmation message that invites the user to preview the page and tell you what to tweak next. Do not claim you can see their preview. Keep it to 1-3 sentences.";
+
+  try {
+    return String(await generateText({ system, user: `Context (JSON):\n${JSON.stringify(payload, null, 2)}` })).trim();
+  } catch {
+    return "";
+  }
+}
 
 type AiAttachment = {
   url: string;
@@ -780,12 +778,15 @@ export async function POST(req: Request, ctx: { params: Promise<{ funnelId: stri
     ].join("\n");
   }
 
-  const assistantMsg = {
-    role: "assistant",
-    content: pickRandom(PAGE_UPDATED_VARIANTS),
-    at: new Date().toISOString(),
-  };
-  const nextChat = [...prevChat, userMsg, assistantMsg].slice(-40);
+  const pageUpdatedText = await generatePageUpdatedAssistantText({ pageTitle: page.title, funnelName: page.funnel?.name });
+  const assistantMsg = pageUpdatedText.trim()
+    ? {
+        role: "assistant" as const,
+        content: pageUpdatedText.trim(),
+        at: new Date().toISOString(),
+      }
+    : null;
+  const nextChat = (assistantMsg ? [...prevChat, userMsg, assistantMsg] : [...prevChat, userMsg]).slice(-40);
 
   const updated = await prisma.creditFunnelPage.update({
     where: { id: page.id },

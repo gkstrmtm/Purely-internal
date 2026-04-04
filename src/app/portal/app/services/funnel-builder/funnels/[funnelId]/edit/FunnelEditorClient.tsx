@@ -100,37 +100,6 @@ function classNames(...xs: Array<string | false | null | undefined>) {
   return xs.filter(Boolean).join(" ");
 }
 
-function pickRandom<T>(items: T[]): T {
-  if (!Array.isArray(items) || items.length === 0) throw new Error("pickRandom called with empty array");
-  return items[Math.floor(Math.random() * items.length)]!;
-}
-
-const AI_BLOCK_UPDATED_VARIANTS = [
-  "OK. I updated this block. Check the preview and tell me what you want changed.",
-  "Done. Block updated. Preview it and tell me what to tweak.",
-  "Updated this block. Check it in preview and tell me what you want adjusted.",
-  "All set. Changes applied to this block. Preview and tell me what to refine.",
-  "Block updated. If anything feels off, tell me what to change next.",
-  "Update complete for this block. Preview it and call out what to refine.",
-  "Applied the changes to this block. Tell me what you want changed next.",
-  "Done. Block updated. Tell me what you want improved after you preview.",
-  "Updated. Preview this block and tell me what to adjust (spacing, copy, colors, etc.).",
-  "Change applied to this block. Check preview and tell me what you want changed.",
-];
-
-const AI_BLOCK_ACTIONS_VARIANTS = [
-  "I added blocks to the page.",
-  "Added some blocks to the page.",
-  "Inserted blocks into the page.",
-  "Dropped in a few blocks.",
-  "Blocks added.",
-  "I updated the layout with new blocks.",
-  "I added the requested blocks.",
-  "Built those pieces as blocks on the page.",
-  "Added blocks where they fit best.",
-  "I placed new blocks into the page.",
-];
-
 function chatDisplayContent(m: { role: "user" | "assistant"; content: string }) {
   const raw = typeof m.content === "string" ? m.content : String(m.content ?? "");
   if (m.role !== "assistant") return raw;
@@ -5985,30 +5954,13 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                                     ? ((existingBlock.props as any).chatJson as BlockChatMessage[])
                                     : [];
 
-                                const actionSummaries = actions.slice(0, 6).map((a) => {
-                                  if (!a || typeof a !== "object") return null;
-                                  const t = typeof (a as any).type === "string" ? String((a as any).type) : "";
-                                  if (t === "insertPresetAfter") {
-                                    const preset = typeof (a as any).preset === "string" ? String((a as any).preset) : "";
-                                    return preset ? `- Insert preset: ${preset}` : "- Insert preset";
-                                  }
-                                  if (t === "insertAfter") {
-                                    const blockType = typeof (a as any)?.block?.type === "string" ? String((a as any).block.type) : "";
-                                    return blockType ? `- Insert block: ${blockType}` : "- Insert block";
-                                  }
-                                  return t ? `- ${t}` : null;
-                                });
-
                                 const userMsg: BlockChatMessage = { role: "user", content: prompt, at: new Date().toISOString() };
-                                const assistantMsg: BlockChatMessage = {
-                                  role: "assistant",
-                                  content: [pickRandom(AI_BLOCK_ACTIONS_VARIANTS), actionSummaries.filter(Boolean).join("\n")]
-                                    .filter(Boolean)
-                                    .join("\n"),
-                                  at: new Date().toISOString(),
-                                };
+                                const assistantText = typeof json?.assistantText === "string" ? String(json.assistantText).trim() : "";
+                                const assistantMsg: BlockChatMessage | null = assistantText
+                                  ? { role: "assistant", content: assistantText, at: new Date().toISOString() }
+                                  : null;
 
-                                const nextChat = [...prevChat, userMsg, assistantMsg].slice(-40);
+                                const nextChat = [...prevChat, userMsg, ...(assistantMsg ? [assistantMsg] : [])].slice(-40);
 
                                 const s = (v: unknown, max = 240) => (typeof v === "string" ? v : "").trim().slice(0, max);
 
@@ -6344,12 +6296,12 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
 
                               const nextHtml = typeof json.html === "string" ? json.html : "";
                               const nextCss = typeof json.css === "string" ? json.css : "";
-                              const assistantMsg: BlockChatMessage = {
-                                role: "assistant",
-                                content: nextHtml || nextCss ? pickRandom(AI_BLOCK_UPDATED_VARIANTS) : "No changes returned.",
-                                at: new Date().toISOString(),
-                              };
-                              const nextChat = [...prevChat, userMsg, assistantMsg].slice(-40);
+
+                              const assistantText = typeof json?.assistantText === "string" ? String(json.assistantText).trim() : "";
+                              const assistantMsg: BlockChatMessage | null = assistantText
+                                ? { role: "assistant", content: assistantText, at: new Date().toISOString() }
+                                : null;
+                              const nextChat = [...prevChat, userMsg, ...(assistantMsg ? [assistantMsg] : [])].slice(-40);
 
                               if (existingBlock && existingBlock.type === "customCode") {
                                 upsertBlock({
@@ -6680,33 +6632,13 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                                           ? ((selectedBlock.props as any).chatJson as BlockChatMessage[])
                                           : [];
 
-                                        const actionSummaries = actions.slice(0, 6).map((a) => {
-                                          if (!a || typeof a !== "object") return null;
-                                          const t = typeof (a as any).type === "string" ? String((a as any).type) : "";
-                                          if (t === "insertPresetAfter") {
-                                            const preset = typeof (a as any).preset === "string" ? String((a as any).preset) : "";
-                                            return preset ? `- Insert preset: ${preset}` : "- Insert preset";
-                                          }
-                                          if (t === "insertAfter") {
-                                            const blockType = typeof (a as any)?.block?.type === "string" ? String((a as any).block.type) : "";
-                                            return blockType ? `- Insert block: ${blockType}` : "- Insert block";
-                                          }
-                                          return t ? `- ${t}` : null;
-                                        });
-
                                         const userMsg: BlockChatMessage = { role: "user", content: prompt, at: new Date().toISOString() };
-                                        const assistantMsg: BlockChatMessage = {
-                                          role: "assistant",
-                                          content: [
-                                            pickRandom(AI_BLOCK_ACTIONS_VARIANTS),
-                                            actionSummaries.filter(Boolean).join("\n"),
-                                          ]
-                                            .filter(Boolean)
-                                            .join("\n"),
-                                          at: new Date().toISOString(),
-                                        };
+                                        const assistantText = typeof json?.assistantText === "string" ? String(json.assistantText).trim() : "";
+                                        const assistantMsg: BlockChatMessage | null = assistantText
+                                          ? { role: "assistant", content: assistantText, at: new Date().toISOString() }
+                                          : null;
 
-                                        const nextChat = [...prevChat, userMsg, assistantMsg].slice(-40);
+                                        const nextChat = [...prevChat, userMsg, ...(assistantMsg ? [assistantMsg] : [])].slice(-40);
 
                                         const s = (v: unknown, max = 240) =>
                                           (typeof v === "string" ? v : "").trim().slice(0, max);
@@ -6965,13 +6897,13 @@ export function FunnelEditorClient({ basePath, funnelId }: { basePath: string; f
                                         : [];
 
                                       const userMsg: BlockChatMessage = { role: "user", content: prompt, at: new Date().toISOString() };
-                                      const assistantMsg: BlockChatMessage = {
-                                        role: "assistant",
-                                        content: nextHtml || nextCss ? pickRandom(AI_BLOCK_UPDATED_VARIANTS) : "No changes returned.",
-                                        at: new Date().toISOString(),
-                                      };
 
-                                      const nextChat = [...prevChat, userMsg, assistantMsg].slice(-40);
+                                      const assistantText = typeof json?.assistantText === "string" ? String(json.assistantText).trim() : "";
+                                      const assistantMsg: BlockChatMessage | null = assistantText
+                                        ? { role: "assistant", content: assistantText, at: new Date().toISOString() }
+                                        : null;
+
+                                      const nextChat = [...prevChat, userMsg, ...(assistantMsg ? [assistantMsg] : [])].slice(-40);
 
                                       upsertBlock({
                                         ...selectedBlock,

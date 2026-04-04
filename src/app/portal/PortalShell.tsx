@@ -153,7 +153,6 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
   const embedded = embeddedFromQuery || embeddedSticky;
   const variant = typeof pathname === "string" && (pathname === "/credit" || pathname.startsWith("/credit/")) ? "credit" : "portal";
   const basePath = variant === "credit" ? "/credit" : "/portal";
-  const logoSrc = variant === "credit" ? "/brand/2.png" : "/brand/1.png";
   const sidebarLogoSrc = "/brand/purelylogo.png";
 
   useEffect(() => {

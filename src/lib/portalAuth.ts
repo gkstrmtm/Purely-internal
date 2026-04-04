@@ -34,11 +34,6 @@ async function bearerTokenFromHeaders(): Promise<string | null> {
   }
 }
 
-async function portalVariantFromHeaders(): Promise<PortalVariant | null> {
-  const h = await headers();
-  return normalizePortalVariant(h.get(PORTAL_VARIANT_HEADER));
-}
-
 async function portalVariantFromRequestContext(): Promise<PortalVariant | null> {
   const h = await headers();
 

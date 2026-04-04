@@ -394,12 +394,10 @@ async function main() {
   await fs.mkdir(path.dirname(OUT_MD), { recursive: true });
   await fs.writeFile(OUT_MD, md.join("\n"), "utf8");
 
-  // eslint-disable-next-line no-console
   console.log(`Wrote ${toPosix(path.relative(REPO_ROOT, OUT_MD))}`);
 }
 
 main().catch((err) => {
-  // eslint-disable-next-line no-console
   console.error(err);
   process.exit(1);
 });

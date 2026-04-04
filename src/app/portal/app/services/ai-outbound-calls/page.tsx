@@ -1,5 +1,3 @@
-import { PortalServiceGate } from "@/app/portal/app/services/PortalServiceGate";
-import { PortalAiOutboundCallsClient } from "@/app/portal/app/services/ai-outbound-calls/PortalAiOutboundCallsClient";
 import { redirect } from "next/navigation";
 import { requestPortalAppBasePath } from "@/lib/portalVariant.server";
 

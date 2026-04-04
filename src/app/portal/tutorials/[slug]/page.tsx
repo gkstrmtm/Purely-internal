@@ -1220,6 +1220,7 @@ export default async function PortalTutorialDetailPage(props: { params: Promise<
                   rel="noreferrer"
                   className="group overflow-hidden rounded-2xl border border-zinc-200 bg-zinc-50"
                 >
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img
                     src={url}
                     alt="Tutorial screenshot"

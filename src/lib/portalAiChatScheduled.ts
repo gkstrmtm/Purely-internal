@@ -8,6 +8,7 @@ import { getScheduledRecurrenceTimeZone, withScheduledRecurrenceMetadata } from 
 import { planPuraActions } from "@/lib/puraPlanner";
 import { resolvePlanArgs } from "@/lib/puraResolver";
 import { isPortalSupportChatConfigured } from "@/lib/portalSupportChat";
+import { generateText } from "@/lib/ai";
 
 async function computeNextRecurringRunAt(opts: {
   scheduledAt: Date | null;
@@ -254,7 +255,28 @@ export async function processDuePortalAiChatScheduledMessages(
       });
 
       if (!resolved.ok) {
-        const clarifyText = String(resolved.clarifyQuestion || "").trim() || "Scheduled run needs one more detail to continue.";
+        let clarifyText = String(resolved.clarifyQuestion || "").trim();
+        if (!clarifyText) {
+          try {
+            clarifyText = String(
+              await generateText({
+                system:
+                  "You are an assistant in a SaaS portal. A scheduled task cannot run because one required detail is missing. Ask one concise clarifying question so the user can provide the missing detail and the task can continue. Keep it to 1-2 sentences.",
+                user: `Scheduled step context (JSON):\n${JSON.stringify({ workTitle: (plan as any)?.workTitle ?? null, step }, null, 2)}`,
+              }),
+            ).trim();
+          } catch {
+            clarifyText = "";
+          }
+        }
+
+        if (!clarifyText) {
+          const nextCtx = { ...localCtx, pendingPlan: plan, pendingPlanClarify: null };
+          await (prisma as any).portalAiChatThread.update({ where: { id: threadId }, data: { lastMessageAt: new Date(), contextJson: nextCtx } });
+          resolvedSteps.length = 0;
+          results.length = 0;
+          break;
+        }
 
         await (prisma as any).portalAiChatMessage.create({
           data: {
@@ -314,42 +336,43 @@ export async function processDuePortalAiChatScheduledMessages(
         mappedCanvasUrl ||
         null;
 
-      const assistantText = (() => {
-        const workTitle = String((plan as any)?.workTitle || "Scheduled task").trim() || "Scheduled task";
-        if (resolvedSteps.length === 1) {
-          const detail = String(results[0]?.markdown || (results[0]?.ok ? "Done." : "Action failed.")).trim() || "Done.";
-          const lead = results[0]?.ok
-            ? `I finished your scheduled task${workTitle ? `: ${workTitle}` : ""}.`
-            : `I tried to run your scheduled task${workTitle ? `: ${workTitle}` : ""}, but it failed.`;
-          return `${lead}\n\n${detail}`;
-        }
-        const allOk = results.every((r) => r.ok);
-        const anyOk = results.some((r) => r.ok);
-        const blocks = resolvedSteps.map((s, idx) => {
-          const md = String(results[idx]?.markdown || (results[idx]?.ok ? "Done." : "Action failed.")).trim();
-          return `#### ${s.title}\n${md}`;
-        });
-        const summary = allOk
-          ? `I finished your scheduled task${workTitle ? `: ${workTitle}` : ""}.`
-          : anyOk
-            ? `I finished part of your scheduled task${workTitle ? `: ${workTitle}` : ""}, but some actions failed.`
-            : `I tried to run your scheduled task${workTitle ? `: ${workTitle}` : ""}, but it failed.`;
-        return `${summary}\n\n${blocks.join("\n\n")}`;
-      })();
+      let assistantText = "";
+      try {
+        assistantText = String(
+          await generateText({
+            system:
+              "You are an assistant in a SaaS portal. Summarize the results of a scheduled multi-step task execution for the user. Write concise markdown. If there were failures, mention them and include per-step headings. Do not invent details.",
+            user: `Scheduled run results (JSON):\n${JSON.stringify(
+              {
+                workTitle: (plan as any)?.workTitle ?? null,
+                steps: resolvedSteps,
+                results,
+                canvasUrl,
+              },
+              null,
+              2,
+            )}`,
+          }),
+        ).trim();
+      } catch {
+        assistantText = "";
+      }
 
-      await (prisma as any).portalAiChatMessage.create({
-        data: {
-          ownerId,
-          threadId,
-          role: "assistant",
-          text: assistantText.slice(0, 4000),
-          attachmentsJson: null,
-          createdByUserId: null,
-          sendAt: null,
-          sentAt: new Date(),
-        },
-        select: { id: true },
-      });
+      if (assistantText.trim()) {
+        await (prisma as any).portalAiChatMessage.create({
+          data: {
+            ownerId,
+            threadId,
+            role: "assistant",
+            text: assistantText.slice(0, 4000),
+            attachmentsJson: null,
+            createdByUserId: null,
+            sendAt: null,
+            sentAt: new Date(),
+          },
+          select: { id: true },
+        });
+      }
 
       const mergedPatch = Object.assign({}, ...contextPatches.filter(Boolean));
       const prevCtx = localCtx;

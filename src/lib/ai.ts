@@ -63,25 +63,8 @@ export async function generateText({
   const apiKey = process.env.AI_API_KEY;
   const resolvedModel = model ?? process.env.AI_MODEL ?? "gpt-4o-mini";
 
-  // Dev-friendly fallback so the UI works without configuring an AI provider.
   if (!baseUrl || !apiKey) {
-    return sanitizeAiTextOutput(
-      [
-      "(AI not configured. Set AI_API_KEY in .env.local)",
-      "",
-      "Quick opener:",
-      "Hey {{business.name}}, this is {{owner.name}}. Quick question.",
-      "",
-      "Value hook:",
-      "We help {{industry}} businesses book more qualified appointments without adding admin work.",
-      "",
-      "Discovery:",
-      "1) How are you currently getting leads?",
-      "2) What’s your close rate on inbound vs outbound?",
-      "3) If you could add 10 appointments next month, could you handle it?",
-      ].join("\n"),
-      [system || "", user || ""].filter(Boolean).join("\n\n"),
-    );
+    throw new Error("AI provider not configured. Set AI_BASE_URL and AI_API_KEY");
   }
 
   const messages: ChatMessage[] = [];
@@ -126,9 +109,8 @@ export async function generateTextWithImages({
   const apiKey = process.env.AI_API_KEY;
   const resolvedModel = model ?? process.env.AI_VISION_MODEL ?? process.env.AI_MODEL ?? "gpt-4o-mini";
 
-  // Dev-friendly fallback so the UI works without configuring an AI provider.
   if (!baseUrl || !apiKey) {
-    return generateText({ system, user, model: resolvedModel });
+    throw new Error("AI provider not configured. Set AI_BASE_URL and AI_API_KEY");
   }
 
   const safeUrls = (Array.isArray(imageUrls) ? imageUrls : [])

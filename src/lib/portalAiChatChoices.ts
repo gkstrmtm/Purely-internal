@@ -31,7 +31,7 @@ export async function validateChoiceOverride(ownerId: string, key: string, value
       const found = (cfg.calendars || []).some((c: any) => String(c.id || "") === String(value));
       if (!found) return { ok: false, error: "Unknown calendar" };
       return { ok: true };
-    } catch (err) {
+    } catch {
       return { ok: false, error: "Validation failed" };
     }
   }
