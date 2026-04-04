@@ -201,9 +201,108 @@ import { buildSuggestedSetupPreviewForOwner } from "@/lib/suggestedSetup/server"
 import { applySuggestedSetupActions } from "@/lib/suggestedSetup/executor";
 import { renderTextToPdfBytes } from "@/lib/simplePdf";
 import { provisionTwilioSmsWebhooksForFromNumber } from "@/lib/twilioProvisioning";
-import { portalBookingUiUrl, portalContactUiUrl, portalInboxUiUrl } from "@/lib/portalAgentActionMeta";
+
 
 const MAX_REMOTE_MEDIA_BYTES = 15 * 1024 * 1024; // matches /api/portal/media/import-remote
+
+function safeJsonForPrompt(value: unknown, maxLen = 9000): string {
+  try {
+    const s = JSON.stringify(value, null, 2);
+    if (typeof s !== "string") return "";
+    if (s.length <= maxLen) return s;
+    return s.slice(0, maxLen) + "…";
+  } catch {
+    return "";
+  }
+}
+
+function deriveLinkUrlForAction(action: PortalAgentActionKey, json: any): string | undefined {
+  const linkUrl = typeof json?.linkUrl === "string" ? String(json.linkUrl).trim() : "";
+  if (linkUrl) return linkUrl;
+
+  if (action === "tasks.create" || action === "tasks.update" || action === "tasks.list") return "/portal/app/tasks";
+
+  if (action === "funnel.create" && json?.funnel?.id) {
+    const id = String(json.funnel.id).trim();
+    if (id) return `/portal/app/services/funnel-builder/funnels/${encodeURIComponent(id)}/edit`;
+  }
+
+  if (action === "funnel_builder.pages.create" && json?.page?.id) {
+    const funnelId = String(json?.page?.funnelId || "").trim();
+    const pageId = String(json?.page?.id || "").trim();
+    if (funnelId) {
+      return `/portal/app/services/funnel-builder/funnels/${encodeURIComponent(funnelId)}/edit${pageId ? `?pageId=${encodeURIComponent(pageId)}` : ""}`;
+    }
+  }
+
+  if (action === "blogs.generate_now") return "/portal/app/services/blogs";
+  if (action === "newsletter.generate_now") return "/portal/app/services/newsletter";
+
+  if (
+    action === "media.items.create_from_blob" ||
+    action === "media.folders.update" ||
+    action === "media.folder.ensure" ||
+    action === "media.items.move" ||
+    action === "media.import_remote_image"
+  ) {
+    return "/portal/app/services/media-library";
+  }
+
+  if (
+    action === "dashboard.reset" ||
+    action === "dashboard.get" ||
+    action === "dashboard.save" ||
+    action === "dashboard.add_widget" ||
+    action === "dashboard.remove_widget" ||
+    action === "dashboard.optimize"
+  ) {
+    return "/portal/app";
+  }
+
+  if (String(action).startsWith("nurture.")) return "/portal/app/services/nurture-campaigns";
+
+  return undefined;
+}
+
+async function generateAssistantTextForActionResult(opts: {
+  action: PortalAgentActionKey;
+  ok: boolean;
+  status: number;
+  args: Record<string, unknown>;
+  result: any;
+  linkUrl?: string | null;
+  clientUiAction?: any;
+}): Promise<string> {
+  try {
+    const system = [
+      "You are Pura, an AI assistant inside a SaaS business portal.",
+      "Summarize the outcome of running a tool/action for the user.",
+      "Write concise markdown.",
+      "Rules:",
+      "- Do not invent details that are not present in the JSON.",
+      "- If the action failed, say what failed and include the error message if provided.",
+      "- Do not mention internal IDs unless the user must paste one.",
+      "- If a linkUrl is provided, include ONE markdown link CTA.",
+      "- No JSON output.",
+    ].join("\n");
+
+    const payload = {
+      action: opts.action,
+      ok: opts.ok,
+      status: opts.status,
+      linkUrl: opts.linkUrl ?? null,
+      args: opts.args ?? {},
+      result: opts.result ?? null,
+      clientUiAction: opts.clientUiAction ?? null,
+    };
+
+    const user = `Action execution result (JSON):\n${safeJsonForPrompt(payload)}`;
+    const out = String(await generateText({ system, user })).trim();
+    return out ? out.slice(0, 12000) : "";
+  } catch {
+    return "";
+  }
+}
 
 function sanitizeHumanName(raw: unknown, maxLen: number) {
   return String(raw || "")
@@ -3848,25 +3947,43 @@ async function runDirectAction(opts: {
         const missingChatbot = intent.wantsChatbot && !chatAgentId;
 
         if (missingShop || missingCalendar || missingChatbot) {
-          const parts: string[] = [];
-          if (missingShop)
-            parts.push(
-              "I can add a working Shop/Cart/Checkout, but I don't see any Stripe products with default prices yet. Do you want to connect Stripe and add products first?",
-            );
-          if (missingCalendar)
-            parts.push(
-              "I can embed a working booking calendar, but you don't have any booking calendars configured yet. Which calendar should I use (or should I create one in Booking settings first)?",
-            );
-          if (missingChatbot)
-            parts.push(
-              "I can add a working chatbot widget, but I don't see an ElevenLabs chat agent ID for this account yet. What agent ID should I use?",
-            );
-          const question = parts[0] ? parts[0].slice(0, 800) : "Which interactive block should I add (shop, calendar, or chatbot)?";
+          let question = "";
+          try {
+            question = String(
+              await generateText({
+                system: [
+                  "You are Pura, an AI assistant helping build a marketing funnel page inside a portal.",
+                  "The user wants interactive blocks added (shop/cart/checkout, booking calendar, chatbot).",
+                  "Some prerequisites are missing.",
+                  "Write ONE short question (1-2 sentences) to unblock the work.",
+                  "Rules:",
+                  "- Mention what is missing in plain terms.",
+                  "- Do not mention internal IDs unless you must ask the user to paste one.",
+                  "- No JSON.",
+                ].join("\n"),
+                user: `Context (JSON):\n${safeJsonForPrompt({
+                  missingShop,
+                  missingCalendar,
+                  missingChatbot,
+                  stripeProductsCount: purchasable.length,
+                  bookingCalendarConfigured: Boolean(calendarId),
+                  chatAgentConfigured: Boolean(chatAgentId),
+                  intent,
+                  funnel: { name: page.funnel.name, slug: page.funnel.slug },
+                  page: { title: page.title, slug: page.slug },
+                })}`,
+              }),
+            )
+              .trim()
+              .slice(0, 800);
+          } catch {
+            question = "";
+          }
 
           const prevChat = Array.isArray(page.customChatJson) ? (page.customChatJson as any[]) : [];
           const userMsg = { role: "user", content: `${prompt}`, at: new Date().toISOString() };
-          const assistantMsg = { role: "assistant", content: question, at: new Date().toISOString() };
-          const nextChat = [...prevChat, userMsg, assistantMsg].slice(-40);
+          const assistantMsg = question ? { role: "assistant", content: question, at: new Date().toISOString() } : null;
+          const nextChat = (assistantMsg ? [...prevChat, userMsg, assistantMsg] : [...prevChat, userMsg]).slice(-40);
 
           const updated = await prisma.creditFunnelPage.update({
             where: { id: page.id },
@@ -3883,7 +4000,7 @@ async function runDirectAction(opts: {
             },
           });
 
-          return { status: 200, json: { ok: true, question, page: updated } };
+          return { status: 200, json: { ok: true, question: question || null, page: updated } };
         }
 
         const blocks = buildInteractiveBlocks({
@@ -3898,13 +4015,34 @@ async function runDirectAction(opts: {
 
         const prevChat = Array.isArray(page.customChatJson) ? (page.customChatJson as any[]) : [];
         const userMsg = { role: "user", content: `${prompt}`, at: new Date().toISOString() };
-        const assistantMsg = {
-          role: "assistant",
-          content:
-            "Done. I inserted real Funnel Builder blocks for the interactive parts (shop/cart/checkout/calendar/chatbot) so everything works in preview and on the hosted page. I also generated a full Custom code HTML snapshot of the page so you can switch to Custom code and keep the preview.",
-          at: new Date().toISOString(),
-        };
-        const nextChat = [...prevChat, userMsg, assistantMsg].slice(-40);
+        let assistantText = "";
+        try {
+          assistantText = String(
+            await generateText({
+              system: [
+                "You are Pura, an AI assistant in a marketing funnel builder.",
+                "You just added interactive blocks to a funnel page and generated an HTML snapshot.",
+                "Write a brief confirmation (1-2 sentences).",
+                "Rules:",
+                "- Do not start with 'Done'.",
+                "- No JSON.",
+              ].join("\n"),
+              user: `Context (JSON):\n${safeJsonForPrompt({
+                funnel: { name: page.funnel.name, slug: page.funnel.slug },
+                page: { title: page.title, slug: page.slug },
+                intent,
+                generatedHtmlSnapshot: true,
+              })}`,
+            }),
+          )
+            .trim()
+            .slice(0, 800);
+        } catch {
+          assistantText = "";
+        }
+
+        const assistantMsg = assistantText ? { role: "assistant", content: assistantText, at: new Date().toISOString() } : null;
+        const nextChat = (assistantMsg ? [...prevChat, userMsg, assistantMsg] : [...prevChat, userMsg]).slice(-40);
 
         const htmlSnapshot = blocksToCustomHtmlDocument({
           blocks,
@@ -25363,615 +25501,7 @@ async function runDirectAction(opts: {
   }
 }
 
-function resultMarkdown(
-  action: PortalAgentActionKey,
-  json: any,
-  meta?: { ok: boolean; status: number },
-): { markdown: string; linkUrl?: string } {
-  const formatRepeatEveryMinutes = (repeatEveryMinutes: number): string => {
-    const m = Number.isFinite(repeatEveryMinutes) ? Math.max(0, Math.floor(repeatEveryMinutes)) : 0;
-    if (m <= 0) return "No";
 
-    const units: Array<{ label: string; minutes: number }> = [
-      { label: "week", minutes: 60 * 24 * 7 },
-      { label: "day", minutes: 60 * 24 },
-      { label: "hour", minutes: 60 },
-      { label: "minute", minutes: 1 },
-    ];
-
-    for (const u of units) {
-      if (m % u.minutes === 0) {
-        const n = m / u.minutes;
-        return n === 1 ? `Every ${u.label}` : `Every ${n} ${u.label}s`;
-      }
-    }
-
-    return `Every ${m} minutes`;
-  };
-
-  if (action === "ai_chat.scheduled.create" && json?.ok && json?.scheduled?.id) {
-    const repeatEveryMinutes =
-      typeof json.scheduled.repeatEveryMinutes === "number" && Number.isFinite(json.scheduled.repeatEveryMinutes)
-        ? Math.max(0, Math.floor(json.scheduled.repeatEveryMinutes))
-        : 0;
-
-    const repeatLabel = formatRepeatEveryMinutes(repeatEveryMinutes);
-
-    return {
-      markdown: `Scheduled.\n\n- Repeats: ${repeatLabel}\n\nOpen “Scheduled tasks” (clock icon) to see the next run time and edit it.`,
-    };
-  }
-
-  if (action === "ai_chat.scheduled.update" && json?.ok) {
-    return {
-      markdown: "Updated the scheduled task.\n\nOpen “Scheduled tasks” (clock icon) to see the updated next run time.",
-    };
-  }
-
-  if (action === "ai_chat.scheduled.delete" && json?.ok) {
-    return {
-      markdown: "Stopped the scheduled task.\n\nOpen “Scheduled tasks” (clock icon) to confirm it’s removed.",
-    };
-  }
-
-  if (action === "ai_chat.scheduled.list" && json?.ok) {
-    const rows = Array.isArray(json.scheduled) ? (json.scheduled as any[]) : [];
-    if (!rows.length) return { markdown: "No scheduled tasks." };
-
-    const lines = rows.slice(0, 15).map((r) => {
-      const id = String(r?.id || "").trim().slice(0, 32);
-      const text = String(r?.text || "").replace(/[\r\n\t]+/g, " ").trim().slice(0, 140);
-      // Intentionally omit absolute timestamps here (they tend to be ISO/UTC and confuse users).
-      return `- ${text || "(no text)"}${id ? ` (id: ${id})` : ""}`;
-    });
-
-    return { markdown: ["Here are your scheduled tasks:", "", ...lines].join("\n") };
-  }
-
-  if (action === "bug_report.submit" && json?.ok && json?.reportId) {
-    const id = String(json.reportId || "").trim();
-    const emailed = Boolean(json.emailed);
-    return {
-      markdown: `Submitted the bug report${id ? ` (${id})` : ""}.` + (emailed ? "" : "\n\nNote: email notification was not sent (still saved internally)."),
-    };
-  }
-
-  if (action === "tasks.create" && json?.ok && json?.taskId) {
-    return {
-      markdown: `Created a task.\n\n[Open tasks](/portal/app/tasks)`,
-      linkUrl: "/portal/app/tasks",
-    };
-  }
-
-  if (action === "funnel.create" && json?.ok && json?.funnel?.id) {
-    const id = String(json.funnel.id);
-    const url = `/portal/app/services/funnel-builder/funnels/${encodeURIComponent(id)}/edit`;
-    return {
-      markdown: `Created a funnel.\n\n[Open funnel editor](${url})`,
-      linkUrl: url,
-    };
-  }
-
-  if (action === "funnel_builder.pages.create" && json?.ok && json?.page?.id) {
-    const funnelId = String(json?.page?.funnelId || "").trim();
-    const pageId = String(json?.page?.id || "").trim();
-    const slug = String(json?.page?.slug || "").trim();
-    const title = String(json?.page?.title || "").trim();
-
-    const url = funnelId
-      ? `/portal/app/services/funnel-builder/funnels/${encodeURIComponent(funnelId)}/edit${pageId ? `?pageId=${encodeURIComponent(pageId)}` : ""}`
-      : "/portal/app/services/funnel-builder";
-
-    return {
-      markdown: `Created a funnel page${title ? `: ${title}` : ""}${slug ? ` (/${slug})` : ""}.\n\n[Open funnel editor](${url})`,
-      linkUrl: url,
-    };
-  }
-
-  if (action === "blogs.generate_now" && json?.ok && json?.postId) {
-    return {
-      markdown: `Generated a blog draft.\n\n[Open blogs](/portal/app/services/blogs)`,
-      linkUrl: "/portal/app/services/blogs",
-    };
-  }
-
-  if (action === "newsletter.generate_now" && json?.ok && json?.newsletterId) {
-    return {
-      markdown: `Generated a newsletter draft.\n\n[Open newsletter](/portal/app/services/newsletter)`,
-      linkUrl: "/portal/app/services/newsletter",
-    };
-  }
-
-  if (action === "automations.run" && json?.ok) {
-    return {
-      markdown: `Triggered the automation run.\n\n[Open automations](/portal/app/services/automations)`,
-      linkUrl: "/portal/app/services/automations",
-    };
-  }
-
-  if (action === "automations.create" && json?.ok && json?.automationId) {
-    const automationId = String(json.automationId || "").trim();
-    const url = `/portal/app/services/automations/editor?automation=${encodeURIComponent(automationId)}`;
-    const template = String((json as any)?.template || "").trim();
-    return {
-      markdown: `Created an automation${template ? ` (${template})` : ""}.\n\n[Open automation editor](${url})`,
-      linkUrl: url,
-    };
-  }
-
-  if (action === "contacts.list" && json?.ok) {
-    const rows = Array.isArray(json.contacts) ? (json.contacts as any[]) : [];
-    const lines = rows.slice(0, 20).map((c) => {
-      const name = String(c?.name || "").trim() || "(No name)";
-      const email = String(c?.email || "").trim();
-      const phone = String(c?.phone || "").trim();
-      const bits = [email, phone].filter(Boolean).join(" · ");
-      return `- ${name}${bits ? ` (${bits})` : ""}`;
-    });
-    return {
-      markdown: rows.length ? `Here are your recent contacts:\n\n${lines.join("\n")}` : "No contacts yet.",
-    };
-  }
-
-  if (action === "contacts.create" && json?.ok && json?.contactId) {
-    const url = portalContactUiUrl(String(json.contactId || "").trim());
-    return {
-      markdown: `Created the contact.\n\n[Open contact](${url})`,
-      linkUrl: url,
-    };
-  }
-
-  if (action === "contacts.update" && json?.ok && json?.contactId) {
-    const url = portalContactUiUrl(String(json.contactId || "").trim());
-    return {
-      markdown: `Saved the contact.\n\n[Open contact](${url})`,
-      linkUrl: url,
-    };
-  }
-
-  if ((action === "contacts.tags.add" || action === "contacts.tags.remove") && json?.ok && json?.contactId) {
-    const url = portalContactUiUrl(String(json.contactId || "").trim());
-    return {
-      markdown: `Updated contact tags.\n\n[Open contact](${url})`,
-      linkUrl: url,
-    };
-  }
-
-  if ((action === "people.users.list" || action === "people.contacts.custom_variable_keys.get") && json?.ok) {
-    return {
-      markdown: `Done.\n\n[Open people](/portal/app/people)`,
-      linkUrl: "/portal/app/people",
-    };
-  }
-
-  if (
-    (action === "people.users.invite" ||
-      action === "people.users.update" ||
-      action === "people.users.delete" ||
-      action === "people.leads.update" ||
-      action === "people.contacts.duplicates.get" ||
-      action === "people.contacts.merge" ||
-      action === "people.contacts.custom_variables.patch") &&
-    json?.ok
-  ) {
-    return {
-      markdown: `Saved.\n\n[Open people](/portal/app/people)`,
-      linkUrl: "/portal/app/people",
-    };
-  }
-
-  if (action === "inbox.send_sms" && json?.ok) {
-    const url = json?.threadId ? portalInboxUiUrl({ channel: "sms", threadId: String(json.threadId) }) : "/portal/app/services/inbox/sms";
-    return {
-      markdown: `Sent the text.\n\n[Open Inbox](${url})`,
-      linkUrl: url,
-    };
-  }
-
-  if (action === "inbox.send_email" && json?.ok) {
-    const url = json?.threadId ? portalInboxUiUrl({ channel: "email", threadId: String(json.threadId) }) : "/portal/app/services/inbox/email";
-    return {
-      markdown: `Sent the email.\n\n[Open Inbox](${url})`,
-      linkUrl: url,
-    };
-  }
-
-  if (action === "inbox.send" && json?.ok) {
-    const channel = typeof json?.channel === "string" ? String(json.channel).toLowerCase() : "email";
-    const url = json?.threadId
-      ? portalInboxUiUrl({ channel: channel === "sms" ? "sms" : "email", threadId: String(json.threadId) })
-      : `/portal/app/services/inbox/${channel === "sms" ? "sms" : "email"}`;
-    return {
-      markdown: json?.scheduled ? `Scheduled the message.\n\n[Open Inbox](${url})` : `Sent the message.\n\n[Open Inbox](${url})`,
-      linkUrl: url,
-    };
-  }
-
-  if ((action === "inbox.thread.messages.list" || action === "inbox.thread.contact.set") && json?.ok && json?.threadId) {
-    const ch = typeof json?.channel === "string" ? String(json.channel).toLowerCase() : "email";
-    const url = portalInboxUiUrl({ channel: ch === "sms" ? "sms" : "email", threadId: String(json.threadId) });
-    return {
-      markdown: `Done.\n\n[Open Inbox thread](${url})`,
-      linkUrl: url,
-    };
-  }
-
-  if ((action === "reviews.send_request_for_booking" || action === "reviews.send_request_for_contact") && json?.ok) {
-    return {
-      markdown: `Sent the review request.\n\n[Open reviews](/portal/app/services/reviews)`,
-      linkUrl: "/portal/app/services/reviews",
-    };
-  }
-
-  if (action === "reviews.reply" && json?.ok) {
-    return {
-      markdown: `Saved your review reply.\n\n[Open reviews](/portal/app/services/reviews)`,
-      linkUrl: "/portal/app/services/reviews",
-    };
-  }
-
-  if ((action === "reviews.settings.get" || action === "reviews.settings.update") && json?.ok) {
-    return {
-      markdown: `Review request settings ready.\n\n[Open reviews](/portal/app/services/reviews)`,
-      linkUrl: "/portal/app/services/reviews",
-    };
-  }
-
-  if ((action === "reviews.site.get" || action === "reviews.site.update") && json?.ok) {
-    const slug = typeof json?.site?.slug === "string" ? json.site.slug : null;
-    return {
-      markdown: `Hosted reviews site ready${slug ? ` (slug: ${slug})` : ""}.\n\n[Open reviews](/portal/app/services/reviews)`,
-      linkUrl: "/portal/app/services/reviews",
-    };
-  }
-
-  if (action === "reviews.inbox.list" && json?.ok) {
-    const rows = Array.isArray(json.reviews) ? (json.reviews as any[]) : [];
-    return {
-      markdown: `Fetched ${rows.length} review${rows.length === 1 ? "" : "s"}.\n\n[Open reviews](/portal/app/services/reviews)`,
-      linkUrl: "/portal/app/services/reviews",
-    };
-  }
-
-  if ((action === "reviews.archive" || action === "reviews.questions.answer") && json?.ok) {
-    return {
-      markdown: `Saved.\n\n[Open reviews](/portal/app/services/reviews)`,
-      linkUrl: "/portal/app/services/reviews",
-    };
-  }
-
-  if (
-    (action === "reviews.bookings.list" ||
-      action === "reviews.contacts.search" ||
-      action === "reviews.events.list" ||
-      action === "reviews.handle.get" ||
-      action === "reviews.questions.list") &&
-    json?.ok
-  ) {
-    return {
-      markdown: `Done.\n\n[Open reviews](/portal/app/services/reviews)`,
-      linkUrl: "/portal/app/services/reviews",
-    };
-  }
-
-  if (action === "tasks.create_for_all" && json?.ok) {
-    const count = typeof json.count === "number" ? json.count : null;
-    return {
-      markdown: `Created ${count ?? ""} tasks for your team.\n\n[Open tasks](/portal/app/tasks)`.replace(/\s+/g, " ").trim(),
-      linkUrl: "/portal/app/tasks",
-    };
-  }
-
-  if (action === "booking.calendar.create" && json?.ok) {
-    return {
-      markdown: `Created a booking calendar.\n\n[Open booking](/portal/app/services/booking)`,
-      linkUrl: "/portal/app/services/booking",
-    };
-  }
-
-  if (action === "booking.calendars.get" && json?.ok) {
-    return {
-      markdown: `Fetched your booking calendars settings.\n\n[Open booking](/portal/app/services/booking)`,
-      linkUrl: "/portal/app/services/booking",
-    };
-  }
-
-  if (action === "booking.calendars.update" && json?.ok) {
-    return {
-      markdown: `Updated your booking calendars.\n\n[Open booking](/portal/app/services/booking)`,
-      linkUrl: "/portal/app/services/booking",
-    };
-  }
-
-  if ((action === "booking.settings.get" || action === "booking.settings.update") && json?.ok) {
-    const slug = typeof json?.site?.slug === "string" ? json.site.slug : null;
-    return {
-      markdown: `Booking settings ready${slug ? ` (slug: ${slug})` : ""}.\n\n[Open booking](/portal/app/services/booking)`,
-      linkUrl: "/portal/app/services/booking",
-    };
-  }
-
-  if ((action === "booking.form.get" || action === "booking.form.update") && json?.ok) {
-    return {
-      markdown: `Booking form settings saved.\n\n[Open booking](/portal/app/services/booking)`,
-      linkUrl: "/portal/app/services/booking",
-    };
-  }
-
-  if ((action === "booking.site.get" || action === "booking.site.update") && json?.ok) {
-    return {
-      markdown: `Booking public site settings saved.\n\n[Open booking](/portal/app/services/booking)`,
-      linkUrl: "/portal/app/services/booking",
-    };
-  }
-
-  if (action === "booking.suggestions.slots" && json?.ok) {
-    const slots = Array.isArray(json.slots) ? (json.slots as any[]) : [];
-    const lines = slots.slice(0, 10).map((s) => {
-      const startAt = s?.startAt ? String(s.startAt) : "";
-      const endAt = s?.endAt ? String(s.endAt) : "";
-      return `- ${startAt}${endAt ? ` → ${endAt}` : ""}`;
-    });
-    return {
-      markdown: slots.length ? `Here are available slot suggestions:\n\n${lines.join("\n")}` : "No available slots found in that window.",
-    };
-  }
-
-  if ((action === "booking.reminders.settings.get" || action === "booking.reminders.settings.update") && json?.ok) {
-    return {
-      markdown: `Appointment reminder settings saved.\n\n[Open reminders](/portal/app/services/booking/reminders)`,
-      linkUrl: "/portal/app/services/booking/reminders",
-    };
-  }
-
-  if (action === "booking.reminders.ai.generate_step" && json?.ok) {
-    const subject = typeof json.subject === "string" ? json.subject.trim() : "";
-    const body = typeof json.body === "string" ? json.body.trim() : "";
-
-    if (subject || body) {
-      return {
-        markdown: [
-          subject ? "Drafted reminder email copy:" : "Drafted reminder copy:",
-          subject ? "" : null,
-          subject ? `Subject: ${subject}` : null,
-          body ? "" : null,
-          body ? body : null,
-        ]
-          .filter(Boolean)
-          .join("\n"),
-      };
-    }
-    return { markdown: "Drafted the reminder step copy." };
-  }
-
-  if (action === "booking.bookings.list" && json?.ok) {
-    const upcoming = Array.isArray(json.upcoming) ? (json.upcoming as any[]) : [];
-    const recent = Array.isArray(json.recent) ? (json.recent as any[]) : [];
-
-    const fmt = (d: any) => {
-      try {
-        return new Date(d).toLocaleString();
-      } catch {
-        return String(d || "");
-      }
-    };
-
-    const linesUpcoming = upcoming.slice(0, 10).map((b) => {
-      const when = b?.startAt ? fmt(b.startAt) : "(no time)";
-      const name = String(b?.contactName || "").trim() || "(No name)";
-      const id = String(b?.id || "").trim();
-      return `- ${when} - ${name}${id ? ` (bookingId: ${id})` : ""}`;
-    });
-
-    const linesRecent = recent.slice(0, 6).map((b) => {
-      const when = b?.startAt ? fmt(b.startAt) : "(no time)";
-      const name = String(b?.contactName || "").trim() || "(No name)";
-      const status = String(b?.status || "").trim();
-      const id = String(b?.id || "").trim();
-      return `- ${when} - ${name}${status ? ` [${status}]` : ""}${id ? ` (bookingId: ${id})` : ""}`;
-    });
-
-    return {
-      markdown: [
-        upcoming.length ? "Upcoming bookings:" : "No upcoming bookings.",
-        upcoming.length ? "" : null,
-        upcoming.length ? linesUpcoming.join("\n") : null,
-        "",
-        recent.length ? "Recent bookings:" : "No recent bookings.",
-        recent.length ? "" : null,
-        recent.length ? linesRecent.join("\n") : null,
-        "\n[Open booking](/portal/app/services/booking)",
-      ]
-        .filter(Boolean)
-        .join("\n"),
-      linkUrl: "/portal/app/services/booking",
-    };
-  }
-
-  if (action === "booking.cancel" && json?.ok) {
-    const bookingId = String(json?.booking?.id || "").trim();
-    const url = portalBookingUiUrl({ tab: "appointments", bookingId: bookingId || null, modal: null });
-    return {
-      markdown: `Canceled the booking.\n\n[Open booking](${url})`,
-      linkUrl: url,
-    };
-  }
-
-  if (action === "booking.reschedule" && json?.ok) {
-    const bookingId = String(json?.booking?.id || "").trim();
-    const bookingUrl = portalBookingUiUrl({ tab: "appointments", bookingId: bookingId || null, modal: null });
-    const url = typeof json.rescheduleUrl === "string" && json.rescheduleUrl.trim() ? json.rescheduleUrl.trim() : null;
-    return {
-      markdown: [
-        "Rescheduled the booking.",
-        url ? "" : null,
-        url ? `Customer reschedule link: ${url}` : null,
-        `\n[Open booking](${bookingUrl})`,
-      ]
-        .filter(Boolean)
-        .join("\n"),
-      linkUrl: bookingUrl,
-    };
-  }
-
-  if (action === "booking.contact" && json?.ok) {
-    const bookingId = String(json?.bookingId || "").trim();
-    const bookingUrl = portalBookingUiUrl({ tab: "appointments", bookingId: bookingId || null, modal: "contact" });
-    const sent = json?.sent && typeof json.sent === "object" ? json.sent : null;
-    const email = Boolean((sent as any)?.email);
-    const sms = Boolean((sent as any)?.sms);
-    const channels = [email ? "email" : null, sms ? "text" : null].filter(Boolean).join(" + ") || "message";
-    return {
-      markdown: `Sent the booking follow-up via ${channels}.\n\n[Open booking](${bookingUrl})`,
-      linkUrl: bookingUrl,
-    };
-  }
-
-  if (action === "media.folder.ensure" && json?.ok && json?.folderId) {
-    return {
-      markdown: `Ready.\n\n[Open Media Library](/portal/app/services/media-library)`,
-      linkUrl: "/portal/app/services/media-library",
-    };
-  }
-
-  if (action === "media.items.move" && json?.ok) {
-    const moved = typeof json.moved === "number" ? json.moved : null;
-    return {
-      markdown: `Moved ${moved ?? ""} file(s) into the folder.\n\n[Open Media Library](/portal/app/services/media-library)`.replace(/\s+/g, " ").trim(),
-      linkUrl: "/portal/app/services/media-library",
-    };
-  }
-
-  if (action === "media.import_remote_image" && json?.ok && json?.item?.id) {
-    return {
-      markdown: `Imported the image into Media Library.\n\n[Open Media Library](/portal/app/services/media-library)`,
-      linkUrl: "/portal/app/services/media-library",
-    };
-  }
-
-  if (action === "dashboard.reset" && json?.ok) {
-    return {
-      markdown: `Reset your dashboard layout.\n\n[Open dashboard](/portal/app)`,
-      linkUrl: "/portal/app",
-    };
-  }
-
-  if ((action === "dashboard.add_widget" || action === "dashboard.remove_widget") && json?.ok) {
-    return {
-      markdown: `Updated your dashboard.\n\n[Open dashboard](/portal/app)`,
-      linkUrl: "/portal/app",
-    };
-  }
-
-  if (action === "dashboard.optimize" && json?.ok) {
-    const niche = typeof json.niche === "string" && json.niche.trim() ? json.niche.trim() : null;
-    return {
-      markdown: `Optimized your dashboard${niche ? ` for ${niche}` : ""}.\n\n[Open dashboard](/portal/app)`,
-      linkUrl: "/portal/app",
-    };
-  }
-
-  if (action === "nurture.campaigns.create" && json?.ok && json?.id) {
-    return {
-      markdown: `Created the nurture campaign.\n\n[Open Nurture Campaigns](/portal/app/services/nurture-campaigns)`,
-      linkUrl: "/portal/app/services/nurture-campaigns",
-    };
-  }
-
-  if ((action === "nurture.campaigns.update" || action === "nurture.campaigns.delete") && json?.ok) {
-    return {
-      markdown: `Updated nurture campaigns.\n\n[Open Nurture Campaigns](/portal/app/services/nurture-campaigns)`,
-      linkUrl: "/portal/app/services/nurture-campaigns",
-    };
-  }
-
-  if (action === "nurture.campaigns.steps.add" && json?.ok && json?.id) {
-    return {
-      markdown: `Added the campaign step.\n\n[Open Nurture Campaigns](/portal/app/services/nurture-campaigns)`,
-      linkUrl: "/portal/app/services/nurture-campaigns",
-    };
-  }
-
-  if ((action === "nurture.steps.update" || action === "nurture.steps.delete") && json?.ok) {
-    return {
-      markdown: `Updated the nurture step.\n\n[Open Nurture Campaigns](/portal/app/services/nurture-campaigns)`,
-      linkUrl: "/portal/app/services/nurture-campaigns",
-    };
-  }
-
-  if (action === "nurture.campaigns.enroll" && json?.ok) {
-    const enrolled = typeof json.enrolled === "number" ? json.enrolled : null;
-    const wouldEnroll = typeof json.wouldEnroll === "number" ? json.wouldEnroll : null;
-    const n = enrolled ?? wouldEnroll;
-    const verb = enrolled !== null ? "Enrolled" : "Would enroll";
-    return {
-      markdown: `${verb} ${n ?? ""} contact(s).\n\n[Open Nurture Campaigns](/portal/app/services/nurture-campaigns)`.replace(/\s+/g, " ").trim(),
-      linkUrl: "/portal/app/services/nurture-campaigns",
-    };
-  }
-
-  if (action === "nurture.billing.confirm_checkout" && json?.ok) {
-    return {
-      markdown: `Confirmed billing for this campaign.\n\n[Open Nurture Campaigns](/portal/app/services/nurture-campaigns)`,
-      linkUrl: "/portal/app/services/nurture-campaigns",
-    };
-  }
-
-  if (action === "nurture.ai.generate_step" && json?.ok) {
-    if (typeof json.subject === "string" || typeof json.body === "string") {
-      const subject = typeof json.subject === "string" ? json.subject.trim() : "";
-      const body = typeof json.body === "string" ? json.body.trim() : "";
-      const parts = [
-        "Drafted copy:",
-        subject ? `\nSubject: ${subject}` : "",
-        body ? `\n\n${body}` : "",
-      ]
-        .filter(Boolean)
-        .join("");
-      return { markdown: parts };
-    }
-    return { markdown: "Drafted the step copy." };
-  }
-
-  if (action === "nurture.campaigns.list" && json?.ok) {
-    const rows = Array.isArray(json.campaigns) ? (json.campaigns as any[]) : [];
-    const lines = rows.slice(0, 20).map((c) => {
-      const name = String(c?.name || "").trim() || "(No name)";
-      const status = String(c?.status || "").trim();
-      const id = String(c?.id || "").trim();
-      const stepsCount = typeof c?.stepsCount === "number" ? c.stepsCount : null;
-      const bits = [status ? `(${status})` : null, stepsCount !== null ? `${stepsCount} steps` : null, id ? `campaignId: ${id}` : null]
-        .filter(Boolean)
-        .join(" · ");
-      return `- ${name}${bits ? ` - ${bits}` : ""}`;
-    });
-    return {
-      markdown: rows.length
-        ? `Here are your nurture campaigns:\n\n${lines.join("\n")}\n\n[Open Nurture Campaigns](/portal/app/services/nurture-campaigns)`
-        : "No nurture campaigns yet.",
-      linkUrl: "/portal/app/services/nurture-campaigns",
-    };
-  }
-
-  if (action === "nurture.campaigns.update" && json?.code === "BILLING_REQUIRED" && typeof json?.url === "string") {
-    const url = String(json.url).trim();
-    if (url) {
-      return {
-        markdown: `Billing required to activate this campaign.\n\nCheckout: ${url}`,
-      };
-    }
-  }
-
-  const err = typeof json?.error === "string" ? json.error : typeof json?.message === "string" ? json.message : null;
-
-  // Never claim success on a failed action.
-  if (meta && !meta.ok) {
-    const statusHint = meta.status && meta.status >= 400 ? ` (HTTP ${meta.status})` : "";
-    return { markdown: err ? `Action failed${statusHint}: ${err}` : `Action failed${statusHint}.` };
-  }
-
-  return { markdown: err ? `Action failed: ${err}` : "Done." };
-}
 
 export async function executePortalAgentActionForThread(opts: {
   ownerId: string;
@@ -26001,7 +25531,8 @@ export async function executePortalAgentActionForThread(opts: {
   if (!resolved.ok) {
     const now = new Date();
 
-    let clarifyText = String(resolved.clarifyQuestion || "").trim() || "I need one more detail to continue.";
+    const rawClarifyPrompt = String(resolved.clarifyQuestion || "").trim();
+    let clarifyText = "";
     const clarifyChoices = Array.isArray((resolved as any).choices) ? ((resolved as any).choices as any[]) : null;
     try {
       const prevCtx = thread?.contextJson;
@@ -26025,7 +25556,7 @@ export async function executePortalAgentActionForThread(opts: {
         "Thread summary:",
         summary || "(none)",
         "\nMissing detail prompt (raw):",
-        clarifyText,
+        rawClarifyPrompt || "(none)",
         "\nChoices available:",
         JSON.stringify((clarifyChoices || []).slice(0, 8)).slice(0, 1500),
         "\nQuestion:",
@@ -26034,30 +25565,32 @@ export async function executePortalAgentActionForThread(opts: {
       const aiQ = String(await generateText({ system, user })).trim();
       if (aiQ) clarifyText = aiQ.slice(0, 600);
     } catch {
-      // ignore and keep deterministic fallback
+      // ignore and omit assistant message on failure
     }
 
-    const assistantMsg = await (prisma as any).portalAiChatMessage.create({
-      data: {
-        ownerId: opts.ownerId,
-        threadId: opts.threadId,
-        role: "assistant",
-        text: clarifyText,
-        attachmentsJson: null,
-        createdByUserId: null,
-        sendAt: null,
-        sentAt: now,
-      },
-      select: {
-        id: true,
-        role: true,
-        text: true,
-        attachmentsJson: true,
-        createdAt: true,
-        sendAt: true,
-        sentAt: true,
-      },
-    });
+    const assistantMsg = clarifyText
+      ? await (prisma as any).portalAiChatMessage.create({
+          data: {
+            ownerId: opts.ownerId,
+            threadId: opts.threadId,
+            role: "assistant",
+            text: clarifyText,
+            attachmentsJson: null,
+            createdByUserId: null,
+            sendAt: null,
+            sentAt: now,
+          },
+          select: {
+            id: true,
+            role: true,
+            text: true,
+            attachmentsJson: true,
+            createdAt: true,
+            sendAt: true,
+            sentAt: true,
+          },
+        })
+      : null;
 
     const prevCtx = thread?.contextJson;
     const pendingPlan = {
@@ -26066,19 +25599,36 @@ export async function executePortalAgentActionForThread(opts: {
       steps: [{ key: opts.action, title: opts.action, args: (argsParsed.data as any) ?? {} }],
     };
     const nextCtx = prevCtx && typeof prevCtx === "object" && !Array.isArray(prevCtx)
-      ? { ...(prevCtx as any), pendingPlan, pendingPlanClarify: { at: now.toISOString(), stepKey: opts.action, question: clarifyText } }
-      : { pendingPlan, pendingPlanClarify: { at: now.toISOString(), stepKey: opts.action, question: clarifyText } };
+      ? {
+          ...(prevCtx as any),
+          pendingPlan,
+          pendingPlanClarify: {
+            at: now.toISOString(),
+            stepKey: opts.action,
+            question: clarifyText || null,
+            rawClarifyPrompt: rawClarifyPrompt || null,
+          },
+        }
+      : {
+          pendingPlan,
+          pendingPlanClarify: {
+            at: now.toISOString(),
+            stepKey: opts.action,
+            question: clarifyText || null,
+            rawClarifyPrompt: rawClarifyPrompt || null,
+          },
+        };
 
     await (prisma as any).portalAiChatThread.update({
       where: { id: opts.threadId },
-      data: { lastMessageAt: now, contextJson: nextCtx },
+      data: assistantMsg ? { lastMessageAt: now, contextJson: nextCtx } : { contextJson: nextCtx },
     });
 
     return {
       ok: false as const,
       status: 409,
       action: opts.action,
-      error: clarifyText,
+      error: clarifyText || "Missing required detail",
       assistantMessage: assistantMsg,
       assistantChoices: clarifyChoices,
       linkUrl: null,
@@ -26098,20 +25648,52 @@ export async function executePortalAgentActionForThread(opts: {
       const found = (cfg.calendars || []).some((c: any) => String(c.id || "") === String(maybeCal));
       if (!found) {
         const now = new Date();
-        const assistantMsg = await (prisma as any).portalAiChatMessage.create({
-          data: {
-            ownerId: opts.ownerId,
-            threadId: opts.threadId,
-            role: "assistant",
-            text: `I couldn't find the selected calendar (${String(maybeCal)}). Please pick a calendar from the list.`,
-            attachmentsJson: null,
-            createdByUserId: null,
-            sendAt: null,
-            sentAt: now,
-          },
-          select: { id: true, role: true, text: true, attachmentsJson: true, createdAt: true, sendAt: true, sentAt: true },
-        });
-        await (prisma as any).portalAiChatThread.update({ where: { id: opts.threadId }, data: { lastMessageAt: now } });
+
+        const calendarsPreview = Array.isArray(cfg.calendars)
+          ? (cfg.calendars as any[])
+              .slice(0, 12)
+              .map((c: any) => ({ id: String(c?.id || "").trim().slice(0, 80), name: String(c?.name || c?.title || "").trim().slice(0, 120) || null }))
+              .filter((c: any) => c.id)
+          : [];
+
+        let assistantText = "";
+        try {
+          assistantText = String(
+            await generateText({
+              system:
+                "You are Pura, an AI assistant inside a SaaS portal. The user selected a booking calendar that does not exist. Ask them to pick a calendar from the available options. Keep it to 1-2 sentences. If you have a short preview list, include it as bullet points.",
+              user: `Context (JSON):\n${safeJsonForPrompt({ bookingCalendarId: String(maybeCal), calendarsPreview })}`,
+            }),
+          )
+            .trim()
+            .slice(0, 12000);
+        } catch {
+          assistantText = "";
+        }
+
+        const assistantMsg = assistantText
+          ? await (prisma as any).portalAiChatMessage.create({
+              data: {
+                ownerId: opts.ownerId,
+                threadId: opts.threadId,
+                role: "assistant",
+                text: assistantText,
+                attachmentsJson: null,
+                createdByUserId: null,
+                sendAt: null,
+                sentAt: now,
+              },
+              select: { id: true, role: true, text: true, attachmentsJson: true, createdAt: true, sendAt: true, sentAt: true },
+            })
+          : null;
+
+        if (assistantMsg) {
+          await (prisma as any).portalAiChatThread.update({
+            where: { id: opts.threadId },
+            data: { lastMessageAt: now },
+          });
+        }
+
         return { ok: false as const, status: 400, error: "Unknown booking calendar", assistantMessage: assistantMsg };
       }
     }
@@ -26138,30 +25720,41 @@ export async function executePortalAgentActionForThread(opts: {
     status < 300 &&
     !(json && typeof json === "object" && typeof (json as any).ok === "boolean" && (json as any).ok === false);
 
-  const { markdown, linkUrl } = resultMarkdown(opts.action, json, { ok, status });
+  const linkUrl = deriveLinkUrlForAction(opts.action, json);
+  const assistantText = await generateAssistantTextForActionResult({
+    action: opts.action,
+    ok,
+    status,
+    args: argsForExec,
+    result: json,
+    linkUrl: linkUrl ?? null,
+    clientUiAction,
+  });
 
   const now = new Date();
-  const assistantMsg = await (prisma as any).portalAiChatMessage.create({
-    data: {
-      ownerId: opts.ownerId,
-      threadId: opts.threadId,
-      role: "assistant",
-      text: markdown,
-      attachmentsJson: null,
-      createdByUserId: null,
-      sendAt: null,
-      sentAt: now,
-    },
-    select: {
-      id: true,
-      role: true,
-      text: true,
-      attachmentsJson: true,
-      createdAt: true,
-      sendAt: true,
-      sentAt: true,
-    },
-  });
+  const assistantMsg = assistantText
+    ? await (prisma as any).portalAiChatMessage.create({
+        data: {
+          ownerId: opts.ownerId,
+          threadId: opts.threadId,
+          role: "assistant",
+          text: assistantText,
+          attachmentsJson: null,
+          createdByUserId: null,
+          sendAt: null,
+          sentAt: now,
+        },
+        select: {
+          id: true,
+          role: true,
+          text: true,
+          attachmentsJson: true,
+          createdAt: true,
+          sendAt: true,
+          sentAt: true,
+        },
+      })
+    : null;
 
   const prevCtx = thread?.contextJson;
   const mergedPatch = resolved.contextPatch && typeof resolved.contextPatch === "object" ? resolved.contextPatch : null;
@@ -26174,10 +25767,17 @@ export async function executePortalAgentActionForThread(opts: {
       ? { ...(prevCtx as any), ...(derivedPatch ? derivedPatch : {}), pendingPlan: null, pendingPlanClarify: null }
       : undefined;
 
-  await (prisma as any).portalAiChatThread.update({
-    where: { id: opts.threadId },
-    data: nextCtx ? { lastMessageAt: now, contextJson: nextCtx } : { lastMessageAt: now },
-  });
+  const threadUpdateData = nextCtx
+    ? (assistantMsg ? { lastMessageAt: now, contextJson: nextCtx } : { contextJson: nextCtx })
+    : assistantMsg
+      ? { lastMessageAt: now }
+      : null;
+  if (threadUpdateData) {
+    await (prisma as any).portalAiChatThread.update({
+      where: { id: opts.threadId },
+      data: threadUpdateData,
+    });
+  }
 
   return {
     ok,
@@ -26510,14 +26110,23 @@ export async function executePortalAgentAction(opts: {
     status < 300 &&
     !(json && typeof json === "object" && typeof (json as any).ok === "boolean" && (json as any).ok === false);
 
-  const { markdown, linkUrl } = resultMarkdown(opts.action, json, { ok, status });
+  const linkUrl = deriveLinkUrlForAction(opts.action, json);
+  const assistantText = await generateAssistantTextForActionResult({
+    action: opts.action,
+    ok,
+    status,
+    args: (argsParsed.data as any) ?? {},
+    result: json,
+    linkUrl: linkUrl ?? null,
+    clientUiAction,
+  });
 
   return {
     ok,
     status,
     action: opts.action,
     result: json,
-    markdown,
+    assistantText,
     linkUrl,
     clientUiAction,
   };

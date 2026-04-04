@@ -1022,6 +1022,7 @@ async function tryExecuteContactTagCommand(opts: {
   | {
       ok: false;
       assistantMessage: any;
+      autoActionMessage?: any;
       canvasUrl: string | null;
       ambiguousContacts?: Array<{ name: string; email?: string | null; phone?: string | null }>;
     }
@@ -1061,13 +1062,23 @@ async function tryExecuteContactTagCommand(opts: {
   const ownerId = String(opts.ownerId);
   const threadId = String(opts.threadId);
 
+  const generateAssistantText = async (system: string, payload: unknown) => {
+    try {
+      return String(await generateText({ system, user: `Context (JSON):\n${JSON.stringify(payload, null, 2)}` })).trim();
+    } catch {
+      return "";
+    }
+  };
+
   const createAssistantMessage = async (text: string) => {
+    const safeText = String(text || "").trim();
+    if (!safeText) return null;
     const assistantMsg = await (prisma as any).portalAiChatMessage.create({
       data: {
         ownerId,
         threadId,
         role: "assistant",
-        text: String(text || "").slice(0, 12000),
+        text: safeText.slice(0, 12000),
         attachmentsJson: null,
         createdByUserId: null,
         sendAt: null,
@@ -1134,24 +1145,48 @@ async function tryExecuteContactTagCommand(opts: {
 
   if (!contact && ambiguous.length) {
     // Return a structured ambiguity payload for the frontend to render clickable choices
+    const assistantText = await generateAssistantText(
+      [
+        "You are Pura, an AI assistant inside a SaaS portal.",
+        "The user asked to update contact tags, but multiple contacts match.",
+        "Ask the user to pick the correct contact.",
+        "Rules:",
+        "- 1-2 sentences.",
+        "- Do not mention internal IDs.",
+        "- No JSON.",
+      ].join("\n"),
+      {
+        contactHint: plan.contactHint,
+        matchesPreview: ambiguous.slice(0, 5),
+      },
+    );
+
     return {
       ok: false,
-      assistantMessage: await createAssistantMessage(
-        `I found multiple matches for “${plan.contactHint}”. Please select the correct contact below.`
-      ),
+      assistantMessage: await createAssistantMessage(assistantText),
       ambiguousContacts: ambiguous.slice(0, 5),
       canvasUrl: null,
     };
   }
 
   if (!contact) {
-    const msg = await createAssistantMessage(
-      `I couldn’t find a contact for “${plan.contactHint}”. Reply with their email or phone number and I’ll update their tags.`,
+    const assistantText = await generateAssistantText(
+      [
+        "You are Pura, an AI assistant inside a SaaS portal.",
+        "The user asked to update contact tags, but no contact matched.",
+        "Ask for one missing detail so you can find the right contact.",
+        "Rules:",
+        "- Ask for email or phone number.",
+        "- 1-2 sentences.",
+        "- No JSON.",
+      ].join("\n"),
+      { contactHint: plan.contactHint },
     );
+    const msg = await createAssistantMessage(assistantText);
     return { ok: false, assistantMessage: msg, canvasUrl: null };
   }
 
-  const results: string[] = [];
+  const results: Array<{ kind: "add" | "remove"; tagName: string; ok: boolean; note?: string | null }> = [];
   let anyOk = false;
 
   for (const rawName of plan.removeTagNames) {
@@ -1161,16 +1196,16 @@ async function tryExecuteContactTagCommand(opts: {
       .findFirst({ where: { ownerId, nameKey: normalizeNameKey(name) }, select: { id: true, name: true } })
       .catch(() => null);
     if (!tagRow?.id) {
-      results.push(`No tag named “${name}” exists.`);
+      results.push({ kind: "remove", tagName: name, ok: false, note: "tag_not_found" });
       continue;
     }
 
     const ok = await removeContactTagAssignment({ ownerId, contactId: contact.id, tagId: String(tagRow.id) });
     if (ok) {
       anyOk = true;
-      results.push(`Removed tag “${String(tagRow.name)}” from ${contact.name}.`);
+      results.push({ kind: "remove", tagName: String(tagRow.name), ok: true, note: null });
     } else {
-      results.push(`${contact.name} didn’t have tag “${String(tagRow.name)}”.`);
+      results.push({ kind: "remove", tagName: String(tagRow.name), ok: false, note: "tag_not_assigned" });
     }
   }
 
@@ -1183,23 +1218,38 @@ async function tryExecuteContactTagCommand(opts: {
 
     const tag = await createOwnerContactTag({ ownerId, name }).catch(() => null);
     if (!tag?.id) {
-      results.push(`I couldn’t create or find the “${name}” tag.`);
+      results.push({ kind: "add", tagName: name, ok: false, note: "tag_create_failed" });
       continue;
     }
-
-    if (!existing?.id) results.push(`Created tag “${tag.name}”.`);
 
     const ok = await addContactTagAssignment({ ownerId, contactId: contact.id, tagId: tag.id });
     if (ok) {
       anyOk = true;
-      results.push(`Added tag “${tag.name}” to ${contact.name}.`);
+      results.push({ kind: "add", tagName: String(tag.name), ok: true, note: existing?.id ? null : "tag_created" });
     } else {
-      results.push(`I couldn’t add tag “${tag.name}” to ${contact.name}.`);
+      results.push({ kind: "add", tagName: String(tag.name), ok: false, note: "assignment_failed" });
     }
   }
 
   if (!results.length) return null;
-  const msg = await createAssistantMessage(results.join("\n"));
+  const assistantText = await generateAssistantText(
+    [
+      "You are Pura, an AI assistant inside a SaaS portal.",
+      "You just updated a contact's tags.",
+      "Write concise markdown summarizing what changed.",
+      "Rules:",
+      "- If some operations failed, mention that briefly.",
+      "- Do not invent any tags not in the JSON.",
+      "- If a canvasUrl is provided, include exactly one markdown link to open the contact.",
+      "- No JSON.",
+    ].join("\n"),
+    {
+      contact: { id: contact.id, name: contact.name },
+      operations: results,
+      canvasUrl: portalContactUiUrl(contact.id),
+    },
+  );
+  const msg = await createAssistantMessage(assistantText);
   return { ok: anyOk, assistantMessage: msg, autoActionMessage: msg, canvasUrl: portalContactUiUrl(contact.id) };
 }
 
@@ -2726,7 +2776,16 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
       return NextResponse.json({ ok: false, error: "Nothing to confirm" }, { status: 400 });
     }
 
-    const results: Array<{ ok: boolean; markdown?: string; linkUrl?: string | null; clientUiAction?: any | null }> = [];
+    const results: Array<{
+      ok: boolean;
+      status: number;
+      action: PortalAgentActionKey;
+      args: Record<string, unknown>;
+      result: any;
+      assistantText?: string | null;
+      linkUrl?: string | null;
+      clientUiAction?: any | null;
+    }> = [];
     const clientUiActions: any[] = [];
     for (const step of confirmedSteps) {
       const exec = await executePortalAgentAction({
@@ -2736,7 +2795,16 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
         args: step.args,
       });
       const cua = (exec as any).clientUiAction ?? null;
-      results.push({ ok: Boolean(exec.ok), markdown: exec.markdown, linkUrl: exec.linkUrl ?? null, clientUiAction: cua });
+      results.push({
+        ok: Boolean(exec.ok),
+        status: Number((exec as any).status) || 0,
+        action: step.key,
+        args: step.args,
+        result: (exec as any).result,
+        assistantText: typeof (exec as any).assistantText === "string" ? String((exec as any).assistantText) : null,
+        linkUrl: (exec as any).linkUrl ?? null,
+        clientUiAction: cua,
+      });
       if (cua) clientUiActions.push(cua);
     }
 
@@ -2919,13 +2987,13 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
     text: effectiveText,
     recentMessages: modelMessages,
   });
-  if (tagWorkflow?.assistantMessage) {
+  if (tagWorkflow) {
     return NextResponse.json({
       ok: true,
       userMessage: userMsg,
-      assistantMessage: tagWorkflow.assistantMessage,
+      assistantMessage: tagWorkflow.assistantMessage || null,
       assistantActions: [],
-      autoActionMessage: null,
+      autoActionMessage: tagWorkflow.autoActionMessage || null,
       canvasUrl: tagWorkflow.canvasUrl || null,
       ambiguousContacts: (tagWorkflow as any).ambiguousContacts || null,
     });
@@ -3226,39 +3294,84 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
             if (!resolved.ok) {
               const clarifyChoices = Array.isArray((resolved as any).choices) ? ((resolved as any).choices as any[]) : null;
 
-              let clarifyText = String(resolved.clarifyQuestion || "").trim() || "I need one more detail to continue.";
-              if (clarifyChoices?.length) {
-                clarifyText = `${clarifyText}\n\nYou can also click one of the options above.`;
-              }
-              clarifyText = clarifyText.slice(0, 600);
+              const rawClarifyPrompt = String(resolved.clarifyQuestion || "").trim();
+              let clarifyText = "";
+              try {
+                const prevCtx = threadContext;
+                const summary =
+                  prevCtx && typeof prevCtx === "object" && !Array.isArray(prevCtx) && typeof (prevCtx as any).threadSummary === "string"
+                    ? String((prevCtx as any).threadSummary || "").trim().slice(0, 1200)
+                    : "";
 
-              const assistantMsg = await (prisma as any).portalAiChatMessage.create({
-                data: {
-                  ownerId,
-                  threadId,
-                  role: "assistant",
-                  text: clarifyText,
-                  attachmentsJson: null,
-                  createdByUserId: null,
-                  sendAt: null,
-                  sentAt: now,
-                },
-                select: {
-                  id: true,
-                  role: true,
-                  text: true,
-                  attachmentsJson: true,
-                  createdAt: true,
-                  sendAt: true,
-                  sentAt: true,
-                },
-              });
+                clarifyText = String(
+                  await generateText({
+                    system: [
+                      "You are Pura, an AI assistant inside a SaaS portal.",
+                      "You need ONE clarifying question so the user can proceed.",
+                      "Write a single short question.",
+                      "Rules:",
+                      "- Do not ask for internal IDs unless the user must paste one.",
+                      "- If clickable choices are available, mention they can click one.",
+                      "- If the user asked to create something new, allow that option.",
+                      "- No JSON output.",
+                    ].join("\n"),
+                    user: `Context (JSON):\n${JSON.stringify(
+                      {
+                        threadSummary: summary || null,
+                        stepKey: step.key,
+                        rawClarifyPrompt: rawClarifyPrompt || null,
+                        choices: (clarifyChoices || []).slice(0, 8),
+                      },
+                      null,
+                      2,
+                    )}`,
+                  }),
+                )
+                  .trim()
+                  .slice(0, 600);
+              } catch {
+                clarifyText = "";
+              }
+
+              const assistantMsg = clarifyText
+                ? await (prisma as any).portalAiChatMessage.create({
+                    data: {
+                      ownerId,
+                      threadId,
+                      role: "assistant",
+                      text: clarifyText,
+                      attachmentsJson: null,
+                      createdByUserId: null,
+                      sendAt: null,
+                      sentAt: now,
+                    },
+                    select: {
+                      id: true,
+                      role: true,
+                      text: true,
+                      attachmentsJson: true,
+                      createdAt: true,
+                      sendAt: true,
+                      sentAt: true,
+                    },
+                  })
+                : null;
 
               const prevCtx = threadContext;
               const nextCtx = prevCtx && typeof prevCtx === "object" && !Array.isArray(prevCtx)
-                ? { ...(prevCtx as any), pendingPlan: plan, pendingPlanClarify: { at: now.toISOString(), stepKey: step.key, question: clarifyText } }
-                : { pendingPlan: plan, pendingPlanClarify: { at: now.toISOString(), stepKey: step.key, question: clarifyText } };
-              await (prisma as any).portalAiChatThread.update({ where: { id: threadId }, data: { lastMessageAt: now, contextJson: nextCtx } });
+                ? {
+                    ...(prevCtx as any),
+                    pendingPlan: plan,
+                    pendingPlanClarify: { at: now.toISOString(), stepKey: step.key, question: clarifyText || null, rawClarifyPrompt: rawClarifyPrompt || null },
+                  }
+                : {
+                    pendingPlan: plan,
+                    pendingPlanClarify: { at: now.toISOString(), stepKey: step.key, question: clarifyText || null, rawClarifyPrompt: rawClarifyPrompt || null },
+                  };
+              await (prisma as any).portalAiChatThread.update({
+                where: { id: threadId },
+                data: assistantMsg ? { lastMessageAt: now, contextJson: nextCtx } : { contextJson: nextCtx },
+              });
               return NextResponse.json({
                 ok: true,
                 userMessage: userMsg,
@@ -3343,7 +3456,16 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
 
         const resolvedSteps: Array<{ key: PortalAgentActionKey; title: string; args: Record<string, unknown>; openUrl?: string }> = [];
         const contextPatches: Array<Record<string, unknown> | undefined> = [];
-        const results: Array<{ ok: boolean; markdown?: string; linkUrl?: string | null; clientUiAction?: any | null }> = [];
+        const results: Array<{
+          ok: boolean;
+          status: number;
+          action: PortalAgentActionKey;
+          args: Record<string, unknown>;
+          result: any;
+          assistantText?: string | null;
+          linkUrl?: string | null;
+          clientUiAction?: any | null;
+        }> = [];
         const clientUiActions: any[] = [];
 
         let localCtx: any = threadContext && typeof threadContext === "object" && !Array.isArray(threadContext) ? { ...(threadContext as any) } : {};
@@ -3364,38 +3486,82 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
           if (!resolved.ok) {
             clarifyChoices = Array.isArray((resolved as any).choices) ? ((resolved as any).choices as any[]) : null;
 
-            let clarifyText = String(resolved.clarifyQuestion || "").trim() || "I need one more detail to continue.";
-            if (clarifyChoices?.length) {
-              clarifyText = `${clarifyText}\n\nYou can also click one of the options above.`;
+            const rawClarifyPrompt = String(resolved.clarifyQuestion || "").trim();
+            let clarifyText = "";
+            try {
+              const prevCtx = localCtx;
+              const summary =
+                prevCtx && typeof prevCtx === "object" && !Array.isArray(prevCtx) && typeof (prevCtx as any).threadSummary === "string"
+                  ? String((prevCtx as any).threadSummary || "").trim().slice(0, 1200)
+                  : "";
+
+              clarifyText = String(
+                await generateText({
+                  system: [
+                    "You are Pura, an AI assistant inside a SaaS portal.",
+                    "You need ONE clarifying question so the user can proceed.",
+                    "Write a single short question.",
+                    "Rules:",
+                    "- Do not ask for internal IDs unless the user must paste one.",
+                    "- If clickable choices are available, mention they can click one.",
+                    "- If the user asked to create something new, allow that option.",
+                    "- No JSON output.",
+                  ].join("\n"),
+                  user: `Context (JSON):\n${JSON.stringify(
+                    {
+                      threadSummary: summary || null,
+                      stepKey: step.key,
+                      rawClarifyPrompt: rawClarifyPrompt || null,
+                      choices: (clarifyChoices || []).slice(0, 8),
+                    },
+                    null,
+                    2,
+                  )}`,
+                }),
+              )
+                .trim()
+                .slice(0, 600);
+            } catch {
+              clarifyText = "";
             }
-            clarifyText = clarifyText.slice(0, 600);
 
-            const assistantMsg = await (prisma as any).portalAiChatMessage.create({
-              data: {
-                ownerId,
-                threadId,
-                role: "assistant",
-                text: clarifyText,
-                attachmentsJson: null,
-                createdByUserId: null,
-                sendAt: null,
-                sentAt: now,
-              },
-              select: {
-                id: true,
-                role: true,
-                text: true,
-                attachmentsJson: true,
-                createdAt: true,
-                sendAt: true,
-                sentAt: true,
-              },
+            const assistantMsg = clarifyText
+              ? await (prisma as any).portalAiChatMessage.create({
+                  data: {
+                    ownerId,
+                    threadId,
+                    role: "assistant",
+                    text: clarifyText,
+                    attachmentsJson: null,
+                    createdByUserId: null,
+                    sendAt: null,
+                    sentAt: now,
+                  },
+                  select: {
+                    id: true,
+                    role: true,
+                    text: true,
+                    attachmentsJson: true,
+                    createdAt: true,
+                    sendAt: true,
+                    sentAt: true,
+                  },
+                })
+              : null;
+
+            const nextCtx = {
+              ...localCtx,
+              pendingPlan: plan,
+              pendingPlanClarify: { at: now.toISOString(), stepKey: step.key, question: clarifyText || null, rawClarifyPrompt: rawClarifyPrompt || null },
+            };
+            await (prisma as any).portalAiChatThread.update({
+              where: { id: threadId },
+              data: assistantMsg ? { lastMessageAt: now, contextJson: nextCtx } : { contextJson: nextCtx },
             });
-
-            const nextCtx = { ...localCtx, pendingPlan: plan, pendingPlanClarify: { at: now.toISOString(), stepKey: step.key, question: clarifyText } };
-            await (prisma as any).portalAiChatThread.update({ where: { id: threadId }, data: { lastMessageAt: now, contextJson: nextCtx } });
-            await maybeUpdateThreadTitle({ thread, threadId, now, promptMessage, assistantText: clarifyText });
-            await maybeUpdateThreadTitle({ thread, threadId, now, promptMessage, assistantText: clarifyText });
+            if (clarifyText) {
+              await maybeUpdateThreadTitle({ thread, threadId, now, promptMessage, assistantText: clarifyText });
+              await maybeUpdateThreadTitle({ thread, threadId, now, promptMessage, assistantText: clarifyText });
+            }
             return NextResponse.json({
               ok: true,
               userMessage: userMsg,
@@ -3439,7 +3605,16 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
             args: resolvedArgsWithThread,
           });
           const cua = (exec as any).clientUiAction ?? null;
-          results.push({ ok: Boolean(exec.ok), markdown: exec.markdown, linkUrl: exec.linkUrl ?? null, clientUiAction: cua });
+          results.push({
+            ok: Boolean(exec.ok),
+            status: Number((exec as any).status) || 0,
+            action: step.key,
+            args: resolvedArgsWithThread,
+            result: (exec as any).result,
+            assistantText: typeof (exec as any).assistantText === "string" ? String((exec as any).assistantText) : null,
+            linkUrl: (exec as any).linkUrl ?? null,
+            clientUiAction: cua,
+          });
           if (cua) clientUiActions.push(cua);
 
           const derivedPatch = deriveThreadContextPatchFromAction(step.key, resolvedArgsWithThread, (exec as any).result);
@@ -3596,7 +3771,16 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
     ownerTimeZone: String(getTimeZoneHint((thread as any).contextJson) || "").trim() || undefined,
   });
   if (weekdaySmsFallbackPlan?.mode === "execute" && Array.isArray(weekdaySmsFallbackPlan.steps) && weekdaySmsFallbackPlan.steps.length) {
-    const results: Array<{ ok: boolean; markdown?: string; linkUrl?: string | null; clientUiAction?: any | null }> = [];
+    const results: Array<{
+      ok: boolean;
+      status: number;
+      action: PortalAgentActionKey;
+      args: Record<string, unknown>;
+      result: any;
+      assistantText?: string | null;
+      linkUrl?: string | null;
+      clientUiAction?: any | null;
+    }> = [];
     const clientUiActions: any[] = [];
 
     for (const step of weekdaySmsFallbackPlan.steps.slice(0, 6)) {
@@ -3617,7 +3801,16 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
       });
 
       const cua = (exec as any).clientUiAction ?? null;
-      results.push({ ok: Boolean(exec.ok), markdown: exec.markdown, linkUrl: exec.linkUrl ?? null, clientUiAction: cua });
+      results.push({
+        ok: Boolean(exec.ok),
+        status: Number((exec as any).status) || 0,
+        action: step.key,
+        args: argsPatched,
+        result: (exec as any).result,
+        assistantText: typeof (exec as any).assistantText === "string" ? String((exec as any).assistantText) : null,
+        linkUrl: (exec as any).linkUrl ?? null,
+        clientUiAction: cua,
+      });
       if (cua) clientUiActions.push(cua);
     }
 

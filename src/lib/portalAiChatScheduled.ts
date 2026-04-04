@@ -41,6 +41,22 @@ async function computeNextRecurringRunAt(opts: {
   return next.isValid ? next.toJSDate() : fallback;
 }
 
+async function tryGenerateScheduledAssistantText(opts: { system: string; payload: unknown; maxLen?: number }): Promise<string> {
+  try {
+    const out = String(
+      await generateText({
+        system: opts.system,
+        user: `Context (JSON):\n${JSON.stringify(opts.payload ?? null, null, 2)}`,
+      }),
+    )
+      .trim()
+      .slice(0, typeof opts.maxLen === "number" && Number.isFinite(opts.maxLen) ? Math.max(1, Math.floor(opts.maxLen)) : 1200);
+    return out;
+  } catch {
+    return "";
+  }
+}
+
 export async function processDuePortalAiChatScheduledMessages(
   opts?: { limit?: number; ownerId?: string },
 ): Promise<{ ok: true; processed: number } | { ok: false; error: string }> {
@@ -191,23 +207,43 @@ export async function processDuePortalAiChatScheduledMessages(
     const shouldExecute = plan?.mode === "execute" && Array.isArray((plan as any).steps) && (plan as any).steps.length;
 
     if (!shouldExecute) {
-      await (prisma as any).portalAiChatMessage.create({
-        data: {
-          ownerId,
-          threadId,
-          role: "assistant",
-          text: envelope
-            ? "Scheduled run processed (invalid scheduled action payload)."
+      const assistantText = await tryGenerateScheduledAssistantText({
+        system: [
+          "You are an assistant inside a SaaS portal.",
+          "A scheduled run was processed but nothing was executed.",
+          "Write a brief message (1-2 sentences) explaining why.",
+          "Rules:",
+          "- No JSON.",
+          "- Do not mention internal implementation details.",
+        ].join("\n"),
+        payload: {
+          hasEnvelope: Boolean(envelope),
+          portalSupportChatConfigured: isPortalSupportChatConfigured(),
+          workTitle: (plan as any)?.workTitle ?? envelope?.workTitle ?? null,
+          reason: envelope
+            ? "invalid_scheduled_action_payload"
             : !isPortalSupportChatConfigured()
-              ? "Scheduled run skipped (Pura is not configured in this environment)."
-              : "Scheduled run processed (no actions to execute).",
-          attachmentsJson: null,
-          createdByUserId: null,
-          sendAt: null,
-          sentAt: new Date(),
+              ? "assistant_not_configured"
+              : "no_actions_to_execute",
         },
-        select: { id: true },
+        maxLen: 800,
       });
+
+      if (assistantText) {
+        await (prisma as any).portalAiChatMessage.create({
+          data: {
+            ownerId,
+            threadId,
+            role: "assistant",
+            text: assistantText,
+            attachmentsJson: null,
+            createdByUserId: null,
+            sendAt: null,
+            sentAt: new Date(),
+          },
+          select: { id: true },
+        });
+      }
 
       await (prisma as any).portalAiChatThread.update({ where: { id: threadId }, data: { lastMessageAt: new Date() } });
       processed += 1;
@@ -218,19 +254,36 @@ export async function processDuePortalAiChatScheduledMessages(
     const confirmSpec = steps.map((s) => getConfirmSpecForPortalAgentAction(s.key)).find(Boolean) || null;
 
     if (confirmSpec) {
-      await (prisma as any).portalAiChatMessage.create({
-        data: {
-          ownerId,
-          threadId,
-          role: "assistant",
-          text: "This scheduled run requires confirmation. Open this chat thread to review and confirm.",
-          attachmentsJson: null,
-          createdByUserId: null,
-          sendAt: null,
-          sentAt: new Date(),
+      const assistantText = await tryGenerateScheduledAssistantText({
+        system: [
+          "You are an assistant inside a SaaS portal.",
+          "A scheduled run cannot proceed because the action requires manual confirmation.",
+          "Write a short message (1-2 sentences) telling the user to open the thread and confirm.",
+          "Rules:",
+          "- No JSON.",
+        ].join("\n"),
+        payload: {
+          workTitle: (plan as any)?.workTitle ?? null,
+          requiresConfirmation: true,
         },
-        select: { id: true },
+        maxLen: 600,
       });
+
+      if (assistantText) {
+        await (prisma as any).portalAiChatMessage.create({
+          data: {
+            ownerId,
+            threadId,
+            role: "assistant",
+            text: assistantText,
+            attachmentsJson: null,
+            createdByUserId: null,
+            sendAt: null,
+            sentAt: new Date(),
+          },
+          select: { id: true },
+        });
+      }
       await (prisma as any).portalAiChatThread.update({ where: { id: threadId }, data: { lastMessageAt: new Date() } });
       processed += 1;
       continue;
@@ -238,7 +291,15 @@ export async function processDuePortalAiChatScheduledMessages(
 
     const resolvedSteps: Array<{ key: PortalAgentActionKey; title: string; args: Record<string, unknown>; openUrl?: string }> = [];
     const contextPatches: Array<Record<string, unknown> | undefined> = [];
-    const results: Array<{ ok: boolean; markdown?: string; linkUrl?: string | null }> = [];
+    const results: Array<{
+      ok: boolean;
+      status: number;
+      action: PortalAgentActionKey;
+      args: Record<string, unknown>;
+      result: any;
+      assistantText?: string | null;
+      linkUrl?: string | null;
+    }> = [];
 
     let localCtx: any = threadContext && typeof threadContext === "object" && !Array.isArray(threadContext) ? { ...(threadContext as any) } : {};
 
@@ -255,20 +316,24 @@ export async function processDuePortalAiChatScheduledMessages(
       });
 
       if (!resolved.ok) {
-        let clarifyText = String(resolved.clarifyQuestion || "").trim();
-        if (!clarifyText) {
-          try {
-            clarifyText = String(
-              await generateText({
-                system:
-                  "You are an assistant in a SaaS portal. A scheduled task cannot run because one required detail is missing. Ask one concise clarifying question so the user can provide the missing detail and the task can continue. Keep it to 1-2 sentences.",
-                user: `Scheduled step context (JSON):\n${JSON.stringify({ workTitle: (plan as any)?.workTitle ?? null, step }, null, 2)}`,
-              }),
-            ).trim();
-          } catch {
-            clarifyText = "";
-          }
-        }
+        const rawClarifyPrompt = String(resolved.clarifyQuestion || "").trim();
+        const clarifyText = await tryGenerateScheduledAssistantText({
+          system: [
+            "You are an assistant in a SaaS portal.",
+            "A scheduled task cannot run because one required detail is missing.",
+            "Ask ONE concise clarifying question so the user can provide the missing detail.",
+            "Rules:",
+            "- 1-2 sentences.",
+            "- Do not ask for internal IDs unless the user must paste one.",
+            "- No JSON.",
+          ].join("\n"),
+          payload: {
+            workTitle: (plan as any)?.workTitle ?? null,
+            step,
+            rawClarifyPrompt: rawClarifyPrompt || null,
+          },
+          maxLen: 600,
+        });
 
         if (!clarifyText) {
           const nextCtx = { ...localCtx, pendingPlan: plan, pendingPlanClarify: null };
@@ -292,7 +357,7 @@ export async function processDuePortalAiChatScheduledMessages(
           select: { id: true },
         });
 
-        const nextCtx = { ...localCtx, pendingPlan: plan, pendingPlanClarify: { at: now.toISOString(), stepKey: step.key, question: clarifyText } };
+        const nextCtx = { ...localCtx, pendingPlan: plan, pendingPlanClarify: { at: now.toISOString(), stepKey: step.key, question: clarifyText || null, rawClarifyPrompt: rawClarifyPrompt || null } };
         await (prisma as any).portalAiChatThread.update({ where: { id: threadId }, data: { lastMessageAt: new Date(), contextJson: nextCtx } });
 
         // Stop on the first unresolved step.
@@ -313,7 +378,15 @@ export async function processDuePortalAiChatScheduledMessages(
       }
 
       const exec = await executePortalAgentAction({ ownerId, actorUserId, action: step.key, args: resolvedArgs });
-      results.push({ ok: Boolean((exec as any).ok), markdown: (exec as any).markdown, linkUrl: (exec as any).linkUrl ?? null });
+      results.push({
+        ok: Boolean((exec as any).ok),
+        status: Number((exec as any).status) || 0,
+        action: step.key,
+        args: resolvedArgs,
+        result: (exec as any).result,
+        assistantText: typeof (exec as any).assistantText === "string" ? String((exec as any).assistantText) : null,
+        linkUrl: (exec as any).linkUrl ?? null,
+      });
 
       const derivedPatch = deriveThreadContextPatchFromAction(step.key, resolvedArgs, (exec as any).result);
       if (derivedPatch && typeof derivedPatch === "object") {
@@ -429,19 +502,39 @@ export async function processDuePortalAiChatScheduledMessages(
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown error";
 
-      await (prisma as any).portalAiChatMessage.create({
-        data: {
-          ownerId,
-          threadId,
-          role: "assistant",
-          text: `I tried to run your scheduled task, but it failed.\n\n${String(message || "Unknown error").slice(0, 600)}`,
-          attachmentsJson: null,
-          createdByUserId: null,
-          sendAt: null,
-          sentAt: new Date(),
+      const assistantText = await tryGenerateScheduledAssistantText({
+        system: [
+          "You are an assistant inside a SaaS portal.",
+          "A scheduled task attempted to run but failed.",
+          "Write a short message (1-2 sentences) letting the user know it failed.",
+          "Rules:",
+          "- Do not include stack traces.",
+          "- No JSON.",
+        ].join("\n"),
+        payload: {
+          workTitle: null,
+          scheduledMessageText: String((p as any).text || "").trim().slice(0, 800),
+          errorMessage: String(message || "Unknown error").slice(0, 600),
+          repeatEveryMinutes,
         },
-        select: { id: true },
-      }).catch(() => null);
+        maxLen: 800,
+      });
+
+      if (assistantText) {
+        await (prisma as any).portalAiChatMessage.create({
+          data: {
+            ownerId,
+            threadId,
+            role: "assistant",
+            text: assistantText,
+            attachmentsJson: null,
+            createdByUserId: null,
+            sendAt: null,
+            sentAt: new Date(),
+          },
+          select: { id: true },
+        }).catch(() => null);
+      }
 
       await (prisma as any).portalAiChatThread.update({
         where: { id: threadId },
