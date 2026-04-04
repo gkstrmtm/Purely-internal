@@ -312,10 +312,11 @@ export function ConvaiChatWidget({
   }
 
   function appendAssistantError(err: string) {
+    // AI-first: avoid rendering deterministic/non-model error text as an assistant message.
+    // Surface error state via the UI status instead.
     const safe = String(err || "").trim();
     if (!safe) return;
-    const msg: ChatMessage = { id: `a_${Date.now()}`, role: "assistant", text: safe };
-    setMessages((xs) => [...xs, msg]);
+    setStatus("error");
   }
 
   function upsertAssistantStreamChunk(eventId: string, text: string) {
@@ -445,7 +446,7 @@ export function ConvaiChatWidget({
               ? String((msg as any).message)
               : typeof (msg as any)?.detail === "string"
                 ? String((msg as any).detail)
-                : "Chat error";
+                : "";
           appendAssistantError(err);
         }
       });
@@ -541,7 +542,7 @@ export function ConvaiChatWidget({
             <div className="min-w-0">
               <div className="text-sm font-bold text-zinc-900">{panelTitle}</div>
               <div className="mt-0.5 text-xs font-semibold text-zinc-600">
-                {status === "connected" ? "Connected" : status === "connecting" ? "Connecting…" : panelSubtitle}
+                {status === "error" ? "Chat unavailable" : status === "connected" ? "Connected" : status === "connecting" ? "Connecting…" : panelSubtitle}
               </div>
             </div>
             <button

@@ -450,17 +450,8 @@ export function AiReceptionistWidget() {
 
   function appendAssistantError(text: string) {
     awaitingAgentRef.current = false;
-    const cleaned = String(text || "").trim();
-    if (!cleaned) return;
-    setMessages((prev) => [
-      ...prev,
-      {
-        id: `err_${Date.now()}`,
-        role: "assistant",
-        text: cleaned,
-      },
-    ]);
-    scheduleScrollToBottom(true);
+    // AI-first: avoid rendering deterministic/non-model error text as an assistant message.
+    setStatus("error");
   }
 
   function appendAssistantText(text: string) {
@@ -682,7 +673,7 @@ export function AiReceptionistWidget() {
             ? msg.message
             : typeof msg?.detail === "string"
               ? msg.detail
-              : "Chat error";
+              : "";
         appendAssistantError(err);
       }
       });
@@ -721,11 +712,8 @@ export function AiReceptionistWidget() {
 
         // Only surface an error if we could not recover silently.
         if (recentlySent && !sawAnyAgentTextSinceLastSendRef.current && !isIntentional) {
-          appendAssistantError(
-            code === 1000 || wasClean
-              ? "Chat session ended. Please send that again."
-              : "Connection dropped. Please try again.",
-          );
+          awaitingAgentRef.current = false;
+          setStatus("error");
         }
       });
 
@@ -812,7 +800,7 @@ export function AiReceptionistWidget() {
             <div className="min-w-0">
               <div className="text-sm font-bold text-zinc-900">Need help?</div>
               <div className="mt-0.5 text-xs font-semibold text-zinc-600">
-                {status === "connected" ? "Chat with us" : status === "connecting" ? "Connecting…" : "Message us"}
+                {status === "error" ? "Chat unavailable" : status === "connected" ? "Chat with us" : status === "connecting" ? "Connecting…" : "Message us"}
               </div>
             </div>
             <button
