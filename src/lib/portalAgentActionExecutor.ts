@@ -16025,14 +16025,20 @@ async function runDirectAction(opts: {
 
       await ensurePortalAiChatSchema();
 
+      const where: Record<string, unknown> = {
+        ownerId,
+        role: "user",
+        sentAt: null,
+        sendAt: { not: null },
+      };
+
+      // Members can only see their own schedules; owners/admins can manage account-wide schedules.
+      if (membership.role === "MEMBER") {
+        where.createdByUserId = membership.memberId;
+      }
+
       const rows = await (prisma as any).portalAiChatMessage.findMany({
-        where: {
-          ownerId,
-          role: "user",
-          sentAt: null,
-          sendAt: { not: null },
-          createdByUserId: membership.memberId,
-        },
+        where,
         orderBy: { sendAt: "asc" },
         take: 200,
         select: {
