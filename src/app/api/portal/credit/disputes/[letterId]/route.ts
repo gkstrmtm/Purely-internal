@@ -92,6 +92,13 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ letterId: str
             }),
           }
         : {}),
+      // Editing invalidates the cached PDF so downloads always match the latest draft.
+      ...((nextSubject !== undefined || nextBodyText !== undefined)
+        ? {
+            pdfMediaItemId: null,
+            pdfGeneratedAt: null,
+          }
+        : {}),
       status: "DRAFT",
       updatedAt: new Date(),
     },

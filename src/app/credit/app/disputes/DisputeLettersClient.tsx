@@ -680,13 +680,13 @@ export default function DisputeLettersClient({ mode = "list", initialLetterId = 
     }
   }, [loadLetter, loadLetters, selectedLetterId, sourceReportId, sourceReportItemId]);
 
-  const refreshPdf = useCallback(async () => {
+  const refreshPdf = useCallback(async (options?: { force?: boolean }) => {
     if (!selectedLetterId) return;
     setWorking("pdf");
     try {
       const data = await fetchJson<{ ok: true; pdf: { downloadUrl: string } }>(`/api/portal/credit/disputes/${encodeURIComponent(selectedLetterId)}/pdf`, {
         method: "POST",
-        body: JSON.stringify({}),
+        body: JSON.stringify({ force: Boolean(options?.force) }),
       });
       setPdfDownloadUrl(data.pdf.downloadUrl);
       await loadLetter(selectedLetterId);
@@ -927,6 +927,15 @@ export default function DisputeLettersClient({ mode = "list", initialLetterId = 
                 <IconExport size={18} />
               </a>
             ) : null}
+            <button
+              type="button"
+              disabled={!selectedLetterId || working !== null}
+              onClick={() => void refreshPdf({ force: true })}
+              className={SECONDARY_BUTTON_CLASS}
+              title="Regenerate the PDF using the latest layout"
+            >
+              {working === "pdf" ? "Regenerating..." : "Regenerate PDF"}
+            </button>
             <button type="button" disabled={!selectedLetterId || working !== null} onClick={() => void saveLetter()} className={SECONDARY_BUTTON_CLASS}>{working === "save" ? "Saving..." : "Save draft"}</button>
             <button type="button" disabled={!selectedLetterId || working !== null} onClick={() => void markLetterMailed()} className={PRIMARY_BUTTON_CLASS}>{working === "mail" ? "Marking..." : "Mark mailed"}</button>
           </div>

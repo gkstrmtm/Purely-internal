@@ -36,8 +36,11 @@ export async function POST(_req: Request, ctx: { params: Promise<{ letterId: str
 
   if (!letter) return NextResponse.json({ ok: false, error: "Not found" }, { status: 404 });
 
-  // If already generated, return existing URLs.
-  if (letter.pdfMediaItem?.id && letter.pdfMediaItem.publicToken) {
+  const json = await _req.json().catch(() => null);
+  const force = Boolean(json && typeof json === "object" && "force" in json ? (json as { force?: unknown }).force : false);
+
+  // If already generated, return existing URLs unless forced.
+  if (!force && letter.pdfMediaItem?.id && letter.pdfMediaItem.publicToken) {
     const openUrl = `/api/public/media/item/${letter.pdfMediaItem.id}/${letter.pdfMediaItem.publicToken}`;
     return NextResponse.json({
       ok: true,
