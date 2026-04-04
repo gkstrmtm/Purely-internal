@@ -838,6 +838,8 @@ export function PortalAiChatClient() {
   const sendInFlightRef = useRef<Set<string>>(new Set());
   const activeThreadIdRef = useRef<string | null>(null);
   const threadDraftsRef = useRef<Record<string, ThreadDraftState>>({ [DRAFT_THREAD_KEY]: createEmptyThreadDraftState() });
+  const threadsRef = useRef<Thread[]>([]);
+  const messagesByThreadRef = useRef<Record<string, Message[]>>({ [DRAFT_THREAD_KEY]: [] });
 
   const activeThreadKey = activeThreadId ?? DRAFT_THREAD_KEY;
   const messages = messagesByThread[activeThreadKey] ?? [];
@@ -856,6 +858,14 @@ export function PortalAiChatClient() {
   useEffect(() => {
     activeThreadIdRef.current = activeThreadId;
   }, [activeThreadId]);
+
+  useEffect(() => {
+    threadsRef.current = threads;
+  }, [threads]);
+
+  useEffect(() => {
+    messagesByThreadRef.current = messagesByThread;
+  }, [messagesByThread]);
 
   useEffect(() => {
     threadDraftsRef.current = threadDraftsById;
@@ -960,10 +970,13 @@ export function PortalAiChatClient() {
       // If an active thread was selected during this session but was deleted,
       // clear it and fall back to draft.
       if (activeThreadId && !next.some((t) => t.id === activeThreadId)) {
-        // If a send is in-flight for this thread, keep it selected.
-        // The threads endpoint intentionally hides empty threads and may lag
-        // just after creation, which would otherwise bounce the UI back to draft.
-        if (!sendInFlightRef.current.has(activeThreadId)) {
+        // Never bounce back to draft while the UI has local state for this thread.
+        // This covers slow DB replication/eventual-consistency where the thread
+        // exists locally but isn't in the server list yet.
+        const hasLocalMessages = (messagesByThreadRef.current[activeThreadId] ?? []).length > 0;
+        const hasLocalThread = (threadsRef.current ?? []).some((t) => t.id === activeThreadId);
+        const isSending = sendInFlightRef.current.has(activeThreadId);
+        if (!isSending && !hasLocalMessages && !hasLocalThread) {
           setActiveThreadId(null);
         }
       }
@@ -1592,6 +1605,16 @@ export function PortalAiChatClient() {
             body: JSON.stringify({ action: "delete" }),
           }).catch(() => null);
           setThreads((prev) => prev.filter((t) => t.id !== String(createdThread?.id)));
+
+          // Roll back UI state to the draft composer immediately.
+          // This avoids a transient "missing thread" state that can bounce later.
+          activeThreadIdRef.current = null;
+          setActiveThreadId(null);
+          setMessagesByThread((prev) => {
+            const next = { ...prev };
+            delete (next as any)[String(createdThread?.id)];
+            return next;
+          });
         }
 
         toast.error(e instanceof Error ? e.message : String(e));
