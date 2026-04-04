@@ -1594,6 +1594,27 @@ function detectDeterministicActionsFromText(opts: {
   const attachments = Array.isArray(opts.attachments) ? opts.attachments : [];
   if (!t && !attachments.length) return [];
 
+  const parseTimeLocalFromText = (): string => {
+    // 24h: 09:00
+    const m24 = /\b([01]?\d|2[0-3]):([0-5]\d)\b/.exec(t);
+    if (m24?.[1] && m24?.[2]) {
+      const hh = String(m24[1]).padStart(2, "0");
+      const mm = String(m24[2]).padStart(2, "0");
+      return `${hh}:${mm}`;
+    }
+
+    // 12h: 9am, 9:30 pm, 9 a.m.
+    const m12 = /\b(\d{1,2})(?::(\d{2}))?\s*(a\.?m\.?|p\.?m\.?)\b/i.exec(t);
+    if (!m12?.[1] || !m12?.[3]) return "";
+    const hhIn = Number(m12[1]);
+    const mmIn = m12[2] ? Number(m12[2]) : 0;
+    if (!Number.isFinite(hhIn) || hhIn < 1 || hhIn > 12) return "";
+    if (!Number.isFinite(mmIn) || mmIn < 0 || mmIn > 59) return "";
+    const isPm = /p/i.test(m12[3]);
+    const hh24 = (hhIn % 12) + (isPm ? 12 : 0);
+    return `${String(hh24).padStart(2, "0")}:${String(mmIn).padStart(2, "0")}`;
+  };
+
   const scheduledMessageIdFromText = () => {
     const m =
       /\b(?:scheduled\s*)?(?:message|schedule|scheduled)\s*(?:id)?\s*[:#]?\s*([a-zA-Z0-9_-]{6,120})\b/i.exec(t) ||
@@ -1611,6 +1632,17 @@ function detectDeterministicActionsFromText(opts: {
       return [{ key: "ai_chat.scheduled.list", title: "Manage scheduled tasks", args: {} }];
     }
     if (wantsEdit) {
+      const timeLocal = parseTimeLocalFromText();
+      const mentionsSms = /\bsms\b/i.test(t) || /\btext\b/i.test(t);
+      const mentionsEmail = /\bemail\b/i.test(t);
+
+      // If the user gave a concrete time and a channel, do a real bulk shift.
+      if (timeLocal && (mentionsSms || mentionsEmail)) {
+        const channel = mentionsSms ? "sms" : "email";
+        const title = `Reschedule scheduled ${channel.toUpperCase()} tasks`;
+        return [{ key: "ai_chat.scheduled.reschedule", title, args: { channel, timeLocal } }];
+      }
+
       return [{ key: "ai_chat.scheduled.list", title: "Manage scheduled tasks", args: {} }];
     }
   }
@@ -3504,6 +3536,8 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
                     "Rules:",
                     "- Do not ask for internal IDs unless the user must paste one.",
                     "- If clickable choices are available, mention they can click one.",
+                    "- Do NOT list the choices in the message; the UI already shows them as clickable options.",
+                    "- Do NOT list the choices in the message; the UI already shows them as clickable options.",
                     "- If the user asked to create something new, allow that option.",
                     "- No JSON output.",
                   ].join("\n"),

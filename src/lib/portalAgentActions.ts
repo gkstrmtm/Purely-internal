@@ -207,6 +207,7 @@ export const PortalAgentActionKeySchema = z.enum([
   "ai_chat.messages.send",
   "ai_chat.scheduled.create",
   "ai_chat.scheduled.list",
+  "ai_chat.scheduled.reschedule",
   "ai_chat.scheduled.update",
   "ai_chat.scheduled.delete",
   "ai_chat.attachments.upload",
@@ -621,6 +622,27 @@ export const PortalAgentActionArgsSchemaByKey = {
         .strict()
         .optional(),
       repeatEveryMinutes: z.number().int().min(0).max(60 * 24 * 365).nullable().optional(),
+    })
+    .strict(),
+
+  // Bulk update scheduled AI-chat items by time-of-day.
+  // This is designed for “change all scheduled SMS tasks to 9am”-style commands.
+  "ai_chat.scheduled.reschedule": z
+    .object({
+      // Optional filter. If provided, only scheduled messages whose envelope contains a matching inbox send step will be updated.
+      channel: z.enum(["sms", "email"]).optional(),
+      // Optional: constrain to a thread.
+      threadId: z.string().trim().min(1).max(120).optional(),
+      // Optional explicit list of message IDs to reschedule.
+      messageIds: z.array(z.string().trim().min(1).max(120)).min(1).max(200).optional(),
+      // Required local time-of-day in 24h format.
+      timeLocal: z.string().trim().regex(/^\d{2}:\d{2}$/),
+      // Optional; if omitted, preserves existing recurrence timezone (or falls back to member/owner tz).
+      timeZone: z.string().trim().min(1).max(80).optional(),
+      // Include one-time scheduled messages (repeatEveryMinutes is null/0). Default true.
+      includeOneTime: z.boolean().optional(),
+      // Safety cap.
+      limit: z.number().int().min(1).max(200).optional(),
     })
     .strict(),
   "ai_chat.scheduled.delete": z
@@ -3392,6 +3414,7 @@ export function portalAgentActionsIndexText(opts?: { includeAiChat?: boolean }):
     "- ai_chat.scheduled.create: Create a scheduled AI chat user message (fields: threadId?, text, sendAtIso? OR sendAtLocal?, repeatEveryMinutes?)",
     "  - sendAtLocal: { isoWeekday: 1..7, timeLocal: \"HH:mm\", timeZone?: \"America/Chicago\" } (recommended for weekday schedules)",
     "- ai_chat.scheduled.list: List scheduled (unsent) AI chat user messages",
+    "- ai_chat.scheduled.reschedule: Bulk shift scheduled AI chat messages to a new time-of-day (fields: channel?, threadId?, messageIds?, timeLocal, timeZone?)",
     "- ai_chat.scheduled.update: Update a scheduled message (fields: messageId, text?, sendAtIso? OR sendAtLocal?, repeatEveryMinutes?)",
     "- ai_chat.scheduled.delete: Delete a scheduled message (fields: messageId)",
     "- ai_chat.threads.flush: No-op (kept for legacy callers)",

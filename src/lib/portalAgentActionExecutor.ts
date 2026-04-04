@@ -157,6 +157,8 @@ import { isPortalEncryptionConfigured } from "@/lib/portalEncryption.server";
 import { stripeGetWithKey, stripePostWithKey } from "@/lib/stripeFetchWithKey.server";
 import { ensurePortalAiOutboundCallsSchema } from "@/lib/portalAiOutboundCallsSchema";
 import { ensurePortalAiChatSchema } from "@/lib/portalAiChatSchema";
+import { tryParseScheduledActionEnvelope } from "@/lib/portalAiChatScheduledActionEnvelope";
+import { getScheduledRecurrenceTimeZone, withScheduledRecurrenceMetadata } from "@/lib/portalAiChatScheduledRecurrence";
 import { enqueueOutboundCallForContact, enqueueOutboundCallForTaggedContact, normalizeTagIdList } from "@/lib/portalAiOutboundCalls";
 import { enqueueOutboundMessageForContact, enqueueOutboundMessageForTaggedContact } from "@/lib/portalAiOutboundMessages";
 import { setThreadChoiceOverride } from "@/lib/portalAiChatChoices";
@@ -16076,6 +16078,201 @@ async function runDirectAction(opts: {
       }));
 
       return { status: 200, json: { ok: true, scheduled } };
+    }
+
+    case "ai_chat.scheduled.reschedule": {
+      const membership = await requirePortalMember();
+      if (!membership) return { status: 403, json: { ok: false, error: "Forbidden" } };
+
+      await ensurePortalAiChatSchema();
+
+      const channelRaw = typeof (args as any)?.channel === "string" ? String((args as any).channel).trim().toLowerCase() : "";
+      const channel = channelRaw === "sms" ? "sms" : channelRaw === "email" ? "email" : "";
+
+      const threadId = typeof (args as any)?.threadId === "string" ? String((args as any).threadId).trim().slice(0, 120) : "";
+      const messageIds = Array.isArray((args as any)?.messageIds)
+        ? ((args as any).messageIds as unknown[])
+            .map((v) => (typeof v === "string" ? v.trim().slice(0, 120) : ""))
+            .filter(Boolean)
+            .slice(0, 200)
+        : [];
+
+      const timeLocal = typeof (args as any)?.timeLocal === "string" ? String((args as any).timeLocal).trim() : "";
+      if (!/^\d{2}:\d{2}$/.test(timeLocal)) return { status: 400, json: { ok: false, error: "Invalid timeLocal" } };
+      const [hhS, mmS] = timeLocal.split(":");
+      const hour = Number(hhS);
+      const minute = Number(mmS);
+      if (!Number.isFinite(hour) || !Number.isFinite(minute) || hour < 0 || hour > 23 || minute < 0 || minute > 59) {
+        return { status: 400, json: { ok: false, error: "Invalid timeLocal" } };
+      }
+
+      const includeOneTime = (args as any)?.includeOneTime === false ? false : true;
+      const limit =
+        typeof (args as any)?.limit === "number" && Number.isFinite((args as any).limit)
+          ? Math.max(1, Math.min(200, Math.floor((args as any).limit)))
+          : 200;
+
+      const explicitTimeZone = typeof (args as any)?.timeZone === "string" ? String((args as any).timeZone).trim().slice(0, 80) : "";
+
+      const memberTimeZone =
+        (await prisma.user.findUnique({ where: { id: membership.memberId }, select: { timeZone: true } }).catch(() => null))?.timeZone || "";
+      const ownerTimeZone = (await prisma.user.findUnique({ where: { id: ownerId }, select: { timeZone: true } }).catch(() => null))?.timeZone || "";
+
+      const where: Record<string, unknown> = {
+        ownerId,
+        role: "user",
+        sentAt: null,
+        sendAt: { not: null },
+      };
+
+      // Members can only see/edit their own schedules; owners/admins can manage account-wide schedules.
+      if (membership.role === "MEMBER") {
+        where.createdByUserId = membership.memberId;
+      }
+
+      if (threadId) {
+        where.threadId = threadId;
+      }
+      if (messageIds.length) {
+        where.id = { in: messageIds };
+      }
+
+      const rows = await (prisma as any).portalAiChatMessage.findMany({
+        where,
+        orderBy: { sendAt: "asc" },
+        take: limit,
+        select: {
+          id: true,
+          threadId: true,
+          text: true,
+          sendAt: true,
+          repeatEveryMinutes: true,
+          attachmentsJson: true,
+          createdAt: true,
+        },
+      });
+
+      const inferChannelFromEnvelope = (textRaw: unknown): "sms" | "email" | "" => {
+        const env = tryParseScheduledActionEnvelope(String(textRaw || "").trim());
+        if (!env) return "";
+        const steps = Array.isArray(env.steps) ? env.steps : [];
+        for (const s of steps) {
+          const key = typeof (s as any)?.key === "string" ? String((s as any).key).trim() : "";
+          if (key === "inbox.send_sms") return "sms";
+          if (key === "inbox.send_email") return "email";
+          if (key === "inbox.send") {
+            const c = typeof (s as any)?.args?.channel === "string" ? String((s as any).args.channel).trim().toLowerCase() : "";
+            if (c === "sms") return "sms";
+            if (c === "email") return "email";
+          }
+        }
+        return "";
+      };
+
+      const { DateTime } = await import("luxon");
+
+      const updates: Array<{ id: string; threadId: string; beforeSendAtIso: string; afterSendAtIso: string; timeZone: string }> = [];
+      const skipped: Array<{ id: string; reason: string }> = [];
+
+      for (const r of rows as any[]) {
+        const id = String(r?.id || "").trim();
+        const sendAt = r?.sendAt instanceof Date ? r.sendAt : r?.sendAt ? new Date(r.sendAt) : null;
+        if (!id || !sendAt || !Number.isFinite(sendAt.getTime())) {
+          if (id) skipped.push({ id, reason: "Invalid sendAt" });
+          continue;
+        }
+
+        const repeatEveryMinutes =
+          typeof r?.repeatEveryMinutes === "number" && Number.isFinite(r.repeatEveryMinutes) ? Math.max(0, Math.floor(r.repeatEveryMinutes)) : 0;
+        if (!includeOneTime && !repeatEveryMinutes) {
+          skipped.push({ id, reason: "One-time schedule excluded" });
+          continue;
+        }
+
+        if (channel) {
+          const ch = inferChannelFromEnvelope(r?.text);
+          if (ch !== channel) {
+            skipped.push({ id, reason: `Channel mismatch (${ch || "unknown"})` });
+            continue;
+          }
+        }
+
+        const existingTz = getScheduledRecurrenceTimeZone(r?.attachmentsJson);
+        const tz = (explicitTimeZone || existingTz || String(memberTimeZone || "").trim() || String(ownerTimeZone || "").trim() || "UTC").slice(0, 80);
+
+        const baseLocal = DateTime.fromJSDate(sendAt, { zone: tz });
+        const zone = baseLocal.isValid ? tz : "UTC";
+        const base = baseLocal.isValid ? baseLocal : DateTime.fromJSDate(sendAt, { zone: "UTC" });
+        const nowLocal = DateTime.now().setZone(zone);
+
+        let candidate = base.set({ hour, minute, second: 0, millisecond: 0 });
+        if (!candidate.isValid) {
+          skipped.push({ id, reason: "Invalid local time conversion" });
+          continue;
+        }
+
+        // Ensure the next run is not in the past.
+        const minFutureMs = nowLocal.plus({ minutes: 1 }).toMillis();
+        if (candidate.toMillis() <= minFutureMs) {
+          if (repeatEveryMinutes > 0) {
+            let guard = 0;
+            while (candidate.toMillis() <= minFutureMs && guard < 400) {
+              candidate = candidate.plus({ minutes: repeatEveryMinutes });
+              guard++;
+            }
+          } else {
+            let guard = 0;
+            while (candidate.toMillis() <= minFutureMs && guard < 31) {
+              candidate = candidate.plus({ days: 1 });
+              guard++;
+            }
+          }
+        }
+
+        const finalSendAt = candidate.toJSDate();
+
+        const nextAttachments = repeatEveryMinutes
+          ? withScheduledRecurrenceMetadata({
+              attachmentsJson: r?.attachmentsJson ?? null,
+              repeatEveryMinutes,
+              recurrenceTimeZone: zone,
+            })
+          : r?.attachmentsJson ?? null;
+
+        try {
+          await (prisma as any).portalAiChatMessage.update({
+            where: { id },
+            data: {
+              sendAt: finalSendAt,
+              ...(repeatEveryMinutes ? { attachmentsJson: nextAttachments } : {}),
+            },
+          });
+
+          updates.push({
+            id,
+            threadId: String(r?.threadId || "").trim(),
+            beforeSendAtIso: new Date(sendAt).toISOString(),
+            afterSendAtIso: new Date(finalSendAt).toISOString(),
+            timeZone: zone,
+          });
+        } catch {
+          skipped.push({ id, reason: "Update failed" });
+        }
+      }
+
+      return {
+        status: 200,
+        json: {
+          ok: true,
+          channel: channel || null,
+          timeLocal,
+          timeZone: explicitTimeZone || null,
+          matched: rows.length,
+          updated: updates.length,
+          skipped: skipped.slice(0, 40),
+          updatesPreview: updates.slice(0, 40),
+        },
+      };
     }
 
     case "ai_chat.scheduled.update": {
