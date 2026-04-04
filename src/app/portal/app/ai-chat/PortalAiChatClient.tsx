@@ -1044,6 +1044,9 @@ export function PortalAiChatClient() {
 
   useEffect(() => {
     if (!activeThreadId) return;
+    // If we're currently sending in this thread, avoid reloading messages from the server.
+    // The server may not have persisted the new message yet, and we'd overwrite optimistic UI.
+    if (sendInFlightRef.current.has(activeThreadId)) return;
     void loadMessages(activeThreadId);
   }, [activeThreadId, loadMessages]);
 
@@ -1386,6 +1389,19 @@ export function PortalAiChatClient() {
           if (!created?.ok || !created?.thread?.id) throw new Error(created?.error || "Failed to create chat");
           createdThread = created.thread as Thread;
           threadIdForSend = String(createdThread.id);
+
+          // Switch the UI to the newly created thread immediately so the user sees
+          // their optimistic message + the thinking indicator right away.
+          if (activeThreadIdRef.current === null) {
+            activeThreadIdRef.current = threadIdForSend;
+            setActiveThreadId(threadIdForSend);
+          }
+          setThreads((prev) => {
+            const without = prev.filter((t) => t.id !== threadIdForSend);
+            return [createdThread as Thread, ...without];
+          });
+          setMobileThreadsOpen(false);
+
           sendInFlightRef.current.delete(DRAFT_THREAD_KEY);
           setDraftSending(false);
           sendLockKey = threadIdForSend;
@@ -1445,11 +1461,7 @@ export function PortalAiChatClient() {
         if (!json?.ok) throw new Error(json?.error || "Send failed");
 
         if (createdThread) {
-          setThreads((prev) => [createdThread as Thread, ...prev]);
-          if (activeThreadIdRef.current === null) {
-            setActiveThreadId(threadIdForSend);
-          }
-          setMobileThreadsOpen(false);
+          // Thread was already inserted + selected right after creation.
         }
         setThreadUiState(threadIdForSend, (prev) => ({
           ...prev,

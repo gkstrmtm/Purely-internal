@@ -448,7 +448,8 @@ export function AiReceptionistWidget() {
     };
   }, []);
 
-  function appendAssistantError(text: string) {
+  function appendAssistantError(_text: string) {
+    void _text;
     awaitingAgentRef.current = false;
     // AI-first: avoid rendering deterministic/non-model error text as an assistant message.
     setStatus("error");
@@ -682,9 +683,6 @@ export function AiReceptionistWidget() {
         readyRef.current = false;
         if (wsRef.current === ws) wsRef.current = null;
         setStatus((s) => (s === "error" ? s : "idle"));
-
-        const wasClean = typeof (event as CloseEvent)?.wasClean === "boolean" ? (event as CloseEvent).wasClean : true;
-        const code = typeof (event as CloseEvent)?.code === "number" ? (event as CloseEvent).code : 0;
         const reason = typeof (event as CloseEvent)?.reason === "string" ? (event as CloseEvent).reason : "";
 
         // ElevenLabs sessions can end after idle; treat that as a recoverable backend event.
