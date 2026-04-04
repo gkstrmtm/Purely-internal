@@ -3034,6 +3034,59 @@ export async function resolvePlanArgs(opts: {
       ? ((opts.threadContext as any).choiceOverrides as any)
       : null;
 
+  const normalizeTimeLocalHHmm = (raw: unknown): string => {
+    const s = typeof raw === "string" ? raw.trim() : "";
+    if (!s) return "";
+    const m = /^([01]?\d|2[0-3]):([0-5]\d)$/.exec(s);
+    if (!m?.[1] || !m?.[2]) return "";
+    return `${String(Number(m[1])).padStart(2, "0")}:${String(Number(m[2])).padStart(2, "0")}`;
+  };
+
+  const parseTimeLocalFromText = (textRaw: string): string => {
+    const t = String(textRaw || "");
+    if (!t.trim()) return "";
+
+    if (/\bnoon\b/i.test(t)) return "12:00";
+    if (/\bmidnight\b/i.test(t)) return "00:00";
+
+    const m24 = /\b([01]?\d|2[0-3]):([0-5]\d)\b/.exec(t);
+    if (m24?.[1] && m24?.[2]) return normalizeTimeLocalHHmm(`${m24[1]}:${m24[2]}`);
+
+    const m12 = /\b(\d{1,2})(?::(\d{2}))?\s*(a\.?m\.?|p\.?m\.?)\b/i.exec(t);
+    if (!m12?.[1] || !m12?.[3]) return "";
+    const hhIn = Number(m12[1]);
+    const mmIn = m12[2] ? Number(m12[2]) : 0;
+    if (!Number.isFinite(hhIn) || hhIn < 1 || hhIn > 12) return "";
+    if (!Number.isFinite(mmIn) || mmIn < 0 || mmIn > 59) return "";
+    const isPm = /^p/i.test(String(m12[3]));
+    const hh24 = (hhIn % 12) + (isPm ? 12 : 0);
+    return normalizeTimeLocalHHmm(`${String(hh24)}:${String(mmIn).padStart(2, "0")}`);
+  };
+
+  if (stepKeyLower === "ai_chat.scheduled.reschedule") {
+    const rawTimeLocal = typeof (args as any).timeLocal === "string" ? String((args as any).timeLocal).trim() : "";
+    let timeLocal = normalizeTimeLocalHHmm(rawTimeLocal);
+
+    if (!timeLocal) {
+      const derived = normalizeTimeLocalHHmm(parseTimeLocalFromText(rawTimeLocal)) || normalizeTimeLocalHHmm(parseTimeLocalFromText(String(opts.userHint || "")));
+      timeLocal = derived;
+    }
+
+    if (!timeLocal) {
+      return {
+        ok: false,
+        clarifyQuestion: "What local time should I shift those schedules to? Reply like 09:00 (9am).",
+      };
+    }
+
+    args = { ...(args || {}), timeLocal };
+
+    // Guard against planner drift: remove common alternate time keys that would break strict action schemas.
+    for (const k of ["time", "newTime", "sendTime", "atTime", "at", "when"]) {
+      if (k in args) delete (args as any)[k];
+    }
+  }
+
   if (stepKeyLower === "ai_chat.scheduled.update" || stepKeyLower === "ai_chat.scheduled.delete") {
     const existing = typeof (args as any).messageId === "string" ? String((args as any).messageId).trim().slice(0, 120) : "";
     if (!existing) {

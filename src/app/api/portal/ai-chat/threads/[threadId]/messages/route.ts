@@ -2987,8 +2987,7 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
     }
   }
 
-  // 0) Deterministic workflows that can resolve IDs for the user.
-  // (Example: add/remove a contact tag by name + email/phone/contact name.)
+  // 0) Load recent thread messages for planning/context.
   const modelRows = await (prisma as any).portalAiChatMessage.findMany({
     where: { ownerId, threadId },
     orderBy: { createdAt: "asc" },
@@ -3011,43 +3010,6 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
   // The chat page URL is often not enough context to resolve funnel/page entities.
   const canvasUrlRaw = String(parsed.data.canvasUrl || "").trim();
   const contextUrl = String(canvasUrlRaw || parsed.data.url || "").trim() || undefined;
-
-  const tagWorkflow = await tryExecuteContactTagCommand({
-    ownerId,
-    threadId,
-    now,
-    text: effectiveText,
-    recentMessages: modelMessages,
-  });
-  if (tagWorkflow) {
-    return NextResponse.json({
-      ok: true,
-      userMessage: userMsg,
-      assistantMessage: tagWorkflow.assistantMessage || null,
-      assistantActions: [],
-      autoActionMessage: tagWorkflow.autoActionMessage || null,
-      canvasUrl: tagWorkflow.canvasUrl || null,
-      ambiguousContacts: (tagWorkflow as any).ambiguousContacts || null,
-    });
-  }
-
-  const taskWorkflow = await tryExecuteTaskCommand({
-    ownerId,
-    threadId,
-    now,
-    text: effectiveText,
-    actorUserId: createdByUserId,
-  });
-  if (taskWorkflow?.assistantMessage) {
-    return NextResponse.json({
-      ok: true,
-      userMessage: userMsg,
-      assistantMessage: taskWorkflow.assistantMessage,
-      assistantActions: [],
-      autoActionMessage: taskWorkflow.autoActionMessage || null,
-      canvasUrl: taskWorkflow.canvasUrl || null,
-    });
-  }
 
   // 0.5) Agentic planning + deterministic resolution (multi-step, no IDs required).
   // This runs before the legacy action-proposal flow, and it executes immediately for imperative requests.
@@ -3203,18 +3165,9 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
         ? [effectivePlanningText, attachmentTextContext].filter(Boolean).join("\n").slice(0, 12_000)
         : effectivePlanningText;
 
-      const deterministicWeekdaySmsPlan = buildDeterministicWeekdaySmsPlan({
-        text: effectivePlanningText,
-        ownerTimeZone: String(getTimeZoneHint(threadContext) || "").trim() || undefined,
-      });
-
       let plan: any = null;
       if (shouldReplayPendingExecutePlan) {
         plan = pendingPlan as any;
-      } else if (deterministicWeekdaySmsPlan) {
-        // Hard rule: recurring weekday SMS schedules are NOT Booking Reminders.
-        // Force the deterministic execute plan so the assistant schedules + sends immediately (when requested).
-        plan = deterministicWeekdaySmsPlan;
       } else {
         try {
           plan = await planPuraActions({
@@ -3443,38 +3396,67 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
             : { pendingConfirm: { token, createdAt: now.toISOString(), workTitle: plan.workTitle ?? null, steps: resolvedSteps, confirm: confirmSpec } };
           await (prisma as any).portalAiChatThread.update({ where: { id: threadId }, data: { contextJson: nextCtx } });
 
-          const confirmText = [
-            (typeof (confirmSpec as any)?.message === "string" && String((confirmSpec as any).message).trim())
-              ? String((confirmSpec as any).message).trim()
-              : "Ready to continue.",
-            "Click Confirm to proceed (or Cancel to stop).",
-          ]
-            .filter(Boolean)
-            .join("\n");
+          let confirmText = "";
+          try {
+            confirmText = String(
+              await generateText({
+                system: [
+                  "You are Pura, an AI assistant inside a SaaS portal.",
+                  "The user needs to confirm before you run an action plan.",
+                  "Write a short confirmation prompt in 1-2 sentences.",
+                  "Rules:",
+                  "- Do not include internal IDs.",
+                  "- Mention what you’re about to do at a high level.",
+                  "- Tell them to click Confirm to proceed (or Cancel).",
+                  "- No JSON.",
+                ].join("\n"),
+                user: `Context (JSON):\n${JSON.stringify(
+                  {
+                    workTitle: plan.workTitle ?? null,
+                    confirm: {
+                      title: (confirmSpec as any)?.title ?? null,
+                      message: (confirmSpec as any)?.message ?? null,
+                    },
+                    stepsPreview: resolvedSteps.map((s) => ({ key: s.key, title: s.title })).slice(0, 6),
+                  },
+                  null,
+                  2,
+                )}`,
+              }),
+            )
+              .trim()
+              .slice(0, 800);
+          } catch {
+            confirmText = "";
+          }
 
-          const assistantMsg = await (prisma as any).portalAiChatMessage.create({
-            data: {
-              ownerId,
-              threadId,
-              role: "assistant",
-              text: confirmText,
-              attachmentsJson: null,
-              createdByUserId: null,
-              sendAt: null,
-              sentAt: now,
-            },
-            select: {
-              id: true,
-              role: true,
-              text: true,
-              attachmentsJson: true,
-              createdAt: true,
-              sendAt: true,
-              sentAt: true,
-            },
-          });
+          const assistantMsg = confirmText
+            ? await (prisma as any).portalAiChatMessage.create({
+                data: {
+                  ownerId,
+                  threadId,
+                  role: "assistant",
+                  text: confirmText,
+                  attachmentsJson: null,
+                  createdByUserId: null,
+                  sendAt: null,
+                  sentAt: now,
+                },
+                select: {
+                  id: true,
+                  role: true,
+                  text: true,
+                  attachmentsJson: true,
+                  createdAt: true,
+                  sendAt: true,
+                  sentAt: true,
+                },
+              })
+            : null;
 
-          await maybeUpdateThreadTitle({ thread, threadId, now, promptMessage, assistantText: confirmText });
+          if (confirmText) {
+            await maybeUpdateThreadTitle({ thread, threadId, now, promptMessage, assistantText: confirmText });
+          }
           return NextResponse.json({
             ok: true,
             userMessage: userMsg,
@@ -3753,17 +3735,9 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
       // If planning fails, fall through to existing behavior.
     }
 
-    // AI-first: if we didn't execute/clarify/explain above, fall back to a normal conversation.
-    // BUT: if the user is issuing an imperative request, do not return a text-only reply here.
-    // Instead, fall through to the deterministic/proposal flow below so we can execute actions.
-    const wantsExecutionFallback =
-      looksLikeWeekdaySmsSchedule(effectiveText) ||
-      shouldAutoExecuteFromUserText(effectiveText) ||
-      (/\b(list|show|view|see|what\s+(?:is|are|'s)|any)\b/i.test(effectiveText) &&
-        /\b(scheduled|schedule)\b/i.test(effectiveText) &&
-        /\b(tasks?|messages?|runs?|items?)\b/i.test(effectiveText)) ||
-      /\b(do it|do that|handle it|take care of it|go ahead|just do|for me|please do)\b/i.test(effectiveText);
-    if (!wantsExecutionFallback) {
+    // If agentic planning didn't return a response, fall back to support chat.
+    // AI-first: if model generation fails, omit the assistant bubble.
+    try {
       const reply = await runPortalSupportChat({
         message: promptMessage,
         url: contextUrl,
@@ -3771,376 +3745,14 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
         threadContext: fallbackThreadContext,
       });
 
-      const assistantMsg = await (prisma as any).portalAiChatMessage.create({
-        data: {
-          ownerId,
-          threadId,
-          role: "assistant",
-          text: reply,
-          attachmentsJson: null,
-          createdByUserId: null,
-          sendAt: null,
-          sentAt: now,
-        },
-        select: {
-          id: true,
-          role: true,
-          text: true,
-          attachmentsJson: true,
-          createdAt: true,
-          sendAt: true,
-          sentAt: true,
-        },
-      });
-
-      await (prisma as any).portalAiChatThread.update({ where: { id: threadId }, data: { lastMessageAt: now } });
-      return NextResponse.json({ ok: true, userMessage: userMsg, assistantMessage: assistantMsg, assistantActions: [], autoActionMessage: null, canvasUrl: null });
-    }
-  }
-
-  // Fallback: execute the deterministic weekday SMS scheduler even when the support chat
-  // (and thus agentic planning) is not configured. This prevents “Done.” with no rows created.
-  const weekdaySmsFallbackPlan = buildDeterministicWeekdaySmsPlan({
-    text: effectiveText,
-    ownerTimeZone: String(getTimeZoneHint((thread as any).contextJson) || "").trim() || undefined,
-  });
-  if (weekdaySmsFallbackPlan?.mode === "execute" && Array.isArray(weekdaySmsFallbackPlan.steps) && weekdaySmsFallbackPlan.steps.length) {
-    const results: Array<{
-      ok: boolean;
-      status: number;
-      action: PortalAgentActionKey;
-      args: Record<string, unknown>;
-      result: any;
-      assistantText?: string | null;
-      linkUrl?: string | null;
-      clientUiAction?: any | null;
-    }> = [];
-    const clientUiActions: any[] = [];
-
-    for (const step of weekdaySmsFallbackPlan.steps.slice(0, 6)) {
-      const argsRaw = step.args && typeof step.args === "object" && !Array.isArray(step.args) ? (step.args as Record<string, unknown>) : {};
-      let argsPatched: Record<string, unknown> = { ...argsRaw };
-      if (String(step.key || "").startsWith("ai_chat.") && !String((argsPatched as any).threadId || "").trim()) {
-        (argsPatched as any).threadId = threadId;
-      }
-      if (step.key === "ai_chat.scheduled.create") {
-        argsPatched = patchArgsForScheduledCreate(argsPatched, (thread as any).contextJson);
-      }
-
-      const exec = await executePortalAgentAction({
-        ownerId,
-        actorUserId: createdByUserId,
-        action: step.key,
-        args: argsPatched,
-      });
-
-      const cua = (exec as any).clientUiAction ?? null;
-      results.push({
-        ok: Boolean(exec.ok),
-        status: Number((exec as any).status) || 0,
-        action: step.key,
-        args: argsPatched,
-        result: (exec as any).result,
-        assistantText: typeof (exec as any).assistantText === "string" ? String((exec as any).assistantText) : null,
-        linkUrl: (exec as any).linkUrl ?? null,
-        clientUiAction: cua,
-      });
-      if (cua) clientUiActions.push(cua);
-    }
-
-    let assistantText = "";
-    try {
-      assistantText = String(
-        await generateText({
-          system:
-            "You are an assistant in a SaaS portal. A deterministic scheduling workflow just executed. Summarize what was scheduled (or what failed) for the user in concise markdown. Use per-step headings when multiple steps ran. Do not invent details.",
-          user: `Weekday SMS scheduling results (JSON):\n${JSON.stringify(
-            {
-              steps: weekdaySmsFallbackPlan.steps.slice(0, 6),
-              results,
-            },
-            null,
-            2,
-          )}`,
-        }),
-      ).trim();
-    } catch {
-      assistantText = "";
-    }
-
-    const assistantMsg = assistantText.trim()
-      ? await (prisma as any).portalAiChatMessage.create({
-          data: {
-            ownerId,
-            threadId,
-            role: "assistant",
-            text: assistantText.slice(0, 12000),
-            attachmentsJson: null,
-            createdByUserId: null,
-            sendAt: null,
-            sentAt: now,
-          },
-          select: {
-            id: true,
-            role: true,
-            text: true,
-            attachmentsJson: true,
-            createdAt: true,
-            sendAt: true,
-            sentAt: true,
-          },
-        })
-      : null;
-
-    await (prisma as any).portalAiChatThread.update({ where: { id: threadId }, data: { lastMessageAt: now } });
-
-    return NextResponse.json({
-      ok: true,
-      userMessage: userMsg,
-      assistantMessage: assistantMsg,
-      assistantActions: [],
-      autoActionMessage: null,
-      canvasUrl: null,
-      assistantChoices: null,
-      clientUiActions,
-      openScheduledTasks: true,
-    });
-  }
-
-  // 1) Prefer deterministic action execution for common commands.
-  const deterministicActions = detectDeterministicActionsFromText({ text: cleanText, attachments });
-  if (deterministicActions.length) {
-    const first = deterministicActions[0];
-
-    // If a deterministic action needs confirmation, do not auto-execute it.
-    // Instead, return it as an assistantAction so the user can confirm in the UI.
-    const confirmSpec = getInteractiveConfirmSpecForPortalAgentAction(first.key) || getConfirmSpecForPortalAgentAction(first.key);
-    if (confirmSpec) {
-      const assistantMsg = await (prisma as any).portalAiChatMessage.create({
-        data: {
-          ownerId,
-          threadId,
-          role: "assistant",
-          text: String(confirmSpec.message || "Confirm to continue.").slice(0, 12000),
-          attachmentsJson: null,
-          createdByUserId: null,
-          sendAt: null,
-          sentAt: now,
-        },
-        select: {
-          id: true,
-          role: true,
-          text: true,
-          attachmentsJson: true,
-          createdAt: true,
-          sendAt: true,
-          sentAt: true,
-        },
-      });
-      await (prisma as any).portalAiChatThread.update({ where: { id: threadId }, data: { lastMessageAt: now } });
-
-      const argsPatched: Record<string, unknown> = { ...(first.args || {}) };
-      if (String(first.key || "").startsWith("ai_chat.") && !String((argsPatched as any).threadId || "").trim()) {
-        argsPatched.threadId = threadId;
-      }
-
-      const argsFinal = first.key === "ai_chat.scheduled.create" ? patchArgsForScheduledCreate(argsPatched, (thread as any).contextJson) : argsPatched;
-
-      return NextResponse.json({
-        ok: true,
-        userMessage: userMsg,
-        assistantMessage: assistantMsg,
-        assistantActions: [{ key: first.key, title: first.title, args: argsFinal }],
-        autoActionMessage: null,
-        canvasUrl: null,
-        assistantChoices: null,
-        clientUiActions: [],
-      });
-    }
-
-    let argsPatched: Record<string, unknown> = { ...(first.args || {}) };
-    if (String(first.key || "").startsWith("ai_chat.") && !String((argsPatched as any).threadId || "").trim()) {
-      argsPatched.threadId = threadId;
-    }
-    if (first.key === "ai_chat.scheduled.create") {
-      argsPatched = patchArgsForScheduledCreate(argsPatched, (thread as any).contextJson);
-    }
-
-    const exec = await executePortalAgentActionForThread({
-      ownerId,
-      actorUserId: createdByUserId,
-      threadId,
-      action: first.key,
-      args: argsPatched,
-    });
-
-    return NextResponse.json({
-      ok: true,
-      userMessage: userMsg,
-      assistantMessage: exec.assistantMessage,
-      assistantActions: [],
-      autoActionMessage: null,
-      canvasUrl: exec.ok ? exec.linkUrl || null : null,
-      assistantChoices: Array.isArray((exec as any).assistantChoices) ? (exec as any).assistantChoices : null,
-      clientUiActions: (exec as any).clientUiAction ? [(exec as any).clientUiAction] : [],
-      openScheduledTasks: String(first.key || "").startsWith("ai_chat.scheduled."),
-    });
-  }
-
-  // 2) Best-effort: propose actions the agent can execute.
-  let assistantActions: Array<{ key: string; title: string; confirmLabel?: string; args: Record<string, unknown> }> = [];
-  try {
-    const system = [
-      "You are an automation agent inside a business portal.",
-      "Your job is to propose up to 2 concrete next actions that can be executed via whitelisted portal actions.",
-      "Assume the system CAN execute whitelisted actions. Never refuse with statements like 'I can't do that'.",
-      "Only propose actions when you have enough information from the conversation to fill required fields.",
-      "Never invent IDs (automationId, userId, etc). If missing, propose no actions.",
-      "Never propose ai_chat.* actions (those are internal plumbing; the user should never see them).",
-      "If an action needs a slug (like funnel.create), derive it deterministically from the provided name.",
-      "Output JSON only, in this exact shape: {\"actions\":[{\"key\":...,\"title\":...,\"confirmLabel\":...,\"args\":{...}}]}",
-      "Do not include markdown fences unless needed.",
-      "\n" + portalAgentActionsIndexText({ includeAiChat: false }),
-    ].join("\n");
-
-    const user = [
-      "User message:",
-      promptMessage,
-      "\nCurrent page URL (if any):",
-      parsed.data.url || "",
-      "\nJSON:",
-    ].join("\n");
-
-    const raw = await generateText({ system, user });
-    const obj = extractJsonObject(raw);
-    const parsedActions = ActionProposalSchema.safeParse(obj);
-    if (parsedActions.success) {
-      assistantActions = parsedActions.data.actions.map((a) => ({
-        key: a.key,
-        title: a.title,
-        confirmLabel: a.confirmLabel,
-        args: a.args ?? {},
-      }));
-    }
-  } catch {
-    // ignore
-  }
-
-  // Defense-in-depth: never show internal chat plumbing actions.
-  assistantActions = assistantActions.filter((a) => !String(a.key || "").startsWith("ai_chat."));
-
-  // If the user is trying to apply/remove a tag, avoid suggesting "list tags" as a dead-end.
-  // (But keep it available for actual "list tags" requests.)
-  if (/(\badd\s+tag\b|\bapply\s+tag\b|\bremove\s+tag\b|\bdelete\s+tag\b|\buntag\b|\btag\s+[\s\S]{0,120}\b(as|with)\b)/i.test(cleanText || "")) {
-    assistantActions = assistantActions.filter((a) => a.key !== "contact_tags.list");
-  }
-
-  // 3) Auto-execute when the user is clearly asking to do something.
-  let autoActionMessage: any = null;
-  if (shouldAutoExecuteFromUserText(effectiveText) && assistantActions.length) {
-    const first = assistantActions[0];
-
-    // Never auto-execute actions that require confirmation.
-    const confirmSpec =
-      getInteractiveConfirmSpecForPortalAgentAction(first.key) ||
-      getConfirmSpecForPortalAgentAction(first.key as PortalAgentActionKey);
-    if (confirmSpec) {
-      const assistantMsg = await (prisma as any).portalAiChatMessage.create({
-        data: {
-          ownerId,
-          threadId,
-          role: "assistant",
-          text: String(confirmSpec.message || "Confirm to continue.").slice(0, 12000),
-          attachmentsJson: null,
-          createdByUserId: null,
-          sendAt: null,
-          sentAt: now,
-        },
-        select: {
-          id: true,
-          role: true,
-          text: true,
-          attachmentsJson: true,
-          createdAt: true,
-          sendAt: true,
-          sentAt: true,
-        },
-      });
-      await (prisma as any).portalAiChatThread.update({ where: { id: threadId }, data: { lastMessageAt: now } });
-      return NextResponse.json({ ok: true, userMessage: userMsg, assistantMessage: assistantMsg, assistantActions, autoActionMessage: null, canvasUrl: null });
-    }
-
-    try {
-      const exec = await executePortalAgentActionForThread({
-        ownerId,
-        actorUserId: createdByUserId,
-        threadId,
-        action: first.key as PortalAgentActionKey,
-        args: first.args || {},
-      });
-      if (exec.assistantMessage) {
-        autoActionMessage = exec.assistantMessage;
-        assistantActions = [];
-      }
-      if (Array.isArray((exec as any).assistantChoices) && (exec as any).assistantChoices.length) {
-        return NextResponse.json({
-          ok: true,
-          userMessage: userMsg,
-          assistantMessage: exec.assistantMessage,
-          assistantActions: [],
-          autoActionMessage: null,
-          canvasUrl: null,
-          assistantChoices: (exec as any).assistantChoices,
-          clientUiActions: (exec as any).clientUiAction ? [(exec as any).clientUiAction] : [],
-          openScheduledTasks: String(first.key || "").startsWith("ai_chat.scheduled."),
-        });
-      }
-    } catch {
-      // ignore
-    }
-  }
-
-  // 4) If we auto-executed, return the action result as the assistant message.
-  if (autoActionMessage) {
-    return NextResponse.json({
-      ok: true,
-      userMessage: userMsg,
-      assistantMessage: autoActionMessage,
-      assistantActions,
-      autoActionMessage: null,
-      canvasUrl: null,
-    });
-  }
-
-  // 5) Fall back to support-style chat when no action was executed.
-  // If the user is issuing an imperative command but we couldn't safely execute anything,
-  // ask for the missing info instead of giving step-by-step portal instructions.
-  if (shouldAutoExecuteFromUserText(effectiveText) && !assistantActions.length) {
-    try {
-      const system = [
-        "You are an automation agent inside a business portal.",
-        "The user gave an imperative instruction, but the system is missing required specifics (like IDs).",
-        "Ask ONE short clarifying question to get the missing info so you can execute the action.",
-        "Do NOT give step-by-step instructions for how to do it manually in the UI.",
-        "Be specific and action-oriented.",
-      ].join("\n");
-
-      const user = [
-        "Conversation (most recent last):",
-        recentMessages.map((m) => `${m.role === "assistant" ? "Assistant" : "User"}: ${m.text}`).join("\n") || "(none)",
-        "\nLatest user message:",
-        promptMessage,
-        "\nQuestion:",
-      ].join("\n");
-
-      const q = String(await generateText({ system, user })).trim().slice(0, 600);
-      if (q) {
+      const replyText = typeof reply === "string" ? reply.trim() : "";
+      if (replyText) {
         const assistantMsg = await (prisma as any).portalAiChatMessage.create({
           data: {
             ownerId,
             threadId,
             role: "assistant",
-            text: q,
+            text: replyText,
             attachmentsJson: null,
             createdByUserId: null,
             sendAt: null,
@@ -4157,51 +3769,36 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
           },
         });
 
-        await (prisma as any).portalAiChatThread.update({ where: { id: threadId }, data: { lastMessageAt: new Date() } });
-        return NextResponse.json({ ok: true, userMessage: userMsg, assistantMessage: assistantMsg, assistantActions: [], autoActionMessage: null, canvasUrl: null });
+        await (prisma as any).portalAiChatThread.update({ where: { id: threadId }, data: { lastMessageAt: now } });
+        await maybeUpdateThreadTitle({ thread, threadId, now, promptMessage, assistantText: replyText });
+
+        return NextResponse.json({
+          ok: true,
+          userMessage: userMsg,
+          assistantMessage: assistantMsg,
+          assistantActions: [],
+          autoActionMessage: null,
+          canvasUrl: null,
+          assistantChoices: null,
+          clientUiActions: [],
+        });
       }
     } catch {
       // ignore
     }
   }
 
-  const reply = await runPortalSupportChat({
-    message: promptMessage,
-    url: contextUrl,
-    recentMessages: modelMessages,
-    threadContext: fallbackThreadContext,
+  // AI-first: no deterministic routing/shortcuts, and no deterministic assistant bubble copy.
+  return NextResponse.json({
+    ok: true,
+    userMessage: userMsg,
+    assistantMessage: null,
+    assistantActions: [],
+    autoActionMessage: null,
+    canvasUrl: null,
+    assistantChoices: null,
+    clientUiActions: [],
   });
-
-  const assistantMsg = await (prisma as any).portalAiChatMessage.create({
-    data: {
-      ownerId,
-      threadId,
-      role: "assistant",
-      text: reply,
-      attachmentsJson: null,
-      createdByUserId: null,
-      sendAt: null,
-      sentAt: now,
-    },
-    select: {
-      id: true,
-      role: true,
-      text: true,
-      attachmentsJson: true,
-      createdAt: true,
-      sendAt: true,
-      sentAt: true,
-    },
-  });
-
-  await (prisma as any).portalAiChatThread.update({
-    where: { id: threadId },
-    data: { lastMessageAt: new Date() },
-  });
-
-  await maybeUpdateThreadTitle({ thread, threadId, now, promptMessage, assistantText: reply });
-
-  return NextResponse.json({ ok: true, userMessage: userMsg, assistantMessage: assistantMsg, assistantActions, autoActionMessage: null, canvasUrl: null });
 }
 
 export async function POST(req: Request, ctx: { params: Promise<{ threadId: string }> }) {
