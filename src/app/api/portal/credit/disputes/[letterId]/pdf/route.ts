@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-import { readContactSignatureImage } from "@/lib/creditDisputeLetters";
+import { parseDisputeLetterPromptMeta, readContactAddress, readContactSignatureImage } from "@/lib/creditDisputeLetters";
 import { prisma } from "@/lib/db";
 import { renderDisputeLetterPdfBytes } from "@/lib/disputeLetterPdf";
 import { requireCreditClientSession } from "@/lib/creditPortalAccess";
@@ -26,6 +26,7 @@ export async function POST(_req: Request, ctx: { params: Promise<{ letterId: str
       id: true,
       subject: true,
       bodyText: true,
+      promptText: true,
       pdfMediaItemId: true,
       pdfGeneratedAt: true,
       contact: { select: { id: true, name: true, customVariables: true } },
@@ -50,9 +51,19 @@ export async function POST(_req: Request, ctx: { params: Promise<{ letterId: str
     });
   }
 
+  const parsedMeta = parseDisputeLetterPromptMeta(letter.promptText || "");
+  const senderName = parsedMeta.consumerName || letter.contact?.name || "";
+  const senderAddress = parsedMeta.consumerAddress || readContactAddress(letter.contact?.customVariables) || "";
+
   const pdfBytes = await renderDisputeLetterPdfBytes({
-    title: letter.subject || "Dispute Letter",
     text: letter.bodyText || "(empty)",
+    meta: {
+      dateIso: parsedMeta.dateIso || null,
+      senderName,
+      senderAddress,
+      recipientName: parsedMeta.recipientName || null,
+      recipientAddress: parsedMeta.recipientAddress || null,
+    },
     signatureDataUrl: readContactSignatureImage(letter.contact?.customVariables) || null,
     printedName: letter.contact?.name || "",
   });

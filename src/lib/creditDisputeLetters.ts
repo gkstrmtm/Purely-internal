@@ -61,6 +61,11 @@ export function normalizeDisputeLetterText(
     // Remove any prompt metadata leakage.
     .replace(/^recipient\s*:\s*not provided\s*$/gim, "")
     .replace(/^recipient address\s*:\s*not provided\s*$/gim, "")
+    // If these labels leak into the drafted letter, remove the label and keep the value.
+    .replace(/^recipient\s*:\s*(.+)\s*$/gim, "$1")
+    .replace(/^recipient address\s*:\s*(.+)\s*$/gim, "$1")
+    .replace(/^consumer\/contact name\s*:\s*(.+)\s*$/gim, "$1")
+    .replace(/^consumer address\s*:\s*(.+)\s*$/gim, "$1")
     .replace(/^consumer email\s*:\s*not provided\s*$/gim, "")
     .replace(/^consumer phone\s*:\s*not provided\s*$/gim, "")
     .replace(/^consumer signature on file\s*:\s*.*$/gim, "")
@@ -74,7 +79,13 @@ export function normalizeDisputeLetterText(
     .replace(/your signature if sending a hard copy/gi, signature || "________________")
     // Common bracket placeholders.
     .replace(/\[\s*date\s*\]/gi, date)
+    .replace(/\[\s*recipient address\s*\]/gi, "")
+    .replace(/\[\s*address\s*\]/gi, "")
+    .replace(/\[\s*city\s*,\s*state\s*,\s*zip(?:\s*code)?\s*\]/gi, "")
+    .replace(/^\s*city\s*,\s*state\s*,\s*zip(?:\s*code)?\s*$/gim, "")
+    .replace(/\[\s*signature\s*\]/gi, signature || "")
     .replace(/\(\s*date\s*\)/gi, date)
+    .replace(/^\s*signature\s*:?\s*$/gim, "")
     // Avoid showing "signature on file" in generated letters.
     .replace(/\bsignature on file\b/gi, "")
     .replace(/\bdrawn signature on file\b/gi, "")
@@ -134,4 +145,74 @@ export function normalizeDisputeLetterText(
   }
 
   return text.replace(/\n{3,}/g, "\n\n").trim();
+}
+
+export type DisputeLetterPromptMeta = {
+  dateIso?: string;
+  recipientName?: string;
+  recipientAddress?: string;
+  consumerName?: string;
+  consumerAddress?: string;
+};
+
+function readPromptBlock(lines: string[], startIndex: number, firstLineRemainder: string) {
+  const collected: string[] = [];
+  if (firstLineRemainder.trim()) collected.push(firstLineRemainder.trim());
+
+  const stopRegex =
+    /^\s*(consumer\/contact name|consumer address|consumer email|consumer phone|template selected|draft direction|optional sample structure|dispute context|credit data|write the letter now)\s*:/i;
+
+  for (let i = startIndex + 1; i < lines.length; i += 1) {
+    const line = String(lines[i] || "");
+    if (!line.trim()) break;
+    if (stopRegex.test(line)) break;
+    collected.push(line.trimEnd());
+  }
+
+  return collected.join("\n").trim();
+}
+
+export function parseDisputeLetterPromptMeta(promptText: string): DisputeLetterPromptMeta {
+  const lines = String(promptText || "")
+    .replace(/\r\n?/g, "\n")
+    .split("\n");
+
+  const meta: DisputeLetterPromptMeta = {};
+  for (let i = 0; i < lines.length; i += 1) {
+    const raw = String(lines[i] || "");
+    const line = raw.trim();
+    if (!line) continue;
+
+    const dateMatch = line.match(/^date\s*:\s*(\d{4}-\d{2}-\d{2})\s*$/i);
+    if (dateMatch?.[1] && !meta.dateIso) {
+      meta.dateIso = dateMatch[1];
+      continue;
+    }
+
+    const recipientMatch = line.match(/^recipient\s*:\s*(.+)\s*$/i);
+    if (recipientMatch?.[1] && !/not provided/i.test(recipientMatch[1]) && !meta.recipientName) {
+      meta.recipientName = recipientMatch[1].trim();
+      continue;
+    }
+
+    const recipientAddressMatch = raw.match(/^\s*recipient address\s*:\s*(.*)\s*$/i);
+    if (recipientAddressMatch && !/not provided/i.test(recipientAddressMatch[1] || "") && !meta.recipientAddress) {
+      meta.recipientAddress = readPromptBlock(lines, i, String(recipientAddressMatch[1] || ""));
+      continue;
+    }
+
+    const consumerNameMatch = raw.match(/^\s*consumer\/contact name\s*:\s*(.*)\s*$/i);
+    if (consumerNameMatch && !/not provided/i.test(consumerNameMatch[1] || "") && !meta.consumerName) {
+      meta.consumerName = String(consumerNameMatch[1] || "").trim();
+      continue;
+    }
+
+    const consumerAddressMatch = raw.match(/^\s*consumer address\s*:\s*(.*)\s*$/i);
+    if (consumerAddressMatch && !/not provided/i.test(consumerAddressMatch[1] || "") && !meta.consumerAddress) {
+      meta.consumerAddress = readPromptBlock(lines, i, String(consumerAddressMatch[1] || ""));
+      continue;
+    }
+  }
+
+  return meta;
 }

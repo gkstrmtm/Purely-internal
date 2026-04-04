@@ -98,18 +98,17 @@ export async function POST(req: Request) {
   const address = readContactAddress(contact.customVariables);
 
   const subjectFromClient = (parsed.data.subjectLine || "").trim();
-  const roundPrefix = roundNumber && roundNumber > 1 ? "Follow-up " : "";
-  const recipientLabel = recipientName ? `${recipientName} ` : "";
-  const subjectFallback = `${roundPrefix}${recipientLabel}Dispute letter - ${contact.name}`.trim();
-  const subject = subjectFromClient && !/^\s*follow-?up\s+.*\s-dispute letter\s*-\s*contact\s*$/i.test(subjectFromClient)
-    ? subjectFromClient
-    : subjectFallback;
+  const roundLabel = roundNumber ? `Round ${roundNumber}` : "Round 1";
+  const recipientLabel = recipientName || "Recipient";
+  const subjectFallback = `${roundLabel} - ${contact.name} - ${recipientLabel}`.trim();
+  const subject = subjectFromClient || subjectFallback;
 
   const system =
     "You draft consumer credit dispute letters. Output ONLY a plain-text mailed letter. " +
     "Do not invent facts. If a needed detail is missing, leave a simple blank line instead of writing placeholder text. " +
     "Never write bracket or template placeholders like [Date] or {{date}} - always output the real date provided. " +
     "Do not write the phrase 'signature on file' anywhere in the letter body. Leave a normal signature space instead. " +
+    "Do not repeat the drafting metadata labels (for example 'Recipient address:' or 'Consumer address:') in the letter text. " +
     "Keep it professional, natural, and specific. " +
     "Write a fuller letter, not a stub: use a real correspondence structure with a clear opening, meaningful dispute framing, a concrete itemized section, and a firm closing request. " +
     "If this is follow-up correspondence, acknowledge prior notice naturally without using internal workflow labels. " +
@@ -196,8 +195,14 @@ export async function POST(req: Request) {
   let pdf: null | { mediaItemId: string; openUrl: string; downloadUrl: string; shareUrl: string } = null;
   try {
     const pdfBytes = await renderDisputeLetterPdfBytes({
-      title: created.subject || "Dispute Letter",
       text: created.bodyText || "(empty)",
+      meta: {
+        dateIso: isoDate,
+        senderName: contact.name,
+        senderAddress: address,
+        recipientName: recipientName,
+        recipientAddress: recipientAddress,
+      },
       signatureDataUrl: signatureImage || null,
       printedName: contact.name,
     });

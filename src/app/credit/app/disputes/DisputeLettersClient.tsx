@@ -83,6 +83,24 @@ type FixedMenuStyle = { left: number; top: number; maxHeight: number };
 
 const DISPUTE_SOURCE_STORAGE_PREFIX = "creditDisputeLetterSource:";
 
+function formatDisputeLetterListTitle(subject: string) {
+  const raw = String(subject || "").trim();
+  if (!raw) return "";
+  if (/^round\s+\d+\s*-/i.test(raw)) return raw;
+
+  const match = raw.match(/^\s*(follow-?up\s+)?(.+?)\s+dispute\s+letter\s*-\s*(.+)\s*$/i);
+  if (!match) return raw;
+
+  const isFollowUp = Boolean(match[1]);
+  const recipient = String(match[2] || "").trim();
+  const contactName = String(match[3] || "").trim();
+  const round = isFollowUp ? 2 : 1;
+
+  const safeRecipient = recipient || "Recipient";
+  const safeContact = contactName && !/^contact$/i.test(contactName) ? contactName : "Unknown";
+  return `Round ${round} - ${safeContact} - ${safeRecipient}`.trim();
+}
+
 const ROUND_OPTIONS: PortalListboxOption<string>[] = Array.from({ length: 8 }, (_, index) => ({
   value: String(index + 1),
   label: `Round ${index + 1}`,
@@ -568,10 +586,9 @@ export default function DisputeLettersClient({ mode = "list", initialLetterId = 
     setWorking("generate");
     setError(null);
     try {
-      const contactLabel = selectedContact?.name || contacts.find((entry) => entry.id === contactId)?.name || "Contact";
-      const baseRecipient = recipientName.trim();
-      const roundLabel = roundNumber > 1 ? "Follow-up " : "";
-      const subjectLine = `${roundLabel}${baseRecipient ? `${baseRecipient} ` : ""}Dispute letter - ${contactLabel}`.trim();
+      const contactLabel = selectedContact?.name || contacts.find((entry) => entry.id === contactId)?.name || "Unknown";
+      const baseRecipient = recipientName.trim() || "Recipient";
+      const subjectLine = `Round ${roundNumber} - ${contactLabel} - ${baseRecipient}`.trim();
       const data = await fetchJson<{ ok: true; letter: LetterFull; pdf?: { downloadUrl?: string | null } }>("/api/portal/credit/disputes", {
         method: "POST",
         body: JSON.stringify({
@@ -1084,7 +1101,7 @@ export default function DisputeLettersClient({ mode = "list", initialLetterId = 
                 filteredLetters.map((letter) => (
                   <tr key={letter.id} tabIndex={0} role="button" onClick={() => { window.location.href = routeSet.editorHref(letter.id); }} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); window.location.href = routeSet.editorHref(letter.id); } }} className="cursor-pointer border-t border-zinc-200 transition hover:bg-zinc-50 focus:bg-zinc-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-blue/20">
                     <td className="px-4 py-3">
-                      <div className="font-semibold text-zinc-900">{letter.subject || `Dispute letter - ${letter.contact.name}`}</div>
+                      <div className="font-semibold text-zinc-900">{formatDisputeLetterListTitle(letter.subject) || `Round 1 - ${letter.contact.name} - Recipient`}</div>
                       <div className="mt-1 text-xs text-zinc-500">Created {formatDateTime(letter.createdAt)}</div>
                     </td>
                     <td className="px-4 py-3">
