@@ -3667,214 +3667,276 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
         }
       }
 
-      // 2) Ask the model what to do next (plain response OR JSON actions list).
-      const cheat = toolCheatSheetForPrompt(planningTextWithAttachments, contextUrl);
-      const modelSystem = [
-        "You are Pura, a ChatGPT-style assistant inside a SaaS portal.",
-        "You have access to portal actions (tools).",
-        "If you need to run actions, output JSON ONLY in the shape {\"actions\":[{\"key\":string,\"args\":object,\"title\":string}] }.",
-        "If you do NOT need to run actions, output a normal assistant reply (no JSON).",
-        "If you need more information to proceed, ask ONE specific question.",
-        "Never claim you completed changes in the portal unless the server actually ran an action.",
-        "If you have not run an action yet, speak in terms of what you can do next (e.g., 'I can update that for you').",
-        "When replying normally, avoid report-style formatting (no headings/bullet dumps) unless the user explicitly asked for a list.",
-        "Do not output both text and JSON in the same response.",
-        "\nTooling notes:\n" + cheat,
-      ].join("\n");
+      const looksLikeProceedLoopMessage = (text: string) => {
+        const t = String(text || "").trim().toLowerCase();
+        if (!t) return false;
+        return (
+          /\b(would\s+you\s+like\s+to\s+proceed|should\s+i\s+proceed|do\s+you\s+want\s+me\s+to\s+proceed|do\s+you\s+want\s+me\s+to\s+continue|want\s+me\s+to\s+continue|would\s+you\s+like\s+me\s+to\s+continue|would\s+you\s+like\s+me\s+to\s+do\s+that)\b/.test(t) ||
+          (t.includes("next step") && /\b(proceed|continue)\b/.test(t))
+        );
+      };
 
-      const threadSummaryForPrompt =
-        threadContext && typeof threadContext === "object" && !Array.isArray(threadContext) && typeof (threadContext as any).threadSummary === "string"
-          ? String((threadContext as any).threadSummary || "").trim().slice(0, 1200)
-          : "";
+      const isImperativeRequest = (text: string) => {
+        const t = String(text || "").trim().toLowerCase();
+        if (!t) return false;
+        const hasDo = /\b(go\s+ahead|do\s+it|do\s+that|make\s+it|build\s+it|create|generate|set\s+up|fix|handle\s+it|just\s+do)\b/.test(t);
+        const looksLikeQuestionOnly = /\?\s*$/.test(t) && !/\b(go\s+ahead|please|do\s+it)\b/.test(t);
+        return hasDo && !looksLikeQuestionOnly;
+      };
 
-      const modelUser = [
-        contextUrl ? `Context URL: ${String(contextUrl).slice(0, 1200)}` : null,
-        threadSummaryForPrompt ? `Thread summary: ${threadSummaryForPrompt}` : null,
-        "Recent messages:",
-        JSON.stringify(modelMessages.slice(-28), null, 2).slice(0, 4000),
-        "\nUser request:",
-        planningTextWithAttachments.slice(0, 8000),
-      ]
-        .filter(Boolean)
-        .join("\n");
+      const MAX_AUTORUN_ROUNDS = 4;
+      const MAX_TOTAL_ACTIONS = 18;
 
-      const modelText = String(await generateText({ system: modelSystem, user: modelUser, temperature: isRedo ? 0.85 : 0.6 })).trim();
-      const decision = parseChatWrapperDecision(modelText);
-
-      const actions = Array.isArray(decision?.actions) ? decision!.actions! : [];
-      const directMessage = typeof decision?.message === "string" ? decision!.message!.trim() : "";
-
-      if (!actions.length) {
-        const assistantText = stripEmptyAssistantBullets(directMessage || modelText);
-        const assistantMsg = assistantText.trim()
-          ? await (prisma as any).portalAiChatMessage.create({
-              data: { ownerId, threadId, role: "assistant", text: assistantText.slice(0, 12_000), attachmentsJson: null, createdByUserId: null, sendAt: null, sentAt: now },
-              select: { id: true, role: true, text: true, attachmentsJson: true, createdAt: true, sendAt: true, sentAt: true },
-            })
-          : null;
-
-        const prevCtx = threadContext && typeof threadContext === "object" && !Array.isArray(threadContext) ? (threadContext as any) : {};
-        const nextCtx = { ...prevCtx, pendingAction: null, pendingActionClarify: null, pendingPlan: null, pendingPlanClarify: null };
-        await (prisma as any).portalAiChatThread.update({ where: { id: threadId }, data: { lastMessageAt: now, contextJson: nextCtx } });
-        if (assistantText) await maybeUpdateThreadTitle({ thread, threadId, now, promptMessage, assistantText });
-        return NextResponse.json({ ok: true, userMessage: responseUserMessage, assistantMessage: assistantMsg, assistantActions: [], autoActionMessage: null, canvasUrl: null, assistantChoices: null, clientUiActions: [] });
-      }
-
-      // 3) If any requested action needs confirmation, ask for it and stop.
-      const confirmSpec =
-        actions
-          .map((a) => getInteractiveConfirmSpecForPortalAgentAction(a.key) || getConfirmSpecForPortalAgentAction(a.key))
-          .find(Boolean) || null;
-
-      if (confirmSpec) {
-        const resolvedSteps: Array<{ key: PortalAgentActionKey; title: string; args: Record<string, unknown>; openUrl?: string }> = [];
-
-        let localCtx: any = threadContext && typeof threadContext === "object" && !Array.isArray(threadContext) ? { ...(threadContext as any) } : {};
-        for (const a of actions.slice(0, 6)) {
-          const key = a.key;
-          const title = String(a.title || a.key).trim().slice(0, 160) || String(a.key);
-          const argsRaw = a.args && typeof a.args === "object" && !Array.isArray(a.args) ? (a.args as Record<string, unknown>) : {};
-
-          const resolved = await resolvePlanArgs({ ownerId, stepKey: key, args: argsRaw, userHint: effectiveText, url: contextUrl, threadContext: localCtx });
-          if (!resolved.ok) {
-            const clarifyChoices = Array.isArray((resolved as any).choices) ? ((resolved as any).choices as any[]) : null;
-            const rawClarifyPrompt = String(resolved.clarifyQuestion || "").trim();
-
-            let clarifyText = "";
-            try {
-              const summary =
-                localCtx && typeof localCtx === "object" && !Array.isArray(localCtx) && typeof (localCtx as any).threadSummary === "string"
-                  ? String((localCtx as any).threadSummary || "").trim().slice(0, 1200)
-                  : "";
-
-              clarifyText = String(
-                await generateText({
-                  system: [
-                    "You are Pura, an AI assistant inside a SaaS portal.",
-                    "You need ONE clarifying question so the user can proceed.",
-                    "Write a single short question.",
-                    "Rules:",
-                    "- Do not ask for internal IDs unless the user must paste one.",
-                    "- If clickable choices are available, mention they can click one.",
-                    "- Do NOT list the choices in the message; the UI already shows them as clickable options.",
-                    "- No JSON output.",
-                  ].join("\n"),
-                  user: `Context (JSON):\n${JSON.stringify(
-                    { threadSummary: summary || null, stepKey: key, rawClarifyPrompt: rawClarifyPrompt || null, choices: (clarifyChoices || []).slice(0, 8) },
-                    null,
-                    2,
-                  )}`,
-                }),
-              )
-                .trim()
-                .slice(0, 600);
-            } catch {
-              clarifyText = "";
-            }
-
-            const assistantMsg = clarifyText
-              ? await (prisma as any).portalAiChatMessage.create({
-                  data: { ownerId, threadId, role: "assistant", text: clarifyText, attachmentsJson: null, createdByUserId: null, sendAt: null, sentAt: now },
-                  select: { id: true, role: true, text: true, attachmentsJson: true, createdAt: true, sendAt: true, sentAt: true },
-                })
-              : null;
-
-            const prevCtx = localCtx && typeof localCtx === "object" && !Array.isArray(localCtx) ? localCtx : {};
-            const nextCtx = {
-              ...prevCtx,
-              pendingAction: { key, title, args: argsRaw },
-              pendingActionClarify: { at: now.toISOString(), question: clarifyText || null, rawClarifyPrompt: rawClarifyPrompt || null },
-              pendingPlan: null,
-              pendingPlanClarify: null,
-            };
-            await (prisma as any).portalAiChatThread.update({ where: { id: threadId }, data: assistantMsg ? { lastMessageAt: now, contextJson: nextCtx } : { contextJson: nextCtx } });
-            if (clarifyText) await maybeUpdateThreadTitle({ thread, threadId, now, promptMessage, assistantText: clarifyText });
-
-            return NextResponse.json({ ok: true, userMessage: responseUserMessage, assistantMessage: assistantMsg, assistantActions: [], autoActionMessage: null, canvasUrl: null, assistantChoices: clarifyChoices, clientUiActions: [] });
-          }
-
-          const resolvedArgs = resolved.args && typeof resolved.args === "object" && !Array.isArray(resolved.args)
-            ? (resolved.args as Record<string, unknown>)
-            : {};
-          const resolvedArgsWithThread = (() => {
-            const withThread =
-              key === "ai_chat.scheduled.create" && !String((resolvedArgs as any).threadId || "").trim()
-                ? ({ ...resolvedArgs, threadId } as Record<string, unknown>)
-                : resolvedArgs;
-            if (key === "ai_chat.scheduled.create") return patchArgsForScheduledCreate(withThread, localCtx);
-            if (key === "ai_chat.scheduled.reschedule") return patchArgsForScheduledReschedule(withThread, localCtx);
-            return withThread;
-          })();
-
-          resolvedSteps.push({ key, title, args: resolvedArgsWithThread });
-          if (resolved.contextPatch && typeof resolved.contextPatch === "object" && !Array.isArray(resolved.contextPatch)) {
-            localCtx = { ...localCtx, ...(resolved.contextPatch as any) };
-          }
-        }
-
-        const token = randomUUID();
-        const prevCtx = threadContext && typeof threadContext === "object" && !Array.isArray(threadContext) ? (threadContext as any) : {};
-        const nextCtx = {
-          ...prevCtx,
-          pendingConfirm: { token, createdAt: now.toISOString(), workTitle: resolvedSteps[0]?.title ?? null, steps: resolvedSteps, confirm: confirmSpec },
-          pendingAction: null,
-          pendingActionClarify: null,
-          pendingPlan: null,
-          pendingPlanClarify: null,
-        };
-        await (prisma as any).portalAiChatThread.update({ where: { id: threadId }, data: { lastMessageAt: now, contextJson: nextCtx } });
-
-        let confirmText = "";
-        try {
-          confirmText = String(
-            await generateText({
-              system: [
-                "You are Pura, an AI assistant inside a SaaS portal.",
-                "The user needs to confirm before you run the requested actions.",
-                "Write a short confirmation prompt in 1-2 sentences.",
-                "Rules:",
-                "- Do not include internal IDs.",
-                "- Mention what you’re about to do at a high level.",
-                "- Tell them to click Confirm to proceed (or Cancel).",
-                "- No JSON.",
-              ].join("\n"),
-              user: `Context (JSON):\n${JSON.stringify(
-                {
-                  confirm: { title: (confirmSpec as any)?.title ?? null, message: (confirmSpec as any)?.message ?? null },
-                  stepsPreview: resolvedSteps.map((s) => ({ key: s.key, title: s.title })).slice(0, 6),
-                  userPrompt: String(promptMessage || "").slice(0, 2000),
-                },
-                null,
-                2,
-              )}`,
-            }),
-          )
-            .trim()
-            .slice(0, 800);
-        } catch {
-          confirmText = "";
-        }
-
-        const assistantMsg = confirmText
-          ? await (prisma as any).portalAiChatMessage.create({
-              data: { ownerId, threadId, role: "assistant", text: confirmText, attachmentsJson: null, createdByUserId: null, sendAt: null, sentAt: now },
-              select: { id: true, role: true, text: true, attachmentsJson: true, createdAt: true, sendAt: true, sentAt: true },
-            })
-          : null;
-
-        if (confirmText) await maybeUpdateThreadTitle({ thread, threadId, now, promptMessage, assistantText: confirmText });
-        return NextResponse.json({ ok: true, userMessage: responseUserMessage, assistantMessage: assistantMsg, assistantActions: [], autoActionMessage: null, canvasUrl: null, assistantChoices: null, clientUiActions: [], needsConfirm: { ...(confirmSpec as any), token } });
-      }
-
-      // 4) Execute requested actions immediately.
-      const resolvedSteps: Array<{ key: PortalAgentActionKey; title: string; args: Record<string, unknown>; openUrl?: string }> = [];
-      const contextPatches: Array<Record<string, unknown> | undefined> = [];
-      const results: Array<{ ok: boolean; status: number; action: PortalAgentActionKey; args: Record<string, unknown>; result: any; linkUrl?: string | null; clientUiAction?: any | null }> = [];
-      const clientUiActions: any[] = [];
+      const allResolvedSteps: Array<{ key: PortalAgentActionKey; title: string; args: Record<string, unknown>; openUrl?: string }> = [];
+      const allContextPatches: Array<Record<string, unknown> | undefined> = [];
+      const allResults: Array<{ ok: boolean; status: number; action: PortalAgentActionKey; args: Record<string, unknown>; result: any; linkUrl?: string | null; clientUiAction?: any | null; error?: string | null }> = [];
+      const allClientUiActions: any[] = [];
 
       let localCtx: any = threadContext && typeof threadContext === "object" && !Array.isArray(threadContext) ? { ...(threadContext as any) } : {};
+      const seenPlanKeys = new Set<string>();
+      let finalDirectMessage: string | null = null;
 
-      for (const a of actions.slice(0, 6)) {
+      const runPlannerOnce = async (opts: { round: number; extraSystem?: string; temperature?: number; lastRunSummary?: any }) => {
+        const cheat = toolCheatSheetForPrompt(planningTextWithAttachments, contextUrl);
+        const modelSystem = [
+          "You are Pura, a ChatGPT-style assistant inside a SaaS portal.",
+          "You have access to portal actions (tools).",
+          "If you need to run actions, output JSON ONLY in the shape {\"actions\":[{\"key\":string,\"args\":object,\"title\":string}] }.",
+          "If you do NOT need to run actions, output a normal assistant reply (no JSON).",
+          "If you need more information to proceed, ask ONE specific question.",
+          "Never claim you completed changes in the portal unless the server actually ran an action.",
+          "Do NOT tell the user to do portal steps themselves when you can run actions.",
+          "If the user asked you to do something, do not ask 'Would you like to proceed?' — run the actions now.",
+          "When replying normally, avoid report-style formatting (no headings/bullet dumps) unless the user explicitly asked for a list.",
+          "Do not output both text and JSON in the same response.",
+          "\nTooling notes:\n" + cheat,
+          opts.extraSystem ? `\n${String(opts.extraSystem)}` : null,
+        ]
+          .filter(Boolean)
+          .join("\n");
+
+        const threadSummaryForPrompt =
+          localCtx && typeof localCtx === "object" && !Array.isArray(localCtx) && typeof (localCtx as any).threadSummary === "string"
+            ? String((localCtx as any).threadSummary || "").trim().slice(0, 1200)
+            : "";
+
+        const modelUser = [
+          contextUrl ? `Context URL: ${String(contextUrl).slice(0, 1200)}` : null,
+          threadSummaryForPrompt ? `Thread summary: ${threadSummaryForPrompt}` : null,
+          opts.lastRunSummary ? `Last run summary (JSON):\n${JSON.stringify(opts.lastRunSummary, null, 2).slice(0, 3500)}` : null,
+          "Recent messages:",
+          JSON.stringify(modelMessages.slice(-28), null, 2).slice(0, 4000),
+          "\nUser request:",
+          planningTextWithAttachments.slice(0, 8000),
+        ]
+          .filter(Boolean)
+          .join("\n");
+
+        const modelText = String(
+          await generateText({ system: modelSystem, user: modelUser, temperature: typeof opts.temperature === "number" ? opts.temperature : isRedo ? 0.85 : 0.6 }),
+        ).trim();
+        const decision = parseChatWrapperDecision(modelText);
+        const actions = Array.isArray(decision?.actions) ? decision!.actions! : [];
+        const directMessage = typeof decision?.message === "string" ? decision!.message!.trim() : "";
+        return { modelText, actions, directMessage };
+      };
+
+      for (let round = 0; round < MAX_AUTORUN_ROUNDS; round += 1) {
+        const lastRunSummary = allResolvedSteps.length
+          ? {
+              executedSteps: allResolvedSteps.slice(-12).map((s) => ({ key: s.key, title: s.title })),
+              lastResults: allResults
+                .slice(-12)
+                .map((r) => ({ action: r.action, ok: r.ok, status: r.status, error: r.error || null }))
+                .slice(0, 12),
+            }
+          : null;
+
+        let planned = await runPlannerOnce({
+          round,
+          lastRunSummary,
+          extraSystem:
+            round > 0
+              ? "Continuation: keep going until the user request is DONE. Output the next actions now; do not ask for permission."
+              : undefined,
+        });
+
+        if (!planned.actions.length) {
+          const assistantText = stripEmptyAssistantBullets(planned.directMessage || planned.modelText);
+          if (looksLikeProceedLoopMessage(assistantText) && isImperativeRequest(effectiveText) && round + 1 < MAX_AUTORUN_ROUNDS) {
+            planned = await runPlannerOnce({
+              round,
+              lastRunSummary,
+              temperature: 0.3,
+              extraSystem:
+                "The user already said to do it. Do not ask 'Would you like to proceed?' Output actions only, immediately.",
+            });
+          }
+
+          if (!planned.actions.length) {
+            finalDirectMessage = assistantText || null;
+            break;
+          }
+        }
+
+        const planKey = JSON.stringify(planned.actions.map((a) => ({ key: a.key, args: a.args || null })).slice(0, 6));
+        if (seenPlanKeys.has(planKey)) {
+          finalDirectMessage =
+            "I’m not making progress with the current plan. I’m going to stop here to avoid looping. Tell me the exact funnel/page you want me to target (or click the option if prompted), and I’ll continue.";
+          break;
+        }
+        seenPlanKeys.add(planKey);
+
+        const actions = planned.actions;
+
+        // If any requested action needs confirmation, ask for it and stop.
+        const confirmSpec =
+          actions
+            .map((a) => getInteractiveConfirmSpecForPortalAgentAction(a.key) || getConfirmSpecForPortalAgentAction(a.key))
+            .find(Boolean) || null;
+
+        if (confirmSpec) {
+          const resolvedStepsForConfirm: Array<{ key: PortalAgentActionKey; title: string; args: Record<string, unknown>; openUrl?: string }> = [];
+
+          for (const a of actions.slice(0, 6)) {
+            const key = a.key;
+            const title = String(a.title || a.key).trim().slice(0, 160) || String(a.key);
+            const argsRaw = a.args && typeof a.args === "object" && !Array.isArray(a.args) ? (a.args as Record<string, unknown>) : {};
+
+            const resolved = await resolvePlanArgs({ ownerId, stepKey: key, args: argsRaw, userHint: effectiveText, url: contextUrl, threadContext: localCtx });
+            if (!resolved.ok) {
+              const clarifyChoices = Array.isArray((resolved as any).choices) ? ((resolved as any).choices as any[]) : null;
+              const rawClarifyPrompt = String(resolved.clarifyQuestion || "").trim();
+
+              let clarifyText = "";
+              try {
+                const summary =
+                  localCtx && typeof localCtx === "object" && !Array.isArray(localCtx) && typeof (localCtx as any).threadSummary === "string"
+                    ? String((localCtx as any).threadSummary || "").trim().slice(0, 1200)
+                    : "";
+
+                clarifyText = String(
+                  await generateText({
+                    system: [
+                      "You are Pura, an AI assistant inside a SaaS portal.",
+                      "You need ONE clarifying question so the user can proceed.",
+                      "Write a single short question.",
+                      "Rules:",
+                      "- Do not ask for internal IDs unless the user must paste one.",
+                      "- If clickable choices are available, mention they can click one.",
+                      "- Do NOT list the choices in the message; the UI already shows them as clickable options.",
+                      "- No JSON output.",
+                    ].join("\n"),
+                    user: `Context (JSON):\n${JSON.stringify(
+                      { threadSummary: summary || null, stepKey: key, rawClarifyPrompt: rawClarifyPrompt || null, choices: (clarifyChoices || []).slice(0, 8) },
+                      null,
+                      2,
+                    )}`,
+                  }),
+                )
+                  .trim()
+                  .slice(0, 600);
+              } catch {
+                clarifyText = "";
+              }
+
+              const assistantMsg = clarifyText
+                ? await (prisma as any).portalAiChatMessage.create({
+                    data: { ownerId, threadId, role: "assistant", text: clarifyText, attachmentsJson: null, createdByUserId: null, sendAt: null, sentAt: now },
+                    select: { id: true, role: true, text: true, attachmentsJson: true, createdAt: true, sendAt: true, sentAt: true },
+                  })
+                : null;
+
+              const prevCtx = localCtx && typeof localCtx === "object" && !Array.isArray(localCtx) ? localCtx : {};
+              const nextCtx = {
+                ...prevCtx,
+                pendingAction: { key, title, args: argsRaw },
+                pendingActionClarify: { at: now.toISOString(), question: clarifyText || null, rawClarifyPrompt: rawClarifyPrompt || null },
+                pendingPlan: null,
+                pendingPlanClarify: null,
+              };
+              await (prisma as any).portalAiChatThread.update({ where: { id: threadId }, data: assistantMsg ? { lastMessageAt: now, contextJson: nextCtx } : { contextJson: nextCtx } });
+              if (clarifyText) await maybeUpdateThreadTitle({ thread, threadId, now, promptMessage, assistantText: clarifyText });
+
+              return NextResponse.json({ ok: true, userMessage: responseUserMessage, assistantMessage: assistantMsg, assistantActions: [], autoActionMessage: null, canvasUrl: null, assistantChoices: clarifyChoices, clientUiActions: [] });
+            }
+
+            const resolvedArgs = resolved.args && typeof resolved.args === "object" && !Array.isArray(resolved.args)
+              ? (resolved.args as Record<string, unknown>)
+              : {};
+            const resolvedArgsWithThread = (() => {
+              const withThread =
+                key === "ai_chat.scheduled.create" && !String((resolvedArgs as any).threadId || "").trim()
+                  ? ({ ...resolvedArgs, threadId } as Record<string, unknown>)
+                  : resolvedArgs;
+              if (key === "ai_chat.scheduled.create") return patchArgsForScheduledCreate(withThread, localCtx);
+              if (key === "ai_chat.scheduled.reschedule") return patchArgsForScheduledReschedule(withThread, localCtx);
+              return withThread;
+            })();
+
+            resolvedStepsForConfirm.push({ key, title, args: resolvedArgsWithThread });
+            if (resolved.contextPatch && typeof resolved.contextPatch === "object" && !Array.isArray(resolved.contextPatch)) {
+              localCtx = { ...localCtx, ...(resolved.contextPatch as any) };
+            }
+          }
+
+          const token = randomUUID();
+          const prevCtx = localCtx && typeof localCtx === "object" && !Array.isArray(localCtx) ? localCtx : {};
+          const nextCtx = {
+            ...prevCtx,
+            pendingConfirm: { token, createdAt: now.toISOString(), workTitle: resolvedStepsForConfirm[0]?.title ?? null, steps: resolvedStepsForConfirm, confirm: confirmSpec },
+            pendingAction: null,
+            pendingActionClarify: null,
+            pendingPlan: null,
+            pendingPlanClarify: null,
+          };
+          await (prisma as any).portalAiChatThread.update({ where: { id: threadId }, data: { lastMessageAt: now, contextJson: nextCtx } });
+
+          let confirmText = "";
+          try {
+            confirmText = String(
+              await generateText({
+                system: [
+                  "You are Pura, an AI assistant inside a SaaS portal.",
+                  "The user needs to confirm before you run the requested actions.",
+                  "Write a short confirmation prompt in 1-2 sentences.",
+                  "Rules:",
+                  "- Do not include internal IDs.",
+                  "- Mention what you’re about to do at a high level.",
+                  "- Tell them to click Confirm to proceed (or Cancel).",
+                  "- No JSON.",
+                ].join("\n"),
+                user: `Context (JSON):\n${JSON.stringify(
+                  {
+                    confirm: { title: (confirmSpec as any)?.title ?? null, message: (confirmSpec as any)?.message ?? null },
+                    stepsPreview: resolvedStepsForConfirm.map((s) => ({ key: s.key, title: s.title })).slice(0, 6),
+                    userPrompt: String(promptMessage || "").slice(0, 2000),
+                  },
+                  null,
+                  2,
+                )}`,
+              }),
+            )
+              .trim()
+              .slice(0, 800);
+          } catch {
+            confirmText = "";
+          }
+
+          const assistantMsg = confirmText
+            ? await (prisma as any).portalAiChatMessage.create({
+                data: { ownerId, threadId, role: "assistant", text: confirmText, attachmentsJson: null, createdByUserId: null, sendAt: null, sentAt: now },
+                select: { id: true, role: true, text: true, attachmentsJson: true, createdAt: true, sendAt: true, sentAt: true },
+              })
+            : null;
+
+          if (confirmText) await maybeUpdateThreadTitle({ thread, threadId, now, promptMessage, assistantText: confirmText });
+          return NextResponse.json({ ok: true, userMessage: responseUserMessage, assistantMessage: assistantMsg, assistantActions: [], autoActionMessage: null, canvasUrl: null, assistantChoices: null, clientUiActions: [], needsConfirm: { ...(confirmSpec as any), token } });
+        }
+
+        // Execute requested actions immediately.
+        for (const a of actions.slice(0, 6)) {
+          if (allResolvedSteps.length >= MAX_TOTAL_ACTIONS) break;
         const key = a.key;
         const title = String(a.title || a.key).trim().slice(0, 160) || String(a.key);
         const argsRaw = a.args && typeof a.args === "object" && !Array.isArray(a.args) ? (a.args as Record<string, unknown>) : {};
@@ -3948,8 +4010,8 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
           return withThread;
         })();
 
-        resolvedSteps.push({ key, title, args: resolvedArgsWithThread });
-        contextPatches.push(resolved.contextPatch);
+        allResolvedSteps.push({ key, title, args: resolvedArgsWithThread });
+        allContextPatches.push(resolved.contextPatch);
         if (resolved.contextPatch && typeof resolved.contextPatch === "object" && !Array.isArray(resolved.contextPatch)) {
           localCtx = { ...localCtx, ...(resolved.contextPatch as any) };
         }
@@ -3958,7 +4020,7 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
         const cua = (exec as any).clientUiAction ?? null;
         const execError = typeof (exec as any).error === "string" ? String((exec as any).error).trim().slice(0, 800) : "";
         const execResult = (exec as any).result ?? (execError ? { ok: false, error: execError } : null);
-        results.push({
+        allResults.push({
           ok: Boolean((exec as any).ok),
           status: Number((exec as any).status) || 0,
           action: key,
@@ -3968,21 +4030,29 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
           clientUiAction: cua,
           ...(execError ? { error: execError } : {}),
         } as any);
-        if (cua) clientUiActions.push(cua);
+        if (cua) allClientUiActions.push(cua);
 
         const derivedPatch = deriveThreadContextPatchFromAction(key, resolvedArgsWithThread, (exec as any).result);
         if (derivedPatch && typeof derivedPatch === "object" && !Array.isArray(derivedPatch)) {
-          contextPatches.push(derivedPatch);
+          allContextPatches.push(derivedPatch);
           localCtx = { ...localCtx, ...(derivedPatch as any) };
         }
       }
 
-      const mappedCanvasUrl = (resolvedSteps.map((s) => portalCanvasUrlForAction(s.key, s.args)).filter(Boolean).slice(-1)[0] as string | undefined) || null;
-      const canvasUrl = (results.filter((r) => r.ok).map((r) => r.linkUrl).filter(Boolean).slice(-1)[0] as string | undefined) || mappedCanvasUrl || null;
+        if (allResolvedSteps.length >= MAX_TOTAL_ACTIONS) {
+          finalDirectMessage = null;
+          break;
+        }
+      }
+
+      const mappedCanvasUrl =
+        (allResolvedSteps.map((s) => portalCanvasUrlForAction(s.key, s.args)).filter(Boolean).slice(-1)[0] as string | undefined) || null;
+      const canvasUrl =
+        (allResults.filter((r) => r.ok).map((r) => r.linkUrl).filter(Boolean).slice(-1)[0] as string | undefined) || mappedCanvasUrl || null;
 
       let assistantTextFinal = "";
       try {
-        const resultsForSummary = results.map((r: any) => {
+        const resultsForSummary = allResults.map((r: any) => {
           const cleaned = stripAssistantVisibleAccountingFields((r as any)?.result);
           const extractedError =
             cleaned && typeof cleaned === "object" && !Array.isArray(cleaned) && typeof (cleaned as any).error === "string"
@@ -4000,9 +4070,12 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
             result: cleaned,
           };
         });
-        const workTitle = resolvedSteps[0]?.title || resolvedSteps[0]?.key || "";
+
+        const workTitle = allResolvedSteps[0]?.title || allResolvedSteps[0]?.key || "";
         const okCount = resultsForSummary.filter((r: any) => r && r.ok && Number(r.status) >= 200 && Number(r.status) < 300).length;
         const failedCount = resultsForSummary.filter((r: any) => !r || !r.ok || Number(r.status) < 200 || Number(r.status) >= 300).length;
+
+        const directMessage = finalDirectMessage ? String(finalDirectMessage).trim().slice(0, 800) : "";
         assistantTextFinal = stripEmptyAssistantBullets(
           String(
             await generateText({
@@ -4011,6 +4084,7 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
                 "Write a normal chat reply (not a report).",
                 "Hard constraint: NEVER claim an action succeeded unless ALL steps have ok=true and a 2xx status.",
                 "If ANY step has ok=false or a non-2xx status, you must clearly say it failed and what happens next.",
+                "Do not ask the user to do the portal work themselves unless you truly need missing info.",
                 "Formatting rules:",
                 "- 1-3 short paragraphs.",
                 "- NO headings, NO bullet lists, NO tables.",
@@ -4024,9 +4098,10 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
               user: `Action execution results (JSON):\n${JSON.stringify(
                 {
                   workTitle,
-                  steps: resolvedSteps,
+                  steps: allResolvedSteps,
                   results: resultsForSummary,
-                  summary: { total: resolvedSteps.length, okCount, failedCount },
+                  summary: { total: allResolvedSteps.length, okCount, failedCount },
+                  modelDirectMessage: directMessage || null,
                   canvasUrl,
                   userPrompt: String(promptMessage || "").slice(0, 2000),
                 },
@@ -4037,7 +4112,7 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
           ),
         );
       } catch {
-        assistantTextFinal = "";
+        assistantTextFinal = finalDirectMessage || "";
       }
 
       const assistantMsg = assistantTextFinal.trim()
@@ -4047,13 +4122,13 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
           })
         : null;
 
-      const mergedPatch = Object.assign({}, ...contextPatches.filter(Boolean));
+      const mergedPatch = Object.assign({}, ...allContextPatches.filter(Boolean));
       const prevCtx = localCtx && typeof localCtx === "object" && !Array.isArray(localCtx) ? localCtx : {};
       const prevRuns = Array.isArray((prevCtx as any).runs) ? ((prevCtx as any).runs as unknown[]) : [];
       const runTrace = {
         at: now.toISOString(),
-        workTitle: resolvedSteps[0]?.title || resolvedSteps[0]?.key || null,
-        steps: resolvedSteps.map((s, idx) => ({ key: s.key, title: s.title, ok: Boolean(results[idx]?.ok), linkUrl: results[idx]?.linkUrl ?? null })),
+        workTitle: allResolvedSteps[0]?.title || allResolvedSteps[0]?.key || null,
+        steps: allResolvedSteps.map((s, idx) => ({ key: s.key, title: s.title, ok: Boolean(allResults[idx]?.ok), linkUrl: allResults[idx]?.linkUrl ?? null })),
         canvasUrl,
       };
       const runs = [...prevRuns.slice(-19), runTrace];
@@ -4061,7 +4136,7 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
       const nextCtx = {
         ...prevCtx,
         ...mergedPatch,
-        lastWorkTitle: resolvedSteps[0]?.title || resolvedSteps[0]?.key || null,
+        lastWorkTitle: allResolvedSteps[0]?.title || allResolvedSteps[0]?.key || null,
         lastCanvasUrl: canvasUrl,
         pendingAction: null,
         pendingActionClarify: null,
@@ -4073,8 +4148,8 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
       await (prisma as any).portalAiChatThread.update({ where: { id: threadId }, data: { lastMessageAt: now, contextJson: nextCtx } });
       if (assistantTextFinal) await maybeUpdateThreadTitle({ thread, threadId, now, promptMessage, assistantText: assistantTextFinal });
 
-      const openScheduledTasks = resolvedSteps.some((s) => String(s.key || "").startsWith("ai_chat.scheduled."));
-      return NextResponse.json({ ok: true, userMessage: responseUserMessage, assistantMessage: assistantMsg, assistantActions: [], autoActionMessage: null, canvasUrl, assistantChoices: null, clientUiActions, openScheduledTasks });
+      const openScheduledTasks = allResolvedSteps.some((s) => String(s.key || "").startsWith("ai_chat.scheduled."));
+      return NextResponse.json({ ok: true, userMessage: responseUserMessage, assistantMessage: assistantMsg, assistantActions: [], autoActionMessage: null, canvasUrl, assistantChoices: null, clientUiActions: allClientUiActions, openScheduledTasks });
     } catch {
       // If planning fails, fall through to existing behavior.
     }
