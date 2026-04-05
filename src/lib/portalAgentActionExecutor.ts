@@ -26616,6 +26616,26 @@ export function deriveThreadContextPatchFromAction(action: PortalAgentActionKey,
       }
     }
 
+    // If the user listed/created/edited pages on a funnel, keep that funnelId hot in thread context.
+    // This avoids follow-up `pages.create` calls failing when the planner omits `funnelId`.
+    if (
+      (action === "funnel_builder.pages.list" ||
+        action === "funnel_builder.pages.create" ||
+        action === "funnel_builder.pages.update" ||
+        action === "funnel_builder.pages.delete" ||
+        action === "funnel_builder.pages.generate_html" ||
+        action === "funnel_builder.pages.export_custom_html") &&
+      typeof (args as any)?.funnelId === "string"
+    ) {
+      const id = String((args as any).funnelId).trim().slice(0, 120);
+      if (id) {
+        // Prefer any existing label from returned funnel/page objects.
+        const labelFromPage = typeof (json as any).page?.title === "string" ? String((json as any).page.title).trim().slice(0, 120) : "";
+        const label = labelFromPage || "Funnel";
+        return { lastFunnel: { id, label } };
+      }
+    }
+
     // Persist the “current page” after create/update/generate so follow-up commands like
     // “add my calendar to the same one we just made” don’t require another page selection.
     if (action === "funnel_builder.pages.create" && (json as any).page?.id) {
@@ -26624,7 +26644,7 @@ export function deriveThreadContextPatchFromAction(action: PortalAgentActionKey,
       const pageId = String(page?.id || "").trim();
       if (funnelId && pageId) {
         const label = String(page?.title || page?.slug || "Page").trim().slice(0, 120) || "Page";
-        return { lastFunnelPage: { id: pageId, label, funnelId } };
+        return { lastFunnel: { id: funnelId.slice(0, 120), label: "Funnel" }, lastFunnelPage: { id: pageId, label, funnelId } };
       }
     }
 

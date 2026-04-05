@@ -3323,13 +3323,40 @@ export async function resolvePlanArgs(opts: {
     if (stepKeyLower === "funnel_builder.pages.list" || stepKeyLower === "funnel_builder.funnels.get" || stepKeyLower === "funnel_builder.funnels.delete") {
       args = { funnelId };
     } else if (stepKeyLower === "funnel_builder.pages.create") {
-      const slug = typeof (args as any).slug === "string" ? String((args as any).slug).trim().slice(0, 64) : "";
+      const slugRaw = typeof (args as any).slug === "string" ? String((args as any).slug).trim() : "";
       const title = typeof (args as any).title === "string" ? String((args as any).title).trim().slice(0, 200) : null;
       const contentMarkdown = typeof (args as any).contentMarkdown === "string" ? String((args as any).contentMarkdown) : null;
       const sortOrder = typeof (args as any).sortOrder === "number" && Number.isFinite((args as any).sortOrder) ? (args as any).sortOrder : null;
+
+      const slugifyLike = (raw: string): string => {
+        const s = String(raw || "")
+          .trim()
+          .toLowerCase()
+          .replace(/https?:\/\//g, " ")
+          .replace(/[^a-z0-9]+/g, "-")
+          .replace(/-+/g, "-")
+          .replace(/^-/, "")
+          .replace(/-$/, "")
+          .slice(0, 64);
+        return s;
+      };
+
+      // `slug` is required by the strict action schema and the API route.
+      // The planner frequently omits it, so generate a safe default from title/hint.
+      let slug = slugifyLike(slugRaw);
+      if (!slug) {
+        const hint = [title || "", String(opts.userHint || "")]
+          .map((s) => String(s || "").trim())
+          .filter(Boolean)
+          .join(" ")
+          .slice(0, 300);
+        slug = slugifyLike(hint);
+      }
+      if (!slug) slug = `page-${Math.floor(1000 + Math.random() * 9000)}`;
+
       args = {
         funnelId,
-        ...(slug ? { slug } : {}),
+        slug,
         ...(title !== null && title !== "" ? { title } : {}),
         ...(contentMarkdown !== null ? { contentMarkdown } : {}),
         ...(sortOrder !== null ? { sortOrder } : {}),
