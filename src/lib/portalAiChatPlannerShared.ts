@@ -56,56 +56,85 @@ export function toolCheatSheetForPrompt(textRaw: string, urlRaw?: string): strin
     u.includes("/page") ||
     u.includes("/builder");
   const isBooking = /\b(book|booking|calendar|appointment|availability|schedule)\b/.test(t) || u.includes("/booking");
-  const isInbox = /\b(inbox|sms|text|email|reply|message)\b/.test(t) || u.includes("/inbox");
-  const isTasks = /\b(task|todo|to-do|to do|assign)\b/.test(t);
+
+  const allKeys = listAvailablePortalActionKeys();
+
+  const groups = new Map<string, string[]>();
+  for (const key of allKeys) {
+    const ns = String(key).split(".")[0] || "other";
+    const arr = groups.get(ns) || [];
+    arr.push(String(key));
+    groups.set(ns, arr);
+  }
+
+  const sortedNamespaces = Array.from(groups.keys()).sort((a, b) => a.localeCompare(b));
+  for (const ns of sortedNamespaces) {
+    (groups.get(ns) || []).sort((a, b) => a.localeCompare(b));
+  }
+
+  function wrapLine(prefix: string, items: string[], maxWidth: number): string[] {
+    const out: string[] = [];
+    let line = prefix;
+    for (const item of items) {
+      const next = line === prefix ? `${line}${item}` : `${line} | ${item}`;
+      if (next.length > maxWidth && line !== prefix) {
+        out.push(line);
+        line = `${" ".repeat(prefix.length)}${item}`;
+        continue;
+      }
+      line = next;
+    }
+    if (line.trim()) out.push(line);
+    return out;
+  }
 
   const lines: string[] = [];
-  lines.push("When you need to run portal actions, respond with JSON ONLY:");
-  if (isFunnelBuilder) {
-    lines.push('{"actions":[{"key":"funnel_builder.pages.update","args":{},"title":"Update funnel page"}]}');
-  } else if (isInbox) {
-    lines.push('{"actions":[{"key":"inbox.threads.list","args":{},"title":"List inbox threads"}]}');
-  } else if (isBooking) {
-    lines.push('{"actions":[{"key":"booking.settings.get","args":{},"title":"Fetch booking settings"}]}');
-  } else {
-    lines.push('{"actions":[{"key":"tasks.list","args":{},"title":"List tasks"}]}');
-  }
-  lines.push("Otherwise, respond normally (no JSON).\n");
 
-  lines.push("Common action keys:");
-  if (isFunnelBuilder) {
-    lines.push("- funnel_builder.funnels.list / funnel_builder.funnels.get / funnel_builder.funnels.update");
-    lines.push("- funnel_builder.pages.list / funnel_builder.pages.create / funnel_builder.pages.update / funnel_builder.pages.delete");
-    lines.push("- funnel_builder.pages.generate_html / funnel_builder.pages.export_custom_html");
-    lines.push("- funnel_builder.forms.list / funnel_builder.forms.get / funnel_builder.forms.update");
-    lines.push("- funnel_builder.domains.list / funnel_builder.domains.create / funnel_builder.domains.verify");
-    lines.push(
-      "Tool selection rule: If the user is working on a funnel/page/website, prefer funnel_builder.* actions. Do NOT use booking.* unless the user explicitly asked about booking settings/calendars.",
-    );
-    lines.push(
-      "If the user asks to build a funnel and pages are missing, you should (1) list funnels/pages, then (2) create missing pages, then (3) update page content.",
-    );
+  lines.push("TOOL-USE OUTPUT FORMAT (choose exactly one):");
+  lines.push("A) To run portal tools, output JSON only:");
+  lines.push('{"actions":[{"key":"<action_key>","title":"<short title>","args":{}}]}');
+  lines.push("B) To respond normally (no tools), output a normal assistant message (no JSON).");
+  lines.push("");
+
+  lines.push("PROGRESS RULE (very important):");
+  lines.push("- When the user tells you to DO something in the portal, keep making progress.");
+  lines.push("- If an ID is missing, start with a safe discovery action (list/get/search) to find it.");
+  lines.push("- If a name is missing for a create action, pick a short sensible default name and proceed (do not use the whole user request as a name).");
+  lines.push("- Ask at most ONE follow-up question, and only after doing any discovery you can.");
+  lines.push("");
+
+  lines.push("TOOL SELECTION (pick by domain):");
+  lines.push("- Funnels/pages/website builder: funnel_builder.*");
+  lines.push("- Booking calendars/availability/bookings: booking.*");
+  lines.push("- Inbox messaging: inbox.*");
+  lines.push("- Tasks/to-dos: tasks.*");
+  lines.push("- Contacts/CRM: contacts.*");
+  lines.push("");
+
+  lines.push("DEFAULTS (use when user didn't specify):");
+  if (isFunnelBuilder || /\bappointment booking funnel\b/.test(t)) {
+    lines.push("- Funnel name: Appointment Booking Funnel");
+    lines.push("- Pages: Booking, Thank You");
   }
-  if (!isFunnelBuilder && isBooking) {
-    lines.push("- booking.settings.get / booking.settings.update");
-    lines.push("- booking.calendars.get / booking.calendars.update");
-    lines.push("- booking.form.get / booking.form.update");
-    lines.push("- booking.availability.set_daily");
-    lines.push("- booking.bookings.list / booking.cancel / booking.reschedule / booking.contact");
+  if (isBooking) {
+    lines.push("- Calendar name: New Calendar");
+    lines.push("- Availability: fully available (all days) unless told otherwise");
   }
-  if (!isFunnelBuilder && isInbox) {
-    lines.push("- inbox.threads.list / inbox.thread.get / inbox.send / inbox.send_sms / inbox.send_email");
-  }
-  if (!isFunnelBuilder && isTasks) {
-    lines.push("- tasks.list / tasks.create / tasks.update");
-  }
-  if (!isFunnelBuilder && !isBooking && !isInbox && !isTasks) {
-    lines.push("- tasks.list / tasks.create / tasks.update");
-    lines.push("- contacts.search / contacts.get / contacts.update");
-    lines.push("- booking.settings.get / booking.calendars.get / booking.form.get");
+  lines.push("");
+
+  lines.push("AVAILABLE ACTION KEYS (use these exact strings):");
+  for (const ns of sortedNamespaces) {
+    const items = groups.get(ns) || [];
+    lines.push(`${ns} (${items.length})`);
+    lines.push(...wrapLine("  ", items, 140));
   }
 
-  return lines.join("\n").slice(0, 1600);
+  const maxLen = 24000;
+  const full = lines.join("\n");
+  if (full.length <= maxLen) return full;
+
+  const truncated = full.slice(0, maxLen);
+  return `${truncated}\n\n... (tool cheat sheet truncated: ${full.length - maxLen} chars omitted)`;
 }
 
 export function getInteractiveConfirmSpecForPortalAgentAction(actionRaw: unknown): { title: string; message: string } | null {
@@ -206,18 +235,23 @@ export function isImperativeRequest(text: string): boolean {
 
 export function buildPlannerSystemPrompt(opts: { cheatSheet: string; extraSystem?: string | undefined | null }): string {
   return [
-    "You are Pura, a ChatGPT-style assistant inside a SaaS portal.",
-    "You have access to portal actions (tools).",
-    'If you need to run actions, output JSON ONLY in the shape {"actions":[{"key":string,"args":object,"title":string}] }.',
-    "If you do NOT need to run actions, output a normal assistant reply (no JSON).",
-    "If you need more information to proceed, ask ONE specific question.",
-    "Never claim you completed changes in the portal unless the server actually ran an action.",
-    "Do NOT tell the user to do portal steps themselves when you can run actions.",
-    "If the user asked you to do something, do not ask 'Would you like to proceed?' - run the actions now.",
-    "When replying normally, avoid report-style formatting (no headings/bullet dumps) unless the user explicitly asked for a list.",
-    "Do not output both text and JSON in the same response.",
-    "\nTooling notes:\n" + String(opts.cheatSheet || ""),
-    opts.extraSystem ? `\n${String(opts.extraSystem)}` : null,
+    "You are Pura, an assistant inside a SaaS portal.",
+    "You can operate the portal by emitting tool actions.",
+    "",
+    "OUTPUT MODE (choose exactly one):",
+    '1) TOOL MODE: JSON only in the shape {"actions":[{"key":string,"title":string,"args":object}] }',
+    "2) CHAT MODE: normal assistant message (no JSON)",
+    "",
+    "WORK STYLE:",
+    "- When the user asks you to do a portal task, use TOOL MODE to make progress.",
+    "- Use discovery tools (list/get/search) first when IDs are unknown.",
+    "- Use short sensible defaults for missing names (calendar/funnel/page).",
+    "- If you still need something from the user after making progress, ask ONE specific follow-up question.",
+    "- In CHAT MODE, summarize what you did and what you need next.",
+    "",
+    "TOOLING NOTES:",
+    String(opts.cheatSheet || ""),
+    opts.extraSystem ? String(opts.extraSystem) : null,
   ]
     .filter(Boolean)
     .join("\n");
