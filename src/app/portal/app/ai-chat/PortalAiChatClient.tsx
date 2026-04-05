@@ -9,7 +9,7 @@ import { AppConfirmModal, AppModal } from "@/components/AppModal";
 import { LocalDateTimePicker } from "@/components/LocalDateTimePicker";
 import { useToast } from "@/components/ToastProvider";
 import { PortalMediaPickerModal, type PortalMediaPickItem } from "@/components/PortalMediaPickerModal";
-import { IconSchedule, IconSend, IconSendHover } from "@/app/portal/PortalIcons";
+import { IconCopy, IconEdit, IconSchedule, IconSend, IconSendHover } from "@/app/portal/PortalIcons";
 import { PORTAL_SERVICES } from "@/app/portal/services/catalog";
 import { useSetPortalSidebarOverride } from "@/app/portal/PortalSidebarOverride";
 import { usePuraCanvasUiBridgeClient, type PuraCanvasUiAction } from "@/lib/puraCanvasUiBridge.client";
@@ -369,12 +369,16 @@ function MessageBubble({
   onRunAction,
   runningActionKey,
   onOpenLink,
+  footerLeft,
+  footerRight,
 }: {
   msg: Message;
   assistantVariant?: "light" | "dark";
   onRunAction?: (action: AssistantAction) => void;
   runningActionKey?: string | null;
   onOpenLink?: (href: string) => void;
+  footerLeft?: ReactNode;
+  footerRight?: ReactNode;
 }) {
   const isUser = msg.role === "user";
   const isThinking = msg.id.startsWith("optimistic-assistant-") && msg.role === "assistant";
@@ -548,9 +552,19 @@ function MessageBubble({
     </div>
   );
 
+  const hasFooter = Boolean(footerLeft) || Boolean(footerRight);
+
   return (
     <div className={classNames("flex", isUser ? "justify-end" : "justify-start")}>
-      <div className={classNames("max-w-[min(980px,100%)]", isUser ? "ml-10" : "mr-10")}>{bubble}</div>
+      <div className={classNames("inline-flex max-w-[min(980px,100%)] flex-col", isUser ? "ml-10" : "mr-10")}>
+        {bubble}
+        {hasFooter ? (
+          <div className={classNames("mt-1 flex items-center gap-2", isUser ? "justify-end" : "justify-between")}>
+            <div className="flex items-center gap-1">{footerLeft}</div>
+            <div className="flex items-center justify-end gap-1">{footerRight}</div>
+          </div>
+        ) : null}
+      </div>
     </div>
   );
 }
@@ -735,7 +749,7 @@ export function PortalAiChatClient() {
   const [dictatingMessageId, setDictatingMessageId] = useState<string | null>(null);
   const [dictationPlayingMessageId, setDictationPlayingMessageId] = useState<string | null>(null);
   const dictationRef = useRef<{ audio: HTMLAudioElement; objectUrl: string; messageId: string } | null>(null);
-  const [regenerating, setRegenerating] = useState(false);
+  const [regeneratingThreadId, setRegeneratingThreadId] = useState<string | null>(null);
 
   const [scheduleTaskOpen, setScheduleTaskOpen] = useState(false);
   const [scheduleTaskText, setScheduleTaskText] = useState("");
@@ -847,6 +861,7 @@ export function PortalAiChatClient() {
   const messages = messagesByThread[activeThreadKey] ?? [];
   const messagesLoading = activeThreadId ? loadingThreadIds.has(activeThreadId) : false;
   const sending = activeThreadId ? sendingThreadIds.has(activeThreadId) : draftSending;
+  const regenerating = Boolean(activeThreadId && regeneratingThreadId === activeThreadId);
   const activeThreadUiState = threadUiStateById[activeThreadKey] ?? createEmptyThreadUiState();
   const activeThreadDraft = threadDraftsById[activeThreadKey] ?? createEmptyThreadDraftState();
   const ambiguousContacts = activeThreadUiState.ambiguousContacts;
@@ -1841,29 +1856,62 @@ export function PortalAiChatClient() {
 
   const redoLastAssistant = useCallback(async () => {
     if (!activeThreadId) return;
-    if (regenerating) return;
+    if (regeneratingThreadId === activeThreadId) return;
+    const threadIdAtStart = activeThreadId;
 
-    setRegenerating(true);
+    setRegeneratingThreadId(threadIdAtStart);
     try {
-      const res = await fetch(`/api/portal/ai-chat/threads/${encodeURIComponent(activeThreadId)}/messages`, {
+      const res = await fetch(`/api/portal/ai-chat/threads/${encodeURIComponent(threadIdAtStart)}/messages`, {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", ...clientTimeZoneHeaders },
         body: JSON.stringify({
           redoLastAssistant: true,
           url: typeof window !== "undefined" ? window.location.href : undefined,
           ...(canvasUrl ? { canvasUrl } : {}),
+          ...(clientTimeZone ? { clientTimeZone } : {}),
         }),
       });
       const json = await res.json().catch(() => null);
       if (!json?.ok) throw new Error(json?.error || "Redo failed");
-      void loadMessages(activeThreadId);
+      void loadMessages(threadIdAtStart);
       void loadThreads();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : String(e));
     } finally {
-      setRegenerating(false);
+      setRegeneratingThreadId((prev) => (prev === threadIdAtStart ? null : prev));
     }
-  }, [activeThreadId, canvasUrl, loadMessages, loadThreads, regenerating, toast]);
+  }, [activeThreadId, canvasUrl, clientTimeZone, clientTimeZoneHeaders, loadMessages, loadThreads, regeneratingThreadId, toast]);
+
+  const copyMessageText = useCallback(
+    async (textRaw: string) => {
+      const text = String(textRaw || "");
+      if (!text.trim()) return;
+      try {
+        await navigator.clipboard.writeText(text);
+        toast.success("Copied");
+      } catch {
+        toast.error("Unable to copy");
+      }
+    },
+    [toast],
+  );
+
+  const editUserMessage = useCallback(
+    (textRaw: string) => {
+      const text = String(textRaw || "");
+      setThreadDraftState(activeThreadKey, (prev) => ({ ...prev, input: text }));
+      requestAnimationFrame(() => {
+        resizeInput();
+        try {
+          inputRef.current?.focus();
+          inputRef.current?.setSelectionRange(text.length, text.length);
+        } catch {
+          // ignore
+        }
+      });
+    },
+    [activeThreadKey, resizeInput, setThreadDraftState],
+  );
 
   const left = useMemo(
     () => (
@@ -2654,14 +2702,26 @@ export function PortalAiChatClient() {
                     }
                     return -1;
                   })();
+                  const lastUserIndex = (() => {
+                    for (let i = messages.length - 1; i >= 0; i--) {
+                      const m = messages[i];
+                      if (m?.role !== "user") continue;
+                      if (!String(m.text || "").trim()) continue;
+                      return i;
+                    }
+                    return -1;
+                  })();
                   return messages.map((m, i) => {
                     const variant = m.role === "assistant" ? (assistantIdx++ % 2 === 0 ? "dark" : "light") : undefined;
                     const isThinking = m.id.startsWith("optimistic-assistant-") && m.role === "assistant";
                     const isLastAssistant = !isThinking && m.role === "assistant" && i === lastAssistantIndex;
+                    const isLastUser = m.role === "user" && i === lastUserIndex;
                     const showAmbiguousContacts = isLastAssistant && Boolean(ambiguousContacts && ambiguousContacts.length);
                     const showChoices = isLastAssistant && Boolean(assistantChoices && assistantChoices.length);
                     const showCanvasUiAmbiguity =
                       isLastAssistant && Boolean(canvasUiAmbiguity && Array.isArray(canvasUiAmbiguity.candidates) && canvasUiAmbiguity.candidates.length);
+
+                    const canCopy = Boolean(String(m.text || "").trim());
                     return (
                       <div key={m.id}>
                         <MessageBubble
@@ -2670,50 +2730,84 @@ export function PortalAiChatClient() {
                           onRunAction={(a) => void runAssistantAction(a)}
                           runningActionKey={runningActionKey}
                           onOpenLink={openInCanvas}
-                        />
-                        {isLastAssistant ? (
-                          <div className="mt-1 flex items-center justify-start gap-1">
-                            <button
-                              type="button"
-                              className={classNames(
-                                "inline-flex h-8 w-8 items-center justify-center rounded-xl bg-transparent text-zinc-600 transition-all duration-150 hover:scale-110 hover:bg-zinc-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/30",
-                                (dictating || regenerating || sending) && "opacity-60",
-                              )}
-                              onClick={() => void dictateAssistantMessage(m.id)}
-                              disabled={dictating || regenerating || sending}
-                              aria-label={dictationPlayingMessageId === m.id ? "Stop dictation" : "Dictate last assistant message"}
-                              title={
-                                dictating && dictatingMessageId === m.id
-                                  ? "Dictating…"
-                                  : dictationPlayingMessageId === m.id
-                                    ? "Stop dictation"
-                                    : "Dictate"
-                              }
-                            >
-                              {dictating && dictatingMessageId === m.id ? (
-                                <IconSpinner size={16} />
-                              ) : dictationPlayingMessageId === m.id ? (
-                                <span className="text-[14px] font-bold leading-none">■</span>
-                              ) : (
-                                <IconVolumeGlyph size={16} />
-                              )}
-                            </button>
+                          footerLeft={
+                            isLastAssistant ? (
+                              <>
+                                <button
+                                  type="button"
+                                  className={classNames(
+                                    "inline-flex h-8 w-8 items-center justify-center rounded-xl bg-transparent text-zinc-600 transition-all duration-150 hover:scale-110 hover:bg-zinc-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/30",
+                                    (dictating || regenerating || sending) && "opacity-60",
+                                  )}
+                                  onClick={() => void dictateAssistantMessage(m.id)}
+                                  disabled={dictating || regenerating || sending}
+                                  aria-label={dictationPlayingMessageId === m.id ? "Stop dictation" : "Dictate last assistant message"}
+                                  title={
+                                    dictating && dictatingMessageId === m.id
+                                      ? "Dictating…"
+                                      : dictationPlayingMessageId === m.id
+                                        ? "Stop dictation"
+                                        : "Dictate"
+                                  }
+                                >
+                                  {dictating && dictatingMessageId === m.id ? (
+                                    <IconSpinner size={16} />
+                                  ) : dictationPlayingMessageId === m.id ? (
+                                    <span className="text-[14px] font-bold leading-none">■</span>
+                                  ) : (
+                                    <IconVolumeGlyph size={16} />
+                                  )}
+                                </button>
 
-                            <button
-                              type="button"
-                              className={classNames(
-                                "inline-flex h-8 w-8 items-center justify-center rounded-xl bg-transparent text-zinc-600 transition-all duration-150 hover:scale-110 hover:bg-zinc-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/30",
-                                (dictating || regenerating || sending) && "opacity-60",
-                              )}
-                              onClick={() => void redoLastAssistant()}
-                              disabled={dictating || regenerating || sending}
-                              aria-label="Redo last assistant response"
-                              title={regenerating ? "Redoing…" : "Redo"}
-                            >
-                              {regenerating ? <IconSpinner size={16} /> : <IconRedoGlyph size={16} />}
-                            </button>
-                          </div>
-                        ) : null}
+                                <button
+                                  type="button"
+                                  className={classNames(
+                                    "inline-flex h-8 w-8 items-center justify-center rounded-xl bg-transparent text-zinc-600 transition-all duration-150 hover:scale-110 hover:bg-zinc-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/30",
+                                    (dictating || regenerating || sending) && "opacity-60",
+                                  )}
+                                  onClick={() => void redoLastAssistant()}
+                                  disabled={dictating || regenerating || sending}
+                                  aria-label="Redo last assistant response"
+                                  title={regenerating ? "Redoing…" : "Redo"}
+                                >
+                                  {regenerating ? <IconSpinner size={16} /> : <IconRedoGlyph size={16} />}
+                                </button>
+                              </>
+                            ) : null
+                          }
+                          footerRight={
+                            <>
+                              {isLastUser ? (
+                                <button
+                                  type="button"
+                                  className={classNames(
+                                    "inline-flex h-8 w-8 items-center justify-center rounded-xl bg-transparent text-zinc-600 transition-all duration-150 hover:scale-110 hover:bg-zinc-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/30",
+                                    (dictating || regenerating || sending) && "opacity-60",
+                                  )}
+                                  onClick={() => editUserMessage(m.text)}
+                                  disabled={dictating || regenerating || sending}
+                                  aria-label="Edit last user message"
+                                  title="Edit"
+                                >
+                                  <IconEdit size={16} />
+                                </button>
+                              ) : null}
+                              <button
+                                type="button"
+                                className={classNames(
+                                  "inline-flex h-8 w-8 items-center justify-center rounded-xl bg-transparent text-zinc-600 transition-all duration-150 hover:scale-110 hover:bg-zinc-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/30",
+                                  !canCopy && "opacity-40",
+                                )}
+                                onClick={() => void copyMessageText(m.text)}
+                                disabled={!canCopy}
+                                aria-label="Copy message"
+                                title={canCopy ? "Copy" : "Nothing to copy"}
+                              >
+                                <IconCopy size={16} />
+                              </button>
+                            </>
+                          }
+                        />
                         {showAmbiguousContacts && (
                           <div className="mt-2 flex flex-wrap gap-2">
                             {ambiguousContacts?.map((c, idx) => (
@@ -2745,7 +2839,7 @@ export function PortalAiChatClient() {
                             <button
                               type="button"
                               className="rounded-2xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-900 hover:bg-zinc-50"
-                              onClick={() => void send("doesn't matter")}
+                              onClick={() => void send("No preference.")}
                               title="No preference - pick a reasonable default"
                             >
                               No preference

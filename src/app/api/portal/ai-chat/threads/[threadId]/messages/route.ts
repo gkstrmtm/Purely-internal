@@ -278,7 +278,10 @@ function normalizeClarifyText(raw: unknown): string {
 function userRefusedToClarify(textRaw: unknown): boolean {
   const t = String(textRaw || "").trim().toLowerCase();
   if (!t) return false;
-  return /^(no|nah|nope)\b/.test(t) || /\b(i\s*don'?t\s*know|idk|not\s*sure|whatever|you\s*decide|up\s*to\s*you|doesn'?t\s*matter|any\s+is\s+fine)\b/.test(t);
+  return (
+    /^(no|nah|nope)\b/.test(t) ||
+    /\b(i\s*don'?t\s*know|idk|not\s*sure|whatever|you\s*decide|up\s*to\s*you|doesn'?t\s*matter|any\s+is\s+fine|no\s*preference)\b/.test(t)
+  );
 }
 
 async function extractPdfText(bytes: Buffer): Promise<string> {
@@ -2686,6 +2689,8 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
   };
 
   const redoLastAssistant = Boolean((parsed.data as any).redoLastAssistant);
+  let redoLatestUserText: string | null = null;
+  let skipUserInsert = false;
   if (redoLastAssistant) {
     const recent = await (prisma as any).portalAiChatMessage.findMany({
       where: { ownerId, threadId },
@@ -2716,68 +2721,18 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
       }
     }
 
-    if (!lastUser || !String(lastUser.text || "").trim()) {
+    const lastUserText = String(lastUser?.text || "").trim();
+    if (!lastUserText) {
       return NextResponse.json({ ok: false, error: "No user message found to redo." }, { status: 400 });
     }
 
+    // Delete the last assistant message so the next run replaces it.
     await (prisma as any).portalAiChatMessage.deleteMany({ where: { id: lastAssistant.id, ownerId, threadId } });
 
-    const threadContext = (thread as any).contextJson ?? null;
-
-    const recentMessages = ordered
-      .slice(0, lastAssistantIdx)
-      .filter((m) => (m?.role === "user" || m?.role === "assistant") && String(m?.text || "").trim())
-      .slice(-40)
-      .map((m) => ({ role: m.role, text: String(m.text || "").trim().slice(0, 4000) }));
-
-    const prompt = [
-      "Regenerate the assistant's last response to the user message below.",
-      "Constraints:",
-      "- Do not mention that you are regenerating or redoing.",
-      "- Do not execute any portal actions; this is text-only regeneration.",
-      "- Keep the answer helpful and concise.",
-      "",
-      "User message:",
-      String(lastUser.text || "").trim().slice(0, 4000),
-      "",
-      "Previous assistant response (for reference):",
-      String(lastAssistant.text || "").trim().slice(0, 4000),
-      "",
-      "New assistant response:",
-    ].join("\n");
-
-    const contextUrl = typeof parsed.data.url === "string" ? String(parsed.data.url).trim().slice(0, 1200) : "";
-    const reply = await runPortalSupportChat({
-      message: prompt,
-      url: contextUrl || undefined,
-      recentMessages,
-      threadContext,
-    });
-
-    const assistantMsg = await (prisma as any).portalAiChatMessage.create({
-      data: {
-        ownerId,
-        threadId,
-        role: "assistant",
-        text: reply,
-        attachmentsJson: null,
-        createdByUserId: null,
-        sendAt: null,
-        sentAt: now,
-      },
-      select: {
-        id: true,
-        role: true,
-        text: true,
-        attachmentsJson: true,
-        createdAt: true,
-        sendAt: true,
-        sentAt: true,
-      },
-    });
-
-    await (prisma as any).portalAiChatThread.update({ where: { id: threadId }, data: { lastMessageAt: now } });
-    return NextResponse.json({ ok: true, userMessage: null, assistantMessage: assistantMsg, assistantActions: [], autoActionMessage: null, canvasUrl: null });
+    // Re-run the full agent pipeline using the last user prompt, but avoid inserting
+    // a duplicate user message (this should behave like a real retry/regenerate).
+    redoLatestUserText = lastUserText.slice(0, 4000);
+    skipUserInsert = true;
   }
 
   const confirmToken = typeof (parsed.data as any).confirmToken === "string" ? String((parsed.data as any).confirmToken).trim().slice(0, 200) : "";
@@ -2801,7 +2756,7 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
           : [],
       }
     : null;
-  const cleanText = (parsed.data.text || "").trim();
+  const cleanText = (redoLatestUserText ?? parsed.data.text ?? "").trim();
   const choiceLabel =
     choice && typeof choice === "object" && typeof (choice as any).label === "string" && String((choice as any).label || "").trim()
       ? String((choice as any).label).trim().slice(0, 160)
@@ -3041,7 +2996,7 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
     .filter(Boolean)
     .join("\n");
 
-  const userMsg = isConfirmOnly
+  const userMsg = isConfirmOnly || skipUserInsert
     ? null
     : await (prisma as any).portalAiChatMessage.create({
         data: {
