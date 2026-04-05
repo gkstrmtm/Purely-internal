@@ -89,6 +89,8 @@ export function AiFlowSimClient(props: { slug: string }) {
   const [loading, setLoading] = useState(false);
   const [resp, setResp] = useState<SimResponse | null>(null);
   const [err, setErr] = useState<string>("");
+  const [explainLoading, setExplainLoading] = useState<Record<string, boolean>>({});
+  const [explainText, setExplainText] = useState<Record<string, string>>({});
 
   useEffect(() => {
     if (urlMode !== "auto") return;
@@ -106,6 +108,76 @@ export function AiFlowSimClient(props: { slug: string }) {
     return Array.isArray(resp?.rounds) ? resp.rounds : [];
   }, [resp]);
 
+  const allSentCombined = useMemo(() => {
+    if (!rounds.length) return "";
+    const lines: string[] = [];
+    for (let i = 0; i < rounds.length; i += 1) {
+      const r: any = rounds[i];
+      const roundLabel = `ROUND ${Number(r?.round ?? i) + 1}`;
+
+      function pushSentBlock(label: string, sent: any) {
+        if (!sent) return;
+        const system = String(sent?.system || "").trim();
+        const user = String(sent?.user || "").trim();
+        const cheat = String(sent?.toolCheatSheet || "").trim();
+        if (!system && !user && !cheat) return;
+        lines.push("=".repeat(70));
+        lines.push(`${roundLabel} - ${label}`);
+        lines.push("");
+        lines.push("[SYSTEM]");
+        lines.push(system || "(empty)");
+        lines.push("");
+        lines.push("[USER]");
+        lines.push(user || "(empty)");
+        lines.push("");
+        lines.push("[TOOL CHEAT SHEET]");
+        lines.push(cheat || "(empty)");
+        lines.push("");
+      }
+
+      pushSentBlock("Sent to model", r?.sentToModel);
+      pushSentBlock("Retry 1", r?.sentToModelRetry);
+      pushSentBlock("Retry 2", r?.sentToModelRetry2);
+      pushSentBlock("Retry 3", r?.sentToModelRetry3);
+    }
+    return lines.join("\n").trim();
+  }, [rounds]);
+
+  const allReturnedCombined = useMemo(() => {
+    if (!rounds.length) return "";
+    const lines: string[] = [];
+    for (let i = 0; i < rounds.length; i += 1) {
+      const r: any = rounds[i];
+      const roundLabel = `ROUND ${Number(r?.round ?? i) + 1}`;
+
+      function pushReturnedBlock(label: string, returned: any) {
+        if (!returned) return;
+        const rawText = String(returned?.rawText || "").trim();
+        const parsedDecision = returned?.parsedDecision;
+        const parsedPretty = parsedDecision ? JSON.stringify(parsedDecision, null, 2) : "";
+        if (!rawText && !parsedPretty) return;
+        lines.push("=".repeat(70));
+        lines.push(`${roundLabel} - ${label}`);
+        if (returned?.retryUsed) {
+          lines.push(`Retry used: ${String(returned.retryUsed)}`);
+        }
+        lines.push("");
+        lines.push("[RAW MODEL TEXT]");
+        lines.push(rawText || "(empty)");
+        lines.push("");
+        lines.push("[PARSED JSON DECISION]");
+        lines.push(parsedPretty || "(no JSON extracted)");
+        lines.push("");
+      }
+
+      pushReturnedBlock("Model returned", r?.modelReturned);
+      pushReturnedBlock("Retry 1", r?.modelReturnedRetry);
+      pushReturnedBlock("Retry 2", r?.modelReturnedRetry2);
+      pushReturnedBlock("Retry 3", r?.modelReturnedRetry3);
+    }
+    return lines.join("\n").trim();
+  }, [rounds]);
+
   const finalContextPretty = useMemo(() => {
     if (!resp?.finalContext) return "";
     try {
@@ -118,6 +190,8 @@ export function AiFlowSimClient(props: { slug: string }) {
   async function run() {
     setLoading(true);
     setErr("");
+    setExplainLoading({});
+    setExplainText({});
     try {
       let threadContext: any = undefined;
       const raw = threadContextText.trim();
@@ -147,6 +221,34 @@ export function AiFlowSimClient(props: { slug: string }) {
       setErr(e?.message ? String(e.message) : "Request failed");
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function generateExplanationForRound(roundKey: string, roundPayload: any) {
+    setExplainLoading((prev) => ({ ...prev, [roundKey]: true }));
+    try {
+      const r = await fetch("/api/portal/ai-flow-sim/explain", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          request: resp?.request || null,
+          round: roundPayload,
+        }),
+      });
+      const json = await r.json().catch(() => null);
+      if (!r.ok) {
+        const msg = json?.error ? String(json.error) : `Explain failed (${r.status})`;
+        setExplainText((prev) => ({ ...prev, [roundKey]: msg }));
+        return;
+      }
+      setExplainText((prev) => ({ ...prev, [roundKey]: String(json?.explanation || "") }));
+    } catch (e: any) {
+      setExplainText((prev) => ({
+        ...prev,
+        [roundKey]: e?.message ? String(e.message) : "Explain failed",
+      }));
+    } finally {
+      setExplainLoading((prev) => ({ ...prev, [roundKey]: false }));
     }
   }
 
@@ -321,6 +423,28 @@ export function AiFlowSimClient(props: { slug: string }) {
               </div>
             ) : (
               <div style={{ display: "grid", gap: 12 }}>
+                <div style={{ display: "grid", gap: 10 }}>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+                    <div style={{ fontWeight: 800 }}>Everything sent to the model (combined)</div>
+                    {allSentCombined ? <CopyButton text={allSentCombined} label="Copy" /> : null}
+                  </div>
+                  <div style={{ color: "#666", fontSize: 13 }}>
+                    This is the exact text we sent to the AI across all rounds (including retries), in one place.
+                  </div>
+                  <PreBlock text={allSentCombined || "(empty)"} minHeight={220} />
+                </div>
+
+                <div style={{ display: "grid", gap: 10 }}>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+                    <div style={{ fontWeight: 800 }}>Everything the model returned (combined)</div>
+                    {allReturnedCombined ? <CopyButton text={allReturnedCombined} label="Copy" /> : null}
+                  </div>
+                  <div style={{ color: "#666", fontSize: 13 }}>
+                    This is the raw model output across all rounds (plus the server-extracted JSON), in one place.
+                  </div>
+                  <PreBlock text={allReturnedCombined || "(empty)"} minHeight={220} />
+                </div>
+
                 {rounds.map((r: any, idx: number) => {
                   const system = String(r?.sentToModel?.system || "");
                   const user = String(r?.sentToModel?.user || "");
@@ -332,6 +456,9 @@ export function AiFlowSimClient(props: { slug: string }) {
                   const executedPretty = Array.isArray(r?.executed) ? JSON.stringify(r.executed, null, 2) : "[]";
                   const needsConfirmPretty = r?.needsConfirm ? JSON.stringify(r.needsConfirm, null, 2) : "";
                   const clarifyPretty = r?.clarify ? JSON.stringify(r.clarify, null, 2) : "";
+                  const roundKey = String(r?.round ?? idx);
+                  const explain = String(explainText[roundKey] || "").trim();
+                  const isExplaining = Boolean(explainLoading[roundKey]);
 
                   return (
                     <details
@@ -345,6 +472,32 @@ export function AiFlowSimClient(props: { slug: string }) {
                       </summary>
 
                       <div style={{ display: "grid", gap: 12, marginTop: 10 }}>
+                        <div style={{ display: "flex", gap: 10, alignItems: "center", justifyContent: "space-between" }}>
+                          <div style={{ fontWeight: 800 }}>Plain-English explanation</div>
+                          <button
+                            type="button"
+                            onClick={() => generateExplanationForRound(roundKey, r)}
+                            disabled={isExplaining}
+                            style={{
+                              padding: "6px 10px",
+                              border: "1px solid #e5e7eb",
+                              background: isExplaining ? "#f3f4f6" : "white",
+                              borderRadius: 8,
+                              cursor: isExplaining ? "not-allowed" : "pointer",
+                              fontSize: 12,
+                            }}
+                          >
+                            {isExplaining ? "Explaining..." : "Generate explanation"}
+                          </button>
+                        </div>
+                        <div style={{ color: "#666", fontSize: 13 }}>
+                          This explains what the AI was told, what it returned, and what the server did next.
+                        </div>
+                        <PreBlock
+                          text={explain || "(click Generate explanation)"}
+                          minHeight={120}
+                        />
+
                         <div style={{ display: "grid", gap: 10 }}>
                           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
                             <div style={{ fontWeight: 700 }}>Sent to model</div>

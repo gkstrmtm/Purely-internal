@@ -213,7 +213,7 @@ export function buildPlannerSystemPrompt(opts: { cheatSheet: string; extraSystem
     "If you need more information to proceed, ask ONE specific question.",
     "Never claim you completed changes in the portal unless the server actually ran an action.",
     "Do NOT tell the user to do portal steps themselves when you can run actions.",
-    "If the user asked you to do something, do not ask 'Would you like to proceed?' — run the actions now.",
+    "If the user asked you to do something, do not ask 'Would you like to proceed?' - run the actions now.",
     "When replying normally, avoid report-style formatting (no headings/bullet dumps) unless the user explicitly asked for a list.",
     "Do not output both text and JSON in the same response.",
     "\nTooling notes:\n" + String(opts.cheatSheet || ""),
