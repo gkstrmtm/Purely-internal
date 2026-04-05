@@ -3099,6 +3099,118 @@ export async function resolvePlanArgs(opts: {
     }
   }
 
+  if (stepKeyLower === "booking.calendars.update") {
+    const current = await getBookingCalendarsConfig(ownerId).catch(() => ({ version: 1 as const, calendars: [] as any[] }));
+    const currentCalendars = Array.isArray((current as any)?.calendars) ? (((current as any).calendars as any[]) || []) : [];
+
+    const cleanStr = (v: unknown, max: number): string | undefined => {
+      if (typeof v !== "string") return undefined;
+      const s = v.trim();
+      if (!s) return undefined;
+      return s.slice(0, max);
+    };
+
+    const cleanEmails = (v: unknown): string[] | undefined => {
+      if (!Array.isArray(v)) return undefined;
+      const emails = v
+        .filter((x) => typeof x === "string")
+        .map((x: string) => x.trim())
+        .filter(Boolean)
+        .slice(0, 20);
+      return emails.length ? emails : undefined;
+    };
+
+    const patch = {
+      enabled: typeof (args as any).enabled === "boolean" ? (args as any).enabled : undefined,
+      title: cleanStr((args as any).title, 80),
+      description: cleanStr((args as any).description, 400),
+      durationMinutes:
+        typeof (args as any).durationMinutes === "number" && Number.isFinite((args as any).durationMinutes)
+          ? Math.min(180, Math.max(10, Math.floor((args as any).durationMinutes)))
+          : undefined,
+      meetingLocation: cleanStr((args as any).meetingLocation ?? (args as any).location, 120),
+      meetingDetails: cleanStr((args as any).meetingDetails ?? (args as any).instructions, 600),
+      notificationEmails: cleanEmails((args as any).notificationEmails ?? (args as any).emails),
+    } as const;
+
+    const hasPatch = Object.values(patch).some((v) => v !== undefined);
+    const calendarsArg = (args as any).calendars;
+
+    const overrideCalendarId =
+      threadChoiceOverrides && typeof threadChoiceOverrides === "object" && typeof (threadChoiceOverrides as any).bookingCalendarId === "string"
+        ? String((threadChoiceOverrides as any).bookingCalendarId).trim()
+        : "";
+    const lastCalendarId = getLastEntityId(opts.threadContext, "lastBookingCalendar") || "";
+    const targetIdRaw =
+      cleanStr((args as any).calendarId, 50) || cleanStr((args as any).id, 50) || overrideCalendarId || lastCalendarId;
+
+    const ensureIdAndTitle = (c: any): any => {
+      const id = cleanStr(c?.id, 50) || "";
+      const title = cleanStr(c?.title, 80) || (id ? id : "Calendar");
+      return { ...c, id, title };
+    };
+
+    // If planner already provided calendars[], ensure required fields and fill missing titles from current.
+    if (Array.isArray(calendarsArg) && calendarsArg.length) {
+      const byId = new Map(currentCalendars.map((c: any) => [String(c?.id || "").trim(), c]));
+      const fixed = calendarsArg
+        .slice(0, 25)
+        .map((c: any) => {
+          const id = cleanStr(c?.id, 50) || "";
+          const base = id && byId.has(id) ? byId.get(id) : null;
+          const merged = base ? { ...base, ...c } : c;
+          return ensureIdAndTitle(merged);
+        })
+        .filter((c: any) => Boolean(String(c?.id || "").trim()));
+
+      args = { calendars: fixed };
+    } else if (hasPatch) {
+      // Planner provided a partial update: apply to a best-effort target calendar.
+      const targetId = targetIdRaw || (currentCalendars[0] ? String(currentCalendars[0].id || "").trim() : "default");
+
+      const nextCalendars = (() => {
+        const exists = currentCalendars.some((c: any) => String(c?.id || "").trim() === targetId);
+        if (!exists) {
+          const created = ensureIdAndTitle({
+            id: targetId,
+            enabled: patch.enabled ?? true,
+            title: patch.title || "Default Calendar",
+            description: patch.description,
+            durationMinutes: patch.durationMinutes,
+            meetingLocation: patch.meetingLocation,
+            meetingDetails: patch.meetingDetails,
+            notificationEmails: patch.notificationEmails,
+          });
+          return [...currentCalendars, created];
+        }
+
+        return currentCalendars.map((c: any) => {
+          if (String(c?.id || "").trim() !== targetId) return ensureIdAndTitle(c);
+          const merged = {
+            ...c,
+            ...(patch.enabled !== undefined ? { enabled: patch.enabled } : {}),
+            ...(patch.title ? { title: patch.title } : {}),
+            ...(patch.description ? { description: patch.description } : {}),
+            ...(patch.durationMinutes !== undefined ? { durationMinutes: patch.durationMinutes } : {}),
+            ...(patch.meetingLocation ? { meetingLocation: patch.meetingLocation } : {}),
+            ...(patch.meetingDetails ? { meetingDetails: patch.meetingDetails } : {}),
+            ...(patch.notificationEmails ? { notificationEmails: patch.notificationEmails } : {}),
+          };
+          return ensureIdAndTitle(merged);
+        });
+      })();
+
+      args = { calendars: nextCalendars.slice(0, 25) };
+    } else {
+      // If we got here with no usable updates, avoid a 400 from the executor by making the clarifier targeted.
+      return {
+        ok: false,
+        clarifyQuestion:
+          "What should I change in your booking calendar configuration (e.g., durationMinutes, meetingLocation, meetingDetails, notificationEmails)?",
+      };
+    }
+  }
+
   // Funnel Builder page actions need funnelId + pageId. The planner often omits them,
   // but we can usually infer them from the current URL / thread context / user hint.
   const needsFunnelPageIds = new Set([

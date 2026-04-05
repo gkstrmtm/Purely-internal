@@ -2649,6 +2649,14 @@ export const PortalAgentActionArgsSchemaByKey = {
       const notes = r.notes ?? r.notesField ?? r.includeNotes;
       if (notes !== undefined) out.notes = notes;
 
+      // Common mistake: models try to put meeting details into the booking form update.
+      // Accept these fields and let the executor route them to booking settings.
+      const meetingLocation = r.meetingLocation ?? r.location ?? r.meeting_location;
+      if (meetingLocation !== undefined) out.meetingLocation = meetingLocation;
+
+      const meetingDetails = r.meetingDetails ?? r.meetingDetail ?? r.meetingInstructions ?? r.instructions ?? r.meeting_details;
+      if (meetingDetails !== undefined) out.meetingDetails = meetingDetails;
+
       const questionsRaw = r.questions ?? r.customQuestions ?? r.formQuestions;
       if (Array.isArray(questionsRaw)) {
         out.questions = questionsRaw.map((q: unknown) => {
@@ -2716,6 +2724,12 @@ export const PortalAgentActionArgsSchemaByKey = {
           ])
           .optional()
           .nullable(),
+
+        // These belong to booking settings, but are accepted here to prevent 400s
+        // when the model routes the intent to booking.form.update.
+        meetingLocation: z.string().trim().max(120).optional().nullable(),
+        meetingDetails: z.string().trim().max(600).optional().nullable(),
+
         questions: z
           .array(
             z
@@ -3671,7 +3685,7 @@ export function portalAgentActionsIndexText(opts?: { includeAiChat?: boolean }):
     "- dashboard.optimize: Optimize dashboard widgets/layout for a niche (fields: scope?, niche?)",
     "- booking.calendar.create: Create a booking calendar config entry (fields: title, id?, description?, durationMinutes?, meetingLocation?, meetingDetails?, notificationEmails?)",
     "- booking.calendars.get: Get booking calendars config",
-    "- booking.calendars.update: Update booking calendars config (fields: calendars[])",
+    "- booking.calendars.update: Update booking calendars config (fields: calendars[]; each item requires id + title; prefer booking.calendars.get then update+send full objects)",
     "- booking.bookings.list: List upcoming/recent bookings (fields: take?)",
     "- booking.cancel: Cancel a booking (fields: bookingId)",
     "- booking.reschedule: Reschedule a booking start time (fields: bookingId, startAtIso, forceAvailability?)",

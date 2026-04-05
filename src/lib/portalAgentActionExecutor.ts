@@ -20020,6 +20020,48 @@ async function runDirectAction(opts: {
     case "booking.form.update": {
       const current = await getBookingFormConfig(ownerId);
 
+      const meetingLocationRaw = (args as any).meetingLocation;
+      const meetingDetailsRaw = (args as any).meetingDetails;
+
+      const meetingLocation =
+        meetingLocationRaw === null
+          ? null
+          : typeof meetingLocationRaw === "string"
+            ? meetingLocationRaw.trim().slice(0, 120)
+            : undefined;
+      const meetingDetails =
+        meetingDetailsRaw === null
+          ? null
+          : typeof meetingDetailsRaw === "string"
+            ? meetingDetailsRaw.trim().slice(0, 600)
+            : undefined;
+
+      const hasMeetingUpdate = meetingLocation !== undefined || meetingDetails !== undefined;
+      let updatedSite: any = null;
+      if (hasMeetingUpdate) {
+        const flags = await getBookingSiteColumnFlags();
+        await ensureBookingSite(ownerId, flags);
+
+        const data: Record<string, unknown> = {};
+        if (flags.meetingLocation) {
+          data.meetingLocation = meetingLocation === undefined ? undefined : meetingLocation;
+        }
+        if (flags.meetingDetails) {
+          data.meetingDetails = meetingDetails === undefined ? undefined : meetingDetails;
+        }
+
+        const hasSiteUpdate = Object.values(data).some((v) => v !== undefined);
+        if (!hasSiteUpdate) {
+          return { status: 409, json: { ok: false, error: "Meeting details are not available in this environment yet." } };
+        }
+
+        updatedSite = await prisma.portalBookingSite.update({
+          where: { ownerId },
+          data: data as any,
+          select: bookingSiteSelect(flags),
+        });
+      }
+
       const coerceEnabledObject = (v: unknown): { enabled?: boolean; required?: boolean } | undefined => {
         if (v == null) return undefined;
         if (typeof v === "boolean") return { enabled: v };
@@ -20046,6 +20088,11 @@ async function runDirectAction(opts: {
       const hasAnyUpdate =
         args.thankYouMessage !== undefined || phoneUpdate !== undefined || notesUpdate !== undefined || questionsUpdate !== undefined;
       if (!hasAnyUpdate) {
+        if (hasMeetingUpdate) {
+          // Meeting details were updated via booking settings; preserve backward compatibility by
+          // returning the current form config plus the updated site info.
+          return { status: 200, json: { ok: true, config: current, site: updatedSite } };
+        }
         return { status: 400, json: { ok: false, error: "No form fields provided." } };
       }
 
@@ -20081,7 +20128,7 @@ async function runDirectAction(opts: {
       };
 
       const saved = await setBookingFormConfig(ownerId, normalized);
-      return { status: 200, json: { ok: true, config: saved } };
+      return { status: 200, json: { ok: true, config: saved, ...(hasMeetingUpdate ? { site: updatedSite } : {}) } };
     }
 
     case "booking.site.get": {
