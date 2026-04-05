@@ -24,7 +24,8 @@
     "db:patch:hr": "node scripts/apply-hr-db-patch.mjs",
     "db:patch:blogs": "node scripts/apply-blogs-db-patch.mjs",
     "vercel-build": "node scripts/prisma-prebuild.mjs && next build --webpack",
-    "blogs:cleanup-asterisks": "node prisma/cleanup-blog-asterisks.js"
+    "blogs:cleanup-asterisks": "node prisma/cleanup-blog-asterisks.js",
+    "pura:intent-smoke": "node scripts/pura-intent-smoke.cjs"
   },
   "prisma": {
     "seed": "node prisma/seed.js"
