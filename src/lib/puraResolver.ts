@@ -3251,7 +3251,7 @@ export async function resolvePlanArgs(opts: {
         .map((s) => String(s || "").trim())
         .filter(Boolean);
 
-      const hint = mergeResolverHint(rawHintParts.join(" ").slice(0, 400));
+      const hint = rawHintParts.join(" ").slice(0, 400).trim();
       const rf = await resolveFunnelId({ ownerId, hint, url: opts.url, threadContext: opts.threadContext });
       if (rf.kind !== "ok") return { ok: false, clarifyQuestion: rf.question, ...(rf.choices ? { choices: rf.choices } : {}) };
       funnelId = rf.funnelId;

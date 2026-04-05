@@ -9,6 +9,8 @@ import { handleUpload, type HandleUploadBody } from "@vercel/blob/client";
 
 import { z } from "zod";
 
+import type { FunnelHeaderNavItem } from "@/components/funnel/FunnelHeaderNav";
+
 import { PORTAL_SERVICES } from "@/app/portal/services/catalog";
 import { groupPortalServices } from "@/app/portal/services/categories";
 import { prisma } from "@/lib/db";
@@ -2149,6 +2151,9 @@ async function runDirectAction(opts: {
       const basePath = owner?.clientPortalVariant === "CREDIT" ? "/credit" : "";
 
       const newBlockId = (prefix = "b") => `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
+      const navItems: FunnelHeaderNavItem[] = [{ id: "home", label: "Home", kind: "page", pageSlug: "home" }];
+      if (wantsBookingFlow) navItems.push({ id: "book", label: "Book", kind: "page", pageSlug: "book" });
+      navItems.push({ id: "thank", label: "Thank You", kind: "page", pageSlug: "thank-you" });
       const headerNavBlock: CreditFunnelBlock = {
         id: newBlockId("nav"),
         type: "headerNav",
@@ -2159,11 +2164,7 @@ async function runDirectAction(opts: {
           desktopMode: "inline",
           mobileMode: "dropdown",
           logoAlt: "Logo",
-          items: [
-            { id: "home", label: "Home", kind: "page", pageSlug: "home" },
-            ...(wantsBookingFlow ? [{ id: "book", label: "Book", kind: "page", pageSlug: "book" }] : []),
-            { id: "thank", label: "Thank You", kind: "page", pageSlug: "thank-you" },
-          ],
+          items: navItems,
         },
       };
 
