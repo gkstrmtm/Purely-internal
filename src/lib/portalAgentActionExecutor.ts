@@ -2168,6 +2168,12 @@ async function runDirectAction(opts: {
         },
       };
 
+      const seedWarnings: Array<{ slug: string; step: string; error: string }> = [];
+      const summarizeError = (err: unknown, maxLen = 600) => {
+        const msg = err instanceof Error ? err.message : String(err || "Unknown error");
+        return msg.replace(/\s+/g, " ").trim().slice(0, maxLen);
+      };
+
       const seedPage = async (opts: { slug: string; title: string; sortOrder: number; heading: string; paragraph: string }) => {
         const blocks: CreditFunnelBlock[] = [
           headerNavBlock,
@@ -2198,35 +2204,40 @@ async function runDirectAction(opts: {
           select: { id: true, funnelId: true, slug: true, title: true, sortOrder: true, editorMode: true, blocksJson: true, customHtml: true },
         });
 
-        const htmlSnapshot = blocksToCustomHtmlDocument({
-          blocks,
-          pageId: created.id,
-          ownerId,
-          basePath,
-          title: created.title || "Funnel page",
-        });
+        try {
+          const htmlSnapshot = blocksToCustomHtmlDocument({
+            blocks,
+            pageId: created.id,
+            ownerId,
+            basePath,
+            title: created.title || "Funnel page",
+          });
 
-        return prisma.creditFunnelPage.update({
-          where: { id: created.id },
-          data: { customHtml: htmlSnapshot },
-          select: {
-            id: true,
-            funnelId: true,
-            slug: true,
-            title: true,
-            sortOrder: true,
-            contentMarkdown: true,
-            editorMode: true,
-            blocksJson: true,
-            customHtml: true,
-            customChatJson: true,
-            createdAt: true,
-            updatedAt: true,
-          },
-        });
+          return await prisma.creditFunnelPage.update({
+            where: { id: created.id },
+            data: { customHtml: htmlSnapshot },
+            select: {
+              id: true,
+              funnelId: true,
+              slug: true,
+              title: true,
+              sortOrder: true,
+              contentMarkdown: true,
+              editorMode: true,
+              blocksJson: true,
+              customHtml: true,
+              customChatJson: true,
+              createdAt: true,
+              updatedAt: true,
+            },
+          });
+        } catch (err) {
+          seedWarnings.push({ slug: opts.slug, step: "html_snapshot", error: summarizeError(err) });
+          return created as any;
+        }
       };
 
-      const pages: any[] = [];
+      let pages: any[] = [];
       try {
         pages.push(
           await seedPage({
@@ -2259,11 +2270,51 @@ async function runDirectAction(opts: {
             paragraph: "We will reach out shortly.",
           }),
         );
-      } catch {
+      } catch (err) {
         // Best-effort only: funnel creation should succeed even if page seeding fails.
+        seedWarnings.push({ slug: "(seed)", step: "seed_pages", error: summarizeError(err) });
       }
 
-      return { status: 200, json: { ok: true, funnel, pages } };
+      // Always return the actual DB state (even if seeding partially failed).
+      const pagesFromDb = await prisma.creditFunnelPage
+        .findMany({
+          where: { funnelId: funnel.id },
+          orderBy: [{ sortOrder: "asc" }, { id: "asc" }],
+          select: {
+            id: true,
+            funnelId: true,
+            slug: true,
+            title: true,
+            sortOrder: true,
+            contentMarkdown: true,
+            editorMode: true,
+            blocksJson: true,
+            customHtml: true,
+            customChatJson: true,
+            createdAt: true,
+            updatedAt: true,
+          },
+        })
+        .catch(() => null);
+      if (Array.isArray(pagesFromDb)) pages = pagesFromDb as any[];
+
+      const expectedPages = wantsBookingFlow ? 3 : 2;
+      const seedOk = pages.length >= expectedPages && seedWarnings.length === 0;
+
+      return {
+        status: 200,
+        json: {
+          ok: true,
+          funnel,
+          pages,
+          seed: {
+            ok: seedOk,
+            expectedPages,
+            actualPages: pages.length,
+            warnings: seedWarnings.slice(0, 6),
+          },
+        },
+      };
     }
 
     case "funnel_builder.settings.get": {
@@ -26863,7 +26914,27 @@ export async function executePortalAgentAction(opts: {
   const argsSchema = PortalAgentActionArgsSchemaByKey[opts.action];
   const argsParsed = argsSchema.safeParse(opts.args);
   if (!argsParsed.success) {
-    return { ok: false as const, status: 400, error: "Invalid action args" };
+    const issues = argsParsed.error?.issues || [];
+    const summarized = issues
+      .slice(0, 4)
+      .map((i) => {
+        const path = Array.isArray(i.path) && i.path.length ? i.path.join(".") : "(root)";
+        const msg = String(i.message || "Invalid");
+        return `${path}: ${msg}`;
+      })
+      .join("; ");
+    const error = summarized ? `Invalid action args (${summarized})` : "Invalid action args";
+
+    return {
+      ok: false as const,
+      status: 400,
+      action: opts.action,
+      error,
+      result: { ok: false, error },
+      assistantText: "",
+      linkUrl: null,
+      clientUiAction: null,
+    };
   }
 
   const actorUserId = opts.actorUserId || opts.ownerId;

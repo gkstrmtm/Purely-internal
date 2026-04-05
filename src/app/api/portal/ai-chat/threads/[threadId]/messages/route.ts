@@ -3570,7 +3570,8 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
 
           const exec = await executePortalAgentAction({ ownerId, actorUserId: createdByUserId, action: keyParsed.data, args: resolvedArgsWithThread });
           const cua = (exec as any).clientUiAction ?? null;
-          const resultForSummary = stripAssistantVisibleAccountingFields((exec as any)?.result);
+          const execError = typeof (exec as any).error === "string" ? String((exec as any).error).trim().slice(0, 800) : "";
+          const resultForSummary = stripAssistantVisibleAccountingFields((exec as any)?.result ?? (execError ? { ok: false, error: execError } : null));
           const linkUrl = (exec as any).linkUrl ?? null;
 
           const derivedPatch = deriveThreadContextPatchFromAction(keyParsed.data, resolvedArgsWithThread, (exec as any).result);
@@ -3610,10 +3611,13 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
                       ok: Boolean((exec as any).ok),
                       status: Number((exec as any).status) || 0,
                       args: resolvedArgsWithThread,
-                      error:
-                        resultForSummary && typeof resultForSummary === "object" && !Array.isArray(resultForSummary) && typeof (resultForSummary as any).error === "string"
-                          ? String((resultForSummary as any).error).trim().slice(0, 500)
-                          : null,
+                      error: (() => {
+                        const e1 =
+                          resultForSummary && typeof resultForSummary === "object" && !Array.isArray(resultForSummary) && typeof (resultForSummary as any).error === "string"
+                            ? String((resultForSummary as any).error).trim().slice(0, 500)
+                            : "";
+                        return (e1 || execError || "").trim() || null;
+                      })(),
                       result: resultForSummary,
                       linkUrl,
                       userPrompt: String(promptMessage || "").slice(0, 2000),
@@ -3952,7 +3956,18 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
 
         const exec = await executePortalAgentAction({ ownerId, actorUserId: createdByUserId, action: key, args: resolvedArgsWithThread });
         const cua = (exec as any).clientUiAction ?? null;
-        results.push({ ok: Boolean((exec as any).ok), status: Number((exec as any).status) || 0, action: key, args: resolvedArgsWithThread, result: (exec as any).result, linkUrl: (exec as any).linkUrl ?? null, clientUiAction: cua });
+        const execError = typeof (exec as any).error === "string" ? String((exec as any).error).trim().slice(0, 800) : "";
+        const execResult = (exec as any).result ?? (execError ? { ok: false, error: execError } : null);
+        results.push({
+          ok: Boolean((exec as any).ok),
+          status: Number((exec as any).status) || 0,
+          action: key,
+          args: resolvedArgsWithThread,
+          result: execResult,
+          linkUrl: (exec as any).linkUrl ?? null,
+          clientUiAction: cua,
+          ...(execError ? { error: execError } : {}),
+        } as any);
         if (cua) clientUiActions.push(cua);
 
         const derivedPatch = deriveThreadContextPatchFromAction(key, resolvedArgsWithThread, (exec as any).result);
@@ -3973,6 +3988,7 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
             cleaned && typeof cleaned === "object" && !Array.isArray(cleaned) && typeof (cleaned as any).error === "string"
               ? String((cleaned as any).error).trim().slice(0, 500)
               : null;
+          const fallbackError = typeof (r as any)?.error === "string" ? String((r as any).error).trim().slice(0, 500) : null;
           return {
             ok: Boolean((r as any).ok),
             status: Number((r as any).status) || 0,
@@ -3980,7 +3996,7 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
             args: (r as any).args,
             linkUrl: (r as any).linkUrl ?? null,
             clientUiAction: (r as any).clientUiAction ?? null,
-            error: extractedError,
+            error: extractedError || fallbackError,
             result: cleaned,
           };
         });
