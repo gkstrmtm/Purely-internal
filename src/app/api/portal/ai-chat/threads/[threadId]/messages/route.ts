@@ -259,6 +259,28 @@ function stripAssistantVisibleAccountingFields(value: unknown): unknown {
   return walk(value, 6);
 }
 
+function looksLikeAuditOrAnalysisRequest(textRaw: unknown): boolean {
+  const t = typeof textRaw === "string" ? textRaw.trim().toLowerCase() : "";
+  if (!t) return false;
+  return /\b(analy[sz]e|audit|review|diagnos(e|is)|weak\s+spots?|friction|drop[-\s]?off|conversion|optimi[sz]e|improve|suggest\s+fix(es)?|recommend(ations)?|what\s+to\s+fix)\b/i.test(
+    t,
+  );
+}
+
+function normalizeClarifyText(raw: unknown): string {
+  return String(raw || "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .slice(0, 300);
+}
+
+function userRefusedToClarify(textRaw: unknown): boolean {
+  const t = String(textRaw || "").trim().toLowerCase();
+  if (!t) return false;
+  return /^(no|nah|nope)\b/.test(t) || /\b(i\s*don'?t\s*know|idk|not\s*sure|whatever|you\s*decide|up\s*to\s*you|doesn'?t\s*matter|any\s+is\s+fine)\b/.test(t);
+}
+
 async function extractPdfText(bytes: Buffer): Promise<string> {
   const mod: any = await import("pdf-parse");
   const pdfParse: any = mod?.default ?? mod;
@@ -3256,6 +3278,39 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
         }
       }
 
+      // Clarify-loop breaker: if we just asked a clarify question and the user refused (or the model repeats
+      // the same clarify question), re-plan once with an explicit instruction to proceed best-effort.
+      if (plan?.mode === "clarify" && plan.clarifyingQuestion && pendingPlanMode === "clarify") {
+        const prevQ = normalizeClarifyText(pendingPlanClarify && typeof pendingPlanClarify === "object" ? (pendingPlanClarify as any).question : "");
+        const nextQ = normalizeClarifyText(plan.clarifyingQuestion);
+        const refused = userRefusedToClarify(effectiveText);
+        const repeated = Boolean(prevQ) && prevQ === nextQ;
+
+        if (refused || repeated) {
+          try {
+            const forced = [
+              planningTextWithAttachments,
+              "\n\nSystem note: The user cannot/will not provide more detail. Proceed with best-effort using available thread context and safe GET actions. Do NOT ask another broad clarifying question. If multiple choices exist, pick the most recent active entity or offer clickable choices.",
+            ]
+              .filter(Boolean)
+              .join("\n")
+              .slice(0, 12_000);
+
+            const plan2 = await planPuraActions({
+              text: forced,
+              url: contextUrl,
+              recentMessages: modelMessages,
+              threadContext,
+              imageUrls,
+            });
+
+            if (plan2) plan = plan2;
+          } catch {
+            // ignore and keep original plan
+          }
+        }
+      }
+
       if (plan?.mode === "clarify" && plan.clarifyingQuestion) {
         const assistantMsg = await (prisma as any).portalAiChatMessage.create({
           data: {
@@ -3738,17 +3793,39 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
           const resultsForSummary = Array.isArray(results)
             ? results.map((r: any) => ({ ...r, result: stripAssistantVisibleAccountingFields((r as any)?.result) }))
             : results;
+
+          const auditIntent = looksLikeAuditOrAnalysisRequest(promptMessage) || looksLikeAuditOrAnalysisRequest(plan.workTitle);
+          const allStepsLookReadOnly = resolvedSteps.every((s) => {
+            const k = String((s as any)?.key || "");
+            if (k.endsWith(".get") || k.endsWith(".list")) return true;
+            return false;
+          });
+
+          const systemPrompt = auditIntent && allStepsLookReadOnly
+            ? [
+                "You are an expert operator inside a SaaS portal.",
+                "The user asked for an audit/analysis and suggested fixes.",
+                "You have retrieved portal configuration and data via tool calls.",
+                "Your job: identify likely weak spots/friction and propose concrete fixes.",
+                "Rules:",
+                "- Do NOT explain how to analyze; do the analysis.",
+                "- Ground every recommendation in the provided results (or clearly label as an assumption).",
+                "- Output concise markdown with sections: Findings, Suggested Fixes, Quick Wins.",
+                "- If key info is missing, ask at most ONE targeted question at the end (optional).",
+              ].join("\n")
+            : "You are an assistant in a SaaS portal. Summarize the results of the executed plan for the user. Write concise markdown. Use per-step headings when multiple steps ran. If something failed, mention it. Do not invent details.";
+
           assistantTextFinal = stripEmptyAssistantBullets(
             String(
               await generateText({
-                system:
-                  "You are an assistant in a SaaS portal. Summarize the results of the executed plan for the user. Write concise markdown. Use per-step headings when multiple steps ran. If something failed, mention it. Do not invent details.",
+                system: systemPrompt,
                 user: `Plan execution results (JSON):\n${JSON.stringify(
                   {
                     workTitle: plan.workTitle ?? null,
                     steps: resolvedSteps,
                     results: resultsForSummary,
                     canvasUrl,
+                    userPrompt: String(promptMessage || "").slice(0, 2000),
                   },
                   null,
                   2,

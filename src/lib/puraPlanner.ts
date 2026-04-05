@@ -86,6 +86,14 @@ export const PlannerOutputSchema = z
 export type PuraPlanStep = z.infer<typeof StepSchema>;
 export type PuraPlan = z.infer<typeof PlannerOutputSchema>;
 
+function looksLikeAuditOrAnalysisRequest(textRaw: string): boolean {
+  const t = String(textRaw || "").trim().toLowerCase();
+  if (!t) return false;
+  return /\b(analy[sz]e|audit|review|diagnos(e|is)|weak\s+spots?|friction|drop[-\s]?off|conversion|optimi[sz]e|improve|suggest\s+fix(es)?|recommend(ations)?|what\s+to\s+fix)\b/i.test(
+    t,
+  );
+}
+
 function shouldPlan(textRaw: string): boolean {
   const t = String(textRaw || "").trim();
   if (!t) return false;
@@ -212,6 +220,10 @@ export async function planPuraActions(opts: {
     "  the system will auto-pick on 'any/doesn't matter' or show clickable calendar choices.",
     "- Prefer using $ref hints that continue the active thread context instead of asking the user to restate the obvious.",
     "- Never output manual step-by-step portal instructions unless mode=explain.",
+    "- IMPORTANT (AI-first audits): If the user asks you to analyze/audit/find weak spots/suggest improvements, you MUST output mode=execute.",
+    "  - Start by calling relevant read-only GET actions to gather context (e.g., booking.settings.get, booking.form.get, booking.site.get, booking.calendars.get, funnel_builder.funnels.get/pages.list/pages.get if needed).",
+    "  - Do NOT answer with generic 'how to analyze' advice.",
+    "  - Do NOT ask broad clarifying questions like 'what aspects?' unless absolutely required; prefer pulling current config first.",
     "- IMPORTANT: Do NOT route non-booking SMS schedules to Booking Automation / Reminders / Follow-up. Use inbox.send_sms + AI chat scheduled runs.",
     "- Never invent IDs. Use $ref objects for things you need resolved (contact, contact_tag, inbox_thread, funnel, automation, booking, blog_post, newsletter, media_folder, media_item, task, review, review_question, nurture_campaign, nurture_step, scraped_lead, credit_pull, credit_dispute_letter, credit_report, credit_report_item, user, funnel_form, funnel_page, custom_domain, ai_outbound_calls_campaign, or generic 'id' for domain-specific IDs).",
     "- IMPORTANT: If the user says 'schedule' or describes a recurring time-based workflow (e.g., 'every weekday at 9am send a text'), do NOT create portal tasks.",
@@ -345,6 +357,33 @@ export async function planPuraActions(opts: {
         "- Do not output mode=explain.",
         "- Do not output mode=noop.",
         "- If a detail is missing, use mode=clarify with ONE short question.",
+      ].join("\n");
+
+      const raw2 = await runModel(forceSystem);
+      let obj2: unknown = null;
+      try {
+        obj2 = extractJsonObject(raw2);
+      } catch {
+        obj2 = null;
+      }
+      let parsed2 = PlannerOutputSchema.safeParse(obj2);
+      if (!parsed2.success) {
+        const repaired2 = await tryRepairPlannerJson(raw2);
+        parsed2 = PlannerOutputSchema.safeParse(repaired2);
+      }
+      if (parsed2.success) parsed = parsed2;
+    }
+
+    // If the model incorrectly returned explain/noop for an audit/analysis request, re-run with a hard constraint.
+    if (parsed.success && (parsed.data.mode === "explain" || parsed.data.mode === "noop") && looksLikeAuditOrAnalysisRequest(text)) {
+      const forceSystem = [
+        baseSystem,
+        "\nHARD OVERRIDE:",
+        "- The user is asking for an audit/analysis with suggested fixes. Output mode=execute.",
+        "- Include 2-4 relevant GET actions first to gather portal context (do not ask the user for basics you can fetch).",
+        "- Do not output mode=explain.",
+        "- Do not output mode=noop.",
+        "- Avoid mode=clarify unless a truly required ID cannot be inferred from URL/thread context.",
       ].join("\n");
 
       const raw2 = await runModel(forceSystem);
