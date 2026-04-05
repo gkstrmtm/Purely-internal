@@ -19838,30 +19838,71 @@ async function runDirectAction(opts: {
 
     case "booking.calendars.update": {
       const prev = await getBookingCalendarsConfig(ownerId).catch(() => null);
-      const prevIds = new Set(
-        Array.isArray((prev as any)?.calendars)
-          ? ((prev as any).calendars as any[])
-              .map((c) => (typeof c?.id === "string" ? c.id.trim() : ""))
-              .filter(Boolean)
-          : [],
-      );
+      const prevCalendars = Array.isArray((prev as any)?.calendars) ? (((prev as any).calendars as any[]) ?? []) : [];
 
-      const nextIds = (args.calendars as any[]).map((c) => String(c.id).trim());
-      const newCount = nextIds.filter((id) => id && !prevIds.has(id)).length;
-      const needCredits = newCount * PORTAL_CREDIT_COSTS.bookingCalendarCreate;
+      // Back-compat: full replace update.
+      if (Array.isArray((args as any)?.calendars)) {
+        const prevIds = new Set(
+          prevCalendars
+            .map((c) => (typeof c?.id === "string" ? c.id.trim() : ""))
+            .filter(Boolean),
+        );
 
-      if (needCredits > 0) {
-        const charged = await consumeCredits(ownerId, needCredits);
-        if (!charged.ok) {
-          return { status: 402, json: { ok: false, error: "Insufficient credits" } };
+        const nextIds = ((args as any).calendars as any[]).map((c) => String(c?.id || "").trim()).filter(Boolean);
+        const newCount = nextIds.filter((id) => id && !prevIds.has(id)).length;
+        const needCredits = newCount * PORTAL_CREDIT_COSTS.bookingCalendarCreate;
+
+        if (needCredits > 0) {
+          const charged = await consumeCredits(ownerId, needCredits);
+          if (!charged.ok) {
+            return { status: 402, json: { ok: false, error: "Insufficient credits" } };
+          }
         }
+
+        const saved = await setBookingCalendarsConfig(ownerId, {
+          version: 1,
+          calendars: ((args as any).calendars as any[]).map((c) => ({ ...c, enabled: c.enabled ?? true })),
+        });
+        return { status: 200, json: { ok: true, config: saved } };
       }
+
+      // Patch-style: update a single calendar by id without requiring the full calendars[] array.
+      const calendarId = String(((args as any).calendarId ?? (args as any).id ?? "") || "").trim().slice(0, 50);
+      if (!calendarId) return { status: 400, json: { ok: false, error: "Missing calendarId" } };
+
+      const idx = prevCalendars.findIndex((c) => String(c?.id || "").trim() === calendarId);
+      if (idx < 0) return { status: 404, json: { ok: false, error: "Calendar not found" } };
+
+      const base = prevCalendars[idx] && typeof prevCalendars[idx] === "object" ? { ...(prevCalendars[idx] as any) } : {};
+
+      const next: any = {
+        ...base,
+        id: calendarId,
+        enabled: typeof (args as any).enabled === "boolean" ? (args as any).enabled : base.enabled ?? true,
+      };
+
+      if (typeof (args as any).title === "string") next.title = String((args as any).title).trim().slice(0, 80);
+      if (typeof (args as any).description === "string") next.description = String((args as any).description).trim().slice(0, 400);
+      if (typeof (args as any).durationMinutes === "number" && Number.isFinite((args as any).durationMinutes)) {
+        next.durationMinutes = Math.min(180, Math.max(10, Math.floor((args as any).durationMinutes)));
+      }
+      if (typeof (args as any).meetingLocation === "string") next.meetingLocation = String((args as any).meetingLocation).trim().slice(0, 120);
+      if (typeof (args as any).meetingDetails === "string") next.meetingDetails = String((args as any).meetingDetails).trim().slice(0, 600);
+      if (Array.isArray((args as any).notificationEmails)) {
+        next.notificationEmails = ((args as any).notificationEmails as any[])
+          .map((x) => (typeof x === "string" ? x.trim() : ""))
+          .filter(Boolean)
+          .slice(0, 20);
+      }
+
+      const nextCalendars = prevCalendars.slice();
+      nextCalendars[idx] = next;
 
       const saved = await setBookingCalendarsConfig(ownerId, {
         version: 1,
-        calendars: (args.calendars as any[]).map((c) => ({ ...c, enabled: c.enabled ?? true })),
+        calendars: nextCalendars.map((c) => ({ ...c, enabled: c.enabled ?? true })),
       });
-      return { status: 200, json: { ok: true, config: saved } };
+      return { status: 200, json: { ok: true, config: saved, calendarId } };
     }
 
     case "booking.settings.get": {

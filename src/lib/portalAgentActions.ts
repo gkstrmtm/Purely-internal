@@ -2561,25 +2561,45 @@ export const PortalAgentActionArgsSchemaByKey = {
     .strict(),
 
   "booking.calendars.update": z
-    .object({
-      calendars: z
-        .array(
-          z
-            .object({
-              id: z.string().trim().min(1).max(50),
-              enabled: z.boolean().optional(),
-              title: z.string().trim().min(1).max(80),
-              description: z.string().trim().max(400).optional(),
-              durationMinutes: z.number().int().min(10).max(180).optional(),
-              meetingLocation: z.string().trim().max(120).optional(),
-              meetingDetails: z.string().trim().max(600).optional(),
-              notificationEmails: z.array(z.string().trim().email()).max(20).optional(),
-            })
-            .passthrough(),
-        )
-        .max(25),
-    })
-    .strict(),
+    .union([
+      z
+        .object({
+          calendars: z
+            .array(
+              z
+                .object({
+                  id: z.string().trim().min(1).max(50),
+                  enabled: z.boolean().optional(),
+                  title: z.string().trim().min(1).max(80),
+                  description: z.string().trim().max(400).optional(),
+                  durationMinutes: z.number().int().min(10).max(180).optional(),
+                  meetingLocation: z.string().trim().max(120).optional(),
+                  meetingDetails: z.string().trim().max(600).optional(),
+                  notificationEmails: z.array(z.string().trim().email()).max(20).optional(),
+                })
+                .passthrough(),
+            )
+            .max(25),
+        })
+        .strict(),
+      z
+        .object({
+          calendarId: z.string().trim().min(1).max(50).optional(),
+          id: z.string().trim().min(1).max(50).optional(),
+          enabled: z.boolean().optional(),
+          title: z.string().trim().min(1).max(80).optional(),
+          description: z.string().trim().max(400).optional(),
+          durationMinutes: z.number().int().min(10).max(180).optional(),
+          meetingLocation: z.string().trim().max(120).optional(),
+          meetingDetails: z.string().trim().max(600).optional(),
+          notificationEmails: z.array(z.string().trim().email()).max(20).optional(),
+        })
+        .strict()
+        .refine(
+          (d) => Boolean(String(d.calendarId || d.id || "").trim()),
+          { message: "calendarId required" },
+        ),
+    ]),
 
   "booking.bookings.list": z
     .object({
