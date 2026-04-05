@@ -16113,6 +16113,8 @@ async function runDirectAction(opts: {
           : 200;
 
       const explicitTimeZone = typeof (args as any)?.timeZone === "string" ? String((args as any).timeZone).trim().slice(0, 80) : "";
+      const clientTimeZone =
+        typeof (args as any)?.clientTimeZone === "string" ? String((args as any).clientTimeZone).trim().slice(0, 80) : "";
 
       const memberTimeZone =
         (await prisma.user.findUnique({ where: { id: membership.memberId }, select: { timeZone: true } }).catch(() => null))?.timeZone || "";
@@ -16198,7 +16200,14 @@ async function runDirectAction(opts: {
         }
 
         const existingTz = getScheduledRecurrenceTimeZone(r?.attachmentsJson);
-        const tz = (explicitTimeZone || existingTz || String(memberTimeZone || "").trim() || String(ownerTimeZone || "").trim() || "UTC").slice(0, 80);
+        const tz = (
+          explicitTimeZone ||
+          existingTz ||
+          String(clientTimeZone || "").trim() ||
+          String(memberTimeZone || "").trim() ||
+          String(ownerTimeZone || "").trim() ||
+          "UTC"
+        ).slice(0, 80);
 
         const baseLocal = DateTime.fromJSDate(sendAt, { zone: tz });
         const zone = baseLocal.isValid ? tz : "UTC";

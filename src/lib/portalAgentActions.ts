@@ -637,6 +637,8 @@ export const PortalAgentActionArgsSchemaByKey = {
       messageIds: z.array(z.string().trim().min(1).max(120)).min(1).max(200).optional(),
       // Required local time-of-day in 24h format.
       timeLocal: z.string().trim().regex(/^\d{2}:\d{2}$/),
+      // Optional device/user timezone hint (preferred over member/owner tz when timeZone is omitted).
+      clientTimeZone: z.string().trim().min(1).max(80).optional(),
       // Optional; if omitted, preserves existing recurrence timezone (or falls back to member/owner tz).
       timeZone: z.string().trim().min(1).max(80).optional(),
       // Include one-time scheduled messages (repeatEveryMinutes is null/0). Default true.

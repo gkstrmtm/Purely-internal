@@ -2591,6 +2591,15 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
     return next;
   };
 
+  const patchArgsForScheduledReschedule = (args: Record<string, unknown>, threadContext?: any): Record<string, unknown> => {
+    const tzHint = getTimeZoneHint(threadContext);
+    if (!tzHint) return args;
+
+    const next: Record<string, unknown> = { ...args };
+    if (!String((next as any).clientTimeZone || "").trim()) (next as any).clientTimeZone = tzHint;
+    return next;
+  };
+
   const redoLastAssistant = Boolean((parsed.data as any).redoLastAssistant);
   if (redoLastAssistant) {
     const recent = await (prisma as any).portalAiChatMessage.findMany({
@@ -3378,7 +3387,10 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
                 step.key === "ai_chat.scheduled.create" && !String((resolvedArgs as any).threadId || "").trim()
                   ? ({ ...resolvedArgs, threadId } as Record<string, unknown>)
                   : resolvedArgs;
-              return step.key === "ai_chat.scheduled.create" ? patchArgsForScheduledCreate(withThread, threadContext) : withThread;
+
+              if (step.key === "ai_chat.scheduled.create") return patchArgsForScheduledCreate(withThread, threadContext);
+              if (step.key === "ai_chat.scheduled.reschedule") return patchArgsForScheduledReschedule(withThread, threadContext);
+              return withThread;
             })();
 
             resolvedSteps.push({
@@ -3599,7 +3611,10 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
               step.key === "ai_chat.scheduled.create" && !String((resolvedArgs as any).threadId || "").trim()
                 ? ({ ...resolvedArgs, threadId } as Record<string, unknown>)
                 : resolvedArgs;
-            return step.key === "ai_chat.scheduled.create" ? patchArgsForScheduledCreate(withThread, localCtx) : withThread;
+
+            if (step.key === "ai_chat.scheduled.create") return patchArgsForScheduledCreate(withThread, localCtx);
+            if (step.key === "ai_chat.scheduled.reschedule") return patchArgsForScheduledReschedule(withThread, localCtx);
+            return withThread;
           })();
 
           resolvedSteps.push({

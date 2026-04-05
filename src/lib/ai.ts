@@ -39,7 +39,9 @@ function stripEmojis(raw: string): string {
   // Remove emoji presentation characters + joiners/variation selectors.
   // Note: this is intentionally conservative; it prioritizes a strict "no emojis" policy.
   return s
-    .replace(/[\p{Extended_Pictographic}\p{Emoji_Presentation}\p{Emoji_Modifier}\p{Emoji_Component}]/gu, "")
+    // IMPORTANT: Do NOT remove \p{Emoji_Component}. That Unicode property includes ASCII digits (0-9)
+    // used in keycap emoji sequences, and stripping it removes numbers from normal text.
+    .replace(/[\p{Extended_Pictographic}\p{Emoji_Presentation}\p{Emoji_Modifier}]/gu, "")
     .replace(/[\u200D\uFE0E\uFE0F]/g, "")
     .replace(/[ \t]{2,}/g, " ")
     .trim();
