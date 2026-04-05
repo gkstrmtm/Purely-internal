@@ -3676,6 +3676,19 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
         );
       };
 
+      const looksLikePortalHowToInstructions = (text: string) => {
+        const t = String(text || "").trim();
+        if (!t) return false;
+        const lower = t.toLowerCase();
+        const hasHowToPhrases =
+          /\b(follow\s+these\s+steps|here\s*(are|'re)\s+the\s+steps|to\s+create\s+.*follow\s+these\s+steps|step\s*\d+|open\s+the\s+.*builder|click\s+on|select\s+.*from\s+the\s+options|drag\s+and\s+drop|save\s+and\s+preview)\b/i.test(t);
+        const numberedLines = (t.match(/^\s*\d+\./gm) || []).length;
+        const bulletLines = (t.match(/^\s*[-*]\s+/gm) || []).length;
+        const clickMentions = (lower.match(/\bclick\b/g) || []).length;
+        const lengthLooksLikeGuide = t.length > 220 && (numberedLines + bulletLines >= 3 || clickMentions >= 2);
+        return Boolean(hasHowToPhrases && lengthLooksLikeGuide);
+      };
+
       const isImperativeRequest = (text: string) => {
         const t = String(text || "").trim().toLowerCase();
         if (!t) return false;
@@ -3770,6 +3783,16 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
               temperature: 0.3,
               extraSystem:
                 "The user already said to do it. Do not ask 'Would you like to proceed?' Output actions only, immediately.",
+            });
+          }
+
+          if (!planned.actions.length && looksLikePortalHowToInstructions(assistantText) && isImperativeRequest(effectiveText) && round + 1 < MAX_AUTORUN_ROUNDS) {
+            planned = await runPlannerOnce({
+              round,
+              lastRunSummary,
+              temperature: 0.25,
+              extraSystem:
+                "The user wants you to do the work in the portal. Do NOT provide how-to steps or instructions. Output JSON actions only.",
             });
           }
 
