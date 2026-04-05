@@ -2121,6 +2121,8 @@ async function runDirectAction(opts: {
       const nameRaw = typeof args.name === "string" ? args.name.trim() : "";
       const name = nameRaw || (slug ? slug.replace(/-/g, " ") : "");
 
+      const wantsBookingFlow = /\b(book|booking|appointment|schedule)\b/i.test(`${name} ${slug}`);
+
       if (!slug) return { status: 400, json: { ok: false, error: "Invalid slug" } };
       if (!name || name.length > 120) return { status: 400, json: { ok: false, error: "Invalid name" } };
 
@@ -2159,6 +2161,8 @@ async function runDirectAction(opts: {
           logoAlt: "Logo",
           items: [
             { id: "home", label: "Home", kind: "page", pageSlug: "home" },
+            ...(wantsBookingFlow ? [{ id: "book", label: "Book", kind: "page", pageSlug: "book" }] : []),
+            { id: "thank", label: "Thank You", kind: "page", pageSlug: "thank-you" },
           ],
         },
       };
@@ -2232,11 +2236,24 @@ async function runDirectAction(opts: {
             paragraph: "This funnel is ready to edit. Add blocks and a call-to-action to start capturing leads.",
           }),
         );
+
+        if (wantsBookingFlow) {
+          pages.push(
+            await seedPage({
+              slug: "book",
+              title: "Book",
+              sortOrder: 1,
+              heading: "Book your appointment",
+              paragraph: "Pick a time that works best for you.",
+            }),
+          );
+        }
+
         pages.push(
           await seedPage({
             slug: "thank-you",
             title: "Thank You",
-            sortOrder: 1,
+            sortOrder: wantsBookingFlow ? 2 : 1,
             heading: "Thanks - we got it!",
             paragraph: "We will reach out shortly.",
           }),
@@ -26537,6 +26554,15 @@ export function deriveThreadContextPatchFromAction(action: PortalAgentActionKey,
   try {
     if (!json || typeof json !== "object") return null;
     if ((json as any).ok !== true) return null;
+
+    // Track funnels so follow-ups can infer “the one we just created/used”.
+    if (action === "funnel.create" && typeof (json as any).funnel?.id === "string") {
+      const id = String((json as any).funnel.id).trim().slice(0, 120);
+      if (id) {
+        const label = String((json as any).funnel?.name || (json as any).funnel?.slug || "Funnel").trim().slice(0, 120) || "Funnel";
+        return { lastFunnel: { id, label } };
+      }
+    }
 
     // Persist the “current page” after create/update/generate so follow-up commands like
     // “add my calendar to the same one we just made” don’t require another page selection.

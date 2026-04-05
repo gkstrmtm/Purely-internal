@@ -3229,6 +3229,42 @@ export async function resolvePlanArgs(opts: {
     "funnel_builder.custom_code_block.generate",
   ]);
 
+  // Funnel Builder actions that require funnelId but not pageId.
+  const needsFunnelIdOnly = new Set([
+    "funnel_builder.funnels.get",
+    "funnel_builder.funnels.update",
+    "funnel_builder.funnels.delete",
+    "funnel_builder.pages.list",
+    "funnel_builder.pages.create",
+  ]);
+
+  if (needsFunnelIdOnly.has(stepKeyLower)) {
+    const existingFunnelId = typeof (args as any).funnelId === "string" ? String((args as any).funnelId).trim().slice(0, 120) : "";
+    let funnelId = existingFunnelId || extractFunnelIdFromUrl(opts.url) || getLastEntityId(opts.threadContext, "lastFunnel") || "";
+
+    if (!funnelId) {
+      const rawHintParts = [
+        typeof (args as any).slug === "string" ? String((args as any).slug) : "",
+        typeof (args as any).name === "string" ? String((args as any).name) : "",
+        String(opts.userHint || ""),
+      ]
+        .map((s) => String(s || "").trim())
+        .filter(Boolean);
+
+      const hint = mergeResolverHint(rawHintParts.join(" ").slice(0, 400));
+      const rf = await resolveFunnelId({ ownerId, hint, url: opts.url, threadContext: opts.threadContext });
+      if (rf.kind !== "ok") return { ok: false, clarifyQuestion: rf.question, ...(rf.choices ? { choices: rf.choices } : {}) };
+      funnelId = rf.funnelId;
+      resolvedFunnel = { id: rf.funnelId, name: rf.funnelName };
+    } else {
+      resolvedFunnel = resolvedFunnel || { id: funnelId, name: "Funnel" };
+    }
+
+    if (typeof (args as any).funnelId !== "string" || String((args as any).funnelId).trim() !== funnelId) {
+      args = { ...args, funnelId };
+    }
+  }
+
   if (needsFunnelPageIds.has(stepKeyLower)) {
     const existingFunnelId = typeof (args as any).funnelId === "string" ? String((args as any).funnelId).trim().slice(0, 120) : "";
     let funnelId = existingFunnelId || extractFunnelIdFromUrl(opts.url) || getLastEntityId(opts.threadContext, "lastFunnel") || "";
