@@ -818,14 +818,14 @@ export const PortalAgentActionArgsSchemaByKey = {
     .object({
       funnelId: z.string().trim().min(1).max(120),
       pageId: z.string().trim().min(1).max(120),
-      title: z.string().trim().max(200).optional(),
+      title: z.string().trim().max(200).optional().nullable(),
       contentMarkdown: z.string().optional().nullable(),
       sortOrder: z.number().finite().optional().nullable(),
-      editorMode: z.enum(["MARKDOWN", "BLOCKS", "CUSTOM_HTML"]).optional(),
+      editorMode: z.enum(["MARKDOWN", "BLOCKS", "CUSTOM_HTML"]).optional().nullable(),
       customHtml: z.string().optional().nullable(),
-      blocksJson: z.unknown().optional(),
-      customChatJson: z.unknown().optional(),
-      slug: z.string().trim().max(64).optional(),
+      blocksJson: z.unknown().optional().nullable(),
+      customChatJson: z.unknown().optional().nullable(),
+      slug: z.string().trim().max(64).optional().nullable(),
       seo: z.unknown().optional().nullable(),
     })
     .strict(),
@@ -2566,34 +2566,49 @@ export const PortalAgentActionArgsSchemaByKey = {
     .object({
       // The portal UI config includes a version field; tolerate it so the agent can
       // round-trip configs without getting rejected by strict validation.
-      version: z.number().int().optional(),
-      thankYouMessage: z.string().max(500).optional(),
+      version: z.number().int().optional().nullable(),
+      thankYouMessage: z.string().max(500).optional().nullable(),
       phone: z
-        .object({
-          enabled: z.boolean().optional(),
-          required: z.boolean().optional(),
-        })
-        .optional(),
+        .union([
+          z
+            .object({
+              enabled: z.boolean().optional().nullable(),
+              required: z.boolean().optional().nullable(),
+            })
+            .strip(),
+          z.boolean(),
+          z.string().trim().max(40),
+        ])
+        .optional()
+        .nullable(),
       notes: z
-        .object({
-          enabled: z.boolean().optional(),
-          required: z.boolean().optional(),
-        })
-        .optional(),
+        .union([
+          z
+            .object({
+              enabled: z.boolean().optional().nullable(),
+              required: z.boolean().optional().nullable(),
+            })
+            .strip(),
+          z.boolean(),
+          z.string().trim().max(40),
+        ])
+        .optional()
+        .nullable(),
       questions: z
         .array(
           z
             .object({
-              id: z.string().trim().min(1).max(50),
+              id: z.string().trim().min(1).max(50).optional().nullable(),
               label: z.string().trim().min(1).max(120),
-              required: z.boolean().optional(),
-              kind: z.enum(["short", "long", "single_choice", "multiple_choice"]).optional(),
+              required: z.boolean().optional().nullable(),
+              kind: z.enum(["short", "long", "single_choice", "multiple_choice"]).optional().nullable(),
               options: z.array(z.string().trim().min(1).max(60)).max(12).optional().nullable(),
             })
-            .strict(),
+            .strip(),
         )
         .max(20)
-        .optional(),
+        .optional()
+        .nullable(),
     })
     .strict(),
 

@@ -210,7 +210,13 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
     const read = () => {
       try {
         const raw = window.localStorage.getItem("puraCanvasOpen");
-        const open = raw === null ? true : raw === "true";
+        // Default to "closed" so simply opening the Pura tab doesn't collapse the sidebar.
+        // The canvas/work area should opt-in by setting localStorage or dispatching the event.
+        const open = raw === "true";
+        // Treat localStorage sync as state hydration (not a user-triggered toggle), so
+        // we don't auto-collapse the sidebar just because the user navigated to Pura.
+        prevPuraCanvasOpenRef.current = open;
+        collapsedBeforeCanvasOpenRef.current = null;
         setPuraCanvasOpen(open);
       } catch {
         // ignore

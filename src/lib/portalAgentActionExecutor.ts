@@ -3463,8 +3463,11 @@ async function runDirectAction(opts: {
         data.editorMode = m;
       }
       if (typeof args?.customHtml === "string") data.customHtml = args.customHtml;
-      if (args?.blocksJson !== undefined) data.blocksJson = args.blocksJson;
-      if (args?.customChatJson !== undefined) data.customChatJson = args.customChatJson;
+      if (args?.customHtml === null) {
+        // Ignore nulls from model output; clearing HTML should be an explicit action.
+      }
+      if (args?.blocksJson !== undefined && args.blocksJson !== null) data.blocksJson = args.blocksJson;
+      if (args?.customChatJson !== undefined && args.customChatJson !== null) data.customChatJson = args.customChatJson;
 
       if (typeof args?.slug === "string") {
         const slug = args.slug
@@ -20017,8 +20020,31 @@ async function runDirectAction(opts: {
     case "booking.form.update": {
       const current = await getBookingFormConfig(ownerId);
 
+      const coerceEnabledObject = (v: unknown): { enabled?: boolean; required?: boolean } | undefined => {
+        if (v == null) return undefined;
+        if (typeof v === "boolean") return { enabled: v };
+        if (typeof v === "string") {
+          const s = v.trim().toLowerCase();
+          if (["true", "1", "yes", "y", "on", "enable", "enabled"].includes(s)) return { enabled: true };
+          if (["false", "0", "no", "n", "off", "disable", "disabled"].includes(s)) return { enabled: false };
+          return undefined;
+        }
+        if (typeof v === "object" && !Array.isArray(v)) {
+          const obj = v as any;
+          return {
+            enabled: typeof obj.enabled === "boolean" ? obj.enabled : undefined,
+            required: typeof obj.required === "boolean" ? obj.required : undefined,
+          };
+        }
+        return undefined;
+      };
+
+      const phoneUpdate = coerceEnabledObject((args as any).phone);
+      const notesUpdate = coerceEnabledObject((args as any).notes);
+      const questionsUpdate = Array.isArray((args as any).questions) ? ((args as any).questions as any[]) : undefined;
+
       const hasAnyUpdate =
-        args.thankYouMessage !== undefined || args.phone !== undefined || args.notes !== undefined || args.questions !== undefined;
+        args.thankYouMessage !== undefined || phoneUpdate !== undefined || notesUpdate !== undefined || questionsUpdate !== undefined;
       if (!hasAnyUpdate) {
         return { status: 400, json: { ok: false, error: "No form fields provided." } };
       }
@@ -20027,21 +20053,25 @@ async function runDirectAction(opts: {
         ...current,
         thankYouMessage: args.thankYouMessage ?? current.thankYouMessage,
         phone: {
-          enabled: args.phone?.enabled ?? current.phone.enabled,
-          required: args.phone?.required ?? current.phone.required,
+          enabled: phoneUpdate?.enabled ?? current.phone.enabled,
+          required: phoneUpdate?.required ?? current.phone.required,
         },
         notes: {
-          enabled: args.notes?.enabled ?? current.notes.enabled,
-          required: args.notes?.required ?? current.notes.required,
+          enabled: notesUpdate?.enabled ?? current.notes.enabled,
+          required: notesUpdate?.required ?? current.notes.required,
         },
         questions:
-          args.questions?.map((q: any) => ({
-            id: q.id,
-            label: q.label,
-            required: Boolean(q.required),
-            kind: (q.kind ?? "short") as any,
-            options: Array.isArray(q.options) ? q.options : undefined,
-          })) ?? current.questions,
+          questionsUpdate
+            ? questionsUpdate
+                .filter((q) => q && typeof q === "object" && typeof (q as any).label === "string" && String((q as any).label).trim())
+                .map((q: any) => ({
+                  id: typeof q.id === "string" ? q.id : undefined,
+                  label: String(q.label || "").trim(),
+                  required: Boolean(q.required),
+                  kind: (q.kind ?? "short") as any,
+                  options: Array.isArray(q.options) ? q.options : undefined,
+                }))
+            : current.questions,
       } as const;
 
       const normalized = {
@@ -25933,7 +25963,16 @@ export async function executePortalAgentActionForThread(opts: {
   const argsSchema = PortalAgentActionArgsSchemaByKey[opts.action];
   const argsParsed = argsSchema.safeParse(opts.args);
   if (!argsParsed.success) {
-    return { ok: false as const, status: 400, error: "Invalid action args" };
+    const issues = argsParsed.error?.issues || [];
+    const summarized = issues
+      .slice(0, 4)
+      .map((i) => {
+        const path = Array.isArray(i.path) && i.path.length ? i.path.join(".") : "(root)";
+        const msg = String(i.message || "Invalid");
+        return `${path}: ${msg}`;
+      })
+      .join("; ");
+    return { ok: false as const, status: 400, error: summarized ? `Invalid action args (${summarized})` : "Invalid action args" };
   }
 
   const thread = await (prisma as any).portalAiChatThread.findFirst({
