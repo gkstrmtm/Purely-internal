@@ -843,12 +843,23 @@ export const PortalAgentActionArgsSchemaByKey = {
       const r = raw as Record<string, any>;
       const out: Record<string, unknown> = {};
 
+      const normalizeEditorMode = (v: unknown): string | undefined => {
+        if (typeof v !== "string") return undefined;
+        const s = v.trim();
+        if (!s) return undefined;
+        const u = s.toUpperCase().replace(/[^A-Z]/g, "_");
+        if (u === "HTML" || u === "CUSTOMHTML" || u === "CUSTOM_HTML" || u === "CUSTOM" || u === "TEMPLATE" || u === "RAW") return "CUSTOM_HTML";
+        if (u === "MD" || u === "MARKDOWN" || u === "MARK_DOWN") return "MARKDOWN";
+        if (u === "BLOCK" || u === "BLOCKS" || u === "BUILDER") return "BLOCKS";
+        return s;
+      };
+
       if (typeof r.funnelId === "string") out.funnelId = r.funnelId;
       if (typeof r.pageId === "string") out.pageId = r.pageId;
       if (r.title !== undefined) out.title = r.title;
       if (r.sortOrder !== undefined) out.sortOrder = r.sortOrder;
       else if (r.order !== undefined) out.sortOrder = r.order;
-      if (r.editorMode !== undefined) out.editorMode = r.editorMode;
+      if (r.editorMode !== undefined) out.editorMode = normalizeEditorMode(r.editorMode) ?? r.editorMode;
       if (r.slug !== undefined) out.slug = r.slug;
       else if (r.pageSlug !== undefined) out.slug = r.pageSlug;
       if (r.seo !== undefined) out.seo = r.seo;
