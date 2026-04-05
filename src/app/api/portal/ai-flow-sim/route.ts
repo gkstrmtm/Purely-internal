@@ -41,7 +41,7 @@ const SimRequestSchema = z
     threadId: z.string().trim().min(1).max(200).optional().nullable(),
     execute: z.boolean().optional().default(false),
     autoContinuePastConfirm: z.boolean().optional().default(false),
-    maxRounds: z.number().int().min(1).max(4).optional().default(4),
+    maxRounds: z.number().int().min(1).max(8).optional().default(4),
     threadContext: z.record(z.string(), z.unknown()).optional().nullable(),
   })
   .strict();

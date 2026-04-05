@@ -1,4 +1,5 @@
-export const BASE_POPUP_Z_INDEX = 40;
+// Must sit above editor canvases and sticky headers throughout the portal.
+export const BASE_POPUP_Z_INDEX = 2000;
 export const OVERLAY_POPUP_Z_INDEX = 130060;
 
 export function hasOverlayAncestor(node: HTMLElement | null) {

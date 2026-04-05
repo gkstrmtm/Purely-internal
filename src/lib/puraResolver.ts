@@ -2678,7 +2678,11 @@ async function resolveFunnelPageId(opts: {
     ? rows.filter((r: any) => {
         const slug = normKey(r.slug);
         const title = normKey(r.title);
-        return (slug && slug.includes(hk)) || (title && title.includes(hk));
+        // Support both directions so hints like "booking" can match a page titled "book".
+        // (Models often use the gerund while the seeded page is a shorter noun.)
+        const slugMatch = (slug && slug.includes(hk)) || (hk && hk.includes(slug));
+        const titleMatch = (title && title.includes(hk)) || (hk && hk.includes(title));
+        return Boolean(slugMatch || titleMatch);
       })
     : rows;
 
@@ -3408,14 +3412,7 @@ export async function resolvePlanArgs(opts: {
       // `slug` is required by the strict action schema and the API route.
       // The planner frequently omits it, so generate a safe default from title/hint.
       let slug = slugifyLike(slugRaw);
-      if (!slug) {
-        const hint = [title || "", String(opts.userHint || "")]
-          .map((s) => String(s || "").trim())
-          .filter(Boolean)
-          .join(" ")
-          .slice(0, 300);
-        slug = slugifyLike(hint);
-      }
+      if (!slug) slug = slugifyLike(title || "");
       if (!slug) slug = `page-${Math.floor(1000 + Math.random() * 9000)}`;
 
       args = {
@@ -3466,18 +3463,33 @@ export async function resolvePlanArgs(opts: {
       args = { ...args, funnelId };
     }
 
-    const existingPageIdRaw = typeof (args as any).pageId === "string" ? String((args as any).pageId).trim().slice(0, 120) : "";
+    const existingPageIdRaw = typeof (args as any).pageId === "string" ? String((args as any).pageId).trim().slice(0, 200) : "";
     const existingPageId = looksLikePlaceholderValue(existingPageIdRaw) ? "" : existingPageIdRaw;
-    if (!existingPageId) {
+
+    // If the model provided a page identifier but it doesn't look like an ID,
+    // treat it as a title/slug hint and resolve it deterministically.
+    if (existingPageId && !looksLikeId(existingPageId)) {
+      const rp = await resolveFunnelPageId({
+        ownerId,
+        hint: existingPageId,
+        url: opts.url,
+        threadContext: opts.threadContext,
+        funnelIdHint: funnelId,
+      });
+      if (rp.kind !== "ok") return { ok: false, clarifyQuestion: rp.question, ...(rp.choices ? { choices: rp.choices } : {}) };
+      args = { ...args, pageId: rp.pageId, funnelId: rp.funnelId };
+      resolvedFunnelPage = { id: rp.pageId, label: rp.label, funnelId: rp.funnelId };
+    } else if (!existingPageId) {
+      // Important: DO NOT use the full userHint here; it frequently contains "create/make a new page",
+      // which causes the page resolver to correctly infer "new page" intent and stop the run.
       const pageHintParts = [
         typeof (args as any).slug === "string" ? String((args as any).slug) : "",
         typeof (args as any).title === "string" ? String((args as any).title) : "",
-        String(opts.userHint || ""),
       ]
         .map((s) => String(s || "").trim())
         .filter(Boolean);
 
-      const pageHint = pageHintParts.join(" ").slice(0, 400);
+      const pageHint = pageHintParts.join(" ").slice(0, 200);
       const rp = await resolveFunnelPageId({
         ownerId,
         hint: pageHint,

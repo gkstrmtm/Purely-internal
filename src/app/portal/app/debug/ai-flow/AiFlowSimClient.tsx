@@ -85,7 +85,7 @@ export function AiFlowSimClient(props: { slug: string }) {
   const [url, setUrl] = useState<string>("/");
   const [execute, setExecute] = useState<boolean>(false);
   const [autoContinuePastConfirm, setAutoContinuePastConfirm] = useState<boolean>(false);
-  const [maxRounds, setMaxRounds] = useState<number>(3);
+  const [maxRounds, setMaxRounds] = useState<number>(4);
   const [threadContextText, setThreadContextText] = useState<string>("{}\n");
   const [loading, setLoading] = useState(false);
   const [resp, setResp] = useState<SimResponse | null>(null);
@@ -591,9 +591,9 @@ export function AiFlowSimClient(props: { slug: string }) {
               <input
                 type="number"
                 min={1}
-                max={6}
+                max={8}
                 value={maxRounds}
-                onChange={(e) => setMaxRounds(Math.max(1, Math.min(6, Number(e.target.value || 1))))}
+                onChange={(e) => setMaxRounds(Math.max(1, Math.min(8, Number(e.target.value || 1))))}
                 style={{ width: 140, padding: 8, fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace" }}
               />
             </label>
