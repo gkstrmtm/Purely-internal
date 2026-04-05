@@ -92,6 +92,7 @@ export function AiFlowSimClient(props: { slug: string }) {
   const [err, setErr] = useState<string>("");
   const [explainLoading, setExplainLoading] = useState<Record<string, boolean>>({});
   const [explainText, setExplainText] = useState<Record<string, string>>({});
+  const [runSummaryText, setRunSummaryText] = useState<string>("");
 
   useEffect(() => {
     if (urlMode !== "auto") return;
@@ -131,6 +132,107 @@ export function AiFlowSimClient(props: { slug: string }) {
   const rounds = useMemo(() => {
     return Array.isArray(resp?.rounds) ? resp.rounds : [];
   }, [resp]);
+
+  function buildWholeRunSummary(payload: any): string {
+    if (!payload) return "";
+    const req = payload?.request || null;
+    const rs: any[] = Array.isArray(payload?.rounds) ? payload.rounds : [];
+    const steps: any[] = Array.isArray(payload?.allSteps) ? payload.allSteps : [];
+    const results: any[] = Array.isArray(payload?.allResults) ? payload.allResults : [];
+
+    if (!rs.length) return "(No rounds yet - run the simulation first)";
+
+    const lines: string[] = [];
+    const userText = String(req?.text || "").trim();
+    const contextUrl = String(req?.url || "").trim();
+    const executeMode = Boolean(req?.execute);
+    const autoConfirm = Boolean(req?.autoContinuePastConfirm);
+
+    const first = rs[0] || {};
+    const rawModel = String(first?.modelReturned?.rawText || "").trim();
+    const parsed = first?.modelReturned?.parsedDecision || null;
+    const actions: any[] = Array.isArray(parsed?.actions) ? parsed.actions : [];
+
+    const allActionKeys = actions
+      .map((a: any) => String(a?.key || "").trim())
+      .filter(Boolean);
+
+    const placeholderArgs: Array<{ key: string; field: string; value: string }> = [];
+    for (const a of actions) {
+      const key = String(a?.key || "").trim();
+      const args = a?.args && typeof a.args === "object" && !Array.isArray(a.args) ? a.args : {};
+      for (const [field, value] of Object.entries(args)) {
+        const v = String(value || "");
+        if (/placeholder/i.test(v)) {
+          placeholderArgs.push({ key, field, value: v });
+        }
+      }
+    }
+
+    const executedOk = results.filter((r: any) => r && r.ok).length;
+    const executedFail = results.filter((r: any) => r && r.ok === false).length;
+    const firstExecError = results.find((r: any) => r && r.ok === false && r.error)?.error;
+
+    const lastRound = rs[rs.length - 1] || {};
+    const stopNeedsConfirm = Boolean(lastRound?.needsConfirm) && !lastRound?.confirmAutoApproved;
+    const stopClarify = Boolean(lastRound?.clarify);
+
+    lines.push("WHOLE RUN SUMMARY");
+    lines.push("");
+    lines.push(`- Sent to AI: your request${contextUrl ? ` + URL (${contextUrl})` : ""}.`);
+
+    if (actions.length) {
+      const keysPretty = allActionKeys.slice(0, 6).join(", ");
+      lines.push(`- AI returned: TOOL JSON with ${actions.length} action(s) (${keysPretty}${allActionKeys.length > 6 ? ", …" : ""}).`);
+    } else if (rawModel) {
+      lines.push(`- AI returned: text (no tool JSON extracted).`);
+    } else {
+      lines.push(`- AI returned: (empty).`);
+    }
+
+    if (placeholderArgs.length) {
+      const sample = placeholderArgs[0];
+      lines.push(
+        `- Problem: it used placeholder IDs (example: ${sample.key}.${sample.field}=${sample.value}), so execution can’t succeed.`,
+      );
+    }
+
+    if (executeMode) {
+      lines.push(`- Server execution: ${executedOk} succeeded, ${executedFail} failed.`);
+      if (firstExecError) {
+        lines.push(`- First failure: ${String(firstExecError).trim().slice(0, 180)}.`);
+      }
+    } else {
+      lines.push(`- Server execution: skipped (execute is OFF).`);
+    }
+
+    if (stopNeedsConfirm) {
+      lines.push(`- Stopped because: confirmation required (auto-confirm is ${autoConfirm ? "ON" : "OFF"}).`);
+    } else if (stopClarify) {
+      const q = String(lastRound?.clarify?.question || "").trim();
+      const choices = Array.isArray(lastRound?.clarify?.choices) ? lastRound.clarify.choices : [];
+      const choiceLabels = choices
+        .map((c: any) => String(c?.label || "").trim())
+        .filter(Boolean)
+        .slice(0, 4);
+      lines.push(`- Stopped because: it needs clarification${choiceLabels.length ? ` (choices: ${choiceLabels.join(", ")}${choices.length > 4 ? ", …" : ""})` : ""}.`);
+      if (q) {
+        lines.push(`- Clarify question: ${q.slice(0, 160)}${q.length > 160 ? "…" : ""}`);
+      }
+    } else {
+      lines.push(`- Status: run completed ${steps.length ? `(${steps.length} planned step(s)).` : "(no steps)."}`);
+    }
+
+    if (userText) {
+      lines.push("");
+      lines.push("What should have happened:");
+      lines.push("- Create a funnel with a real name + slug (use defaults if missing).");
+      lines.push("- Use returned IDs (funnelId/pageId) - never guess placeholders.");
+      lines.push("- If an ID is unknown, first run a list/get tool to discover it.");
+    }
+
+    return lines.join("\n").trim();
+  }
 
   const confirmStop = useMemo(() => {
     for (let i = 0; i < rounds.length; i += 1) {
@@ -259,6 +361,7 @@ export function AiFlowSimClient(props: { slug: string }) {
     setErr("");
     setExplainLoading({});
     setExplainText({});
+    setRunSummaryText("");
     try {
       let threadContext: any = overrides?.threadContextOverride;
       if (typeof threadContext === "undefined") {
@@ -607,6 +710,34 @@ export function AiFlowSimClient(props: { slug: string }) {
               </div>
             ) : (
               <div style={{ display: "grid", gap: 12 }}>
+                <div style={{ display: "grid", gap: 10 }}>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+                    <div style={{ fontWeight: 800 }}>Whole run summary (short)</div>
+                    <div style={{ display: "flex", gap: 8 }}>
+                      {runSummaryText ? <CopyButton text={runSummaryText} label="Copy" /> : null}
+                      <button
+                        type="button"
+                        onClick={() => setRunSummaryText(buildWholeRunSummary(resp))}
+                        disabled={!resp}
+                        style={{
+                          padding: "6px 10px",
+                          border: "1px solid #e5e7eb",
+                          background: "white",
+                          borderRadius: 8,
+                          cursor: resp ? "pointer" : "not-allowed",
+                          fontSize: 12,
+                        }}
+                      >
+                        Explain this whole run
+                      </button>
+                    </div>
+                  </div>
+                  <div style={{ color: "#666", fontSize: 13 }}>
+                    A few bullets explaining what we sent, what the AI returned, and where the run stopped.
+                  </div>
+                  <PreBlock text={runSummaryText || "(click Explain this whole run)"} minHeight={140} />
+                </div>
+
                 <div style={{ display: "grid", gap: 10 }}>
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
                     <div style={{ fontWeight: 800 }}>Everything sent to the model (combined)</div>
