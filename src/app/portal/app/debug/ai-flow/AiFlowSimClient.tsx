@@ -187,6 +187,32 @@ export function AiFlowSimClient(props: { slug: string }) {
     }
   }, [resp]);
 
+  const debugBundle = useMemo(() => {
+    if (!resp) return "";
+    const payload = {
+      request: resp?.request || null,
+      tools: resp?.tools || null,
+      sentToModelCombined: allSentCombined || null,
+      modelReturnedCombined: allReturnedCombined || null,
+      rounds: Array.isArray(resp?.rounds) ? resp.rounds : [],
+      allSteps: Array.isArray(resp?.allSteps) ? resp.allSteps : [],
+      allResults: Array.isArray(resp?.allResults) ? resp.allResults : [],
+      finalContext: resp?.finalContext || null,
+    };
+
+    const header = [
+      "AI FLOW SIM DEBUG BUNDLE",
+      `slug: ${String(props.slug || "").trim()}`,
+      `generatedAt: ${new Date().toISOString()}`,
+    ].join("\n");
+
+    try {
+      return `${header}\n\n${JSON.stringify(payload, null, 2)}`;
+    } catch {
+      return `${header}\n\n${String(payload)}`;
+    }
+  }, [resp, allSentCombined, allReturnedCombined, props.slug]);
+
   async function run() {
     setLoading(true);
     setErr("");
@@ -221,6 +247,15 @@ export function AiFlowSimClient(props: { slug: string }) {
       setErr(e?.message ? String(e.message) : "Request failed");
     } finally {
       setLoading(false);
+    }
+  }
+
+  function useFinalContextAsNextInput() {
+    if (!resp?.finalContext) return;
+    try {
+      setThreadContextText(`${JSON.stringify(resp.finalContext, null, 2)}\n`);
+    } catch {
+      setThreadContextText(`${String(resp.finalContext)}\n`);
     }
   }
 
@@ -390,6 +425,33 @@ export function AiFlowSimClient(props: { slug: string }) {
             >
               {loading ? "Running…" : "Run simulation"}
             </button>
+
+            {resp ? (
+              <div style={{ display: "grid", gap: 8, marginTop: 10 }}>
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                  {debugBundle ? <CopyButton text={debugBundle} label="Copy debug bundle" /> : null}
+                  {finalContextPretty ? (
+                    <button
+                      type="button"
+                      onClick={useFinalContextAsNextInput}
+                      style={{
+                        padding: "6px 10px",
+                        border: "1px solid #e5e7eb",
+                        background: "white",
+                        borderRadius: 8,
+                        cursor: "pointer",
+                        fontSize: 12,
+                      }}
+                    >
+                      Use final context as next input
+                    </button>
+                  ) : null}
+                </div>
+                <div style={{ color: "#666", fontSize: 12 }}>
+                  Tip: click "Use final context as next input", then send your next message to simulate a multi-step thread.
+                </div>
+              </div>
+            ) : null}
 
             {err ? (
               <div style={{ marginTop: 10, padding: 10, background: "#fee2e2", color: "#7f1d1d", borderRadius: 10 }}>
