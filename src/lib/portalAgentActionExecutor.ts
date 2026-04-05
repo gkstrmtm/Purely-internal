@@ -218,6 +218,27 @@ function safeJsonForPrompt(value: unknown, maxLen = 9000): string {
   }
 }
 
+function stripAssistantVisibleAccountingFields(value: unknown): unknown {
+  const OMIT_KEYS = new Set(["credits", "creditsRemaining", "creditsAdded", "estimatedCredits", "balance"]);
+
+  const walk = (v: unknown, depth: number): unknown => {
+    if (depth <= 0) return v;
+    if (v == null) return v;
+    if (Array.isArray(v)) return v.slice(0, 200).map((x) => walk(x, depth - 1));
+    if (typeof v !== "object") return v;
+
+    const obj = v as Record<string, unknown>;
+    const out: Record<string, unknown> = {};
+    for (const [k, child] of Object.entries(obj)) {
+      if (OMIT_KEYS.has(k)) continue;
+      out[k] = walk(child, depth - 1);
+    }
+    return out;
+  };
+
+  return walk(value, 6);
+}
+
 function deriveLinkUrlForAction(action: PortalAgentActionKey, json: any): string | undefined {
   const linkUrl = typeof json?.linkUrl === "string" ? String(json.linkUrl).trim() : "";
   if (linkUrl) return linkUrl;
@@ -294,7 +315,7 @@ async function generateAssistantTextForActionResult(opts: {
       status: opts.status,
       linkUrl: opts.linkUrl ?? null,
       args: opts.args ?? {},
-      result: opts.result ?? null,
+      result: stripAssistantVisibleAccountingFields(opts.result ?? null),
       clientUiAction: opts.clientUiAction ?? null,
     };
 
@@ -2121,7 +2142,110 @@ async function runDirectAction(opts: {
       }
 
       if (!funnel) return { status: 500, json: { ok: false, error: "Unable to create funnel" } };
-      return { status: 200, json: { ok: true, funnel } };
+
+      const owner = await prisma.user.findUnique({ where: { id: ownerId }, select: { clientPortalVariant: true } }).catch(() => null);
+      const basePath = owner?.clientPortalVariant === "CREDIT" ? "/credit" : "";
+
+      const newBlockId = (prefix = "b") => `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
+      const headerNavBlock: CreditFunnelBlock = {
+        id: newBlockId("nav"),
+        type: "headerNav",
+        props: {
+          sticky: true,
+          transparent: false,
+          size: "md",
+          desktopMode: "inline",
+          mobileMode: "dropdown",
+          logoAlt: "Logo",
+          items: [
+            { id: "home", label: "Home", kind: "page", pageSlug: "home" },
+          ],
+        },
+      };
+
+      const seedPage = async (opts: { slug: string; title: string; sortOrder: number; heading: string; paragraph: string }) => {
+        const blocks: CreditFunnelBlock[] = [
+          headerNavBlock,
+          {
+            id: newBlockId("section"),
+            type: "section",
+            props: {
+              layout: "one",
+              style: { align: "center" },
+              children: [
+                { id: newBlockId("h"), type: "heading", props: { level: 1, text: opts.heading, style: { align: "center" } } },
+                { id: newBlockId("p"), type: "paragraph", props: { text: opts.paragraph, style: { align: "center" } } },
+              ],
+            },
+          },
+        ];
+
+        const created = await prisma.creditFunnelPage.create({
+          data: {
+            funnelId: funnel.id,
+            slug: opts.slug,
+            title: opts.title,
+            sortOrder: opts.sortOrder,
+            editorMode: "BLOCKS",
+            blocksJson: blocks as any,
+            contentMarkdown: "",
+          },
+          select: { id: true, funnelId: true, slug: true, title: true, sortOrder: true, editorMode: true, blocksJson: true, customHtml: true },
+        });
+
+        const htmlSnapshot = blocksToCustomHtmlDocument({
+          blocks,
+          pageId: created.id,
+          ownerId,
+          basePath,
+          title: created.title || "Funnel page",
+        });
+
+        return prisma.creditFunnelPage.update({
+          where: { id: created.id },
+          data: { customHtml: htmlSnapshot },
+          select: {
+            id: true,
+            funnelId: true,
+            slug: true,
+            title: true,
+            sortOrder: true,
+            contentMarkdown: true,
+            editorMode: true,
+            blocksJson: true,
+            customHtml: true,
+            customChatJson: true,
+            createdAt: true,
+            updatedAt: true,
+          },
+        });
+      };
+
+      const pages: any[] = [];
+      try {
+        pages.push(
+          await seedPage({
+            slug: "home",
+            title: funnel.name || "Home",
+            sortOrder: 0,
+            heading: funnel.name || "Welcome",
+            paragraph: "This funnel is ready to edit. Add blocks and a call-to-action to start capturing leads.",
+          }),
+        );
+        pages.push(
+          await seedPage({
+            slug: "thank-you",
+            title: "Thank You",
+            sortOrder: 1,
+            heading: "Thanks - we got it!",
+            paragraph: "We will reach out shortly.",
+          }),
+        );
+      } catch {
+        // Best-effort only: funnel creation should succeed even if page seeding fails.
+      }
+
+      return { status: 200, json: { ok: true, funnel, pages } };
     }
 
     case "funnel_builder.settings.get": {
@@ -3209,15 +3333,84 @@ async function runDirectAction(opts: {
 
       const finalTitle = titleClean || "New Page";
 
-      const page = await prisma.creditFunnelPage.create({
+      const owner = await prisma.user.findUnique({ where: { id: ownerId }, select: { clientPortalVariant: true } }).catch(() => null);
+      const basePath = owner?.clientPortalVariant === "CREDIT" ? "/credit" : "";
+
+      const newBlockId = (prefix = "b") => `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
+      const isThankYouPage = /(^|-)thank(-|$)/i.test(normalizedSlug) || /thank/i.test(finalTitle);
+
+      const starterBlocks: CreditFunnelBlock[] = [
+        {
+          id: newBlockId("section"),
+          type: "section",
+          props: {
+            layout: "one",
+            style: { align: "center" },
+            children: [
+              {
+                id: newBlockId("h"),
+                type: "heading",
+                props: {
+                  level: 1,
+                  text: isThankYouPage ? "Thanks - we got it!" : finalTitle,
+                  style: { align: "center" },
+                },
+              },
+              {
+                id: newBlockId("p"),
+                type: "paragraph",
+                props: {
+                  text: isThankYouPage
+                    ? "We’ll be in touch shortly."
+                    : "This is your new funnel page. Add blocks, images, and a call-to-action to start capturing leads.",
+                  style: { align: "center" },
+                },
+              },
+            ],
+          },
+        },
+      ];
+
+      const blocks: CreditFunnelBlock[] = [...(globalHeaderBlock ? [globalHeaderBlock] : []), ...starterBlocks];
+
+      const created = await prisma.creditFunnelPage.create({
         data: {
           funnelId,
           slug: normalizedSlug,
           title: finalTitle,
-          contentMarkdown,
+          // Default new pages to a supported mode (BLOCKS) so the editor works.
+          editorMode: "BLOCKS",
+          blocksJson: blocks as any,
+          contentMarkdown: typeof contentMarkdown === "string" ? contentMarkdown : "",
           sortOrder,
-          ...(globalHeaderBlock ? { blocksJson: [globalHeaderBlock] as any } : {}),
         },
+        select: {
+          id: true,
+          funnelId: true,
+          slug: true,
+          title: true,
+          sortOrder: true,
+          contentMarkdown: true,
+          editorMode: true,
+          blocksJson: true,
+          customHtml: true,
+          customChatJson: true,
+          createdAt: true,
+          updatedAt: true,
+        },
+      });
+
+      const htmlSnapshot = blocksToCustomHtmlDocument({
+        blocks,
+        pageId: created.id,
+        ownerId,
+        basePath,
+        title: created.title || "Funnel page",
+      });
+
+      const page = await prisma.creditFunnelPage.update({
+        where: { id: created.id },
+        data: { customHtml: htmlSnapshot },
         select: {
           id: true,
           funnelId: true,
@@ -19772,6 +19965,12 @@ async function runDirectAction(opts: {
         });
       }
 
+      const hasSiteUpdate = Object.values(data).some((v) => v !== undefined);
+      const hasSetupUpdate = Boolean(args.meetingPlatform);
+      if (!hasSiteUpdate && !hasSetupUpdate) {
+        return { status: 400, json: { ok: false, error: "No settings fields provided." } };
+      }
+
       const updatedRaw = await prisma.portalBookingSite.update({
         where: { ownerId },
         data: data as any,
@@ -19818,6 +20017,12 @@ async function runDirectAction(opts: {
     case "booking.form.update": {
       const current = await getBookingFormConfig(ownerId);
 
+      const hasAnyUpdate =
+        args.thankYouMessage !== undefined || args.phone !== undefined || args.notes !== undefined || args.questions !== undefined;
+      if (!hasAnyUpdate) {
+        return { status: 400, json: { ok: false, error: "No form fields provided." } };
+      }
+
       const next = {
         ...current,
         thankYouMessage: args.thankYouMessage ?? current.thankYouMessage,
@@ -19835,7 +20040,7 @@ async function runDirectAction(opts: {
             label: q.label,
             required: Boolean(q.required),
             kind: (q.kind ?? "short") as any,
-            options: q.options,
+            options: Array.isArray(q.options) ? q.options : undefined,
           })) ?? current.questions,
       } as const;
 

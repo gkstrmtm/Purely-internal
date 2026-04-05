@@ -819,10 +819,10 @@ export const PortalAgentActionArgsSchemaByKey = {
       funnelId: z.string().trim().min(1).max(120),
       pageId: z.string().trim().min(1).max(120),
       title: z.string().trim().max(200).optional(),
-      contentMarkdown: z.string().optional(),
-      sortOrder: z.number().finite().optional(),
+      contentMarkdown: z.string().optional().nullable(),
+      sortOrder: z.number().finite().optional().nullable(),
       editorMode: z.enum(["MARKDOWN", "BLOCKS", "CUSTOM_HTML"]).optional(),
-      customHtml: z.string().optional(),
+      customHtml: z.string().optional().nullable(),
       blocksJson: z.unknown().optional(),
       customChatJson: z.unknown().optional(),
       slug: z.string().trim().max(64).optional(),
@@ -2564,6 +2564,9 @@ export const PortalAgentActionArgsSchemaByKey = {
 
   "booking.form.update": z
     .object({
+      // The portal UI config includes a version field; tolerate it so the agent can
+      // round-trip configs without getting rejected by strict validation.
+      version: z.number().int().optional(),
       thankYouMessage: z.string().max(500).optional(),
       phone: z
         .object({
@@ -2585,7 +2588,7 @@ export const PortalAgentActionArgsSchemaByKey = {
               label: z.string().trim().min(1).max(120),
               required: z.boolean().optional(),
               kind: z.enum(["short", "long", "single_choice", "multiple_choice"]).optional(),
-              options: z.array(z.string().trim().min(1).max(60)).max(12).optional(),
+              options: z.array(z.string().trim().min(1).max(60)).max(12).optional().nullable(),
             })
             .strict(),
         )

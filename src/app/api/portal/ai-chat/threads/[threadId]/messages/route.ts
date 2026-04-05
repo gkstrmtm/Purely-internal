@@ -10,7 +10,6 @@ import { canAccessPortalAiChatThread } from "@/lib/portalAiChatSharing";
 import {
   PortalAgentActionKeySchema,
   extractJsonObject,
-  portalAgentActionsIndexText,
   type PortalAgentActionKey,
 } from "@/lib/portalAgentActions";
 import { deriveThreadContextPatchFromAction, executePortalAgentAction, executePortalAgentActionForThread } from "@/lib/portalAgentActionExecutor";
@@ -208,6 +207,58 @@ function cleanExtractedText(raw: string, maxChars: number): string {
   return s.trim().slice(0, maxChars);
 }
 
+function stripEmptyAssistantBullets(raw: string): string {
+  const lines = String(raw || "").split("\n");
+  const kept: string[] = [];
+
+  for (const line of lines) {
+    const t = line.trimEnd();
+    const bullet = /^\s*([-*])\s+/.exec(t);
+    if (!bullet) {
+      kept.push(line);
+      continue;
+    }
+
+    const content = t.replace(/^\s*[-*]\s+/, "").trim();
+    if (!content) continue;
+
+    // Drop lines like "- Details:" or "- **Details:**" (no value).
+    const normalized = content
+      .replace(/^\*\*(.+?)\*\*\s*:?\s*$/g, "$1")
+      .trim();
+    if (/^(details|detail|error\s*details)\s*:\s*$/i.test(content)) continue;
+    if (/^(details|detail|error\s*details)\s*:?\s*$/i.test(normalized)) continue;
+
+    kept.push(line);
+  }
+
+  // Clean up excessive blank lines.
+  return kept
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+function stripAssistantVisibleAccountingFields(value: unknown): unknown {
+  const OMIT_KEYS = new Set(["credits", "creditsRemaining", "creditsAdded", "estimatedCredits", "balance"]);
+
+  const walk = (v: unknown, depth: number): unknown => {
+    if (depth <= 0) return v;
+    if (v == null) return v;
+    if (Array.isArray(v)) return v.slice(0, 200).map((x) => walk(x, depth - 1));
+    if (typeof v !== "object") return v;
+    const obj = v as Record<string, unknown>;
+    const out: Record<string, unknown> = {};
+    for (const [k, child] of Object.entries(obj)) {
+      if (OMIT_KEYS.has(k)) continue;
+      out[k] = walk(child, depth - 1);
+    }
+    return out;
+  };
+
+  return walk(value, 6);
+}
+
 async function extractPdfText(bytes: Buffer): Promise<string> {
   const mod: any = await import("pdf-parse");
   const pdfParse: any = mod?.default ?? mod;
@@ -374,6 +425,8 @@ function heuristicThreadTitleFromUserText(textRaw: string): string {
   return title;
 }
 
+// Legacy/experimental schema kept for future use.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 const ActionProposalSchema = z
   .object({
     actions: z
@@ -392,6 +445,8 @@ const ActionProposalSchema = z
   })
   .strict();
 
+// Legacy heuristic kept for possible future auto-exec gating.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function shouldAutoExecuteFromUserText(text: string) {
   const t = String(text || "")
     .trim()
@@ -565,6 +620,8 @@ function extractTimeLocalHHmm(textRaw: string): string {
   return "";
 }
 
+// Legacy deterministic plan builder kept for possible future use.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function buildDeterministicWeekdaySmsPlan(opts: {
   text: string;
   ownerTimeZone?: string;
@@ -1011,6 +1068,8 @@ async function extractContactTagPlanAi(opts: {
   }
 }
 
+// Legacy direct execution path kept for possible future use.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 async function tryExecuteContactTagCommand(opts: {
   ownerId: string;
   threadId: string;
@@ -1343,6 +1402,8 @@ function extractTaskListFromText(text: string): { status?: "OPEN" | "DONE" | "CA
   return { status, assigned };
 }
 
+// Legacy direct execution path kept for possible future use.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 async function tryExecuteTaskCommand(opts: {
   ownerId: string;
   threadId: string;
@@ -1585,6 +1646,8 @@ async function tryExecuteTaskCommand(opts: {
   return null;
 }
 
+// Legacy deterministic action detection (kept for possible future use).
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function detectDeterministicActionsFromText(opts: {
   text: string;
   attachments: Array<{ id?: string | null; fileName?: string; url?: string }>;
@@ -2864,22 +2927,27 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
 
     let assistantText = "";
     try {
-      assistantText = String(
-        await generateText({
-          system:
-            "You are an assistant in a SaaS portal. Summarize the results of the confirmed actions for the user. Write concise markdown. Use per-step headings when multiple steps ran. If something failed, mention it. Do not invent details.",
-          user: `Confirmation execution results (JSON):\n${JSON.stringify(
-            {
-              workTitle: pendingConfirm.workTitle ?? null,
-              steps: confirmedSteps,
-              results,
-              canvasUrl,
-            },
-            null,
-            2,
-          )}`,
-        }),
-      ).trim();
+      const resultsForSummary = Array.isArray(results)
+        ? results.map((r: any) => ({ ...r, result: stripAssistantVisibleAccountingFields((r as any)?.result) }))
+        : results;
+      assistantText = stripEmptyAssistantBullets(
+        String(
+          await generateText({
+            system:
+              "You are an assistant in a SaaS portal. Summarize the results of the confirmed actions for the user. Write concise markdown. Use per-step headings when multiple steps ran. If something failed, mention it. Do not invent details.",
+            user: `Confirmation execution results (JSON):\n${JSON.stringify(
+              {
+                workTitle: pendingConfirm.workTitle ?? null,
+                steps: confirmedSteps,
+                results: resultsForSummary,
+                canvasUrl,
+              },
+              null,
+              2,
+            )}`,
+          }),
+        ),
+      );
     } catch {
       assistantText = "";
     }
@@ -3011,9 +3079,6 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
       text: String(m.text || "").slice(0, 2000),
     }))
     .filter((m: { role: "user" | "assistant"; text: string }) => Boolean(String(m.text || "").trim()));
-
-  // Keep a compatibility alias for the legacy fallback flow later in this route.
-  const recentMessages = modelMessages.slice(-120);
 
   // Use a URL that actually represents what the user is working on.
   // The chat page URL is often not enough context to resolve funnel/page entities.
@@ -3670,22 +3735,27 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
 
         let assistantTextFinal = "";
         try {
-          assistantTextFinal = String(
-            await generateText({
-              system:
-                "You are an assistant in a SaaS portal. Summarize the results of the executed plan for the user. Write concise markdown. Use per-step headings when multiple steps ran. If something failed, mention it. Do not invent details.",
-              user: `Plan execution results (JSON):\n${JSON.stringify(
-                {
-                  workTitle: plan.workTitle ?? null,
-                  steps: resolvedSteps,
-                  results,
-                  canvasUrl,
-                },
-                null,
-                2,
-              )}`,
-            }),
-          ).trim();
+          const resultsForSummary = Array.isArray(results)
+            ? results.map((r: any) => ({ ...r, result: stripAssistantVisibleAccountingFields((r as any)?.result) }))
+            : results;
+          assistantTextFinal = stripEmptyAssistantBullets(
+            String(
+              await generateText({
+                system:
+                  "You are an assistant in a SaaS portal. Summarize the results of the executed plan for the user. Write concise markdown. Use per-step headings when multiple steps ran. If something failed, mention it. Do not invent details.",
+                user: `Plan execution results (JSON):\n${JSON.stringify(
+                  {
+                    workTitle: plan.workTitle ?? null,
+                    steps: resolvedSteps,
+                    results: resultsForSummary,
+                    canvasUrl,
+                  },
+                  null,
+                  2,
+                )}`,
+              }),
+            ),
+          );
         } catch {
           assistantTextFinal = "";
         }
