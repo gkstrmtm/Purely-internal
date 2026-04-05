@@ -79,11 +79,13 @@ const SendMessageSchema = z
     choice: ChoiceSchema,
     widgetSuggestion: WidgetSuggestionSchema,
     redoLastAssistant: z.boolean().optional(),
+    redoMessageId: z.string().trim().min(1).max(200).optional(),
     editMessageId: z.string().trim().min(1).max(200).optional(),
   })
   .refine(
     (d) =>
       Boolean((d as any).redoLastAssistant) ||
+      Boolean(String((d as any).redoMessageId || "").trim()) ||
       Boolean(String((d as any).confirmToken || "").trim()) ||
       Boolean((d.text || "").trim()) ||
       Boolean((d as any).choice) ||
@@ -130,30 +132,55 @@ function parseChatWrapperDecision(modelTextRaw: unknown): z.infer<typeof ChatWra
 function toolCheatSheetForPrompt(textRaw: string, urlRaw?: string): string {
   const t = String(textRaw || "").toLowerCase();
   const u = String(urlRaw || "").toLowerCase();
+  const isFunnelBuilder =
+    /\b(funnel|funnels|landing page|landing|thank you|thank-you|opt[-\s]?in|upsell|downsell|checkout|page builder|website|site)\b/.test(t) ||
+    u.includes("/funnels") ||
+    u.includes("/funnel") ||
+    u.includes("/website") ||
+    u.includes("/sites") ||
+    u.includes("/page") ||
+    u.includes("/builder");
   const isBooking = /\b(book|booking|calendar|appointment|availability|schedule)\b/.test(t) || u.includes("/booking");
   const isInbox = /\b(inbox|sms|text|email|reply|message)\b/.test(t) || u.includes("/inbox");
   const isTasks = /\b(task|todo|to-do|to do|assign)\b/.test(t);
 
   const lines: string[] = [];
   lines.push("When you need to run portal actions, respond with JSON ONLY:");
-  lines.push('{"actions":[{"key":"booking.settings.get","args":{},"title":"Fetch booking settings"}]}');
+  if (isFunnelBuilder) {
+    lines.push('{"actions":[{"key":"funnel_builder.pages.update","args":{},"title":"Update funnel page"}]}');
+  } else if (isInbox) {
+    lines.push('{"actions":[{"key":"inbox.threads.list","args":{},"title":"List inbox threads"}]}');
+  } else if (isBooking) {
+    lines.push('{"actions":[{"key":"booking.settings.get","args":{},"title":"Fetch booking settings"}]}');
+  } else {
+    lines.push('{"actions":[{"key":"tasks.list","args":{},"title":"List tasks"}]}');
+  }
   lines.push("Otherwise, respond normally (no JSON).\n");
 
   lines.push("Common action keys:");
-  if (isBooking) {
+  if (isFunnelBuilder) {
+    lines.push("- funnel_builder.funnels.list / funnel_builder.funnels.get / funnel_builder.funnels.update");
+    lines.push("- funnel_builder.pages.list / funnel_builder.pages.create / funnel_builder.pages.update / funnel_builder.pages.delete");
+    lines.push("- funnel_builder.pages.generate_html / funnel_builder.pages.export_custom_html");
+    lines.push("- funnel_builder.forms.list / funnel_builder.forms.get / funnel_builder.forms.update");
+    lines.push("- funnel_builder.domains.list / funnel_builder.domains.create / funnel_builder.domains.verify");
+    lines.push("Tool selection rule: If the user is working on a funnel/page/website, prefer funnel_builder.* actions. Do NOT use booking.* unless the user explicitly asked about booking settings/calendars.");
+    lines.push("If the user asks to build a funnel and pages are missing, you should (1) list funnels/pages, then (2) create missing pages, then (3) update page content.");
+  }
+  if (!isFunnelBuilder && isBooking) {
     lines.push("- booking.settings.get / booking.settings.update");
     lines.push("- booking.calendars.get / booking.calendars.update");
     lines.push("- booking.form.get / booking.form.update");
     lines.push("- booking.availability.set_daily");
     lines.push("- booking.bookings.list / booking.cancel / booking.reschedule / booking.contact");
   }
-  if (isInbox) {
+  if (!isFunnelBuilder && isInbox) {
     lines.push("- inbox.threads.list / inbox.thread.get / inbox.send / inbox.send_sms / inbox.send_email");
   }
-  if (isTasks) {
+  if (!isFunnelBuilder && isTasks) {
     lines.push("- tasks.list / tasks.create / tasks.update");
   }
-  if (!isBooking && !isInbox && !isTasks) {
+  if (!isFunnelBuilder && !isBooking && !isInbox && !isTasks) {
     lines.push("- tasks.list / tasks.create / tasks.update");
     lines.push("- contacts.search / contacts.get / contacts.update");
     lines.push("- booking.settings.get / booking.calendars.get / booking.form.get");
@@ -2714,80 +2741,137 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
   const isEdit = Boolean(editMessageId);
 
   const redoLastAssistant = Boolean((parsed.data as any).redoLastAssistant);
+  const redoMessageIdRaw = typeof (parsed.data as any).redoMessageId === "string" ? String((parsed.data as any).redoMessageId).trim().slice(0, 200) : "";
+  const redoMessageId = redoMessageIdRaw || "";
+  const isRedo = redoLastAssistant || Boolean(redoMessageId);
   let redoLatestUserText: string | null = null;
   let redoLatestUserMessageId: string | null = null;
   let priorAssistantTextToAvoid: string | null = null;
   let skipUserInsert = false;
 
-  if (isEdit && redoLastAssistant) {
+  if (isEdit && isRedo) {
     return NextResponse.json({ ok: false, error: "Invalid request" }, { status: 400 });
   }
 
-  if (redoLastAssistant) {
+  if (isRedo) {
     const recent = await (prisma as any).portalAiChatMessage.findMany({
       where: { ownerId, threadId },
       orderBy: { createdAt: "desc" },
-      take: 40,
+      take: 400,
       select: { id: true, role: true, text: true, createdAt: true },
     });
 
     const ordered = Array.isArray(recent) ? [...recent].reverse() : [];
-    let lastUser: any = null;
-    for (let i = ordered.length - 1; i >= 0; i--) {
-      if (String(ordered[i]?.role) !== "user") continue;
-      const t = String(ordered[i]?.text || "").trim();
-      if (!t) continue;
-      lastUser = ordered[i];
-      break;
+    const findLatestUser = (): any => {
+      for (let i = ordered.length - 1; i >= 0; i--) {
+        if (String(ordered[i]?.role) !== "user") continue;
+        const t = String(ordered[i]?.text || "").trim();
+        if (!t) continue;
+        return ordered[i];
+      }
+      return null;
+    };
+
+    if (!ordered.length) {
+      return NextResponse.json({ ok: false, error: "No messages found to redo." }, { status: 400 });
     }
 
-    const lastUserText = String(lastUser?.text || "").trim();
-    if (!lastUserText) {
-      return NextResponse.json({ ok: false, error: "No user message found to redo." }, { status: 400 });
+    if (!redoMessageId) {
+      // Legacy behavior: redo the most recent assistant response after the latest user message.
+      const lastUser = findLatestUser();
+      const lastUserText = String(lastUser?.text || "").trim();
+      if (!lastUserText) {
+        return NextResponse.json({ ok: false, error: "No user message found to redo." }, { status: 400 });
+      }
+
+      const lastUserCreatedAt = lastUser?.createdAt ? new Date(lastUser.createdAt) : null;
+      if (!lastUserCreatedAt || !Number.isFinite(lastUserCreatedAt.getTime())) {
+        return NextResponse.json({ ok: false, error: "No user message found to redo." }, { status: 400 });
+      }
+
+      const assistantAfterLastUser = ordered.filter(
+        (m) => String(m?.role) === "assistant" && m?.createdAt && new Date(m.createdAt) > lastUserCreatedAt,
+      );
+      if (!assistantAfterLastUser.length) {
+        return NextResponse.json({ ok: false, error: "No assistant message to redo." }, { status: 400 });
+      }
+
+      const lastAssistantToAvoid = assistantAfterLastUser
+        .slice()
+        .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
+        .slice(-1)[0];
+      priorAssistantTextToAvoid = String(lastAssistantToAvoid?.text || "").trim().slice(0, 4000) || null;
+
+      const assistantIdsToDelete = assistantAfterLastUser.map((m) => String(m.id)).filter(Boolean);
+      if (assistantIdsToDelete.length) {
+        await (prisma as any).portalAiChatMessage.deleteMany({ where: { ownerId, threadId, id: { in: assistantIdsToDelete } } });
+      }
+
+      // Re-run using the latest user prompt, but do not insert a duplicate user message.
+      redoLatestUserText = lastUserText.slice(0, 4000);
+      redoLatestUserMessageId = String(lastUser?.id || "").trim() || null;
+      skipUserInsert = true;
+    } else {
+      // New behavior: redo a specific assistant message in the thread.
+      const idx = ordered.findIndex((m) => String(m?.id) === String(redoMessageId));
+      if (idx < 0) {
+        return NextResponse.json({ ok: false, error: "Message not found to redo." }, { status: 404 });
+      }
+
+      const target = ordered[idx];
+      if (String(target?.role) !== "assistant") {
+        return NextResponse.json({ ok: false, error: "Can only redo assistant messages." }, { status: 400 });
+      }
+
+      // Find the user message that this assistant response was replying to.
+      let userBefore: any = null;
+      for (let i = idx - 1; i >= 0; i--) {
+        if (String(ordered[i]?.role) !== "user") continue;
+        const t = String(ordered[i]?.text || "").trim();
+        if (!t) continue;
+        userBefore = ordered[i];
+        break;
+      }
+
+      const userBeforeText = String(userBefore?.text || "").trim();
+      if (!userBeforeText) {
+        return NextResponse.json({ ok: false, error: "No user message found before that assistant message." }, { status: 400 });
+      }
+
+      priorAssistantTextToAvoid = String(target?.text || "").trim().slice(0, 4000) || null;
+
+      // Truncate history from the target assistant onward (so the re-generated response becomes the new fork).
+      const idsToDelete = ordered.slice(idx).map((m) => String(m?.id)).filter(Boolean);
+      if (idsToDelete.length) {
+        await (prisma as any).portalAiChatMessage.deleteMany({ where: { ownerId, threadId, id: { in: idsToDelete } } });
+      }
+
+      redoLatestUserText = userBeforeText.slice(0, 4000);
+      redoLatestUserMessageId = String(userBefore?.id || "").trim() || null;
+      skipUserInsert = true;
     }
 
-    const lastUserCreatedAt = lastUser?.createdAt ? new Date(lastUser.createdAt) : null;
-    if (!lastUserCreatedAt || !Number.isFinite(lastUserCreatedAt.getTime())) {
-      return NextResponse.json({ ok: false, error: "No user message found to redo." }, { status: 400 });
-    }
-
-    const assistantAfterLastUser = ordered.filter(
-      (m) => String(m?.role) === "assistant" && m?.createdAt && new Date(m.createdAt) > lastUserCreatedAt,
-    );
-    if (!assistantAfterLastUser.length) {
-      return NextResponse.json({ ok: false, error: "No assistant message to redo." }, { status: 400 });
-    }
-
-    const lastAssistantToAvoid = assistantAfterLastUser
-      .slice()
-      .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
-      .slice(-1)[0];
-    priorAssistantTextToAvoid = String(lastAssistantToAvoid?.text || "").trim().slice(0, 4000) || null;
-
-    const assistantIdsToDelete = assistantAfterLastUser.map((m) => String(m.id)).filter(Boolean);
-    if (assistantIdsToDelete.length) {
-      await (prisma as any).portalAiChatMessage.deleteMany({ where: { ownerId, threadId, id: { in: assistantIdsToDelete } } });
-    }
-
-    // Force a true re-evaluation: clear any stale pending state that could cause replaying
-    // a previously proposed plan or re-asking the same clarify question.
+    // Force a true re-evaluation: clear any stale pending state (and summary) that could cause
+    // replaying a previously proposed plan or using a summary that includes truncated messages.
     try {
       const prevCtx =
         persistedThreadContext && typeof persistedThreadContext === "object" && !Array.isArray(persistedThreadContext)
           ? (persistedThreadContext as any)
           : {};
-      const nextCtx = { ...prevCtx, pendingConfirm: null, pendingPlan: null, pendingPlanClarify: null, pendingAction: null, pendingActionClarify: null };
+      const nextCtx = {
+        ...prevCtx,
+        pendingConfirm: null,
+        pendingPlan: null,
+        pendingPlanClarify: null,
+        pendingAction: null,
+        pendingActionClarify: null,
+        threadSummary: null,
+      };
       await (prisma as any).portalAiChatThread.update({ where: { id: threadId }, data: { contextJson: nextCtx } });
       persistedThreadContext = nextCtx;
     } catch {
       // best-effort only
     }
-
-    // Re-run the full agent pipeline using the latest user prompt, but avoid inserting
-    // a duplicate user message (this should behave like a real retry/regenerate).
-    redoLatestUserText = lastUserText.slice(0, 4000);
-    redoLatestUserMessageId = String(lastUser?.id || "").trim() || null;
-    skipUserInsert = true;
   }
 
   const confirmToken = typeof (parsed.data as any).confirmToken === "string" ? String((parsed.data as any).confirmToken).trim().slice(0, 200) : "";
@@ -2829,7 +2913,7 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
     if (!cleanText) {
       return NextResponse.json({ ok: false, error: "Text required" }, { status: 400 });
     }
-    if (confirmToken || redoLastAssistant || choice || widgetSuggestion || attachments.length) {
+    if (confirmToken || isRedo || choice || widgetSuggestion || attachments.length) {
       return NextResponse.json({ ok: false, error: "Invalid request" }, { status: 400 });
     }
   }
@@ -3326,18 +3410,35 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
       const effectivePlanningTextBase = effectiveText;
 
       const intentNote = (() => {
-        const mode = redoLastAssistant ? "redo" : isEdit ? "edit" : "";
+        const mode = isRedo ? "redo" : isEdit ? "edit" : "";
         if (!mode) return "";
         const prior = String(priorAssistantTextToAvoid || "").trim();
-        const priorBlock = prior ? `\n\nPrior assistant response (do not repeat verbatim):\n${prior.slice(0, 1200)}` : "";
+        const priorLower = prior.toLowerCase();
+        const currentLower = String(effectivePlanningTextBase || "").toLowerCase();
+        const currentLooksLikeFunnel =
+          /\b(funnel|funnels|landing page|landing|thank you|thank-you|opt[-\s]?in|upsell|downsell|checkout|page builder|website|site)\b/.test(currentLower) ||
+          String(contextUrl || "").toLowerCase().includes("/funnels") ||
+          String(contextUrl || "").toLowerCase().includes("/funnel");
+        const priorFocusedOnBooking = /\b(booking|calendar|appointment|availability)\b/.test(priorLower);
+        const priorFocusedOnFunnel = /\b(funnel|landing|page builder|website|site)\b/.test(priorLower);
+
+        const avoidNotes =
+          mode === "redo" && currentLooksLikeFunnel && priorFocusedOnBooking && !priorFocusedOnFunnel
+            ? "\n- The previous attempt focused on booking; this time focus on Funnel Builder/page actions."
+            : "";
         const redoExtra =
           mode === "redo"
             ? "\n- Re-evaluate the task and tool selection from scratch.\n- If the previous attempt failed or asked unhelpful questions, choose a different approach (prefer safe GET/diagnostics first, then targeted updates).\n- Do NOT reuse the same plan/steps unless they are clearly the best option."
             : "";
+
+        const priorBlock = prior
+          ? `\n\nPrevious assistant response (user was not satisfied; use this to take a different angle and avoid repeating it):\n${prior.slice(0, 1400)}`
+          : "";
         return (
-          "\n\nSystem note: The user clicked Try Again / edited their last message. Replace the previous assistant response. Do NOT repeat the same wording." +
+          "\n\nSystem note: The user clicked Redo / edited their last message because they were not satisfied. Replace the previous assistant response." +
           redoExtra +
-          "\n- If your prior answer was vague or missed constraints, correct it now.\n- Keep it concise and action-oriented." +
+          avoidNotes +
+          "\n- Do not repeat the previous answer; take a different angle and fix the underlying issue.\n- Keep it concise and action-oriented." +
           priorBlock
         );
       })();
@@ -3586,14 +3687,14 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
         contextUrl ? `Context URL: ${String(contextUrl).slice(0, 1200)}` : null,
         threadSummaryForPrompt ? `Thread summary: ${threadSummaryForPrompt}` : null,
         "Recent messages:",
-        JSON.stringify(modelMessages.slice(-16), null, 2).slice(0, 4000),
+        JSON.stringify(modelMessages.slice(-28), null, 2).slice(0, 4000),
         "\nUser request:",
         planningTextWithAttachments.slice(0, 8000),
       ]
         .filter(Boolean)
         .join("\n");
 
-      const modelText = String(await generateText({ system: modelSystem, user: modelUser })).trim();
+      const modelText = String(await generateText({ system: modelSystem, user: modelUser, temperature: isRedo ? 0.85 : 0.6 })).trim();
       const decision = parseChatWrapperDecision(modelText);
 
       const actions = Array.isArray(decision?.actions) ? decision!.actions! : [];

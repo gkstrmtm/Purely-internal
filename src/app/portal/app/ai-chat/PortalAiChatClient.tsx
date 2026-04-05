@@ -1843,7 +1843,7 @@ export function PortalAiChatClient() {
         else setThreadSending(sendLockKey, false);
       }
     },
-    [askConfirm, canvasUrl, clearThreadUiState, clientTimeZone, clientTimeZoneHeaders, executeClientUiActions, loadThreads, setThreadDraftState, setThreadSending, setThreadUiState, toast, updateThreadMessages],
+    [askConfirm, canvasUrl, clearThreadUiState, clientTimeZone, clientTimeZoneHeaders, executeClientUiActions, loadThreads, setThreadDraftState, setThreadEditingMessageId, setThreadSending, setThreadUiState, toast, updateThreadMessages],
   );
 
   // Handler for ambiguous contact selection (must be after send is defined)
@@ -2056,62 +2056,61 @@ export function PortalAiChatClient() {
     [activeThreadId, dictating, toast],
   );
 
-  const redoLastAssistant = useCallback(async () => {
-    if (!activeThreadId) return;
-    if (regeneratingThreadId === activeThreadId) return;
-    const threadIdAtStart = activeThreadId;
+  const redoAssistantMessage = useCallback(
+    async (assistantMessageId: string) => {
+      if (!activeThreadId) return;
+      if (!assistantMessageId) return;
+      if (regeneratingThreadId === activeThreadId) return;
+      const threadIdAtStart = activeThreadId;
 
-    const prevMessagesSnapshot = messagesByThreadRef.current[threadIdAtStart] ?? [];
-    const optimisticId = newClientId();
-    const nowIso = new Date().toISOString();
-    const optimisticAssistant: Message = {
-      id: `optimistic-assistant-${optimisticId}`,
-      role: "assistant",
-      text: "",
-      attachmentsJson: [],
-      createdAt: nowIso,
-      sendAt: null,
-      sentAt: nowIso,
-    };
+      const prevMessagesSnapshot = messagesByThreadRef.current[threadIdAtStart] ?? [];
+      const optimisticId = newClientId();
+      const nowIso = new Date().toISOString();
+      const optimisticAssistant: Message = {
+        id: `optimistic-assistant-${optimisticId}`,
+        role: "assistant",
+        text: "",
+        attachmentsJson: [],
+        createdAt: nowIso,
+        sendAt: null,
+        sentAt: nowIso,
+      };
 
-    updateThreadMessages(threadIdAtStart, (prev) => {
-      let lastAssistantIdx = -1;
-      for (let i = prev.length - 1; i >= 0; i--) {
-        const m = prev[i];
-        if (m?.role !== "assistant") continue;
-        if (String(m.id || "").startsWith("optimistic-assistant-")) continue;
-        lastAssistantIdx = i;
-        break;
-      }
-      if (lastAssistantIdx < 0) return prev;
-      const next = [...prev.slice(0, lastAssistantIdx), ...prev.slice(lastAssistantIdx + 1)];
-      next.push(optimisticAssistant);
-      return next;
-    });
-
-    setRegeneratingThreadId(threadIdAtStart);
-    try {
-      const res = await fetch(`/api/portal/ai-chat/threads/${encodeURIComponent(threadIdAtStart)}/messages`, {
-        method: "POST",
-        headers: { "content-type": "application/json", ...clientTimeZoneHeaders },
-        body: JSON.stringify({
-          redoLastAssistant: true,
-          url: typeof window !== "undefined" ? window.location.href : undefined,
-          ...(canvasUrl ? { canvasUrl } : {}),
-          ...(clientTimeZone ? { clientTimeZone } : {}),
-        }),
+      updateThreadMessages(threadIdAtStart, (prev) => {
+        const idx = prev.findIndex((m) => String(m?.id) === String(assistantMessageId));
+        if (idx < 0) return prev;
+        const target = prev[idx];
+        if (target?.role !== "assistant") return prev;
+        const next = [...prev.slice(0, idx)];
+        next.push(optimisticAssistant);
+        return next;
       });
-      const json = await res.json().catch(() => null);
-      if (!json?.ok) throw new Error(json?.error || "Redo failed");
-      void loadMessages(threadIdAtStart);
-      void loadThreads();
-    } catch (e) {
-      updateThreadMessages(threadIdAtStart, () => prevMessagesSnapshot);
-      toast.error(e instanceof Error ? e.message : String(e));
-    } finally {
-      setRegeneratingThreadId((prev) => (prev === threadIdAtStart ? null : prev));
-    }
-  }, [activeThreadId, canvasUrl, clientTimeZone, clientTimeZoneHeaders, loadMessages, loadThreads, regeneratingThreadId, toast]);
+
+      setRegeneratingThreadId(threadIdAtStart);
+      try {
+        const res = await fetch(`/api/portal/ai-chat/threads/${encodeURIComponent(threadIdAtStart)}/messages`, {
+          method: "POST",
+          headers: { "content-type": "application/json", ...clientTimeZoneHeaders },
+          body: JSON.stringify({
+            redoMessageId: assistantMessageId,
+            url: typeof window !== "undefined" ? window.location.href : undefined,
+            ...(canvasUrl ? { canvasUrl } : {}),
+            ...(clientTimeZone ? { clientTimeZone } : {}),
+          }),
+        });
+        const json = await res.json().catch(() => null);
+        if (!json?.ok) throw new Error(json?.error || "Redo failed");
+        void loadMessages(threadIdAtStart);
+        void loadThreads();
+      } catch (e) {
+        updateThreadMessages(threadIdAtStart, () => prevMessagesSnapshot);
+        toast.error(e instanceof Error ? e.message : String(e));
+      } finally {
+        setRegeneratingThreadId((prev) => (prev === threadIdAtStart ? null : prev));
+      }
+    },
+    [activeThreadId, canvasUrl, clientTimeZone, clientTimeZoneHeaders, loadMessages, loadThreads, regeneratingThreadId, toast, updateThreadMessages],
+  );
 
   const copyMessageText = useCallback(
     async (textRaw: string) => {
@@ -2984,6 +2983,7 @@ export function PortalAiChatClient() {
 
                     const canCopy = m.role === "assistant" && Boolean(String(m.text || "").trim());
                     const canDictate = m.role === "assistant" && !isThinking && Boolean(String(m.text || "").trim());
+                    const canRedo = m.role === "assistant" && !isThinking && !String(m.id || "").startsWith("optimistic-assistant-");
                     return (
                       <div key={m.id}>
                         <MessageBubble
@@ -2993,7 +2993,7 @@ export function PortalAiChatClient() {
                           runningActionKey={runningActionKey}
                           onOpenLink={openInCanvas}
                           footerLeft={
-                            isLastAssistant ? (
+                            m.role === "assistant" ? (
                               <>
                                 <button
                                   type="button"
@@ -3003,7 +3003,7 @@ export function PortalAiChatClient() {
                                   )}
                                   onClick={() => void dictateAssistantMessage(m.id)}
                                   disabled={!canDictate || dictating || regenerating || sending}
-                                  aria-label={dictationPlayingMessageId === m.id ? "Stop dictation" : "Dictate last assistant message"}
+                                  aria-label={dictationPlayingMessageId === m.id ? "Stop dictation" : "Dictate assistant message"}
                                   title={
                                     !canDictate
                                       ? "Nothing to dictate"
@@ -3027,12 +3027,12 @@ export function PortalAiChatClient() {
                                   type="button"
                                   className={classNames(
                                     "inline-flex h-8 w-8 items-center justify-center rounded-xl bg-transparent text-zinc-600 transition-all duration-150 hover:scale-110 hover:bg-zinc-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-blue/30",
-                                    (dictating || regenerating || sending) && "opacity-60",
+                                    (!canRedo || dictating || regenerating || sending) && "opacity-60",
                                   )}
-                                  onClick={() => void redoLastAssistant()}
-                                  disabled={dictating || regenerating || sending}
-                                  aria-label="Redo last assistant response"
-                                  title={regenerating ? "Redoing…" : "Redo"}
+                                  onClick={() => void redoAssistantMessage(m.id)}
+                                  disabled={!canRedo || dictating || regenerating || sending}
+                                  aria-label="Redo assistant response"
+                                  title={regenerating ? "Redoing…" : "Redo from here"}
                                 >
                                   {regenerating ? <IconSpinner size={16} /> : <IconRedoGlyph size={16} />}
                                 </button>

@@ -56,10 +56,12 @@ export async function generateText({
   system,
   user,
   model,
+  temperature,
 }: {
   system?: string;
   user: string;
   model?: string;
+  temperature?: number;
 }): Promise<string> {
   const baseUrl = process.env.AI_BASE_URL;
   const apiKey = process.env.AI_API_KEY;
@@ -82,7 +84,7 @@ export async function generateText({
     body: JSON.stringify({
       model: resolvedModel,
       messages,
-      temperature: 0.6,
+      temperature: Math.min(2, Math.max(0, typeof temperature === "number" && Number.isFinite(temperature) ? temperature : 0.6)),
     }),
   });
 
@@ -101,11 +103,13 @@ export async function generateTextWithImages({
   user,
   imageUrls,
   model,
+  temperature,
 }: {
   system?: string;
   user: string;
   imageUrls: string[];
   model?: string;
+  temperature?: number;
 }): Promise<string> {
   const baseUrl = process.env.AI_BASE_URL;
   const apiKey = process.env.AI_API_KEY;
@@ -136,7 +140,7 @@ export async function generateTextWithImages({
     body: JSON.stringify({
       model: resolvedModel,
       messages,
-      temperature: 0.6,
+      temperature: Math.min(2, Math.max(0, typeof temperature === "number" && Number.isFinite(temperature) ? temperature : 0.6)),
     }),
   });
 
