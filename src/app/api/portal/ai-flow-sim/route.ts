@@ -40,6 +40,7 @@ const SimRequestSchema = z
     url: z.string().trim().max(2000).optional().nullable(),
     threadId: z.string().trim().min(1).max(200).optional().nullable(),
     execute: z.boolean().optional().default(false),
+    autoContinuePastConfirm: z.boolean().optional().default(false),
     maxRounds: z.number().int().min(1).max(4).optional().default(4),
     threadContext: z.record(z.string(), z.unknown()).optional().nullable(),
   })
@@ -79,6 +80,7 @@ export async function POST(req: Request) {
     ? String(parsed.data.threadId).trim()
     : "";
   const execute = Boolean(parsed.data.execute);
+  const autoContinuePastConfirm = Boolean(parsed.data.autoContinuePastConfirm);
   const maxRounds = parsed.data.maxRounds;
 
   const overrideCtx: Record<string, unknown> =
@@ -366,8 +368,11 @@ export async function POST(req: Request) {
 
     if (confirmSpec) {
       roundRecord.needsConfirm = confirmSpec;
-      rounds.push(roundRecord);
-      break;
+      if (!autoContinuePastConfirm) {
+        rounds.push(roundRecord);
+        break;
+      }
+      roundRecord.confirmAutoApproved = true;
     }
 
     for (const a of actions.slice(0, 6)) {
@@ -402,6 +407,7 @@ export async function POST(req: Request) {
               url: contextUrl || null,
               threadId: requestedThreadId || null,
               execute,
+              autoContinuePastConfirm,
               maxRounds,
               threadContext,
             },
@@ -485,6 +491,7 @@ export async function POST(req: Request) {
         url: contextUrl || null,
         threadId: requestedThreadId || null,
         execute,
+        autoContinuePastConfirm,
         maxRounds,
         threadContext,
       },

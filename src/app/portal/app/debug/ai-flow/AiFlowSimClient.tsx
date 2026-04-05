@@ -84,6 +84,7 @@ export function AiFlowSimClient(props: { slug: string }) {
   const [urlMode, setUrlMode] = useState<"auto" | "manual">("auto");
   const [url, setUrl] = useState<string>("/");
   const [execute, setExecute] = useState<boolean>(false);
+  const [autoContinuePastConfirm, setAutoContinuePastConfirm] = useState<boolean>(false);
   const [maxRounds, setMaxRounds] = useState<number>(3);
   const [threadContextText, setThreadContextText] = useState<string>("{}\n");
   const [loading, setLoading] = useState(false);
@@ -98,6 +99,29 @@ export function AiFlowSimClient(props: { slug: string }) {
     setUrl(window.location.href);
   }, [urlMode]);
 
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const raw = window.localStorage.getItem("aiFlowSim.autoContinuePastConfirm");
+      if (raw === "true") setAutoContinuePastConfirm(true);
+      if (raw === "false") setAutoContinuePastConfirm(false);
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      window.localStorage.setItem(
+        "aiFlowSim.autoContinuePastConfirm",
+        autoContinuePastConfirm ? "true" : "false",
+      );
+    } catch {
+      // ignore
+    }
+  }, [autoContinuePastConfirm]);
+
   const toolsPretty = useMemo(() => {
     const keys = resp?.tools?.availableActionKeys;
     if (!Array.isArray(keys)) return "";
@@ -107,6 +131,20 @@ export function AiFlowSimClient(props: { slug: string }) {
   const rounds = useMemo(() => {
     return Array.isArray(resp?.rounds) ? resp.rounds : [];
   }, [resp]);
+
+  const confirmStop = useMemo(() => {
+    for (let i = 0; i < rounds.length; i += 1) {
+      const r: any = rounds[i];
+      if (r?.needsConfirm && !r?.confirmAutoApproved) {
+        return {
+          roundIndex: i,
+          round: r,
+          pretty: JSON.stringify(r.needsConfirm, null, 2),
+        };
+      }
+    }
+    return null;
+  }, [rounds]);
 
   const allSentCombined = useMemo(() => {
     if (!rounds.length) return "";
@@ -213,28 +251,45 @@ export function AiFlowSimClient(props: { slug: string }) {
     }
   }, [resp, allSentCombined, allReturnedCombined, props.slug]);
 
-  async function run() {
+  async function run(overrides?: {
+    threadContextOverride?: any;
+    autoContinuePastConfirmOverride?: boolean;
+  }) {
     setLoading(true);
     setErr("");
     setExplainLoading({});
     setExplainText({});
     try {
-      let threadContext: any = undefined;
-      const raw = threadContextText.trim();
-      if (raw) {
-        try {
-          threadContext = JSON.parse(raw);
-        } catch {
-          setErr("threadContext must be valid JSON");
-          setLoading(false);
-          return;
+      let threadContext: any = overrides?.threadContextOverride;
+      if (typeof threadContext === "undefined") {
+        const raw = threadContextText.trim();
+        if (raw) {
+          try {
+            threadContext = JSON.parse(raw);
+          } catch {
+            setErr("threadContext must be valid JSON");
+            setLoading(false);
+            return;
+          }
         }
       }
+
+      const autoContinue =
+        typeof overrides?.autoContinuePastConfirmOverride === "boolean"
+          ? overrides.autoContinuePastConfirmOverride
+          : autoContinuePastConfirm;
 
       const r = await fetch("/api/portal/ai-flow-sim", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ text, url: sendContextUrl ? url : null, execute, maxRounds, threadContext }),
+        body: JSON.stringify({
+          text,
+          url: sendContextUrl ? url : null,
+          execute,
+          autoContinuePastConfirm: autoContinue,
+          maxRounds,
+          threadContext,
+        }),
       });
       const json = await r.json().catch(() => null);
       if (!r.ok) {
@@ -257,6 +312,20 @@ export function AiFlowSimClient(props: { slug: string }) {
     } catch {
       setThreadContextText(`${String(resp.finalContext)}\n`);
     }
+  }
+
+  async function continuePastConfirm() {
+    if (!resp) return;
+    const nextCtx = resp?.finalContext || null;
+    if (nextCtx) {
+      try {
+        setThreadContextText(`${JSON.stringify(nextCtx, null, 2)}\n`);
+      } catch {
+        setThreadContextText(`${String(nextCtx)}\n`);
+      }
+    }
+    setAutoContinuePastConfirm(true);
+    await run({ threadContextOverride: nextCtx || undefined, autoContinuePastConfirmOverride: true });
   }
 
   async function generateExplanationForRound(roundKey: string, roundPayload: any) {
@@ -398,6 +467,22 @@ export function AiFlowSimClient(props: { slug: string }) {
               </div>
             </label>
 
+            <label style={{ display: "flex", gap: 10, alignItems: "flex-start", marginBottom: 10 }}>
+              <input
+                type="checkbox"
+                checked={autoContinuePastConfirm}
+                onChange={(e) => setAutoContinuePastConfirm(e.target.checked)}
+                style={{ marginTop: 3 }}
+              />
+              <div>
+                <div style={{ fontWeight: 600 }}>Auto-continue past confirm gates</div>
+                <div style={{ color: "#666", fontSize: 13 }}>
+                  If an action requires confirmation (destructive/high impact), the simulator will auto-approve and keep going.
+                  {execute ? " Be careful: this can execute real actions." : ""}
+                </div>
+              </div>
+            </label>
+
             <label style={{ display: "grid", gap: 6, marginBottom: 12 }}>
               <div style={{ fontWeight: 600 }}>Max AI rounds</div>
               <input
@@ -411,7 +496,7 @@ export function AiFlowSimClient(props: { slug: string }) {
             </label>
 
             <button
-              onClick={run}
+              onClick={() => run()}
               disabled={loading || !text.trim()}
               style={{
                 padding: "10px 14px",
@@ -425,6 +510,43 @@ export function AiFlowSimClient(props: { slug: string }) {
             >
               {loading ? "Running…" : "Run simulation"}
             </button>
+
+            {confirmStop ? (
+              <div
+                style={{
+                  marginTop: 10,
+                  padding: 10,
+                  borderRadius: 10,
+                  border: "1px solid #fde68a",
+                  background: "#fffbeb",
+                  color: "#92400e",
+                  display: "grid",
+                  gap: 8,
+                }}
+              >
+                <div style={{ fontWeight: 700 }}>
+                  Confirm required (stopped on round {Number(confirmStop.round?.round ?? confirmStop.roundIndex) + 1})
+                </div>
+                <div style={{ fontSize: 13 }}>
+                  Click Continue to simulate pressing the confirm button and resume the run.
+                </div>
+                <button
+                  type="button"
+                  onClick={continuePastConfirm}
+                  disabled={loading}
+                  style={{
+                    padding: "8px 12px",
+                    borderRadius: 10,
+                    border: "1px solid #d1d5db",
+                    background: loading ? "#f3f4f6" : "white",
+                    cursor: loading ? "not-allowed" : "pointer",
+                    fontWeight: 600,
+                  }}
+                >
+                  Continue (simulate confirm)
+                </button>
+              </div>
+            ) : null}
 
             {resp ? (
               <div style={{ display: "grid", gap: 8, marginTop: 10 }}>
@@ -448,7 +570,7 @@ export function AiFlowSimClient(props: { slug: string }) {
                   ) : null}
                 </div>
                 <div style={{ color: "#666", fontSize: 12 }}>
-                  Tip: click "Use final context as next input", then send your next message to simulate a multi-step thread.
+                  Tip: click &quot;Use final context as next input&quot;, then send your next message to simulate a multi-step thread.
                 </div>
               </div>
             ) : null}
@@ -611,7 +733,9 @@ export function AiFlowSimClient(props: { slug: string }) {
 
                           {needsConfirmPretty ? (
                             <div style={{ display: "grid", gap: 8 }}>
-                              <div style={{ fontWeight: 600 }}>Needs confirm (simulation stops here)</div>
+                              <div style={{ fontWeight: 600 }}>
+                                Needs confirm{r?.confirmAutoApproved ? " (auto-approved)" : " (simulation stops here)"}
+                              </div>
                               <PreBlock text={needsConfirmPretty} minHeight={80} />
                             </div>
                           ) : null}
