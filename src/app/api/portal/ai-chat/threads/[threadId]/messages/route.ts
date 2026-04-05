@@ -3672,6 +3672,7 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
         if (!t) return false;
         return (
           /\b(would\s+you\s+like\s+to\s+proceed|should\s+i\s+proceed|do\s+you\s+want\s+me\s+to\s+proceed|do\s+you\s+want\s+me\s+to\s+continue|want\s+me\s+to\s+continue|would\s+you\s+like\s+me\s+to\s+continue|would\s+you\s+like\s+me\s+to\s+do\s+that)\b/.test(t) ||
+          /\b(confirm\s+if\s+you'?d\s+like\s+me\s+to\s+(try\s+again|retry|continue)|could\s+you\s+please\s+confirm|do\s+you\s+want\s+me\s+to\s+(try\s+again|retry)|would\s+you\s+like\s+me\s+to\s+(try\s+again|retry)|should\s+i\s+(try\s+again|retry))\b/.test(t) ||
           (t.includes("next step") && /\b(proceed|continue)\b/.test(t))
         );
       };
@@ -3685,8 +3686,18 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
         const numberedLines = (t.match(/^\s*\d+\./gm) || []).length;
         const bulletLines = (t.match(/^\s*[-*]\s+/gm) || []).length;
         const clickMentions = (lower.match(/\bclick\b/g) || []).length;
-        const lengthLooksLikeGuide = t.length > 220 && (numberedLines + bulletLines >= 3 || clickMentions >= 2);
+        const lengthLooksLikeGuide = t.length > 140 && (numberedLines + bulletLines >= 2 || clickMentions >= 2);
         return Boolean(hasHowToPhrases && lengthLooksLikeGuide);
+      };
+
+      const looksLikeNonActionDeflection = (text: string) => {
+        const t = String(text || "").trim().toLowerCase();
+        if (!t) return false;
+        // Common patterns when the model refuses to take action even though tools exist.
+        return (
+          /\b(let\s+me\s+know|tell\s+me\s+what\s+you'?d\s+like|what\s+would\s+you\s+like\s+me\s+to\s+do\s+next|if\s+you\s+need\s+help\s+with|please\s+let\s+me\s+know\s+what\s+changes|please\s+provide\s+more\s+details)\b/.test(t) ||
+          /\b(i\s+can\s+help\s+with|i\s+can\s+do\s+that\s+for\s+you)\b/.test(t)
+        );
       };
 
       const isImperativeRequest = (text: string) => {
@@ -3794,6 +3805,41 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
               extraSystem:
                 "The user wants you to do the work in the portal. Do NOT provide how-to steps or instructions. Output JSON actions only.",
             });
+          }
+
+          if (!planned.actions.length && looksLikeNonActionDeflection(assistantText) && isImperativeRequest(effectiveText) && round + 1 < MAX_AUTORUN_ROUNDS) {
+            planned = await runPlannerOnce({
+              round,
+              lastRunSummary,
+              temperature: 0.25,
+              extraSystem:
+                "Stop deflecting. The user asked you to do it. Output JSON actions only. If unsure what to do next, start with a read-only discovery step (funnel_builder.pages.list or funnel_builder.funnels.list).",
+            });
+          }
+
+          // Last-resort: if the user clearly told us to do it, but the model still won't emit actions,
+          // run a safe discovery action so we can continue without asking permission.
+          if (!planned.actions.length && isImperativeRequest(effectiveText)) {
+            const hasLastFunnelId = Boolean(localCtx?.lastFunnel && typeof localCtx.lastFunnel?.id === "string" && String(localCtx.lastFunnel.id).trim());
+            planned = {
+              ...planned,
+              actions: hasLastFunnelId
+                ? ([
+                    {
+                      key: "funnel_builder.pages.list",
+                      title: "Find the funnel pages",
+                      args: { funnelId: String(localCtx.lastFunnel.id).trim().slice(0, 120) },
+                    },
+                  ] as any)
+                : ([
+                    {
+                      key: "funnel_builder.funnels.list",
+                      title: "Find the funnel",
+                      args: {},
+                    },
+                  ] as any),
+              directMessage: "",
+            } as any;
           }
 
           if (!planned.actions.length) {
