@@ -3302,6 +3302,40 @@ export async function resolvePlanArgs(opts: {
     if (typeof (args as any).funnelId !== "string" || String((args as any).funnelId).trim() !== funnelId) {
       args = { ...args, funnelId };
     }
+
+    // Many Funnel Builder action arg schemas are strict. If the model includes extra keys
+    // (e.g. { funnel: {...}, id: ..., name: ... }), the executor will return 400.
+    // Normalize args to ONLY the allowed fields for each action.
+    if (stepKeyLower === "funnel_builder.pages.list" || stepKeyLower === "funnel_builder.funnels.get" || stepKeyLower === "funnel_builder.funnels.delete") {
+      args = { funnelId };
+    } else if (stepKeyLower === "funnel_builder.pages.create") {
+      const slug = typeof (args as any).slug === "string" ? String((args as any).slug).trim().slice(0, 64) : "";
+      const title = typeof (args as any).title === "string" ? String((args as any).title).trim().slice(0, 200) : null;
+      const contentMarkdown = typeof (args as any).contentMarkdown === "string" ? String((args as any).contentMarkdown) : null;
+      const sortOrder = typeof (args as any).sortOrder === "number" && Number.isFinite((args as any).sortOrder) ? (args as any).sortOrder : null;
+      args = {
+        funnelId,
+        ...(slug ? { slug } : {}),
+        ...(title !== null && title !== "" ? { title } : {}),
+        ...(contentMarkdown !== null ? { contentMarkdown } : {}),
+        ...(sortOrder !== null ? { sortOrder } : {}),
+      };
+    } else if (stepKeyLower === "funnel_builder.funnels.update") {
+      const name = typeof (args as any).name === "string" ? String((args as any).name).trim().slice(0, 120) : "";
+      const statusRaw = typeof (args as any).status === "string" ? String((args as any).status).trim().toUpperCase() : "";
+      const status = statusRaw === "DRAFT" || statusRaw === "ACTIVE" || statusRaw === "ARCHIVED" ? statusRaw : null;
+      const slug = typeof (args as any).slug === "string" ? String((args as any).slug).trim().slice(0, 60) : "";
+      const domain = (args as any).domain === null ? null : typeof (args as any).domain === "string" ? String((args as any).domain).trim().slice(0, 253) : undefined;
+      const seo = (args as any).seo !== undefined ? (args as any).seo : undefined;
+      args = {
+        funnelId,
+        ...(name ? { name } : {}),
+        ...(status ? { status } : {}),
+        ...(slug ? { slug } : {}),
+        ...(domain !== undefined ? { domain } : {}),
+        ...(seo !== undefined ? { seo } : {}),
+      };
+    }
   }
 
   if (needsFunnelPageIds.has(stepKeyLower)) {
