@@ -2968,7 +2968,22 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
     let assistantText = "";
     try {
       const resultsForSummary = Array.isArray(results)
-        ? results.map((r: any) => ({ ...r, result: stripAssistantVisibleAccountingFields((r as any)?.result) }))
+        ? results.map((r: any) => {
+            const cleaned = stripAssistantVisibleAccountingFields((r as any)?.result);
+            const extractedError =
+              cleaned && typeof cleaned === "object" && !Array.isArray(cleaned) && typeof (cleaned as any).error === "string"
+                ? String((cleaned as any).error).trim().slice(0, 500)
+                : null;
+            return {
+              ok: Boolean((r as any).ok),
+              status: Number((r as any).status) || 0,
+              action: (r as any).action,
+              args: (r as any).args,
+              linkUrl: (r as any).linkUrl ?? null,
+              error: extractedError,
+              result: cleaned,
+            };
+          })
         : results;
       assistantText = stripEmptyAssistantBullets(
         String(
@@ -2977,6 +2992,8 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
               "You are Pura, a ChatGPT-style assistant inside a SaaS portal.",
               "The user just confirmed and you executed one or more portal actions.",
               "Write a normal chat reply (not a report).",
+              "Hard constraint: NEVER claim an action succeeded unless ALL steps have ok=true and a 2xx status.",
+              "If ANY step has ok=false or a non-2xx status, you must clearly say it failed (do not say 'successfully updated').",
               "Formatting rules:",
               "- 1-3 short paragraphs.",
               "- NO headings, NO bullet lists, NO tables.",
@@ -2985,6 +3002,7 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
               "Content rules:",
               "- Say what you did and the outcome in plain language.",
               "- If something failed, say what failed and the next step.",
+              "- If a failure includes an error message, mention it briefly.",
               "- If you need the user to choose something, ask ONE specific question.",
             ].join("\n"),
             user: `Confirmation execution results (JSON):\n${JSON.stringify(
@@ -2992,6 +3010,11 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
                 workTitle: pendingConfirm.workTitle ?? null,
                 steps: confirmedSteps,
                 results: resultsForSummary,
+                summary: {
+                  total: confirmedSteps.length,
+                  okCount: resultsForSummary.filter((r: any) => r && r.ok && Number(r.status) >= 200 && Number(r.status) < 300).length,
+                  failedCount: resultsForSummary.filter((r: any) => !r || !r.ok || Number(r.status) < 200 || Number(r.status) >= 300).length,
+                },
                 canvasUrl,
               },
               null,
@@ -3467,6 +3490,8 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
                     "You are Pura, an AI assistant inside a SaaS portal.",
                     "You just ran a portal action after the user answered a question.",
                     "Write a normal chat reply (not a report).",
+                    "Hard constraint: NEVER claim success unless ok=true and status is 2xx.",
+                    "If ok=false or status is non-2xx, clearly say it failed and what happens next.",
                     "Formatting rules:",
                     "- 1-3 short paragraphs.",
                     "- NO headings, NO bullet lists, NO tables.",
@@ -3475,7 +3500,7 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
                     "Rules:",
                     "- Mention what you did and the outcome.",
                     "- If it failed, say what failed and what you need next.",
-                    "- Do not invent details.",
+                    "- Do not invent details. If uncertain, say you’re not sure.",
                   ].join("\n"),
                   user: `Action result (JSON):\n${JSON.stringify(
                     {
@@ -3484,6 +3509,10 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
                       ok: Boolean((exec as any).ok),
                       status: Number((exec as any).status) || 0,
                       args: resolvedArgsWithThread,
+                      error:
+                        resultForSummary && typeof resultForSummary === "object" && !Array.isArray(resultForSummary) && typeof (resultForSummary as any).error === "string"
+                          ? String((resultForSummary as any).error).trim().slice(0, 500)
+                          : null,
                       result: resultForSummary,
                       linkUrl,
                       userPrompt: String(promptMessage || "").slice(0, 2000),
@@ -3541,6 +3570,9 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
         "If you need to run actions, output JSON ONLY in the shape {\"actions\":[{\"key\":string,\"args\":object,\"title\":string}] }.",
         "If you do NOT need to run actions, output a normal assistant reply (no JSON).",
         "If you need more information to proceed, ask ONE specific question.",
+        "Never claim you completed changes in the portal unless the server actually ran an action.",
+        "If you have not run an action yet, speak in terms of what you can do next (e.g., 'I can update that for you').",
+        "When replying normally, avoid report-style formatting (no headings/bullet dumps) unless the user explicitly asked for a list.",
         "Do not output both text and JSON in the same response.",
         "\nTooling notes:\n" + cheat,
       ].join("\n");
@@ -3834,14 +3866,34 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
 
       let assistantTextFinal = "";
       try {
-        const resultsForSummary = results.map((r: any) => ({ ...r, result: stripAssistantVisibleAccountingFields((r as any)?.result) }));
+        const resultsForSummary = results.map((r: any) => {
+          const cleaned = stripAssistantVisibleAccountingFields((r as any)?.result);
+          const extractedError =
+            cleaned && typeof cleaned === "object" && !Array.isArray(cleaned) && typeof (cleaned as any).error === "string"
+              ? String((cleaned as any).error).trim().slice(0, 500)
+              : null;
+          return {
+            ok: Boolean((r as any).ok),
+            status: Number((r as any).status) || 0,
+            action: (r as any).action,
+            args: (r as any).args,
+            linkUrl: (r as any).linkUrl ?? null,
+            clientUiAction: (r as any).clientUiAction ?? null,
+            error: extractedError,
+            result: cleaned,
+          };
+        });
         const workTitle = resolvedSteps[0]?.title || resolvedSteps[0]?.key || "";
+        const okCount = resultsForSummary.filter((r: any) => r && r.ok && Number(r.status) >= 200 && Number(r.status) < 300).length;
+        const failedCount = resultsForSummary.filter((r: any) => !r || !r.ok || Number(r.status) < 200 || Number(r.status) >= 300).length;
         assistantTextFinal = stripEmptyAssistantBullets(
           String(
             await generateText({
               system: [
                 "You are Pura, an AI assistant inside a SaaS portal.",
                 "Write a normal chat reply (not a report).",
+                "Hard constraint: NEVER claim an action succeeded unless ALL steps have ok=true and a 2xx status.",
+                "If ANY step has ok=false or a non-2xx status, you must clearly say it failed and what happens next.",
                 "Formatting rules:",
                 "- 1-3 short paragraphs.",
                 "- NO headings, NO bullet lists, NO tables.",
@@ -3852,7 +3904,18 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
                 "- If something failed, say what failed and the next step.",
                 "- If you need the user to choose something, ask ONE specific question.",
               ].join("\n"),
-              user: `Action execution results (JSON):\n${JSON.stringify({ workTitle, steps: resolvedSteps, results: resultsForSummary, canvasUrl, userPrompt: String(promptMessage || "").slice(0, 2000) }, null, 2)}`,
+              user: `Action execution results (JSON):\n${JSON.stringify(
+                {
+                  workTitle,
+                  steps: resolvedSteps,
+                  results: resultsForSummary,
+                  summary: { total: resolvedSteps.length, okCount, failedCount },
+                  canvasUrl,
+                  userPrompt: String(promptMessage || "").slice(0, 2000),
+                },
+                null,
+                2,
+              )}`,
             }),
           ),
         );
