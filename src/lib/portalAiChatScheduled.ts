@@ -413,8 +413,20 @@ export async function processDuePortalAiChatScheduledMessages(
       try {
         assistantText = String(
           await generateText({
-            system:
-              "You are an assistant in a SaaS portal. Summarize the results of a scheduled multi-step task execution for the user. Write concise markdown. If there were failures, mention them and include per-step headings. Do not invent details.",
+            system: [
+              "You are Pura, a ChatGPT-style assistant inside a SaaS portal.",
+              "You just executed a scheduled task composed of one or more portal actions.",
+              "Write a normal chat reply (not a report).",
+              "Formatting rules:",
+              "- 1-3 short paragraphs.",
+              "- NO headings, NO bullet lists, NO tables.",
+              "- Do NOT print raw JSON or field dumps.",
+              "- Do NOT use labels like 'Action:', 'Status:', 'Result:'.",
+              "Content rules:",
+              "- Say what you did and the outcome in plain language.",
+              "- If something failed, say what failed and the next step.",
+              "- If you need more info, ask ONE specific question.",
+            ].join("\n"),
             user: `Scheduled run results (JSON):\n${JSON.stringify(
               {
                 workTitle: (plan as any)?.workTitle ?? null,

@@ -1,4 +1,4 @@
-import crypto from "crypto";
+import { randomUUID } from "crypto";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
@@ -195,18 +195,6 @@ async function generateWidgetSuggestionAssistantText(widgetSuggestion: NonNullab
   return String(text || "").trim();
 }
 
-function toAbsoluteHttpUrl(raw: string, reqUrl: string): string | null {
-  const s = String(raw || "").trim();
-  if (!s) return null;
-  try {
-    const u = s.startsWith("/") ? new URL(s, reqUrl) : new URL(s);
-    if (u.protocol !== "https:" && u.protocol !== "http:") return null;
-    return u.toString();
-  } catch {
-    return null;
-  }
-}
-
 function looksLikeImageAttachment(a: any): boolean {
   const mime = typeof a?.mimeType === "string" ? a.mimeType.trim().toLowerCase() : "";
   if (mime.startsWith("image/")) return true;
@@ -328,30 +316,6 @@ function stripAssistantVisibleAccountingFields(value: unknown): unknown {
   return walk(value, 6);
 }
 
-function looksLikeAuditOrAnalysisRequest(textRaw: unknown): boolean {
-  const t = typeof textRaw === "string" ? textRaw.trim().toLowerCase() : "";
-  if (!t) return false;
-  return /\b(analy[sz]e|audit|review|diagnos(e|is)|weak\s+spots?|friction|drop[-\s]?off|conversion|optimi[sz]e|improve|suggest\s+fix(es)?|recommend(ations)?|what\s+to\s+fix)\b/i.test(
-    t,
-  );
-}
-
-function normalizeClarifyText(raw: unknown): string {
-  return String(raw || "")
-    .trim()
-    .toLowerCase()
-    .replace(/\s+/g, " ")
-    .slice(0, 300);
-}
-
-function userRefusedToClarify(textRaw: unknown): boolean {
-  const t = String(textRaw || "").trim().toLowerCase();
-  if (!t) return false;
-  return (
-    /^(no|nah|nope)\b/.test(t) ||
-    /\b(i\s*don'?t\s*know|idk|not\s*sure|whatever|you\s*decide|up\s*to\s*you|doesn'?t\s*matter|don'?t\s*care|i\s*don'?t\s*care|either(\s+one)?|whichever|pick\s+(one|whatever)|choose\s+for\s+me|your\s+call|any\s+is\s+fine|no\s*preference)\b/.test(t)
-  );
-}
 
 async function extractPdfText(bytes: Buffer): Promise<string> {
   const mod: any = await import("pdf-parse");
@@ -451,18 +415,6 @@ async function extractTextContextFromAttachments(opts: {
 
   if (!parts.length) return "";
   return ["\n\nAttachment text (for context):", parts.join("\n\n---\n\n")].join("\n");
-}
-
-function imageUrlsFromAttachments(attachments: any[], reqUrl: string): string[] {
-  if (!Array.isArray(attachments) || !attachments.length) return [];
-  const out: string[] = [];
-  for (const a of attachments.slice(0, 10)) {
-    if (!looksLikeImageAttachment(a)) continue;
-    const abs = toAbsoluteHttpUrl(String(a?.url || ""), reqUrl);
-    if (abs) out.push(abs);
-    if (out.length >= 8) break;
-  }
-  return out;
 }
 
 function cleanSuggestedTitle(raw: string): string {
@@ -2870,7 +2822,6 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
         : "";
   const effectiveText = cleanText || choiceLabel;
   const attachments = Array.isArray(parsed.data.attachments) ? parsed.data.attachments : [];
-  const imageUrls = imageUrlsFromAttachments(attachments as any[], req.url);
   const isConfirmOnly = Boolean(confirmToken) && !cleanText && !choice && !attachments.length;
   const isSuggestionOnly = Boolean(widgetSuggestion) && !confirmToken && !cleanText && !choice && !attachments.length;
 
@@ -3022,8 +2973,20 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
       assistantText = stripEmptyAssistantBullets(
         String(
           await generateText({
-            system:
-              "You are an assistant in a SaaS portal. Summarize the results of the confirmed actions for the user. Write concise markdown. Use per-step headings when multiple steps ran. If something failed, mention it. Do not invent details.",
+            system: [
+              "You are Pura, a ChatGPT-style assistant inside a SaaS portal.",
+              "The user just confirmed and you executed one or more portal actions.",
+              "Write a normal chat reply (not a report).",
+              "Formatting rules:",
+              "- 1-3 short paragraphs.",
+              "- NO headings, NO bullet lists, NO tables.",
+              "- Do NOT print raw JSON or field dumps.",
+              "- Do NOT use labels like 'Action:', 'Status:', 'Result:'.",
+              "Content rules:",
+              "- Say what you did and the outcome in plain language.",
+              "- If something failed, say what failed and the next step.",
+              "- If you need the user to choose something, ask ONE specific question.",
+            ].join("\n"),
             user: `Confirmation execution results (JSON):\n${JSON.stringify(
               {
                 workTitle: pendingConfirm.workTitle ?? null,
@@ -3503,7 +3466,12 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
                   system: [
                     "You are Pura, an AI assistant inside a SaaS portal.",
                     "You just ran a portal action after the user answered a question.",
-                    "Write a concise, helpful markdown update.",
+                    "Write a normal chat reply (not a report).",
+                    "Formatting rules:",
+                    "- 1-3 short paragraphs.",
+                    "- NO headings, NO bullet lists, NO tables.",
+                    "- Do NOT print raw JSON or field dumps.",
+                    "- Do NOT use labels like 'Action:', 'Status:', 'Result:'.",
                     "Rules:",
                     "- Mention what you did and the outcome.",
                     "- If it failed, say what failed and what you need next.",
@@ -3707,7 +3675,7 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
           }
         }
 
-        const token = crypto.randomUUID();
+        const token = randomUUID();
         const prevCtx = threadContext && typeof threadContext === "object" && !Array.isArray(threadContext) ? (threadContext as any) : {};
         const nextCtx = {
           ...prevCtx,
@@ -3873,11 +3841,16 @@ async function handlePostMessage(req: Request, ctx: { params: Promise<{ threadId
             await generateText({
               system: [
                 "You are Pura, an AI assistant inside a SaaS portal.",
-                "Summarize the results of the actions you just ran.",
-                "Write concise markdown.",
-                "Use per-step headings when multiple steps ran.",
-                "If something failed, mention it.",
-                "Do not invent details.",
+                "Write a normal chat reply (not a report).",
+                "Formatting rules:",
+                "- 1-3 short paragraphs.",
+                "- NO headings, NO bullet lists, NO tables.",
+                "- Do NOT print raw JSON or field dumps.",
+                "- Do NOT use labels like 'Action:', 'Status:', 'Result:'.",
+                "Content rules:",
+                "- Say what you did and the outcome in plain language.",
+                "- If something failed, say what failed and the next step.",
+                "- If you need the user to choose something, ask ONE specific question.",
               ].join("\n"),
               user: `Action execution results (JSON):\n${JSON.stringify({ workTitle, steps: resolvedSteps, results: resultsForSummary, canvasUrl, userPrompt: String(promptMessage || "").slice(0, 2000) }, null, 2)}`,
             }),
